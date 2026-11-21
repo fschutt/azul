@@ -96,6 +96,9 @@ mod gl;
 pub(crate) mod headless_gpu;
 /// What the active keyboard layout prints on a key: the meaning of a keycode.
 pub(crate) mod keyboard_layout;
+/// The layer-backed present of the CPU view (A10-06, `AZ_CPU_PRESENT=layer`).
+#[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+pub(crate) mod layer_present;
 /// A node drag that leaves the window runs on as the system's drag session.
 mod os_drag;
 pub(crate) mod menu;
@@ -2085,6 +2088,10 @@ pub struct CPUViewIvars {
     /// then on (the bitmap path copies, and nothing can read the framebuffer
     /// late).
     cg_tripped: Cell<bool>,
+    /// The two layers of the layer-backed present and what they show
+    /// (A10-06, `layer_present`); nothing is in it unless
+    /// `AZ_CPU_PRESENT=layer` asked for it and a frame reported a layer.
+    layer_host: RefCell<layer_present::LayerHost>,
 }
 
 /// The RGBA a CPU view's framebuffer is filled with when its size changes,
@@ -2227,6 +2234,15 @@ pub(crate) struct CpuPresentOptions {
     /// A10-13 (every frame rendered inside `drawRect:` presented twice).
     /// Default OFF (present once).
     pub twice: bool,
+    /// `layer`: the layer-backed present (A10-06, `layer_present`): the
+    /// picture of one reference frame of the window (a map view's) is shown
+    /// by a Core Animation layer of its own over the window's frame, and a
+    /// pan or a zoom step of it moves or scales that layer instead of
+    /// painting and presenting the view. Default OFF: nothing of it can be
+    /// seen before it runs on a real window, and a mistake in it is a
+    /// misplaced or missing map. The window's frame is presented as the
+    /// other words say, with it on and off.
+    pub layer: bool,
 }
 
 impl Default for CpuPresentOptions {
@@ -2234,11 +2250,12 @@ impl Default for CpuPresentOptions {
         Self {
             cgimage: true,
             twice: false,
+            layer: false,
         }
     }
 }
 
-/// `AZ_CPU_PRESENT=bitmap,twice` as options.
+/// `AZ_CPU_PRESENT=bitmap,twice,layer` as options.
 pub(crate) fn parse_cpu_present_options(value: &str) -> CpuPresentOptions {
     let mut options = CpuPresentOptions::default();
     for word in value.split(',') {
@@ -2246,6 +2263,7 @@ pub(crate) fn parse_cpu_present_options(value: &str) -> CpuPresentOptions {
             "bitmap" => options.cgimage = false,
             "cgimage" => options.cgimage = true,
             "twice" => options.twice = true,
+            "layer" => options.layer = true,
             _ => {}
         }
     }
@@ -3930,6 +3948,7 @@ define_class!(
                 backing_scale: Cell::new(0.0),
                 drawing_spans: RefCell::new(Vec::new()),
                 cg_tripped: Cell::new(false),
+                layer_host: RefCell::new(layer_present::LayerHost::default()),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -4471,6 +4490,59 @@ impl CPUView {
     /// whose damage says that nothing changed.
     pub fn shows_blank(&self) -> bool {
         self.ivars().fb_blank.get()
+    }
+
+    /// (A10-06) Whether a frame of `w` x `h` px may be presented with a
+    /// layer over it (`layer_present_fits`): the view's framebuffer is that
+    /// size, and the layers did not fail to be made. Asked BEFORE the frame
+    /// is rendered: the renderer leaves the layer's picture out of the frame
+    /// only when the answer is yes.
+    #[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+    pub(crate) fn layer_present_usable(&self, w: usize, h: usize) -> bool {
+        let ivars = self.ivars();
+        let failed = ivars.layer_host.try_borrow().map_or(true, |host| host.failed);
+        !failed && layer_present::layer_present_fits((w, h), (ivars.width.get(), ivars.height.get()))
+    }
+
+    /// (A10-06) Show `layer` (a frame's `PresentLayer`; `None`: no layer)
+    /// over the frame of `frame_h` px height that was just rendered:
+    /// `layer_present::layer_transaction` says what changes,
+    /// `LayerHost::apply` changes it in one transaction. `surface` yields a
+    /// copy of the layer's surface and its size, and is called only when the
+    /// picture layer needs new contents. `false`: the layers could not be
+    /// made or filled; they are gone, and the caller presents without them.
+    ///
+    /// Cannot be tested without a window (it calls AppKit); what it decides
+    /// is `layer_transaction`'s, which is.
+    #[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+    pub(crate) fn present_layer(
+        &self,
+        layer: Option<layer_present::LayerInput>,
+        frame_h: u32,
+        surface: impl FnOnce() -> Option<(Vec<u8>, usize, usize)>,
+    ) -> bool {
+        let ivars = self.ivars();
+        let Ok(mut host) = ivars.layer_host.try_borrow_mut() else {
+            return false;
+        };
+        // The scale `drawRect:` sized the framebuffer with; before the first
+        // one, the frame's own pixels per point.
+        let mut scale = ivars.backing_scale.get();
+        if !(scale > 0.0) {
+            scale = f64::from(frame_h) / unsafe { self.bounds() }.size.height.max(1.0);
+        }
+        let (ops, next) = layer_present::layer_transaction(&host.shown, layer.as_ref(), frame_h, scale);
+        let view: &NSView = self;
+        // SAFETY: the CPU view is main-thread-only.
+        unsafe { host.apply(view, &ops, next, surface) }
+    }
+
+    /// (A10-06) Hide the layers and let go of the copy of the surface they
+    /// hold (a window that is not shown, memory pressure, the view going
+    /// away). The next frame that reports a layer shows them again.
+    #[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+    pub(crate) fn hide_present_layer(&self) {
+        let _ = self.present_layer(None, 0, || None);
     }
 
     /// Mark the present rects `rects` (buffer px of the `fb_w` x `fb_h`
@@ -9541,6 +9613,21 @@ impl MacOSWindow {
                 // (`drawRect:`), which the halo store belongs to; the halos are the
                 // thread's, so every CPU window on it draws again the ones it shows.
                 self.cpu_backend.release_caches();
+                // (A10-06) The layer's copy of the kept surface goes with it.
+                // The picture is in no buffer then (`release_caches` forces
+                // the next frame to be a full one): a window that may be on
+                // screen gets that frame now, one that is not shown when it is
+                // shown again (`frame_pending` at `set_display_link_paused`).
+                if cpu_present_options().layer {
+                    if let Some(ref cpu_view) = self.cpu_view {
+                        cpu_view.hide_present_layer();
+                    }
+                    if reason == MemoryRelease::NotShown {
+                        self.redraw_requested = true;
+                    } else {
+                        self.request_redraw();
+                    }
+                }
             }
             if plan.glyph_generation {
                 self.cpu_backend.glyph_cache.gc();
@@ -10672,6 +10759,8 @@ impl MacOSWindow {
         if self.backend == RenderBackend::CPU {
             use azul_core::dom::DomId;
 
+            // (A10-06) Set when the view could not show a frame's layer.
+            let mut layer_present_failed = false;
             let dom_id = DomId { inner: 0 };
             // render_frame looks up the layout result itself; we only need to know
             // one exists before computing window dims.
@@ -10731,6 +10820,16 @@ impl MacOSWindow {
                             }
                         }
                     }
+
+                    // (A10-06) `AZ_CPU_PRESENT=layer`: the renderer leaves the
+                    // picture of one frame (a map view's) out of the window's
+                    // frame and reports it as a layer, when the view can show
+                    // one over a frame of this size. Off (the default): false,
+                    // and the renderer does nothing of it.
+                    self.cpu_backend.promote_for_present = cpu_present_options().layer
+                        && self.cpu_view.as_ref().is_some_and(|cpu_view| {
+                            cpu_view.layer_present_usable(native_pw as usize, native_ph as usize)
+                        });
 
                     self.cpu_backend.render_frame(
                         layout_window,
@@ -10827,7 +10926,49 @@ impl MacOSWindow {
                         }
                     }
                     // (previous-display-list tracking now lives inside render_frame.)
+
+                    // (A10-06) The layer of this frame, in the same run loop
+                    // turn as the frame's own rects above: Core Animation
+                    // commits the layer's move and the view's redraw together.
+                    // With no layer reported the layers are hidden (the
+                    // renderer repainted their clip into the frame above).
+                    if cpu_present_options().layer {
+                        if let Some(ref cpu_view) = self.cpu_view {
+                            let backend = &self.cpu_backend;
+                            let layer = backend.last_present_layer.as_ref().map(|layer| {
+                                layer_present::LayerInput {
+                                    surface_id: layer.surface_id,
+                                    generation: layer.generation,
+                                    surface_size: layer.surface_size,
+                                    scale: (layer.matrix.xx, layer.matrix.yy),
+                                    offset: (layer.matrix.tx, layer.matrix.ty),
+                                    clip: layer.clip,
+                                }
+                            });
+                            layer_present_failed = !cpu_view.present_layer(layer, native_ph, || {
+                                backend.with_present_layer_surface(|surface| {
+                                    (
+                                        surface.data().to_vec(),
+                                        surface.width() as usize,
+                                        surface.height() as usize,
+                                    )
+                                })
+                            });
+                        }
+                    }
                 }
+            }
+
+            // (A10-06) The view could not show the layer the frame reported:
+            // the picture is in no buffer. One full frame without a layer
+            // (`layer_present_usable` answers no from now on).
+            if layer_present_failed {
+                log_error!(
+                    LogCategory::Rendering,
+                    "[CPUView] layer present: the layers could not be made; presenting without them"
+                );
+                self.cpu_backend.force_full_repaint = true;
+                self.request_redraw();
             }
 
             self.common.display_list_initialized = true;
@@ -12848,18 +12989,23 @@ mod audit_a10_tests {
         assert_eq!(parse_cpu_present_options(""), CpuPresentOptions::default());
         assert_eq!(
             CpuPresentOptions::default(),
-            CpuPresentOptions { cgimage: true, twice: false },
-            "the defaults: straight from the framebuffer, each frame presented once"
+            CpuPresentOptions { cgimage: true, twice: false, layer: false },
+            "the defaults: straight from the framebuffer, each frame presented once, no layer"
         );
         assert_eq!(
             parse_cpu_present_options("bitmap"),
-            CpuPresentOptions { cgimage: false, twice: false }
+            CpuPresentOptions { cgimage: false, twice: false, layer: false }
         );
         assert_eq!(
             parse_cpu_present_options(" twice , bitmap,nonsense"),
-            CpuPresentOptions { cgimage: false, twice: true }
+            CpuPresentOptions { cgimage: false, twice: true, layer: false }
         );
         assert_eq!(parse_cpu_present_options("bitmap,cgimage").cgimage, true);
+        assert_eq!(
+            parse_cpu_present_options("layer"),
+            CpuPresentOptions { cgimage: true, twice: false, layer: true },
+            "the layer present is a word of its own; the frame is still presented from the framebuffer"
+        );
     }
 
     /// A10-25 (A9's count). The CPU view kept the frame twice (framebuffer and
