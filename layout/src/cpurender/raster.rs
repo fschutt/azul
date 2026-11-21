@@ -5921,11 +5921,12 @@ fn draw_kept_text_shadow(
                     glyph_cache,
                     scroll_offset,
                 )
-                .map(|coverage| {
+                .map(|(part, coverage)| {
+                    // Kept as the part the halo can paint (A8-29): the rest of the box is clear.
                     std::sync::Arc::new(CpuHalo {
-                        width: buffer.width,
-                        height: buffer.height,
-                        offset: (x0 - anchor.0, y0 - anchor.1),
+                        width: part.width,
+                        height: part.height,
+                        offset: (part.x - anchor.0, part.y - anchor.1),
                         coverage,
                     })
                 })
@@ -5999,6 +6000,9 @@ pub(super) fn shadow_spread_px(spread_logical: f32, dpi_factor: f32) -> f32 {
     clippy::many_single_char_names,
     clippy::needless_range_loop
 )] // a bounded radius and pixel indices
+// The halos grow their part through `dilate_disk_channels` (A8-29); this whole-pixmap form is
+// the reference the tests hold them to.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(super) fn dilate_disk(p: &mut AzulPixmap, r: f32) {
     let (w, h) = (p.width as usize, p.height as usize);
     dilate_disk_channels(p.data_mut(), w, h, r, 0);
@@ -6404,7 +6408,16 @@ pub(super) struct BufferedRun<'a> {
 /// and blurred by `radius` pixels: a text shadow before it is composited.
 /// Always grayscale coverage: the buffer is transparent, and LCD text
 /// assumes an opaque backdrop.
-#[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::too_many_arguments)]
+///
+/// Grown and blurred in the part of `buffer` they can paint
+/// ([`grown_glyphs`]), and put back in a clear buffer of `buffer`'s size;
+/// [`blurred_glyphs_in_ink`] hands out that part alone.
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    clippy::too_many_arguments
+)] // the part lies inside the buffer
 pub(super) fn blurred_glyphs(
     runs: &[BufferedRun<'_>],
     color: ColorU,
@@ -6417,19 +6430,77 @@ pub(super) fn blurred_glyphs(
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
 ) -> Option<AzulPixmap> {
-    let mut tmp = buffered_glyphs(
+    let (part, pixmap) = blurred_glyphs_in_ink(
         runs,
         color,
         buffer,
+        radius,
+        spread,
         renderer_resources,
         font_manager,
         dpi_factor,
         glyph_cache,
         scroll_offset,
     )?;
-    dilate_disk(&mut tmp, spread);
-    blur_buffer(&mut tmp, radius);
-    Some(tmp)
+    let Some(pixmap) = pixmap else {
+        return AzulPixmap::new_transparent(buffer.width, buffer.height);
+    };
+    if part == buffer {
+        return Some(pixmap);
+    }
+    let mut whole = AzulPixmap::new_transparent(buffer.width, buffer.height)?;
+    let (w, row) = (buffer.width as usize, pixmap.width as usize * 4);
+    let (left, top) = ((part.x - buffer.x) as usize, (part.y - buffer.y) as usize);
+    for (y, src) in pixmap.data().chunks_exact(row).enumerate() {
+        let start = ((top + y) * w + left) * 4;
+        whole.data_mut()[start..start + row].copy_from_slice(src);
+    }
+    Some(whole)
+}
+
+/// [`blurred_glyphs`] cut to the part of `buffer` it can paint: that part
+/// (device px of the target, inside `buffer`) and its pixels; every pixel of
+/// `buffer` outside it is clear. A part of no pixels when nothing is drawn.
+/// What the GPU halo (`text_halo.rs` `Scope::draw`) can keep in place of the
+/// whole buffer, before it cuts it to its ink.
+#[allow(clippy::too_many_arguments, clippy::cast_possible_wrap)]
+pub(super) fn blurred_glyphs_in_ink(
+    runs: &[BufferedRun<'_>],
+    color: ColorU,
+    buffer: PixelBox,
+    radius: u32,
+    spread: f32,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+) -> Option<(PixelBox, Option<AzulPixmap>)> {
+    let grown = grown_glyphs(
+        runs,
+        color,
+        buffer,
+        radius,
+        spread,
+        0,
+        renderer_resources,
+        font_manager,
+        dpi_factor,
+        glyph_cache,
+        scroll_offset,
+    )?;
+    Some(match grown {
+        GrownGlyphs::Clear => (PixelBox { width: 0, height: 0, ..buffer }, None),
+        GrownGlyphs::Ink { at, pixmap } => (
+            PixelBox {
+                x: buffer.x + at.0 as i32,
+                y: buffer.y + at.1 as i32,
+                width: pixmap.width,
+                height: pixmap.height,
+            },
+            Some(pixmap),
+        ),
+    })
 }
 
 /// The coverage of [`blurred_glyphs`] - the alpha of its pixels, row by row -
@@ -6438,7 +6509,11 @@ pub(super) fn blurred_glyphs(
 /// `blurred_glyphs`: the dilation and the stack blur treat each channel on its
 /// own, so the alpha they make depends on the alpha alone; growing the colour
 /// as well, a halo's three quarters of the dilation, was thrown away.
-#[allow(clippy::too_many_arguments)]
+///
+/// Cut to the part of `buffer` it can paint, which it returns with the
+/// coverage (device px of the target; no pixels when nothing is drawn): every
+/// pixel of `buffer` outside that part is clear.
+#[allow(clippy::too_many_arguments, clippy::cast_possible_wrap)]
 pub(super) fn blurred_glyph_coverage(
     runs: &[BufferedRun<'_>],
     color: ColorU,
@@ -6450,8 +6525,71 @@ pub(super) fn blurred_glyph_coverage(
     dpi_factor: f32,
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
-) -> Option<Vec<u8>> {
-    let mut tmp = buffered_glyphs(
+) -> Option<(PixelBox, Vec<u8>)> {
+    let grown = grown_glyphs(
+        runs,
+        color,
+        buffer,
+        radius,
+        spread,
+        3,
+        renderer_resources,
+        font_manager,
+        dpi_factor,
+        glyph_cache,
+        scroll_offset,
+    )?;
+    Some(match grown {
+        GrownGlyphs::Clear => (PixelBox { width: 0, height: 0, ..buffer }, Vec::new()),
+        GrownGlyphs::Ink { at, pixmap } => (
+            PixelBox {
+                x: buffer.x + at.0 as i32,
+                y: buffer.y + at.1 as i32,
+                width: pixmap.width,
+                height: pixmap.height,
+            },
+            pixmap.data().chunks_exact(4).map(|p| p[3]).collect(),
+        ),
+    })
+}
+
+/// What [`grown_glyphs`] made: nothing drawn, or the part of the buffer the
+/// glyphs can paint - at `at` (px from the buffer's top left) - grown and
+/// blurred.
+enum GrownGlyphs {
+    Clear,
+    Ink { at: (u32, u32), pixmap: AzulPixmap },
+}
+
+/// `runs` drawn into `buffer` ([`buffered_glyphs`]), then grown by `spread`
+/// (channels `first..4`, [`dilate_disk_channels`]) and blurred by `radius`
+/// in the part of the buffer that can come out non-clear ([`halo_work_box`]),
+/// cut out first. The halo's box is the text's visual bounds plus its reach
+/// (1 em left and right, 1.5 em above, 0.75 em below the pens): about three
+/// times the ink, and the dilation's accumulator (2 bytes a pixel a channel)
+/// and both passes of the blur were paid over all of it.
+///
+/// The same pixels as growing and blurring the whole buffer: outside the
+/// part, the whole buffer's pixels are clear before the dilation and stay
+/// clear (they lie beyond the dilation's reach plus the blur's radius from
+/// every drawn pixel), and inside it nothing changes - the dilation only
+/// writes within its reach, and the blur's edge extension at the part's edge
+/// repeats a clear pixel, as the whole buffer has clear pixels there.
+#[allow(clippy::too_many_arguments)]
+fn grown_glyphs(
+    runs: &[BufferedRun<'_>],
+    color: ColorU,
+    buffer: PixelBox,
+    radius: u32,
+    spread: f32,
+    first: usize,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+) -> Option<GrownGlyphs> {
+    let drawn = buffered_glyphs(
         runs,
         color,
         buffer,
@@ -6461,10 +6599,71 @@ pub(super) fn blurred_glyph_coverage(
         glyph_cache,
         scroll_offset,
     )?;
-    let (w, h) = (tmp.width as usize, tmp.height as usize);
-    dilate_disk_channels(tmp.data_mut(), w, h, spread, 3);
-    blur_buffer(&mut tmp, radius);
-    Some(tmp.data().chunks_exact(4).map(|p| p[3]).collect())
+    let Some((x0, y0, x1, y1)) = halo_work_box(&drawn, spread, radius) else {
+        return Some(GrownGlyphs::Clear);
+    };
+    let mut part = if (x0, y0, x1, y1) == (0, 0, drawn.width, drawn.height) {
+        drawn
+    } else {
+        let mut part = AzulPixmap::new_transparent(x1 - x0, y1 - y0)?;
+        let (w, row) = (drawn.width as usize, (x1 - x0) as usize * 4);
+        for (y, dst) in part.data_mut().chunks_exact_mut(row).enumerate() {
+            let start = ((y0 as usize + y) * w + x0 as usize) * 4;
+            dst.copy_from_slice(&drawn.data()[start..start + row]);
+        }
+        part
+    };
+    #[cfg(test)]
+    HALO_WORK_PIXELS.with(|n| n.set(n.get() + u64::from(part.width) * u64::from(part.height)));
+    let (w, h) = (part.width as usize, part.height as usize);
+    dilate_disk_channels(part.data_mut(), w, h, spread, first);
+    blur_buffer(&mut part, radius);
+    Some(GrownGlyphs::Ink { at: (x0, y0), pixmap: part })
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Pixels [`grown_glyphs`] grew and blurred on this thread.
+    static HALO_WORK_PIXELS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// The part of `drawn` (glyphs drawn, not yet grown or blurred) that growing
+/// by `spread` and blurring by `radius` can make non-clear, with one clear
+/// pixel more all round, as `(x0, y0, x1, y1)` pixels of `drawn` (end
+/// exclusive): the box of its drawn pixels (alpha not 0; a clear pixel is
+/// clear in every channel, the colour being premultiplied) grown by the
+/// dilation's reach `ceil(spread + 0.5)` (as `dilate_disk_channels`), the
+/// blur's `radius`, and 1. `None` when nothing is drawn.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a bounded reach
+fn halo_work_box(drawn: &AzulPixmap, spread: f32, radius: u32) -> Option<(u32, u32, u32, u32)> {
+    let (w, h) = (drawn.width as usize, drawn.height as usize);
+    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
+    for (y, row) in drawn.data().chunks_exact(w * 4).enumerate().take(h) {
+        let Some(first) = row.chunks_exact(4).position(|p| p[3] != 0) else {
+            continue;
+        };
+        let last = row.chunks_exact(4).rposition(|p| p[3] != 0).unwrap_or(first);
+        x0 = x0.min(first);
+        x1 = x1.max(last + 1);
+        y0 = y0.min(y);
+        y1 = y + 1;
+    }
+    if x0 == usize::MAX {
+        return None;
+    }
+    // `dilate_disk_channels` grows nothing for a NaN or non-positive radius.
+    let reach = if spread > 0.0 {
+        (spread + 0.5).ceil() as usize
+    } else {
+        0
+    };
+    let m = reach.saturating_add(radius as usize).saturating_add(1);
+    Some((
+        x0.saturating_sub(m) as u32,
+        y0.saturating_sub(m) as u32,
+        x1.saturating_add(m).min(w) as u32,
+        y1.saturating_add(m).min(h) as u32,
+    ))
 }
 
 /// The stack blur of a text shadow's buffer by `radius` pixels (none for 0).
@@ -6597,7 +6796,100 @@ mod audit_a8_halo_tests {
             .expect("a buffer");
             let alpha: Vec<u8> = whole.data().chunks_exact(4).map(|p| p[3]).collect();
             assert!(alpha.iter().any(|a| *a > 0), "the glyphs paint");
-            assert_eq!(coverage, alpha, "radius {radius}, spread {spread}");
+            // the kept part (A8-29) put back into the whole box
+            let (part, coverage) = coverage;
+            let mut placed = vec![0u8; alpha.len()];
+            for y in 0..part.height as usize {
+                for x in 0..part.width as usize {
+                    let at = (part.y as usize + y) * buffer.width as usize + part.x as usize + x;
+                    placed[at] = coverage[y * part.width as usize + x];
+                }
+            }
+            assert_eq!(placed, alpha, "radius {radius}, spread {spread}");
+        }
+    }
+
+    /// A8-29: a halo is grown and blurred in the part of its box its glyphs
+    /// can paint, and that gives the pixels growing and blurring the whole box
+    /// gives (the old pipeline, kept here as the reference), for spreads and
+    /// blurs up to past the part's margin, glyphs against every edge of the
+    /// box, and a box with nothing drawn; the work is a fraction of the box.
+    /// Mutation: the blur radius left out of `halo_work_box`'s margin fails
+    /// the equality (a blur of 5 or 9 px reaches past the part).
+    #[test]
+    fn a_halo_grown_in_its_ink_box_is_the_halo_grown_in_its_whole_box() {
+        let Some(font) = load_test_font_pub() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = rr_with_pub(&font);
+        // a label in a box padded as the text's visual bounds pad it, a
+        // label pressed against the top left, one past the bottom right
+        let cases = [
+            ("Tuebingen", 24.0_f32, 40.0_f32, 50.0_f32, PixelBox { x: 0, y: 0, width: 220, height: 110 }),
+            ("Neckar", 18.0, 1.0, 15.0, PixelBox { x: 0, y: 0, width: 90, height: 40 }),
+            ("Altstadt", 20.0, 120.0, 70.0, PixelBox { x: 100, y: 40, width: 80, height: 40 }),
+            ("   ", 20.0, 20.0, 30.0, PixelBox { x: 0, y: 0, width: 60, height: 40 }),
+        ];
+        for (text, size, x, baseline, buffer) in cases {
+            let glyphs = shape_pub(&font, text, size, x, baseline);
+            let clip_rect = LogicalRect {
+                origin: LogicalPosition { x: 0.0, y: 0.0 },
+                size: LogicalSize { width: 400.0, height: 200.0 },
+            };
+            let clip = AzRect::from_xywh(0.0, 0.0, 400.0, 200.0).expect("a clip");
+            let run = || BufferedRun {
+                glyphs: &glyphs,
+                font_hash,
+                font_size_px: size,
+                clip_rect,
+                clip,
+            };
+            for (radius, spread) in [(0_u32, 1.2_f32), (0, 6.5), (2, 1.5), (5, 0.0), (9, 3.0)] {
+                let mut cache = GlyphCache::new();
+                let mut reference = buffered_glyphs(
+                    &[run()],
+                    ColorU::WHITE,
+                    buffer,
+                    &rr,
+                    &fm,
+                    1.0,
+                    &mut cache,
+                    (0.0, 0.0),
+                )
+                .expect("a buffer");
+                dilate_disk(&mut reference, spread);
+                blur_buffer(&mut reference, radius);
+                let work = || HALO_WORK_PIXELS.with(core::cell::Cell::get);
+                let before = work();
+                let halo = blurred_glyphs(
+                    &[run()],
+                    ColorU::WHITE,
+                    buffer,
+                    radius,
+                    spread,
+                    &rr,
+                    &fm,
+                    1.0,
+                    &mut cache,
+                    (0.0, 0.0),
+                )
+                .expect("a buffer");
+                assert_eq!(
+                    halo.data(),
+                    reference.data(),
+                    "{text:?} radius {radius}, spread {spread}"
+                );
+                let area = u64::from(buffer.width) * u64::from(buffer.height);
+                assert!(work() - before <= area, "never more than the box");
+                if text == "Tuebingen" && radius <= 2 {
+                    assert!(
+                        (work() - before) * 10 < area * 7,
+                        "{} of {area} px: the padding is not grown",
+                        work() - before
+                    );
+                }
+            }
         }
     }
 
