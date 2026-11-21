@@ -3822,7 +3822,7 @@ define_class!(
                     // A9-09: a window in the Dock shows nothing until it comes back, and what
                     // is given back here is drawn again then: the CPU compositor's layers
                     // (its root layer is one frame of pixels: 22 MB at 2940 x 1912, 59 MB
-                    // at 5120 x 2880; the next frame repaints in full), the glyph cache's
+                    // at 5120 x 2880; made again by the next full repaint), the glyph cache's
                     // older generation, WebRender's caches (textures, glyphs, GPU cache:
                     // re-uploaded from the templates it keeps), and the allocator's free
                     // pages. `AZ_KEEP_CACHES_MINIMIZED=1` keeps everything.

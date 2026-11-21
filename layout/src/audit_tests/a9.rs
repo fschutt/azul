@@ -205,12 +205,13 @@ fn a9_image_memo_holds_its_bounds_under_ten_times_the_load() {
 }
 
 /// A9-09: what a minimised macOS window gives back (`window_did_miniaturize`: the CPU
-/// compositor and the glyph cache's older generation) is drawn again when it comes back: the
-/// next frame is a full repaint, pixel for pixel the frame before. The statements are the
-/// shell's (the delegate cannot run headless).
+/// compositor and the glyph cache's older generation) is safe to drop: the frames that follow
+/// paint the same picture. The compositor (its root layer is a whole frame of pixels) serves
+/// the full repaint only; an unchanged frame after the release stays idle, a full repaint makes
+/// it again. The statements are the shell's (the delegate cannot run headless).
 #[cfg(all(feature = "text_layout", feature = "cpurender"))]
 #[test]
-fn a9_09_a_released_cpu_backend_repaints_its_next_frame_in_full_and_the_same() {
+fn a9_09_a_released_cpu_backend_paints_the_same_picture_afterwards() {
     use azul_core::{dom::Dom, geom::LogicalSize, resources::RendererResources, styled_dom::StyledDom};
     use rust_fontconfig::FcFontCache;
 
@@ -243,21 +244,24 @@ fn a9_09_a_released_cpu_backend_repaints_its_next_frame_in_full_and_the_same() {
 
     let mut backend = CpuBackend::new();
     backend.render_frame(&lw, &resources, 200.0, 100.0, 1.0);
+    assert_eq!(backend.last_frame_damage, FrameDamage::Full, "the first frame");
     let before = backend.last_frame.as_ref().expect("a frame").clone_pixmap();
-    // Nothing changed: an idle frame paints nothing.
-    backend.render_frame(&lw, &resources, 200.0, 100.0, 1.0);
-    assert_eq!(backend.last_frame_damage, FrameDamage::None);
 
     // What the shell gives back when the window goes to the Dock.
     backend.compositor = None;
     backend.glyph_cache.gc();
+    assert_eq!(backend.glyph_cache.prev_generation_len(), 0);
 
+    // The window comes back, nothing changed: nothing is painted, the picture stands.
     backend.render_frame(&lw, &resources, 200.0, 100.0, 1.0);
-    assert_eq!(
-        backend.last_frame_damage,
-        FrameDamage::Full,
-        "the frame after the release repaints everything (mutant: a kept compositor is idle)"
-    );
+    assert_eq!(backend.last_frame_damage, FrameDamage::None);
+    assert_eq!(backend.last_frame.as_ref().expect("a frame").data(), before.data());
+
+    // A full repaint (an expose, a style change) makes the layers again: the same picture.
+    backend.force_full_repaint = true;
+    backend.render_frame(&lw, &resources, 200.0, 100.0, 1.0);
+    assert_eq!(backend.last_frame_damage, FrameDamage::Full);
+    assert!(backend.compositor.is_some(), "the compositor is made again");
     let after = backend.last_frame.as_ref().expect("a frame");
     assert_eq!(after.data(), before.data(), "and paints the same picture");
 }
