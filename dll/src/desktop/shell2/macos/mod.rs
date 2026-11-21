@@ -2200,6 +2200,32 @@ pub(crate) fn bitmap_source_rect(
     )
 }
 
+/// What the frame report says of a GPU frame that was rendered and flushed:
+/// `(paint, present)`.
+///
+/// `dirty` are WebRender's dirty rects of the frame (logical px). The fork
+/// only computes them when it is given a partial-present budget, and the
+/// macOS shell gives it none (`max_partial_present_rects` is 0): the list is
+/// always empty here, and "empty" was recorded as `FrameDamage::None`, so the
+/// report said "nothing was drawn" for every GPU frame that drew (audit
+/// A10-18, from A4). Without rects the truth is that WebRender composited the
+/// whole framebuffer; and whatever was painted, `flushBuffer` presents the
+/// whole surface: the present damage of a GPU frame is `Full`.
+fn gpu_frame_damage(
+    dirty: &[azul_core::geom::LogicalRect],
+) -> (
+    crate::desktop::shell2::headless::FrameDamage,
+    crate::desktop::shell2::headless::FrameDamage,
+) {
+    use crate::desktop::shell2::headless::FrameDamage;
+    let paint = if dirty.is_empty() {
+        FrameDamage::Full
+    } else {
+        FrameDamage::Rects(dirty.to_vec())
+    };
+    (paint, FrameDamage::Full)
+}
+
 /// A frame that is not the size of the view's framebuffer cannot be rendered
 /// into it, nor copied into it 1:1: it is rendered into a pixmap of its own
 /// and rescaled into the view (`CPUView::update_framebuffer`), the whole
@@ -10196,17 +10222,12 @@ impl MacOSWindow {
 
         // Update frame report for E2E tests
         if let Some(layout_window) = self.common.layout_window.as_mut() {
-            use crate::desktop::shell2::headless::FrameDamage;
             // WebRender's own dirty rects, not a collapse to "full": a video
             // frame on one tile must be visible as that tile's damage. (CGL
             // still composites the whole window on present; see the report
             // VIDEO_PATH_2026_09_30.)
-            let paint = if self.gpu_damage_rects.is_empty() {
-                FrameDamage::None
-            } else {
-                FrameDamage::Rects(self.gpu_damage_rects.clone())
-            };
-            layout_window.record_frame(paint.clone(), paint);
+            let (paint, present) = gpu_frame_damage(&self.gpu_damage_rects);
+            layout_window.record_frame(paint, present);
         }
 
         // Step 3: Swap buffers to show the rendered frame
@@ -11875,6 +11896,30 @@ mod audit_a10_tests {
                 );
             }
         }
+    }
+
+    /// A10-18. A GPU frame that was rendered and flushed is never "no
+    /// damage": without dirty rects from WebRender (the macOS shell gets none)
+    /// the whole framebuffer was composited, and the flush presents the whole
+    /// surface either way.
+    ///
+    /// Mutation: `FrameDamage::None` for an empty list fails the first
+    /// assertion; the paint damage as the present damage fails the second.
+    #[test]
+    fn a_rendered_gpu_frame_is_recorded_as_presented_in_full() {
+        use crate::desktop::shell2::headless::FrameDamage;
+        assert_eq!(gpu_frame_damage(&[]), (FrameDamage::Full, FrameDamage::Full));
+        let tile = azul_core::geom::LogicalRect {
+            origin: azul_core::geom::LogicalPosition { x: 10.0, y: 20.0 },
+            size: azul_core::geom::LogicalSize {
+                width: 256.0,
+                height: 256.0,
+            },
+        };
+        assert_eq!(
+            gpu_frame_damage(&[tile]),
+            (FrameDamage::Rects(vec![tile]), FrameDamage::Full)
+        );
     }
 
     /// A10-03. A span that leaves the frame, or a framebuffer shorter than
