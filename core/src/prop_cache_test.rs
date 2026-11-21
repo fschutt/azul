@@ -2413,6 +2413,75 @@ mod audit_a3_core_tests {
         assert!(cache.css_props.get_slice(0).is_empty(), "the root has no class");
     }
 
+    /// `labels` labels (a span of class `c{i % classes}` around its text)
+    /// under one root whose sheet gives every class a colour and a letter
+    /// spacing of its own - two inherited values per class, as the text
+    /// styles of a map have them; and how many buckets of the inherited
+    /// values were looked at while it was styled.
+    fn styled_labels(labels: usize, classes: usize) -> (StyledDom, u64) {
+        let mut text = String::new();
+        for c in 0..classes {
+            text.push_str(&format!(
+                ".c{c} {{ color: rgb({}, {}, 7); letter-spacing: {}px; }} ",
+                c % 256,
+                c / 256,
+                c + 1
+            ));
+        }
+        let mut root = Dom::create_body().with_component_css(Css::from_string(text.into()));
+        for i in 0..labels {
+            root = root.with_child(
+                Dom::create_span_with_text("label").with_class(format!("c{}", i % classes).into()),
+            );
+        }
+        crate::prop_cache::INHERITED_BUCKET_READS.with(|c| c.set(0));
+        let styled = StyledDom::create_from_dom(root);
+        let reads = crate::prop_cache::INHERITED_BUCKET_READS.with(core::cell::Cell::get);
+        (styled, reads)
+    }
+
+    /// A3-core-06: the inheritance pass read a node's parent's values back
+    /// from the store (a probe of every distinct value of the DOM) and
+    /// placed each of the node's values by comparing it with every distinct
+    /// value: nodes x distinct values. A node takes its parent's values from
+    /// the walk and finds a value's bucket by its parent's or by its hash.
+    #[test]
+    fn the_inheritance_pass_does_not_read_every_distinct_value_for_every_node() {
+        let labels = 300;
+        let (_, few) = styled_labels(labels, 10);
+        let (styled, many) = styled_labels(labels, 160);
+        assert!(few >= labels as u64, "harness: values were placed ({few})");
+        assert!(
+            many <= few * 2,
+            "sixteen times the distinct values took {many} bucket reads for {few}: every node \
+             read every value"
+        );
+
+        // The values themselves: a text has its span's colour, two classes
+        // differ, and a value shared by many nodes is stored once (per
+        // origin).
+        let values = &styled.get_css_property_cache().computed_values;
+        let colour = |node: usize| values.get(node, CssPropertyType::TextColor);
+        for i in 0..labels {
+            let (span, text) = (1 + 2 * i, 2 + 2 * i);
+            let own = colour(span).expect("the span's colour");
+            let inherited = colour(text).expect("the text's colour");
+            assert_eq!(own.property, inherited.property, "label {i}");
+            // The label 160 further on has the same class.
+            if i + 160 < labels {
+                assert_eq!(colour(span + 320).map(|v| &v.property), Some(&own.property));
+            }
+            if i + 1 < labels {
+                assert_ne!(colour(span + 2).map(|v| &v.property), Some(&own.property));
+            }
+        }
+        assert!(
+            values.bucket_count() <= 4 * 160 + 64,
+            "{} buckets for 160 classes of two values: equal values were not stored once",
+            values.bucket_count()
+        );
+    }
+
     /// A3-core-04: the rules a node gets by its classes apply in the order
     /// of the sheet, together with the rules that name no class, and only
     /// inside the subtree their sheet is on.
