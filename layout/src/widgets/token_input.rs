@@ -108,7 +108,7 @@ pub(crate) const OPTION_ACTIVE_CLASS: &str = "__azul-native-token-input-suggesti
 
 /// What ends a token while typing (and splits a pasted list), outside double quotes and angle
 /// brackets (`free_separators`).
-pub const TOKEN_INPUT_SEPARATORS: &[char] = &[',', ';', '\n', '\t'];
+pub static TOKEN_INPUT_SEPARATORS: &[char] = &[',', ';', '\n', '\t'];
 
 /// How many suggestions show when the app says nothing.
 pub const TOKEN_INPUT_MAX_SUGGESTIONS: usize = 8;

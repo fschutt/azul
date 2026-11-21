@@ -246,12 +246,12 @@ impl Palette {
 }
 
 /// The scrim's grey, by day and by night.
-const SCRIM: (ColorU, ColorU) = (ColorU::new(40, 38, 34, 82), ColorU::new(0, 0, 0, 128));
+static SCRIM: (ColorU, ColorU) = (ColorU::new(40, 38, 34, 82), ColorU::new(0, 0, 0, 128));
 /// The list's cast shadow (`--shadow-pop`'s far layer), by day and night.
-const POP_SHADOW: (ColorU, ColorU) = (ColorU::new(48, 45, 38, 46), ColorU::new(0, 0, 0, 140));
+static POP_SHADOW: (ColorU, ColorU) = (ColorU::new(48, 45, 38, 46), ColorU::new(0, 0, 0, 140));
 
 const SYSTEM_UI: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI)];
 /// The system font, for the shortcut keys (the UI hand has no ⌃ ⌘ ⇧).
 const SYSTEM_FONT: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 

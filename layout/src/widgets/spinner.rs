@@ -472,7 +472,7 @@ pub(crate) fn build(s: Spinner, look: &SpinnerLook) -> Dom {
 }
 
 /// Only where the reader has not asked for less motion.
-const NO_REDUCED_MOTION: &[DynamicSelector] =
+static NO_REDUCED_MOTION: &[DynamicSelector] =
     &[DynamicSelector::PrefersReducedMotion(BoolCondition::False)];
 
 /// A motion declaration, gated on `prefers-reduced-motion: no-preference`.

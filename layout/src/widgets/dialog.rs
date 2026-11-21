@@ -116,7 +116,7 @@ const DIALOG_CONTENT_CLASS: &str = "__azul-native-dialog-content";
 const DIALOG_CLOSE_CLASS: &str = "__azul-native-dialog-close";
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
@@ -129,31 +129,31 @@ const CLOSE_ROW_HEIGHT: isize = 24;
 
 // ---- colours ----
 /// The `::backdrop`: semi-transparent black (rgba(0,0,0,0.5)).
-const BACKDROP_COLOR: ColorU = ColorU {
+static BACKDROP_COLOR: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 128,
 };
-const PANEL_BG_COLOR: ColorU = ColorU {
+static PANEL_BG_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
-const PANEL_BORDER_COLOR: ColorU = ColorU {
+static PANEL_BORDER_COLOR: ColorU = ColorU {
     r: 204,
     g: 204,
     b: 204,
     a: 255,
 }; // #cccccc
-const TITLE_COLOR: ColorU = ColorU {
+static TITLE_COLOR: ColorU = ColorU {
     r: 33,
     g: 37,
     b: 41,
     a: 255,
 }; // #212529
-const CLOSE_COLOR: ColorU = ColorU {
+static CLOSE_COLOR: ColorU = ColorU {
     r: 108,
     g: 117,
     b: 125,

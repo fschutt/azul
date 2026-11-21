@@ -101,40 +101,40 @@ azul_core::impl_managed_callback! {
 // -- Font --
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
 // -- the Office-2013-era look palette (seeds BackstageTheme::office_2013) --
 
-const WHITE: ColorU = ColorU {
+static WHITE: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
-const TRANSPARENT: ColorU = ColorU {
+static TRANSPARENT: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 0,
 };
 /// Office 2013 accent blue (#2B579A): the nav column fill.
-const W13_BLUE: ColorU = ColorU {
+static W13_BLUE: ColorU = ColorU {
     r: 43,
     g: 87,
     b: 154,
     a: 255,
 };
 /// Hover fill on nav items (#3465AC).
-const W13_NAV_HOVER: ColorU = ColorU {
+static W13_NAV_HOVER: ColorU = ColorU {
     r: 52,
     g: 101,
     b: 172,
     a: 255,
 };
 /// Active nav item fill (#3E6DB5).
-const W13_NAV_ACTIVE: ColorU = ColorU {
+static W13_NAV_ACTIVE: ColorU = ColorU {
     r: 62,
     g: 109,
     b: 181,
@@ -150,21 +150,21 @@ const W13_NAV_ACTIVE: ColorU = ColorU {
 
 /// The picked nav item's palette value (#F8D457); it is drawn as a face from
 /// [`O10_NAV_ACTIVE_TOP`] to [`O10_NAV_ACTIVE_BOTTOM`].
-const O10_NAV_ACTIVE: ColorU = ColorU {
+static O10_NAV_ACTIVE: ColorU = ColorU {
     r: 248,
     g: 212,
     b: 87,
     a: 255,
 };
 /// The top of the picked item's face (#F5BC53).
-const O10_NAV_ACTIVE_TOP: ColorU = ColorU {
+static O10_NAV_ACTIVE_TOP: ColorU = ColorU {
     r: 245,
     g: 188,
     b: 83,
     a: 255,
 };
 /// The foot of the picked item's face (#FAE26B).
-const O10_NAV_ACTIVE_BOTTOM: ColorU = ColorU {
+static O10_NAV_ACTIVE_BOTTOM: ColorU = ColorU {
     r: 250,
     g: 226,
     b: 107,
@@ -922,7 +922,7 @@ static CLS_CONTENT: &[IdOrClass] = &[Class(AzString::from_const_str(
 ))];
 
 /// The default the Office-2013-era look nav labels, in order.
-pub const OFFICE_2013_NAV_LABELS: &[&str] = &[
+pub static OFFICE_2013_NAV_LABELS: &[&str] = &[
     "Info", "New", "Open", "Save", "Save As", "Print", "Share", "Export", "Close",
 ];
 

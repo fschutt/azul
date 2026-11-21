@@ -54,7 +54,7 @@ impl_vec_mut!(MapLatLon, MapLatLonVec);
 azul_css::impl_vec_partialeq!(MapLatLon, MapLatLonVec);
 
 /// The blue a route is drawn in when the app names no colour.
-const ROUTE_BLUE: ColorU = ColorU {
+static ROUTE_BLUE: ColorU = ColorU {
     r: 0x1a,
     g: 0x73,
     b: 0xe8,

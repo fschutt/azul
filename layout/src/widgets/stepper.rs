@@ -140,67 +140,67 @@ pub struct StepperState {
 
 // ---- colours ----
 /// Accent (reached/current) colour (#0d6efd).
-const ACCENT_COLOR: ColorU = ColorU {
+static ACCENT_COLOR: ColorU = ColorU {
     r: 13,
     g: 110,
     b: 253,
     a: 255,
 };
 /// Accent text colour (white) — the number inside a reached circle.
-const WHITE: ColorU = ColorU {
+static WHITE: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Upcoming-circle background (#e9ecef, light grey).
-const MUTED_CIRCLE_COLOR: ColorU = ColorU {
+static MUTED_CIRCLE_COLOR: ColorU = ColorU {
     r: 233,
     g: 236,
     b: 239,
     a: 255,
 };
 /// Muted text colour (#868e96) — upcoming numbers/labels.
-const MUTED_TEXT_COLOR: ColorU = ColorU {
+static MUTED_TEXT_COLOR: ColorU = ColorU {
     r: 134,
     g: 142,
     b: 150,
     a: 255,
 };
 /// Reached-label text colour (#212529, dark).
-const DARK_TEXT_COLOR: ColorU = ColorU {
+static DARK_TEXT_COLOR: ColorU = ColorU {
     r: 33,
     g: 37,
     b: 41,
     a: 255,
 };
 /// Upcoming-connector colour (#ced4da).
-const CONNECTOR_MUTED_COLOR: ColorU = ColorU {
+static CONNECTOR_MUTED_COLOR: ColorU = ColorU {
     r: 206,
     g: 212,
     b: 218,
     a: 255,
 };
 /// Transparent — used for the (absent) connector at the row's two ends.
-const TRANSPARENT_COLOR: ColorU = ColorU {
+static TRANSPARENT_COLOR: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 0,
 };
 
-const ACCENT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ACCENT_COLOR)];
+static ACCENT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ACCENT_COLOR)];
 const ACCENT_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(ACCENT_BG_ITEMS);
-const MUTED_CIRCLE_BG_ITEMS: &[StyleBackgroundContent] =
+static MUTED_CIRCLE_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(MUTED_CIRCLE_COLOR)];
 const MUTED_CIRCLE_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(MUTED_CIRCLE_BG_ITEMS);
-const CONNECTOR_MUTED_BG_ITEMS: &[StyleBackgroundContent] =
+static CONNECTOR_MUTED_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(CONNECTOR_MUTED_COLOR)];
 const CONNECTOR_MUTED_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(CONNECTOR_MUTED_BG_ITEMS);
-const TRANSPARENT_BG_ITEMS: &[StyleBackgroundContent] =
+static TRANSPARENT_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(TRANSPARENT_COLOR)];
 const TRANSPARENT_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(TRANSPARENT_BG_ITEMS);

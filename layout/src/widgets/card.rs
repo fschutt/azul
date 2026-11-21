@@ -36,28 +36,28 @@ use azul_css::{
 use crate::{callbacks::CallbackInfo, widgets::themes::system_palette};
 
 /// Card border colour (#dee2e6).
-const CARD_BORDER_COLOR: ColorU = ColorU {
+static CARD_BORDER_COLOR: ColorU = ColorU {
     r: 222,
     g: 226,
     b: 230,
     a: 255,
 };
 /// Card background colour (white).
-const CARD_BG_COLOR: ColorU = ColorU {
+static CARD_BG_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Soft drop-shadow colour (black @ ~15% alpha).
-const CARD_SHADOW_COLOR: ColorU = ColorU {
+static CARD_SHADOW_COLOR: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 38,
 };
 
-const CARD_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(CARD_BG_COLOR)];
+static CARD_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(CARD_BG_COLOR)];
 const CARD_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(CARD_BG_ITEMS);
 
@@ -84,7 +84,7 @@ static CARD_SHADOW: StyleBoxShadow = StyleBoxShadow {
 /// The card's structure, in every theme: a column of its content. [`build`]
 /// declares it right after the card's own `flex-grow`, before the theme's
 /// skin (R5: never inside a `@theme` block).
-pub(crate) const CARD_BASE: &[CssPropertyWithConditions] = &[
+pub(crate) static CARD_BASE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_display(LayoutDisplay::Flex)),
     CssPropertyWithConditions::simple(CssProperty::const_flex_direction(
         LayoutFlexDirection::Column,

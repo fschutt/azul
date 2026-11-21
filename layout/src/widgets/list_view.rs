@@ -152,22 +152,22 @@ fn stacked(
 
 /// The class every row carries: how the arrow-key handler finds the rows.
 const ROW_CLASS_NAME: &str = "__azul_native-list-rows-row";
-const IDS_AND_CLASSES_790316832563530605: &[IdOrClass] =
+static IDS_AND_CLASSES_790316832563530605: &[IdOrClass] =
     &[Class(AzString::from_const_str(ROW_CLASS_NAME))];
 const ROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_790316832563530605);
 
-const IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[Class(AzString::from_const_str(
+static IDS_AND_CLASSES_3034181810805097699: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul_native-list-rows-row-cell",
 ))];
 const CELL_CLASS: IdOrClassVec =
     IdOrClassVec::from_const_slice(IDS_AND_CLASSES_3034181810805097699);
 
-const IDS_AND_CLASSES_6012478019077291002: &[IdOrClass] =
+static IDS_AND_CLASSES_6012478019077291002: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul_native-list-rows"))];
 const ROW_CONTAINER_CLASS: IdOrClassVec =
     IdOrClassVec::from_const_slice(IDS_AND_CLASSES_6012478019077291002);
 
-const IDS_AND_CLASSES_10742579426112804392: &[IdOrClass] =
+static IDS_AND_CLASSES_10742579426112804392: &[IdOrClass] =
     &[Class(AzString::from_const_str("__azul_native-list-header"))];
 const HEADER_CONTAINER_CLASS: IdOrClassVec =
     IdOrClassVec::from_const_slice(IDS_AND_CLASSES_10742579426112804392);
@@ -176,13 +176,13 @@ const HEADER_CONTAINER_CLASS: IdOrClassVec =
 /// beside it).
 const LIST_CLASS_NAME: &str = "__azul_native_list-container";
 
-const IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[Class(AzString::from_const_str(
+static IDS_AND_CLASSES_18330792117162403422: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul_native-list-header-item",
 ))];
 const COLUMN_NAME_CLASS: IdOrClassVec =
     IdOrClassVec::from_const_slice(IDS_AND_CLASSES_18330792117162403422);
 
-const IDS_AND_CLASSES_SORT_ARROW: &[IdOrClass] = &[Class(AzString::from_const_str(
+static IDS_AND_CLASSES_SORT_ARROW: &[IdOrClass] = &[Class(AzString::from_const_str(
     "__azul_native-list-header-arrow-down",
 ))];
 const SORT_ARROW_CLASS: IdOrClassVec = IdOrClassVec::from_const_slice(IDS_AND_CLASSES_SORT_ARROW);

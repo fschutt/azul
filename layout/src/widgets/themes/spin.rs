@@ -105,7 +105,7 @@ const fn rgb(r: u8, g: u8, b: u8) -> ColorU {
 
 /// The base ramp: flora.css's accent block, the colours flora's widgets are
 /// written in.
-const BASE: FloraAccentRamp = FloraAccentRamp {
+static BASE: FloraAccentRamp = FloraAccentRamp {
     acc: super::flora::LIGHT_ACC,
     deep: super::flora::LIGHT_DEEP,
     soft: super::flora::LIGHT_SOFT,

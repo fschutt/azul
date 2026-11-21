@@ -104,7 +104,7 @@ pub mod loading {
     /// The faces drawn in place of a family that is not installed, each
     /// with the family's advances and vertical metrics (fontconfig's
     /// `30-metric-aliases.conf`, which is what Chrome on Linux follows).
-    pub const METRIC_COMPATIBLE: &[(&str, &[&str])] = &[
+    pub static METRIC_COMPATIBLE: &[(&str, &[&str])] = &[
         ("Arial", &["Liberation Sans", "Arimo", "Albany AMT"]),
         ("Arial Narrow", &["Liberation Sans Narrow"]),
         (

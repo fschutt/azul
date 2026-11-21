@@ -575,7 +575,7 @@ pub(crate) fn foreign_colours(dom: &Dom, theme: UiTheme) -> Vec<String> {
 /// ruling 2026-09-29: the rules that apply to all themes go outside the
 /// `@theme` blocks). What a theme owns is paint and metrics: colours,
 /// backgrounds, borders, radii, shadows, fonts, padding, gaps and sizes.
-pub(crate) const STRUCTURE_PROPERTIES: &[CssPropertyType] = &[
+pub(crate) static STRUCTURE_PROPERTIES: &[CssPropertyType] = &[
     CssPropertyType::Display,
     CssPropertyType::Position,
     CssPropertyType::Float,
@@ -796,7 +796,7 @@ fn css_linear(degrees: isize, stops: Vec<NormalizedLinearColorStop>) -> StyleBac
 }
 
 /// `--fl-metal-turn`: the value the ribbon has where the rule turns up the tab.
-const FLORA_CSS_METAL_TURN: (u8, u8, u8) = (198, 178, 121);
+static FLORA_CSS_METAL_TURN: (u8, u8, u8) = (198, 178, 121);
 
 /// `--fl-rule-metal-bg`, the rule that closes a tab strip: brass at half
 /// alpha at both ends, the bright glint at a third and at two thirds, a

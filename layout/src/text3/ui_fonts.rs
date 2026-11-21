@@ -49,7 +49,7 @@ pub const EB_GARAMOND: &str = "EB Garamond";
 /// `'EB Garamond', Georgia, 'Times New Roman', serif`. The bundled face
 /// first, so it holds on every machine; a character outside its slice falls
 /// back per glyph through the rest.
-pub const FLORA_HAND: &[&str] = &[EB_GARAMOND, "Georgia", "Times New Roman", "serif"];
+pub static FLORA_HAND: &[&str] = &[EB_GARAMOND, "Georgia", "Times New Roman", "serif"];
 
 /// The families the app theme whose structural theme is `theme` (`flora`
 /// for `flora:green`; `None` outside every theme) sets the `system:` font
@@ -95,12 +95,12 @@ pub fn theme_generic_families(theme: Option<&str>, generic: &str) -> Option<&'st
     }
 }
 
-const EB_GARAMOND_REGULAR_BR: &[u8] =
+static EB_GARAMOND_REGULAR_BR: &[u8] =
     include_bytes!("../../assets/fonts/ui/EBGaramond-Regular.ttf.br");
-const EB_GARAMOND_BOLD_BR: &[u8] = include_bytes!("../../assets/fonts/ui/EBGaramond-Bold.ttf.br");
-const EB_GARAMOND_ITALIC_BR: &[u8] =
+static EB_GARAMOND_BOLD_BR: &[u8] = include_bytes!("../../assets/fonts/ui/EBGaramond-Bold.ttf.br");
+static EB_GARAMOND_ITALIC_BR: &[u8] =
     include_bytes!("../../assets/fonts/ui/EBGaramond-Italic.ttf.br");
-const EB_GARAMOND_BOLD_ITALIC_BR: &[u8] =
+static EB_GARAMOND_BOLD_ITALIC_BR: &[u8] =
     include_bytes!("../../assets/fonts/ui/EBGaramond-BoldItalic.ttf.br");
 
 /// `packed`, brotli-decompressed; empty if it does not decompress (the face

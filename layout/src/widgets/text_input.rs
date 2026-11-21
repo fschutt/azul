@@ -46,33 +46,33 @@ use azul_css::{
 
 use crate::callbacks::{Callback, CallbackInfo};
 
-const BACKGROUND_COLOR: ColorU = ColorU {
+static BACKGROUND_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 }; // white
-const COLOR_9B9B9B: ColorU = ColorU {
+static COLOR_9B9B9B: ColorU = ColorU {
     r: 155,
     g: 155,
     b: 155,
     a: 255,
 }; // #9b9b9b
-const COLOR_4C4C4C: ColorU = ColorU {
+static COLOR_4C4C4C: ColorU = ColorU {
     r: 76,
     g: 76,
     b: 76,
     a: 255,
 }; // #4C4C4C
 
-const BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
+static BACKGROUND_THEME_LIGHT: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(BACKGROUND_COLOR)];
 const BACKGROUND_COLOR_LIGHT: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(BACKGROUND_THEME_LIGHT);
 
 const SANS_SERIF_STR: &str = "system:ui";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
-const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
+static SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
 const SANS_SERIF_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
 

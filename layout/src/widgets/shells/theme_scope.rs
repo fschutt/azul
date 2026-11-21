@@ -82,7 +82,7 @@ const fn rgb(r: u8, g: u8, b: u8) -> ColorU {
 }
 
 /// The paper ink flora lays on every accent stone.
-const ON_ACCENT: ColorU = rgb(0xF4, 0xF2, 0xEA);
+static ON_ACCENT: ColorU = rgb(0xF4, 0xF2, 0xEA);
 
 impl ShellThemeAccent {
     /// Every family, in order.

@@ -1663,7 +1663,7 @@ enum OpenGroup {
 
 /// "Anywhere": the extent of pixels whose place cannot be told (a
 /// perspective matrix).
-const UNBOUNDED: LogicalRect = LogicalRect {
+static UNBOUNDED: LogicalRect = LogicalRect {
     origin: LogicalPosition {
         x: -1.0e30,
         y: -1.0e30,

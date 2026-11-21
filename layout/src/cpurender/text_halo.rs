@@ -326,7 +326,7 @@ const PREVIEWS_ANYWAY: usize = 64;
 /// ... and how long it goes on drawing them after those. One is a sixteenth of
 /// its halo's pixels with a quarter of the spread: some fifty in the time of one
 /// halo.
-const PREVIEW_TIME: Duration = Duration::from_millis(6);
+static PREVIEW_TIME: Duration = Duration::from_millis(6);
 
 /// Runs `f` - a scan of display lists for text halos ([`text_halos`] with fonts)
 /// - with a BUDGET: the first `free` halos it has to draw are drawn, the rest

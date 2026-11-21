@@ -71,13 +71,13 @@ const DEFAULT_BUTTON_SIDE_LEFT: bool = true;
 const DEFAULT_BUTTON_SIDE_LEFT: bool = false;
 
 // Default title text color for light / dark fallback
-const DEFAULT_TITLE_COLOR_LIGHT: ColorU = ColorU {
+static DEFAULT_TITLE_COLOR_LIGHT: ColorU = ColorU {
     r: 76,
     g: 76,
     b: 76,
     a: 255,
 }; // #4c4c4c
-const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
+static DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
     r: 229,
     g: 229,
     b: 229,
@@ -86,13 +86,13 @@ const DEFAULT_TITLE_COLOR_DARK: ColorU = ColorU {
 
 // The line under a standard macOS titlebar, measured through AppKit on macOS
 // 15.5: one device pixel (0.5pt) of #D0D0D0 in light mode, #000000 in dark.
-const MACOS_SEPARATOR_LIGHT: ColorU = ColorU {
+static MACOS_SEPARATOR_LIGHT: ColorU = ColorU {
     r: 0xD0,
     g: 0xD0,
     b: 0xD0,
     a: 255,
 };
-const MACOS_SEPARATOR_DARK: ColorU = ColorU {
+static MACOS_SEPARATOR_DARK: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,

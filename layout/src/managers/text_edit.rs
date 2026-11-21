@@ -31,7 +31,7 @@ pub const CURSOR_BLINK_INTERVAL_MS: u64 = 530;
 /// 5t`) and have it survive all the way to the comparison. `Duration`'s
 /// comparisons are unit-aware, so a tick-unit interval and a wall-clock elapsed
 /// value (or vice versa) still compare truthfully.
-pub const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(CURSOR_BLINK_INTERVAL_MS);
+pub static CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(CURSOR_BLINK_INTERVAL_MS);
 
 /// Cursor blink animation state.
 ///

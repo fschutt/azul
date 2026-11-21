@@ -2476,9 +2476,9 @@ const RING_WIDTH: isize = 2;
 /// The selection ring's inner size.
 const SELECTION_PX: f32 = 14.0;
 /// A legend swatch for a line: a short stroke.
-const LINE_SWATCH: (f32, f32) = (14.0, 3.0);
+static LINE_SWATCH: (f32, f32) = (14.0, 3.0);
 /// A legend swatch for an area, bars, dots or a slice: a small square.
-const BOX_SWATCH: (f32, f32) = (10.0, 10.0);
+static BOX_SWATCH: (f32, f32) = (10.0, 10.0);
 
 type Decl = CssPropertyWithConditions;
 

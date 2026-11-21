@@ -49,7 +49,7 @@ const MAX_SHADOW_PIXBUF_SIZE: u32 = 4096;
 /// nothing to the gradient instead of poisoning it with an arbitrary
 /// visible color (the previous behaviour was hardcoded mid-gray, which
 /// produced visibly wrong output).
-const SYSTEM_COLOR_FALLBACK: ColorU = ColorU {
+static SYSTEM_COLOR_FALLBACK: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
@@ -6983,7 +6983,7 @@ pub struct TextAaSettings {
 
 /// The linear LCD blend's defaults: stripes physically free, no chroma limit,
 /// coverage gamma 220.
-const LCD_BLEND_DEFAULT: agg_rust::pixfmt_lcd::LcdBlendParams =
+static LCD_BLEND_DEFAULT: agg_rust::pixfmt_lcd::LcdBlendParams =
     agg_rust::pixfmt_lcd::LcdBlendParams {
         contrast: 0,
         chroma_limit: 0,

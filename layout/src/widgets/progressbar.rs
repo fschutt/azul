@@ -47,7 +47,7 @@ use azul_css::{
 
 use crate::callbacks::CallbackInfo;
 
-pub const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
+pub static STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
@@ -58,7 +58,7 @@ pub const STYLE_BACKGROUND_CONTENT_2688422633177340412_ITEMS: &[StyleBackgroundC
             LINEAR_COLOR_STOP_12009347504665939_ITEMS,
         ),
     })];
-pub const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackgroundContent] =
+pub static STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
@@ -69,7 +69,7 @@ pub const STYLE_BACKGROUND_CONTENT_14586281004485141058_ITEMS: &[StyleBackground
             LINEAR_COLOR_STOP_3104396762583413726_ITEMS,
         ),
     })];
-pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop] = &[
+pub static LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
@@ -141,7 +141,7 @@ pub const LINEAR_COLOR_STOP_12009347504665939_ITEMS: &[NormalizedLinearColorStop
         }),
     },
 ];
-pub const LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] = &[
+pub static LINEAR_COLOR_STOP_3104396762583413726_ITEMS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),

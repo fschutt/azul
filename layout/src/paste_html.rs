@@ -46,7 +46,7 @@ use crate::text3::edit::{FormatOverrides, FormatSpan};
 const MAX_DEPTH: usize = 64;
 
 /// Elements dropped with everything in them.
-const DROPPED: &[&str] = &[
+static DROPPED: &[&str] = &[
     "script", "style", "link", "meta", "head", "title", "iframe", "frame", "frameset", "object",
     "embed", "applet", "form", "input", "button", "select", "textarea", "option", "optgroup",
     "datalist", "template", "noscript", "svg", "math", "canvas", "video", "audio", "img",

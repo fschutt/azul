@@ -189,38 +189,38 @@ impl TimePickerState {
 }
 
 // ---- colours ----
-const BORDER_COLOR: ColorU = ColorU {
+static BORDER_COLOR: ColorU = ColorU {
     r: 206,
     g: 212,
     b: 218,
     a: 255,
 };
-const ARROW_COLOR: ColorU = ColorU {
+static ARROW_COLOR: ColorU = ColorU {
     r: 73,
     g: 80,
     b: 87,
     a: 255,
 };
-const TEXT_COLOR: ColorU = ColorU {
+static TEXT_COLOR: ColorU = ColorU {
     r: 33,
     g: 37,
     b: 41,
     a: 255,
 };
-const ACCENT_BG: ColorU = ColorU {
+static ACCENT_BG: ColorU = ColorU {
     r: 13,
     g: 110,
     b: 253,
     a: 255,
 };
-const WHITE: ColorU = ColorU {
+static WHITE: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 
-const ACCENT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ACCENT_BG)];
+static ACCENT_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(ACCENT_BG)];
 const ACCENT_BG_VEC: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(ACCENT_BG_ITEMS);
 

@@ -52,84 +52,84 @@ use crate::widgets::button::{Button, ButtonOnClick, OptionButtonOnClick};
 
 // Light mode colors
 /// Page: the window canvas behind everything.
-pub const LIGHT_PG: ColorU = ColorU {
+pub static LIGHT_PG: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Surface: panels and cards sitting on the page.
-pub const LIGHT_SUR: ColorU = ColorU {
+pub static LIGHT_SUR: ColorU = ColorU {
     r: 237,
     g: 241,
     b: 245,
     a: 255,
 };
 /// Desk: the recessed area a document sits on.
-pub const LIGHT_DESK: ColorU = ColorU {
+pub static LIGHT_DESK: ColorU = ColorU {
     r: 220,
     g: 225,
     b: 231,
     a: 255,
 };
 /// Strip: toolbars and header bands.
-pub const LIGHT_STRIP: ColorU = ColorU {
+pub static LIGHT_STRIP: ColorU = ColorU {
     r: 228,
     g: 233,
     b: 239,
     a: 255,
 };
 /// Track: scrollbar and slider grooves.
-pub const LIGHT_TRACK: ColorU = ColorU {
+pub static LIGHT_TRACK: ColorU = ColorU {
     r: 227,
     g: 231,
     b: 236,
     a: 255,
 };
 /// Default border.
-pub const LIGHT_BD: ColorU = ColorU {
+pub static LIGHT_BD: ColorU = ColorU {
     r: 194,
     g: 201,
     b: 210,
     a: 255,
 };
 /// Lighter border, for internal divisions.
-pub const LIGHT_BD2: ColorU = ColorU {
+pub static LIGHT_BD2: ColorU = ColorU {
     r: 214,
     g: 220,
     b: 227,
     a: 255,
 };
 /// Stronger border, for emphasis or focus.
-pub const LIGHT_BD3: ColorU = ColorU {
+pub static LIGHT_BD3: ColorU = ColorU {
     r: 154,
     g: 164,
     b: 177,
     a: 255,
 };
 /// Faintest border.
-pub const LIGHT_BD4: ColorU = ColorU {
+pub static LIGHT_BD4: ColorU = ColorU {
     r: 228,
     g: 232,
     b: 237,
     a: 255,
 };
 /// Border that reads as a highlight.
-pub const LIGHT_BD5: ColorU = ColorU {
+pub static LIGHT_BD5: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Separator line.
-pub const LIGHT_SEP: ColorU = ColorU {
+pub static LIGHT_SEP: ColorU = ColorU {
     r: 211,
     g: 217,
     b: 224,
     a: 255,
 };
 /// Fainter separator.
-pub const LIGHT_SEP2: ColorU = ColorU {
+pub static LIGHT_SEP2: ColorU = ColorU {
     r: 226,
     g: 230,
     b: 235,
@@ -143,35 +143,35 @@ pub const LIGHT_INK: ColorU = ColorU {
     a: 255,
 };
 /// Secondary text.
-pub const LIGHT_INK2: ColorU = ColorU {
+pub static LIGHT_INK2: ColorU = ColorU {
     r: 58,
     g: 65,
     b: 75,
     a: 255,
 };
 /// Introductory / lead text.
-pub const LIGHT_INTRO: ColorU = ColorU {
+pub static LIGHT_INTRO: ColorU = ColorU {
     r: 84,
     g: 92,
     b: 103,
     a: 255,
 };
 /// Muted text, still readable.
-pub const LIGHT_SOFT1: ColorU = ColorU {
+pub static LIGHT_SOFT1: ColorU = ColorU {
     r: 98,
     g: 106,
     b: 118,
     a: 255,
 };
 /// Muted text, hint level.
-pub const LIGHT_SOFT2: ColorU = ColorU {
+pub static LIGHT_SOFT2: ColorU = ColorU {
     r: 133,
     g: 140,
     b: 151,
     a: 255,
 };
 /// Barely-there text.
-pub const LIGHT_SOFT3: ColorU = ColorU {
+pub static LIGHT_SOFT3: ColorU = ColorU {
     r: 174,
     g: 180,
     b: 189,
@@ -185,42 +185,42 @@ pub const LIGHT_ICON: ColorU = ColorU {
     a: 255,
 };
 /// Raised control, top of the face (Office 2010: white over the silver RB).
-pub const LIGHT_RT: ColorU = ColorU {
+pub static LIGHT_RT: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Raised control, bottom of the face.
-pub const LIGHT_RB: ColorU = ColorU {
+pub static LIGHT_RB: ColorU = ColorU {
     r: 233,
     g: 237,
     b: 242,
     a: 255,
 };
 /// Hovered control, top of the face.
-pub const LIGHT_HT: ColorU = ColorU {
+pub static LIGHT_HT: ColorU = ColorU {
     r: 254,
     g: 244,
     b: 196,
     a: 255,
 };
 /// Hovered control, bottom of the face.
-pub const LIGHT_HB: ColorU = ColorU {
+pub static LIGHT_HB: ColorU = ColorU {
     r: 253,
     g: 227,
     b: 141,
     a: 255,
 };
 /// Pressed control, top of the face.
-pub const LIGHT_PT: ColorU = ColorU {
+pub static LIGHT_PT: ColorU = ColorU {
     r: 247,
     g: 193,
     b: 90,
     a: 255,
 };
 /// Pressed control, bottom of the face.
-pub const LIGHT_PB: ColorU = ColorU {
+pub static LIGHT_PB: ColorU = ColorU {
     r: 251,
     g: 219,
     b: 128,
@@ -234,70 +234,70 @@ pub const LIGHT_FLD: ColorU = ColorU {
     a: 255,
 };
 /// Secondary field fill (readonly, inset).
-pub const LIGHT_FLD2: ColorU = ColorU {
+pub static LIGHT_FLD2: ColorU = ColorU {
     r: 244,
     g: 246,
     b: 249,
     a: 255,
 };
 /// Disabled control fill.
-pub const LIGHT_DISBG: ColorU = ColorU {
+pub static LIGHT_DISBG: ColorU = ColorU {
     r: 238,
     g: 240,
     b: 243,
     a: 255,
 };
 /// Disabled control text.
-pub const LIGHT_DISTX: ColorU = ColorU {
+pub static LIGHT_DISTX: ColorU = ColorU {
     r: 151,
     g: 158,
     b: 168,
     a: 255,
 };
 /// Quiet fill, e.g. a toolbar button at rest.
-pub const LIGHT_QT: ColorU = ColorU {
+pub static LIGHT_QT: ColorU = ColorU {
     r: 243,
     g: 245,
     b: 248,
     a: 255,
 };
 /// Quiet fill, one step stronger.
-pub const LIGHT_QT2: ColorU = ColorU {
+pub static LIGHT_QT2: ColorU = ColorU {
     r: 232,
     g: 236,
     b: 241,
     a: 255,
 };
 /// Accent.
-pub const LIGHT_ACC: ColorU = ColorU {
+pub static LIGHT_ACC: ColorU = ColorU {
     r: 42,
     g: 99,
     b: 184,
     a: 255,
 };
 /// Accent, pressed.
-pub const LIGHT_DEEP: ColorU = ColorU {
+pub static LIGHT_DEEP: ColorU = ColorU {
     r: 30,
     g: 79,
     b: 153,
     a: 255,
 };
 /// Accent, muted.
-pub const LIGHT_SOFT: ColorU = ColorU {
+pub static LIGHT_SOFT: ColorU = ColorU {
     r: 157,
     g: 192,
     b: 236,
     a: 255,
 };
 /// Accent as a focus glow (translucent).
-pub const LIGHT_GLOW: ColorU = ColorU {
+pub static LIGHT_GLOW: ColorU = ColorU {
     r: 42,
     g: 99,
     b: 184,
     a: 64,
 };
 /// Text and icons ON an accent fill.
-pub const LIGHT_ON_ACC: ColorU = ColorU {
+pub static LIGHT_ON_ACC: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
@@ -306,35 +306,35 @@ pub const LIGHT_ON_ACC: ColorU = ColorU {
 
 // Dark mode colors
 /// Page: the window canvas behind everything.
-pub const DARK_PG: ColorU = ColorU {
+pub static DARK_PG: ColorU = ColorU {
     r: 31,
     g: 31,
     b: 31,
     a: 255,
 };
 /// Surface: panels and cards sitting on the page.
-pub const DARK_SUR: ColorU = ColorU {
+pub static DARK_SUR: ColorU = ColorU {
     r: 45,
     g: 45,
     b: 45,
     a: 255,
 };
 /// Desk: the recessed area a document sits on.
-pub const DARK_DESK: ColorU = ColorU {
+pub static DARK_DESK: ColorU = ColorU {
     r: 25,
     g: 25,
     b: 25,
     a: 255,
 };
 /// Strip: toolbars and header bands.
-pub const DARK_STRIP: ColorU = ColorU {
+pub static DARK_STRIP: ColorU = ColorU {
     r: 56,
     g: 56,
     b: 56,
     a: 255,
 };
 /// Track: scrollbar and slider grooves.
-pub const DARK_TRACK: ColorU = ColorU {
+pub static DARK_TRACK: ColorU = ColorU {
     r: 71,
     g: 71,
     b: 71,
@@ -348,133 +348,133 @@ pub const DARK_BD: ColorU = ColorU {
     a: 255,
 };
 /// Lighter border, for internal divisions.
-pub const DARK_BD2: ColorU = ColorU {
+pub static DARK_BD2: ColorU = ColorU {
     r: 61,
     g: 61,
     b: 61,
     a: 255,
 };
 /// Stronger border, for emphasis or focus.
-pub const DARK_BD3: ColorU = ColorU {
+pub static DARK_BD3: ColorU = ColorU {
     r: 118,
     g: 118,
     b: 118,
     a: 255,
 };
 /// Faintest border.
-pub const DARK_BD4: ColorU = ColorU {
+pub static DARK_BD4: ColorU = ColorU {
     r: 51,
     g: 51,
     b: 51,
     a: 255,
 };
 /// Border that reads as a highlight.
-pub const DARK_BD5: ColorU = ColorU {
+pub static DARK_BD5: ColorU = ColorU {
     r: 38,
     g: 38,
     b: 38,
     a: 255,
 };
 /// Separator line.
-pub const DARK_SEP: ColorU = ColorU {
+pub static DARK_SEP: ColorU = ColorU {
     r: 77,
     g: 77,
     b: 77,
     a: 255,
 };
 /// Fainter separator.
-pub const DARK_SEP2: ColorU = ColorU {
+pub static DARK_SEP2: ColorU = ColorU {
     r: 58,
     g: 58,
     b: 58,
     a: 255,
 };
 /// Body text.
-pub const DARK_INK: ColorU = ColorU {
+pub static DARK_INK: ColorU = ColorU {
     r: 242,
     g: 242,
     b: 242,
     a: 255,
 };
 /// Secondary text.
-pub const DARK_INK2: ColorU = ColorU {
+pub static DARK_INK2: ColorU = ColorU {
     r: 218,
     g: 218,
     b: 218,
     a: 255,
 };
 /// Introductory / lead text.
-pub const DARK_INTRO: ColorU = ColorU {
+pub static DARK_INTRO: ColorU = ColorU {
     r: 184,
     g: 184,
     b: 184,
     a: 255,
 };
 /// Muted text, still readable.
-pub const DARK_SOFT1: ColorU = ColorU {
+pub static DARK_SOFT1: ColorU = ColorU {
     r: 158,
     g: 158,
     b: 158,
     a: 255,
 };
 /// Muted text, hint level.
-pub const DARK_SOFT2: ColorU = ColorU {
+pub static DARK_SOFT2: ColorU = ColorU {
     r: 125,
     g: 125,
     b: 125,
     a: 255,
 };
 /// Barely-there text.
-pub const DARK_SOFT3: ColorU = ColorU {
+pub static DARK_SOFT3: ColorU = ColorU {
     r: 92,
     g: 92,
     b: 92,
     a: 255,
 };
 /// Icon glyphs.
-pub const DARK_ICON: ColorU = ColorU {
+pub static DARK_ICON: ColorU = ColorU {
     r: 218,
     g: 218,
     b: 218,
     a: 255,
 };
 /// Raised control, top of the face (Office 2010: white over the silver RB).
-pub const DARK_RT: ColorU = ColorU {
+pub static DARK_RT: ColorU = ColorU {
     r: 69,
     g: 69,
     b: 69,
     a: 255,
 };
 /// Raised control, bottom of the face.
-pub const DARK_RB: ColorU = ColorU {
+pub static DARK_RB: ColorU = ColorU {
     r: 58,
     g: 58,
     b: 58,
     a: 255,
 };
 /// Hovered control, top of the face.
-pub const DARK_HT: ColorU = ColorU {
+pub static DARK_HT: ColorU = ColorU {
     r: 88,
     g: 74,
     b: 36,
     a: 255,
 };
 /// Hovered control, bottom of the face.
-pub const DARK_HB: ColorU = ColorU {
+pub static DARK_HB: ColorU = ColorU {
     r: 75,
     g: 63,
     b: 31,
     a: 255,
 };
 /// Pressed control, top of the face.
-pub const DARK_PT: ColorU = ColorU {
+pub static DARK_PT: ColorU = ColorU {
     r: 58,
     g: 47,
     b: 18,
     a: 255,
 };
 /// Pressed control, bottom of the face.
-pub const DARK_PB: ColorU = ColorU {
+pub static DARK_PB: ColorU = ColorU {
     r: 46,
     g: 38,
     b: 16,
@@ -488,70 +488,70 @@ pub const DARK_FLD: ColorU = ColorU {
     a: 255,
 };
 /// Secondary field fill (readonly, inset).
-pub const DARK_FLD2: ColorU = ColorU {
+pub static DARK_FLD2: ColorU = ColorU {
     r: 48,
     g: 48,
     b: 48,
     a: 255,
 };
 /// Disabled control fill.
-pub const DARK_DISBG: ColorU = ColorU {
+pub static DARK_DISBG: ColorU = ColorU {
     r: 54,
     g: 54,
     b: 54,
     a: 255,
 };
 /// Disabled control text.
-pub const DARK_DISTX: ColorU = ColorU {
+pub static DARK_DISTX: ColorU = ColorU {
     r: 128,
     g: 128,
     b: 128,
     a: 255,
 };
 /// Quiet fill, e.g. a toolbar button at rest.
-pub const DARK_QT: ColorU = ColorU {
+pub static DARK_QT: ColorU = ColorU {
     r: 48,
     g: 48,
     b: 48,
     a: 255,
 };
 /// Quiet fill, one step stronger.
-pub const DARK_QT2: ColorU = ColorU {
+pub static DARK_QT2: ColorU = ColorU {
     r: 58,
     g: 58,
     b: 58,
     a: 255,
 };
 /// Accent.
-pub const DARK_ACC: ColorU = ColorU {
+pub static DARK_ACC: ColorU = ColorU {
     r: 70,
     g: 131,
     b: 214,
     a: 255,
 };
 /// Accent, pressed.
-pub const DARK_DEEP: ColorU = ColorU {
+pub static DARK_DEEP: ColorU = ColorU {
     r: 52,
     g: 104,
     b: 184,
     a: 255,
 };
 /// Accent, muted.
-pub const DARK_SOFT: ColorU = ColorU {
+pub static DARK_SOFT: ColorU = ColorU {
     r: 127,
     g: 176,
     b: 234,
     a: 255,
 };
 /// Accent as a focus glow (translucent).
-pub const DARK_GLOW: ColorU = ColorU {
+pub static DARK_GLOW: ColorU = ColorU {
     r: 70,
     g: 131,
     b: 214,
     a: 80,
 };
 /// Text and icons ON an accent fill.
-pub const DARK_ON_ACC: ColorU = ColorU {
+pub static DARK_ON_ACC: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
@@ -582,112 +582,112 @@ pub const DARK_FG: ColorU = DARK_INK;
 // ---------------------------------------------------------------------------
 
 /// The gold rim of a hovered control (#E5C365).
-pub const LIGHT_HOVER_BORDER: ColorU = ColorU {
+pub static LIGHT_HOVER_BORDER: ColorU = ColorU {
     r: 229,
     g: 195,
     b: 101,
     a: 255,
 };
 /// The rim of a hovered control by night.
-pub const DARK_HOVER_BORDER: ColorU = ColorU {
+pub static DARK_HOVER_BORDER: ColorU = ColorU {
     r: 158,
     g: 126,
     b: 52,
     a: 255,
 };
 /// The brown rim of a pressed control (#C2913C).
-pub const LIGHT_PRESSED_BORDER: ColorU = ColorU {
+pub static LIGHT_PRESSED_BORDER: ColorU = ColorU {
     r: 194,
     g: 145,
     b: 60,
     a: 255,
 };
 /// The rim of a pressed control by night.
-pub const DARK_PRESSED_BORDER: ColorU = ColorU {
+pub static DARK_PRESSED_BORDER: ColorU = ColorU {
     r: 184,
     g: 140,
     b: 58,
     a: 255,
 };
 /// A toggled-on command, top of its face (#FDE9A3).
-pub const LIGHT_CHECKED_TOP: ColorU = ColorU {
+pub static LIGHT_CHECKED_TOP: ColorU = ColorU {
     r: 253,
     g: 233,
     b: 163,
     a: 255,
 };
 /// A toggled-on command, foot of its face (#F9D976).
-pub const LIGHT_CHECKED_BOTTOM: ColorU = ColorU {
+pub static LIGHT_CHECKED_BOTTOM: ColorU = ColorU {
     r: 249,
     g: 217,
     b: 118,
     a: 255,
 };
 /// The rim of a toggled-on command (#D8B266).
-pub const LIGHT_CHECKED_BORDER: ColorU = ColorU {
+pub static LIGHT_CHECKED_BORDER: ColorU = ColorU {
     r: 216,
     g: 178,
     b: 102,
     a: 255,
 };
 /// A toggled-on command by night, top of its face.
-pub const DARK_CHECKED_TOP: ColorU = ColorU {
+pub static DARK_CHECKED_TOP: ColorU = ColorU {
     r: 77,
     g: 64,
     b: 32,
     a: 255,
 };
 /// A toggled-on command by night, foot of its face.
-pub const DARK_CHECKED_BOTTOM: ColorU = ColorU {
+pub static DARK_CHECKED_BOTTOM: ColorU = ColorU {
     r: 66,
     g: 55,
     b: 27,
     a: 255,
 };
 /// The rim of a toggled-on command by night.
-pub const DARK_CHECKED_BORDER: ColorU = ColorU {
+pub static DARK_CHECKED_BORDER: ColorU = ColorU {
     r: 168,
     g: 133,
     b: 58,
     a: 255,
 };
 /// A selected row, top of its face (#D9EAFD).
-pub const LIGHT_SELECTION_TOP: ColorU = ColorU {
+pub static LIGHT_SELECTION_TOP: ColorU = ColorU {
     r: 217,
     g: 234,
     b: 253,
     a: 255,
 };
 /// A selected row, foot of its face (#C1DCFC) - Outlook's selected message.
-pub const LIGHT_SELECTION_BOTTOM: ColorU = ColorU {
+pub static LIGHT_SELECTION_BOTTOM: ColorU = ColorU {
     r: 193,
     g: 220,
     b: 252,
     a: 255,
 };
 /// The rim of a selected row (#84ACDD).
-pub const LIGHT_SELECTION_BORDER: ColorU = ColorU {
+pub static LIGHT_SELECTION_BORDER: ColorU = ColorU {
     r: 132,
     g: 172,
     b: 221,
     a: 255,
 };
 /// A selected row by night, top of its face.
-pub const DARK_SELECTION_TOP: ColorU = ColorU {
+pub static DARK_SELECTION_TOP: ColorU = ColorU {
     r: 52,
     g: 83,
     b: 122,
     a: 255,
 };
 /// A selected row by night, foot of its face.
-pub const DARK_SELECTION_BOTTOM: ColorU = ColorU {
+pub static DARK_SELECTION_BOTTOM: ColorU = ColorU {
     r: 46,
     g: 74,
     b: 110,
     a: 255,
 };
 /// The rim of a selected row by night.
-pub const DARK_SELECTION_BORDER: ColorU = ColorU {
+pub static DARK_SELECTION_BORDER: ColorU = ColorU {
     r: 74,
     g: 120,
     b: 176,
@@ -695,28 +695,28 @@ pub const DARK_SELECTION_BORDER: ColorU = ColorU {
 };
 /// The foot of the ribbon band (#E9EEF4): the band is [`LIGHT_PG`] at its
 /// top, fading to this.
-pub const LIGHT_BAND_BOTTOM: ColorU = ColorU {
+pub static LIGHT_BAND_BOTTOM: ColorU = ColorU {
     r: 233,
     g: 238,
     b: 244,
     a: 255,
 };
 /// The foot of the ribbon band by night: [`DARK_SUR`] at its top.
-pub const DARK_BAND_BOTTOM: ColorU = ColorU {
+pub static DARK_BAND_BOTTOM: ColorU = ColorU {
     r: 38,
     g: 38,
     b: 38,
     a: 255,
 };
 /// Outlook 2010's File tab (#E4882C), white text on it, in either mode.
-pub const FILE_TAB: ColorU = ColorU {
+pub static FILE_TAB: ColorU = ColorU {
     r: 228,
     g: 136,
     b: 44,
     a: 255,
 };
 /// The File tab under the pointer (#F09A3E).
-pub const FILE_TAB_HOVER: ColorU = ColorU {
+pub static FILE_TAB_HOVER: ColorU = ColorU {
     r: 240,
     g: 154,
     b: 62,
@@ -1788,7 +1788,7 @@ pub fn text_area(mut ta: crate::widgets::text_area::TextArea) -> Dom {
 }
 
 const SYSTEM_UI_STR: AzString = AzString::from_const_str("system:ui");
-const SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
+static SYSTEM_UI_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SYSTEM_UI_STR)];
 const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SYSTEM_UI_FAMILIES);
 
@@ -1799,7 +1799,7 @@ const SYSTEM_UI_FAMILY: StyleFontFamilyVec =
 const FLAT_BORDER_NORMAL: ColorU = LIGHT_BD;
 
 /// Flat's trigger skin, after `drop_down::DROPDOWN_WRAPPER_BASE` (R5).
-const FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
+static FLAT_DROPDOWN_WRAPPER_STYLE: &[CssPropertyWithConditions] = &[
     CssPropertyWithConditions::simple(CssProperty::const_font_size(StyleFontSize::const_px(13))),
     CssPropertyWithConditions::simple(CssProperty::const_font_family(SYSTEM_UI_FAMILY)),
     CssPropertyWithConditions::simple(CssProperty::const_padding_left(
@@ -2065,7 +2065,7 @@ pub const ROW_HOVER_DARK: CssPropertyWithConditions = CssPropertyWithConditions:
 /// theme's newer blue, and a migration that swaps one light value for another
 /// changes what every existing app looks like. The dark twin is [`DARK_ACC`],
 /// where the fields had no dark ring at all before.
-pub const FIELD_RING: ColorU = ColorU {
+pub static FIELD_RING: ColorU = ColorU {
     r: 66,
     g: 134,
     b: 244,
@@ -2448,7 +2448,7 @@ pub fn active_bg_both(light: ColorU, dark: ColorU) -> [CssPropertyWithConditions
 // pointer.
 
 /// Column-header hover underline, light mode (#9ADFFE).
-pub const LIGHT_LIST_HEADER_HOVER_LINE: ColorU = ColorU {
+pub static LIGHT_LIST_HEADER_HOVER_LINE: ColorU = ColorU {
     r: 154,
     g: 223,
     b: 254,
@@ -2460,7 +2460,7 @@ pub const LIGHT_LIST_HEADER_HOVER_LINE: ColorU = ColorU {
 /// The face is a vertical gradient with a hard step at the midpoint: this
 /// colour held to 50%, then [`LIGHT_LIST_HEADER_HOVER_MID`] fading into
 /// [`LIGHT_LIST_HEADER_HOVER_BOTTOM`].
-pub const LIGHT_LIST_HEADER_HOVER_TOP: ColorU = ColorU {
+pub static LIGHT_LIST_HEADER_HOVER_TOP: ColorU = ColorU {
     r: 247,
     g: 252,
     b: 254,
@@ -2468,7 +2468,7 @@ pub const LIGHT_LIST_HEADER_HOVER_TOP: ColorU = ColorU {
 };
 
 /// Column-header hover face, just below the midpoint step (#E8F6FE).
-pub const LIGHT_LIST_HEADER_HOVER_MID: ColorU = ColorU {
+pub static LIGHT_LIST_HEADER_HOVER_MID: ColorU = ColorU {
     r: 232,
     g: 246,
     b: 254,
@@ -2476,7 +2476,7 @@ pub const LIGHT_LIST_HEADER_HOVER_MID: ColorU = ColorU {
 };
 
 /// Column-header hover face, bottom stop (#CEE7F4).
-pub const LIGHT_LIST_HEADER_HOVER_BOTTOM: ColorU = ColorU {
+pub static LIGHT_LIST_HEADER_HOVER_BOTTOM: ColorU = ColorU {
     r: 206,
     g: 231,
     b: 244,
@@ -2484,7 +2484,7 @@ pub const LIGHT_LIST_HEADER_HOVER_BOTTOM: ColorU = ColorU {
 };
 
 /// Column-header pressed face, light mode (#F9FAFB).
-pub const LIGHT_LIST_HEADER_PRESSED: ColorU = ColorU {
+pub static LIGHT_LIST_HEADER_PRESSED: ColorU = ColorU {
     r: 249,
     g: 250,
     b: 251,
@@ -2493,7 +2493,7 @@ pub const LIGHT_LIST_HEADER_PRESSED: ColorU = ColorU {
 
 /// Column-header pressed hairline, light mode (#C2CDDB): a neutral
 /// grey-blue, not an accent.
-pub const LIGHT_LIST_HEADER_PRESSED_BORDER: ColorU = ColorU {
+pub static LIGHT_LIST_HEADER_PRESSED_BORDER: ColorU = ColorU {
     r: 194,
     g: 205,
     b: 219,
@@ -2502,7 +2502,7 @@ pub const LIGHT_LIST_HEADER_PRESSED_BORDER: ColorU = ColorU {
 
 /// Column-header pressed inset glow, light mode (#CEE7F4) — the hover face's
 /// bottom stop, so a pressed header reads as sunk into the hovered one.
-pub const LIGHT_LIST_HEADER_PRESSED_SHADOW: ColorU = ColorU {
+pub static LIGHT_LIST_HEADER_PRESSED_SHADOW: ColorU = ColorU {
     r: 206,
     g: 231,
     b: 244,
@@ -2511,7 +2511,7 @@ pub const LIGHT_LIST_HEADER_PRESSED_SHADOW: ColorU = ColorU {
 
 /// Row hover rim, light mode (#B8D6FB): around Outlook's hover blue
 /// ([`LIGHT_ROW_HOVER`]).
-pub const LIGHT_LIST_ROW_HOVER_BORDER: ColorU = ColorU {
+pub static LIGHT_LIST_ROW_HOVER_BORDER: ColorU = ColorU {
     r: 184,
     g: 214,
     b: 251,
@@ -2521,7 +2521,7 @@ pub const LIGHT_LIST_ROW_HOVER_BORDER: ColorU = ColorU {
 // The stops of the hovered column header's face: `LIGHT_LIST_HEADER_HOVER_TOP`
 // held to the midpoint, then a hard step to `LIGHT_LIST_HEADER_HOVER_MID`
 // fading into `LIGHT_LIST_HEADER_HOVER_BOTTOM`.
-const LIST_HEADER_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
+static LIST_HEADER_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
@@ -2546,7 +2546,7 @@ const LIST_HEADER_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
 
 // The hovered column header's face: a top-to-bottom gradient over
 // `LIST_HEADER_HOVER_STOPS`.
-const LIST_HEADER_HOVER_FACE: &[StyleBackgroundContent] =
+static LIST_HEADER_HOVER_FACE: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
@@ -2708,7 +2708,7 @@ pub(crate) fn list_view_look() -> crate::widgets::list_view::ListViewLook {
 /// nor the neutral #ACACAC the tab rests at. On this palette's accent ramp it
 /// is the `SOFT` rung — [`LIGHT_SOFT`] is #6EA8FE — and that is what picks its
 /// dark twin.
-pub const LIGHT_TAB_HOVER_BORDER: ColorU = ColorU {
+pub static LIGHT_TAB_HOVER_BORDER: ColorU = ColorU {
     r: 126,
     g: 180,
     b: 234,
@@ -2724,7 +2724,7 @@ pub const LIGHT_TAB_HOVER_BORDER: ColorU = ColorU {
 pub const DARK_TAB_HOVER_BORDER: ColorU = DARK_SOFT;
 
 /// Top stop of an inactive tab's hover fill, light mode (#ECF4FC).
-pub const LIGHT_TAB_HOVER_TOP: ColorU = ColorU {
+pub static LIGHT_TAB_HOVER_TOP: ColorU = ColorU {
     r: 236,
     g: 244,
     b: 252,
@@ -2732,7 +2732,7 @@ pub const LIGHT_TAB_HOVER_TOP: ColorU = ColorU {
 };
 
 /// Bottom stop of an inactive tab's hover fill, light mode (#DDEDFC).
-pub const LIGHT_TAB_HOVER_BOTTOM: ColorU = ColorU {
+pub static LIGHT_TAB_HOVER_BOTTOM: ColorU = ColorU {
     r: 221,
     g: 237,
     b: 252,
@@ -2742,7 +2742,7 @@ pub const LIGHT_TAB_HOVER_BOTTOM: ColorU = ColorU {
 // The light fill is a top-to-bottom gradient, so the dark one is too, and its
 // stops are this theme's own hover pair: a tab strip is a page-neutral surface,
 // and `HT` -> `HB` is what the plan names for a hovered control face.
-const TAB_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
+static TAB_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
@@ -2755,7 +2755,7 @@ const TAB_HOVER_STOPS: &[NormalizedLinearColorStop] = &[
     },
 ];
 
-const TAB_HOVER_STOPS_DARK: &[NormalizedLinearColorStop] = &[
+static TAB_HOVER_STOPS_DARK: &[NormalizedLinearColorStop] = &[
     NormalizedLinearColorStop {
         offset_px: FloatValue::const_new(0),
         offset: PercentageValue::const_new(0),
@@ -2768,7 +2768,7 @@ const TAB_HOVER_STOPS_DARK: &[NormalizedLinearColorStop] = &[
     },
 ];
 
-const TAB_HOVER_FILL: &[StyleBackgroundContent] =
+static TAB_HOVER_FILL: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
@@ -2778,7 +2778,7 @@ const TAB_HOVER_FILL: &[StyleBackgroundContent] =
         stops: NormalizedLinearColorStopVec::from_const_slice(TAB_HOVER_STOPS),
     })];
 
-const TAB_HOVER_FILL_DARK: &[StyleBackgroundContent] =
+static TAB_HOVER_FILL_DARK: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::LinearGradient(LinearGradient {
         direction: Direction::FromTo(DirectionCorners {
             dir_from: DirectionCorner::Top,
@@ -3720,7 +3720,7 @@ pub fn search_field(field: Dom, clear: Dom) -> Dom {
 /// The border of a text field whose value the user edited into an INVALID
 /// state (`type=email` / `type=url` syntax, `pattern`): the danger red the
 /// flat Danger button carries. Light mode.
-pub const INVALID_RING: ColorU = ColorU {
+pub static INVALID_RING: ColorU = ColorU {
     r: 220,
     g: 53,
     b: 69,
@@ -3729,7 +3729,7 @@ pub const INVALID_RING: ColorU = ColorU {
 
 /// [`INVALID_RING`] in the dark theme: lifted so it still reads as red on a
 /// dark field instead of sinking into it.
-pub const DARK_INVALID_RING: ColorU = ColorU {
+pub static DARK_INVALID_RING: ColorU = ColorU {
     r: 241,
     g: 112,
     b: 123,
@@ -4768,7 +4768,7 @@ fn on_base(
 // hover.
 
 /// The group-header blue of Explorer's groups (#1E3287).
-const GROUP_HEADER_INK: ColorU = ColorU {
+static GROUP_HEADER_INK: ColorU = ColorU {
     r: 30,
     g: 50,
     b: 135,
@@ -4776,7 +4776,7 @@ const GROUP_HEADER_INK: ColorU = ColorU {
 };
 
 /// The hairline after a group's title (#E2E2E2).
-const GROUP_RULE: ColorU = ColorU {
+static GROUP_RULE: ColorU = ColorU {
     r: 226,
     g: 226,
     b: 226,
@@ -4845,47 +4845,47 @@ pub fn accordion_groups(a: crate::widgets::accordion::Accordion) -> Dom {
 // selection, flat's dark row hover.
 
 /// Explorer's capacity blue.
-const TILE_BAR_FILL: ColorU = ColorU {
+static TILE_BAR_FILL: ColorU = ColorU {
     r: 38,
     g: 160,
     b: 218,
     a: 255,
 };
 /// Explorer's capacity red: the volume is nearly full.
-const TILE_BAR_ALARM: ColorU = ColorU {
+static TILE_BAR_ALARM: ColorU = ColorU {
     r: 218,
     g: 38,
     b: 38,
     a: 255,
 };
 /// The bar's track.
-const TILE_BAR_TRACK: ColorU = ColorU {
+static TILE_BAR_TRACK: ColorU = ColorU {
     r: 230,
     g: 230,
     b: 230,
     a: 255,
 };
 /// The tile icon's steel blue, by day and by night.
-const TILE_ICON_LIGHT: ColorU = ColorU {
+static TILE_ICON_LIGHT: ColorU = ColorU {
     r: 61,
     g: 106,
     b: 168,
     a: 255,
 };
-const TILE_ICON_DARK: ColorU = ColorU {
+static TILE_ICON_DARK: ColorU = ColorU {
     r: 122,
     g: 167,
     b: 224,
     a: 255,
 };
 /// Outlook 2010's selection blue (#C1DCFC); a night-blue selection in the dark.
-const TILE_SELECTED_LIGHT: ColorU = ColorU {
+static TILE_SELECTED_LIGHT: ColorU = ColorU {
     r: 193,
     g: 220,
     b: 252,
     a: 255,
 };
-const TILE_SELECTED_DARK: ColorU = ColorU {
+static TILE_SELECTED_DARK: ColorU = ColorU {
     r: 46,
     g: 74,
     b: 110,
@@ -5400,26 +5400,26 @@ const fn shell_border_top() -> [CssPropertyWithConditions; 2] {
 }
 
 /// The backdrop tint under the command palette, by day and by night.
-const SHELL_BACKDROP_LIGHT: ColorU = ColorU {
+static SHELL_BACKDROP_LIGHT: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 96,
 };
-const SHELL_BACKDROP_DARK: ColorU = ColorU {
+static SHELL_BACKDROP_DARK: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 150,
 };
 /// The palette panel's shadow.
-const SHELL_SHADOW_LIGHT: ColorU = ColorU {
+static SHELL_SHADOW_LIGHT: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
     a: 70,
 };
-const SHELL_SHADOW_DARK: ColorU = ColorU {
+static SHELL_SHADOW_DARK: ColorU = ColorU {
     r: 0,
     g: 0,
     b: 0,
@@ -6112,9 +6112,9 @@ pub fn wizard_layout(w: crate::widgets::wizard_layout::WizardLayout) -> Dom {
 // desktop's surfaces and inks.
 
 /// The search match's wash, light and dark.
-const KIT_MARK_LIGHT: ColorU = ColorU::new(255, 230, 150, 255);
-const KIT_MARK_DARK: ColorU = ColorU::new(110, 90, 20, 255);
-const KIT_MARK_INK_DARK: ColorU = ColorU::new(255, 236, 179, 255);
+static KIT_MARK_LIGHT: ColorU = ColorU::new(255, 230, 150, 255);
+static KIT_MARK_DARK: ColorU = ColorU::new(110, 90, 20, 255);
+static KIT_MARK_INK_DARK: ColorU = ColorU::new(255, 236, 179, 255);
 
 /// Flat's dialog-kit look.
 #[must_use]
@@ -6293,18 +6293,18 @@ pub(crate) fn dialog_kit_look() -> crate::widgets::dialog_kit::DialogKitLook {
 // red line through the ruler and the lanes; focus is the field ring inside
 // the lanes. At night the desktop's dark surfaces, the tints a step deeper.
 
-const TIMELINE_VIDEO_LIGHT: ColorU = ColorU::rgb(0x4F, 0x74, 0xBF);
-const TIMELINE_VIDEO_DARK: ColorU = ColorU::rgb(0x3D, 0x5C, 0x99);
-const TIMELINE_AUDIO_LIGHT: ColorU = ColorU::rgb(0x3F, 0x8C, 0x5E);
-const TIMELINE_AUDIO_DARK: ColorU = ColorU::rgb(0x33, 0x70, 0x4B);
-const TIMELINE_TITLE_LIGHT: ColorU = ColorU::rgb(0x8E, 0x58, 0xB0);
-const TIMELINE_TITLE_DARK: ColorU = ColorU::rgb(0x6E, 0x44, 0x8A);
-const TIMELINE_MUTED_LIGHT: ColorU = ColorU::rgb(0x7A, 0x80, 0x8A);
-const TIMELINE_MUTED_DARK: ColorU = ColorU::rgb(0x52, 0x57, 0x5F);
-const TIMELINE_CLIP_INK: ColorU = ColorU::rgb(0xFF, 0xFF, 0xFF);
-const TIMELINE_PLAYHEAD_LIGHT: ColorU = ColorU::rgb(0xD0, 0x33, 0x2B);
-const TIMELINE_PLAYHEAD_DARK: ColorU = ColorU::rgb(0xFF, 0x5F, 0x52);
-const TIMELINE_SELECTED_RING: ColorU = ColorU::rgb(0xFF, 0xD3, 0x4D);
+static TIMELINE_VIDEO_LIGHT: ColorU = ColorU::rgb(0x4F, 0x74, 0xBF);
+static TIMELINE_VIDEO_DARK: ColorU = ColorU::rgb(0x3D, 0x5C, 0x99);
+static TIMELINE_AUDIO_LIGHT: ColorU = ColorU::rgb(0x3F, 0x8C, 0x5E);
+static TIMELINE_AUDIO_DARK: ColorU = ColorU::rgb(0x33, 0x70, 0x4B);
+static TIMELINE_TITLE_LIGHT: ColorU = ColorU::rgb(0x8E, 0x58, 0xB0);
+static TIMELINE_TITLE_DARK: ColorU = ColorU::rgb(0x6E, 0x44, 0x8A);
+static TIMELINE_MUTED_LIGHT: ColorU = ColorU::rgb(0x7A, 0x80, 0x8A);
+static TIMELINE_MUTED_DARK: ColorU = ColorU::rgb(0x52, 0x57, 0x5F);
+static TIMELINE_CLIP_INK: ColorU = ColorU::rgb(0xFF, 0xFF, 0xFF);
+static TIMELINE_PLAYHEAD_LIGHT: ColorU = ColorU::rgb(0xD0, 0x33, 0x2B);
+static TIMELINE_PLAYHEAD_DARK: ColorU = ColorU::rgb(0xFF, 0x5F, 0x52);
+static TIMELINE_SELECTED_RING: ColorU = ColorU::rgb(0xFF, 0xD3, 0x4D);
 
 /// A line `px` wide (a tick, the playhead).
 fn flat_timeline_line(px: isize, light: ColorU, dark: ColorU) -> Vec<CssPropertyWithConditions> {
@@ -6427,15 +6427,15 @@ pub fn timeline(t: crate::widgets::timeline::Timeline) -> Dom {
 // focus is the field ring inside it. At night the grey lightens, the handles
 // take the desktop's surface and the blue lifts.
 
-const ADORNER_FRAME_LIGHT: ColorU = ColorU::new(0x7A, 0x7A, 0x7A, 255);
-const ADORNER_FRAME_DARK: ColorU = ColorU::new(0xB4, 0xB4, 0xB4, 255);
-const ADORNER_HANDLE_LIGHT: ColorU = ColorU::new(0xFF, 0xFF, 0xFF, 255);
-const ADORNER_GUIDE_LIGHT: ColorU = ColorU::new(0xE0, 0x4E, 0x39, 255);
-const ADORNER_GUIDE_DARK: ColorU = ColorU::new(0xFF, 0x7B, 0x63, 255);
-const ADORNER_MARQUEE_LIGHT: ColorU = ColorU::new(0x2B, 0x57, 0x9A, 31);
-const ADORNER_MARQUEE_DARK: ColorU = ColorU::new(0x6C, 0xA0, 0xE8, 46);
-const ADORNER_MARQUEE_EDGE_LIGHT: ColorU = ColorU::new(0x2B, 0x57, 0x9A, 255);
-const ADORNER_MARQUEE_EDGE_DARK: ColorU = ColorU::new(0x6C, 0xA0, 0xE8, 255);
+static ADORNER_FRAME_LIGHT: ColorU = ColorU::new(0x7A, 0x7A, 0x7A, 255);
+static ADORNER_FRAME_DARK: ColorU = ColorU::new(0xB4, 0xB4, 0xB4, 255);
+static ADORNER_HANDLE_LIGHT: ColorU = ColorU::new(0xFF, 0xFF, 0xFF, 255);
+static ADORNER_GUIDE_LIGHT: ColorU = ColorU::new(0xE0, 0x4E, 0x39, 255);
+static ADORNER_GUIDE_DARK: ColorU = ColorU::new(0xFF, 0x7B, 0x63, 255);
+static ADORNER_MARQUEE_LIGHT: ColorU = ColorU::new(0x2B, 0x57, 0x9A, 31);
+static ADORNER_MARQUEE_DARK: ColorU = ColorU::new(0x6C, 0xA0, 0xE8, 46);
+static ADORNER_MARQUEE_EDGE_LIGHT: ColorU = ColorU::new(0x2B, 0x57, 0x9A, 255);
+static ADORNER_MARQUEE_EDGE_DARK: ColorU = ColorU::new(0x6C, 0xA0, 0xE8, 255);
 
 /// Flat's selection-adorner look.
 #[must_use]
@@ -6479,11 +6479,11 @@ pub(crate) fn selection_adorner_look() -> crate::widgets::selection_adorner::Sel
 // the section headers semibold in the ink; focus is the field ring inside
 // the item. At night the desktop's surfaces and inks, the orange lifts.
 
-const THUMB_SELECTED_LIGHT: ColorU = ColorU::new(0xD2, 0x47, 0x26, 255);
-const THUMB_SELECTED_DARK: ColorU = ColorU::new(0xF2, 0x8B, 0x6A, 255);
-const THUMB_PAPER_LIGHT: ColorU = ColorU::new(0xFF, 0xFF, 0xFF, 255);
-const THUMB_ITEM_SELECTED_LIGHT: ColorU = ColorU::new(0xFC, 0xE4, 0xD6, 255);
-const THUMB_ITEM_SELECTED_DARK: ColorU = ColorU::new(0x4A, 0x30, 0x26, 255);
+static THUMB_SELECTED_LIGHT: ColorU = ColorU::new(0xD2, 0x47, 0x26, 255);
+static THUMB_SELECTED_DARK: ColorU = ColorU::new(0xF2, 0x8B, 0x6A, 255);
+static THUMB_PAPER_LIGHT: ColorU = ColorU::new(0xFF, 0xFF, 0xFF, 255);
+static THUMB_ITEM_SELECTED_LIGHT: ColorU = ColorU::new(0xFC, 0xE4, 0xD6, 255);
+static THUMB_ITEM_SELECTED_DARK: ColorU = ColorU::new(0x4A, 0x30, 0x26, 255);
 
 /// Flat's thumbnail-strip look.
 #[must_use]
@@ -6904,7 +6904,7 @@ pub(crate) fn chart_skin() -> crate::widgets::chart::ChartSkin {
 // dark row hover, the tree's dark selection.
 
 /// Explorer's checked hairline (#99D1FF) around a toggle that is on.
-const TOOLBAR_CHECKED_EDGE_LIGHT: ColorU = ColorU::rgb(0x99, 0xD1, 0xFF);
+static TOOLBAR_CHECKED_EDGE_LIGHT: ColorU = ColorU::rgb(0x99, 0xD1, 0xFF);
 
 /// A flat tool's states - the hover face and hairline, the pressed face,
 /// the focus ring, the face's fade - appended after any resting face (a
@@ -6965,8 +6965,8 @@ pub(crate) fn toolbar_look() -> crate::widgets::toolbar::ToolbarLook {
 // pointer, the highlighted one rests on the selection blue.
 
 /// The flat suggestions' shadow, by day and by night.
-const TOKEN_LIST_SHADOW_LIGHT: ColorU = ColorU::new(0, 0, 0, 40);
-const TOKEN_LIST_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 120);
+static TOKEN_LIST_SHADOW_LIGHT: ColorU = ColorU::new(0, 0, 0, 40);
+static TOKEN_LIST_SHADOW_DARK: ColorU = ColorU::new(0, 0, 0, 120);
 
 /// Flat's token-input look.
 #[must_use]
@@ -7226,12 +7226,12 @@ pub(crate) const fn terminal_palette() -> crate::widgets::terminal_view::Termina
 // clear green, amber past -18 dB, red past -6 dB. At night the trough is
 // the dark track and the three colours lift.
 
-const LEVEL_OK_LIGHT: ColorU = ColorU::new(0x2E, 0x9E, 0x4F, 255);
-const LEVEL_OK_DARK: ColorU = ColorU::new(0x4C, 0xC4, 0x6B, 255);
-const LEVEL_WARM_LIGHT: ColorU = ColorU::new(0xE0, 0xA8, 0x00, 255);
-const LEVEL_WARM_DARK: ColorU = ColorU::new(0xF2, 0xC2, 0x30, 255);
-const LEVEL_HOT_LIGHT: ColorU = ColorU::new(0xD9, 0x30, 0x25, 255);
-const LEVEL_HOT_DARK: ColorU = ColorU::new(0xF0, 0x6A, 0x5F, 255);
+static LEVEL_OK_LIGHT: ColorU = ColorU::new(0x2E, 0x9E, 0x4F, 255);
+static LEVEL_OK_DARK: ColorU = ColorU::new(0x4C, 0xC4, 0x6B, 255);
+static LEVEL_WARM_LIGHT: ColorU = ColorU::new(0xE0, 0xA8, 0x00, 255);
+static LEVEL_WARM_DARK: ColorU = ColorU::new(0xF2, 0xC2, 0x30, 255);
+static LEVEL_HOT_LIGHT: ColorU = ColorU::new(0xD9, 0x30, 0x25, 255);
+static LEVEL_HOT_DARK: ColorU = ColorU::new(0xF0, 0x6A, 0x5F, 255);
 
 /// Flat's level-meter look.
 #[must_use]

@@ -2641,7 +2641,7 @@ pub(crate) struct CodeViewLook {
 }
 
 /// The OS monospace face (SF Mono, Consolas, the desktop's monospace).
-const MONO_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::SystemType(SystemFontType::Monospace)];
+static MONO_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::SystemType(SystemFontType::Monospace)];
 const MONO_FAMILY: StyleFontFamilyVec = StyleFontFamilyVec::from_const_slice(MONO_FAMILIES);
 
 /// The view: a column of lines that takes its pane, clips what does not

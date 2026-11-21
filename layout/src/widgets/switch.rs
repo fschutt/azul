@@ -116,34 +116,34 @@ const KNOB_RADIUS: isize = 8;
 const KNOB_TRAVEL: isize = TRACK_WIDTH - (2 * TRACK_PADDING) - KNOB_SIZE;
 
 // ---- colours ----
-const TRACK_OFF_COLOR: ColorU = ColorU {
+static TRACK_OFF_COLOR: ColorU = ColorU {
     r: 204,
     g: 204,
     b: 204,
     a: 255,
 }; // #cccccc
-const TRACK_ON_COLOR: ColorU = ColorU {
+static TRACK_ON_COLOR: ColorU = ColorU {
     r: 76,
     g: 217,
     b: 100,
     a: 255,
 }; // #4cd964
-const KNOB_COLOR: ColorU = ColorU {
+static KNOB_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 }; // white
 
-const TRACK_OFF_BG_ITEMS: &[StyleBackgroundContent] =
+static TRACK_OFF_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(TRACK_OFF_COLOR)];
 const TRACK_OFF_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(TRACK_OFF_BG_ITEMS);
-const TRACK_ON_BG_ITEMS: &[StyleBackgroundContent] =
+static TRACK_ON_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(TRACK_ON_COLOR)];
 const TRACK_ON_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(TRACK_ON_BG_ITEMS);
-const KNOB_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(KNOB_COLOR)];
+static KNOB_BG_ITEMS: &[StyleBackgroundContent] = &[StyleBackgroundContent::Color(KNOB_COLOR)];
 const KNOB_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(KNOB_BG_ITEMS);
 
@@ -156,11 +156,11 @@ const KNOB_BG: StyleBackgroundContentVec =
 // knob slid by `margin-left`: 20 ms for a 16 px move in AzWidgets). The off state
 // declares `translateX(0px)`, not `none`, so the knob's reference frame exists
 // from the first layout and the first toggle needs no display-list rebuild either.
-const KNOB_OFF_TRANSFORM_ITEMS: &[StyleTransform] =
+static KNOB_OFF_TRANSFORM_ITEMS: &[StyleTransform] =
     &[StyleTransform::TranslateX(PixelValue::const_px(0))];
 const KNOB_OFF_TRANSFORM: StyleTransformVec =
     StyleTransformVec::from_const_slice(KNOB_OFF_TRANSFORM_ITEMS);
-const KNOB_ON_TRANSFORM_ITEMS: &[StyleTransform] = &[StyleTransform::TranslateX(
+static KNOB_ON_TRANSFORM_ITEMS: &[StyleTransform] = &[StyleTransform::TranslateX(
     PixelValue::const_px(KNOB_TRAVEL),
 )];
 const KNOB_ON_TRANSFORM: StyleTransformVec =

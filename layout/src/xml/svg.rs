@@ -111,7 +111,7 @@ use azul_core::gl::GL_RESTART_INDEX;
 const CIRCLE_BEZIER_KAPPA: f64 = 0.552_284_749_8;
 
 /// Default render size (width, height) when no target size is specified for SVG rendering.
-const DEFAULT_SVG_RENDER_SIZE: (u32, u32) = (800, 600);
+static DEFAULT_SVG_RENDER_SIZE: (u32, u32) = (800, 600);
 
 #[cfg(feature = "svg")]
 const fn translate_svg_line_join(e: SvgLineJoin) -> lyon::tessellation::LineJoin {

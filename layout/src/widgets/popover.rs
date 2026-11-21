@@ -77,14 +77,14 @@ const CONTENT_RADIUS: isize = 6;
 
 // ---- colours ----
 /// Panel background (white).
-const CONTENT_BG_COLOR: ColorU = ColorU {
+static CONTENT_BG_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 /// Panel border (#cccccc).
-const CONTENT_BORDER_COLOR: ColorU = ColorU {
+static CONTENT_BORDER_COLOR: ColorU = ColorU {
     r: 204,
     g: 204,
     b: 204,

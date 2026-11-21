@@ -518,7 +518,7 @@ const fn unavailable_close(_handle: u64) {}
 
 /// A camera a headless run did not ask for: it opens nothing (and says so),
 /// and ends before its first frame, so the tile keeps its placeholder.
-const UNAVAILABLE_CAMERA: CaptureVTable = CaptureVTable {
+static UNAVAILABLE_CAMERA: CaptureVTable = CaptureVTable {
     open: unavailable_camera_open,
     read: unavailable_read,
     close: unavailable_close,
@@ -526,7 +526,7 @@ const UNAVAILABLE_CAMERA: CaptureVTable = CaptureVTable {
 };
 
 /// A screen a headless run did not ask for: see [`UNAVAILABLE_CAMERA`].
-const UNAVAILABLE_SCREEN: CaptureVTable = CaptureVTable {
+static UNAVAILABLE_SCREEN: CaptureVTable = CaptureVTable {
     open: unavailable_screen_open,
     read: unavailable_read,
     close: unavailable_close,
@@ -535,7 +535,7 @@ const UNAVAILABLE_SCREEN: CaptureVTable = CaptureVTable {
 
 /// A microphone a headless run did not ask for: it opens nothing (and says
 /// so), and delivers no samples.
-const UNAVAILABLE_MIC: AudioCaptureVTable = AudioCaptureVTable {
+static UNAVAILABLE_MIC: AudioCaptureVTable = AudioCaptureVTable {
     open: unavailable_mic_open,
     read: unavailable_mic_read,
     close: unavailable_close,
@@ -985,7 +985,7 @@ struct TestPatternState {
 }
 
 /// Interval between two test-pattern frames (~30 fps).
-const TEST_PATTERN_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
+static TEST_PATTERN_FRAME: std::time::Duration = std::time::Duration::from_millis(33);
 
 fn test_pattern_open(request: &CaptureRequest, kind: TestPattern) -> u64 {
     if request.width == 0 || request.height == 0 {
@@ -1075,7 +1075,7 @@ pub const fn test_pattern_vtable(kind: TestPattern) -> CaptureVTable {
 /// Frequency of the built-in microphone test tone.
 const TEST_TONE_HZ: f32 = 440.0;
 /// Interval between two test-tone chunks (one chunk is ~20 ms of samples).
-const TEST_TONE_CHUNK: std::time::Duration = std::time::Duration::from_millis(20);
+static TEST_TONE_CHUNK: std::time::Duration = std::time::Duration::from_millis(20);
 
 struct TestToneState {
     channels: u16,

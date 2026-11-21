@@ -47,81 +47,81 @@ use azul_css::{
 // ---------------------------------------------------------------------------
 
 /// `system:text` - primary label text.
-pub const TEXT: ColorU = SystemColorRef::Text.to_color_token();
+pub static TEXT: ColorU = SystemColorRef::Text.to_color_token();
 /// `system:secondary-text` - captions, field labels, dim text.
-pub const SECONDARY_TEXT: ColorU = SystemColorRef::SecondaryText.to_color_token();
+pub static SECONDARY_TEXT: ColorU = SystemColorRef::SecondaryText.to_color_token();
 /// `system:tertiary-text` - the least prominent text.
-pub const TERTIARY_TEXT: ColorU = SystemColorRef::TertiaryText.to_color_token();
+pub static TERTIARY_TEXT: ColorU = SystemColorRef::TertiaryText.to_color_token();
 /// `system:disabled-text` - a disabled control's label.
-pub const DISABLED_TEXT: ColorU = SystemColorRef::DisabledText.to_color_token();
+pub static DISABLED_TEXT: ColorU = SystemColorRef::DisabledText.to_color_token();
 /// `system:placeholder-text` - the prompt in an empty field.
-pub const PLACEHOLDER_TEXT: ColorU = SystemColorRef::PlaceholderText.to_color_token();
+pub static PLACEHOLDER_TEXT: ColorU = SystemColorRef::PlaceholderText.to_color_token();
 /// `system:button-text` - a push button's label.
-pub const BUTTON_TEXT: ColorU = SystemColorRef::ButtonText.to_color_token();
+pub static BUTTON_TEXT: ColorU = SystemColorRef::ButtonText.to_color_token();
 /// `system:accent` - the user's accent, as a text or border colour.
-pub const ACCENT: ColorU = SystemColorRef::Accent.to_color_token();
+pub static ACCENT: ColorU = SystemColorRef::Accent.to_color_token();
 /// `system:accent-text` - text on an accent-coloured surface.
-pub const ACCENT_TEXT: ColorU = SystemColorRef::AccentText.to_color_token();
+pub static ACCENT_TEXT: ColorU = SystemColorRef::AccentText.to_color_token();
 /// `system:selection-text` - text on a selected item.
-pub const SELECTION_TEXT: ColorU = SystemColorRef::SelectionText.to_color_token();
+pub static SELECTION_TEXT: ColorU = SystemColorRef::SelectionText.to_color_token();
 /// `system:link` - hyperlinks and link-like navigation.
-pub const LINK: ColorU = SystemColorRef::Link.to_color_token();
+pub static LINK: ColorU = SystemColorRef::Link.to_color_token();
 /// `system:separator` - rules, dividers and control outlines.
-pub const SEPARATOR: ColorU = SystemColorRef::Separator.to_color_token();
+pub static SEPARATOR: ColorU = SystemColorRef::Separator.to_color_token();
 /// `system:grid` - table and grid lines.
-pub const GRID: ColorU = SystemColorRef::Grid.to_color_token();
+pub static GRID: ColorU = SystemColorRef::Grid.to_color_token();
 /// `system:danger` - an error line, a destructive command, a failed job.
-pub const DANGER: ColorU = SystemColorRef::Danger.to_color_token();
+pub static DANGER: ColorU = SystemColorRef::Danger.to_color_token();
 /// `system:danger-text` - text on a [`DANGER`] fill.
-pub const DANGER_TEXT: ColorU = SystemColorRef::DangerText.to_color_token();
+pub static DANGER_TEXT: ColorU = SystemColorRef::DangerText.to_color_token();
 /// `system:warning` - a caution, a limit coming close.
-pub const WARNING: ColorU = SystemColorRef::Warning.to_color_token();
+pub static WARNING: ColorU = SystemColorRef::Warning.to_color_token();
 /// `system:warning-text` - text on a [`WARNING`] fill.
-pub const WARNING_TEXT: ColorU = SystemColorRef::WarningText.to_color_token();
+pub static WARNING_TEXT: ColorU = SystemColorRef::WarningText.to_color_token();
 /// `system:success` - a finished or passed state.
-pub const SUCCESS: ColorU = SystemColorRef::Success.to_color_token();
+pub static SUCCESS: ColorU = SystemColorRef::Success.to_color_token();
 /// `system:success-text` - text on a [`SUCCESS`] fill.
-pub const SUCCESS_TEXT: ColorU = SystemColorRef::SuccessText.to_color_token();
+pub static SUCCESS_TEXT: ColorU = SystemColorRef::SuccessText.to_color_token();
 
 // ---------------------------------------------------------------------------
 // Background layers
 // ---------------------------------------------------------------------------
 
-const WINDOW_BACKGROUND_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
+static WINDOW_BACKGROUND_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
     SystemColorRef::WindowBackground,
 )];
 /// `system:window-background` - panels, cards, dialogs, popups.
 pub const WINDOW_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(WINDOW_BACKGROUND_LAYER);
 
-const CONTROL_BACKGROUND_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
+static CONTROL_BACKGROUND_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
     SystemColorRef::ControlBackground,
 )];
 /// `system:control-background` - text fields, lists, drop-downs.
 pub const CONTROL_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(CONTROL_BACKGROUND_LAYER);
 
-const BUTTON_FACE_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
+static BUTTON_FACE_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
     SystemColorRef::ButtonFace,
 )];
 /// `system:button-face` - a neutral push button.
 pub const BUTTON_FACE: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(BUTTON_FACE_LAYER);
 
-const ACCENT_LAYER: &[StyleBackgroundContent] =
+static ACCENT_LAYER: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::SystemColor(SystemColorRef::Accent)];
 /// `system:accent` as a surface - a checked box, an active step, a thumb.
 pub const ACCENT_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(ACCENT_LAYER);
 
-const SELECTION_BACKGROUND_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
+static SELECTION_BACKGROUND_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
     SystemColorRef::SelectionBackground,
 )];
 /// `system:selection-background` - a selected item or row.
 pub const SELECTION_BACKGROUND: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(SELECTION_BACKGROUND_LAYER);
 
-const SELECTION_BACKGROUND_INACTIVE_LAYER: &[StyleBackgroundContent] =
+static SELECTION_BACKGROUND_INACTIVE_LAYER: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::SystemColor(
         SystemColorRef::SelectionBackgroundInactive,
     )];
@@ -130,7 +130,7 @@ const SELECTION_BACKGROUND_INACTIVE_LAYER: &[StyleBackgroundContent] =
 pub const SELECTION_BACKGROUND_INACTIVE: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(SELECTION_BACKGROUND_INACTIVE_LAYER);
 
-const UNDER_PAGE_BACKGROUND_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
+static UNDER_PAGE_BACKGROUND_LAYER: &[StyleBackgroundContent] = &[StyleBackgroundContent::SystemColor(
     SystemColorRef::UnderPageBackground,
 )];
 /// `system:under-page-background` - the recessed canvas behind content.
@@ -160,7 +160,7 @@ pub const DARK_ACCENT_BACKGROUND: CssPropertyWithConditions =
         ACCENT_BACKGROUND,
     ));
 /// Dark twin: the surface is `system:selection-background`.
-pub const DARK_SELECTION_BACKGROUND: CssPropertyWithConditions =
+pub static DARK_SELECTION_BACKGROUND: CssPropertyWithConditions =
     CssPropertyWithConditions::dark_mode(CssProperty::const_background_content(
         SELECTION_BACKGROUND,
     ));
@@ -175,13 +175,13 @@ pub const DARK_TEXT: CssPropertyWithConditions = dark_text(TEXT);
 /// Dark twin: the text is `system:secondary-text`.
 pub const DARK_SECONDARY_TEXT: CssPropertyWithConditions = dark_text(SECONDARY_TEXT);
 /// Dark twin: the text is `system:disabled-text`.
-pub const DARK_DISABLED_TEXT: CssPropertyWithConditions = dark_text(DISABLED_TEXT);
+pub static DARK_DISABLED_TEXT: CssPropertyWithConditions = dark_text(DISABLED_TEXT);
 /// Dark twin: the text is `system:button-text`.
 pub const DARK_BUTTON_TEXT: CssPropertyWithConditions = dark_text(BUTTON_TEXT);
 /// Dark twin: the text is `system:accent-text`.
 pub const DARK_ACCENT_TEXT: CssPropertyWithConditions = dark_text(ACCENT_TEXT);
 /// Dark twin: the text is `system:selection-text`.
-pub const DARK_SELECTION_TEXT: CssPropertyWithConditions = dark_text(SELECTION_TEXT);
+pub static DARK_SELECTION_TEXT: CssPropertyWithConditions = dark_text(SELECTION_TEXT);
 /// Dark twin: the text is `system:link`.
 pub const DARK_LINK: CssPropertyWithConditions = dark_text(LINK);
 

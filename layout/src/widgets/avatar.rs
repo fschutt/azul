@@ -49,21 +49,21 @@ pub static AVATAR_INITIALS_CLASS: &[IdOrClass] = &[Class(AzString::from_const_st
 ))];
 
 /// Neutral background (#6c757d, grey) shown behind the initials.
-const AVATAR_BG_COLOR: ColorU = ColorU {
+static AVATAR_BG_COLOR: ColorU = ColorU {
     r: 108,
     g: 117,
     b: 125,
     a: 255,
 };
 /// Initials text colour (white).
-const AVATAR_TEXT_COLOR: ColorU = ColorU {
+static AVATAR_TEXT_COLOR: ColorU = ColorU {
     r: 255,
     g: 255,
     b: 255,
     a: 255,
 };
 
-const AVATAR_BG_ITEMS: &[StyleBackgroundContent] =
+static AVATAR_BG_ITEMS: &[StyleBackgroundContent] =
     &[StyleBackgroundContent::Color(AVATAR_BG_COLOR)];
 const AVATAR_BG: StyleBackgroundContentVec =
     StyleBackgroundContentVec::from_const_slice(AVATAR_BG_ITEMS);

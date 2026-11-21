@@ -38,12 +38,12 @@ pub struct Label {
 
 const SANS_SERIF_STR: &str = "system:ui";
 const SANS_SERIF: AzString = AzString::from_const_str(SANS_SERIF_STR);
-const SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
+static SANS_SERIF_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(SANS_SERIF)];
 const SANS_SERIF_FAMILY: StyleFontFamilyVec =
     StyleFontFamilyVec::from_const_slice(SANS_SERIF_FAMILIES);
 
 /// Standard label text color (#4C4C4C), matching platform UI defaults.
-const COLOR_4C4C4C: ColorU = ColorU {
+static COLOR_4C4C4C: ColorU = ColorU {
     r: 76,
     g: 76,
     b: 76,

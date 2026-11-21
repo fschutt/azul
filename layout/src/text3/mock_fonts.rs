@@ -79,10 +79,10 @@
 use rust_fontconfig::UnicodeRange;
 
 /// `Azul Mock Mono`: every ASCII glyph advances 0.5 em (10 px at 20 px).
-pub const MOCK_MONO_TTF: &[u8] = include_bytes!("../../assets/fonts/test/azul-mock-mono.ttf");
+pub static MOCK_MONO_TTF: &[u8] = include_bytes!("../../assets/fonts/test/azul-mock-mono.ttf");
 
 /// `Azul Mock Wide`: every ASCII glyph advances 1.0 em (20 px at 20 px).
-pub const MOCK_WIDE_TTF: &[u8] = include_bytes!("../../assets/fonts/test/azul-mock-wide.ttf");
+pub static MOCK_WIDE_TTF: &[u8] = include_bytes!("../../assets/fonts/test/azul-mock-wide.ttf");
 
 /// Codepoints the mock fonts cover (printable ASCII). Anything outside this
 /// range is deliberately *not* covered, so it exercises real fallback.
@@ -100,7 +100,7 @@ pub fn mock_font_ranges() -> Vec<UnicodeRange> {
 /// is intentional: it keeps the production and test font paths identical,
 /// costs ~30 KiB, and the families are only reachable if a stylesheet asks
 /// for them by name.
-pub const BUILTIN_MOCK_FONTS: &[(&str, &[u8])] = &[
+pub static BUILTIN_MOCK_FONTS: &[(&str, &[u8])] = &[
     ("Azul Mock Mono", MOCK_MONO_TTF),
     ("Azul Mock Wide", MOCK_WIDE_TTF),
 ];

@@ -145,7 +145,7 @@ use azul_core::{
 };
 
 /// Sentinel value for "position not yet computed". No real position is ever `f32::MIN`.
-pub(crate) const POSITION_UNSET: LogicalPosition = LogicalPosition {
+pub(crate) static POSITION_UNSET: LogicalPosition = LogicalPosition {
     x: f32::MIN,
     y: f32::MIN,
 };
