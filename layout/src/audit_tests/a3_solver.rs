@@ -1365,6 +1365,68 @@ fn a_box_at_its_static_position_follows_the_flow_of_a_parent_laid_out_again() {
     assert_as_in_a_fresh_layout(&incremental, &fresh, &[2, 3, 4]);
 }
 
+/// What the layout kept of the sticky box of DOM node `node` for later scrolls: where normal
+/// flow put it (y) and the shift it applied (y).
+fn sticky_of(lw: &LayoutWindow, node: usize) -> (f32, f32) {
+    let lr = &lw.layout_results[&DomId::ROOT_ID];
+    let index = *lr
+        .layout_tree
+        .dom_to_layout
+        .get(&NodeId::new(node))
+        .and_then(|v| v.first())
+        .expect("the node is laid out");
+    let kept = lr
+        .layout_tree
+        .warm(index)
+        .and_then(|w| w.sticky.as_deref())
+        .expect("the box is sticky");
+    (kept.static_rect.origin.y, kept.baked.y)
+}
+
+/// A3-solver-44. `positioning::adjust_sticky_positions` takes a sticky box's position for where
+/// normal flow put it, shifts it, and keeps both for later scrolls (`StickyConstraint`: the
+/// static place and the shift baked in). An incremental pass that lays out another subtree
+/// leaves the box's position as the pass before SHIFTED it, and the box was then taken to stand
+/// there by the flow: the kept static place became the shifted one and the baked shift 0, so
+/// the next scroll moved the box from the wrong place.
+///
+/// `body(0) > [.c(1) > .s(2), .g(3) > .x(4)]`: `.s` is `sticky; top: 50px` at the top of the
+/// 300 px block `.c`, so the unscrolled viewport holds it 50 below its place: static y = 0,
+/// shift 50. `.x` gets another width; `.g` has a definite height, so nothing else is laid out.
+///
+/// Mutation: `static_pos` taken from the slot for a box the pass did not place keeps
+/// (50, 0) instead of (0, 50).
+#[test]
+fn a_sticky_box_beside_a_re_laid_one_keeps_its_static_place_for_later_scrolls() {
+    let page = || {
+        Dom::create_body()
+            .with_child(div_class("c").with_child(div_class("s")))
+            .with_child(div_class("g").with_child(div_class("x")))
+    };
+    let base = "body { margin: 0; } .c { height: 300px; } \
+                .s { position: sticky; top: 50px; height: 20px; } \
+                .g { height: 50px; } .x { height: 20px; }";
+    let (first, second) = (
+        format!("{base} .x {{ width: 100px; }}"),
+        format!("{base} .x {{ width: 150px; }}"),
+    );
+    let fresh = fresh(page, &second);
+    let (flow_y, shift_y) = sticky_of(&fresh, 2);
+    assert!(
+        flow_y.abs() < 0.01 && (shift_y - 50.0).abs() < 0.01,
+        "harness: a fresh layout keeps the sticky box's place 0 and shift 50, not {flow_y} and \
+         {shift_y}"
+    );
+    let incremental = restyled(page, &first, &second);
+    assert_as_in_a_fresh_layout(&incremental, &fresh, &[2]);
+    let (flow_y, shift_y) = sticky_of(&incremental, 2);
+    assert!(
+        flow_y.abs() < 0.01 && (shift_y - 50.0).abs() < 0.01,
+        "after the incremental pass the sticky box's kept place is {flow_y} and its baked shift \
+         {shift_y}: a fresh layout keeps 0 and 50"
+    );
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
