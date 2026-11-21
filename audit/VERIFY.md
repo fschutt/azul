@@ -102,6 +102,13 @@ Pre-existing tests whose expectation an area changed on purpose (the area's note
   90x70 @ (95,75)): A1-64 `6ec61ce06` grows a rect mapped through a composited frame by 2 px x its scale + 1 px
   where it lands: 2 x 2 + 1 = 5 px a side, exactly; the arithmetic is in the tests' comments.
 
+- (second verifier, `270e178c9`) `audit_tests/a3_window.rs`
+  `a_pointer_swept_over_labels_it_never_touched_writes_values_and_changes_no_list`: its last comparison is between
+  the lists of TWO windows, and `TransformKey::unique()` is a process-wide counter: 13 `PushReferenceFrame` lines
+  of 188 differed, only in the key id (4702.. against 5008..); with the id blanked 0 of 188 lines differ. That one
+  comparison now blanks `TransformKey { id: .. }` on both sides (`without_transform_key_ids`); nothing else of
+  the test changed (the coordinator's word).
+
 Audit tests with a wrong premise (blind):
 - `34fc04d1f` `unified_layout.rs` test helper: E0597 (compile).
 - `4f2c8fb32` `raster.rs` `a_repaint_in_bands_is_the_repaint_of_one_pass`: asked `items_walked == 3 x` the one pass;
@@ -348,3 +355,15 @@ What is left for the checkpoint, in order:
   A3-window in `solver3/display_list.rs` `try_copy_cached_run`: both kept (A1's `builder.next_text_ink = ..` line,
   then A3-window's `builder.next_color_binding = binding;`). `audit/diff-first` is still to come (the coordinator
   names the commit; a second conflict in the same function is expected, its commit message says how the lines read).
+- compile fix `b1a7898b2`: `DisplayListGenerator::new` was a `const fn`; A3-core-26's `glyph_boxes` is a `HashMap`
+  (E0015). The only error of the three branches together (the ink table included).
+- layout lib, whole suite, on `b1a7898b2` (log `53-layout-lib`): **10897 passed, 1 failed, 1 ignored**. Failing:
+  `audit_tests::a3_window::a_pointer_swept_over_labels_it_never_touched_writes_values_and_changes_no_list`
+  (harness; corrected in `270e178c9`, see "Tests changed"; to be confirmed by the next layout build). Named and
+  passing: A3-solver `a_journaled_measure` (2), `a_measure_of_` (3), `a_measure_is_kept`, `retain_content`,
+  `node_graph` (146); A4 `a_list_that_is_only_named_by_weak_references_is_written_in_place`; A1 the eight ink
+  tests, the hull / spinner-arc tests, `gpu_value_damage_*` (6), `a2_cpu_04_*`, both random
+  `a2_cpu_the_damaged_render_is_the_full_render_*`, `cpurender` 871 / 0 / 1 ignored; A3-window 53 of 54.
+  `a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` passes WITHOUT diff-first's fix: after the
+  diff-first merge run it once with `AZ_DL_TRANSLATE_MOVED_RUNS=1` and tell the coordinator whether it fails
+  (a real guard) or still passes (its fixture is then corrected in the second round).
