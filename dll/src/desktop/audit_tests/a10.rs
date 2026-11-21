@@ -583,3 +583,82 @@ fn the_macos_draw_rect_presents_once_resizes_in_place_and_can_draw_from_the_fram
         "what is being drawn comes from AppKit's own list, cut inward"
     );
 }
+
+const MACOS_A11Y_RS: &str = include_str!("../shell2/macos/accessibility.rs");
+
+/// A10-19 (the shell side of A3-core-10). On macOS the accessibility tree is
+/// built on demand: the layout side only notes that a pass is due, and the
+/// shell hands the adapter a closure that builds the update. accesskit runs
+/// that closure only while an assistive technology is active, so with none:
+/// no tree is built, and the "last tree sent" does not advance.
+/// - the phase of the feed decides `full`: the first update after an
+///   activation (and after a missed one) is the whole tree;
+/// - `build(full)` is called INSIDE `update_if_active` and nowhere else;
+/// - the on-demand delivery never takes a parked update (`take_pending`):
+///   nothing is parked on that path;
+/// - an activation schedules a delivery, so the tree arrives without a layout.
+///
+/// Mutations: `build(full)` hoisted out of the closure, `wants_full_tree`
+/// true only while awaiting, or the forced activation left in the on-demand
+/// branch of `init_accessibility`, each fail here.
+#[test]
+fn the_macos_accessibility_tree_is_built_inside_the_adapters_closure() {
+    let on_demand = body(MACOS_A11Y_RS, "pub fn update_tree_on_demand(");
+    let closure = on_demand
+        .find("self.adapter.update_if_active(|| {")
+        .expect("the update is handed over through update_if_active");
+    let build = on_demand.find("build(full)").expect("the update is built by the caller's closure");
+    assert!(closure < build, "the tree must be built inside update_if_active's closure");
+    assert_eq!(on_demand.matches("build(full)").count(), 1, "and nowhere else");
+    assert!(
+        on_demand.contains("let full = self.feed.wants_full_tree();")
+            && on_demand.contains("self.feed.built_and_taken();")
+            && on_demand.contains("self.feed.missed();"),
+        "the feed's phase decides whether the whole tree is asked for"
+    );
+
+    let handler = body(MACOS_A11Y_RS, "fn request_initial_tree(&mut self) -> Option<TreeUpdate>");
+    assert!(
+        handler.contains("self.feed.placeholder_requested();")
+            && handler.contains("after_turn::a11y_delivery().request(self.window);"),
+        "an activation must schedule the delivery of the first tree"
+    );
+
+    let deliver = body(MACOS_RS, "fn deliver_a11y_on_demand(&mut self, note_pass: bool)");
+    assert!(
+        deliver.contains("if lw.a11y_update_pending() || adapter.awaiting_tree() {")
+            && deliver.contains("adapter.update_tree_on_demand(|full| lw.a11y_update_on_demand(full));")
+            && !deliver.contains("take_pending"),
+        "the on-demand delivery builds inside the adapter's closure and parks nothing"
+    );
+
+    let init = body(MACOS_RS, "fn init_accessibility(&mut self)");
+    let lazy = init.find("if on_demand {").expect("the on-demand branch of init_accessibility");
+    let forced = init
+        .find("accessibilityChildren]")
+        .expect("the eager path still activates the adapter itself");
+    let lazy_branch = &init[lazy..forced];
+    assert!(
+        lazy_branch.contains("lw.a11y_manager.on_demand = true;") && lazy_branch.contains("return;"),
+        "the on-demand branch must leave before the forced activation"
+    );
+}
+
+/// A10-19. The phases an adapter that builds on demand goes through: no tree
+/// (the whole one is wanted), activated and waiting, active (patches), and
+/// back to "the whole one" after an update it did not take.
+#[cfg(feature = "a11y")]
+#[test]
+fn an_adapter_built_on_demand_gets_the_whole_tree_first_and_after_a_miss() {
+    use crate::desktop::shell2::common::accessibility::A11yTreeFeed;
+    let feed = A11yTreeFeed::new();
+    assert!(feed.wants_full_tree() && !feed.awaiting_tree(), "inactive: nothing is owed yet");
+    feed.placeholder_requested();
+    assert!(feed.wants_full_tree() && feed.awaiting_tree(), "activated: the whole tree is owed");
+    feed.built_and_taken();
+    assert!(!feed.wants_full_tree() && !feed.awaiting_tree(), "active: patches from here on");
+    feed.missed();
+    assert!(feed.wants_full_tree() && feed.awaiting_tree(), "a missed update: the whole tree again");
+    feed.built_and_taken();
+    assert!(!feed.wants_full_tree());
+}

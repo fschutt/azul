@@ -2402,6 +2402,25 @@ pub(crate) fn present_copy_bytes(options: CpuPresentOptions, span: (usize, usize
     }
 }
 
+/// Whether the accessibility tree is built eagerly, after every layout, as
+/// before A10-19: asked for with `AZ_A11Y_EAGER=1`, and always with the debug
+/// server or an E2E script attached (they read the layout side's tree,
+/// `a11y_manager.full_tree()`, without an adapter).
+#[cfg(feature = "a11y")]
+fn a11y_eager() -> bool {
+    a11y_eager_for(
+        std::env::var("AZ_A11Y_EAGER").ok().as_deref(),
+        crate::desktop::shell2::common::debug_server::is_debug_enabled(),
+    )
+}
+
+/// The rule of [`a11y_eager`]: `AZ_A11Y_EAGER` set to anything but `0`, or a
+/// debug / E2E reader attached.
+#[cfg(feature = "a11y")]
+pub(crate) fn a11y_eager_for(env: Option<&str>, debug_reader: bool) -> bool {
+    debug_reader || env.is_some_and(|value| value != "0" && !value.is_empty())
+}
+
 /// What the frame report says of a GPU frame that was rendered and flushed:
 /// `(paint, present)`.
 ///
@@ -11559,9 +11578,39 @@ impl MacOSWindow {
             );
         }
 
+        // A10-19 (A3-core-10): the tree is built ON DEMAND, inside accesskit's
+        // `update_if_active` closure, i.e. only while an assistive technology
+        // is active. `AZ_A11Y_EAGER=1`, and any run with the debug server or
+        // an E2E script attached (they read the layout side's tree without an
+        // adapter), keep the eager path below.
+        let on_demand = !a11y_eager();
+        let window_token = if on_demand {
+            core::ptr::addr_of_mut!(*self) as usize
+        } else {
+            0
+        };
+
         // Create the adapter
-        let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr);
+        let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr, window_token);
         self.accessibility_adapter = Some(adapter);
+
+        if on_demand {
+            // No forced activation and no first tree: the adapter becomes
+            // active when a client really asks (its activation handler then
+            // schedules a delivery), and the placeholder -> active transition
+            // that posts the focus notification happens at that delivery.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.a11y_manager.on_demand = true;
+            }
+            if let Some(adapter) = self.accessibility_adapter.as_mut() {
+                adapter.update_view_focus_state(true);
+            }
+            log_debug!(
+                LogCategory::Platform,
+                "[a11y] Accessibility adapter initialized (tree built on demand)"
+            );
+            return;
+        }
 
         // Force the adapter from Inactive → Placeholder by querying accessibilityChildren.
         // request_initial_tree() returns None intentionally, so the adapter creates a
@@ -11602,6 +11651,11 @@ impl MacOSWindow {
     /// focus, cursor state and builds the tree.  Then submits to the OS adapter.
     #[cfg(feature = "a11y")]
     fn update_accessibility(&mut self) {
+        if self.a11y_on_demand() {
+            self.deliver_a11y_on_demand(true);
+            return;
+        }
+
         let adapter = match self.accessibility_adapter.as_mut() {
             Some(a) => a,
             None => return,
@@ -11651,6 +11705,10 @@ impl MacOSWindow {
             return;
         }
         self.rebuild_a11y_after_scroll_if_due();
+        if self.a11y_on_demand() {
+            self.deliver_a11y_on_demand(false);
+            return;
+        }
         let pending = self
             .common
             .layout_window
@@ -11658,6 +11716,37 @@ impl MacOSWindow {
             .and_then(|lw| lw.a11y_manager.take_pending());
         if let (Some(update), Some(adapter)) = (pending, self.accessibility_adapter.as_mut()) {
             adapter.update_tree(update);
+        }
+    }
+
+    /// Whether this window builds its accessibility tree on demand (A10-19).
+    #[cfg(feature = "a11y")]
+    fn a11y_on_demand(&self) -> bool {
+        self.common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.a11y_manager.on_demand)
+    }
+
+    /// The on-demand delivery (A10-19): note that a pass is due (`note_pass`,
+    /// after a layout), and if one is due or the adapter waits for its first
+    /// tree, let the adapter build it: INSIDE `update_if_active`, so with no
+    /// assistive technology active nothing is built and the layout side's
+    /// retained tree does not advance.
+    #[cfg(feature = "a11y")]
+    fn deliver_a11y_on_demand(&mut self, note_pass: bool) {
+        let (Some(adapter), Some(lw)) = (
+            self.accessibility_adapter.as_mut(),
+            self.common.layout_window.as_mut(),
+        ) else {
+            return;
+        };
+        if note_pass {
+            // On demand this only notes that a pass is due.
+            lw.update_a11y_tree();
+        }
+        if lw.a11y_update_pending() || adapter.awaiting_tree() {
+            adapter.update_tree_on_demand(|full| lw.a11y_update_on_demand(full));
         }
     }
 
@@ -12388,6 +12477,19 @@ mod audit_a10_tests {
                 );
             }
         }
+    }
+
+    /// A10-19. The accessibility tree is built on demand unless the user asks
+    /// for the old path (`AZ_A11Y_EAGER=1`) or a debug / E2E reader, which
+    /// reads the layout side's tree without an adapter, is attached.
+    #[cfg(feature = "a11y")]
+    #[test]
+    fn the_accessibility_tree_is_eager_only_when_asked_for_or_read_by_a_debug_reader() {
+        assert!(!a11y_eager_for(None, false), "the default: on demand");
+        assert!(a11y_eager_for(Some("1"), false));
+        assert!(!a11y_eager_for(Some("0"), false));
+        assert!(!a11y_eager_for(Some(""), false));
+        assert!(a11y_eager_for(None, true), "an E2E script reads the tree itself");
     }
 
     /// The switch of the CPU present: words of `AZ_CPU_PRESENT`.
