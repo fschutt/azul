@@ -326,7 +326,10 @@ pub fn within_halo_budget<R>(free: usize, time: Duration, f: impl FnOnce() -> R)
     });
     let result = f();
     let budget = BUDGET.with(|b| b.replace(outer));
-    let left = budget.map_or(0, |b| b.deferred);
+    // Left by the frame's time, and - once - by the pictures of the frame before
+    // (`HaloCache::owes_a_scan_for_room`): either way a later scan draws them.
+    let left = budget.map_or(0, |b| b.deferred)
+        + usize::from(HALOS.with(|halos| halos.borrow_mut().owes_a_scan_for_room()));
     // The pictures that wait to be shown (they did not fit the place of the
     // picture standing in for them, `HaloCache::insert_waiting`) are shown by the
     // scan that leaves no halo for a later frame: the frames that only draw are
@@ -384,7 +387,9 @@ fn spend(time: Duration) {
 /// frame's budget lets it, and there is room to keep it
 /// ([`HaloCache::make_room`]). Counted either way: a halo the budget leaves is
 /// `pending` (a later frame draws it, and is owed), one there is no room for is
-/// `unkept` (no frame is owed: the next one would find the same).
+/// `unkept` (no frame is owed, the next one would find the same - unless what
+/// holds the room is the frame before's pictures, which the next scan may drop:
+/// [`HaloCache::owes_a_scan_for_room`]).
 fn admit(box_bytes: usize, shape: u64) -> bool {
     if !budget_left() {
         count_in_budget(false);
@@ -1279,6 +1284,11 @@ struct HaloCache {
     victims: Option<Vec<u64>>,
     /// How often that list was made (a test counts it).
     victim_lists: u64,
+    /// Whether the scan under way was refused room ([`Self::make_room`]) with
+    /// nothing left that it may drop.
+    refused_room: bool,
+    /// Whether the last scan owed a scan for room ([`Self::owes_a_scan_for_room`]).
+    owed_for_room: bool,
     max_entries: usize,
     max_bytes: usize,
     stats: TextHaloStats,
@@ -1300,6 +1310,8 @@ impl HaloCache {
             scan: 2,
             victims: None,
             victim_lists: 0,
+            refused_room: false,
+            owed_for_room: false,
             max_entries,
             max_bytes,
             stats: TextHaloStats::default(),
@@ -1312,6 +1324,7 @@ impl HaloCache {
         self.scan += 1;
         self.victims = None;
         self.changed = false;
+        self.refused_room = false;
         self.stats = TextHaloStats {
             scans: self.stats.scans + 1,
             created_total: self.stats.created_total,
@@ -1413,6 +1426,7 @@ impl HaloCache {
                             })
                         })
                     else {
+                        self.refused_room = true;
                         return false;
                     };
                     stand_in
@@ -1666,6 +1680,29 @@ impl HaloCache {
         if self.by_shape.get(&entry.shape) == Some(&id) {
             self.by_shape.remove(&entry.shape);
         }
+    }
+
+    /// Whether the scan that just ended is owed one more: it was refused room for
+    /// a picture while entries it did not use hold room - the pictures of the
+    /// frame before, which it may not drop and the next scan may
+    /// ([`Self::make_room`]: two scans). Asked once, at the end of a scan.
+    ///
+    /// A view that changes in a full cache - a pan of a map whose labels fill it
+    /// - found no room for its new labels' pictures, nor for the small ones that
+    /// stand in: the labels that had just left the view held it, for exactly the
+    /// scan in which the new ones came. No frame was owed for a halo without
+    /// room, so the new labels stayed without halo until something else made a
+    /// scan (audit A5-19). One scan is owed and no second in a row: what the owed
+    /// scan could not drop, the one after it could not either - and two windows
+    /// that together show more than the cache holds do not take each other's
+    /// pictures in turn for as long as frames are made.
+    fn owes_a_scan_for_room(&mut self) -> bool {
+        let scan = self.scan;
+        let owed = self.refused_room
+            && !self.owed_for_room
+            && self.entries.values().any(|entry| entry.used_in < scan);
+        self.owed_for_room = owed;
+        owed
     }
 
     /// Drops every entry the last scan did not use and nothing has used since
@@ -2815,6 +2852,53 @@ mod audit_a5_tests {
         let blank = shadowed("   ", 12.0, 40.0, 60.0, 0.0, 1.5);
         assert!(draw(&blank, 2.0, true, None).is_none());
         assert!(draw(&blank, 2.0, false, None).is_none());
+    }
+
+    /// A5-19. A halo that found no room owes the one scan that can make it. A
+    /// cache of three pictures, a view of labels 0, 1, 2; a pan shows 1, 2 and 3.
+    /// In the pan's scan label 0 is the frame before's picture and stays (the
+    /// two-scan rule), so label 3 has no room - and one scan is owed, in which
+    /// label 0 goes and label 3 is drawn. A view that does not fit (1, 2, 3 and
+    /// 4) owes nothing: every picture is in the scan's own use, and the next
+    /// scan would find the same.
+    ///
+    /// Mutation: `owes_a_scan_for_room` always false leaves the second scan
+    /// owing nothing (label 3 without its halo until something else scans);
+    /// without `!self.owed_for_room` or with `any(..)` -> `true` a view that does
+    /// not fit owes a frame for ever.
+    #[test]
+    fn a_halo_refused_for_room_owes_the_one_scan_that_can_make_it() {
+        text_halo_bounds_in_this_thread(3, usize::MAX);
+        // One frame of a view: the labels left without a picture, and what the
+        // scan leaves for a later one.
+        let view = |labels: core::ops::Range<u64>| {
+            within_halo_budget(usize::MAX, Duration::ZERO, || {
+                HALOS.with(|halos| {
+                    let mut cache = halos.borrow_mut();
+                    let mut without = 0;
+                    for n in labels {
+                        let sought = label(n);
+                        if let Some(id) = cache.find(sought.text, &GEOMETRY) {
+                            let _ = cache.use_own(id, true);
+                        } else if cache.make_room(BYTES, None) {
+                            cache.insert(&sought, &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
+                        } else {
+                            without += 1;
+                        }
+                    }
+                    without
+                })
+            })
+        };
+        assert_eq!(view(0..3), (0, 0), "the view's three pictures fill the cache");
+        assert_eq!(view(1..4), (1, 1), "label 3 has no room in the pan's scan: one scan is owed");
+        assert_eq!(text_halo_stats().evicted, 0, "the frame before's picture is not this scan's to drop");
+        assert_eq!(view(1..4), (0, 0), "the owed scan: label 0 made room for label 3");
+        assert_eq!(text_halo_stats().evicted, 1);
+        // A view of four labels in a cache of three: nothing to wait for.
+        assert_eq!(view(1..5), (1, 0));
+        assert_eq!(view(1..5), (1, 0), "at rest: no frame is owed for a halo that cannot be kept");
+        assert_eq!(text_halo_stats().evicted_total, 1);
     }
 
     /// A5-18. A release gives back the kept halos no display list paints and

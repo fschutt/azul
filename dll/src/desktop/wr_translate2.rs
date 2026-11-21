@@ -883,7 +883,8 @@ const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(
 /// before them left (a quarter of a minute at 60 frames a second, and every one
 /// draws at least [`HALOS_DRAWN_ANYWAY`]). A backstop: a scan drops no halo it
 /// uses (audit A5-01), so each follow-up leaves fewer than the one before and the
-/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame.
+/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame
+/// but the one whose scan may drop the frame before's pictures (audit A5-19).
 const HALO_FOLLOW_UPS_MAX: u32 = 900;
 
 #[cfg(test)]

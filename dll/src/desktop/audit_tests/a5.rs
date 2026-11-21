@@ -229,6 +229,12 @@ impl Recorder {
 /// with a solid halo (a text shadow that is a spread and nothing else), at
 /// `zoom` times their size and place.
 pub(super) fn labels(count: usize, zoom: f32) -> Dom {
+    labels_from(0, count, zoom)
+}
+
+/// The labels `first .. first + count` of the same map ([`labels`]): what a
+/// view shows after a pan by `first` labels.
+fn labels_from(first: usize, count: usize, zoom: f32) -> Dom {
     let mut page = Dom::create_div().with_css(
         format!(
             "position: relative; width: {}px; height: {}px; background: #4477aa;",
@@ -237,7 +243,7 @@ pub(super) fn labels(count: usize, zoom: f32) -> Dom {
         )
         .as_str(),
     );
-    for i in 0..count {
+    for i in first..first + count {
         let style = format!(
             "position: absolute; left: {}px; top: {}px; margin: 0px; font-size: {}px; \
              line-height: 1; color: #111111; white-space: nowrap; \
@@ -690,4 +696,58 @@ fn a5_18_the_macos_release_marks_what_every_window_paints_before_it_gives_halos_
     assert!(marked < every_window, "the closure that marks is what the loop calls");
     assert!(every_window < own && own < released, "marked first, released last");
     assert!(body.contains("if !keep_caches() {"), "the user's switch keeps the halos too");
+}
+
+/// A5-19. A pan in a cache that the view fills (a map whose labels' pictures
+/// are more than the thread keeps: here eight pictures, and room for eight).
+/// Frame by frame:
+///
+/// 1. the view shows labels 0..8, each with its own picture: the cache is full;
+/// 2. the pan shows labels 4..12. Its scan may not drop the pictures of labels
+///    0..4 (the frame before's: the two-scan rule), so labels 8..12 get neither
+///    their picture nor a small one. Before, nothing was owed for a halo without
+///    room: the four new labels stayed without outline until something else made
+///    a scan (the next pan, the pointer over a label). Now one scan is owed;
+/// 3. that scan drops the four pictures of the labels that left and draws the
+///    four new ones: every label has its halo, and the view comes to rest.
+///
+/// Mutation: `owes_a_scan_for_room` always false in `text_halo.rs`: frame 2 owes
+/// nothing (`pan.owed` fails).
+#[test]
+fn a5_19_a_pan_in_a_full_cache_gets_its_new_labels_their_halos_in_the_next_frame() {
+    const SHOWN: usize = 8;
+    draw_every_halo_in_this_thread();
+    text_halo_bounds_in_this_thread(SHOWN, usize::MAX);
+    let mut view = Recorder::new(2.0);
+    view.lay_out(labels_from(0, SHOWN, 1.0));
+    let first = view.frame();
+    assert_eq!(first.own().len(), SHOWN, "premise: the view's pictures fill the cache");
+    assert!(!first.owed);
+
+    view.lay_out(labels_from(4, SHOWN, 1.0));
+    let pan = view.frame();
+    assert_eq!(pan.own(), [0, 1, 2, 3], "the labels that stayed keep their pictures");
+    assert_eq!(
+        (pan.stats.unkept, pan.stats.pending, pan.stats.evicted),
+        (4, 0, 0),
+        "the new labels have no room, and the frame before's pictures are not dropped for them"
+    );
+    assert!(pan.owed, "one scan is owed: it may drop the pictures of the labels that left");
+
+    let next = view.frame();
+    assert_eq!(next.own().len(), SHOWN, "every label has its own halo: {:?}", next.halos);
+    assert_eq!((next.stats.created, next.stats.evicted, next.stats.unkept), (4, 4, 0));
+    assert!(!next.owed);
+
+    let mut resting = 0;
+    for n in 0..20 {
+        let now = view.frame();
+        assert_eq!(now.own().len(), SHOWN, "frame {n} after: a label lost its halo");
+        assert_eq!(now.stats.created + now.stats.evicted, 0, "frame {n} after");
+        resting = if now.at_rest() { resting + 1 } else { 0 };
+        if resting == 5 {
+            break;
+        }
+    }
+    assert_eq!(resting, 5, "the view came to rest");
 }
