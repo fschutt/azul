@@ -933,8 +933,12 @@ mod retained_list_tests {
         assert_eq!(pixel(&first, 100, 47)[..3], [0, 0, 255], "its second row");
         assert_eq!(pixel(&first, 100, 10)[..3], [0x88, 0x88, 0x88], "the bar over it");
 
-        // The host restyles (the bar turns dark): the host's list is rebuilt, the
-        // view's is the one WebRender holds.
+        // The host restyles (the bar turns dark): the host's list is another one, the
+        // view's is the one WebRender holds. (A3-window-15: the bar's run is painted into
+        // the list the host has and the write is a repaint, where it was a build of the
+        // host's whole list and the tier `RebuildDisplayList`. The patched list is still
+        // another allocation than the one the renderer holds - a list only the renderer's
+        // weak reference shares moves when it is written - so the frame sends it.)
         let bar = node_with_class(&gpu.window, "bar");
         let tier = gpu
             .window
@@ -951,7 +955,7 @@ mod retained_list_tests {
                 override_only: false,
             })
             .tier;
-        assert_eq!(tier, ContentDirtyTier::RebuildDisplayList, "a colour is a rebuild");
+        assert_eq!(tier, ContentDirtyTier::Paint, "a colour is painted into the host's list");
         let child = *gpu
             .window
             .layout_results
