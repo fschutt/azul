@@ -3055,13 +3055,15 @@ mod audit_a11_tests {
             assert_eq!(imp::span_path(), "a11.scope > a11.scope.inner");
         }
         assert_eq!(imp::span_path(), "", "popped when they close");
-        // a span opened without the reader pops nothing when it closes, the reader on or not
+        // a span opened without the reader pops nothing when it closes: inside a tracked one, its
+        // drop leaves the tracked name in place (a pop on every drop would take it away)
         {
-            let unscoped = imp::open_gated(false, false, "a11.unscoped");
             let scoped = imp::open_gated(false, true, "a11.scoped");
+            let unscoped = imp::open_gated(false, false, "a11.unscoped");
             assert_eq!(imp::span_path(), "a11.scoped");
-            drop(scoped);
             drop(unscoped);
+            assert_eq!(imp::span_path(), "a11.scoped", "the untracked span popped nothing");
+            drop(scoped);
         }
         assert_eq!(imp::span_path(), "");
     }
