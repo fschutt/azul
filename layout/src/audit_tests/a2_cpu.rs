@@ -1090,3 +1090,86 @@ fn a2_cpu_06_a_scaled_group_fills_the_same_columns_of_a_clip_between_pixels_as_a
         );
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Hand-built lists: the layered full repaint against the damage repaint (A2-cpu-14)
+// ---------------------------------------------------------------------------------------------
+
+/// A2-cpu-14. A scaled frame whose box starts between two device pixels is composited at the
+/// same place by a full repaint (the layered compositor) and by a damage repaint (the flat
+/// walk).
+///
+/// Hand-computed at dpi 1: a frame box (20.5, 30.5) 40 x 30, scaled by 2 about its corner. Both
+/// paths paint the box into a surface whose pixel (0, 0) is device pixel (20, 30). The flat walk
+/// maps surface x `g` to `20.5 + 2 (g - 0.5) = 2 g + 19.5`. The layer was placed at
+/// `round(20.5) = 21`: `21 + 2 (g - 0.5) = 2 g + 20`, half a pixel to the right (and down): the
+/// frame's edges were resampled with other weights (device pixel 21: 50 % red in the damage
+/// repaint, 25 % in the full one). Expected: the same pixels.
+///
+/// mutation: `f64::from(logical) * dpi` -> `layout_offset_device_px(logical, dpi)` for a layer
+/// with a `transform_origin` in `composite_layer_recursive` fails here.
+#[test]
+fn a2_cpu_14_a_scaled_frame_between_pixels_is_composited_where_the_damage_repaint_puts_it() {
+    use std::collections::HashMap;
+
+    use crate::cpurender::CompositorState;
+
+    let (w, h) = (200_u32, 140_u32);
+    let page = list(vec![
+        rect(0.0, 0.0, 200.0, 140.0, [255, 255, 255]),
+        DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 9 },
+            initial_transform: azul_core::transform::ComputedTransform3D {
+                m: [
+                    [2.0, 0.0, 0.0, 0.0],
+                    [0.0, 2.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+            },
+            bounds: wlr(20.5, 30.5, 40.0, 30.0),
+        },
+        rect(20.5, 30.5, 40.0, 30.0, [200, 0, 0]),
+        DisplayListItem::PopReferenceFrame,
+    ]);
+    let resources = RendererResources::default();
+    let fonts = font_manager();
+    let state = CpuRenderState::new(ScrollOffsetMap::new());
+
+    // The full repaint: the layered compositor. Nothing is painted over the frame, so it is a
+    // layer of its own.
+    let mut compositor = CompositorState::new(w, h);
+    compositor.allocate_layers_from_display_list(&page, 1.0, &HashMap::new(), &HashMap::new());
+    assert_eq!(compositor.layers.len(), 2, "harness: the scaled frame is a layer of its own");
+    let mut glyphs = GlyphCache::new();
+    compositor
+        .render_layers(&page, 1.0, &resources, &fonts, &mut glyphs, &state)
+        .expect("the layers render");
+    let mut full = AzulPixmap::new(w, h).expect("a pixmap");
+    full.fill(255, 255, 255, 255);
+    compositor.composite_frame(&mut full, 1.0);
+
+    // The damage repaint: the flat walk, the whole window as one rect.
+    let mut flat = AzulPixmap::new(w, h).expect("a pixmap");
+    flat.fill(255, 255, 255, 255);
+    let mut glyphs = GlyphCache::new();
+    render_display_list_damaged(
+        &page,
+        &mut flat,
+        1.0,
+        &resources,
+        &fonts,
+        &mut glyphs,
+        &state,
+        &[lr(0.0, 0.0, 200.0, 140.0)],
+    )
+    .expect("the damage repaints");
+
+    assert_eq!(px(&flat, 60, 60), [200, 0, 0], "harness: the scaled box is painted");
+    let (n, first) = differing(&full, &flat);
+    assert_eq!(
+        n, 0,
+        "the full repaint and the damage repaint of one frame differ in {n} pixels, first at \
+         {first:?}"
+    );
+}

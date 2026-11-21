@@ -1322,9 +1322,22 @@ impl CompositorState {
             // frame's) is turned about that point, its own origin offset from
             // it.
             let pivot = layer.transform_origin.unwrap_or(layer.bounds.origin);
+            // A reference frame's layer turns about its box's corner WHERE THE CORNER IS: the
+            // flat walk (`GroupGeometry::of`, `o = bounds.origin * dpi`) and WebRender do not
+            // round it, and its pixels are resampled either way. Rounded here, a full repaint
+            // composited a frame at a fractional device position up to half a pixel from where
+            // the damage repaint of the same frame puts it. Every other layer (a scroll frame,
+            // an opacity group) is placed on a whole pixel and takes the integer blit.
+            let place_at = |logical: f32| {
+                if layer.transform_origin.is_some() {
+                    f64::from(logical) * dpi
+                } else {
+                    layout_offset_device_px(logical, dpi)
+                }
+            };
             let place = mat3_translation(
-                layout_offset_device_px(pivot.x - layer.inherited_offset.0, dpi),
-                layout_offset_device_px(pivot.y - layer.inherited_offset.1, dpi),
+                place_at(pivot.x - layer.inherited_offset.0),
+                place_at(pivot.y - layer.inherited_offset.1),
             );
             let from_pivot = mat3_translation(
                 f64::from(layer.bounds.origin.x - pivot.x) * dpi,
