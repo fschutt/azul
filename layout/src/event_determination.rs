@@ -1505,7 +1505,10 @@ pub fn determine_all_events(
         let drag_source = manager.drag_source_node().unwrap_or(mouse_target);
 
         // Detect DragStart (on the drag source)
-        if manager.detect_drag().is_some() && !manager.is_dragging() {
+        // `is_dragging()` first: once the drag has started, the detection (a
+        // walk over every sample of the session for its total distance) is
+        // not asked again on every move of it.
+        if !manager.is_dragging() && manager.detect_drag().is_some() {
             events.push(SyntheticEvent::new(
                 EventType::DragStart,
                 EventSource::User,
@@ -1650,7 +1653,9 @@ pub fn determine_all_events(
         }
 
         // Detect Swipe gestures (targeted at hovered node)
-        if let Some(direction) = manager.detect_swipe_direction() {
+        // At the release only (or an injected native swipe): the session
+        // of a fast drag answers "swipe" for as long as it is kept.
+        if let Some(direction) = manager.swipe_to_tell(event_was_mouse_release) {
             use crate::managers::gesture::GestureDirection;
             let event_type = match direction {
                 GestureDirection::Left => EventType::SwipeLeft,
