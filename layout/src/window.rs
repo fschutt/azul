@@ -759,6 +759,131 @@ impl FrameDamage {
     }
 }
 
+/// The arithmetic of a CPU present, shared by every shell (audit A10): pure
+/// functions, so each flip and each rounding is written once and tested on
+/// every platform, not inside an Objective-C method or a window procedure.
+///
+/// The spaces (`audit/A10.md`, "Spaces"):
+/// - *buffer px*: device pixels of the frame, origin top-left, y down. What
+///   [`FrameDamage::to_rects_physical`] returns and the row order of every
+///   CPU frame (row 0 is the top row).
+/// - *bottom-left px*: the same pixels, origin bottom-left, y up. The backing
+///   space of an AppKit view that is not `isFlipped`, and the space of an
+///   `NSBitmapImageRep`'s source rect.
+/// - *logical px*: buffer px divided by the DPI factor (AppKit points, CSS px).
+pub mod present_geometry {
+    /// `(x, y, width, height)` in device pixels.
+    pub type PxRect = (u32, u32, u32, u32);
+
+    /// The size in device pixels of the CPU frame of a `logical_w` x
+    /// `logical_h` window at `dpi_factor`: the formula of
+    /// `CpuBackend::render_frame` (`(logical * dpi).ceil()`, in `f32`), for a
+    /// shell that has to make its buffer exactly as large as the frame.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn frame_size_px(logical_w: f32, logical_h: f32, dpi_factor: f32) -> (u32, u32) {
+        (
+            (logical_w * dpi_factor).ceil() as u32,
+            (logical_h * dpi_factor).ceil() as u32,
+        )
+    }
+
+    /// The logical length whose CPU frame is exactly `px` device pixels long
+    /// at `dpi_factor` ([`frame_size_px`]).
+    ///
+    /// A shell that learns its size in device pixels (X11, Win32) stores
+    /// `px / dpi` as the logical size, and the frame is `ceil(logical * dpi)`
+    /// of that. In `f32` the product can land a few ulps ABOVE `px`, and the
+    /// ceiling then makes the frame one pixel larger than the window: 1003 px
+    /// at 175 % is 573.142_88 logical, times 1.75 is 1003.000_06, a 1004 px
+    /// frame. This returns the largest `f32` at or below `px / dpi` that
+    /// renders to `px` (one ulp lower where the round trip overshoots:
+    /// 573.142_82, times 1.75 is 1002.999_94, a 1003 px frame).
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    pub fn logical_len_for_px(px: u32, dpi_factor: f32) -> f32 {
+        if !(dpi_factor > 0.0) {
+            return px as f32;
+        }
+        let mut len = px as f32 / dpi_factor;
+        // One step is enough for every integer DPI from 96 to 384 and every
+        // length up to 4096 px (checked exhaustively); four bound the loop.
+        for _ in 0..4 {
+            if !(len > 0.0) || (len * dpi_factor).ceil() as u32 <= px {
+                break;
+            }
+            // The next `f32` towards zero (`len` is positive and finite here).
+            len = f32::from_bits(len.to_bits() - 1);
+        }
+        len
+    }
+
+    /// `rect` (buffer px, y down) in bottom-left px (y up) of a buffer
+    /// `buf_h` pixels high, and back: the flip is its own inverse.
+    ///
+    /// `y' = buf_h - (y + height)`: the rect's BOTTOM edge measured from the
+    /// buffer's bottom. A rect that reaches below the buffer is cut at 0.
+    #[must_use]
+    pub const fn flip_rect_y(rect: PxRect, buf_h: u32) -> PxRect {
+        let (x, y, w, h) = rect;
+        (x, buf_h.saturating_sub(y.saturating_add(h)), w, h)
+    }
+
+    /// The rows and columns of a `width` x `height` buffer that a rect in
+    /// bottom-left px covers, as half-open TOP-DOWN ranges `(x0, x1, y0, y1)`:
+    /// rounded outward (a pixel the rect touches is in), clamped to the
+    /// buffer. The inverse of [`flip_rect_y`] for a fractional rect.
+    ///
+    /// `y0 = floor(height - (y + h))`, `y1 = ceil(height - y)`. The whole
+    /// buffer when `full`, and when the rect is empty or not a number: the
+    /// caller was asked to draw and has to draw something.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    pub fn rows_of_bottom_left_rect(
+        full: bool,
+        rect: (f64, f64, f64, f64),
+        width: usize,
+        height: usize,
+    ) -> (usize, usize, usize, usize) {
+        let (x, y, w, h) = rect;
+        if full || !(w > 0.0 && h > 0.0) || width == 0 || height == 0 {
+            return (0, width, 0, height);
+        }
+        let fw = width as f64;
+        let fh = height as f64;
+        let x0 = x.floor().clamp(0.0, fw) as usize;
+        let x1 = (x + w).ceil().clamp(0.0, fw) as usize;
+        let y0 = (fh - (y + h)).floor().clamp(0.0, fh) as usize;
+        let y1 = (fh - y).ceil().clamp(0.0, fh) as usize;
+        (x0.min(x1), x1, y0.min(y1), y1)
+    }
+
+    /// The bounding box of `rects`, `None` when there is none. What AppKit
+    /// hands a `drawRect:` for several invalidated rects, and so what one
+    /// present of them copies.
+    #[must_use]
+    pub fn bounding_rect(rects: &[PxRect]) -> Option<PxRect> {
+        let mut it = rects.iter().filter(|r| r.2 > 0 && r.3 > 0);
+        let &(x, y, w, h) = it.next()?;
+        let (mut x0, mut y0) = (x, y);
+        let (mut x1, mut y1) = (x.saturating_add(w), y.saturating_add(h));
+        for &(x, y, w, h) in it {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x.saturating_add(w));
+            y1 = y1.max(y.saturating_add(h));
+        }
+        Some((x0, y0, x1 - x0, y1 - y0))
+    }
+
+    /// The pixels `rects` cover, counting a pixel once per rect: what a
+    /// present of them copies at most (the cost model of `audit/A10.md`).
+    #[must_use]
+    pub fn area_px(rects: &[PxRect]) -> u64 {
+        rects.iter().map(|r| u64::from(r.2) * u64::from(r.3)).sum()
+    }
+}
+
 /// How long this window's frames take, for the app itself: what
 /// `CallbackInfo::get_frame_timings` answers ([`LayoutWindow::frame_timings`]).
 ///
