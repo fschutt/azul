@@ -818,6 +818,14 @@ pub struct DisplayList {
     /// list ([`FrameIndex`]) and kept with it. Not part of the list's content: a copy starts
     /// without it, and anything that changes the items drops it ([`Self::insert_item`]).
     pub frame_index: FrameIndexCell,
+    /// The layout boxes whose runs in this list are NOT where a paint put them: a patched
+    /// build that was a frame of a layout tween copied them from the list before with every
+    /// coordinate shifted by the box's move (`DisplayListGenerator::try_copy_cached_run`),
+    /// which is up to a rounding per frame away from what a paint from the box's position
+    /// makes. The first build from this list that is no such frame paints each of them anew,
+    /// moved or not, so a list at rest holds none. Empty for every list a build painted in
+    /// full. Kept with the list it describes: it goes where the list goes, and with it.
+    pub translated_since_painted: std::collections::BTreeSet<usize>,
 }
 
 impl DisplayList {
@@ -1439,65 +1447,110 @@ pub fn set_dl_patching_enabled(on: bool) {
     DL_PATCHING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
 }
 
-/// Whether a patched build copies the run of a box that MOVED, every
-/// coordinate shifted by the box's move, as it did before the audit
-/// (`AZ_DL_TRANSLATE_MOVED_RUNS=1`, for measuring what painting the moved
-/// boxes anew costs). 0 = unresolved (read from the environment on first
-/// use), 1 = translate and copy, 2 = paint anew (the default).
-/// `DisplayListGenerator::try_copy_cached_run` says why a translated copy is
-/// not the item a paint makes.
-static DL_TRANSLATE_MOVED_RUNS: core::sync::atomic::AtomicU8 =
-    core::sync::atomic::AtomicU8::new(0);
+/// What a patched build does with the cached run of a box that MOVED since
+/// the list was built (`DisplayListGenerator::try_copy_cached_run`, which
+/// says why a translated copy is not the item a paint makes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MovedRunPolicy {
+    /// The default. The box is painted anew - except on a frame of a layout
+    /// tween that another frame follows: that frame copies the run shifted by
+    /// the move and records the box with the list
+    /// ([`DisplayList::translated_since_painted`]), and the frame that ends
+    /// the tween, like every pass that is no tween frame, paints the recorded
+    /// boxes anew. A list at rest is bit for bit a painted one; a list during
+    /// a tween is up to a rounding per frame off.
+    TweenFramesTranslate,
+    /// `AZ_DL_TRANSLATE_MOVED_RUNS=1`, the behaviour before the audit, for
+    /// measuring: every pass copies the run shifted by the move, nothing is
+    /// recorded and nothing is painted anew for having been translated.
+    AlwaysTranslate,
+    /// `AZ_DL_TRANSLATE_MOVED_RUNS=0`, the other extreme, for measuring: a
+    /// moved box is painted anew by every pass, the frames of a tween too.
+    NeverTranslate,
+}
+
+/// [`moved_run_policy`] of the process: 0 = unresolved (read from
+/// `AZ_DL_TRANSLATE_MOVED_RUNS` on first use), 1 = always translate, 2 = the
+/// default, 3 = never translate.
+static DL_MOVED_RUN_POLICY: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
 
 thread_local! {
-    /// A test's answer for its own thread, asked before the process's
-    /// ([`set_dl_translate_moved_runs_on_this_thread`]).
-    static DL_TRANSLATE_MOVED_RUNS_HERE: core::cell::Cell<Option<bool>> =
+    /// A test's policy for its own thread, asked before the process's
+    /// ([`set_moved_run_policy_on_this_thread`]).
+    static DL_MOVED_RUN_POLICY_HERE: core::cell::Cell<Option<MovedRunPolicy>> =
         const { core::cell::Cell::new(None) };
     /// See [`moved_runs_painted_anew_on_this_thread`].
     static MOVED_RUNS_PAINTED_ANEW: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// See [`moved_runs_translated_on_this_thread`].
+    static MOVED_RUNS_TRANSLATED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// See [`translated_runs_painted_anew_on_this_thread`].
+    static TRANSLATED_RUNS_PAINTED_ANEW: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
     /// See [`cached_runs_copied_on_this_thread`].
     static CACHED_RUNS_COPIED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
-/// Whether the patched builds of the calling thread translate and copy the
-/// run of a box that moved (`AZ_DL_TRANSLATE_MOVED_RUNS=1`, or the thread's
-/// own answer) instead of painting the box anew.
+/// What the patched builds of the calling thread do with the run of a box
+/// that moved: the thread's own policy if a test set one, else the process's
+/// (`AZ_DL_TRANSLATE_MOVED_RUNS`: `1` and `0` are the two extremes, anything
+/// else and unset the default), read once.
 #[must_use]
-pub fn dl_translates_moved_runs() -> bool {
+pub fn moved_run_policy() -> MovedRunPolicy {
     use core::sync::atomic::Ordering;
-    if let Some(on) = DL_TRANSLATE_MOVED_RUNS_HERE.with(core::cell::Cell::get) {
-        return on;
+    if let Some(policy) = DL_MOVED_RUN_POLICY_HERE.with(core::cell::Cell::get) {
+        return policy;
     }
-    match DL_TRANSLATE_MOVED_RUNS.load(Ordering::Relaxed) {
-        1 => true,
-        2 => false,
+    match DL_MOVED_RUN_POLICY.load(Ordering::Relaxed) {
+        1 => MovedRunPolicy::AlwaysTranslate,
+        2 => MovedRunPolicy::TweenFramesTranslate,
+        3 => MovedRunPolicy::NeverTranslate,
         _ => {
-            let on = std::env::var("AZ_DL_TRANSLATE_MOVED_RUNS").as_deref() == Ok("1");
-            DL_TRANSLATE_MOVED_RUNS.store(if on { 1 } else { 2 }, Ordering::Relaxed);
-            on
+            let (code, policy) = match std::env::var("AZ_DL_TRANSLATE_MOVED_RUNS").as_deref() {
+                Ok("1") => (1, MovedRunPolicy::AlwaysTranslate),
+                Ok("0") => (3, MovedRunPolicy::NeverTranslate),
+                _ => (2, MovedRunPolicy::TweenFramesTranslate),
+            };
+            DL_MOVED_RUN_POLICY.store(code, Ordering::Relaxed);
+            policy
         }
     }
 }
 
-/// The switch of [`dl_translates_moved_runs`] for the calling thread alone
-/// (`None`: the environment's answer again), so that a test can run both
-/// behaviours beside the tests of other threads.
-pub fn set_dl_translate_moved_runs_on_this_thread(on: Option<bool>) {
-    DL_TRANSLATE_MOVED_RUNS_HERE.with(|here| here.set(on));
+/// [`moved_run_policy`] for the calling thread alone (`None`: the process's
+/// again), so that a test can run each behaviour beside the tests of other
+/// threads.
+pub fn set_moved_run_policy_on_this_thread(policy: Option<MovedRunPolicy>) {
+    DL_MOVED_RUN_POLICY_HERE.with(|here| here.set(policy));
 }
 
 /// How many cached runs the patched builds of the calling thread did not copy
-/// because their box MOVED: each is one paint call made anew
-/// (`DisplayListGenerator::try_copy_cached_run`). What a pass that shifts
-/// boxes costs over a pass that copies them, counted.
+/// because their box MOVED in a pass that is no tween frame: each is one
+/// paint call made anew (`DisplayListGenerator::try_copy_cached_run`).
 #[must_use]
 pub fn moved_runs_painted_anew_on_this_thread() -> usize {
     MOVED_RUNS_PAINTED_ANEW.with(core::cell::Cell::get)
 }
 
+/// How many cached runs the patched builds of the calling thread copied
+/// shifted by their box's move: the frames of a layout tween (and every pass
+/// under [`MovedRunPolicy::AlwaysTranslate`]).
+#[must_use]
+pub fn moved_runs_translated_on_this_thread() -> usize {
+    MOVED_RUNS_TRANSLATED.with(core::cell::Cell::get)
+}
+
+/// How many cached runs the patched builds of the calling thread did not copy
+/// although their box stood where it stood, because a tween frame had
+/// translated them since they were painted
+/// ([`DisplayList::translated_since_painted`]): the paint calls that bring a
+/// list to rest after a tween.
+#[must_use]
+pub fn translated_runs_painted_anew_on_this_thread() -> usize {
+    TRANSLATED_RUNS_PAINTED_ANEW.with(core::cell::Cell::get)
+}
+
 /// How many cached runs the patched builds of the calling thread copied from
-/// the list before in place of a paint call.
+/// the list before in place of a paint call, where they lay or translated.
 #[must_use]
 pub fn cached_runs_copied_on_this_thread() -> usize {
     CACHED_RUNS_COPIED.with(core::cell::Cell::get)
@@ -4600,6 +4653,7 @@ impl DisplayListBuilder {
             color_bindings: self.color_bindings,
             carets: self.carets,
             frame_index: FrameIndexCell::default(),
+            translated_since_painted: std::collections::BTreeSet::new(),
         }
     }
 
@@ -4813,6 +4867,7 @@ impl DisplayListBuilder {
             color_bindings: self.color_bindings,
             carets: self.carets,
             frame_index: FrameIndexCell::default(),
+            translated_since_painted: std::collections::BTreeSet::new(),
         }
     }
 
@@ -5687,7 +5742,14 @@ pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
     generator.generate_for_stacking_context(&mut builder, &stacking_context_tree)?;
 
     // Build display list and transfer debug messages to context
-    let display_list = builder.build_with_debug(generator.ctx.debug_messages);
+    let mut display_list = builder.build_with_debug(generator.ctx.debug_messages);
+    // The boxes this build took from the list before although a paint would
+    // not put their items there to the bit (a tween frame's translated runs,
+    // and the ones it found translated and copied as they lay): the next
+    // build that is no tween frame paints them anew.
+    if let Some(patch) = generator.patch.take() {
+        display_list.translated_since_painted = patch.translated;
+    }
     debug_info!(
         generator.ctx,
         "[DisplayList] Generated {} display items",
@@ -5785,7 +5847,8 @@ struct ChainDetour {
 /// so per-(layout node, phase) item runs from the PREVIOUS list can replace
 /// the paint calls of every node that neither re-flowed its inline content
 /// nor changed size nor MOVED (`try_copy_cached_run`: a moved node is
-/// painted anew; `deltas` says which did).
+/// painted anew, but for the frames of a layout tween; `deltas` says which
+/// did).
 pub(crate) struct PatchState<'a> {
     prev: &'a DisplayList,
     /// Per (layout idx, phase): queue of item ranges in `prev`, walk order.
@@ -5794,6 +5857,15 @@ pub(crate) struct PatchState<'a> {
     deltas: Vec<LogicalPosition>,
     /// Nodes that MUST re-emit (re-flowed IFC, size changed).
     reemit: std::collections::BTreeSet<usize>,
+    /// Whether this build is a frame of a layout tween that another frame
+    /// follows: the one kind of pass that copies the run of a box that MOVED,
+    /// shifted by the move (`try_copy_cached_run`).
+    translate_moved: bool,
+    /// The boxes whose runs this build copied although a paint would not put
+    /// them there to the bit: translated now, or found translated in `prev`
+    /// and copied as they lay. The built list's
+    /// [`DisplayList::translated_since_painted`].
+    translated: std::collections::BTreeSet<usize>,
 }
 
 /// Presentation summary of a patched pass: which single translation moved
@@ -6205,6 +6277,9 @@ impl<'a> PatchState<'a> {
         prev_sizes: &[Option<LogicalSize>],
         new_sizes: &[Option<LogicalSize>],
         reflowed_ifcs: &std::collections::BTreeSet<usize>,
+        // Whether the pass is a frame of a layout tween that another frame
+        // follows (`Self::translate_moved`).
+        translate_moved: bool,
     ) -> Option<Self> {
         // The tagging is as old as the patcher — a cached list from before
         // the tagging (or a page slice) cannot be patched.
@@ -6260,6 +6335,8 @@ impl<'a> PatchState<'a> {
             runs,
             deltas,
             reemit,
+            translate_moved,
+            translated: std::collections::BTreeSet::new(),
         })
     }
 }
@@ -6560,10 +6637,11 @@ where
     /// DL-PATCHING substitution: if a patch source is armed and this node's
     /// (phase) run can be reused, copy it where it lies and report `true`
     /// (the caller skips painting). `false` = paint normally (no patch, node
-    /// in the re-emit set, a node that MOVED, or no cached run left — the
-    /// last one falls back to a fresh paint, which is always correct). Only
-    /// with `AZ_DL_TRANSLATE_MOVED_RUNS=1` is a moved node's run copied,
-    /// translated by the node's position delta.
+    /// in the re-emit set, a node that MOVED or whose run a tween frame had
+    /// translated, or no cached run left — the last one falls back to a
+    /// fresh paint, which is always correct). A moved node's run is copied,
+    /// translated by the node's position delta, only by a frame of a layout
+    /// tween that another frame follows ([`MovedRunPolicy`]).
     fn try_copy_cached_run(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -6594,22 +6672,57 @@ where
             .get(node_index)
             .copied()
             .unwrap_or_else(LogicalPosition::zero);
-        // A run is copied only where it lies: a box whose move is not exactly
-        // zero is painted anew (its run above is spent). A float translation
-        // of a cached item is not what a fresh paint computes - an item lies
-        // at `position + k`, a paint makes `fl(new + k)`, the copy held
+        // A run is copied only where it lies. A float translation of a cached
+        // item is not what a fresh paint computes - an item lies at
+        // `position + k`, a paint makes `fl(new + k)`, a translated copy holds
         // `fl(fl(old + k) + fl(new - old))`: one rounding apart per
         // translation - and it ACCUMULATES: a run translated n times without
         // being painted anew drifts by up to n/2 ulp from its node's laid-out
         // position. The damage diff and the kept surfaces assume that an
-        // unchanged item is bit for bit the item a fresh pass makes. Movement
-        // that should be cheap is expressed by frames (the move in place, a
-        // view's offset), not by translating items. A delta that is no number
-        // is a move. `AZ_DL_TRANSLATE_MOVED_RUNS=1`: the translation again.
-        if (delta.x != 0.0 || delta.y != 0.0) && !dl_translates_moved_runs() {
-            MOVED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
-            drop(crate::probe::Probe::span("dl_patch_moved"));
-            return false;
+        // unchanged item is bit for bit the item a fresh pass makes. So a box
+        // whose move is not exactly zero is painted anew (its run above is
+        // spent; a delta that is no number is a move).
+        //
+        // The one exception is a frame of a layout tween that another frame
+        // follows (`translate_moved`): painting every box a tween pushes on
+        // every frame is the cost a tween must not have, and its drift is
+        // bounded by the tween (n frames: n/2 ulp) and ends with it. Such a
+        // frame translates and RECORDS the box with the list it builds; the
+        // frame that ends the tween, and any pass that is no tween frame,
+        // paints every recorded box anew, moved or not. A list at rest is
+        // therefore a painted one. Movement that should stay cheap for good
+        // is expressed by frames (the move in place, a view's offset), not by
+        // translating items.
+        let moved = delta.x != 0.0 || delta.y != 0.0;
+        let recorded = patch.prev.translated_since_painted.contains(&node_index);
+        match moved_run_policy() {
+            // Before the audit: translated by every pass, nothing recorded.
+            MovedRunPolicy::AlwaysTranslate => {
+                if moved {
+                    MOVED_RUNS_TRANSLATED.with(|n| n.set(n.get() + 1));
+                }
+            }
+            MovedRunPolicy::TweenFramesTranslate if patch.translate_moved => {
+                if moved {
+                    MOVED_RUNS_TRANSLATED.with(|n| n.set(n.get() + 1));
+                }
+                if moved || recorded {
+                    // Translated now, or still where a translation left it.
+                    patch.translated.insert(node_index);
+                }
+            }
+            MovedRunPolicy::TweenFramesTranslate | MovedRunPolicy::NeverTranslate => {
+                if moved {
+                    MOVED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
+                    drop(crate::probe::Probe::span("dl_patch_moved"));
+                    return false;
+                }
+                if recorded {
+                    TRANSLATED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
+                    drop(crate::probe::Probe::span("dl_patch_settled"));
+                    return false;
+                }
+            }
         }
         CACHED_RUNS_COPIED.with(|n| n.set(n.get() + 1));
         // The previous list outlives the patch borrow, which ends here: the
@@ -15078,6 +15191,7 @@ fn paginate_pages_impl(
             color_bindings: Vec::new(),
             carets: Vec::new(),
             frame_index: FrameIndexCell::default(),
+            translated_since_painted: std::collections::BTreeSet::new(),
         })?;
         emitted += 1;
     }

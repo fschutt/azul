@@ -875,10 +875,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // its nodes re-emit in the display-list patch (Step 4). A stamp that no
     // longer matches (a node added, a restyle, a hover moved since the tick)
     // reconciles as before.
-    let overrides_only = cache
-        .overrides_only_hint
-        .take()
-        .is_some_and(|stamp| stamp == cache::OverridesOnlyStamp::of(new_dom));
+    let overrides_hint = cache.overrides_only_hint.take();
+    let overrides_only = overrides_hint.is_some_and(|stamp| stamp.describes(new_dom));
+    // A frame of a layout tween that another frame follows (the window says
+    // so in the stamp): its display-list patch translates the runs of the
+    // boxes it moves and records them; any other pass paints them anew
+    // (Step 4, `display_list::PatchState`).
+    let tween_frame_followed =
+        overrides_only && overrides_hint.is_some_and(|stamp| stamp.more_frames_follow);
     let dom_len_for_hint = new_dom.node_data.as_ref().len();
     // NO-CHANGE SKIP: the producer's diff proved every node unchanged with
     // its ancestors, on the structure and the style tier
@@ -1064,6 +1068,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             && *cached_gpu_fp == gpu_fp
             && *cached_scroll_fp == scroll_fp
             && *cached_input_fp == input_fp
+            // A list that holds runs a tween frame translated is not served
+            // as it is: this pass is no tween frame, so it paints those
+            // boxes anew (Step 4) and the list at rest is a fresh one.
+            && cached_dl.translated_since_painted.is_empty()
         {
             let _p = crate::probe::Probe::span("display_list_cache_hit");
             #[cfg(feature = "std")]
@@ -2224,6 +2232,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 recon_result.fresh_indices,
             );
         }
+        // What the patch does with the run of a box that MOVED
+        // (`DisplayListGenerator::try_copy_cached_run`): a frame of a layout
+        // tween that another frame follows translates it and records the box
+        // with the list; every other pass paints the box anew, and with it
+        // every box recorded before. A tween frame is one on the retained
+        // tree, taken for the overrides alone (a resize is none).
+        let translate_moved =
+            tween_frame_followed && cache.last_reconcile_was_skipped && !resize_only;
         // (previous_sizes vs NODES is intended: the cache keeps one entry
         // per node, so equal lengths mean the size snapshot covers the tree.)
         #[allow(clippy::suspicious_operation_groupings)]
@@ -2265,6 +2281,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         &cache.previous_sizes,
                         &new_sizes,
                         &reemit,
+                        translate_moved,
                     )
                 })
         } else {

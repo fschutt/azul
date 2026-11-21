@@ -4653,6 +4653,20 @@ impl LayoutWindow {
         if new_generation {
             self.layout_cache.overrides_only_hint = None;
         }
+        // A pass armed as an override-only frame (a tick of a layout tween)
+        // is told whether another such frame follows it: a transition of a
+        // layout property is still in flight (the tick has dropped the ones
+        // that ended; one that still delays moves nothing yet). While one
+        // follows, the pass's display-list patch translates the runs of the
+        // boxes the tween pushes and records them with the list; the frame
+        // that ends the tween paints them anew, like every pass that is no
+        // tween frame, so the list at rest is a painted one
+        // (`solver3::display_list::MovedRunPolicy`, audit diff-first-15).
+        if let Some(stamp) = self.layout_cache.overrides_only_hint.as_mut() {
+            stamp.more_frames_follow = self.css_transitions.iter().any(|tr| {
+                tr.scope != azul_css::props::property::RelayoutScope::None && tr.delay_s <= 0.0
+            });
+        }
 
         // A frame or mode transition re-invokes every view, BEFORE this pass
         // scans for them, so a view that renders from either is right in the
