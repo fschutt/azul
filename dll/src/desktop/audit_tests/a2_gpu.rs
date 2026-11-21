@@ -381,3 +381,95 @@ fn a_panned_views_content_reaches_webrender_where_the_cpu_paints_it() {
         stripe.min.x
     );
 }
+
+/// A2-gpu-01. NEEDS the change of `audit/A2-gpu.md`, "For area A4", item A2-gpu-01
+/// (`compositor2.rs`, `PushReferenceFrame`: `initial_transform.m[0][3]`, `m[1][3]` and
+/// `m[2][3]` divided by `dpi_scale`; the same three lines in
+/// `wr_translate2::synchronize_gpu_values`): until it is applied this test fails at 2x
+/// and says so.
+///
+/// A 100 x 40 box at (300, 200) under `perspective(400px) rotateY(60deg)` about its
+/// centre. By hand: its top-right corner, logical (100, 0) from the box's corner, is
+/// drawn at (72.558, 1.954) from it; at 2 device px per logical px that is device
+/// (745.116, 403.907). With only the translation of the matrix scaled by the dpi the
+/// frame's `w` is `1 + 2 x 100 x m03` instead of `1 + 100 x m03` and the corner lands
+/// at (721.400, 403.269), 23.7 device px short - while the CPU rasteriser, which divides
+/// the perspective terms by the dpi, paints it at 745
+/// (`a_box_under_perspective_is_painted_where_the_gpu_values_put_it_at_two_device_px`).
+///
+/// Mutation: `initial_transform.m[0][3] / dpi_scale` -> `initial_transform.m[0][3]` in
+/// `compositor2`'s `PushReferenceFrame` arm fails this test.
+#[test]
+fn a_box_under_perspective_reaches_webrender_where_the_cpu_paints_it_at_two_device_px() {
+    use azul_core::transform::RotationMode;
+    use azul_css::props::{
+        basic::{angle::AngleValue, pixel::PixelValue},
+        style::{StyleTransform, StyleTransformOrigin},
+    };
+
+    let b = wlr(300.0, 200.0, 100.0, 40.0);
+    let tilt = ComputedTransform3D::from_style_transform_vec(
+        &[
+            StyleTransform::Perspective(PixelValue::px(400.0)),
+            StyleTransform::RotateY(AngleValue::deg(60.0)),
+        ],
+        &StyleTransformOrigin::default(),
+        100.0,
+        40.0,
+        RotationMode::ForWebRender,
+    );
+    let list = DisplayList {
+        items: framed_box(9002, tilt, b),
+        ..DisplayList::default()
+    };
+
+    for dpi in [1.0_f32, 2.0] {
+        let built = translated(&list, PipelineId(0, 0), dpi, &BTreeMap::new());
+        let nodes = spatial_nodes(&built);
+        let (rect, node) = first_rect(&built);
+        let top_right = drawn_at(
+            &nodes,
+            node,
+            LayoutPoint::new(rect.max.x, rect.min.y),
+            &BTreeMap::new(),
+        );
+        assert!(
+            within(top_right.x, 372.558 * dpi, 0.05) && within(top_right.y, 201.954 * dpi, 0.05),
+            "dpi {dpi}: the box's top-right corner is drawn at {top_right:?}, the CPU paints it \
+             at ({}, {}). At 2x, (721.4, 403.3) is the matrix with only its translation scaled: \
+             apply audit/A2-gpu.md, For area A4, A2-gpu-01 (divide m[0][3], m[1][3], m[2][3] by \
+             dpi_scale in compositor2's PushReferenceFrame)",
+            372.558 * dpi,
+            201.954 * dpi
+        );
+
+        // The matrix the frame is opened with is the one `to_device_px` gives: the one
+        // definition of the conversion, which `synchronize_gpu_values` has to send too.
+        let want = tilt.to_device_px(dpi);
+        let opened = nodes
+            .iter()
+            .find_map(|(_, n)| match n {
+                Node::Frame { transform, .. } if !within(transform.m11, 1.0, 1e-6) => {
+                    Some(*transform)
+                }
+                _ => None,
+            })
+            .expect("the transformed frame");
+        let got = [
+            [opened.m11, opened.m12, opened.m13, opened.m14],
+            [opened.m21, opened.m22, opened.m23, opened.m24],
+            [opened.m31, opened.m32, opened.m33, opened.m34],
+            [opened.m41, opened.m42, opened.m43, opened.m44],
+        ];
+        for row in 0..4 {
+            for column in 0..4 {
+                assert!(
+                    within(got[row][column], want.m[row][column], 1e-5),
+                    "dpi {dpi}: m[{row}][{column}] of the frame is {}, in device px it is {}",
+                    got[row][column],
+                    want.m[row][column]
+                );
+            }
+        }
+    }
+}
