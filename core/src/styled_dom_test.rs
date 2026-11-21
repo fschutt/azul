@@ -2944,3 +2944,48 @@ mod part_of_parent_tests {
         );
     }
 }
+
+/// Guards of the 2026-11-21 audit, area A3-core (`audit/A3-core.md`).
+#[cfg(all(test, feature = "css_parser"))]
+mod audit_a3_core_tests {
+    use super::*;
+
+    /// A3-core-09: the sheets nodes carry are moved out of the tree, not
+    /// copied and then dropped: in the order the copy listed them, and no
+    /// node keeps one.
+    #[test]
+    fn take_css_from_dom_moves_what_collect_listed_and_strips_the_tree() {
+        let tree = || {
+            Dom::create_body()
+                .with_css("color: red")
+                .with_css("margin: 1px")
+                .with_children(
+                    vec![
+                        Dom::create_div().with_css("width: 5px").with_children(
+                            vec![Dom::create_div().with_css("height: 5px")].into(),
+                        ),
+                        Dom::create_div(),
+                        Dom::create_div().with_css("width: 7px"),
+                    ]
+                    .into(),
+                )
+        };
+        let mut listed = Vec::new();
+        collect_css_from_dom(&tree(), &mut listed);
+        assert_eq!(listed.len(), 5, "harness: five sheets");
+
+        let mut dom = tree();
+        let mut taken = Vec::new();
+        take_css_from_dom(&mut dom, &mut taken);
+        assert_eq!(taken, listed, "the same sheets in the same order");
+
+        let mut left = Vec::new();
+        collect_css_from_dom(&dom, &mut left);
+        assert!(left.is_empty(), "no node keeps a sheet");
+
+        // An `out` that holds sheets is appended to.
+        let mut more = vec![Css::empty()];
+        take_css_from_dom(&mut tree(), &mut more);
+        assert_eq!(more.len(), 6);
+    }
+}

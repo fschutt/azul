@@ -1256,7 +1256,7 @@ impl StyledDom {
         let mut next_scope_id = 0usize;
         scope_inline_css(&mut swap_dom, &mut next_scope_id);
         let mut node_css: Vec<Css> = Vec::new();
-        collect_css_from_dom(&swap_dom, &mut node_css);
+        take_css_from_dom(&mut swap_dom, &mut node_css);
         let css = if node_css.is_empty() {
             css
         } else {
@@ -1270,7 +1270,6 @@ impl StyledDom {
             merged.keyframes = combined_keyframes.into();
             merged
         };
-        strip_css_from_dom(&mut swap_dom);
 
         let compact_dom: CompactDom = swap_dom.into();
         let node_hierarchy: NodeHierarchyItemVec = compact_dom
@@ -1681,9 +1680,12 @@ impl StyledDom {
         let mut next_scope_id = 0usize;
         scope_inline_css(&mut dom, &mut next_scope_id);
 
-        // 1. Collect all CSS objects from the recursive Dom tree (now scoped)
+        // 1. Take all CSS objects out of the recursive Dom tree (now scoped):
+        //    the flat tree does not carry them, and a copy of every sheet
+        //    only to drop the original (collect, then strip) was a parse's
+        //    worth of allocations per node with a style of its own.
         let mut all_css = Vec::new();
-        collect_css_from_dom(&dom, &mut all_css);
+        take_css_from_dom(&mut dom, &mut all_css);
         // ... and the user-origin sheets after them, unscoped (already past
         // `scope_inline_css`, which only walks the DOM's own sheets).
         all_css.extend(user_sheets.iter().cloned());
@@ -1703,11 +1705,7 @@ impl StyledDom {
             css
         };
 
-        // 3. Strip CSS from all Dom nodes before flattening (CSS is already collected, don't need
-        //    it in the flat tree)
-        strip_css_from_dom(&mut dom);
-
-        // 4. Use existing StyledDom::create to flatten + cascade
+        // 3. Use existing StyledDom::create to flatten + cascade
         Self::create_with_context_inheriting(&mut dom, combined_css, context, inherited_from_host)
     }
 
@@ -3960,9 +3958,23 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
     }
 }
 
+/// Recursively MOVE all CSS objects out of a Dom tree into `out`, in the
+/// order [`collect_css_from_dom`] lists them (depth-first: a node's
+/// children first, then its own in their order), leaving every node without
+/// CSS as [`strip_css_from_dom`] does: the two in one walk, without a copy
+/// of every sheet.
+fn take_css_from_dom(dom: &mut Dom, out: &mut Vec<Css>) {
+    for child in dom.children.as_mut().iter_mut() {
+        take_css_from_dom(child, out);
+    }
+    let own = core::mem::replace(&mut dom.css, Vec::new().into());
+    out.extend(own.into_library_owned_vec());
+}
+
 /// Recursively collect all CSS objects from a Dom tree (depth-first).
 /// Inner (deeper) CSS objects come first, outer (shallower) CSS objects come last.
 /// This means outer CSS has higher cascade priority when applied in order.
+#[cfg(test)]
 fn collect_css_from_dom(dom: &Dom, out: &mut Vec<Css>) {
     // First, recurse into children (inner CSS = lower priority)
     for child in &dom.children {
@@ -3976,6 +3988,7 @@ fn collect_css_from_dom(dom: &Dom, out: &mut Vec<Css>) {
 
 /// Recursively strip CSS from all Dom nodes (sets css to empty vec).
 /// Called after collecting CSS so the `CompactDom` doesn't carry CSS data.
+#[cfg(test)]
 fn strip_css_from_dom(dom: &mut Dom) {
     dom.css = Vec::new().into();
     for child in dom.children.as_mut().iter_mut() {
