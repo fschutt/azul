@@ -3022,8 +3022,11 @@ impl_from!(
 impl_from!(FlowIntoParseError<'a>, CssParsingError::FlowInto);
 #[cfg(feature = "parser")]
 impl_from!(FlowFromParseError<'a>, CssParsingError::FlowFrom);
+#[cfg(feature = "parser")]
 impl_from!(WrapThroughParseError<'a>, CssParsingError::WrapThrough);
+#[cfg(feature = "parser")]
 impl_from!(WrapFlowParseError<'a>, CssParsingError::WrapFlow);
+#[cfg(feature = "parser")]
 impl_from!(RegionFragmentParseError<'a>, CssParsingError::RegionFragment);
 
 #[cfg(feature = "parser")]

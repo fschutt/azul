@@ -1260,6 +1260,9 @@ impl SystemStyle {
         const BUTTON_WIDTH: f32 = 14.0;
         const BUTTON_HEIGHT: f32 = 16.0;
         const PITCH: f32 = 20.0;
+        // where the third button starts, from the first one's left edge (a constant: `f32::mul_add`
+        // is not in `core`, and the product is exact)
+        const THIRD_BUTTON_LEFT: f32 = 2.0 * PITCH;
 
         if !matches!(self.platform, Platform::MacOs | Platform::Linux(_)) {
             return None;
@@ -1269,7 +1272,7 @@ impl SystemStyle {
             let controls = TitlebarControls {
                 left: x,
                 top: y,
-                right: 2.0f32.mul_add(PITCH, x) + BUTTON_WIDTH,
+                right: x + THIRD_BUTTON_LEFT + BUTTON_WIDTH,
                 bottom: y + BUTTON_HEIGHT,
             };
             return Some(TitlebarGeometry::around_controls(

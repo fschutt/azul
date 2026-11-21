@@ -427,7 +427,7 @@ impl CssShape {
                 let radius = match circle.radius {
                     ShapeRadius::Length(length) => reference.length(
                         length,
-                        width.hypot(height) / core::f32::consts::SQRT_2,
+                        libm::hypotf(width, height) / core::f32::consts::SQRT_2,
                     ),
                     ShapeRadius::ClosestSide => sides.into_iter().fold(f32::MAX, f32::min),
                     ShapeRadius::FarthestSide => sides.into_iter().fold(0.0, f32::max),
