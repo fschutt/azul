@@ -16,7 +16,7 @@
 //!   box at (`x`, `y`) (`RawImage::draw_text`).
 //!
 //! The `_with` forms take the font cache (tests hand in a memory font); the
-//! plain forms use a font cache of the system fonts built once per thread
+//! plain forms use a font cache of the system fonts built once per process
 //! on first use (a scan of the font folders - the first call takes that
 //! long, so an app that draws text in a callback may warm it on a thread).
 
@@ -869,17 +869,22 @@ mod set {
     /// One thread on the web: the thread's own scan is the process's.
     #[cfg(target_arch = "wasm32")]
     fn with_process_fonts<R>(f: impl FnOnce(&FcFontCache) -> R) -> R {
-        with_system_fonts(f)
+        SYSTEM_FONTS.with(|cell| f(cell.get_or_init(crate::font::loading::build_font_cache)))
     }
 
+    #[cfg(target_arch = "wasm32")]
     thread_local! {
-        /// The system fonts, scanned once per thread on first use.
+        /// The system fonts, scanned once on first use.
         static SYSTEM_FONTS: core::cell::OnceCell<FcFontCache> = const { core::cell::OnceCell::new() };
     }
 
-    /// `f` with this thread's cache of the system fonts.
+    /// `f` with the cache of the system fonts, scanned once per process on
+    /// first use (`with_process_fonts`). It was scanned once per THREAD:
+    /// an app that draws text images on worker threads made per job (a map
+    /// editor's tile workers) paid a scan of every font folder, and held a
+    /// copy of the index, per thread.
     pub fn with_system_fonts<R>(f: impl FnOnce(&FcFontCache) -> R) -> R {
-        SYSTEM_FONTS.with(|cell| f(cell.get_or_init(crate::font::loading::build_font_cache)))
+        with_process_fonts(f)
     }
 }
 
@@ -1037,5 +1042,29 @@ pub fn draw_text(
     {
         let _ = (image, text, style, x, y);
         false
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(all(
+    test,
+    feature = "std",
+    feature = "text_layout",
+    feature = "font_loading",
+    not(target_arch = "wasm32")
+))]
+mod audit_a8_tests {
+    /// A8-07: the system fonts are scanned once per process: every thread
+    /// draws with the one index (it was a scan and a copy per thread).
+    /// Mutation: back to a `thread_local!` cache and the threads' indexes
+    /// are other allocations.
+    #[test]
+    fn every_thread_draws_with_the_one_scan_of_the_system_fonts() {
+        let address = || super::with_system_fonts(|fc| core::ptr::from_ref(fc) as usize);
+        let here = address();
+        for _ in 0..3 {
+            let there = std::thread::spawn(address).join().expect("the thread runs");
+            assert_eq!(there, here, "a thread of its own scanned the fonts again");
+        }
     }
 }

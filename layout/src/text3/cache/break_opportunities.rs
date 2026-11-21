@@ -560,26 +560,33 @@ impl<'a> BreakCursor<'a> {
     // punctuation and preserved white spaces; currently handled via peek_next_single_item
     #[must_use]
     pub fn peek_next_unit(&self) -> Vec<ShapedItem> {
-        let mut unit = Vec::new();
-        // The remaining stream, WITHOUT materializing it. This used to be
-        // `partial_remainder.clone()` + `extend_from_slice(rest)` — a deep
-        // clone of every remaining ShapedItem (each carrying a String and a
-        // Vec<Glyph>) on EVERY call. The line breaker calls this once per
-        // word, so laying out an N-cluster paragraph performed O(N²) deep
-        // clones: ~90% of line-breaking time on an ordinary document, and
-        // line breaking was ~40% of a full pagination. Only the items that
-        // actually enter `unit` (one word) are cloned now.
-        let mut stream = self
-            .partial_remainder
+        // Only the items of the unit (one word) are cloned, never the rest of
+        // the stream (that was O(N²) deep clones per paragraph once).
+        self.upcoming().take(self.next_unit_len()).cloned().collect()
+    }
+
+    /// The remaining stream - the remainder of a split unit, then the items
+    /// not reached yet - by reference: the next unit is its first
+    /// [`Self::next_unit_len`] items.
+    pub fn upcoming(&self) -> impl Iterator<Item = &ShapedItem> + '_ {
+        self.partial_remainder
             .iter()
             .chain(self.items[self.next_item_index..].iter())
-            .peekable();
+    }
 
-        // The unit runs up to the next soft wrap opportunity, by the rule the
-        // balanced breaker keeps too (`is_soft_wrap_between`).
+    /// How many items [`Self::peek_next_unit`] returns, without cloning one:
+    /// the unit runs up to the next soft wrap opportunity, by the rule the
+    /// balanced breaker keeps too (`is_soft_wrap_between`). The greedy line
+    /// breaker measures a unit through [`Self::upcoming`] and clones its items
+    /// once, into the line; it cloned each unit into a `Vec` first (and the
+    /// first unit of a line twice more).
+    #[must_use]
+    pub fn next_unit_len(&self) -> usize {
+        let mut stream = self.upcoming().peekable();
         let mut before = None;
+        let mut len = 0;
         while let Some(item) = stream.next() {
-            unit.push(item.clone());
+            len += 1;
             let ends_here = stream.peek().is_none_or(|next| {
                 is_soft_wrap_between(before, item, next, self.word_break, self.line_break)
             });
@@ -588,7 +595,7 @@ impl<'a> BreakCursor<'a> {
             }
             before = Some(item);
         }
-        unit
+        len
     }
 
     #[must_use]
@@ -600,5 +607,134 @@ impl<'a> BreakCursor<'a> {
             return vec![self.items[self.next_item_index].clone()];
         }
         Vec::new()
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+pub(super) mod audit_a8_tests {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+
+    /// `BreakCursor::peek_next_unit` before A8-17, kept as the reference.
+    fn old_peek_next_unit(cursor: &BreakCursor<'_>) -> Vec<ShapedItem> {
+        let mut unit = Vec::new();
+        let mut stream = cursor
+            .partial_remainder
+            .iter()
+            .chain(cursor.items[cursor.next_item_index..].iter())
+            .peekable();
+        let mut before = None;
+        while let Some(item) = stream.next() {
+            unit.push(item.clone());
+            let ends_here = stream.peek().is_none_or(|next| {
+                is_soft_wrap_between(before, item, next, cursor.word_break, cursor.line_break)
+            });
+            if ends_here {
+                break;
+            }
+            before = Some(item);
+        }
+        unit
+    }
+
+    /// The shaped items of `text` in the mock font (also `line_order`'s tests).
+    pub(crate) fn shaped(text: &str) -> Vec<ShapedItem> {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chains = HashMap::new();
+        chains.insert(key.clone(), chain.clone());
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(failed.is_empty(), "premise: the mock face loads: {failed:?}");
+        let content = vec![InlineContent::Text(StyledRun {
+            text: Arc::from(text),
+            style: Arc::new(StyleProperties {
+                font_stack: FontStack::Stack(selectors),
+                font_size_px: 20.0,
+                ..StyleProperties::default()
+            }),
+            logical_start_byte: 0,
+            source_node_id: None,
+        })];
+        let (_, items) = TextShapingCache::new()
+            .shape_content(
+                &content,
+                &[],
+                &UnifiedConstraints::default(),
+                &chains,
+                &fm.fc_cache,
+                &fm.get_loaded_fonts(),
+                &mut None,
+            )
+            .expect("the text shapes");
+        items.as_ref().clone()
+    }
+
+    /// A8-17: at every step of a cursor walking generated paragraphs (words,
+    /// spaces, hyphens, slashes, punctuation, runs of spaces), under every
+    /// `word-break` and two `line-break`s, and with a split remainder in
+    /// front, the unit the greedy breaker now measures and copies in place
+    /// (`next_unit_len` items of `upcoming`) is the unit `peek_next_unit`
+    /// cloned before.
+    /// Mutation: count one item fewer in `next_unit_len` (break before the
+    /// `ends_here` item) and it fails.
+    #[test]
+    fn the_unit_measured_in_place_is_the_unit_peeked_before() {
+        let texts = [
+            "Hauptstrasse",
+            "Am Neckar 12",
+            "well-known  street/lane, see: A.B. x",
+            " leading and trailing  ",
+            "a b c d e f g",
+            "one-two-three four--five",
+        ];
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |n: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % n.max(1) as u64) as usize
+        };
+        for text in texts {
+            let items = shaped(text);
+            assert!(!items.is_empty(), "premise: {text:?} shapes");
+            for word_break in [WordBreak::Normal, WordBreak::BreakAll, WordBreak::KeepAll] {
+                for line_break in [LineBreakStrictness::Auto, LineBreakStrictness::Strict] {
+                    for remainder in [0, 2] {
+                        let mut cursor = BreakCursor::new(&items);
+                        cursor.word_break = word_break;
+                        cursor.line_break = line_break;
+                        cursor.partial_remainder = items.iter().take(remainder).cloned().collect();
+                        while !cursor.is_done() {
+                            let want = old_peek_next_unit(&cursor);
+                            let len = cursor.next_unit_len();
+                            let got: Vec<ShapedItem> =
+                                cursor.upcoming().take(len).cloned().collect();
+                            assert_eq!(got, want, "{text:?} {word_break:?} {line_break:?}");
+                            assert_eq!(cursor.peek_next_unit(), want);
+                            // A8-18: without a remainder the unit is contiguous
+                            // in the items (what the overflow branch borrows).
+                            if cursor.partial_remainder.is_empty() {
+                                let at = cursor.next_item_index;
+                                assert_eq!(&cursor.items[at..at + len], &want[..]);
+                            }
+                            cursor.consume(1 + next(len));
+                        }
+                    }
+                }
+            }
+        }
     }
 }

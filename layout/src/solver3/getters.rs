@@ -6185,6 +6185,26 @@ pub fn select_variable_instances(
     }
 }
 
+/// Whether `chain`, as resolved (before [`select_variable_instances`]), is
+/// drawn differently at different optical sizes: whether the first face of
+/// one of its CSS groups - the only faces `select_variable_instances` bakes -
+/// is a font FILE with an `opsz` axis, or one whose axes are not known. A
+/// memory face is never baked ([`variable_instance`]), nor is a face without
+/// an `opsz` axis at another size than at 0, so such a chain is the same at
+/// every optical size and its key need not carry one
+/// ([`crate::text3::cache::size_free_key_of`], A8-28).
+pub(crate) fn chain_depends_on_optical_size(
+    chain: &FontFallbackChain,
+    fc_cache: &FcFontCache,
+) -> bool {
+    chain.css_fallbacks.iter().any(|group| {
+        group.fonts.first().is_some_and(|face| {
+            !fc_cache.is_memory_font(&face.id)
+                && variation_axes(fc_cache, face.id).map_or(true, |axes| axes.opsz.is_some())
+        })
+    })
+}
+
 /// The face to draw instead of `face` when a chain asks for `weight` at
 /// `optical_size` (a `FontChainKey::optical_size`, whole CSS px, 0 = the
 /// default): the static instance of a variable font file at that weight and
@@ -6581,6 +6601,15 @@ pub fn resolve_font_chains_with_registry(
                 unresolved.insert(family.clone());
             }
         }
+
+        // A chain no face of which has an optical-size axis is kept without
+        // the size: one chain per stack, not one per stack and px size (A8-28).
+        let cache_key = match cache_key {
+            FontChainKeyOrRef::Chain(key) => FontChainKeyOrRef::Chain(
+                crate::text3::cache::size_free_key_of(key, &chain, fc_cache),
+            ),
+            other => other,
+        };
 
         // A variable font FILE matched at its default instance is drawn at
         // the weight and optical size asked for (macOS's SFNS.ttf for every
@@ -6990,6 +7019,15 @@ pub fn resolve_font_chains_fast(
             }
         }
 
+        // A chain no face of which has an optical-size axis is kept without
+        // the size: one chain per stack, not one per stack and px size (A8-28).
+        let cache_key = match cache_key {
+            FontChainKeyOrRef::Chain(key) => FontChainKeyOrRef::Chain(
+                crate::text3::cache::size_free_key_of(key, &chain, &shared_cache),
+            ),
+            other => other,
+        };
+
         // A variable font FILE matched at its default instance is drawn at
         // the weight and optical size asked for (macOS's SFNS.ttf for every
         // bold system face, and SF Pro Text below 17px).
@@ -7226,8 +7264,11 @@ where
     for font_id in font_ids {
         // Get font bytes from fc_cache as a shared mmap. Faces backed
         // by the same .ttc all observe the same `Arc<FontBytes>` via
-        // rust_fontconfig's `shared_bytes` dedup.
-        let Some(font_bytes) = fc_cache.get_font_bytes(font_id) else {
+        // rust_fontconfig's `shared_bytes` dedup. A face registered at
+        // runtime shares the registry's bytes (the cache's would be copied).
+        let runtime = crate::text3::fontreg::shared_bytes(font_id);
+        let is_runtime = runtime.is_some();
+        let Some(font_bytes) = runtime.or_else(|| fc_cache.get_font_bytes(font_id)) else {
             failed.push((
                 *font_id,
                 format!("Could not get font bytes for {font_id:?}"),
@@ -7235,13 +7276,18 @@ where
             continue;
         };
 
-        // Get font index (for font collections like .ttc files)
-        let font_index = fc_cache
-            .get_font_by_id(font_id)
-            .map_or(0, |source| match source {
-                rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
-                rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
-            });
+        // Get font index (for font collections like .ttc files); a runtime
+        // face is index 0 (`fontreg::ensure_in`).
+        let font_index = if is_runtime {
+            0
+        } else {
+            fc_cache
+                .get_font_by_id(font_id)
+                .map_or(0, |source| match source {
+                    rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
+                    rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
+                })
+        };
 
         // Load the font using the provided function
         match load_fn(font_bytes, font_index) {

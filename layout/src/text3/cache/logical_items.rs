@@ -126,12 +126,14 @@ pub fn create_logical_items(
                 current_run_overrides.is_some() || run.style.text_combine_upright.is_some();
             let mut scan_cursor = 0;
             while needs_scan && scan_cursor < text.len() {
-                let style_at_cursor = current_run_overrides
+                // Only the cursor's `text-combine-upright` is read: the override's
+                // at the cursor, as `apply_override` takes it, else the run's. The
+                // whole style was built (cloned, or cloned and overridden) for
+                // every character scanned (A8-34).
+                let combine_at_cursor = current_run_overrides
                     .and_then(|o| o.get(&(scan_cursor as u32)))
-                    .map_or_else(
-                        || (*run.style).clone(),
-                        |partial| run.style.apply_override(partial),
-                    );
+                    .and_then(|partial| partial.text_combine_upright)
+                    .unwrap_or(run.style.text_combine_upright);
 
                 let current_char = text[scan_cursor..].chars().next().unwrap();
 
@@ -142,9 +144,7 @@ pub fn create_logical_items(
                 // Rule 1: Multi-character features take precedence.
                 // +spec:containing-block:9a26bd - text-combine-upright digit runs scoped by
                 // ancestor style boundaries
-                if let Some(TextCombineUpright::Digits(max_digits)) =
-                    style_at_cursor.text_combine_upright
-                {
+                if let Some(TextCombineUpright::Digits(max_digits)) = combine_at_cursor {
                     if max_digits > 0 && current_char.is_ascii_digit() {
                         let digit_chunk: String = text[scan_cursor..]
                             .chars()
@@ -399,6 +399,29 @@ pub fn paragraph_bidi(
     (base_direction, mode)
 }
 
+/// Whether no character of `text` can raise a bidi level in a left-to-right
+/// paragraph: unicode-bidi's `is_pure_ltr` test (none of the classes R, AL,
+/// AN, LRE, RLE, LRO, RLO, RLI, LRI, FSI). ASCII has none of them.
+fn is_pure_ltr_text(text: &str) -> bool {
+    use unicode_bidi::{bidi_class, BidiClass};
+    text.is_ascii()
+        || text.chars().all(|c| {
+            !matches!(
+                bidi_class(c),
+                BidiClass::R
+                    | BidiClass::AL
+                    | BidiClass::AN
+                    | BidiClass::LRE
+                    | BidiClass::RLE
+                    | BidiClass::LRO
+                    | BidiClass::RLO
+                    | BidiClass::RLI
+                    | BidiClass::LRI
+                    | BidiClass::FSI
+            )
+        })
+}
+
 // +spec:containing-block:149255 - bidi reordering produces inline box fragments that may separate
 // in wide containing blocks +spec:containing-block:c7c08f - bidi reordering produces inline box
 // fragments that may be adjacent in narrow containing blocks +spec:containing-block:2936ae - bidi
@@ -444,6 +467,45 @@ pub fn split_into_bidi_runs(
         msgs.push(LayoutDebugMessage::info(format!(
             "Base direction: {base_direction:?}"
         )));
+    }
+
+    // A left-to-right paragraph (its level given, not `plaintext`) without a
+    // character that can raise a level - none of the classes R, AL, AN, LRE,
+    // RLE, LRO, RLO, RLI, LRI, FSI, unicode-bidi's own `is_pure_ltr` test -
+    // has every byte at level 0: unicode-bidi sets the paragraph's level and
+    // skips the rest (`compute_bidi_info_for_para`). Its runs are then the
+    // items themselves, one per item, at level 0 and offset 0 - what the loop
+    // below makes of all-zero levels - without the joined string, the byte map
+    // and `BidiInfo`'s five vectors (every label, at every zoom settle). With
+    // debug messages on, the full path runs (and says what it does).
+    if debug_messages.is_none()
+        && unicode_bidi != UnicodeBidi::Plaintext
+        && base_direction == BidiDirection::Ltr
+        && logical_items.iter().all(|item| match item {
+            LogicalItem::Text { text, .. } => is_pure_ltr_text(text),
+            LogicalItem::CombinedText { text, .. } => is_pure_ltr_text(text),
+            _ => true, // U+FFFC: ON
+        })
+    {
+        let mut bidi_runs = Vec::with_capacity(logical_items.len());
+        for item in logical_items {
+            let text = match item {
+                LogicalItem::Text { text, .. } => text,
+                LogicalItem::CombinedText { text, .. } => text.as_str(),
+                _ => "\u{FFFC}",
+            };
+            if text.is_empty() {
+                continue;
+            }
+            bidi_runs.push(BidiRun {
+                logical_source: item.clone(),
+                bidi_level: BidiLevel::new(0),
+                script: crate::text3::script::detect_script(text).unwrap_or(Script::Latin),
+                text: text.to_string(),
+                run_byte_offset: 0,
+            });
+        }
+        return Ok(bidi_runs);
     }
 
     // +spec:writing-modes:809513 - bidi string built across inline element boundaries;
@@ -564,4 +626,141 @@ pub fn split_into_bidi_runs(
         ));
     }
     Ok(bidi_runs)
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    fn items(texts: &[&str]) -> Vec<LogicalItem> {
+        let style = Arc::new(StyleProperties::default());
+        texts
+            .iter()
+            .enumerate()
+            .map(|(i, text)| LogicalItem::Text {
+                source: ContentIndex {
+                    run_index: u32::try_from(i).unwrap_or(0),
+                    item_index: 0,
+                },
+                text: Arc::from(*text),
+                style: style.clone(),
+                marker_position_outside: None,
+                source_node_id: None,
+            })
+            .collect()
+    }
+
+    /// A8-21: the bidi runs of a paragraph are the runs the full bidi pass
+    /// made (reached with debug messages on), for pure left-to-right text
+    /// (ASCII, umlauts and digits, punctuation, a paragraph separator, empty
+    /// items) and for text the fast path must leave to it (Hebrew, Arabic and
+    /// Arabic digits, explicit embeddings and isolates), in both paragraph
+    /// directions and for `plaintext`.
+    /// Mutation: drop `BidiClass::AN` from `is_pure_ltr_text` (an Arabic digit
+    /// in an LTR paragraph is at level 2) and it fails.
+    #[test]
+    fn the_bidi_runs_are_the_runs_of_the_full_pass() {
+        let paragraphs: [&[&str]; 9] = [
+            &["Hauptstraße"],
+            &["Am Neckar 12, Tübingen"],
+            &["one", "", " two-three (4/5)"],
+            &["line one\nline two"],
+            &["Straße ", "שלום", " end"],
+            &["Arabic digits \u{0661}\u{0662}"],
+            &["in \u{202B}embedded\u{202C} text"],
+            &["isolate \u{2067}x\u{2069} y"],
+            &["مرحبا Hello"],
+        ];
+        for texts in paragraphs {
+            let items = items(texts);
+            for base in [BidiDirection::Ltr, BidiDirection::Rtl] {
+                for mode in [UnicodeBidi::Normal, UnicodeBidi::Plaintext] {
+                    let fast = split_into_bidi_runs(&items, base, mode, &mut None)
+                        .expect("bidi runs");
+                    let full = split_into_bidi_runs(&items, base, mode, &mut Some(Vec::new()))
+                        .expect("bidi runs");
+                    assert_eq!(
+                        format!("{fast:?}"),
+                        format!("{full:?}"),
+                        "{texts:?} {base:?} {mode:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A8-34: the `text-combine-upright` the boundary scan reads at a
+    /// character is the one of the style it built there before - the run's
+    /// style with the override at that byte applied - for every kind of
+    /// override value over every kind of run value.
+    #[test]
+    fn the_scan_reads_the_combine_value_of_the_style_it_built() {
+        let values = [
+            None,
+            Some(TextCombineUpright::None),
+            Some(TextCombineUpright::All),
+            Some(TextCombineUpright::Digits(2)),
+        ];
+        for base in values {
+            let style = StyleProperties {
+                text_combine_upright: base,
+                ..StyleProperties::default()
+            };
+            for over in [None, Some(None), Some(Some(TextCombineUpright::Digits(4)))]
+                .into_iter()
+                .chain(values.iter().map(|v| Some(*v)))
+            {
+                let partial = PartialStyleProperties {
+                    text_combine_upright: over,
+                    ..PartialStyleProperties::default()
+                };
+                let new = Some(&partial)
+                    .and_then(|partial| partial.text_combine_upright)
+                    .unwrap_or(style.text_combine_upright);
+                assert_eq!(new, style.apply_override(&partial).text_combine_upright, "{base:?} {over:?}");
+            }
+        }
+    }
+
+    /// A8-34: digits under `text-combine-upright: digits 2` are combined two
+    /// by two, and an override at one digit that turns it off cuts that
+    /// digit out on its own: "x12345y" with the override at the "3" gives
+    /// x, [12], 3, [45], y.
+    #[test]
+    fn an_override_cuts_a_digit_out_of_a_combined_run() {
+        let style = Arc::new(StyleProperties {
+            text_combine_upright: Some(TextCombineUpright::Digits(2)),
+            ..StyleProperties::default()
+        });
+        let content = [InlineContent::Text(StyledRun {
+            text: Arc::from("x12345y"),
+            style,
+            logical_start_byte: 0,
+            source_node_id: None,
+        })];
+        let overrides = [StyleOverride {
+            target: ContentIndex {
+                run_index: 0,
+                item_index: 3,
+            },
+            style: PartialStyleProperties {
+                text_combine_upright: Some(None),
+                ..PartialStyleProperties::default()
+            },
+        }];
+        let got: Vec<(bool, String)> = create_logical_items(&content, &overrides, &mut None)
+            .iter()
+            .filter_map(|item| match item {
+                LogicalItem::Text { text, .. } => Some((false, text.to_string())),
+                LogicalItem::CombinedText { text, .. } => Some((true, text.to_string())),
+                _ => None,
+            })
+            .collect();
+        let want: Vec<(bool, String)> = [(false, "x"), (true, "12"), (false, "3"), (true, "45"), (false, "y")]
+            .iter()
+            .map(|(c, t)| (*c, (*t).to_string()))
+            .collect();
+        assert_eq!(got, want);
+    }
 }
