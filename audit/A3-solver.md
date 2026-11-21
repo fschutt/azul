@@ -486,3 +486,43 @@ Still open, found in this part (not fixed, reasons):
   box from `warm.relative_position` (`position_bfc_child_descendants`) AFTER the relative pass, which drops
   the offset of a relatively positioned box inside an absolute one. By reading; needs a run (a `relative`
   box with `top` inside an `absolute` box: is it drawn shifted today?).
+
+### Second round: the helpers' items (each commit carries its own argument and tests)
+
+Fixed:
+- **35a** `350ce0f23` (`widgets/node_graph.rs`): the end of a pan returns `RefreshDom` only when the pan
+  brought a node or connection WITHOUT DOM into the cull box (`CulledDom` record of what got DOM,
+  `pan_needs_rebuild`, shared predicates `node_in_view` / `connection_in_view` / `drawn_connections` for
+  builder and record). Count tests in `node_graph::audit_a3_solver_tests`; the existing
+  `the_end_of_a_pan_rebuilds_a_culled_graph_once` was updated (it expected a rebuild for every culled pan).
+  Behaviour that changes: a pending port click survives a pan that asks for no rebuild.
+- **21** `7eac1cf10` (`fc/ifc.rs`, `layout_tree.rs`): the reuse exit of `layout_ifc` reads extent and last
+  baseline from measures kept when the lines were stored; no dense -> sparse expansion per reused label.
+- **19** `dfe923716` (`sizing.rs`): the box around ONE inline box takes that box's intrinsic measure
+  (`last_ifc_measure`, exact conditions in the commit) - one measure per label instead of two. The text's own
+  measure is NOT skipped: its stored sizes are read (the golden dumps print them, the folds and the taffy
+  bridge read them).
+- **26** `4909c9d07` (`sizing.rs`): a flag per node instead of a hash set for "is above a dirty node".
+- **18** `134b2fb7f` (`taffy_bridge.rs`): the taffy styles and the calc storage live in `PassMemo::taffy`,
+  converted once per pass. `build_taffy_style`'s per-node clone is gone: its cross-size suppression only ever
+  set a size to `auto` that was `auto` (`should_suppress_cross_intrinsic` returns true only then; a
+  `debug_assert` holds it), and the tree root's zeroed margin has a memo of its own.
+- **17** `b27f65a88` (`taffy_bridge.rs`): a bridge serves the width-only answers it gave a flex row itself
+  while the row's taffy cache was empty (`width_only_fresh`); everything older is still dropped. Nested rows:
+  4 and 10 runs for 3 and 6 levels instead of 10 and 122.
+- **23** `16395bc3e` (`fc/white_space.rs`): text the white-space processing leaves as it is becomes its run
+  directly (`is_collapsed_plain_text`).
+- **08** `37d850480` (`fc/inline_content.rs`): an inline box is handed its layout box and bisects for its
+  element children (`BoxesByDom`).
+- **32** `d9e4f6da1` `[reveals]`: test only
+  (`an_absolutely_positioned_child_adds_nothing_to_its_parents_intrinsic_width`). By reading the float around
+  a 100px block and an absolute child with `padding-left: 150px` comes out 150 wide; the fix (skip
+  out-of-flow children in the block and flex folds) moves boxes and needs the goldens regenerated.
+
+Open, with the reason:
+- **19, the loop part** (`calculate_intrinsic_sizes` runs in every turn of `layout_document`'s scrollbar /
+  regrow loop with the same dirty set): not provably identical to run it once. `fc::bfc_prepare` re-resolves
+  the children's percentage margins and paddings against the block's content box during a turn
+  (`tree.resolve_box_props`), and the intrinsic folds read `box_props`: the second turn measures dirty nodes
+  with other values than the first. A run must show the goldens unchanged plus a page that reflows for a
+  scrollbar with a percentage padding inside a shrink-to-fit box.
