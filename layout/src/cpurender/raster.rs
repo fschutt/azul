@@ -679,8 +679,7 @@ fn render_box_shadow(
         if sw == 0 || sh == 0 || sw > MAX_SHADOW_PIXBUF_SIZE || sh > MAX_SHADOW_PIXBUF_SIZE {
             return Ok(());
         }
-        let mut tmp = AzulPixmap::new(sw, sh).ok_or("cannot create shadow pixmap")?;
-        tmp.fill(0, 0, 0, 0);
+        let mut tmp = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow pixmap")?;
         let agg_color = Rgba8::new(
             u32::from(color.r),
             u32::from(color.g),
@@ -731,8 +730,7 @@ fn render_box_shadow(
         // A rounded padding box masks the shadow to its curve (premultiplied:
         // every channel scales with the coverage).
         if !border_radius.is_zero() {
-            let mut mask = AzulPixmap::new(sw, sh).ok_or("cannot create shadow mask")?;
-            mask.fill(0, 0, 0, 0);
+            let mut mask = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow mask")?;
             if let Some(padding_box) = AzRect::from_xywh(pad, pad, rect.width, rect.height) {
                 let mut padding_path =
                     build_rounded_rect_path(&padding_box, border_radius, dpi_factor);
@@ -849,8 +847,7 @@ fn render_box_shadow(
     } else {
         drop(crate::probe::Probe::span("shadow_cache_miss"));
         // Create temp buffer and draw the shadow shape into it
-        let mut tmp = AzulPixmap::new(sw, sh).ok_or("cannot create shadow pixmap")?;
-        tmp.fill(0, 0, 0, 0); // transparent
+        let mut tmp = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow pixmap")?;
 
         // The shadow SHAPE is the border box grown by the spread on every
         // side (CSS Backgrounds 3 §7.1), placed after the blur padding. It
@@ -1035,8 +1032,7 @@ fn render_box_shadow(
     // 3, 7.1): a rounded box is cut out of it through its own curve, or a
     // translucent box would show its shadow through it.
     if matches!(shadow.clip_mode, BoxShadowClipMode::Outset) && !border_radius.is_zero() {
-        let mut mask = AzulPixmap::new(sw, sh).ok_or("cannot create shadow mask")?;
-        mask.fill(0, 0, 0, 0);
+        let mut mask = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow mask")?;
         if let Some(border_box) = AzRect::from_xywh(
             rect.x - dst_x as f32,
             rect.y - dst_y as f32,
@@ -6610,8 +6606,8 @@ pub(super) fn blurred_glyphs(
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
 ) -> Option<AzulPixmap> {
-    let mut tmp = AzulPixmap::new(buffer.width, buffer.height)?;
-    tmp.fill(0, 0, 0, 0);
+    // Transparent from the allocator: `new` (a 255-fill) and a 0-fill wrote every halo twice.
+    let mut tmp = AzulPixmap::new_transparent(buffer.width, buffer.height)?;
     // The buffer starts at (buffer.x, buffer.y) of the target: the glyphs and
     // their clips move by that much to land in it.
     let (dx, dy) = (buffer.x as f32 / dpi_factor, buffer.y as f32 / dpi_factor);
