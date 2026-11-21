@@ -9123,68 +9123,14 @@ fn render_border_sides(
     let iw = ow - wl - wr;
     let ih = oh - wt - wb;
 
-    // Each side is a trapezoid with 4 vertices:
-    // Top:    (ox, oy) → (ox+ow, oy) → (ix+iw, iy) → (ix, iy)
-    // Right:  (ox+ow, oy) → (ox+ow, oy+oh) → (ix+iw, iy+ih) → (ix+iw, iy)
-    // Bottom: (ox+ow, oy+oh) → (ox, oy+oh) → (ix, iy+ih) → (ix+iw, iy+ih)
-    // Left:   (ox, oy+oh) → (ox, oy) → (ix, iy) → (ix, iy+ih)
+    // A side that is drawn in dashes or dots.
+    let patterned = |side: usize| {
+        widths[side] > 0.0
+            && colors[side].a > 0
+            && matches!(styles[side], BorderStyle::Dashed | BorderStyle::Dotted)
+    };
 
-    let sides: [(f64, f64, f64, f64, f64, f64, f64, f64, ColorU, f32); 4] = [
-        // Top trapezoid
-        (
-            ox,
-            oy,
-            ox + ow,
-            oy,
-            ix + iw,
-            iy,
-            ix,
-            iy,
-            colors[0],
-            widths[0],
-        ),
-        // Right trapezoid
-        (
-            ox + ow,
-            oy,
-            ox + ow,
-            oy + oh,
-            ix + iw,
-            iy + ih,
-            ix + iw,
-            iy,
-            colors[1],
-            widths[1],
-        ),
-        // Bottom trapezoid
-        (
-            ox + ow,
-            oy + oh,
-            ox,
-            oy + oh,
-            ix,
-            iy + ih,
-            ix + iw,
-            iy + ih,
-            colors[2],
-            widths[2],
-        ),
-        // Left trapezoid
-        (
-            ox,
-            oy + oh,
-            ox,
-            oy,
-            ix,
-            iy,
-            ix,
-            iy + ih,
-            colors[3],
-            widths[3],
-        ),
-    ];
-
-    if border_radius.is_zero() {
+    if border_radius.is_zero() && !(0..4).any(patterned) {
         // Fast path: axis-aligned border strips — no rasterizer needed
         let pw = pixmap.width;
         let ph = pixmap.height;
@@ -9278,26 +9224,124 @@ fn render_border_sides(
             );
         }
     } else {
-        // Rounded borders: use trapezoid rasterizer
-        for &(x0, y0, x1, y1, x2, y2, x3, y3, color, width) in &sides {
-            if width <= 0.0 || color.a == 0 {
-                continue;
+        // A radius, or a side in dashes or dots (A1-47): the border's RING - the rounded outer
+        // edge minus the inner edge - filled once, each pixel in the colour of the side it
+        // belongs to (`BorderSideSpans`). The sides used to be four straight trapezoids,
+        // filled solid: under a radius the border had square corners and the arcs between
+        // them were not painted at all, and a dashed or dotted side was a solid one.
+        let mut ring = build_rounded_rect_path(&rect, border_radius, dpi_factor);
+        if let Some(inner) = AzRect::from_xywh(ix as f32, iy as f32, iw as f32, ih as f32) {
+            // The inner edge's corners are elliptical: the outer radius less the width of
+            // the side it meets on each axis (CSS Backgrounds 3, 5.2); `widths` are logical,
+            // as the radii are.
+            let less = |r: f32, w: f32| (r - w.max(0.0)).max(0.0);
+            let [wt_l, wr_l, wb_l, wl_l] = widths;
+            let inner_x = BorderRadius {
+                top_left: less(border_radius.top_left, wl_l),
+                top_right: less(border_radius.top_right, wr_l),
+                bottom_right: less(border_radius.bottom_right, wr_l),
+                bottom_left: less(border_radius.bottom_left, wl_l),
+            };
+            let inner_y = BorderRadius {
+                top_left: less(border_radius.top_left, wt_l),
+                top_right: less(border_radius.top_right, wt_l),
+                bottom_right: less(border_radius.bottom_right, wb_l),
+                bottom_left: less(border_radius.bottom_left, wb_l),
+            };
+            let mut hole = build_rounded_rect_path_xy(&inner, &inner_x, &inner_y, dpi_factor);
+            ring.concat_path(&mut hole, 0);
+        }
+        // The pattern `render_border_xy` strokes: a dash of three widths and a gap of one, a
+        // dot of one width and a gap of one.
+        let pattern = |side: usize, width: f64| {
+            if !patterned(side) {
+                (0.0, 0.0)
+            } else if styles[side] == BorderStyle::Dashed {
+                (3.0 * width, width)
+            } else {
+                (width, width)
             }
+        };
+        let mut spans = BorderSideSpans {
+            outer: (ox, oy, ow, oh),
+            widths: [wt, wr, wb, wl],
+            colors,
+            dashes: [pattern(0, wt), pattern(1, wr), pattern(2, wb), pattern(3, wl)],
+        };
+        super::pixmap::agg_fill_spans_clipped(pixmap, &mut ring, FillingRule::EvenOdd, &mut spans, clip);
+    }
+}
 
-            let mut path = PathStorage::new();
-            path.move_to(x0, y0);
-            path.line_to(x1, y1);
-            path.line_to(x2, y2);
-            path.line_to(x3, y3);
-            path.close_polygon(PATH_FLAGS_NONE);
+/// The colour of each pixel of a border whose sides differ ([`render_border_sides`]): a pixel
+/// belongs to the side it is least deep in, the depth counted in that side's own width. In a
+/// square corner that is the mitre from the outer to the inner corner; in a rounded one the
+/// same line carried on through the arc. A side without a width owns nothing; a side without
+/// a style (its colour made transparent) owns its pixels and leaves them unpainted. Along a
+/// dashed or dotted side the alpha is the part of the pixel that lies in a dash.
+struct BorderSideSpans {
+    /// The border box, device px: x, y, width, height.
+    outer: (f64, f64, f64, f64),
+    /// Device widths: top, right, bottom, left.
+    widths: [f64; 4],
+    colors: [ColorU; 4],
+    /// Dash and gap, device px, per side; `(0, 0)` for a solid one.
+    dashes: [(f64, f64); 4],
+}
 
-            let agg_color = Rgba8::new(
-                u32::from(color.r),
-                u32::from(color.g),
-                u32::from(color.b),
-                u32::from(color.a),
-            );
-            agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
+/// How much of the pixel `[at - 0.5, at + 0.5]` along a side lies in a dash: dashes of `dash`
+/// px start every `dash + gap` px from 0.
+fn dash_coverage(at: f64, dash: f64, gap: f64) -> f64 {
+    let period = dash + gap;
+    // The length in dashes from 0 to `v`.
+    let filled = |v: f64| {
+        let k = (v / period).floor();
+        k * dash + (v - k * period).min(dash)
+    };
+    (filled(at + 0.5) - filled(at - 0.5)).clamp(0.0, 1.0)
+}
+
+impl agg_rust::renderer_scanline::SpanGenerator for BorderSideSpans {
+    type Color = Rgba8;
+
+    fn prepare(&mut self) {}
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)] // an alpha, a span index
+    fn generate(&mut self, span: &mut [Rgba8], x: i32, y: i32, len: u32) {
+        let (ox, oy, ow, oh) = self.outer;
+        let py = f64::from(y) + 0.5;
+        for (i, out) in span.iter_mut().take(len as usize).enumerate() {
+            let px = f64::from(x) + i as f64 + 0.5;
+            // How deep the pixel is in each side: top, right, bottom, left.
+            let depth = [py - oy, ox + ow - px, oy + oh - py, px - ox];
+            let mut owner: Option<(usize, f64)> = None;
+            for side in 0..4 {
+                if self.widths[side] > 0.0 {
+                    let d = depth[side] / self.widths[side];
+                    if owner.is_none_or(|(_, least)| d < least) {
+                        owner = Some((side, d));
+                    }
+                }
+            }
+            *out = match owner {
+                Some((side, _)) if self.colors[side].a > 0 => {
+                    let c = self.colors[side];
+                    let (dash, gap) = self.dashes[side];
+                    let in_dash = if dash > 0.0 && gap > 0.0 {
+                        // Along the side: x for top and bottom, y for left and right.
+                        let along = if side % 2 == 0 { px - ox } else { py - oy };
+                        dash_coverage(along, dash, gap)
+                    } else {
+                        1.0
+                    };
+                    Rgba8::new(
+                        u32::from(c.r),
+                        u32::from(c.g),
+                        u32::from(c.b),
+                        (f64::from(c.a) * in_dash).round() as u32,
+                    )
+                }
+                _ => Rgba8::new(0, 0, 0, 0),
+            };
         }
     }
 }
@@ -20312,5 +20356,84 @@ mod audit_a1_tests {
             );
             assert_eq!(px(painted, 30, 30), [255, 255, 255, 255], "{what}: nothing where it is laid out");
         }
+    }
+
+
+    /// A1-47: a border whose sides differ follows its radius, and each pixel is the side's it
+    /// lies least deep in. Box (10, 10) 60 x 40, radius 10, every side 4 px, the top red, the
+    /// others blue. The outer arc of the top-left corner is about (20, 20), radius 10; the
+    /// inner one radius 6.
+    /// - (11, 11) is 12.0 px from the arc's centre: outside the border. The sides were square
+    ///   trapezoids and painted it.
+    /// - (14, 15) and (15, 14) lie whole in the ring (their corners are 6.4 to 7.8 px from the
+    ///   centre), right of the left side's strip (x < 14) and below the top side's (y < 14):
+    ///   no trapezoid held them. (14, 15) is 1.375 widths into the top side and 1.125 into
+    ///   the left one: blue; (15, 14) the other way round: red.
+    /// - (16, 13) is 0.875 widths into the top side, 1.625 into the left: red.
+    /// - (40, 11), on the straight part of the top side: red; (40, 30), inside: not painted.
+    /// Mutation: the outer path built without the radius paints (11, 11); the depth not
+    /// divided by the width, with a top side of 8 px, moves the mitre.
+    #[test]
+    fn a_border_with_different_sides_follows_its_radius() {
+        use azul_css::props::style::border::BorderStyle;
+        let (red, blue) = (ColorU { r: 255, g: 0, b: 0, a: 255 }, ColorU { r: 0, g: 0, b: 255, a: 255 });
+        let white = [255, 255, 255, 255];
+        let mut pm = AzulPixmap::new(90, 70).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let radius = BorderRadius { top_left: 10.0, top_right: 10.0, bottom_left: 10.0, bottom_right: 10.0 };
+        render_border_sides(
+            &mut pm,
+            &rect(10.0, 10.0, 60.0, 40.0),
+            [red, blue, blue, blue],
+            [4.0; 4],
+            [BorderStyle::Solid; 4],
+            &radius,
+            None,
+            1.0,
+        );
+        assert_eq!(px(&pm, 11, 11), white, "outside the rounded corner");
+        assert_eq!(px(&pm, 14, 15), [0, 0, 255, 255], "on the arc, the left side's");
+        assert_eq!(px(&pm, 15, 14), [255, 0, 0, 255], "on the arc, the top side's");
+        assert_eq!(px(&pm, 16, 13), [255, 0, 0, 255], "in the top side's strip, on the arc");
+        assert_eq!(px(&pm, 40, 11), [255, 0, 0, 255], "the top side");
+        assert_eq!(px(&pm, 11, 30), [0, 0, 255, 255], "the left side");
+        assert_eq!(px(&pm, 40, 30), white, "inside the border");
+        assert_eq!(px(&pm, 16, 16), white, "inside the inner arc (5.0 px from its centre, radius 6)");
+    }
+
+    /// A1-47: a dashed or dotted side of a border whose sides differ is drawn in dashes. Box
+    /// (10, 10) 80 x 30 without a radius, every side 4 px, the top dashed red (dashes of 12 px
+    /// and gaps of 4 from the box's left edge: 10 .. 22, 26 .. 38, ...), the others solid blue.
+    /// The pixel (30, 11) is in the second dash: red. (23, 11) is in the first gap (22 .. 26):
+    /// not painted - it was red, the side was drawn solid. A dotted bottom side (4 px on,
+    /// 4 px off): (20, 37) in a dot, (24, 37) in a gap.
+    /// Mutation: the pattern taken as `(0, 0)` for every side paints the gaps.
+    #[test]
+    fn a_dashed_side_of_a_border_with_different_sides_is_dashed() {
+        use azul_css::props::style::border::BorderStyle;
+        let (red, blue) = (ColorU { r: 255, g: 0, b: 0, a: 255 }, ColorU { r: 0, g: 0, b: 255, a: 255 });
+        let white = [255, 255, 255, 255];
+        let mut pm = AzulPixmap::new(100, 50).unwrap();
+        pm.fill(255, 255, 255, 255);
+        render_border_sides(
+            &mut pm,
+            &rect(10.0, 10.0, 80.0, 30.0),
+            [red, blue, red, blue],
+            [4.0; 4],
+            [BorderStyle::Dashed, BorderStyle::Solid, BorderStyle::Dotted, BorderStyle::Solid],
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert_eq!(px(&pm, 30, 11), [255, 0, 0, 255], "in a dash of the top side");
+        assert_eq!(px(&pm, 23, 11), white, "in a gap of the top side");
+        assert_eq!(px(&pm, 20, 37), [255, 0, 0, 255], "in a dot of the bottom side (18 .. 22)");
+        assert_eq!(px(&pm, 24, 37), white, "in a gap of the bottom side (22 .. 26)");
+        assert_eq!(px(&pm, 11, 25), [0, 0, 255, 255], "the solid left side");
+        assert_eq!(px(&pm, 88, 25), [0, 0, 255, 255], "the solid right side");
+        assert_eq!(px(&pm, 50, 25), white, "inside the border");
+        // The coverage of a pixel across a dash's end: half in, half out.
+        assert!((dash_coverage(12.0, 12.0, 4.0) - 0.5).abs() < 1e-9);
+        assert!((dash_coverage(5.5, 12.0, 4.0) - 1.0).abs() < 1e-9 && dash_coverage(14.0, 12.0, 4.0).abs() < 1e-9);
     }
 }

@@ -1690,6 +1690,45 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, &mut sg);
 }
 
+/// Fill `path` (by `rule`) with the colour a span generator gives each pixel, under the
+/// optional pixel clip: [`agg_fill_gradient_clipped`] for any generator (a border whose sides
+/// differ, `raster::BorderSideSpans`).
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel casts
+pub(crate) fn agg_fill_spans_clipped<SG>(
+    pixmap: &mut AzulPixmap,
+    path: &mut dyn VertexSource,
+    rule: FillingRule,
+    spans: &mut SG,
+    clip: Option<AzRect>,
+) where
+    SG: agg_rust::renderer_scanline::SpanGenerator<Color = Rgba8>,
+{
+    let w = pixmap.width;
+    let h = pixmap.height;
+    let stride = (w * 4) as i32;
+    let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
+    let mut pf = PixfmtRgba32::new(&mut ra);
+    let mut rb = RendererBase::new(pf);
+    if let Some(c) = clip {
+        // Degenerate clip = nothing visible (see `agg_fill_path_clipped`).
+        if c.width <= 0.0 || c.height <= 0.0 {
+            return;
+        }
+        rb.clip_box_i(
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width) as i32 - 1,
+            (c.y + c.height) as i32 - 1,
+        );
+    }
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(rule);
+    add_path_for_target(&mut ras, path, w, h, clip);
+    let mut sl = ScanlineU8::new();
+    let mut alloc = SpanAllocator::<Rgba8>::new();
+    render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, spans);
+}
+
 // ============================================================================
 // Gradient helpers
 // ============================================================================
