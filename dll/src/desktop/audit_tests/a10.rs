@@ -537,3 +537,49 @@ fn the_ios_present_reuses_its_frame_copies_and_skips_an_unchanged_frame() {
         "the release callback must give the buffer back to the pool"
     );
 }
+
+/// A10-13, A10-14, A10-06: the wiring of the macOS CPU view's `drawRect:`
+/// (the arithmetic is tested in `macos/mod.rs`, `audit_a10_tests`).
+/// - the rects being drawn are recorded before the frame is rendered, and
+///   the invalidation skips what they contain (one present per frame);
+/// - a resize moves the framebuffer's rows in place and reuses a bitmap that
+///   is large enough;
+/// - with `AZ_CPU_PRESENT=cgimage` the dirty span is drawn straight from the
+///   framebuffer, and a view whose image Core Graphics held goes back to the
+///   bitmap for good.
+///
+/// Mutations: any of the calls below removed from `drawRect:`, or the filter
+/// removed from `invalidate_px_rects`, fails here.
+#[test]
+fn the_macos_draw_rect_presents_once_resizes_in_place_and_can_draw_from_the_framebuffer() {
+    let draw = body(MACOS_RS, "fn draw_rect(&self, dirty_rect: NSRect)");
+    let record = draw
+        .find("*ivars.drawing_spans.borrow_mut() = self.spans_being_drawn(dirty_rect, width, height);")
+        .expect("drawRect: records what it draws");
+    let render = draw
+        .find("macos_window.render_and_present_in_draw_rect();")
+        .expect("drawRect: renders");
+    let clear = draw
+        .find("ivars.drawing_spans.borrow_mut().clear();")
+        .expect("drawRect: forgets what it drew");
+    assert!(record < render && render < clear, "recorded before the render, cleared after it");
+    for call in [
+        "resize_framebuffer(",
+        "bitmap_size_to_allocate(width, height, have)",
+        "bitmap_source_rect(span, bitmap_h)",
+        "draw_framebuffer_span_cg(&framebuffer, width, height, span, to_pt)",
+        "ivars.cg_tripped.set(true);",
+    ] {
+        assert!(draw.contains(call), "drawRect: no longer has `{call}`");
+    }
+    let invalidate = body(MACOS_RS, "fn invalidate_px_rects(");
+    assert!(
+        invalidate.contains("rects_left_to_invalidate(rects, &self.ivars().drawing_spans.borrow())"),
+        "the invalidation must skip what the running drawRect: draws"
+    );
+    let spans = body(MACOS_RS, "fn spans_being_drawn(");
+    assert!(
+        spans.contains("getRectsBeingDrawn_count(") && spans.contains("rows_inside_backing_rect("),
+        "what is being drawn comes from AppKit's own list, cut inward"
+    );
+}
