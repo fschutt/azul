@@ -94,3 +94,56 @@ fn the_intrinsic_pass_builds_no_hash_set_of_the_dirty_nodes() {
          nodes: the pass builds one of its own"
     );
 }
+
+/// A3-solver-32 [reveals]. An absolutely positioned box is out of the flow: it adds nothing to
+/// the intrinsic sizes of its parent (CSS 2.2 10.3.5 measures a shrink-to-fit width from the
+/// content in flow; css-sizing-3 5.1, CSS Position 3: an out-of-flow box does not affect the
+/// size of its parent). `sizing::calculate_intrinsic_recursive` hands the parent zero sizes
+/// for such a child, but `calculate_block_intrinsic_sizes` still adds the child's own margin,
+/// border and padding to those zeros (`cross_extras`, `main_border_padding`, the margin chain) -
+/// and so does `calculate_flex_intrinsic_sizes` (`extra_w`, `extra_h`).
+///
+/// `body > float > [block 100 x 20, absolutely positioned block]`: the float shrinks to fit its
+/// one child in flow, 100px - with the positioned child bare (the harness: 100 today) and with
+/// 150px of padding on it (by reading: max(100, 0 + 150) = 150 today).
+#[test]
+fn an_absolutely_positioned_child_adds_nothing_to_its_parents_intrinsic_width() {
+    // body(0) > float(1) > [block(2), absolutely positioned block(3)].
+    let width_of_the_float = |padding: u32| {
+        let mut lw = window();
+        lay_out(
+            &mut lw,
+            Dom::create_body().with_css("margin: 0px;").with_child(
+                Dom::create_div()
+                    .with_css("float: left;")
+                    .with_child(Dom::create_div().with_css("width: 100px; height: 20px;"))
+                    .with_child(Dom::create_div().with_css(&format!(
+                        "position: absolute; width: 10px; height: 10px; padding-left: {padding}px;"
+                    ))),
+            ),
+        );
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("the float is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the float has a size")
+            .width
+    };
+    let bare = width_of_the_float(0);
+    assert!(
+        (bare - 100.0).abs() < 0.5,
+        "harness: a float around a 100px block and a bare positioned box is {bare}px wide"
+    );
+    let padded = width_of_the_float(150);
+    assert!(
+        (padded - 100.0).abs() < 0.5,
+        "the padding of an absolutely positioned child widened its shrink-to-fit parent to \
+         {padded}px (the child in flow is 100px wide)"
+    );
+}
