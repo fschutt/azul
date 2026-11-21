@@ -5069,6 +5069,12 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// at the first lookup ([`DisplayListGenerator::tag_id_of`]): every box
     /// asks for its tag, and each ask used to scan the DOM's whole tag list.
     tags_by_node: core::cell::OnceCell<Vec<Option<u64>>>,
+    /// The links of a box's [`ScrollChain`](crate::solver3::scroll_chain::ScrollChain)
+    /// (their layout indices, outermost first) by the box's parent and how
+    /// the box is positioned - all a box's chain depends on
+    /// ([`DisplayListGenerator::box_chain_key`]). Every positioned box asks
+    /// for its chain; the labels of a map layer share a handful.
+    box_chains: BTreeMap<(usize, u8), Vec<usize>>,
 }
 
 /// What the region being painted holds of a box (see
@@ -5647,7 +5653,52 @@ where
             canvas_painted: [None, None],
             painting_region: None,
             tags_by_node: core::cell::OnceCell::new(),
+            box_chains: BTreeMap::new(),
         }
+    }
+
+    /// What the scroll chain of the box at `node_index` depends on: its
+    /// parent and whether it is `absolute`, `fixed` or neither
+    /// (`scroll_chain::box_anchor` reads nothing else of the box itself;
+    /// every later step of the chain walk reads its ancestors). `None` for
+    /// a box without a parent, whose chain is empty.
+    fn box_chain_key(&self, node_index: usize) -> Option<(usize, u8)> {
+        let node = self.positioned_tree.tree.get(LayoutNodeId::new(node_index))?;
+        let parent = node.parent?;
+        let kind = match get_position_type(self.ctx.styled_dom, node.dom_node_id) {
+            LayoutPosition::Absolute => 1,
+            LayoutPosition::Fixed => 2,
+            _ => 0,
+        };
+        Some((parent, kind))
+    }
+
+    /// The layout indices of the links of the box chain of `node_index`
+    /// (`ScrollChain::of` with `AncestorsOnly`), outermost first: walked
+    /// once per parent and kind of positioning, read from
+    /// [`Self::box_chains`] after that.
+    fn box_chain_links(&mut self, node_index: usize) -> &[usize] {
+        let Some(key) = self.box_chain_key(node_index) else {
+            return &[];
+        };
+        if !self.box_chains.contains_key(&key) {
+            #[cfg(test)]
+            SCROLL_CHAIN_WALKS.with(|n| n.set(n.get() + 1));
+            let chain = crate::solver3::scroll_chain::ScrollChain::of(
+                self.positioned_tree.tree,
+                self.ctx.styled_dom,
+                self.scroll_ids,
+                LayoutNodeId::new(node_index),
+                azul_core::spaces::Inclusivity::AncestorsOnly,
+            );
+            let links = chain
+                .links
+                .iter()
+                .map(|link| link.layout_index.index())
+                .collect();
+            self.box_chains.insert(key, links);
+        }
+        self.box_chains.get(&key).map_or(&[][..], Vec::as_slice)
     }
 
     /// The hit-test tag of DOM node `id`, the answer of [`get_tag_id`]: the
@@ -7146,13 +7197,6 @@ where
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> ChainDetour {
-        let chain = crate::solver3::scroll_chain::ScrollChain::of(
-            self.positioned_tree.tree,
-            self.ctx.styled_dom,
-            self.scroll_ids,
-            LayoutNodeId::new(node_index),
-            azul_core::spaces::Inclusivity::AncestorsOnly,
-        );
         let movable_from = self
             .open_clips
             .iter()
@@ -7170,10 +7214,10 @@ where
             .iter()
             .filter_map(owner)
             .collect();
-        let wanted: Vec<usize> = chain
-            .links
+        let wanted: Vec<usize> = self
+            .box_chain_links(node_index)
             .iter()
-            .map(|link| link.layout_index.index())
+            .copied()
             .filter(|index| !fixed.contains(index))
             .collect();
         let keep = open
@@ -12244,6 +12288,14 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
     }
 
     content_size
+}
+
+/// How often the display lists of this thread walked a box's scroll chain
+/// (`ScrollChain::of`) for `DisplayListGenerator::enter_scroll_chain`: what
+/// the tests read to say the positioned boxes of one parent share one walk.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SCROLL_CHAIN_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// How often the selection and caret painters of this thread asked for a

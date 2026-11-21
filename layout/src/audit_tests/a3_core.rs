@@ -1,8 +1,8 @@
 //! A3-core, quadratics in core, css and the display list builder.
 
 use azul_core::{
-    dom::{Dom, DomId},
-    geom::LogicalSize,
+    dom::{Dom, DomId, NodeId},
+    geom::{LogicalRect, LogicalSize},
     hit_test::TAG_TYPE_DOM_NODE,
     resources::RendererResources,
     styled_dom::StyledDom,
@@ -12,7 +12,9 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     callbacks::ExternalSystemCallbacks,
     solver3::{
-        display_list::{DisplayListItem, INLINE_LAYOUT_COPIES, TAG_LIST_READS},
+        display_list::{
+            DisplayList, DisplayListItem, INLINE_LAYOUT_COPIES, SCROLL_CHAIN_WALKS, TAG_LIST_READS,
+        },
         layout_tree::LayoutNodeId,
     },
     window::LayoutWindow,
@@ -145,4 +147,101 @@ fn a_block_without_a_selection_or_a_caret_copies_no_lines() {
         .count();
     assert!(blocks >= k, "harness: {blocks} text blocks for {k} labels");
     assert_eq!(copies, 0, "{copies} copies of a text block's lines for no selection and no caret");
+}
+
+/// A3-core-05: every positioned box had its scroll chain walked up the tree
+/// (`ScrollChain::of`: a handful of cascade lookups per level) although the chain depends only
+/// on the box's parent and on how it is positioned. The labels of one parent share one walk.
+#[test]
+fn the_positioned_boxes_of_one_parent_share_one_scroll_chain_walk() {
+    for (group, budget) in [(0, 8), (64, 16 + 8)] {
+        let dom = label_layer(1_000, group);
+        SCROLL_CHAIN_WALKS.with(|n| n.set(0));
+        drop(laid_out(dom));
+        let walks = SCROLL_CHAIN_WALKS.with(std::cell::Cell::get);
+        assert!(walks >= 1, "harness: a chain was walked (groups of {group})");
+        assert!(
+            walks <= budget,
+            "{walks} scroll chain walks for 1,000 labels in groups of {group} (budget {budget})"
+        );
+    }
+}
+
+/// The clips open around the hit-test area of DOM node `node` in `list`, outermost first.
+fn clips_around(list: &DisplayList, node: usize) -> Vec<LogicalRect> {
+    let mut open = Vec::new();
+    for (i, item) in list.items.iter().enumerate() {
+        match item {
+            DisplayListItem::PushClip { bounds, .. } => open.push(*bounds.inner()),
+            DisplayListItem::PopClip => {
+                open.pop();
+            }
+            DisplayListItem::HitTestArea { tag, .. }
+                if tag.1 == TAG_TYPE_DOM_NODE
+                    && list.node_mapping[i] == Some(NodeId::new(node)) =>
+            {
+                return open;
+            }
+            _ => {}
+        }
+    }
+    panic!("node {node} has no hit-test area");
+}
+
+/// A3-core-05: a chain read from the memo is the chain of that box. The boxes of one parent
+/// and one kind of positioning are painted in the same clips; a box of another parent, or an
+/// absolutely positioned box beside a relatively positioned one of the same parent (it leaves
+/// the clip of a parent that is not its containing block), is not.
+#[test]
+fn a_shared_scroll_chain_is_the_chain_of_every_box_that_shares_it() {
+    let text = |t: &str| Dom::create_text_do_not_use_without_block_level_wrapper(t);
+    let boxed = |css: &str| Dom::create_div().with_css(css).with_child(text("x"));
+    let abs = |left: usize, top: usize| {
+        boxed(&format!(
+            "position: absolute; left: {left}px; top: {top}px; width: 20px; height: 20px;"
+        ))
+    };
+    // 0 body, 1 layer, 2 A, 3/5/7 its absolute boxes (4/6/8 their texts), 9 B, 10/12 its
+    // relative boxes, 14/16/18 its absolute boxes.
+    let a = Dom::create_div()
+        .with_css(
+            "position: absolute; left: 10px; top: 10px; width: 200px; height: 100px; \
+             overflow: hidden;",
+        )
+        .with_child(abs(5, 5))
+        .with_child(abs(40, 5))
+        .with_child(abs(80, 5));
+    let b = Dom::create_div()
+        .with_css("width: 300px; height: 120px; overflow: hidden;")
+        .with_child(boxed("position: relative; width: 50px; height: 20px;"))
+        .with_child(boxed("position: relative; width: 50px; height: 20px;"))
+        .with_child(abs(300, 300))
+        .with_child(abs(340, 300))
+        .with_child(abs(380, 300));
+    let layer = Dom::create_div()
+        .with_css("position: relative; width: 600px; height: 400px;")
+        .with_child(a)
+        .with_child(b);
+    let lw = laid_out(Dom::create_body().with_css("margin: 0px;").with_child(layer));
+    let result = lw.layout_results.get(&DomId::ROOT_ID).expect("the root's layout");
+    assert_eq!(result.styled_dom.node_data.as_ref().len(), 20, "harness: the page's nodes");
+    let list = &result.display_list;
+
+    let in_a = clips_around(list, 3);
+    assert!(!in_a.is_empty(), "a box positioned in A is painted in A's clip");
+    assert_eq!(clips_around(list, 5), in_a, "the second box of A, from the memo");
+    assert_eq!(clips_around(list, 7), in_a, "the third box of A, from the memo");
+
+    let relative_in_b = clips_around(list, 10);
+    assert!(!relative_in_b.is_empty(), "a relative box of B is painted in B's clip");
+    assert_eq!(clips_around(list, 12), relative_in_b, "the second relative box of B");
+    assert_ne!(relative_in_b, in_a, "B's clip is not A's");
+
+    let absolute_in_b = clips_around(list, 14);
+    assert!(
+        absolute_in_b.len() < relative_in_b.len(),
+        "an absolute box of B leaves B's clip: its containing block is the layer"
+    );
+    assert_eq!(clips_around(list, 16), absolute_in_b, "the second absolute box of B");
+    assert_eq!(clips_around(list, 18), absolute_in_b, "the third absolute box of B");
 }
