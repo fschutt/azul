@@ -4240,12 +4240,33 @@ pub(crate) fn opacity_group_region(
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) -> AzRect {
-    logical_rect_to_az_rect(bounds, dpi_factor)
-        .and_then(|r| match clip {
-            Some(c) => intersect_clips(Some(c), Some(r)),
-            None => Some(r),
-        })
-        .unwrap_or(AzRect::DENY_ALL)
+    device_region(logical_rect_to_az_rect(bounds, dpi_factor), clip).unwrap_or(AzRect::DENY_ALL)
+}
+
+/// The whole device pixels an isolated group (an opacity group, a filter group) sets aside
+/// for the box `boxed` under `clip`: the box's own edges outward (a pixel its content covers
+/// in part is the group's), cut to the pixels a paint under the clip may write
+/// (`AzRect::pixel_box`, the fills' rule - the ONE clip rule of the CPU path, A2-cpu-06).
+/// `None` when no pixel is left.
+///
+/// Both groups used to round on their own: the opacity group took `x as i32` and
+/// `width as u32` (a box 10.6 .. 34.4 lost column 33), the filter group `floor` / `ceil` of
+/// box and clip alike (one column past a clip that ends between pixels).
+fn device_region(boxed: Option<AzRect>, clip: Option<AzRect>) -> Option<AzRect> {
+    let r = boxed?;
+    let (mut x0, mut y0) = (r.x.floor() as i32, r.y.floor() as i32);
+    let (mut x1, mut y1) = ((r.x + r.width).ceil() as i32, (r.y + r.height).ceil() as i32);
+    if let Some(c) = clip {
+        let (cx0, cy0, cx1, cy1) = c.pixel_box();
+        x0 = x0.max(cx0);
+        y0 = y0.max(cy0);
+        x1 = x1.min(cx1);
+        y1 = y1.min(cy1);
+    }
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    AzRect::from_xywh(x0 as f32, y0 as f32, (x1 - x0) as f32, (y1 - y0) as f32)
 }
 
 #[allow(clippy::many_single_char_names)] // r,g,b,a colour channels + loop indices
@@ -5587,12 +5608,7 @@ pub fn render_single_item(
                 // window, and bands and one pass differed (A2-cpu-R10). No group when the
                 // box is outside the clip.
                 let clip = *clip_stack.last().unwrap();
-                logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor)
-                    .and_then(|r| match clip {
-                        Some(c) => intersect_clips(Some(c), Some(r)),
-                        None => Some(r),
-                    })
-                    .filter(|r| r.width > 0.0 && r.height > 0.0)
+                device_region(logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor), clip)
                     .map(|r| FilterGroup::begin(pixmap, &r, filters))
             } else {
                 None
@@ -18555,5 +18571,24 @@ mod audit_a1_tests {
         assert_eq!(px(&pm, 10, 20), white, "border-style: none paints nothing");
         assert_eq!((px(&pm, 48, 20), px(&pm, 49, 20), px(&pm, 47, 20)), (blue, blue, white));
         assert_eq!((px(&pm, 30, 28), px(&pm, 30, 29), px(&pm, 30, 27)), (blue, blue, white));
+    }
+
+    /// A2-cpu-06: the pixels an isolated group sets aside. A box from 10.6 to 34.4 (device
+    /// px) reaches into the pixels 10 .. 34: the region is [10, 35), 25 wide - the opacity
+    /// group's own rounding (`x as i32`, `width as u32`) gave [10, 33) and left the columns
+    /// 33 and 34 outside the group. Under a clip that ends at 33.5 a paint may write up to
+    /// column 32 (`pixel_box`): the region is [10, 33) - `floor` / `ceil` of the clip, the
+    /// filter group's rounding, gave [10, 34), one column past the clip.
+    /// Mutations: the far edge as `x as i32 + width as i32` fails the first; the clip's far
+    /// edge by `ceil` the second.
+    #[test]
+    fn an_isolated_group_takes_its_boxs_pixels_cut_to_what_the_clip_lets_paint() {
+        let boxed = AzRect::from_xywh(10.6, 5.0, 23.8, 10.0);
+        let whole = device_region(boxed, None).expect("a region");
+        assert_eq!((whole.x, whole.y, whole.width, whole.height), (10.0, 5.0, 25.0, 10.0));
+        let cut = device_region(boxed, AzRect::from_xywh(0.0, 0.0, 33.5, 100.0)).expect("a region");
+        assert_eq!((cut.x, cut.width), (10.0, 23.0));
+        assert!(device_region(boxed, AzRect::from_xywh(40.0, 0.0, 10.0, 100.0)).is_none(), "outside the clip");
+        assert!(device_region(None, None).is_none());
     }
 }

@@ -1977,13 +1977,15 @@ fn scroll_shift_region_impl(
     let pw = pixmap.width() as i32;
     let ph = pixmap.height() as i32;
 
-    // Clip rectangle in physical pixels, clamped to the pixmap.
+    // Clip rectangle in physical pixels, clamped to the pixmap: the pixels a paint under the
+    // clip may write, by the fills' rule (`AzRect::pixel_box`: `as i32` on both edges - the one
+    // clip rule of the CPU path, A2-cpu-06). The far edges used to be `ceil`: for a clip that
+    // ends at 1600.5 the fills stop at column 1599 and the move took column 1600, the
+    // neighbour's, along. (The near edges are clamped at 0, where `as i32` and `floor` agree.)
     let cx0 = ((clip_bounds.origin.x * dpi_factor).floor() as i32).clamp(0, pw);
     let cy0 = ((clip_bounds.origin.y * dpi_factor).floor() as i32).clamp(0, ph);
-    let cx1 =
-        (((clip_bounds.origin.x + clip_bounds.size.width) * dpi_factor).ceil() as i32).clamp(0, pw);
-    let cy1 = (((clip_bounds.origin.y + clip_bounds.size.height) * dpi_factor).ceil() as i32)
-        .clamp(0, ph);
+    let cx1 = (((clip_bounds.origin.x + clip_bounds.size.width) * dpi_factor) as i32).clamp(0, pw);
+    let cy1 = (((clip_bounds.origin.y + clip_bounds.size.height) * dpi_factor) as i32).clamp(0, ph);
     let region_w = cx1 - cx0;
     let region_h = cy1 - cy0;
     if region_w <= 0 || region_h <= 0 {
@@ -12583,5 +12585,22 @@ mod audit_a1_tests {
         let eligible = |list: &DisplayList| scroll_fast_path_eligible_in(list, 4, &clip, (0.0, 12.0), (0.0, 0.0), &now, &HashMap::new());
         assert!(eligible(&page(false)), "the ground covers the frame at both offsets");
         assert!(!eligible(&page(true)), "inside a 100 px clip it covers a third of it");
+    }
+
+    /// A2-cpu-06: a pixel move takes the columns a paint under the clip may write, and no
+    /// other. A clip (20, 10) 40.5 x 30 ends between the pixels 60 and 61: fills under it stop
+    /// at column 59. A pan by 4 moves the columns 24 .. 59 to 20 .. 55; column 56 keeps its
+    /// pixel (it is in the strip that is repainted) and column 60, the neighbour's, is not
+    /// read.
+    /// Mutation: the far edge by `ceil` (61) moves the neighbour's column 60 into column 56.
+    #[test]
+    fn a_pixel_move_stops_where_the_fills_under_the_clip_stop() {
+        let mut pm = numbered();
+        let clip = lr(20.0, 10.0, 40.5, 30.0);
+        let (_, moved) = scroll_shift_region_moved(&mut pm, &clip, (4.0, 0.0), (4.0, 0.0), 1.0);
+        assert_eq!(moved, Some(PresentMove { dst: (20, 10, 36, 30), dx: -4, dy: 0 }));
+        assert_eq!(at(&pm, 55, 15), (59, 15), "the last column that is the clip's");
+        assert_eq!(at(&pm, 56, 15), (56, 15), "not the neighbour's column 60");
+        assert_eq!(at(&pm, 60, 15), (60, 15));
     }
 }
