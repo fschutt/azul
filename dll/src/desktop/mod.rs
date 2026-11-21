@@ -163,6 +163,9 @@ pub(crate) mod app_events;
 /// app-level sources (tray, notifications, global hotkeys).
 #[cfg(test)]
 mod loop_wakeup_invariants;
+/// The guards of the 2026-11-21 audit, one module per area.
+#[cfg(test)]
+mod audit_tests;
 /// WebRender type translations and hit-testing for shell2
 pub mod wr_translate2;
 /// Font & image resource handling, lookup and caching
