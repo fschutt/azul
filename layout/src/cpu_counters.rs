@@ -49,9 +49,12 @@ pub enum Counter {
     RetainedMisses,
     /// Retained surfaces dropped because what they show changed.
     RetainedInvalidations,
+    /// Retained surfaces kept through a change of their list: only the boxes of the items
+    /// that differ were painted again.
+    RetainedPatched,
 }
 
-const COUNTERS: usize = 17;
+const COUNTERS: usize = 18;
 
 thread_local! {
     static COUNTS: [Cell<u64>; COUNTERS] = const { [const { Cell::new(0) }; COUNTERS] };
@@ -94,6 +97,8 @@ pub struct CpuFrameCounters {
     pub retained_misses: u64,
     /// See [`Counter::RetainedInvalidations`].
     pub retained_invalidations: u64,
+    /// See [`Counter::RetainedPatched`].
+    pub retained_patched: u64,
 }
 
 impl CpuFrameCounters {
@@ -116,6 +121,7 @@ impl CpuFrameCounters {
         self.group_px_painted += other.group_px_painted;
         self.retained_misses += other.retained_misses;
         self.retained_invalidations += other.retained_invalidations;
+        self.retained_patched += other.retained_patched;
     }
 }
 
@@ -156,6 +162,7 @@ pub fn take() -> CpuFrameCounters {
             group_px_painted: get(Counter::GroupPxPainted),
             retained_misses: get(Counter::RetainedMisses),
             retained_invalidations: get(Counter::RetainedInvalidations),
+            retained_patched: get(Counter::RetainedPatched),
         }
     })
 }
@@ -181,6 +188,7 @@ pub fn merge(counted: &CpuFrameCounters) {
     count(Counter::GroupPxPainted, counted.group_px_painted);
     count(Counter::RetainedMisses, counted.retained_misses);
     count(Counter::RetainedInvalidations, counted.retained_invalidations);
+    count(Counter::RetainedPatched, counted.retained_patched);
 }
 
 /// What a window keeps of its CPU frames: the last frame's counters and their sum since the
@@ -256,6 +264,7 @@ mod tests {
             Counter::GroupPxPainted,
             Counter::RetainedMisses,
             Counter::RetainedInvalidations,
+            Counter::RetainedPatched,
         ];
         assert_eq!(all.len(), COUNTERS, "harness: every counter is listed");
         let band = std::thread::spawn(move || {

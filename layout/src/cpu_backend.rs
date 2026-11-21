@@ -1277,6 +1277,17 @@ impl CpuBackend {
                     .map(|list| Arc::as_ptr(list) as usize),
             )
             .collect();
+        // A kept surface whose list was replaced by one that differs in a few items (a tile
+        // that arrived during a zoom, a label that was edited) is repaired, not dropped.
+        if let Err(e) = cpurender::refresh_retained_surfaces(
+            &render_state,
+            renderer_resources,
+            &layout_window.font_manager,
+            &mut self.glyph_cache,
+            dpi_factor,
+        ) {
+            eprintln!("[CpuBackend] refresh_retained_surfaces error: {e}");
+        }
         self.retained_frames.begin_frame(&painted_lists);
 
         // An INCREMENTAL frame paints exactly its damage - and nothing when it

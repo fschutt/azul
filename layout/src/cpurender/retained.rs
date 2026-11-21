@@ -92,15 +92,29 @@ pub(crate) struct SurfaceKey {
 }
 
 /// One kept surface.
-struct Entry {
-    key: SurfaceKey,
+pub(crate) struct Entry {
+    pub(crate) key: SurfaceKey,
     /// The list the picture was painted from: held, so that no patch can change it in place
     /// and no other list can take its address while the surface is kept.
-    list: Arc<DisplayList>,
-    surface: Arc<AzulPixmap>,
+    pub(crate) list: Arc<DisplayList>,
+    pub(crate) surface: Arc<AzulPixmap>,
     /// The boxes of the surface that hold the picture, `[x0, y0, x1, y1]` in surface px.
-    valid: Vec<[i32; 4]>,
+    pub(crate) valid: Vec<[i32; 4]>,
+    /// Where the picture was painted from ([`Placement`]).
+    pub(crate) placement: Placement,
     last_used: u64,
+}
+
+/// Where a kept picture was painted from, for a repaint of a part of it when its list is
+/// replaced (`raster::refresh_retained_surfaces`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Placement {
+    /// The walk's offset inside the group when the picture was painted: the item at list
+    /// position `p` is at surface pixel `(p - offset) dpi`.
+    pub(crate) offset: (f32, f32),
+    /// Which list of the window the frame is in: a view's DOM id, `usize::MAX` for the
+    /// window's own list.
+    pub(crate) slot: usize,
 }
 
 impl Entry {
@@ -115,6 +129,7 @@ struct Painted {
     list: Arc<DisplayList>,
     surface: AzulPixmap,
     part: [i32; 4],
+    placement: Placement,
 }
 
 #[derive(Default)]
@@ -279,9 +294,37 @@ impl RetainedFrames {
         list: Arc<DisplayList>,
         surface: AzulPixmap,
         part: [i32; 4],
+        placement: Placement,
     ) {
         if let Ok(mut inner) = self.inner.lock() {
-            inner.outbox.push(Painted { key, list, surface, part });
+            inner.outbox.push(Painted { key, list, surface, part, placement });
+        }
+    }
+
+    /// The kept surfaces of lists that are not among `current` any more, taken out of the
+    /// cache: the caller repairs each for the list that replaced its own and puts it back
+    /// ([`Self::put_back`]), or drops it.
+    pub(crate) fn take_stale(&self, current: &[usize]) -> Vec<Entry> {
+        let Ok(mut inner) = self.inner.lock() else {
+            return Vec::new();
+        };
+        let (kept, stale): (Vec<Entry>, Vec<Entry>) = core::mem::take(&mut inner.entries)
+            .into_iter()
+            .partition(|entry| current.contains(&entry.key.list));
+        inner.entries = kept;
+        stale
+    }
+
+    /// Keep `entry` again (after [`Self::take_stale`]), unless a surface of its frame is kept.
+    pub(crate) fn put_back(&self, entry: Entry) {
+        if let Ok(mut inner) = self.inner.lock() {
+            let taken = inner
+                .entries
+                .iter()
+                .any(|e| e.key.list == entry.key.list && e.key.push == entry.key.push);
+            if !taken && inner.entries.len() < MAX_ENTRIES {
+                inner.entries.push(entry);
+            }
         }
     }
 
@@ -346,6 +389,7 @@ impl RetainedFrames {
                 list: painted.list,
                 surface: Arc::new(painted.surface),
                 valid: vec![painted.part],
+                placement: painted.placement,
                 last_used: clock,
             });
         }
@@ -384,6 +428,8 @@ mod tests {
         s
     }
 
+    const PLACED: Placement = Placement { offset: (0.0, 0.0), slot: 1 };
+
     fn at(s: &AzulPixmap, x: usize, y: usize) -> u8 {
         s.data()[(y * 40 + x) * 4]
     }
@@ -401,8 +447,8 @@ mod tests {
         let current = [Arc::as_ptr(&list) as usize];
         assert_eq!(cache.begin_frame(&current), 0);
         // Two bands paint the top and the bottom of the surface, with two rows in common.
-        cache.offer(k, Arc::clone(&list), surface([0, 0, 40, 16], 100), [0, 0, 40, 16]);
-        cache.offer(k, Arc::clone(&list), surface([0, 14, 40, 30], 100), [0, 14, 40, 30]);
+        cache.offer(k, Arc::clone(&list), surface([0, 0, 40, 16], 100), [0, 0, 40, 16], PLACED);
+        cache.offer(k, Arc::clone(&list), surface([0, 14, 40, 30], 100), [0, 14, 40, 30], PLACED);
         assert!(cache.lookup(&k, [0, 0, 40, 30]).is_none(), "nothing is kept before the frame ends");
         cache.commit();
         assert_eq!((cache.len(), cache.bytes()), (1, 40 * 30 * 4));
@@ -411,7 +457,7 @@ mod tests {
         drop(kept);
         // A smaller picture of another frame: only its part is served.
         let other = key(&list, 9, 11);
-        cache.offer(other, Arc::clone(&list), surface([10, 10, 20, 20], 50), [10, 10, 20, 20]);
+        cache.offer(other, Arc::clone(&list), surface([10, 10, 20, 20], 50), [10, 10, 20, 20], PLACED);
         cache.commit();
         assert!(cache.lookup(&other, [10, 10, 20, 20]).is_some());
         assert!(cache.lookup(&other, [12, 12, 18, 18]).is_some(), "a part of what was painted");
@@ -431,7 +477,7 @@ mod tests {
         let list = Arc::new(DisplayList::default());
         let whole = [0, 0, 40, 30];
         let k = key(&list, 3, 11);
-        cache.offer(k, Arc::clone(&list), surface(whole, 100), whole);
+        cache.offer(k, Arc::clone(&list), surface(whole, 100), whole, PLACED);
         cache.commit();
         assert!(cache.lookup(&k, whole).is_some());
         for other in [
@@ -447,7 +493,7 @@ mod tests {
         }
         // The frame painted with another value inside it: its surface replaces the kept one.
         let moved = SurfaceKey { values: 12, ..k };
-        cache.offer(moved, Arc::clone(&list), surface(whole, 200), whole);
+        cache.offer(moved, Arc::clone(&list), surface(whole, 200), whole, PLACED);
         cache.commit();
         assert_eq!(cache.len(), 1, "one surface a frame");
         assert!(cache.lookup(&k, whole).is_none(), "the picture of the old value is gone");
@@ -469,12 +515,12 @@ mod tests {
         let cache = RetainedFrames::with_max_bytes(1 << 20);
         let keys: Vec<SurfaceKey> = (0..3).map(|push| key(&list, push, 1)).collect();
         for k in &keys[..2] {
-            cache.offer(*k, Arc::clone(&list), surface(whole, 9), whole);
+            cache.offer(*k, Arc::clone(&list), surface(whole, 9), whole, PLACED);
         }
         cache.commit();
         assert_eq!(cache.len(), 2);
         assert!(cache.lookup(&keys[0], whole).is_some(), "used now: the other one is the oldest");
-        cache.offer(keys[2], Arc::clone(&list), surface(whole, 9), whole);
+        cache.offer(keys[2], Arc::clone(&list), surface(whole, 9), whole, PLACED);
         cache.commit();
         assert_eq!(cache.len(), MAX_ENTRIES);
         assert!(cache.lookup(&keys[1], whole).is_none(), "the one used longest ago made room");
@@ -482,13 +528,13 @@ mod tests {
         // 4,800 bytes a surface: a bound of 6,000 holds one, a bound of 4,000 none.
         let one = RetainedFrames::with_max_bytes(6000);
         for k in &keys[..2] {
-            one.offer(*k, Arc::clone(&list), surface(whole, 9), whole);
+            one.offer(*k, Arc::clone(&list), surface(whole, 9), whole, PLACED);
         }
         one.commit();
         assert_eq!((one.len(), one.bytes()), (1, 4800));
         let none = RetainedFrames::with_max_bytes(4000);
         assert!(!none.can_keep(4800) && one.can_keep(4800) && !one.can_keep(0));
-        none.offer(keys[0], Arc::clone(&list), surface(whole, 9), whole);
+        none.offer(keys[0], Arc::clone(&list), surface(whole, 9), whole, PLACED);
         none.commit();
         assert!(none.is_empty(), "a surface larger than the bound is not kept");
         assert_eq!(parse_megabytes(Some("0")), Some(0), "AZ_CPU_RETAINED_MB=0 keeps nothing");
