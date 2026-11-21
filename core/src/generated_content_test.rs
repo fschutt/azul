@@ -7,6 +7,16 @@ use super::*;
 /// What every report of a page counter says.
 const FINDING: &str = "in `content` renders 0";
 
+/// Whether the engine reported `function(counter)`: the report starts with the
+/// function and the counter it is about. The bare name proves nothing - the hint
+/// every report ends with names `counter(page)`, so a report of `counter(pages)`
+/// holds it too.
+fn reported(function: &str, counter: &str) -> bool {
+    crate::diagnostics::any_contains(&alloc::format!(
+        "[azul][content] {function}({counter}) {FINDING}"
+    ))
+}
+
 /// The text of `value` with `counters` in scope.
 fn text(value: &str, counters: &Counters) -> String {
     content_text(value, None, counters, &[], &mut 0)
@@ -33,13 +43,29 @@ fn page_and_pages_render_zero_and_say_so() {
 
     assert_eq!(said, "Page 0 of 0", "the text is as it was");
     assert!(
-        crate::diagnostics::any_contains("counter(page)"),
+        reported("counter", "page"),
         "{:?}",
         crate::diagnostics::recorded()
     );
     assert!(
-        crate::diagnostics::any_contains("counter(pages)"),
+        reported("counter", "pages"),
         "{:?}",
+        crate::diagnostics::recorded()
+    );
+}
+
+/// Each counter is reported for itself: a text that holds `counter(pages)` alone
+/// does not report `counter(page)`, though the hint of its report names it.
+#[test]
+fn each_page_counter_is_reported_for_itself() {
+    let _lock = quiet_diagnostics();
+
+    assert_eq!(text("counter(pages)", &Counters::default()), "0");
+
+    assert!(reported("counter", "pages"), "{:?}", crate::diagnostics::recorded());
+    assert!(
+        !reported("counter", "page"),
+        "counter(page) was not asked for: {:?}",
         crate::diagnostics::recorded()
     );
 }
@@ -51,7 +77,7 @@ fn counters_of_page_say_so_too() {
 
     assert_eq!(text("counters(page, \".\")", &Counters::default()), "0");
 
-    assert!(crate::diagnostics::any_contains("counters(page)"));
+    assert!(reported("counters", "page"), "{:?}", crate::diagnostics::recorded());
 }
 
 /// A document that counts something of its own and calls it `page` has the
@@ -88,7 +114,7 @@ fn the_finding_is_said_once() {
 
     let said = crate::diagnostics::recorded()
         .iter()
-        .filter(|line| line.contains("counter(page)"))
+        .filter(|line| line.contains("[azul][content] counter(page) in"))
         .count();
     assert_eq!(said, 1);
 }
