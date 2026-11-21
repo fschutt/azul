@@ -408,6 +408,33 @@ impl DirtyAncestors {
     }
 }
 
+/// Whether the box `node_index` (of the DOM node `dom_node_id`, if it has
+/// one) adds NOTHING to the intrinsic sizes of the box it is a child of: it
+/// is out of the flow (`position: absolute` / `fixed`: CSS 2.2 10.3.5 and
+/// 10.3.7 measure a shrink-to-fit width from the content in flow,
+/// css-sizing-3 5.1), or it is a list item's `::marker` riding the item's
+/// first line, laid out with that line and not as a block of the item
+/// (`fc::is_marker_on_a_line`).
+///
+/// The one test of the walk (`calculate_intrinsic_recursive`: such a box
+/// keeps its own sizes and its parent is handed zeros for it) and of the
+/// parent's folds (`calculate_block_intrinsic_sizes`,
+/// `calculate_flex_intrinsic_sizes`), which pass the box by. The zeros alone
+/// did not: the folds added the box's own margin, border and padding to
+/// them, and in a block the box took a place in the chain of collapsing
+/// margins (the "first child", the margin between its neighbours).
+fn adds_nothing_to_its_parent(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+    dom_node_id: Option<NodeId>,
+) -> bool {
+    matches!(
+        get_position_type(styled_dom, dom_node_id),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) || crate::solver3::fc::is_marker_on_a_line(tree, styled_dom, node_index)
+}
+
 struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     ctx: &'a mut LayoutContext<'b, T>,
     /// Shared text shaping cache, threaded through from the caller so
@@ -528,10 +555,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // out with that line, not as a block of the item: it adds nothing
         // either (`fc::is_marker_on_a_line`).
         let is_out_of_flow =
-            matches!(
-                get_position_type(self.ctx.styled_dom, dom_node_id),
-                LayoutPosition::Absolute | LayoutPosition::Fixed
-            ) || crate::solver3::fc::is_marker_on_a_line(tree, self.ctx.styled_dom, node_index);
+            adds_nothing_to_its_parent(self.ctx.styled_dom, tree, node_index, dom_node_id);
 
         // Copy child indices before recursive calls (which need &mut tree).
         // Stack buffer for the common case (≤32 children); heap only for huge nodes.
@@ -1393,6 +1417,18 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto
                 // margins as zero
                 let child_node = tree.get(LayoutNodeId::new(child_index));
+                // A child out of the flow adds nothing: not its margin,
+                // border and padding around the zero sizes the walk handed
+                // over for it, and no place among the collapsing margins of
+                // the children in flow (`adds_nothing_to_its_parent`).
+                if adds_nothing_to_its_parent(
+                    self.ctx.styled_dom,
+                    tree,
+                    child_index,
+                    child_node.and_then(|n| n.dom_node_id),
+                ) {
+                    continue;
+                }
                 let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
                     child_node.map_or((0.0, 0.0, 0.0, 0.0), |cn| {
                         let bp = cn.box_props.unpack();
@@ -1529,6 +1565,18 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             if let Some(child_intrinsic) =
                 intrinsic_of_child(child_intrinsics, &mut next_entry, child_index)
             {
+                // An absolutely positioned child of a flex container is no
+                // flex item (CSS Flexbox 4.1): it adds nothing, its margin,
+                // border and padding included (`adds_nothing_to_its_parent`).
+                if adds_nothing_to_its_parent(
+                    self.ctx.styled_dom,
+                    tree,
+                    child_index,
+                    tree.get(LayoutNodeId::new(child_index))
+                        .and_then(|n| n.dom_node_id),
+                ) {
+                    continue;
+                }
                 // A flex item contributes its OUTER size (CSS Flexbox 9.9.1,
                 // the min / max-content contributions): its content plus its
                 // padding, border and margins - as the block aggregation

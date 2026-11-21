@@ -233,3 +233,103 @@ fn atomic_inlines_inside_nested_inline_boxes_keep_their_own_boxes() {
         );
     }
 }
+
+/// The intrinsic sizes the layout stored on the box of DOM node `node`.
+fn intrinsic_sizes_of(
+    lw: &LayoutWindow,
+    node: usize,
+) -> crate::solver3::geometry::IntrinsicSizes {
+    let lr = &lw.layout_results[&DomId::ROOT_ID];
+    let index = *lr
+        .layout_tree
+        .dom_to_layout
+        .get(&NodeId::new(node))
+        .and_then(|v| v.first())
+        .expect("the node is laid out");
+    lr.layout_tree
+        .warm(index)
+        .and_then(|w| w.intrinsic_sizes)
+        .expect("the node has intrinsic sizes")
+}
+
+/// A3-solver-32, the block fold's other axis. An absolutely positioned child took a place in
+/// the chain of its siblings' collapsing margins: as the first child it used up the "first
+/// child" whose top margin does not count, its own vertical border and padding were stacked,
+/// and its bottom margin was collapsed with the next sibling's top one.
+///
+/// `body > float > [absolute 10 x 10 with 30px padding above and below and a 5px bottom margin,
+/// block 100 x 20 with a 10px top margin]`. The float's intrinsic sizes are its one child in
+/// flow's: 100 wide, 20 high (a first child's top margin is not counted). They were 100 wide
+/// (max(0 + 0, 100)) and 0 + 60 + max(5, 10) + 20 = 90 high.
+///
+/// Mutation: no `continue` for a child that adds nothing in `calculate_block_intrinsic_sizes`
+/// stores a height of 90.
+#[test]
+fn an_absolutely_positioned_child_takes_no_place_among_its_siblings_margins() {
+    // body(0) > float(1) > [absolutely positioned block(2), block(3)].
+    let mut lw = window();
+    lay_out(
+        &mut lw,
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div()
+                .with_css("float: left;")
+                .with_child(Dom::create_div().with_css(
+                    "position: absolute; width: 10px; height: 10px; padding-top: 30px; \
+                     padding-bottom: 30px; margin-bottom: 5px;",
+                ))
+                .with_child(
+                    Dom::create_div().with_css("width: 100px; height: 20px; margin-top: 10px;"),
+                ),
+        ),
+    );
+    let float = intrinsic_sizes_of(&lw, 1);
+    assert!(
+        (float.min_content_width - 100.0).abs() < 0.01
+            && (float.max_content_width - 100.0).abs() < 0.01,
+        "the float is as wide as its child in flow, 100px: {float:?}"
+    );
+    assert!(
+        (float.min_content_height - 20.0).abs() < 0.01
+            && (float.max_content_height - 20.0).abs() < 0.01,
+        "the float is as high as its child in flow, 20px (its positioned child stacked its \
+         padding and a margin on top): {float:?}"
+    );
+}
+
+/// A3-solver-32, the flex fold. An absolutely positioned child of a flex container is no flex
+/// item (CSS Flexbox 4.1): the container's intrinsic sizes are its items'.
+///
+/// `body > flex row > [item 30 x 10, absolute 10 x 10 with 50px left and 40px top padding]`:
+/// 30 wide and 10 high. They were 30 + (0 + 50) = 80 wide and max(10, 0 + 40) = 40 high.
+///
+/// Mutation: no `continue` for a child that adds nothing in `calculate_flex_intrinsic_sizes`
+/// stores 80 x 40.
+#[test]
+fn an_absolutely_positioned_child_of_a_flex_container_adds_nothing_to_its_intrinsic_sizes() {
+    // body(0) > flex row(1) > [item(2), absolutely positioned block(3)].
+    let mut lw = window();
+    lay_out(
+        &mut lw,
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div()
+                .with_css("display: flex; flex-direction: row;")
+                .with_child(
+                    Dom::create_div().with_css("width: 30px; height: 10px; flex-shrink: 0;"),
+                )
+                .with_child(Dom::create_div().with_css(
+                    "position: absolute; width: 10px; height: 10px; padding-left: 50px; \
+                     padding-top: 40px;",
+                )),
+        ),
+    );
+    let row = intrinsic_sizes_of(&lw, 1);
+    assert!(
+        (row.min_content_width - 30.0).abs() < 0.01 && (row.max_content_width - 30.0).abs() < 0.01,
+        "the flex row is as wide as its one item, 30px: {row:?}"
+    );
+    assert!(
+        (row.min_content_height - 10.0).abs() < 0.01
+            && (row.max_content_height - 10.0).abs() < 0.01,
+        "the flex row is as high as its one item, 10px: {row:?}"
+    );
+}
