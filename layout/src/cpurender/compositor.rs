@@ -2890,21 +2890,31 @@ fn gpu_value_damage_of(
                     // What the frame paints WITH the frames inside it moved by their
                     // matrices, as each frame painted them (A2-cpu-04): `None` is an inner
                     // perspective, unbounded.
+                    // As POINTS (`FrameIndex::hull_with`), not as the box around them: they go
+                    // through this frame's matrix and the frames around it next, and a box
+                    // around a turned box, turned again, is not the turned box turned again
+                    // (a spinner's arc: 66 px of damage for 32 px).
                     let content_with = |values: &HashMap<usize, azul_core::transform::ComputedTransform3D>| {
-                        index.extent_with(items, idx, values).map(|e| moved_by(e, scrolled))
+                        index.hull_with(items, idx, values, COMPOSITE_REACH).map(|mut hull| {
+                            for point in &mut hull {
+                                point.0 -= scrolled.0;
+                                point.1 -= scrolled.1;
+                            }
+                            hull
+                        })
                     };
                     let (content_old, content_new) = (content_with(old_transforms), content_with(new_transforms));
                     // With the matrix each frame PAINTED it with: a key without a
                     // value is painted with the list's own matrix (`raster.rs`, the
                     // `PushReferenceFrame` arm), not with the identity.
                     // The content through its own matrix and the frames
-                    // around it, in one go (`FrameStack::map`).
+                    // around it, in one go (`FrameStack::map_hull`).
                     let through = |frames: &FrameStack,
                                    m: &azul_core::transform::ComputedTransform3D,
-                                   content: Option<LogicalRect>| {
+                                   content: Option<Vec<crate::solver3::display_list::HullPoint>>| {
                         let mut frames = frames.clone();
                         frames.push(origin, *m);
-                        content.and_then(|content| frames.map(content))
+                        content.and_then(|content| frames.map_hull(&content))
                     };
                     match (
                         through(&frames_old, &old_m, content_old),
@@ -2947,6 +2957,24 @@ fn gpu_value_damage_of(
                     // All of what the group paints fades (A2-gpu-06), not only its box: where
                     // the frames inside it were painted and where they are (A1-60).
                     for values in [old_transforms, new_transforms] {
+                        // As points where the group holds frames (`opacity_hull_with`): the
+                        // box around them is taken once, after the frames around the group.
+                        if let Some(mut hull) = index.opacity_hull_with(items, idx, values, COMPOSITE_REACH) {
+                            for point in &mut hull {
+                                point.0 -= scrolled.0;
+                                point.1 -= scrolled.1;
+                            }
+                            match (frames_old.map_hull(&hull), frames_new.map_hull(&hull)) {
+                                (Some(a), Some(b)) => {
+                                    out.rects.push(a);
+                                    if a != b {
+                                        out.rects.push(b);
+                                    }
+                                }
+                                _ => out.needs_full = true,
+                            }
+                            continue;
+                        }
                         let faded = index
                             .opacity_extent_with(items, idx, values)
                             .unwrap_or_else(|| *bounds.inner());
@@ -5083,6 +5111,56 @@ impl FrameStack {
             LogicalSize::new(x1 - x0 + 2.0 * out, y1 - y0 + 2.0 * out),
         ))
     }
+
+    /// [`Self::map`] for the HULL of what a frame paints (`FrameIndex::hull_with`): where
+    /// its points are painted through every open frame from the innermost out, and the box
+    /// around them at the end. `None` for a matrix with perspective, and for no points.
+    ///
+    /// The content of a frame whose own matrix changed goes through this, the frame's
+    /// matrix pushed last: a box is taken ONCE, at the end. Through [`Self::map`] with the
+    /// frame's extent - a box that already is a box around the turned frames inside it -
+    /// the box was taken at every level, and a spinner's arc (three turning frames in each
+    /// other, 32 px) was damaged 66 px wide per animation frame (`hull_with` has the
+    /// numbers).
+    ///
+    /// The rule is `map`'s, point for point: before a composited frame every point is moved
+    /// out by [`COMPOSITE_REACH`] in the four diagonal directions, the box at the end is
+    /// grown by [`DIRECT_REACH`], and past 256 points the corners of their box stand in. A
+    /// point's own reach (what the composited frames INSIDE the hull's frame paint around
+    /// it) is stretched by each matrix it goes through (`hull_through`) and counted when the
+    /// box is taken. For the four corners of a rect this is `map` of the rect, bit for bit.
+    fn map_hull(&self, hull: &[crate::solver3::display_list::HullPoint]) -> Option<LogicalRect> {
+        use crate::solver3::display_list::{hull_box, hull_of_rect, hull_through, HullPoint};
+
+        let mut points: Vec<HullPoint> = hull.to_vec();
+        let mut composited = false;
+        for (origin, m) in self.frames.iter().rev() {
+            if translation_2d(&m.m).is_none() {
+                if points.len() > 256 {
+                    points = hull_of_rect(hull_box(&points)?).to_vec();
+                }
+                points = points
+                    .iter()
+                    .flat_map(|(x, y, reach)| {
+                        [
+                            (x - COMPOSITE_REACH, y - COMPOSITE_REACH, *reach),
+                            (x + COMPOSITE_REACH, y - COMPOSITE_REACH, *reach),
+                            (x - COMPOSITE_REACH, y + COMPOSITE_REACH, *reach),
+                            (x + COMPOSITE_REACH, y + COMPOSITE_REACH, *reach),
+                        ]
+                    })
+                    .collect();
+            }
+            // (This frame's reach is the four points above: none is added to the radius.)
+            composited |= hull_through(&mut points, *origin, &m.m, 0.0)?;
+        }
+        let around = hull_box(&points)?;
+        let out = if composited { DIRECT_REACH } else { 0.0 };
+        Some(LogicalRect::new(
+            LogicalPosition::new(around.origin.x - out, around.origin.y - out),
+            LogicalSize::new(around.size.width + 2.0 * out, around.size.height + 2.0 * out),
+        ))
+    }
 }
 
 /// How far past a rect what is painted of it reaches when the frame it is in is composited
@@ -5589,18 +5667,26 @@ fn compute_display_list_damage_impl(
                     // without a walk from the push to the pop). `None`: a matrix with
                     // perspective inside it, which no rect covers.
                     let built_only = HashMap::new();
+                    // (As points, `FrameIndex::hull_with`: the box is taken once, after the
+                    // frame's own matrix and the frames around it - `FrameStack::map_hull`.)
                     let content = |list: &DisplayList,
                                    live: Option<&HashMap<usize, azul_core::transform::ComputedTransform3D>>,
                                    acc: (f32, f32)| {
-                        let c = list.frame_index().extent_with(&list.items, idx, live.unwrap_or(&built_only))?;
-                        Some(LogicalRect {
-                            origin: at(c.origin, acc),
-                            size: c.size,
-                        })
+                        let mut hull = list.frame_index().hull_with(
+                            &list.items,
+                            idx,
+                            live.unwrap_or(&built_only),
+                            COMPOSITE_REACH,
+                        )?;
+                        for point in &mut hull {
+                            point.0 -= acc.0;
+                            point.1 -= acc.1;
+                        }
+                        Some(hull)
                     };
                     let (Some(a), Some(b)) = (
-                        content(old, values.old, acc_old).and_then(|c| frames_old.map(c)),
-                        content(new, values.new, acc_new).and_then(|c| frames_new.map(c)),
+                        content(old, values.old, acc_old).and_then(|c| frames_old.map_hull(&c)),
+                        content(new, values.new, acc_new).and_then(|c| frames_new.map_hull(&c)),
                     ) else {
                         return None;
                     };
@@ -8624,6 +8710,159 @@ mod autotest_generated {
             (dx - 20.0).abs() < 0.01,
             "the two rects are 20px apart, got {dx}"
         );
+    }
+
+    /// `rotate(degrees)` about the point `(cx, cy)` of a frame, as a matrix about the
+    /// frame's origin (`x' = x m00 + y m10 + m30`, y down: a positive angle turns clockwise).
+    fn turn_about(degrees: f32, cx: f32, cy: f32) -> ComputedTransform3D {
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        ComputedTransform3D {
+            m: [
+                [cos, sin, 0.0, 0.0],
+                [-sin, cos, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [cx - cx * cos + cy * sin, cy - cx * sin - cy * cos, 0.0, 1.0],
+            ],
+        }
+    }
+
+    /// A spinner's arc (`widgets/spinner.rs` `ring_arc`): three frames in each other - the
+    /// arc (key 1), the window (key 2), the body (key 3) - each the 32 x 32 box at (8, 16),
+    /// each turning about the box's centre (24, 32), and the body's ink, a fill of the box.
+    fn spinner_arc() -> DisplayList {
+        let frame = |key: usize| DisplayListItem::PushReferenceFrame {
+            transform_key: TransformKey { id: key },
+            initial_transform: ComputedTransform3D::IDENTITY,
+            bounds: wlr(8.0, 16.0, 32.0, 32.0),
+        };
+        dlist(vec![
+            frame(1),
+            frame(2),
+            frame(3),
+            opaque_rect(8.0, 16.0, 32.0, 32.0),
+            DisplayListItem::PopReferenceFrame,
+            DisplayListItem::PopReferenceFrame,
+            DisplayListItem::PopReferenceFrame,
+        ])
+    }
+
+    /// The matrices of [`spinner_arc`] turned by `(arc, window, body)` degrees.
+    fn spinner_turned(arc: f32, window: f32, body: f32) -> HashMap<usize, ComputedTransform3D> {
+        [(1, arc), (2, window), (3, body)]
+            .into_iter()
+            .map(|(key, degrees)| (key, if degrees == 0.0 { ComputedTransform3D::IDENTITY } else { turn_about(degrees, 16.0, 16.0) }))
+            .collect()
+    }
+
+    /// How far `r` reaches from the point (24, 32) on either axis.
+    fn reach_from_the_centre(r: &LogicalRect) -> f32 {
+        let (cx, cy) = (24.0_f32, 32.0_f32);
+        (cx - r.origin.x)
+            .max(r.origin.x + r.size.width - cx)
+            .max(cy - r.origin.y)
+            .max(r.origin.y + r.size.height - cy)
+    }
+
+    /// The damage of a turning frame that holds turning frames is the box of its content
+    /// turned ONCE through all of them, not a box around a box around a box.
+    ///
+    /// The body stands turned by 45 degrees in the unturned window, and the arc turns from 0
+    /// to 45 degrees (the body's box ends up turned by 90: it covers the 32 px box again).
+    /// By hand, as distances from the centre (24, 32):
+    /// - before (the arc is no frame the renderer composites): the arc's own box, 16; the
+    ///   body's corners, turned by 45 degrees onto the axes, 16 x 1.4142 = 22.63, with the
+    ///   2.83 the body's composite paints around them: 25.46. The rect: (-1.46, 6.54)
+    ///   50.91 x 50.91.
+    /// - after: the arc's own corners moved out by 2 on both axes, (18, 18), turned by 45
+    ///   degrees onto the axes: 25.46; the body's (0, 22.63) -> (2, 24.63) -> turned:
+    ///   (-16.0, 18.83), with its 2.83: 21.66. The box, grown by 1: 26.46. The rect:
+    ///   (-2.46, 5.54) 52.91 x 52.91.
+    /// Mutation: the frame's extent as a BOX (`extent_with`) through `FrameStack::map`, as
+    /// it was: the box around the body, 22.63, moved out by 2 and turned by 45 degrees:
+    /// 24.63 x 1.4142 + 1 = 35.83 from the centre, a rect of 71.66 px for a 32 px spinner.
+    #[test]
+    fn a_turning_frame_that_holds_turning_frames_is_damaged_as_its_content_turned_once() {
+        let list = spinner_arc();
+        let o: HashMap<usize, f32> = HashMap::new();
+        let d = gpu_value_damage(
+            &list,
+            &spinner_turned(0.0, 0.0, 45.0),
+            &o,
+            &spinner_turned(45.0, 0.0, 45.0),
+            &o,
+            &ScrollOffsetMap::new(),
+        );
+        assert!(!d.needs_full);
+        assert_eq!(d.rects.len(), 2, "the arc where it was and where it is: {:?}", d.rects);
+        let near = |a: f32, b: f32| (a - b).abs() < 0.02;
+        let (before, after) = (reach_from_the_centre(&d.rects[0]), reach_from_the_centre(&d.rects[1]));
+        assert!(near(before, 25.456), "before: {before} from the centre, {:?}", d.rects[0]);
+        assert!(near(after, 26.456), "after: {after} from the centre, {:?}", d.rects[1]);
+        for r in &d.rects {
+            assert!(near(r.size.width, r.size.height), "a turn about the centre: a square, {r:?}");
+            assert!(near(r.origin.x + r.size.width * 0.5, 24.0) && near(r.origin.y + r.size.height * 0.5, 32.0), "about the centre: {r:?}");
+        }
+    }
+
+    /// The same nest at the angles of a real animation frame (the spinner's third frame:
+    /// the arc at 21.9 degrees, the window unturned, the body at -134), every key changed
+    /// from the frame before: no rect reaches further from the centre than the circle the
+    /// box's corners sweep (16 x 1.4142 = 22.63) plus what three composited frames paint
+    /// past their content (3 x 2 x 1.4142 = 8.49) plus the pixel the box is grown by: 32.11;
+    /// the damage of a frame holds the damage of the frames inside it (the same content
+    /// through the same matrices); and the arc's rect at these angles reaches 27.27 (by
+    /// hand: the body's corner at -89 degrees, (0.39, -22.62), moved out to (-1.61,
+    /// -24.62), turned by 21.9 degrees: y = -23.45, with its 2.83: 26.27, grown by 1).
+    /// Mutation: the box around the box, as it was: (22.63 + 2) x (cos 21.9 + sin 21.9) + 1
+    /// = 24.63 x 1.3007 + 1 = 33.03 - the 66.07 px the spinner's frame damaged.
+    #[test]
+    fn the_damage_of_a_spinners_arc_stays_within_what_its_three_frames_can_paint() {
+        let list = spinner_arc();
+        let o: HashMap<usize, f32> = HashMap::new();
+        let bound = 16.0 * core::f32::consts::SQRT_2 + 3.0 * 2.0 * core::f32::consts::SQRT_2 + 1.0;
+        for (old, new) in [
+            ((14.7, 0.0, -134.6), (21.9, 0.0, -134.0)),
+            ((0.0, 0.0, 0.0), (45.0, 45.0, 45.0)),
+            ((30.0, 60.0, 15.0), (37.0, 75.0, 40.0)),
+            ((350.0, 100.0, 45.0), (10.0, 135.0, 80.0)),
+        ] {
+            let d = gpu_value_damage(
+                &list,
+                &spinner_turned(old.0, old.1, old.2),
+                &o,
+                &spinner_turned(new.0, new.1, new.2),
+                &o,
+                &ScrollOffsetMap::new(),
+            );
+            assert!(!d.needs_full);
+            assert!(d.rects.len() >= 4, "{new:?}: at least two frames turned: {:?}", d.rects);
+            for r in &d.rects {
+                let reach = reach_from_the_centre(r);
+                assert!(reach <= bound + 0.01, "{new:?}: {r:?} reaches {reach} from the centre, past {bound}");
+                assert!(reach >= 16.0, "{new:?}: {r:?} holds the box");
+            }
+            // In list order: the arc (old, new), then the frames inside it that turned.
+            let holds = |outer: &LogicalRect, inner: &LogicalRect| {
+                outer.origin.x <= inner.origin.x + 0.01
+                    && outer.origin.y <= inner.origin.y + 0.01
+                    && outer.origin.x + outer.size.width >= inner.origin.x + inner.size.width - 0.01
+                    && outer.origin.y + outer.size.height >= inner.origin.y + inner.size.height - 0.01
+            };
+            for pair in d.rects[2..].chunks(2) {
+                assert!(holds(&d.rects[0], &pair[0]), "{new:?}: before: {:?} holds {:?}", d.rects[0], pair[0]);
+                assert!(holds(&d.rects[1], &pair[1]), "{new:?}: after: {:?} holds {:?}", d.rects[1], pair[1]);
+            }
+        }
+        let d = gpu_value_damage(
+            &list,
+            &spinner_turned(14.7, 0.0, -134.6),
+            &o,
+            &spinner_turned(21.9, 0.0, -134.0),
+            &o,
+            &ScrollOffsetMap::new(),
+        );
+        let arc_now = reach_from_the_centre(&d.rects[1]);
+        assert!((arc_now - 27.27).abs() < 0.1, "the arc at 21.9 degrees: {arc_now} from the centre (33.03 as a box around a box)");
     }
 
     #[test]

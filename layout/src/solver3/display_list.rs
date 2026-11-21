@@ -3748,6 +3748,98 @@ fn frame_image(o: LogicalPosition, m: &[[f32; 4]; 4], inside: LogicalRect) -> Op
     })
 }
 
+/// A point of the hull of what a reference frame paints, with how far around it pixels can
+/// be painted: `(x, y, reach)` ([`FrameIndex::hull_with`]).
+pub(crate) type HullPoint = (f32, f32, f32);
+
+/// How many points the hull of a frame keeps; past them the corners of the box around them
+/// stand in (a frame with hundreds of frames inside it: a map's label layer).
+const MAX_HULL_POINTS: usize = 256;
+
+/// The corners of `r` as hull points that reach no further.
+pub(crate) const fn hull_of_rect(r: LogicalRect) -> [HullPoint; 4] {
+    let (x0, y0) = (r.origin.x, r.origin.y);
+    let (x1, y1) = (r.origin.x + r.size.width, r.origin.y + r.size.height);
+    [(x0, y0, 0.0), (x1, y0, 0.0), (x0, y1, 0.0), (x1, y1, 0.0)]
+}
+
+/// The box around hull points, each with its reach on every side. `None` for no points and
+/// for points that are not finite.
+pub(crate) fn hull_box(points: &[HullPoint]) -> Option<LogicalRect> {
+    let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+    let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for (x, y, reach) in points {
+        x0 = x0.min(x - reach);
+        y0 = y0.min(y - reach);
+        x1 = x1.max(x + reach);
+        y1 = y1.max(y + reach);
+    }
+    if points.is_empty() || ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    Some(LogicalRect {
+        origin: LogicalPosition { x: x0, y: y0 },
+        size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+    })
+}
+
+/// Takes hull points through the matrix `m` of a reference frame with the origin `o`, where
+/// the frame paints what lies at them: a point `q` goes to `o + L (q - o) + t`. `None`, and
+/// the points are left as they were, for a matrix that is not affine (a perspective part).
+/// `Some(composited)` otherwise: whether the frame is more than a move (the test of
+/// `cpurender::compositor::translation_2d`), i.e. painted into a surface and resampled where
+/// it lands.
+///
+/// A composited frame paints up to `reach` px past its content on both axes, in its own
+/// space (the resampling's taps and the surface's whole pixels). Every point therefore
+/// carries a radius: before the matrix it grows by `reach x sqrt 2` (the corner of that
+/// square), and the matrix stretches it by at most its largest singular value (1 for a
+/// turn, `k` for `scale(k)`). The points themselves are never replaced by a box, so a turn
+/// inside a turn inside a turn stays three turns of one box and not a box around a box
+/// around a box.
+///
+/// Example: the corner (16, 16) of a box about the origin, `reach` 2, through `rotate(45
+/// deg)`: the point goes to (0, 22.63), its radius is (0 + 2.83) x 1 = 2.83. Through a
+/// second `rotate(45 deg)`: (-16, 16), radius 5.66. The box of a point (x, y, r) is x - r
+/// .. x + r: here -21.66 .. -10.34, 10.34 .. 21.66.
+pub(crate) fn hull_through(
+    points: &mut [HullPoint],
+    o: LogicalPosition,
+    m: &[[f32; 4]; 4],
+    reach: f32,
+) -> Option<bool> {
+    // The tolerance of `cpurender::compositor::translation_2d` (`IDENTITY_EPSILON`).
+    const MOVE_EPSILON: f32 = 0.0001;
+    let affine = m[0][2] == 0.0
+        && m[0][3] == 0.0
+        && m[1][2] == 0.0
+        && m[1][3] == 0.0
+        && (m[3][3] - 1.0).abs() < f32::EPSILON;
+    if !affine {
+        return None;
+    }
+    let (a, b, c, d) = (m[0][0], m[0][1], m[1][0], m[1][1]);
+    let moves_only = (a - 1.0).abs() < MOVE_EPSILON
+        && b.abs() < MOVE_EPSILON
+        && c.abs() < MOVE_EPSILON
+        && (d - 1.0).abs() < MOVE_EPSILON;
+    // The largest singular value of [[a, c], [b, d]]: the square root of the larger
+    // eigenvalue of its Gram matrix [[a a + b b, a c + b d], [a c + b d, c c + d d]].
+    let stretch = {
+        let (sum, difference, mixed) = (a * a + b * b + c * c + d * d, a * a + b * b - c * c - d * d, a * c + b * d);
+        ((sum + (difference * difference + 4.0 * mixed * mixed).sqrt()) * 0.5).max(0.0).sqrt()
+    };
+    for point in points.iter_mut() {
+        let (px, py) = (point.0 - o.x, point.1 - o.y);
+        point.0 = px * a + py * c + m[3][0] + o.x;
+        point.1 = px * b + py * d + m[3][1] + o.y;
+        if !moves_only {
+            point.2 = (point.2 + reach * core::f32::consts::SQRT_2) * stretch;
+        }
+    }
+    Some(!moves_only)
+}
+
 impl GroupBounds {
     /// The visual bounds `step` wants for `item`: only an item that paints has any.
     fn visual_of(item: &DisplayListItem) -> Option<LogicalRect> {
@@ -4569,6 +4661,127 @@ impl FrameIndex {
             extent = rect_union(extent, frame_image(bounds.inner().origin, m, inside)?);
         }
         Some(extent)
+    }
+
+    /// [`Self::extent_with`] as the POINTS a box is to be taken around ([`HullPoint`]), for
+    /// a caller that takes the frame's content through MORE matrices - the damage of a frame
+    /// whose own matrix changed (`cpurender::compositor::FrameStack::map_hull`). The corners
+    /// of the frame's own extent, and those of every frame inside it taken through that
+    /// frame's matrix ([`hull_through`], with `reach` px around what a composited frame
+    /// paints), level by level, as points.
+    ///
+    /// `extent_with` answers with a BOX at every level, which is what a surface needs (it is
+    /// a box in its frame's space). Taken through another turn, a box around a turned box
+    /// is larger than the turned box turned again: a 32 px box turned by -134 degrees has
+    /// the box 45.25 (16 x 1.414 a side of its centre), and that box turned by 21.9 degrees
+    /// has the box 58.9 (22.63 x 1.3007 = 29.4 a side), where the 32 px box turned by -134
+    /// + 21.9 = -112.1 degrees reaches 16 x (0.376 + 0.927) = 20.8 a side. A spinner's arc -
+    /// a turning frame in a turning frame in a turning frame - was damaged 66 px wide per
+    /// animation frame for its 32 px.
+    ///
+    /// `None` when a matrix inside it has a perspective part that puts a corner at or behind
+    /// the eye (as `extent_with`); a perspective matrix that keeps the content in front of
+    /// the eye contributes the corners of the box of its image.
+    pub(crate) fn hull_with(
+        &self,
+        items: &[DisplayListItem],
+        push: usize,
+        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        reach: f32,
+    ) -> Option<Vec<HullPoint>> {
+        let mut out = Vec::new();
+        self.hull_into(items, push, transforms, reach, &mut out)?;
+        Some(out)
+    }
+
+    /// [`Self::hull_with`]: appends the hull of the frame pushed at `push` to `out`, in the
+    /// frame's own space.
+    fn hull_into(
+        &self,
+        items: &[DisplayListItem],
+        push: usize,
+        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        reach: f32,
+        out: &mut Vec<HullPoint>,
+    ) -> Option<()> {
+        let frame = self.entry(push)?;
+        let start = out.len();
+        let Some(nest) = self.nesting.get(&push) else {
+            out.extend(hull_of_rect(frame.extent));
+            return Some(());
+        };
+        out.extend(hull_of_rect(nest.own));
+        for child in &nest.children {
+            if !self.framed_hull_into(items, *child, transforms, reach, out)? {
+                // (As `extent_with`: the index is not this list's; the laid-out extent.)
+                out.truncate(start);
+                out.extend(hull_of_rect(frame.extent));
+                return Some(());
+            }
+            if out.len() - start > MAX_HULL_POINTS {
+                let around = hull_box(&out[start..])?;
+                out.truncate(start);
+                out.extend(hull_of_rect(around));
+            }
+        }
+        Some(())
+    }
+
+    /// Appends the hull of the frame pushed at `child` WHERE ITS MATRIX PAINTS IT - in the
+    /// space around the frame - to `out` ([`Self::hull_into`], then [`hull_through`] with the
+    /// frame's live matrix). `Some(false)`, and nothing appended, when `child` is no frame
+    /// push of `items`; `None` when no box bounds the frame's image.
+    fn framed_hull_into(
+        &self,
+        items: &[DisplayListItem],
+        child: usize,
+        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        reach: f32,
+        out: &mut Vec<HullPoint>,
+    ) -> Option<bool> {
+        let Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, bounds }) =
+            items.get(child)
+        else {
+            return Some(false);
+        };
+        let at = out.len();
+        self.hull_into(items, child, transforms, reach, out)?;
+        let m = transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m);
+        let origin = bounds.inner().origin;
+        if hull_through(&mut out[at..], origin, m, reach).is_none() {
+            // A perspective part: the box of the frame's content through it, as
+            // `extent_with` takes it.
+            let image = frame_image(origin, m, hull_box(&out[at..])?)?;
+            out.truncate(at);
+            out.extend(hull_of_rect(image));
+        }
+        Some(true)
+    }
+
+    /// [`Self::opacity_extent_with`] as points ([`Self::hull_with`]): the corners of what
+    /// the opacity group pushed at `push` paints itself, and the hull of each frame directly
+    /// inside it where its live matrix paints it. For the damage of a group whose opacity
+    /// changed (the region the group is blended over stays the box of
+    /// `opacity_extent_with`). `None`: the group holds no frame, or one of them has no
+    /// bounded image - the caller takes the group's extent.
+    pub(crate) fn opacity_hull_with(
+        &self,
+        items: &[DisplayListItem],
+        push: usize,
+        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        reach: f32,
+    ) -> Option<Vec<HullPoint>> {
+        let nest = self.opacity_nesting.get(&push)?;
+        let mut out: Vec<HullPoint> = hull_of_rect(nest.own).to_vec();
+        for child in &nest.children {
+            if !self.framed_hull_into(items, *child, transforms, reach, &mut out)? {
+                return None;
+            }
+            if out.len() > MAX_HULL_POINTS {
+                out = hull_of_rect(hull_box(&out)?).to_vec();
+            }
+        }
+        Some(out)
     }
 
     /// What the opacity group pushed at `push` paints when that is more than the group's own
@@ -21058,5 +21271,164 @@ mod audit_a1_text_ink_tests {
         assert_eq!(list.visual_bounds_of(1), Some(whole), "the first piece");
         assert_eq!(list.visual_bounds_of(2), Some(whole), "the second piece, from its own pen");
         assert_eq!(list.text_ink[2].map(|ink| ink.glyphs), Some(1));
+    }
+}
+
+#[cfg(test)]
+mod audit_a1_hull_tests {
+    use super::*;
+
+    fn turn(degrees: f32) -> [[f32; 4]; 4] {
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        [
+            [cos, sin, 0.0, 0.0],
+            [-sin, cos, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    }
+
+    /// The rule of `hull_through`, by hand (the example of its doc): the corner (16, 16)
+    /// about the origin, a reach of 2, through `rotate(45 deg)` goes to (0, 22.63) with the
+    /// radius 2 x 1.4142 = 2.83; through a second one to (-16, 16) with (2.83 + 2.83) =
+    /// 5.66; its box is -21.66 .. -10.34, 10.34 .. 21.66. Through `scale(3)` about (10, 0)
+    /// the point (12, 5) goes to (16, 15) and a radius of 1 becomes (1 + 2.83) x 3 = 11.49.
+    /// A move leaves the radius alone and says "not composited"; a matrix with a
+    /// perspective part is refused and the points stay.
+    /// Mutations: the radius not stretched by the matrix (`scale(3)`: 3.83); the reach
+    /// added at a frame that only moves (the last block: 2.83 instead of 0).
+    #[test]
+    fn a_hull_point_goes_through_a_frame_with_what_is_painted_around_it() {
+        let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+        let origin = LogicalPosition { x: 0.0, y: 0.0 };
+        let mut points: Vec<HullPoint> = vec![(16.0, 16.0, 0.0)];
+        assert_eq!(hull_through(&mut points, origin, &turn(45.0), 2.0), Some(true));
+        assert!(near(points[0].0, 0.0) && near(points[0].1, 22.627) && near(points[0].2, 2.828), "{points:?}");
+        assert_eq!(hull_through(&mut points, origin, &turn(45.0), 2.0), Some(true));
+        assert!(near(points[0].0, -16.0) && near(points[0].1, 16.0) && near(points[0].2, 5.657), "{points:?}");
+        let around = hull_box(&points).expect("one point has a box");
+        assert!(near(around.origin.x, -21.657) && near(around.origin.y, 10.343), "{around:?}");
+        assert!(near(around.size.width, 11.314) && near(around.size.height, 11.314), "{around:?}");
+
+        let scale = [
+            [3.0, 0.0, 0.0, 0.0],
+            [0.0, 3.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let mut points: Vec<HullPoint> = vec![(12.0, 5.0, 1.0)];
+        assert_eq!(hull_through(&mut points, LogicalPosition { x: 10.0, y: 0.0 }, &scale, 2.0), Some(true));
+        assert!(near(points[0].0, 16.0) && near(points[0].1, 15.0) && near(points[0].2, 11.485), "{points:?}");
+
+        let mut moved = turn(0.0);
+        moved[3][0] = 7.0;
+        moved[3][1] = -3.0;
+        let mut points: Vec<HullPoint> = vec![(12.0, 5.0, 0.0)];
+        assert_eq!(hull_through(&mut points, origin, &moved, 2.0), Some(false), "a move is not composited");
+        assert_eq!(points, vec![(19.0, 2.0, 0.0)]);
+
+        let mut tilted = turn(0.0);
+        tilted[0][3] = 0.001;
+        assert_eq!(hull_through(&mut points, origin, &tilted, 2.0), None);
+        assert_eq!(points, vec![(19.0, 2.0, 0.0)], "refused: the points stay");
+        assert_eq!(hull_box(&[]), None);
+        assert_eq!(hull_of_rect(LogicalRect {
+            origin: LogicalPosition { x: 1.0, y: 2.0 },
+            size: LogicalSize { width: 3.0, height: 4.0 },
+        }), [(1.0, 2.0, 0.0), (4.0, 2.0, 0.0), (1.0, 6.0, 0.0), (4.0, 6.0, 0.0)]);
+    }
+
+    fn frame(key: usize, x: f32, y: f32, w: f32, h: f32) -> DisplayListItem {
+        DisplayListItem::PushReferenceFrame {
+            transform_key: TransformKey { id: key },
+            initial_transform: ComputedTransform3D::IDENTITY,
+            bounds: LogicalRect {
+                origin: LogicalPosition { x, y },
+                size: LogicalSize { width: w, height: h },
+            }
+            .into(),
+        }
+    }
+
+    /// The hull of a frame is the corners of its own box and those of the frames inside it
+    /// through their matrices, and its box is never larger than `extent_with`'s: equal while
+    /// the frames inside only move (a card moved by (-100, 0) in a column: (-100, 0) 300 x
+    /// 400, the example of `extent_with`), and smaller for a turn in a turn - a 32 px box
+    /// turned by 45 degrees about its centre in a frame turned by 45 degrees stands turned
+    /// by 90 degrees: its hull's box is the 32 px box again (16 from the centre) where the
+    /// box around the box around it is 16 x 1.4142 x 1.4142 = 32 from the centre.
+    /// Mutation: `hull_into` taking the box of a child's points before the child's matrix
+    /// gives 32 for the turn in a turn.
+    #[test]
+    fn the_hull_of_a_frame_takes_no_box_between_the_frames_inside_it() {
+        let near = |a: f32, b: f32| (a - b).abs() < 0.01;
+        let fill = |x: f32, y: f32, w: f32, h: f32| DisplayListItem::Rect {
+            bounds: LogicalRect {
+                origin: LogicalPosition { x, y },
+                size: LogicalSize { width: w, height: h },
+            }
+            .into(),
+            color: ColorU { r: 9, g: 9, b: 9, a: 255 },
+            border_radius: BorderRadius::default(),
+        };
+        // A column and its card.
+        let column = DisplayList {
+            items: vec![
+                frame(1, 0.0, 0.0, 200.0, 400.0),
+                frame(2, 0.0, 0.0, 200.0, 80.0),
+                fill(0.0, 0.0, 200.0, 80.0),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopReferenceFrame,
+            ],
+            ..Default::default()
+        };
+        let mut moved = turn(0.0);
+        moved[3][0] = -100.0;
+        let live: std::collections::HashMap<usize, ComputedTransform3D> =
+            [(2, ComputedTransform3D { m: moved })].into_iter().collect();
+        let index = column.frame_index();
+        let hull = index.hull_with(&column.items, 0, &live, 2.0).expect("affine");
+        assert_eq!(hull.len(), 8);
+        assert!(hull.iter().all(|p| p.2 == 0.0), "a move paints nothing past its content: {hull:?}");
+        assert_eq!(hull_box(&hull), index.extent_with(&column.items, 0, &live));
+        assert_eq!(hull_box(&hull).map(|b| (b.origin.x, b.size.width)), Some((-100.0, 300.0)));
+
+        // A turn in a turn in a frame: about the centre (16, 16) of the 32 px box at (0, 0).
+        let about_centre = |degrees: f32| {
+            let mut m = turn(degrees);
+            let (sin, cos) = degrees.to_radians().sin_cos();
+            m[3][0] = 16.0 - 16.0 * cos + 16.0 * sin;
+            m[3][1] = 16.0 - 16.0 * sin - 16.0 * cos;
+            ComputedTransform3D { m }
+        };
+        let nest = DisplayList {
+            items: vec![
+                frame(1, 0.0, 0.0, 32.0, 32.0),
+                frame(2, 0.0, 0.0, 32.0, 32.0),
+                frame(3, 0.0, 0.0, 32.0, 32.0),
+                fill(0.0, 0.0, 32.0, 32.0),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopReferenceFrame,
+            ],
+            ..Default::default()
+        };
+        let live: std::collections::HashMap<usize, ComputedTransform3D> =
+            [(2, about_centre(45.0)), (3, about_centre(45.0))].into_iter().collect();
+        let index = nest.frame_index();
+        let reach_of = |b: LogicalRect| (16.0 - b.origin.x).max(b.origin.x + b.size.width - 16.0);
+        let boxed = index.extent_with(&nest.items, 0, &live).expect("affine");
+        assert!(near(reach_of(boxed), 32.0), "premise: a box around a box around the box: {boxed:?}");
+        let hull = index.hull_with(&nest.items, 0, &live, 0.0).expect("affine");
+        assert_eq!(hull.len(), 12, "the frame's corners, the first turn's, the second's");
+        let tight = hull_box(&hull).expect("points");
+        assert!(near(reach_of(tight), 16.0 * core::f32::consts::SQRT_2), "the first turn's box stands at 45 degrees: {tight:?}");
+        // The innermost box alone (the last four points) stands turned by 90 degrees.
+        let innermost = hull_box(&hull[8..]).expect("points");
+        assert!(near(reach_of(innermost), 16.0), "{innermost:?}");
+        // With a reach, the points carry what the two composites paint around them.
+        let hull = index.hull_with(&nest.items, 0, &live, 2.0).expect("affine");
+        assert!(near(hull[4].2, 2.828) && near(hull[8].2, 5.657), "{hull:?}");
+        assert!(hull[..4].iter().all(|p| p.2 == 0.0));
     }
 }
