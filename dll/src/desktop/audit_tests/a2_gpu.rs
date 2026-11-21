@@ -355,11 +355,35 @@ fn a_panned_views_content_reaches_webrender_where_the_cpu_paints_it() {
         }
     }
     let (stripe, node) = blue.expect("the child's list paints a blue stripe");
-    assert_eq!(
-        node,
-        SpatialId::root_scroll_node(child_pipeline),
-        "the stripe is in the root scroll frame of the child's pipeline, the one a pan scrolls"
-    );
+    // The stripe is moved by the pan and by nothing else: it is in the root scroll frame
+    // of the child's pipeline - the one a pan scrolls - or under it through scroll frames
+    // of the list that move nothing themselves (the view's own frame of audit A4-08, which
+    // has no scroll range and is never given an offset; `AZ_WR_VIEW_SLICE=0` leaves it
+    // out). A reference frame on the way, or a frame with a range, would put the stripe
+    // somewhere else than the CPU paints it.
+    let pan_frame = SpatialId::root_scroll_node(child_pipeline);
+    let mut space = node;
+    let mut frames_between = 0;
+    while space != pan_frame {
+        let mut parent = None;
+        built_child.iter_spatial_tree(|item| {
+            if let webrender::api::SpatialTreeItem::ScrollFrame(frame) = item {
+                if frame.scroll_frame_id == space {
+                    assert_eq!(
+                        frame.content_rect, frame.frame_rect,
+                        "a scroll frame between the stripe and the pan's frame has no range"
+                    );
+                    parent = Some(frame.parent_space);
+                }
+            }
+        });
+        space = parent.expect(
+            "the stripe is under the root scroll frame of the child's pipeline, the one a pan \
+             scrolls, through scroll frames only",
+        );
+        frames_between += 1;
+        assert!(frames_between <= 2, "at most the view's own frame is between them");
+    }
     assert!(
         within(stripe.min.x, 80.0, 0.01),
         "in the child's own coordinates x dpi: {stripe:?}"
