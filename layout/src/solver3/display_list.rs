@@ -3552,6 +3552,11 @@ struct GroupBounds {
     union: Option<LogicalRect>,
     clips: Vec<Option<LogicalRect>>,
     in_scroll_frames: usize,
+    /// How far each text shadow open here paints past the ink of a run under it
+    /// ([`text_shadow_reach`]): a run's bounds are widened by the largest (A2-cpu-R05). The
+    /// ink alone left the halo out of a frame's extent: a moved frame's damage missed the
+    /// ring of the halo, and a group's surface cut it.
+    shadows: Vec<f32>,
 }
 
 impl GroupBounds {
@@ -3608,8 +3613,33 @@ impl GroupBounds {
             DisplayListItem::PopClip | DisplayListItem::PopImageMaskClip => {
                 self.clips.pop();
             }
+            DisplayListItem::PushTextShadow { shadow } => {
+                self.shadows.push(text_shadow_reach(shadow));
+            }
+            DisplayListItem::PopTextShadow => {
+                self.shadows.pop();
+            }
             _ => {
                 if let Some(b) = visual {
+                    let reach = if matches!(item, DisplayListItem::Text { .. }) {
+                        self.shadows.iter().copied().fold(0.0_f32, f32::max)
+                    } else {
+                        0.0
+                    };
+                    let b = if reach > 0.0 {
+                        LogicalRect {
+                            origin: LogicalPosition {
+                                x: b.origin.x - reach,
+                                y: b.origin.y - reach,
+                            },
+                            size: LogicalSize {
+                                width: b.size.width + 2.0 * reach,
+                                height: b.size.height + 2.0 * reach,
+                            },
+                        }
+                    } else {
+                        b
+                    };
                     self.add(clip, b);
                 }
             }
@@ -3665,13 +3695,106 @@ pub(crate) fn reference_frame_extent_walked(
 
 /// One reference frame of a list: where it ends and what it paints.
 #[derive(Debug, Clone, Copy)]
-struct FrameEntry {
+pub(crate) struct FrameEntry {
     /// The index of its `PushReferenceFrame`.
-    push: usize,
+    pub(crate) push: usize,
     /// The index of its matching `PopReferenceFrame` (the list's length when it has none).
-    end: usize,
+    pub(crate) end: usize,
     /// Its box and everything down to the pop, in its own space.
-    extent: LogicalRect,
+    pub(crate) extent: LogicalRect,
+    /// Every scope opened between the push and the pop (a clip, a mask, a scroll frame, an
+    /// opacity or filter group, a text shadow, a frame) is closed there, innermost first, and
+    /// the pop closes nothing opened before the push: a walk that steps from the push to past
+    /// the pop leaves its stacks as a walk through the frame does. `false` for a frame that is
+    /// never popped.
+    pub(crate) self_contained: bool,
+    /// No reference frame, scroll frame or view inside: everything the frame paints is placed
+    /// by the frame's own matrix alone, inside `extent` widened by `shadow_reach`.
+    pub(crate) leaf: bool,
+    /// How far past the ink of a text run a text shadow pushed inside the frame paints (the
+    /// largest offset + blur + spread, logical px): `extent` counts the ink alone.
+    pub(crate) shadow_reach: f32,
+    /// Text inside, and nothing but text, text shadows, fills, stacking contexts and hit-test
+    /// areas: no clip, mask, opacity or filter group, image, border or gradient. A renderer
+    /// may draw such a frame through its matrix item by item instead of into a surface.
+    pub(crate) text_only: bool,
+}
+
+/// What the picture of a reference frame depends on besides the items between its push and its
+/// pop: the keys bound there (their live values are read when the frame is painted) and the
+/// scroll frames there (their offsets are). A renderer that keeps a frame's picture keeps it
+/// for one set of these values. Kept only for frames that have any.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct FrameInner {
+    /// The keys of the frames and scrollbar thumbs inside, in list order.
+    pub(crate) transform_keys: Vec<usize>,
+    /// The keys of the opacity groups and scrollbars inside.
+    pub(crate) opacity_keys: Vec<usize>,
+    /// The colour keys bound to fills inside.
+    pub(crate) color_keys: Vec<usize>,
+    /// The scroll frames inside.
+    pub(crate) scroll_ids: Vec<LocalScrollId>,
+    /// A view inside: the picture depends on another list.
+    pub(crate) has_view: bool,
+}
+
+impl FrameInner {
+    fn is_empty(&self) -> bool {
+        self.transform_keys.is_empty()
+            && self.opacity_keys.is_empty()
+            && self.color_keys.is_empty()
+            && self.scroll_ids.is_empty()
+            && !self.has_view
+    }
+}
+
+/// The kinds of scope a display list opens and closes ([`FrameEntry::self_contained`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScopeKind {
+    Clip,
+    ImageMask,
+    ScrollFrame,
+    StackingContext,
+    Frame,
+    Filter,
+    BackdropFilter,
+    Opacity,
+    TextShadow,
+}
+
+/// `(kind, true)` for an item that opens a scope, `(kind, false)` for one that closes one.
+fn scope_of(item: &DisplayListItem) -> Option<(ScopeKind, bool)> {
+    Some(match item {
+        DisplayListItem::PushClip { .. } => (ScopeKind::Clip, true),
+        DisplayListItem::PopClip => (ScopeKind::Clip, false),
+        DisplayListItem::PushImageMaskClip { .. } => (ScopeKind::ImageMask, true),
+        DisplayListItem::PopImageMaskClip => (ScopeKind::ImageMask, false),
+        DisplayListItem::PushScrollFrame { .. } => (ScopeKind::ScrollFrame, true),
+        DisplayListItem::PopScrollFrame => (ScopeKind::ScrollFrame, false),
+        DisplayListItem::PushStackingContext { .. } => (ScopeKind::StackingContext, true),
+        DisplayListItem::PopStackingContext => (ScopeKind::StackingContext, false),
+        DisplayListItem::PushReferenceFrame { .. } => (ScopeKind::Frame, true),
+        DisplayListItem::PopReferenceFrame => (ScopeKind::Frame, false),
+        DisplayListItem::PushFilter { .. } => (ScopeKind::Filter, true),
+        DisplayListItem::PopFilter => (ScopeKind::Filter, false),
+        DisplayListItem::PushBackdropFilter { .. } => (ScopeKind::BackdropFilter, true),
+        DisplayListItem::PopBackdropFilter => (ScopeKind::BackdropFilter, false),
+        DisplayListItem::PushOpacity { .. } => (ScopeKind::Opacity, true),
+        DisplayListItem::PopOpacity => (ScopeKind::Opacity, false),
+        DisplayListItem::PushTextShadow { .. } => (ScopeKind::TextShadow, true),
+        DisplayListItem::PopTextShadow => (ScopeKind::TextShadow, false),
+        _ => return None,
+    })
+}
+
+/// How far a text shadow paints past the ink of the text under it: the larger offset, the
+/// blur and the spread, logical px (what the rasteriser's cull widens a run by).
+pub(crate) fn text_shadow_reach(shadow: &StyleBoxShadow) -> f32 {
+    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+    let length = |v: &PixelValue| v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    length(&shadow.offset_x.inner).abs().max(length(&shadow.offset_y.inner).abs())
+        + length(&shadow.blur_radius.inner).max(0.0)
+        + length(&shadow.spread_radius.inner).max(0.0)
 }
 
 /// The reference frames of one list, found in one walk: where each ends and what it paints
@@ -3693,6 +3816,28 @@ pub(crate) struct FrameIndex {
     views: Vec<usize>,
     /// The bounds of the fully opaque, square-cornered rect fills, in list order.
     opaque_fills: Vec<LogicalRect>,
+    /// For each of `opaque_fills`, the pushes of the reference frames open around it,
+    /// outermost first: a fill inside a frame is painted where the frame's matrix puts it.
+    opaque_fill_frames: Vec<Vec<usize>>,
+    /// By the index of a frame's push: what its picture depends on besides its items, for the
+    /// frames that bind anything inside ([`FrameInner`]).
+    inner: std::collections::HashMap<usize, FrameInner>,
+    /// By the index of a frame's push, for the frames that hold frames: what the frame paints
+    /// itself and the frames directly inside it ([`FrameIndex::extent_with`]).
+    nesting: std::collections::HashMap<usize, FrameNest>,
+    /// By the index of a `PushOpacity`, for the groups whose content paints past the group's
+    /// own box: the box united with what the items down to the pop paint
+    /// ([`FrameIndex::opacity_extent`]).
+    opacity_extents: std::collections::HashMap<usize, LogicalRect>,
+}
+
+/// A frame that holds frames: `own` is its box and what its own items paint (not what is
+/// inside a frame inside it), in its space; `children` are the pushes of the frames directly
+/// inside it, in list order.
+#[derive(Debug, Clone)]
+struct FrameNest {
+    own: LogicalRect,
+    children: Vec<usize>,
 }
 
 impl FrameIndex {
@@ -3705,14 +3850,156 @@ impl FrameIndex {
         let mut opacity_keys = std::collections::HashSet::new();
         let mut views = Vec::new();
         let mut opaque_fills = Vec::new();
+        let mut opaque_fill_frames: Vec<Vec<usize>> = Vec::new();
         struct Open {
             push: usize,
             frame_box: LogicalRect,
             bounds: GroupBounds,
+            /// How many scopes were open at the push.
+            scopes_before: usize,
+            well_formed: bool,
+            leaf: bool,
+            shadow_reach: f32,
+            text_only: bool,
+            has_text: bool,
+            inner: FrameInner,
+            /// As `bounds`, counting only the items that are in no frame inside this one.
+            own: GroupBounds,
+            children: Vec<usize>,
         }
         let mut open: Vec<Open> = Vec::new();
         let mut frames: Vec<FrameEntry> = Vec::new();
+        let mut inner: std::collections::HashMap<usize, FrameInner> = std::collections::HashMap::new();
+        let mut nesting: std::collections::HashMap<usize, FrameNest> = std::collections::HashMap::new();
+        // The opacity groups open at the item: (push, the group's box, what its items paint).
+        let mut fading: Vec<(usize, LogicalRect, GroupBounds)> = Vec::new();
+        let mut opacity_extents: std::collections::HashMap<usize, LogicalRect> =
+            std::collections::HashMap::new();
+        // The scopes open at the item, outermost first: a frame is self-contained when the
+        // scopes opened inside it are closed inside it, innermost first.
+        let mut scopes: Vec<ScopeKind> = Vec::new();
         for (i, item) in items.iter().enumerate() {
+            match scope_of(item) {
+                // A frame's own push and pop are counted where the frame opens and closes.
+                Some((ScopeKind::Frame, _)) | None => {}
+                Some((kind, true)) => scopes.push(kind),
+                Some((kind, false)) => {
+                    let closes_its_own = scopes.last() == Some(&kind)
+                        && open.last().is_none_or(|frame| scopes.len() > frame.scopes_before + 1);
+                    if closes_its_own {
+                        scopes.pop();
+                    } else {
+                        // A pop without its push, or across a frame's edge: no frame open here
+                        // can be stepped over.
+                        for frame in &mut open {
+                            frame.well_formed = false;
+                        }
+                    }
+                }
+            }
+            match item {
+                DisplayListItem::PushReferenceFrame { .. }
+                | DisplayListItem::PushScrollFrame { .. }
+                | DisplayListItem::VirtualView { .. } => {
+                    for frame in &mut open {
+                        frame.leaf = false;
+                    }
+                }
+                DisplayListItem::PushTextShadow { shadow } => {
+                    let reach = text_shadow_reach(shadow);
+                    for frame in &mut open {
+                        frame.shadow_reach = frame.shadow_reach.max(reach);
+                    }
+                }
+                _ => {}
+            }
+            if !open.is_empty()
+                && !matches!(
+                    item,
+                    DisplayListItem::Text { .. }
+                        | DisplayListItem::TextLayout { .. }
+                        | DisplayListItem::Rect { .. }
+                        | DisplayListItem::PushTextShadow { .. }
+                        | DisplayListItem::PopTextShadow
+                        | DisplayListItem::PushStackingContext { .. }
+                        | DisplayListItem::PopStackingContext
+                        | DisplayListItem::HitTestArea { .. }
+                        | DisplayListItem::PopReferenceFrame
+                )
+            {
+                // (A frame inside is no text either; the pop is the open frame's own or an
+                // inner one's, whose push already said so.)
+                for frame in &mut open {
+                    frame.text_only = false;
+                }
+            }
+            if matches!(item, DisplayListItem::Text { .. }) {
+                for frame in &mut open {
+                    frame.has_text = true;
+                }
+            }
+            // What each open opacity group paints (A2-gpu-06: a group fades all of it, not only
+            // what lies in its node's box).
+            if let DisplayListItem::PopOpacity = item {
+                if let Some((push, group_box, bounds)) = fading.pop() {
+                    if let Some(content) = bounds.finish() {
+                        let extent = rect_union(group_box, content);
+                        if extent != group_box {
+                            opacity_extents.insert(push, extent);
+                        }
+                    }
+                }
+            }
+            if !fading.is_empty() {
+                let visual = GroupBounds::visual_of(item);
+                for (_, _, bounds) in &mut fading {
+                    bounds.step(item, visual);
+                }
+            }
+            if let DisplayListItem::PushOpacity { bounds, .. } = item {
+                fading.push((i, *bounds.inner(), GroupBounds::default()));
+            }
+            // What the open frames' pictures depend on besides their items.
+            if !open.is_empty() {
+                match item {
+                    DisplayListItem::PushReferenceFrame { transform_key, .. } => {
+                        for frame in &mut open {
+                            frame.inner.transform_keys.push(transform_key.id);
+                        }
+                    }
+                    DisplayListItem::PushOpacity { opacity_key: Some(k), .. } => {
+                        for frame in &mut open {
+                            frame.inner.opacity_keys.push(k.id);
+                        }
+                    }
+                    DisplayListItem::ScrollBarStyled { info } => {
+                        for frame in &mut open {
+                            if let Some(k) = info.thumb_transform_key {
+                                frame.inner.transform_keys.push(k.id);
+                            }
+                            if let Some(k) = info.opacity_key {
+                                frame.inner.opacity_keys.push(k.id);
+                            }
+                        }
+                    }
+                    DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                        for frame in &mut open {
+                            frame.inner.scroll_ids.push(*scroll_id);
+                        }
+                    }
+                    DisplayListItem::VirtualView { .. } => {
+                        for frame in &mut open {
+                            frame.inner.has_view = true;
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(key) = list.color_binding(i) {
+                    for frame in &mut open {
+                        frame.inner.color_keys.push(key.id);
+                    }
+                }
+            }
             match item {
                 DisplayListItem::PushReferenceFrame { transform_key, .. } => {
                     transform_keys.insert(transform_key.id);
@@ -3733,31 +4020,73 @@ impl FrameIndex {
                     if color.a == 255 && border_radius.is_zero() =>
                 {
                     opaque_fills.push(*bounds.inner());
+                    opaque_fill_frames.push(open.iter().map(|frame| frame.push).collect());
                 }
                 _ => {}
             }
             if let DisplayListItem::PopReferenceFrame = item {
                 // Closes the innermost open frame; the pop is not in that frame's range.
                 if let Some(done) = open.pop() {
+                    // Its own push is the innermost scope still open: nothing inside it was
+                    // left open. Otherwise the frames around it cannot be stepped over either.
+                    let closed = scopes.len() == done.scopes_before + 1;
+                    if !closed {
+                        for frame in &mut open {
+                            frame.well_formed = false;
+                        }
+                    }
+                    scopes.truncate(done.scopes_before);
                     let extent = done
                         .bounds
                         .finish()
                         .map_or(done.frame_box, |c| rect_union(done.frame_box, c));
-                    frames.push(FrameEntry { push: done.push, end: i, extent });
+                    frames.push(FrameEntry {
+                        push: done.push,
+                        end: i,
+                        extent,
+                        self_contained: closed && done.well_formed,
+                        leaf: done.leaf,
+                        shadow_reach: done.shadow_reach,
+                        text_only: done.text_only && done.has_text,
+                    });
+                    if !done.inner.is_empty() {
+                        inner.insert(done.push, done.inner);
+                    }
+                    if !done.children.is_empty() {
+                        let own = done.own.finish().map_or(done.frame_box, |c| rect_union(done.frame_box, c));
+                        nesting.insert(done.push, FrameNest { own, children: done.children });
+                    }
                 }
             }
             if !open.is_empty() {
                 let visual = GroupBounds::visual_of(item);
-                for frame in &mut open {
+                let innermost = open.len() - 1;
+                for (depth, frame) in open.iter_mut().enumerate() {
                     frame.bounds.step(item, visual);
+                    // Its own items only: what a frame inside it paints is placed by that
+                    // frame's matrix (`extent_with`).
+                    frame.own.step(item, if depth == innermost { visual } else { None });
                 }
             }
             if let DisplayListItem::PushReferenceFrame { bounds, .. } = item {
+                if let Some(parent) = open.last_mut() {
+                    parent.children.push(i);
+                }
                 open.push(Open {
                     push: i,
                     frame_box: *bounds.inner(),
                     bounds: GroupBounds::default(),
+                    scopes_before: scopes.len(),
+                    well_formed: true,
+                    leaf: true,
+                    shadow_reach: 0.0,
+                    text_only: true,
+                    has_text: false,
+                    inner: FrameInner::default(),
+                    own: GroupBounds::default(),
+                    children: Vec::new(),
                 });
+                scopes.push(ScopeKind::Frame);
             }
         }
         // A frame that is never popped runs to the end of the list.
@@ -3766,7 +4095,15 @@ impl FrameIndex {
                 .bounds
                 .finish()
                 .map_or(done.frame_box, |c| rect_union(done.frame_box, c));
-            frames.push(FrameEntry { push: done.push, end: items.len(), extent });
+            frames.push(FrameEntry {
+                push: done.push,
+                end: items.len(),
+                extent,
+                self_contained: false,
+                leaf: done.leaf,
+                shadow_reach: done.shadow_reach,
+                text_only: done.text_only && done.has_text,
+            });
         }
         frames.sort_by_key(|f| f.push);
         Self {
@@ -3778,6 +4115,10 @@ impl FrameIndex {
             color_keys: list.color_bindings.iter().flatten().map(|k| k.id).collect(),
             views,
             opaque_fills,
+            opaque_fill_frames,
+            inner,
+            nesting,
+            opacity_extents,
         }
     }
 
@@ -3811,6 +4152,14 @@ impl FrameIndex {
         &self.opaque_fills
     }
 
+    /// [`Self::opaque_fills`], each with the pushes of the reference frames open around it
+    /// (outermost first; none for a fill in no frame).
+    pub(crate) fn opaque_fills_in_frames(&self) -> impl Iterator<Item = (&LogicalRect, &[usize])> {
+        self.opaque_fills
+            .iter()
+            .zip(self.opaque_fill_frames.iter().map(Vec::as_slice))
+    }
+
     fn entry(&self, push: usize) -> Option<&FrameEntry> {
         self.frames
             .binary_search_by_key(&push, |f| f.push)
@@ -3821,6 +4170,98 @@ impl FrameIndex {
     /// What the frame pushed at `push` paints.
     pub(crate) fn extent_of(&self, push: usize) -> Option<LogicalRect> {
         self.entry(push).map(|f| f.extent)
+    }
+
+    /// The frame pushed at `push`: where it ends, what it paints, whether a walk may step over it.
+    pub(crate) fn frame_at(&self, push: usize) -> Option<FrameEntry> {
+        self.entry(push).copied()
+    }
+
+    /// What the frame pushed at `push` of `items` paints with the frames inside it moved by
+    /// their matrices (`transforms`: the live values by key; a key without one is painted
+    /// with its push's own matrix): its own items' bounds united with the box of each inner
+    /// frame's extent, turned about that frame's origin `o` by its matrix, `o + M (q - o)`
+    /// (A2-cpu-04: [`Self::extent_of`] takes the inner frames' items where they are laid out,
+    /// so a card moved by `translate(-100, 0)` inside a column was missing from the column's
+    /// extent by 100 px). `None` when an inner matrix has a perspective part: unbounded.
+    ///
+    /// Example: a column, box (0, 0) 200 x 400, holds a card, box (0, 0) 200 x 80 with
+    /// `translate(-100, 0)`: the card paints x -100 .. 100, the column's extent is
+    /// (-100, 0) 300 x 400, where `extent_of` says (0, 0) 200 x 400.
+    pub(crate) fn extent_with(
+        &self,
+        items: &[DisplayListItem],
+        push: usize,
+        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    ) -> Option<LogicalRect> {
+        let frame = self.entry(push)?;
+        let Some(nest) = self.nesting.get(&push) else {
+            return Some(frame.extent);
+        };
+        let mut extent = nest.own;
+        for child in &nest.children {
+            let Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, bounds }) =
+                items.get(*child)
+            else {
+                return Some(frame.extent);
+            };
+            let inside = self.extent_with(items, *child, transforms)?;
+            let m = transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m);
+            // A matrix with a perspective part maps a point `q` about `o` to
+            // `o + (L q + t) / w`, `w = m03 qx + m13 qy + m33` (A2-cpu-R01): the corners are
+            // mapped that way, as the rasteriser composites the group. `w` is linear, so with
+            // four corners in front of the eye (`w > 0`) the box's image is the quad of the
+            // mapped corners; a corner at or behind the eye has no bound (`None`). For an
+            // affine matrix `w` is 1.0 exactly and nothing changes. (The test used to be
+            // `|m03| <= 1e-6`, another tolerance than the rasteriser's, with the laid-out
+            // extent as the answer above it: a tilted card's surface was cut.)
+            let o = bounds.inner().origin;
+            let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+            let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for (cx, cy) in [
+                (inside.origin.x, inside.origin.y),
+                (inside.origin.x + inside.size.width, inside.origin.y),
+                (inside.origin.x, inside.origin.y + inside.size.height),
+                (inside.origin.x + inside.size.width, inside.origin.y + inside.size.height),
+            ] {
+                let (qx, qy) = (cx - o.x, cy - o.y);
+                let w = qx * m[0][3] + qy * m[1][3] + m[3][3];
+                if !(w > 1e-6) {
+                    return None;
+                }
+                let x = o.x + (qx * m[0][0] + qy * m[1][0] + m[3][0]) / w;
+                let y = o.y + (qx * m[0][1] + qy * m[1][1] + m[3][1]) / w;
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+            if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+                return None;
+            }
+            extent = rect_union(
+                extent,
+                LogicalRect {
+                    origin: LogicalPosition { x: x0, y: y0 },
+                    size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+                },
+            );
+        }
+        Some(extent)
+    }
+
+    /// What the opacity group pushed at `push` paints when that is more than the group's own
+    /// box: the box united with the visual bounds of its items (shadows and overflowing
+    /// children included), in list space. `None`: the box is all of it. Content inside a
+    /// reference frame of the group is counted where it is laid out.
+    pub(crate) fn opacity_extent(&self, push: usize) -> Option<LogicalRect> {
+        self.opacity_extents.get(&push).copied()
+    }
+
+    /// What the picture of the frame pushed at `push` depends on besides its items; `None`
+    /// when nothing is bound inside it.
+    pub(crate) fn inner_of(&self, push: usize) -> Option<&FrameInner> {
+        self.inner.get(&push)
     }
 
     /// The index of the pop of the frame pushed at `push`.

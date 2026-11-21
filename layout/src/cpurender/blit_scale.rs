@@ -22,10 +22,6 @@ use super::pixmap::{blend_over, AzulPixmap};
 /// work at the fixed-point speed, a thread spawn tens.
 const PX_PER_THREAD: usize = 250_000;
 
-/// The most threads one composite uses: the other cores belong to the tile workers, and each band
-/// needs only the row tables (a few kB).
-const MAX_THREADS: usize = 4;
-
 /// `(sx, sy, tx, ty)` when `m` only scales and moves (no shear, no flip to zero), else `None`.
 pub(crate) fn scale_translate_of(m: &TransAffine) -> Option<(f64, f64, f64, f64)> {
     let finite = m.sx.is_finite() && m.sy.is_finite() && m.tx.is_finite() && m.ty.is_finite();
@@ -131,9 +127,10 @@ pub(crate) fn blit_scale_translate(
 
     let total_rows = (y1 - y0) as usize;
     let px = total_rows * (x1 - x0) as usize;
-    let threads = (px / PX_PER_THREAD)
-        .clamp(1, MAX_THREADS)
-        .min(std::thread::available_parallelism().map_or(1, usize::from));
+    // At most the repaint's thread budget (`bands::max_threads`: `AZ_CPU_THREADS`, 4 by default,
+    // the machine's count asked once, not on every composite), and one inside a band of a
+    // repaint: the band's thread is the composite's.
+    let threads = super::bands::composite_threads(px / PX_PER_THREAD);
     let area = &mut dst.data[y0 as usize * stride..y1 as usize * stride];
     if threads <= 1 {
         band_rows(y0, area, total_rows);

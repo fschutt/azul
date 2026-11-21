@@ -75,6 +75,60 @@ pub fn frame_may_reuse_previous_pixels(
         && !force_full_repaint
 }
 
+/// May a frame that has damage repaint that damage alone (the flat walk over its rects)?
+///
+/// Only while the previous frame's pixels can be reused (`can_reuse_previous_frame`), and not
+/// for a list with a group only the layered compositor paints right - a blur or another
+/// filter the walk does not apply, a backdrop filter (`cpurender::full_repaint_needs_layers`):
+/// the walk paints such a group UNFILTERED inside every rect it repaints, so "damaged ==
+/// full" does not hold for it (A1-38, A2-cpu-R08: a caret blinking in a blurred panel left a
+/// sharp patch per blink). Not for the frame after such a list either: what its layers put
+/// on screen is not what the walk would have. Those frames are full repaints.
+#[must_use]
+pub fn frame_may_repaint_its_damage_alone(
+    can_reuse_previous_frame: bool,
+    list: &crate::solver3::display_list::DisplayList,
+    previous: Option<&crate::solver3::display_list::DisplayList>,
+) -> bool {
+    can_reuse_previous_frame
+        && !cpurender::full_repaint_needs_layers(list)
+        && !previous.is_some_and(cpurender::full_repaint_needs_layers)
+}
+
+/// What a frame reports for presenting it by moves: the moves, and the rects to copy from the
+/// frame after them. The invariant: the previous frame, the moves in order, then those rects
+/// copied, is the new frame.
+///
+/// - A frame that is not incremental: no moves, everything.
+/// - A frame whose pixels were also moved by the layout-translation blit (`blit_boxes`: what
+///   `execute_translate_blit` moved, not empty then): NO moves, and every rect that was
+///   written or moved (`moved_or_painted`, the plain present damage). The blit runs before
+///   the reported moves and is not one of them, so a reported move carried blitted pixels,
+///   which the presenter's copy of the previous frame does not hold: a panel moved down 5 px
+///   by the blit under a page scrolled by 8 came out with 240 px of the old panel
+///   (A2-cpu-R02).
+/// - Otherwise: the moves, and the damage with the boxes that were moved by something else
+///   than a reported move (none, without a blit).
+#[must_use]
+pub fn present_by_moves(
+    is_incremental: bool,
+    damage: &[azul_core::geom::LogicalRect],
+    blit_boxes: Vec<azul_core::geom::LogicalRect>,
+    moved_or_painted: &[azul_core::geom::LogicalRect],
+    moves: Vec<cpurender::PresentMove>,
+) -> (Vec<cpurender::PresentMove>, FrameDamage) {
+    if !is_incremental {
+        return (Vec::new(), FrameDamage::Full);
+    }
+    let mut present = damage.to_vec();
+    if blit_boxes.is_empty() {
+        (moves, FrameDamage::Rects(present))
+    } else {
+        present.extend_from_slice(moved_or_painted);
+        (Vec::new(), FrameDamage::Rects(present))
+    }
+}
+
 pub struct CpuBackend {
     /// CPU-based hit tester rebuilt after each layout pass.
     pub hit_tester: crate::headless::CpuHitTester,
@@ -106,6 +160,9 @@ pub struct CpuBackend {
     /// backdrop standing everywhere the diff found nothing, so the window ends
     /// up half light and half dark until something else forces a full repaint.
     pub last_clear_color: Option<[u8; 4]>,
+    /// The scale factor the PREVIOUS frame was painted at, or `None` before the first frame: a
+    /// frame at another factor is repainted in full, like one on another canvas colour.
+    pub last_dpi_factor: Option<f32>,
     /// Repaint the next frame in full (for changes outside the display list); consumed by `render_frame`.
     pub force_full_repaint: bool,
     /// Implied by `transparent`: after every frame the window's shape (the
@@ -122,8 +179,12 @@ pub struct CpuBackend {
     /// Last rendered pixmap (if CPU rendering is enabled).
     /// `None` when rendering is disabled (layout-only mode).
     pub last_frame: Option<crate::cpurender::AzulPixmap>,
-    /// Retained compositor state with per-layer pixbufs.
+    /// Retained compositor state with per-layer pixbufs. Made by the first full repaint that
+    /// needs layers (`cpurender::full_repaint_needs_layers`), `None` until then and after a
+    /// resize.
     pub compositor: Option<crate::cpurender::CompositorState>,
+    /// The frame's size in device pixels at the last `render_frame`, to tell a resize.
+    pub last_frame_px: Option<(u32, u32)>,
     /// Glyph cache — persists across frames for text rendering.
     pub glyph_cache: crate::glyph_cache::GlyphCache,
     /// Previous display list for damage rect computation.
@@ -145,6 +206,20 @@ pub struct CpuBackend {
     /// REGION_PLAN): small paint region, larger present region. Equals the paint
     /// damage when nothing was pixel-shifted.
     pub last_present_damage: FrameDamage,
+    /// The pixels the most recent `render_frame` MOVED inside the frame instead of painting
+    /// them (a scroll, a pan of a view), in the order it moved them
+    /// (`cpurender::PresentMove`: `new[p] = old[p - (dx, dy)]` for every device pixel `p` of
+    /// `dst`). A presenter that can move the pixels it already shows applies these and THEN
+    /// presents `last_present_damage_after_moves`, which wins where it overlaps a `dst`; one
+    /// that cannot ignores both and presents `last_present_damage`, which covers the moved
+    /// clips whole. Empty for a full repaint and for a frame that moved nothing.
+    pub last_present_moves: Vec<crate::cpurender::PresentMove>,
+    /// What a presenter that applied `last_present_moves` still has to present: the paint
+    /// damage (the strips that came into view, what is painted over the moved content, every
+    /// other change of the frame) and the boxes of moves that are not reported as moves (the
+    /// layout translation blit). A pan of a 2510 x 1402 view by 12 px is 18,226 px here and
+    /// 3.5 M px in `last_present_damage`.
+    pub last_present_damage_after_moves: FrameDamage,
     /// Arc ptr of the display list the round-3 patch SHIFT was last applied
     /// for. A buffers-held retry re-runs render_frame with the SAME list —
     /// re-applying the memmove would double-shift the retained pixels, so
@@ -257,17 +332,21 @@ impl CpuBackend {
             transparent: false,
             follow_system_background: true,
             last_clear_color: None,
+            last_dpi_factor: None,
             shape_from_alpha: false,
             last_shape: None,
             applied_shape: None,
             last_frame: None,
             compositor: None,
+            last_frame_px: None,
             glyph_cache: crate::glyph_cache::GlyphCache::new(),
             force_full_repaint: false,
             previous_display_list: None,
             last_consumed_build_seq: 0,
             last_frame_damage: FrameDamage::None,
             last_present_damage: FrameDamage::None,
+            last_present_moves: Vec::new(),
+            last_present_damage_after_moves: FrameDamage::None,
             last_patch_shift_dl: 0,
             presented_layout_seq: None,
             native_target: None,
@@ -281,6 +360,19 @@ impl CpuBackend {
             previous_zombie_rects: Vec::new(),
             retained_frames: Arc::new(crate::cpurender::RetainedFrames::new()),
         }
+    }
+
+    /// Let go of everything this backend keeps only to make frames cheaper, on the thread
+    /// that paints its frames: the kept group surfaces, the kept halos and turned text
+    /// pictures, the layered compositor. For memory pressure and for a window that is not
+    /// shown. The frame on screen (`last_frame`) and the window's glyph cache stay (the band
+    /// threads of a repaint keep no cache of their own between frames). The next frame is
+    /// correct and costs what a first frame costs for what was dropped: a zoom step paints
+    /// its picture once, a repaint draws the halos and turned labels it shows.
+    pub fn release_caches(&mut self) {
+        self.retained_frames.clear();
+        crate::cpurender::release_cpu_halos();
+        self.compositor = None;
     }
 
     /// Read the window's transparency / shape flags off the window state
@@ -355,6 +447,8 @@ impl CpuBackend {
             None => {
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
+                self.last_present_moves.clear();
+                self.last_present_damage_after_moves = FrameDamage::None;
                 return Vec::new();
             }
         };
@@ -365,6 +459,8 @@ impl CpuBackend {
         if pixel_w == 0 || pixel_h == 0 {
             self.last_frame_damage = FrameDamage::None;
             self.last_present_damage = FrameDamage::None;
+            self.last_present_moves.clear();
+            self.last_present_damage_after_moves = FrameDamage::None;
             return Vec::new();
         }
 
@@ -390,10 +486,9 @@ impl CpuBackend {
             );
             [c.r, c.g, c.b, c.a]
         };
-        let compositor = self
-            .compositor
-            .get_or_insert_with(|| cpurender::CompositorState::new(pixel_w, pixel_h));
-        compositor.set_clear_color(clear_color);
+        // The layered compositor is made when a frame needs it (a full repaint of a list with
+        // a filter only layers apply): its root layer is a second buffer of the window's size,
+        // and a window that never needs it does not hold one.
 
         // A different canvas colour invalidates every reused pixel, so this
         // frame cannot be incremental no matter what the display-list diff
@@ -402,13 +497,23 @@ impl CpuBackend {
             .last_clear_color
             .is_some_and(|previous| previous != clear_color);
         self.last_clear_color = Some(clear_color);
+        // Nor can a frame painted at another scale factor be repainted in parts: every pixel
+        // of it is another pixel now (a window moved to a display of another scale; the shells
+        // also force a full frame then, which this makes redundant, not wrong). The kept group
+        // surfaces are pictures at the old factor (their keys hold it, so none would be used);
+        // they are dropped now instead of when their lists change.
+        let dpi_changed = self
+            .last_dpi_factor
+            .is_some_and(|previous| previous.to_bits() != dpi_factor.to_bits());
+        self.last_dpi_factor = Some(dpi_factor);
+        if dpi_changed {
+            self.retained_frames.clear();
+        }
+        let clear_color_changed = clear_color_changed || dpi_changed;
 
-        // Check if we need to resize the root layer
-        let root = compositor.layers.get(&compositor.root_layer);
-        let (old_pw, old_ph) = match root {
-            Some(layer) => (layer.pixbuf.width(), layer.pixbuf.height()),
-            None => (0, 0),
-        };
+        // Did the frame change its size since the last call?
+        let (old_pw, old_ph) = self.last_frame_px.unwrap_or((0, 0));
+        self.last_frame_px = Some((pixel_w, pixel_h));
         let needs_resize = old_pw != pixel_w || old_ph != pixel_h;
 
         let mut resize_damage = Vec::new();
@@ -422,16 +527,9 @@ impl CpuBackend {
             let is_grow = pixel_w >= old_pw && pixel_h >= old_ph && old_pw > 0 && old_ph > 0;
             if is_grow {
                 resize_preserved_pixels = true;
-                // Grow-only: resize root layer pixbuf, keep old content
-                if let Some(root_layer) = compositor.layers.get_mut(&compositor.root_layer) {
-                    let _ = root_layer
-                        .pixbuf
-                        .resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
-                    root_layer.bounds.size = azul_core::geom::LogicalSize {
-                        width: pixel_w as f32,
-                        height: pixel_h as f32,
-                    };
-                }
+                // The layers (if there are any) are made again at the new size by the frame
+                // that needs them; the frame itself keeps its pixels (`resize_reuse` below).
+                self.compositor = None;
                 // Damage rects are LOGICAL everywhere downstream (the renderer
                 // multiplies by dpi_factor) — convert the physical pixbuf dims
                 // back to logical, or at dpi≠1 the exposed strips land at
@@ -451,7 +549,7 @@ impl CpuBackend {
                 // valid and only the strip a side gained is unknown
                 // (`compute_resize_damage`: none for a shrink). Every step
                 // of a shrinking window-edge drag repainted the whole window.
-                *compositor = cpurender::CompositorState::new(pixel_w, pixel_h);
+                self.compositor = None;
                 if old_pw > 0 && old_ph > 0 {
                     resize_preserved_pixels = true;
                     resize_damage = cpurender::compute_resize_damage(
@@ -500,6 +598,46 @@ impl CpuBackend {
             &layout_window.gpu_state_manager,
             layout_window.layout_results.keys().copied(),
         );
+        // Which frames scroll by whole device pixels this frame, and the offsets an incremental
+        // frame PAINTS at (`next_scroll_baseline`: a frame whose delta is under half a device
+        // pixel keeps the offset it was last painted at). Found before the damage, because the
+        // damage has to land where the frame paints (A2-cpu-20): placed with the real offsets
+        // it was up to half a device pixel off, and a column of a changed item inside such a
+        // frame could stay stale.
+        let scroll_shifts = cpurender::collect_scroll_shifts(
+            display_list,
+            &scroll_offsets,
+            &self.previous_scroll_offsets,
+            // The matrices this frame paints with (they become `previous_gpu_values` below).
+            &gpu_values.transforms,
+            dpi_factor,
+        );
+        let has_scroll = !scroll_shifts.is_empty();
+        // Advance the scroll baseline ONLY for frames that actually get painted
+        // at their new offset this call (shifted frames now; ALL frames on the
+        // full-repaint path — finalised at the end of render_frame). Frames
+        // whose sub-half-pixel delta was dropped keep their previous baseline,
+        // so slow trackpad scrolling ACCUMULATES until it crosses a device
+        // pixel instead of being silently swallowed frame after frame (content
+        // frozen while the logical offset advances arbitrarily far).
+        let shifted_ids: BTreeSet<u64> = scroll_shifts.iter().map(|(sid, ..)| *sid).collect();
+        let next_scroll_baseline: cpurender::ScrollOffsetMap = scroll_offsets
+            .iter()
+            .map(|(id, off)| {
+                if shifted_ids.contains(id) {
+                    (*id, *off)
+                } else {
+                    (
+                        *id,
+                        self.previous_scroll_offsets
+                            .get(id)
+                            .copied()
+                            .unwrap_or(*off),
+                    )
+                }
+            })
+            .collect();
+
         // In VIEWPORT space: an item inside a scrolled frame (a thumb on a
         // scrolled page) is repainted where the frame paints it. A colour fade
         // frame - the bound background rects whose colour moved - is part of it.
@@ -508,7 +646,7 @@ impl CpuBackend {
             &vview_dls,
             &self.previous_gpu_values,
             &gpu_values,
-            &scroll_offsets,
+            &next_scroll_baseline,
         );
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         // Zombie exits repaint every tick with no display-list change — their
@@ -604,7 +742,7 @@ impl CpuBackend {
                     old_dl,
                     display_list,
                     &self.previous_scroll_offsets,
-                    &scroll_offsets,
+                    &next_scroll_baseline,
                     patch_hint.as_ref().map(|(h, _)| h),
                     cpurender::FrameValues {
                         old: Some(&old_gpu_values.transforms),
@@ -647,40 +785,6 @@ impl CpuBackend {
         // One shared, viewport-projected collector with the e2e twin - see
         // `cpurender::collect_scroll_shifts` (nested frames used to get an
         // unprojected clip).
-        let scroll_shifts = cpurender::collect_scroll_shifts(
-            display_list,
-            &scroll_offsets,
-            &self.previous_scroll_offsets,
-            // The matrices this frame paints with, kept for the next one.
-            &self.previous_gpu_values.transforms,
-            dpi_factor,
-        );
-        let has_scroll = !scroll_shifts.is_empty();
-        // Advance the scroll baseline ONLY for frames that actually get painted
-        // at their new offset this call (shifted frames now; ALL frames on the
-        // full-repaint path — finalised at the end of render_frame). Frames
-        // whose sub-half-pixel delta was dropped keep their previous baseline,
-        // so slow trackpad scrolling ACCUMULATES until it crosses a device
-        // pixel instead of being silently swallowed frame after frame (content
-        // frozen while the logical offset advances arbitrarily far).
-        let shifted_ids: BTreeSet<u64> = scroll_shifts.iter().map(|(sid, ..)| *sid).collect();
-        let next_scroll_baseline: cpurender::ScrollOffsetMap = scroll_offsets
-            .iter()
-            .map(|(id, off)| {
-                if shifted_ids.contains(id) {
-                    (*id, *off)
-                } else {
-                    (
-                        *id,
-                        self.previous_scroll_offsets
-                            .get(id)
-                            .copied()
-                            .unwrap_or(*off),
-                    )
-                }
-            })
-            .collect();
-
         // The views' damage lands where this frame PAINTS them: an incremental
         // frame rasterises at `next_scroll_baseline` (see `render_offsets`
         // below), and a view inside a scrolled box is painted at its content
@@ -724,7 +828,7 @@ impl CpuBackend {
         let diff_path_ran = self.previous_display_list.is_some()
             && can_reuse_previous_frame
             && !gpu_damage.needs_full;
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if cpurender::patch_debug() {
             eprintln!(
                 "[HLDMG-HINT] move_summary={:?} hint={:?} scroll_nonzero={} moved={:?}",
                 layout_window
@@ -797,7 +901,7 @@ impl CpuBackend {
         } else {
             dl_damage
         };
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if cpurender::patch_debug() {
             eprintln!(
                 "[HLDMG] dl_damage={:?} can_reuse={} patched={} patch_damage={:?} resize={:?}",
                 dl_damage,
@@ -829,7 +933,7 @@ impl CpuBackend {
                 old_dl,
                 display_list,
                 &self.previous_scroll_offsets,
-                &scroll_offsets,
+                &next_scroll_baseline,
             ),
             _ => Vec::new(),
         };
@@ -868,6 +972,8 @@ impl CpuBackend {
                 self.previous_scroll_offsets = next_scroll_baseline;
                 self.last_frame_damage = FrameDamage::None;
                 self.last_present_damage = FrameDamage::None;
+                self.last_present_moves.clear();
+                self.last_present_damage_after_moves = FrameDamage::None;
                 // IDLE FRAME — the one safe place to do cache GC.
                 //
                 // `GlyphCache::gc()` frees the previous generation, which is
@@ -893,7 +999,18 @@ impl CpuBackend {
             // forced to `None`, the match fell through to `_`, the buffer was
             // filled white and everything was repainted — `FrameDamage::Full`
             // for a window that only grew by a strip.
-            Some(mut rects) if can_reuse_previous_frame => {
+            // Not for a list with a group only the layered compositor paints right (a blur or
+            // another filter, a backdrop filter): the walk that repaints damage paints such a
+            // group UNFILTERED inside every rect it repaints - a caret blinking in a blurred
+            // panel left a sharp patch per blink. Those frames are full repaints through the
+            // layers (A1-38); an idle frame of such a window is still skipped above.
+            Some(mut rects)
+                if frame_may_repaint_its_damage_alone(
+                    can_reuse_previous_frame,
+                    display_list,
+                    self.previous_display_list.as_deref(),
+                ) =>
+            {
                 // Incremental: changed items + (scroll strips added below)
                 rects.extend(resize_damage);
                 all_damage = rects;
@@ -907,7 +1024,7 @@ impl CpuBackend {
             }
         }
 
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if cpurender::patch_debug() {
             eprintln!(
                 "[HLDMG-PATH] incremental={} all_damage={}",
                 is_incremental,
@@ -979,6 +1096,8 @@ impl CpuBackend {
                         // that produced no frame must not leave stale damage.
                         self.last_frame_damage = FrameDamage::None;
                         self.last_present_damage = FrameDamage::None;
+                        self.last_present_moves.clear();
+                        self.last_present_damage_after_moves = FrameDamage::None;
                         return Vec::new();
                     }
                 },
@@ -999,6 +1118,10 @@ impl CpuBackend {
         // Regions that were pixel-SHIFTED: painted as a thin strip but the whole
         // clip changed on screen, so they belong to PRESENT damage (not paint).
         let mut present_extra: Vec<azul_core::geom::LogicalRect> = Vec::new();
+        // The same as moves, for a presenter that can move its own pixels, and the boxes
+        // that were moved without a move being reported (they stay present damage for it).
+        let mut present_moves: Vec<cpurender::PresentMove> = Vec::new();
+        let mut present_unmoved: Vec<azul_core::geom::LogicalRect> = Vec::new();
         // ROUND 3: the layout-translation blit. The translated diff classified
         // the dominant movers as MOVES (no damage) — shift their pixels here
         // and repaint only the exceptions + exposed strips. Sign map: the
@@ -1031,6 +1154,7 @@ impl CpuBackend {
                     dpi_factor,
                 );
                 all_damage.extend(blit.damage);
+                present_unmoved.extend(blit.present_extra.iter().copied());
                 present_extra.extend(blit.present_extra);
             }
             for (scroll_id, clip, delta, offset) in &scroll_shifts {
@@ -1044,26 +1168,33 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
-                    // The offsets and matrices the clip was projected with.
-                    &scroll_offsets,
+                    // The offsets and matrices the clip was projected with: the ones this
+                    // frame paints at (A1-45).
+                    &next_scroll_baseline,
                     &self.previous_gpu_values.transforms,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
+                present_moves.extend(out.moves);
             }
             // A view whose content scrolled moves the same way: its pixels, the
             // strip that came into view, what is painted over it.
             for shift in &view_shifts {
-                let out = cpurender::execute_virtual_view_shift(
+                let out = cpurender::execute_virtual_view_shift_with(
                     &mut output,
                     display_list,
                     &vview_dls,
                     shift,
                     dpi_factor,
-                    &scroll_offsets,
+                    // The offsets the shift's clip was collected with and the frame paints
+                    // at (A1-45).
+                    &next_scroll_baseline,
+                    // The matrices this frame paints with.
+                    &self.previous_gpu_values.transforms,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
+                present_moves.extend(out.moves);
             }
 
             // #32 pool-order target (a native ARGB8888 slot the commit swizzle
@@ -1093,7 +1224,7 @@ impl CpuBackend {
         // paint/present damage (and the pixel-count metric built on it) must
         // not double-count the same region.
         if is_incremental {
-            if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            if cpurender::patch_debug() {
                 eprintln!("[HLDMG-FINAL] before merge {all_damage:?}");
             }
             cpurender::coalesce_damage_rects(&mut all_damage);
@@ -1121,7 +1252,7 @@ impl CpuBackend {
         // MapWidget's tile grid) was built earlier for the child-DOM damage diff;
         // it's handed to the renderer here so the CPU `VirtualView` arm can
         // composite them. Without this the CPU backend only drew a placeholder.
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if cpurender::map_debug() {
             let summary: Vec<(usize, usize)> = vview_dls
                 .iter()
                 .map(|(id, dl)| (id.inner, dl.items.len()))
@@ -1209,12 +1340,40 @@ impl CpuBackend {
         };
         // The values of every DOM paint, a view's child's included: the values this frame's
         // damage was diffed from, which `previous_gpu_values` holds now.
+        // The values are MOVED into the render state and back when the frame is painted (the
+        // frame's own copy of three maps was 299 KB per frame for a map view: A9 H5). Nothing
+        // between here and there reads `previous_gpu_values`.
         let render_state = cpurender::CpuRenderState::new(render_offsets.clone())
-            .with_gpu_values(self.previous_gpu_values.clone())
+            .with_gpu_values(core::mem::take(&mut self.previous_gpu_values))
             .with_system_style(layout_window.system_style.clone())
             .with_clear_color(clear_color)
             .with_virtual_view_display_lists(vview_dls)
-            .with_retained_frames(Arc::clone(&self.retained_frames));
+            .with_retained_frames(Arc::clone(&self.retained_frames))
+            .with_root_display_list(Arc::clone(display_list));
+        // The kept group surfaces of lists this frame does not paint any more (a view that
+        // rendered again, a list that was patched) are dropped, and those lists let go of.
+        let painted_lists: Vec<usize> = core::iter::once(Arc::as_ptr(display_list) as usize)
+            .chain(
+                render_state
+                    .virtual_view_display_lists
+                    .values()
+                    .map(|list| Arc::as_ptr(list) as usize),
+            )
+            .collect();
+        // The halos this frame and the frame before use are not evicted while it paints.
+        cpurender::begin_cpu_halo_frame();
+        // A kept surface whose list was replaced by one that differs in a few items (a tile
+        // that arrived during a zoom, a label that was edited) is repaired, not dropped.
+        if let Err(e) = cpurender::refresh_retained_surfaces(
+            &render_state,
+            renderer_resources,
+            &layout_window.font_manager,
+            &mut self.glyph_cache,
+            dpi_factor,
+        ) {
+            eprintln!("[CpuBackend] refresh_retained_surfaces error: {e}");
+        }
+        self.retained_frames.begin_frame(&painted_lists);
 
         // An INCREMENTAL frame paints exactly its damage - and nothing when it
         // has none: the target already holds this frame (a scroll step that
@@ -1271,23 +1430,45 @@ impl CpuBackend {
                 clear_color[2],
                 clear_color[3],
             );
-            compositor.allocate_layers_from_display_list(
+            // The walk that repaints damage paints the full frame, too, in bands: a first
+            // frame and every frame of a live resize are full repaints. The layered
+            // compositor is for a list whose filters only it applies (a blur), and for
+            // `AZ_CPU_FULL=layers` (the path before, for comparing the two).
+            let layered = cpurender::full_repaint_needs_layers(display_list)
+                || std::env::var("AZ_CPU_FULL").is_ok_and(|v| v == "layers");
+            if layered {
+                let compositor = self
+                    .compositor
+                    .get_or_insert_with(|| cpurender::CompositorState::new(pixel_w, pixel_h));
+                compositor.set_clear_color(clear_color);
+                compositor.allocate_layers_from_display_list(
+                    display_list,
+                    dpi_factor,
+                    &render_state.transforms,
+                    &render_state.opacities,
+                );
+                if let Err(e) = compositor.render_layers(
+                    display_list,
+                    dpi_factor,
+                    renderer_resources,
+                    &layout_window.font_manager,
+                    &mut self.glyph_cache,
+                    &render_state,
+                ) {
+                    eprintln!("[CpuBackend] render_layers error: {e}");
+                }
+                compositor.composite_frame(&mut output, dpi_factor);
+            } else if let Err(e) = cpurender::render_display_list_whole(
                 display_list,
-                dpi_factor,
-                &render_state.transforms,
-                &render_state.opacities,
-            );
-            if let Err(e) = compositor.render_layers(
-                display_list,
+                &mut output,
                 dpi_factor,
                 renderer_resources,
                 &layout_window.font_manager,
                 &mut self.glyph_cache,
                 &render_state,
             ) {
-                eprintln!("[CpuBackend] render_layers error: {e}");
+                eprintln!("[CpuBackend] render_display_list_whole error: {e}");
             }
-            compositor.composite_frame(&mut output, dpi_factor);
             // The design doc's invariant: the rendered frame is B ∪ zombies.
             layout_window.composite_zombies_cpu(
                 &mut output,
@@ -1297,10 +1478,15 @@ impl CpuBackend {
             );
         }
 
+        // What this frame's passes painted of a group that may only be moved next frame is
+        // kept from here on (`cpurender::retained`).
+        self.retained_frames.commit();
+
         // AZ_DUMP_DL_DIR=/tmp/dls dumps the first display lists as JSON —
         // splits "the DL's clip is collapsed" (layout/reconcile bug) from
         // "the DL is fine, the renderer clips wrong" (cpurender bug).
-        if let Ok(dir) = std::env::var("AZ_DUMP_DL_DIR") {
+        static DUMP_DL_DIR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        if let Some(dir) = DUMP_DL_DIR.get_or_init(|| std::env::var("AZ_DUMP_DL_DIR").ok()) {
             use std::sync::atomic::{AtomicUsize, Ordering};
             static DL_N: AtomicUsize = AtomicUsize::new(0);
             let n = DL_N.fetch_add(1, Ordering::Relaxed);
@@ -1315,7 +1501,8 @@ impl CpuBackend {
         // AZ_DUMP_FRAME_DIR=/tmp/frames dumps every rendered CPU frame as a
         // numbered PNG — splits "rendered wrong" from "presented wrong" when a
         // backend shows pixels that contradict the display list.
-        if let Ok(dir) = std::env::var("AZ_DUMP_FRAME_DIR") {
+        static DUMP_FRAME_DIR: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+        if let Some(dir) = DUMP_FRAME_DIR.get_or_init(|| std::env::var("AZ_DUMP_FRAME_DIR").ok()) {
             use std::sync::atomic::{AtomicUsize, Ordering};
             static FRAME_N: AtomicUsize = AtomicUsize::new(0);
             let n = FRAME_N.fetch_add(1, Ordering::Relaxed);
@@ -1335,6 +1522,19 @@ impl CpuBackend {
             }
         }
 
+        // Back from the render state: the values this frame painted with, for the next
+        // frame's diff.
+        let cpurender::CpuRenderState {
+            transforms,
+            opacities,
+            colors,
+            ..
+        } = render_state;
+        self.previous_gpu_values = cpurender::WindowGpuValues {
+            transforms,
+            opacities,
+            colors,
+        };
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
         self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
@@ -1371,6 +1571,15 @@ impl CpuBackend {
         };
         // Present damage = paint damage ∪ the full clips that were pixel-shifted
         // (their content moved on screen even though only a strip was repainted).
+        let (moves, after_moves) = present_by_moves(
+            is_incremental,
+            &all_damage,
+            present_unmoved,
+            &present_extra,
+            present_moves,
+        );
+        self.last_present_damage_after_moves = after_moves;
+        self.last_present_moves = moves;
         self.last_present_damage = if is_incremental {
             let mut present = all_damage.clone();
             present.extend(present_extra);
@@ -1427,5 +1636,89 @@ mod tests {
             .map(|p| p.strip_prefix(manifest).unwrap_or(p).display().to_string())
             .collect();
         assert_eq!(shown, ["src/cpu_backend.rs"], "one declaration of `CpuBackend`: {shown:?}");
+    }
+}
+
+#[cfg(test)]
+mod audit_a1_tests {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    use super::*;
+
+    fn lr(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    /// A2-cpu-R02: a frame whose pixels the layout-translation blit moved reports no moves.
+    /// A 100 x 80 frame: a panel (10, 10) 30 x 20 moved down 5 by the blit (its box, rows
+    /// 10 .. 35) and the page scrolled from 8 to 0 in the same frame (a move of rows 0 .. 72
+    /// down by 8). Reported as a move, the scroll carried the presenter's OLD panel (rows
+    /// 10 .. 30 to 18 .. 38) where the frame holds the blitted one. Reported as rects, the
+    /// presenter copies the scrolled clip and the blit's box from the frame.
+    /// Mutation: the moves reported whenever the frame is incremental shows 240 px of the
+    /// old panel.
+    #[test]
+    fn a_frame_that_blits_a_layout_move_reports_no_moves() {
+        let strip = lr(0.0, 0.0, 100.0, 8.0);
+        let blit_box = lr(10.0, 10.0, 30.0, 25.0);
+        let scrolled_clip = lr(0.0, 0.0, 100.0, 80.0);
+        let moves = vec![cpurender::PresentMove { dst: (0, 8, 100, 72), dx: 0, dy: 8 }];
+        let moved_or_painted = [blit_box, scrolled_clip];
+        // The blit ran: no moves, and everything that was written or moved is copied.
+        let (reported, after) = present_by_moves(true, &[strip], vec![blit_box], &moved_or_painted, moves.clone());
+        assert!(reported.is_empty());
+        assert_eq!(after, FrameDamage::Rects(vec![strip, blit_box, scrolled_clip]));
+        // No blit: the moves, and the damage alone after them.
+        let (reported, after) = present_by_moves(true, &[strip], Vec::new(), &[scrolled_clip], moves.clone());
+        assert_eq!(reported, moves);
+        assert_eq!(after, FrameDamage::Rects(vec![strip]));
+        // A full repaint: no moves, everything.
+        assert_eq!(present_by_moves(false, &[], Vec::new(), &[], moves), (Vec::new(), FrameDamage::Full));
+    }
+
+    /// A2-cpu-R08 (A1-38): a frame of a list with `filter: blur()` never repaints its damage
+    /// alone. A 200 x 100 box with `filter: blur(4px)` and a caret over it: the full repaint
+    /// blurs the box through its layer, the walk over the caret's damage rect (2 x 18) would
+    /// paint that rect of the box unblurred - so the frame is a full repaint. The frame after
+    /// such a list is one too. A list without such a group repaints its damage.
+    /// Mutation: the gate as it was (`can_reuse_previous_frame` alone) lets the blurred list
+    /// through.
+    #[test]
+    fn a_list_with_a_blur_never_repaints_its_damage_alone() {
+        use azul_css::props::{
+            basic::{pixel::PixelValue, ColorU},
+            style::filter::{StyleBlur, StyleFilter},
+        };
+
+        use crate::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem};
+        let boxed = |blur: bool| {
+            let fill = DisplayListItem::Rect {
+                bounds: lr(10.0, 10.0, 200.0, 100.0).into(),
+                color: ColorU { r: 200, g: 0, b: 0, a: 255 },
+                border_radius: BorderRadius::default(),
+            };
+            let items = if blur {
+                vec![
+                    DisplayListItem::PushFilter {
+                        bounds: lr(10.0, 10.0, 200.0, 100.0).into(),
+                        filters: vec![StyleFilter::Blur(StyleBlur { width: PixelValue::px(4.0), height: PixelValue::px(4.0) })],
+                    },
+                    fill,
+                    DisplayListItem::PopFilter,
+                ]
+            } else {
+                vec![fill]
+            };
+            DisplayList { items, ..Default::default() }
+        };
+        let (blurred, plain) = (boxed(true), boxed(false));
+        assert!(frame_may_repaint_its_damage_alone(true, &plain, Some(&plain)));
+        assert!(frame_may_repaint_its_damage_alone(true, &plain, None));
+        assert!(!frame_may_repaint_its_damage_alone(true, &blurred, Some(&blurred)), "the walk does not blur");
+        assert!(!frame_may_repaint_its_damage_alone(true, &plain, Some(&blurred)), "the frame after it");
+        assert!(!frame_may_repaint_its_damage_alone(false, &plain, Some(&plain)));
     }
 }

@@ -37,8 +37,7 @@ pub fn render_hvif(icon: &Hvif, size: u32) -> Option<AzulPixmap> {
     if size == 0 || size > MAX_HVIF_SIZE {
         return None;
     }
-    let mut pixmap = AzulPixmap::new(size, size)?;
-    pixmap.fill(0, 0, 0, 0);
+    let mut pixmap = AzulPixmap::new_transparent(size, size)?;
     let scale = size as f32 / GRID;
     let global = TransAffine::new_scaling_uniform(f64::from(scale));
     for shape in &icon.shapes {
