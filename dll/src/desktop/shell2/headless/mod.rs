@@ -16851,6 +16851,7 @@ mod child_window_tests {
             None,
             false,
             None,
+            &[],
         )
     }
 
