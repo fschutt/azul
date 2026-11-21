@@ -345,8 +345,9 @@ fn inline_list_item_inline(node: &NodeData) -> bool {
 }
 
 /// Whether a rule of `css` can give a node generated content ([`insert_generated_nodes`]: a
-/// `content` rule, a `::marker` rule or an inline list item, a footnote): a DOM styled under
-/// such a sheet can gain nodes when a node of it starts to match the rule.
+/// `content` rule, a `::marker` rule or an inline list item, a footnote).
+///
+/// A DOM styled under such a sheet can gain nodes when a node of it starts to match the rule.
 #[must_use]
 pub fn css_generates_nodes(css: &Css) -> bool {
     let (rules, marker_rules) = generating_hosts(css);
@@ -660,11 +661,7 @@ impl CssPropertyCache {
                 // footnote counter): they show unless a `content` that
                 // makes no box (`none`) is declared for them.
                 let shows = |state: PseudoStateType| {
-                    match last(state, CssPropertyType::Content).and_then(CssProperty::as_content)
-                    {
-                        Some(content) => content_makes_box(content),
-                        None => footnote_mark,
-                    }
+                    last(state, CssPropertyType::Content).and_then(CssProperty::as_content).map_or(footnote_mark, content_makes_box)
                 };
                 let resting = shows(PseudoStateType::Normal);
                 let resting_display = last(PseudoStateType::Normal, CssPropertyType::Display)

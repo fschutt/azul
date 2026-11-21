@@ -125,7 +125,7 @@ struct FlatNode {
 }
 
 impl FlatNode {
-    fn new(kind: FlatKind) -> Self {
+    const fn new(kind: FlatKind) -> Self {
         Self {
             kind,
             attrs: FlatRange { start: 0, len: 0 },
@@ -383,7 +383,7 @@ impl Hash for FlatDom {
 impl FlatDom {
     /// How many nodes the tree holds, the root included.
     #[must_use]
-    pub fn node_count(&self) -> usize {
+    pub const fn node_count(&self) -> usize {
         self.nodes.len()
     }
 
@@ -1446,6 +1446,8 @@ impl DomBuilder {
     }
 
     /// `Dom::add_class` for the open node.
+    // an API method: the C API hands the value over (api.json), so the signature is fixed
+    #[allow(clippy::needless_pass_by_value)]
     pub fn add_class(&mut self, class: AzString) {
         self.state_mut().add_class_str(class.as_str());
     }
@@ -1456,6 +1458,8 @@ impl DomBuilder {
     }
 
     /// `Dom::with_id` for the open node.
+    // an API method: the C API hands the value over (api.json), so the signature is fixed
+    #[allow(clippy::needless_pass_by_value)]
     pub fn add_id(&mut self, id: AzString) {
         self.state_mut().add_id_str(id.as_str());
     }
@@ -1622,6 +1626,8 @@ impl Dom {
     /// # Errors
     ///
     /// The `Dom` itself, unchanged, when it does not carry a flat form alone.
+    // the error hands the `Dom` back to the caller
+    #[allow(clippy::result_large_err)]
     pub fn into_fast_dom(mut self) -> Result<FastDom, Self> {
         if !self.children.as_ref().is_empty() {
             return Err(self);
@@ -1662,8 +1668,9 @@ pub fn fingerprint_built_dom(dom: &Dom) -> (DomFingerprints, PreCascadeTransfers
 }
 
 /// [`fingerprint_built_dom`] for a rebuild that is compared with the build before, whose
-/// fingerprints are `prev`: the fingerprints and the carried values of `dom`, and `dom` as
-/// the rest of the rebuild needs it.
+/// fingerprints are `prev`.
+///
+/// The fingerprints and the carried values of `dom`, and `dom` as the rest of the rebuild needs it.
 ///
 /// A flat `Dom` STAYS flat when it reads as the build before did (the same tree, every
 /// node's two tiers, the same sheets): such a rebuild keeps what it has, takes the
@@ -1695,9 +1702,11 @@ fn count_flat_expansion() {
 }
 
 /// How many `Dom`s that carried their tree flat this thread turned into trees of `Dom`s
-/// (`Dom::expand_flat` on a `Dom` that carried one; `Dom::into_fast_dom`, which goes to the
-/// arenas, is not one): what a test reads to say that a rebuild read a builder-made DOM
-/// as it was handed over. Always 0 without `std`.
+/// (`Dom::expand_flat` on a `Dom` that carried one; `Dom::into_fast_dom`, which goes to the arenas,
+/// is not one).
+///
+/// What a test reads to say that a rebuild read a builder-made DOM as it was handed over. Always 0
+/// without `std`.
 #[must_use]
 pub fn flat_expansions_on_this_thread() -> usize {
     #[cfg(feature = "std")]
@@ -1717,9 +1726,10 @@ std::thread_local! {
         const { core::cell::Cell::new(None) };
 }
 
-/// Whether a widget that has both builds makes its DOM through [`DomBuilder`]
-/// (`AZ_FLAT_WIDGETS=1`, read once per process) or as a tree of `Dom`s (the default, and
-/// the reference of the tests that compare the two).
+/// Whether a widget that has both builds makes its DOM through [`DomBuilder`] (`AZ_FLAT_WIDGETS=1`,
+/// read once per process).
+///
+/// Or as a tree of `Dom`s (the default, and the reference of the tests that compare the two).
 #[must_use]
 pub fn flat_widgets_enabled() -> bool {
     #[cfg(feature = "std")]

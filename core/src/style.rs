@@ -162,10 +162,10 @@ pub fn matches_html_element_in(
     )
 }
 
-/// What the matching of one cascade remembers about the general sibling
-/// combinator (`~`): per rule, per `~` of its path and per node, the nearest
-/// earlier sibling that matches the compound left of the `~` (`None`: there
-/// is none).
+/// What the matching of one cascade remembers about the general sibling combinator (`~`).
+///
+/// Per rule, per `~` of its path and per node, the nearest earlier sibling that matches the
+/// compound left of the `~` (`None`: there is none).
 ///
 /// `.a ~ .b` asks, for every `.b`, for the nearest `.a` before it, and found
 /// it by walking back over the siblings: with one `.a` in front of 12,000
@@ -328,9 +328,7 @@ pub fn matches_html_element_remembering(
                 let known = sibling_memo
                     .as_ref()
                     .and_then(|memo| memo.0.nearest.get(&key(current_node, memo)).copied());
-                let found = if let Some(known) = known {
-                    known
-                } else {
+                let found = known.map_or_else(|| {
                     let mut sibling =
                         find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
                     let mut found = None;
@@ -367,7 +365,7 @@ pub fn matches_html_element_remembering(
                         }
                     }
                     found
-                };
+                }, |known| known);
                 match found {
                     Some(sib) => current_node = sib,
                     None => return false,
@@ -533,6 +531,8 @@ std::thread_local! {
 }
 
 /// One sibling link followed by [`construct_html_cascade_tree`].
+// Not `const`: the tests' build counts in a thread-local, which a `const fn` cannot touch.
+#[allow(clippy::missing_const_for_fn)]
 #[inline]
 fn count_sibling_step() {
     #[cfg(all(test, feature = "std"))]
@@ -576,16 +576,11 @@ pub fn construct_html_cascade_tree(
         // children cost k^2 / 2 steps (18 million for the 6,000 labels of a
         // map view under one node).
         let counted_before = elements_before.get(parent_id.index()).copied().flatten();
-        let element_index_in_parent = match counted_before {
-            Some(before) => {
-                before as usize + usize::from(is_element_sibling(&node_data[*parent_id]))
-            }
-            None => parent_id
+        let element_index_in_parent = counted_before.map_or_else(|| parent_id
                 .preceding_siblings(node_hierarchy)
                 .inspect(|_| count_sibling_step())
                 .filter(|sib_id| is_element_sibling(&node_data[*sib_id]))
-                .count(),
-        };
+                .count(), |before| before as usize + usize::from(is_element_sibling(&node_data[*parent_id])));
 
         let parent_html_matcher = CascadeInfo {
             index_in_parent: u32::try_from(element_index_in_parent.saturating_sub(1))

@@ -137,6 +137,8 @@ impl ComputedTransform3D {
                                        // +fma; keep explicit a*b+c
     #[allow(clippy::cast_possible_truncation)] // the inverse computed in f64, narrowed to the f32
                                                // public type and checked to be finite
+    // large but cohesive: one pass over one structure
+    #[allow(clippy::too_many_lines)]
     pub fn try_inverse(&self) -> Option<Self> {
         let det = self.determinant_f64();
         if det == 0.0 || !det.is_finite() {

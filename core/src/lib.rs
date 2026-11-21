@@ -55,6 +55,9 @@
 // flags - the two fight each other (clippy documents the conflict). The crate
 // keeps `unreachable_pub` and `pub(crate)`.
 #![allow(clippy::redundant_pub_crate)]
+// `clippy::cargo` reads the feature names of every package of the workspace and reports them at each
+// crate it checks: `test-support` is azlin-keys' (a lane's crate), not a feature of this crate.
+#![allow(clippy::redundant_feature_names)]
 #![allow(
     clippy::non_canonical_partial_ord_impl,
     clippy::legacy_numeric_constants,

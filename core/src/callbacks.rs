@@ -211,10 +211,11 @@ impl VirtualViewCallback {
 /// carries with it (`Dom::with_transient_content`).
 pub type TransientContentCallbackType = extern "C" fn(RefAny) -> Dom;
 
-/// Callback that returns the content of a `<transient-window>` - a popup's
-/// panel - when the engine shows the window, so that a DOM full of closed
-/// popups does not build, style and reconcile the panel of each of them on
-/// every rebuild. See `Dom::with_transient_content`.
+/// Callback that returns the content of a `<transient-window>` - a popup's panel - when the engine
+/// shows the window.
+///
+/// So that a DOM full of closed popups does not build, style and reconcile the panel of each of
+/// them on every rebuild. See `Dom::with_transient_content`.
 #[repr(C)]
 pub struct TransientContentCallback {
     pub cb: TransientContentCallbackType,

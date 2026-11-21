@@ -1280,13 +1280,13 @@ impl AppConfig {
     /// Returns the config whose windows anti-alias their text as `settings` say
     /// (see [`Self::text_antialiasing`]).
     #[must_use]
-    pub fn with_text_antialiasing(mut self, settings: TextAntialiasing) -> Self {
+    pub const fn with_text_antialiasing(mut self, settings: TextAntialiasing) -> Self {
         self.set_text_antialiasing(settings);
         self
     }
 
     /// In-place [`Self::with_text_antialiasing`].
-    pub fn set_text_antialiasing(&mut self, settings: TextAntialiasing) {
+    pub const fn set_text_antialiasing(&mut self, settings: TextAntialiasing) {
         self.text_antialiasing = settings;
     }
 
@@ -1770,7 +1770,7 @@ impl TextAntialiasing {
             lcd_contrast: level("AZ_LCD_CONTRAST", default.lcd_contrast),
             lcd_chroma_limit: level("AZ_LCD_CHROMA_LIMIT", default.lcd_chroma_limit),
             lcd_coverage_gamma: level("AZ_LCD_COVERAGE_GAMMA", default.lcd_coverage_gamma),
-            lcd_pretile: var("AZ_LCD_PRETILE").map_or(true, |v| v.trim() != "0")
+            lcd_pretile: var("AZ_LCD_PRETILE").is_none_or(|v| v.trim() != "0")
                 && var("AZ_NO_LCD_PRETILE").is_none(),
         }
     }

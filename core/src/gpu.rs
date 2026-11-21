@@ -90,7 +90,9 @@ std::thread_local! {
 
 /// What the key of a [`StampedMap`] has to be: what the map of this build
 /// asks of a key (`Eq + Hash` for the `HashMap` of a build with `std`, `Ord`
-/// for the `BTreeMap` of one without). Every such type is one.
+/// for the `BTreeMap` of one without).
+///
+/// Every such type is one.
 #[cfg(feature = "std")]
 pub trait StampedKey: Eq + core::hash::Hash {}
 #[cfg(feature = "std")]
@@ -105,7 +107,9 @@ impl<K: Ord> StampedKey for K {}
 
 /// One of the twenty-four value maps of a [`GpuValueCache`]: the keys or
 /// the values of one channel, by node (`K` = [`NodeId`], the default) or,
-/// for a scrollbar's fade, by DOM and node. A `HashMap` that carries a
+/// for a scrollbar's fade, by DOM and node.
+///
+/// A `HashMap` that carries a
 /// STAMP of its content - its own write generation. Two readers use the
 /// stamps: [`GpuValueCache::value_generation`] is one number made of all
 /// of them (a frame that finds it unchanged reads no value again), and
@@ -188,7 +192,7 @@ impl<'a, V, K> IntoIterator for &'a StampedMap<V, K> {
     type IntoIter = <&'a HashMap<K, V> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        (&self.map).into_iter()
+        self.map.iter()
     }
 }
 
@@ -233,10 +237,11 @@ impl<V: PartialEq, K: StampedKey> StampedMap<V, K> {
 }
 
 /// A bound value of a [`GpuValueCache`] that is no map (the light the sheens
-/// shine in), stamped as a [`StampedMap`] is: read through `Deref`, written
-/// through [`Self::set`] alone, which takes a stamp from the maps' clock
-/// when the value is another one. There is no `DerefMut`: an assignment of
-/// the plain value does not compile.
+/// shine in), stamped the way a [`StampedMap`] is.
+///
+/// It is read through `Deref` and written through [`Self::set`] alone, which
+/// takes a stamp from the maps' clock when the value is another one. There is
+/// no `DerefMut`: an assignment of the plain value does not compile.
 #[derive(Clone, Default)]
 pub struct StampedValue<T> {
     value: T,
@@ -520,7 +525,7 @@ impl GpuValueCache {
     // takes a `&mut` to the map inside - `entry()` - always.)
     // ------------------------------------------------------------------
 
-    fn transform_maps(
+    const fn transform_maps(
         &self,
         channel: TransformChannel,
     ) -> (&StampedMap<TransformKey>, &StampedMap<ComputedTransform3D>) {
@@ -544,7 +549,7 @@ impl GpuValueCache {
         }
     }
 
-    fn transform_maps_mut(
+    const fn transform_maps_mut(
         &mut self,
         channel: TransformChannel,
     ) -> (&mut StampedMap<TransformKey>, &mut StampedMap<ComputedTransform3D>) {
@@ -657,14 +662,11 @@ impl GpuValueCache {
         let (keys, values) = self.transform_maps_mut(channel);
         // Not `entry()`: that is a `&mut` to the map inside, which restamps
         // the keys whether or not one is minted (`StampedMap`).
-        let (key, minted) = match keys.get(&node).copied() {
-            Some(key) => (key, false),
-            None => {
-                let key = TransformKey::unique();
-                keys.insert(node, key);
-                (key, true)
-            }
-        };
+        let (key, minted) = keys.get(&node).copied().map_or_else(|| {
+            let key = TransformKey::unique();
+            keys.insert(node, key);
+            (key, true)
+        }, |key| (key, false));
         let value_changed = values.insert(node, value) != Some(value);
         self.wrote_transform(channel, node, minted || value_changed);
         key
@@ -746,7 +748,7 @@ impl GpuValueCache {
         self.retain_transforms(channel, |_| false);
     }
 
-    fn opacity_maps(
+    const fn opacity_maps(
         &self,
         channel: OpacityChannel,
     ) -> (&StampedMap<OpacityKey>, &StampedMap<f32>) {
@@ -759,7 +761,7 @@ impl GpuValueCache {
         }
     }
 
-    fn opacity_maps_mut(
+    const fn opacity_maps_mut(
         &mut self,
         channel: OpacityChannel,
     ) -> (&mut StampedMap<OpacityKey>, &mut StampedMap<f32>) {
@@ -816,14 +818,11 @@ impl GpuValueCache {
         let (keys, values) = self.opacity_maps_mut(channel);
         // Not `entry()`: that is a `&mut` to the map inside, which restamps
         // the keys whether or not one is minted (`StampedMap`).
-        let (key, minted) = match keys.get(&node).copied() {
-            Some(key) => (key, false),
-            None => {
-                let key = OpacityKey::unique();
-                keys.insert(node, key);
-                (key, true)
-            }
-        };
+        let (key, minted) = keys.get(&node).copied().map_or_else(|| {
+            let key = OpacityKey::unique();
+            keys.insert(node, key);
+            (key, true)
+        }, |key| (key, false));
         let value_changed = values.insert(node, value) != Some(value);
         self.wrote(minted || value_changed);
         key
@@ -892,7 +891,7 @@ impl GpuValueCache {
         self.retain_opacities(channel, |_| false);
     }
 
-    fn scrollbar_opacity_maps_mut(
+    const fn scrollbar_opacity_maps_mut(
         &mut self,
         orientation: ScrollbarOrientation,
     ) -> (
@@ -1027,13 +1026,10 @@ impl GpuValueCache {
     /// under a new one. Returns the key.
     pub fn key_color(&mut self, node: NodeId, value: azul_css::props::basic::ColorU) -> ColorKey {
         // Not `entry()`: it restamps the keys whether or not one is minted.
-        let (key, minted) = match self.color_keys.get(&node).copied() {
-            Some(key) => (key, false),
-            None => {
-                let key = ColorKey::unique();
-                self.color_keys.insert(node, key);
-                (key, true)
-            }
+        let (key, minted) = if let Some(key) = self.color_keys.get(&node).copied() { (key, false) } else {
+            let key = ColorKey::unique();
+            self.color_keys.insert(node, key);
+            (key, true)
         };
         let value_changed = self.current_color_values.insert(node, value) != Some(value);
         self.wrote(minted || value_changed);
@@ -1244,10 +1240,7 @@ impl GpuValueCache {
         // The CSS channel at this pass's size, with the node's other channels
         // on top of it; a node whose cascade holds no transform any more
         // keeps what the cache has for it until the next sync removes it.
-        match css {
-            Some(css) => self.frame_of_channels(node, Some(css)),
-            None => self.reference_frame_of(node),
-        }
+        css.map_or_else(|| self.reference_frame_of(node), |css| self.frame_of_channels(node, Some(css)))
     }
 
     /// The matrix `node` is painted with now ([`Self::reference_frame_of`]),
@@ -1920,6 +1913,8 @@ impl GpuValueCache {
     }
 
     /// Computes opacity change events against the cached values (read-only).
+    // an exact comparison is meant: the same opacity is no event
+    #[allow(clippy::float_cmp)]
     fn compute_opacity_events(&self, styled_dom: &StyledDom) -> Vec<GpuOpacityKeyEvent> {
         let css_property_cache = styled_dom.get_css_property_cache();
         let node_data = styled_dom.node_data.as_container();

@@ -346,10 +346,11 @@ fn hash_inline_style_by_reach(style: &azul_css::css::Css) -> (u64, u64, u64) {
 }
 
 /// Whether the own (inline) styles of two matched nodes differ ONLY in what
-/// [`NodeDataFingerprint::diff`] does not call a layout of the node's interior: the values
-/// of its insets ([`NodeChangeSet::INLINE_STYLE_INSETS`]) and / or of an exact `transform`
-/// / `opacity` ([`NodeChangeSet::INLINE_STYLE_PAINT`]). `false` for equal styles and for any
-/// other difference (a declaration that comes or goes, another property, a condition).
+/// [`NodeDataFingerprint::diff`] does not call a layout of the node's interior.
+///
+/// The values of its insets ([`NodeChangeSet::INLINE_STYLE_INSETS`]) and / or of an exact
+/// `transform` / `opacity` ([`NodeChangeSet::INLINE_STYLE_PAINT`]). `false` for equal styles and
+/// for any other difference (a declaration that comes or goes, another property, a condition).
 ///
 /// The three hashes the fingerprint holds, compared the way it compares them: a caller that
 /// leaves such a node to the fingerprint - the CSS diff of a rebuild, which would otherwise
@@ -985,7 +986,7 @@ pub fn precompute_reconciliation_keys(
         keys[idx] = key;
         // The children, each with its place: counted as the identity says, the siblings before it.
         let mut all_before = 0_usize;
-        let mut of_type: Vec<(core::mem::Discriminant<crate::dom::NodeType>, usize)> = Vec::new();
+        let mut of_type: Vec<(core::mem::Discriminant<NodeType>, usize)> = Vec::new();
         let mut child = hierarchy[idx].first_child_id(NodeId::new(idx));
         let mut walked = 0_usize;
         while let Some(child_id) = child {
@@ -1151,9 +1152,9 @@ pub fn reconcile_dom(
 
     // Tier 1's queues. The queues of Tiers 2 and 3 are built where those tiers run (passes
     // B2 / B3), over the old nodes still unconsumed there: see `ShallowTiers`.
-    for idx in 0..old_node_data.len() {
+    for (idx, rec_key) in old_rec_keys.iter().enumerate().take(old_node_data.len()) {
         old_by_rec_key
-            .entry(old_rec_keys[idx])
+            .entry(*rec_key)
             .or_default()
             .push_back(NodeId::new(idx));
     }
@@ -2628,7 +2629,9 @@ pub struct ChangeAccumulator {
 }
 
 /// Whether no pixel of a window is drawn from a property of this type: its value is read by
-/// the OS (the pointer shape over the node), never by the display list. A restyle that changed
+/// the OS (the pointer shape over the node), never by the display list.
+///
+/// A restyle that changed
 /// nothing else asks for no repaint and no layout.
 #[must_use]
 pub const fn paints_nothing(ty: CssPropertyType) -> bool {
@@ -3533,7 +3536,9 @@ pub fn fingerprint_dom(dom: &crate::dom::Dom) -> (DomFingerprints, PreCascadeTra
 }
 
 /// The nodes whose TEXT a rebuild changed, when texts are all it changed: the pre-order
-/// indices at which `next` differs from `prev`, ascending. `None` when the two builds are
+/// indices at which `next` differs from `prev`, ascending.
+///
+/// `None` when the two builds are
 /// alike, and when anything else differs - a node added or removed, a class, a handler's
 /// event, any style, a text that came or went or became empty.
 ///
@@ -3598,11 +3603,13 @@ pub fn nodes_at<'a>(dom: &'a crate::dom::Dom, indices: &[usize]) -> Vec<&'a Node
     found
 }
 
-/// Whether [`adopt_fresh_texts`] can write the texts of `fresh` at `changed` onto `retained`
-/// so that the arena reads as a full rebuild would leave it: each of the nodes is a text in
-/// both, none of them is localizable (the translation pass, which the retained arena went
-/// through and this write does not, replaces such a text), and none has a handler (the
-/// reconciliation of a full rebuild tells a node's `Update` handler that its content moved).
+/// Whether [`adopt_fresh_texts`] can write the texts of `fresh` at `changed` onto `retained` so
+/// that the arena reads as a full rebuild would leave it.
+///
+/// Each of the nodes is a text in both, none of them is localizable (the translation pass, which
+/// the retained arena went through and this write does not, replaces such a text), and none has a
+/// handler (the reconciliation of a full rebuild tells a node's `Update` handler that its content
+/// moved).
 #[must_use]
 pub fn fresh_texts_are_adoptable(
     retained: &[NodeData],
@@ -3629,7 +3636,9 @@ pub fn fresh_texts_are_adoptable(
 }
 
 /// Writes the texts a rebuild changed onto the arena the window keeps: the node at each
-/// index of `changed` gets the text of the node `fresh` has there. The caller has asked
+/// index of `changed` gets the text of the node `fresh` has there.
+///
+/// The caller has asked
 /// [`fresh_texts_are_adoptable`]; a node that is no text in either is left as it is.
 pub fn adopt_fresh_texts(retained: &mut [NodeData], fresh: &crate::dom::Dom, changed: &[usize]) {
     for (index, new) in changed.iter().zip(nodes_at(fresh, changed)) {
@@ -3647,7 +3656,9 @@ pub fn adopt_fresh_texts(retained: &mut [NodeData], fresh: &crate::dom::Dom, cha
 
 /// The nodes a rebuild changed when it kept the TREE: the pre-order indices at which `next`
 /// differs from `prev` in what the node is (`structure`) or in its own style (`style`),
-/// ascending. `None` when the two builds are alike, and when the rebuild did more than change
+/// ascending.
+///
+/// `None` when the two builds are alike, and when the rebuild did more than change
 /// nodes where they stand: a node came, went or moved (`subtree_len` differs), or a sheet
 /// attached to a node changed, came or went (`sheets` differs).
 ///
@@ -3680,9 +3691,11 @@ pub fn same_tree_changes(prev: &DomFingerprints, next: &DomFingerprints) -> Opti
     (!changed.is_empty()).then_some(changed)
 }
 
-/// Whether [`adopt_changed_nodes`] can write the nodes of `fresh` at `changed` onto `retained`
-/// so that the arena reads as a full rebuild would leave it, the node at each index being THE
-/// SAME NODE as before (its focus, scroll, hover, text-edit state and dataset stay with it).
+/// Whether [`adopt_changed_nodes`] can write the nodes of `fresh` at `changed` onto `retained` so
+/// that the arena reads as a full rebuild would leave it.
+///
+/// The node at each index being THE SAME NODE as before (its focus, scroll, hover, text-edit state
+/// and dataset stay with it).
 ///
 /// A full rebuild pairs the nodes with `reconcile_dom`. In the same tree, a node whose type,
 /// terminal key (`with_key`, or the id where `identity.id_is_key`) and - where
@@ -3757,7 +3770,9 @@ pub fn changed_nodes_are_adoptable(
 }
 
 /// Writes the nodes a rebuild changed onto the arena the window keeps, and answers the nodes
-/// that stood there: `(index, the node before)`, ascending. The caller has asked
+/// that stood there: `(index, the node before)`, ascending.
+///
+/// The caller has asked
 /// [`changed_nodes_are_adoptable`], and has carried the fresh build's payloads onto the arena
 /// ([`adopt_fresh_payloads`]) BEFORE this.
 ///

@@ -4972,7 +4972,7 @@ mod audit_a3_window_tests {
     }
 
     fn dataset_at(node: &NodeData) -> Option<usize> {
-        node.get_dataset().map(|dataset| at(dataset))
+        node.get_dataset().map(at)
     }
 
     fn handlers_at(node: &NodeData) -> Vec<usize> {
@@ -5297,7 +5297,7 @@ mod audit_diff_first_tests {
     fn page(class: &'static str, cells: &[(&'static str, &'static str, &'static str)]) -> Dom {
         let mut row = Dom::create_div().with_class(class.into());
         for (cell, style, text) in cells {
-            row = row.with_child(span(*cell, *style).with_child(
+            row = row.with_child(span(cell, style).with_child(
                 Dom::create_text_do_not_use_without_block_level_wrapper(*text),
             ));
         }

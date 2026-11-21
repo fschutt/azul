@@ -290,7 +290,9 @@ pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
 
 /// The level of a process that set none of the variables that ask for logs
 /// ([`LOG_REQUEST_VARS`]): errors, as the log facade's own default and
-/// `AppConfig::log_level` are. It used to be Debug: with `AZ_LOG` unset an
+/// `AppConfig::log_level` are.
+///
+/// It used to be Debug: with `AZ_LOG` unset an
 /// ordinary run of a lean build echoed every Debug record to stderr (the
 /// shell's gate counts its default-on `log_active()` as a sink), which for a
 /// frame of a map is 15 000 lines of display-list dump (2026-11-20: 3.4 million
@@ -310,7 +312,7 @@ pub const LOG_REQUEST_VARS: [&str; 6] =
 /// Split out from [`init_from_env`] so it is testable without touching the
 /// process environment.
 #[must_use]
-pub fn level_for(asked: bool, parsed: Option<Level>) -> Option<Level> {
+pub const fn level_for(asked: bool, parsed: Option<Level>) -> Option<Level> {
     if asked {
         parsed
     } else {

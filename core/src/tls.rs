@@ -144,6 +144,8 @@ impl TrustRoots {
                 .collect::<Vec<_>>()
         });
         #[cfg(not(all(feature = "tls-roots", not(target_arch = "wasm32"))))]
+        // Qualified on purpose: `Vec` and `String` are not in the prelude without `std`.
+        #[allow(unused_qualifications)]
         let pems: Result<alloc::vec::Vec<AzString>, alloc::string::String> =
             Err(alloc::string::String::from("this build makes no TLS connections"));
         match pems {

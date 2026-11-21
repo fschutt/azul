@@ -728,6 +728,8 @@ impl<T> FlatVecVec<T> {
     /// a class per column, a list whose rows cycle through styles). Which run
     /// is found does not depend on the order they are tried in: a run is
     /// recorded once, so the one that equals is the same.
+    // the sequence reads in the order the work happens: an `if` expression would hide the early path
+    #[allow(clippy::useless_let_if_seq)]
     fn dedup_runs(&mut self)
     where
         T: Clone + PartialEq + core::hash::Hash,
@@ -1443,11 +1445,11 @@ impl InheritedValues {
 // state (hover, active, focused, normal). This way we don't have to duplicate the CSS properties
 // onto every single node and exchange them when the style changes. Two caches can be appended
 // to each other by simply merging their NodeIds.
-/// Whether the document a [`CssPropertyCache`] styles is being laid out on
-/// PAGED media with footnotes in it (`float: footnote`, CSS Generated
-/// Content for Paged Media): the layout pass says so before it reads any
-/// style, and the readers of `position` and `float` treat a footnote as the
-/// out-of-flow box it is there and as `float: none` everywhere else.
+/// Whether the document a [`CssPropertyCache`] styles is being laid out on PAGED media with
+/// footnotes in it (`float: footnote`, CSS Generated Content for Paged Media).
+///
+/// The layout pass says so before it reads any style, and the readers of `position` and `float`
+/// treat a footnote as the out-of-flow box it is there and as `float: none` everywhere else.
 ///
 /// It is a fact about the presentation, not about the cascade, and it is
 /// the layout that knows it - through a shared reference to the document.
@@ -1487,6 +1489,8 @@ impl PartialEq for PagedFootnotes {
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
+// plain flags, set and read one by one: a state enum would not be simpler
+#[allow(clippy::struct_excessive_bools)]
 pub struct CssPropertyCache {
     // number of nodes in the current DOM
     pub node_count: usize,
@@ -6483,6 +6487,10 @@ impl CssPropertyCache {
     /// Implements CSS inheritance: walk tree depth-first, apply cascade priority
     /// (inherited → cascaded → css → inline → user), create dependency chains for
     /// relative values. Call `apply_ua_css()` before this function.
+    // large but cohesive: one pass over one structure
+    #[allow(clippy::too_many_lines)]
+    // the sequence reads in the order the work happens: an `if` expression would hide the early path
+    #[allow(clippy::useless_let_if_seq)]
     pub fn compute_inherited_values(
         &mut self,
         node_hierarchy: &[NodeHierarchyItem],
@@ -6607,10 +6615,7 @@ impl CssPropertyCache {
 
                 // What the parent shows from a state, its own or one above.
                 let held_above: Vec<CssPropertyType> =
-                    match parent_id.and_then(|pid| from_a_state.get(&pid.index())) {
-                        Some(types) => types.clone(),
-                        None => Vec::new(),
-                    };
+                    parent_id.and_then(|pid| from_a_state.get(&pid.index())).map_or_else(Vec::new, Clone::clone);
 
                 // Steps 2-5: Apply cascade in priority order
                 self.apply_cascade_properties(
@@ -6629,7 +6634,7 @@ impl CssPropertyCache {
                 if let Some(state) = node_states.get(node_index) {
                     let held = self.state_inherited_values(&node_data[node_index], node_index, state);
                     if !held.is_empty() {
-                        hands_on.extend(held.iter().map(|p| p.get_type()));
+                        hands_on.extend(held.iter().map(CssProperty::get_type));
                         state_overlays.push((node_index, held));
                     }
                 }
@@ -7307,7 +7312,7 @@ impl CssPropertyCache {
     ///   of its ancestors (the stale copies the UA pass removes);
     /// - its computed inherited values and its compact entries are functions of its own rows
     ///   and of its parent's values and entries.
-    /// By induction from the root a node whose every ancestor is unnamed keeps every row.
+    ///   By induction from the root a node whose every ancestor is unnamed keeps every row.
     ///
     /// The named nodes' rows are made as the whole-DOM passes make them, pass by pass, from
     /// copies of those passes' per-node steps. One thing has to be made again for nodes that
@@ -7330,6 +7335,10 @@ impl CssPropertyCache {
     /// a generated node among the named ones, `*` rules that are no longer the ones the rows
     /// were made with, or more than half of the nodes named.
     #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // the passes of a cascade, in order
+    // the names follow the cascade's own vocabulary
+    #[allow(clippy::similar_names)]
+    // the sequence reads in the order the work happens: an `if` expression would hide the early path
+    #[allow(clippy::useless_let_if_seq)]
     pub fn recascade_nodes(
         &mut self,
         css: &mut Css,
@@ -8012,10 +8021,7 @@ impl CssPropertyCache {
                 }
             }
             let held_above: Vec<CssPropertyType> =
-                match parent_id.and_then(|pid| from_a_state.get(&pid.index())) {
-                    Some(types) => types.clone(),
-                    None => Vec::new(),
-                };
+                parent_id.and_then(|pid| from_a_state.get(&pid.index())).map_or_else(Vec::new, Clone::clone);
             // The parent's stored values are on top of `ancestors` when the parent is a named
             // node (the walk stored them); a parent that keeps its values reads the store.
             let mut parent_on_top = false;
@@ -8112,7 +8118,7 @@ impl CssPropertyCache {
                 let held =
                     self.state_inherited_values(&node_data.internal[node_index], node_index, state);
                 if !held.is_empty() {
-                    hands_on.extend(held.iter().map(|p| p.get_type()));
+                    hands_on.extend(held.iter().map(CssProperty::get_type));
                     state_overlays.push((node_index, held));
                 }
             }
@@ -8247,8 +8253,8 @@ impl CssPropertyCache {
         compact.font_hash_to_families = old_compact.font_hash_to_families.clone();
         compact.has_dynamic_conditions = old_compact.has_dynamic_conditions;
         compact.dom_declared_flags = old_compact.dom_declared_flags;
-        compact.inline_viewport_w = old_compact.inline_viewport_w.clone();
-        compact.inline_viewport_h = old_compact.inline_viewport_h.clone();
+        compact.inline_viewport_w.clone_from(&old_compact.inline_viewport_w);
+        compact.inline_viewport_h.clone_from(&old_compact.inline_viewport_h);
         compact.inline_viewport_shape = old_compact.inline_viewport_shape;
         for (new_index, from) in source.iter().enumerate() {
             let Some(old) = from.map(|old| old.index()) else {
@@ -8263,9 +8269,9 @@ impl CssPropertyCache {
                 continue;
             };
             compact.tier1_enums[new_index] = *tier1;
-            compact.tier2_dims[new_index] = dims.clone();
-            compact.tier2_cold[new_index] = cold.clone();
-            compact.tier2b_text[new_index] = text.clone();
+            compact.tier2_dims[new_index] = *dims;
+            compact.tier2_cold[new_index] = *cold;
+            compact.tier2b_text[new_index] = *text;
             if let Some(hash) = old_compact.prev_font_hashes.get(old) {
                 compact.prev_font_hashes[new_index] = *hash;
             }

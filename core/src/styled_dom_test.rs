@@ -3513,6 +3513,8 @@ mod audit_diff_first_tests {
     ///      "the link below a hovered box keeps the UA's colour";
     ///    - the node that LEFT the state is not styled again: "the pointer left".
     #[test]
+    // the index addresses more than one list and is the number the failure message names
+    #[allow(clippy::needless_range_loop)]
     fn a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits() {
         use crate::styled_dom::HoverChange;
 
@@ -3850,7 +3852,7 @@ mod audit_diff_first_tests {
             kind: picks[3] % 4,
             place: picks[4] % 5,
             text: picks[5] % 4,
-            link: picks[2] % 2 == 0,
+            link: picks[2].is_multiple_of(2),
         };
         match kind {
             7 => spec.insert(picks[0] % (n + 1), new_section),

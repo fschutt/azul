@@ -2546,7 +2546,7 @@ pub struct NodeDataExt {
     /// empty and everything below the root is in here until something needs
     /// the tree (`Dom::expand_flat`). Never on a node of a styled DOM: every
     /// way to one expands it first.
-    pub flat: Option<Box<builder::FlatDom>>,
+    pub flat: Option<Box<FlatDom>>,
 }
 
 // The MARKER is EXCLUDED from equality, ordering and hashing (USER ruling
@@ -2577,7 +2577,7 @@ impl NodeDataExt {
         &Option<ComponentOrigin>,
         &Vec<crate::resources::AnimationFunction>,
         bool,
-        &Option<Box<builder::FlatDom>>,
+        &Option<Box<FlatDom>>,
     ) {
         (
             &self.attributes,

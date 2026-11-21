@@ -513,7 +513,7 @@ mod audit_dom_builder_tests {
             );
 
             // The arenas, against the flatten of the tree.
-            let fast = flat.clone().into_fast_dom().ok().expect("a flat Dom");
+            let fast = flat.clone().into_fast_dom().expect("a flat Dom");
             let compact = convert_dom_into_compact_dom(tree.clone());
             assert!(
                 fast.node_data.as_ref() == &compact.node_data.internal[..],

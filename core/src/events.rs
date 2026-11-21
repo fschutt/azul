@@ -1608,11 +1608,11 @@ pub fn hover_callbacks_along_path<'a>(
     hover_callbacks_on(event, filter, &path, &node_data_of)
 }
 
-/// [`hover_callbacks_along_path`] for an event that ALSO reaches the nodes
-/// under the pointer: a key, which `HoverEventFilter::VirtualKeyDown` /
-/// `VirtualKeyUp` promise to the hovered element ("pressed while element is
-/// hovered"), while the event itself is aimed at the focused node (or the
-/// root, when nothing has the focus).
+/// [`hover_callbacks_along_path`] for an event that ALSO reaches the nodes under the pointer.
+///
+/// A key, which `HoverEventFilter::VirtualKeyDown` / `VirtualKeyUp` promise to the hovered element
+/// ("pressed while element is hovered"), while the event itself is aimed at the focused node (or
+/// the root, when nothing has the focus).
 ///
 /// Every listener on either path runs once, in bubbling order over the two
 /// paths as one tree: the event target's own branch (target first), then
@@ -1656,10 +1656,11 @@ pub fn hover_callbacks_along_paths<'a>(
     hover_callbacks_on(event, filter, &path, &node_data_of)
 }
 
-/// The one path (root first, target last) whose target-then-bubble walk is
-/// the bubbling order of an event aimed at `own`'s last node that also
-/// reaches `pointer`'s last node ([`hover_callbacks_along_paths`]): the
-/// shared ancestors, then the pointer's branch, then the target's branch.
+/// The one path (root first, target last).
+///
+/// Its target-then-bubble walk is the bubbling order of an event aimed at `own`'s last node that
+/// also reaches `pointer`'s last node ([`hover_callbacks_along_paths`]): the shared ancestors, then
+/// the pointer's branch, then the target's branch.
 ///
 /// Walked backwards that is the target's branch from the target up, the
 /// pointer's branch from the pointer up, and the shared ancestors up to the

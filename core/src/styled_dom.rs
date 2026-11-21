@@ -2541,14 +2541,14 @@ impl StyledDom {
     ///    for every node such a rule can read left of `n`;
     /// 6. `o` holds no runtime override (its rows hold the override's values; the override
     ///    itself follows the node's identity later: [`Self::migrate_user_overrides_from`]).
-    /// A node whose own style differs from `o`'s only in place keeps its rows under 2-6 and
-    /// the rest of 1 all the same (`recascade_nodes` says why its rows stand), and counts as
-    /// a node that kept its rows in 2 and 4 for its children and the siblings after it.
-    /// Of the whole DOM: the same window context, the same values inherited from a host, an
-    /// active window (`:backdrop` is raised from the rows afterwards), no generated node, no
-    /// drag state on `old` (it is written without a restyle), and what `spliced` and
-    /// `recascade_nodes` ask (a complete cascade, no custom properties, the same `*` bucket,
-    /// at most half of the nodes cascaded).
+    ///    A node whose own style differs from `o`'s only in place keeps its rows under 2-6 and
+    ///    the rest of 1 all the same (`recascade_nodes` says why its rows stand), and counts as
+    ///    a node that kept its rows in 2 and 4 for its children and the siblings after it.
+    ///    Of the whole DOM: the same window context, the same values inherited from a host, an
+    ///    active window (`:backdrop` is raised from the rows afterwards), no generated node, no
+    ///    drag state on `old` (it is written without a restyle), and what `spliced` and
+    ///    `recascade_nodes` ask (a complete cascade, no custom properties, the same `*` bucket,
+    ///    at most half of the nodes cascaded).
     ///
     /// Then `n` matches the rules `o` matched, in the same order: selector matching reads the
     /// subject, its ancestors and the siblings before it and before them, their states, their
@@ -2560,6 +2560,8 @@ impl StyledDom {
     /// (`recascade_nodes`' proof), equal by 2. A node that does not keep its rows has no
     /// descendant that does (2): the cascaded nodes are closed downward, as `recascade_nodes`
     /// needs them.
+    // large but cohesive: one pass over one structure
+    #[allow(clippy::too_many_lines)]
     pub fn cascade_reusing(
         &mut self,
         old: &Self,
@@ -5130,9 +5132,11 @@ pub(crate) fn count_nodes_cascaded(nodes: usize) {
     let _ = nodes;
 }
 
-/// For how many nodes this thread ran the cascade (matched rules, inherited rows, computed
-/// values, compact entries): what the tests of a rebuild read to say it styled the nodes it
-/// changed and not the DOM. Always 0 without `std`.
+/// For how many nodes this thread ran the cascade (matched rules, inherited rows, computed values,
+/// compact entries).
+///
+/// What the tests of a rebuild read to say it styled the nodes it changed and not the DOM. Always 0
+/// without `std`.
 #[must_use]
 pub fn nodes_cascaded_on_this_thread() -> usize {
     #[cfg(feature = "std")]
