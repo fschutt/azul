@@ -1569,3 +1569,252 @@ fn a_frame_over_the_lists_of_the_frame_before_walks_no_item_for_callback_backgro
         "the view's list, once; the window's own was not touched"
     );
 }
+
+// -- A3-window-14: the reconciliation of a rebuild keeps a first rect only for a node that
+// declares a move, and finds the mounted and unmounted roots without a set of every node -------
+
+/// A body with a spacer `spacer_px` high, `boxes` boxes of 20 px below it (the box `mover`
+/// declares `animation: move`), and with `panel` a box of two children after them.
+fn rects_page(spacer_px: f32, boxes: usize, mover: Option<usize>, panel: bool) -> StyledDom {
+    let mut body = Dom::create_body()
+        .with_css("margin: 0px; padding: 0px;")
+        .with_child(Dom::create_div().with_css(&format!("width: 100px; height: {spacer_px}px;")));
+    for i in 0..boxes {
+        let own = if mover == Some(i) {
+            "animation: move 200ms ease-out;"
+        } else {
+            ""
+        };
+        body = body
+            .with_child(Dom::create_div().with_css(&format!("width: 50px; height: 20px; {own}")));
+    }
+    if panel {
+        body = body.with_child(
+            Dom::create_div()
+                .with_css("width: 80px; height: 40px;")
+                .with_child(Dom::create_div().with_css("width: 10px; height: 10px;"))
+                .with_child(Dom::create_div().with_css("width: 10px; height: 10px;")),
+        );
+    }
+    StyledDom::create(&mut body, azul_css::css::Css::empty())
+}
+
+/// `first` laid out, then `next` reconciled against it as the shells do before they lay it out.
+fn reconciliation_of(first: StyledDom, mut next: StyledDom) -> crate::window::PendingReconciliation {
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(400.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_new_generation(
+        first,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    lw.begin_reconciliation(DomId::ROOT_ID, &mut next, azul_core::task::Instant::now())
+}
+
+/// Every matched node's rect was looked up and kept on every rebuild; only a node that declares
+/// a move is ever slid from it. A page of boxes that all moved down 40 px and declare nothing
+/// keeps none, at 50 boxes and at 200.
+#[test]
+fn a_rebuild_keeps_no_first_rect_for_a_page_without_a_declared_move() {
+    for boxes in [50usize, 200] {
+        let pending = reconciliation_of(
+            rects_page(20.0, boxes, None, false),
+            rects_page(60.0, boxes, None, false),
+        );
+        assert!(
+            pending.node_moves.len() >= boxes,
+            "premise: the boxes are matched ({} of {boxes})",
+            pending.node_moves.len()
+        );
+        assert_eq!(
+            pending.first_rects.len(),
+            0,
+            "nothing declares a move: no rect of the old layout is read ({boxes} boxes)"
+        );
+    }
+}
+
+/// The node that declares a move keeps its first rect (it slides from there), and it alone.
+#[test]
+fn a_rebuild_keeps_the_first_rect_of_the_node_that_declares_a_move() {
+    let pending = reconciliation_of(
+        rects_page(20.0, 50, Some(7), false),
+        rects_page(60.0, 50, Some(7), false),
+    );
+    assert_eq!(pending.move_modes.len(), 1, "premise: one box declares a move");
+    assert_eq!(pending.first_rects.len(), 1, "its rect before the rebuild, and no other");
+    let rect = pending.first_rects.values().next().expect("the rect");
+    assert_eq!(
+        (rect.size.width, rect.size.height),
+        (50.0, 20.0),
+        "the box the old layout gave the node that slides"
+    );
+}
+
+/// A subtree that comes with the rebuild is mounted at its root and entered node by node, in
+/// document order; one that goes is unmounted at its root: as the sets of node ids said.
+#[test]
+fn a_subtree_that_comes_or_goes_is_mounted_or_unmounted_at_its_root() {
+    let came = reconciliation_of(rects_page(20.0, 12, None, false), rects_page(20.0, 12, None, true));
+    assert_eq!(came.entered.len(), 3, "the panel and its two children are new: {:?}", came.entered);
+    assert!(came.entered.windows(2).all(|pair| pair[0] < pair[1]), "in document order");
+    assert_eq!(came.mounted, vec![came.entered[0]], "mounted once, at the panel");
+    assert!(came.unmounted.is_empty(), "nothing went");
+
+    let went = reconciliation_of(rects_page(20.0, 12, None, true), rects_page(20.0, 12, None, false));
+    assert!(went.entered.is_empty() && went.mounted.is_empty(), "nothing came");
+    assert_eq!(went.unmounted.len(), 1, "unmounted once, at the panel: {:?}", went.unmounted);
+}
+
+// -- A3-window-44: a geometry write to a node of a view's document lays that document out -------
+
+/// The place and the cost of label 3 of a view of `labels` labels after `set_node_style` gave it
+/// another `left` and `top`: `(how far its box moved, list builds, nodes of the view's document
+/// the solver took over by the diff)`.
+fn a_label_written_to_another_place(labels: usize) -> ((f32, f32), usize, usize) {
+    use azul_core::{dom::DomNodeId, styled_dom::NodeHierarchyItemId};
+
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let (mut lw, child) = label_window(labels);
+    // Label 3 (a plain one: no background, no transform of its own): its span is node 7 of
+    // the view's document, at left 10 + 3 * 70 = 220, top 10.
+    let span = NodeId::new(1 + 2 * 3);
+    let id = DomNodeId {
+        dom: child,
+        node: NodeHierarchyItemId::from_crate_internal(Some(span)),
+    };
+    let before = lw.get_node_position(id).expect("the label is laid out");
+    lw.frame_report.reset_counters();
+    let result = lw.apply_content_change(ContentChange::NodeStyle {
+        dom_id: child,
+        node_id: span,
+        style: azul_css::css::Css::parse_inline(
+            "position: absolute; left: 245px; top: 31px; width: 60px; height: 12px; font-size: \
+             12px; line-height: 1; white-space: pre; cursor: pointer; :hover { background: \
+             rgba(66, 134, 244, 0.35); }",
+        ),
+    });
+    assert_eq!(result.tier, ContentDirtyTier::Relayout, "`left` and `top` are geometry");
+    let after = lw.get_node_position(id).expect("the label is laid out");
+    (
+        (after.x - before.x, after.y - before.y),
+        lw.frame_report.dl_rebuilds as usize,
+        lw.child_layout_caches[&child].last_fingerprint_skips,
+    )
+}
+
+/// A label of a map view dragged with `left` / `top` (one `set_node_style` per mouse move):
+/// its box is where the style puts it, 25 px right and 21 px down of (220, 10). The write built
+/// the view's whole list from the boxes of the layout before it and laid nothing out: the label
+/// stayed where it was until the view rendered again.
+#[test]
+fn a_label_written_to_another_place_is_laid_out_there() {
+    let (moved, list_builds, _) = a_label_written_to_another_place(40);
+    assert_eq!(moved, (25.0, 21.0), "left 220 -> 245, top 10 -> 31");
+    assert_eq!(list_builds, 0, "no list is built from the boxes of the layout before the write");
+}
+
+/// The pass that places it compares the written node alone: every other node of the view's
+/// document is taken over by the diff, at 40 labels (81 nodes) and at 160 (321).
+#[test]
+fn the_pass_after_a_write_compares_the_written_node_alone() {
+    for labels in [40usize, 160] {
+        let nodes = 1 + 2 * labels;
+        let (_, _, taken_over) = a_label_written_to_another_place(labels);
+        assert!(
+            taken_over + 4 >= nodes,
+            "{labels} labels: {taken_over} of {nodes} nodes taken over without a comparison"
+        );
+    }
+}
+
+// -- A3-window-43: a node dragged inside a view moves by a value; its view's list opens the frame
+
+/// The reference frames the list of `dom` opens under `key`.
+fn frames_under(lw: &LayoutWindow, dom: DomId, key: azul_core::resources::TransformKey) -> usize {
+    lw.layout_results[&dom]
+        .display_list
+        .items
+        .iter()
+        .filter(|item| {
+            matches!(item, DisplayListItem::PushReferenceFrame { transform_key, .. } if *transform_key == key)
+        })
+        .count()
+}
+
+/// Label 0 of a view (node 1 of its document) is dragged: the first move builds the VIEW's
+/// list once, which opens the node's frame, and asks for a repaint; every later move writes a
+/// value and builds nothing; the window's own list is the allocation it was throughout. The
+/// first move used to ask for the display-list tier, for which the shell builds the window's
+/// list and never the view's.
+#[test]
+fn a_node_dragged_inside_a_view_moves_by_a_value_after_its_first_move() {
+    use azul_core::{
+        drag::{DragContext, DragData},
+        events::ProcessEventResult,
+    };
+
+    let (mut lw, child) = label_window(16);
+    let node = NodeId::new(1);
+    let press = LogicalPosition::new(20.0, 15.0);
+    // A weak reference: it names the list by its allocation and keeps that allocation from
+    // being handed to a list built later.
+    let windows_list = Arc::downgrade(&lw.layout_results[&DomId::ROOT_ID].display_list);
+    lw.gesture_drag_manager.active_drag =
+        Some(DragContext::node_drag(child, node, press, DragData::default(), 1));
+    lw.frame_report.reset_counters();
+
+    lw.gesture_drag_manager
+        .update_active_drag_positions(LogicalPosition::new(30.0, 18.0));
+    assert_eq!(
+        lw.update_drag_visual(),
+        ProcessEventResult::ShouldReRenderCurrentWindow,
+        "the first move: the view's list is built here, the frame is a repaint"
+    );
+    assert_eq!(lw.frame_report.dl_rebuilds, 1, "the view's list, once");
+    let key = lw
+        .gpu_state_manager
+        .caches
+        .get(&child)
+        .and_then(|cache| cache.anim_transform_keys.get(&node).copied())
+        .expect("the dragged node is keyed");
+    assert_eq!(frames_under(&lw, child, key), 1, "the view's list opens the node's frame");
+
+    for step in 1..=5 {
+        let pointer = LogicalPosition::new(30.0 + 7.0 * step as f32, 18.0 + 3.0 * step as f32);
+        lw.gesture_drag_manager.update_active_drag_positions(pointer);
+        assert_eq!(lw.update_drag_visual(), ProcessEventResult::ShouldReRenderCurrentWindow);
+        let value = lw
+            .gpu_state_manager
+            .caches
+            .get(&child)
+            .and_then(|cache| cache.anim_current_transform_values.get(&node).copied())
+            .expect("the dragged node has a value");
+        assert_eq!(
+            value,
+            azul_core::transform::ComputedTransform3D::new_translation(
+                pointer.x - press.x,
+                pointer.y - press.y,
+                0.0
+            ),
+            "move {step}: the pointer's way since the press"
+        );
+    }
+    assert_eq!(lw.frame_report.dl_rebuilds, 1, "five moves built no list");
+    assert!(
+        core::ptr::eq(
+            windows_list.as_ptr(),
+            Arc::as_ptr(&lw.layout_results[&DomId::ROOT_ID].display_list)
+        ),
+        "the window's own list is the allocation it was"
+    );
+
+    assert!(lw.end_drag_visual(), "the drag moved something back");
+    assert_eq!(frames_under(&lw, child, key), 0, "the view's list closed the frame");
+}

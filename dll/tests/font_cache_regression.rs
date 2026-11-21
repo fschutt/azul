@@ -114,7 +114,7 @@ fn two_pattern_cache() -> FcFontCache {
                 ..Default::default()
             },
             FcFont {
-                bytes: bytes.clone(),
+                bytes: bytes.clone().into(),
                 font_index: 0,
                 id: "azul-mock-a".to_string(),
             },
@@ -126,7 +126,7 @@ fn two_pattern_cache() -> FcFontCache {
                 ..Default::default()
             },
             FcFont {
-                bytes,
+                bytes: bytes.into(),
                 font_index: 0,
                 id: "azul-mock-b".to_string(),
             },

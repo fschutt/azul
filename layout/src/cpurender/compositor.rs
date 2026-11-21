@@ -62,7 +62,7 @@ pub fn mat3_affine_part(m: &Mat3) -> TransAffine {
 }
 use crate::{
     solver3::display_list::{
-        reference_frame_extent, reference_frame_extent_walked, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
+        reference_frame_extent, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
     },
     text3::cache::FontManager,
 };
@@ -508,6 +508,9 @@ impl CompositorState {
         // pop remove the parent from the stack.
         let mut scroll_promoted: Vec<bool> = Vec::new();
         let mut filter_promoted: Vec<bool> = Vec::new();
+        // Whether each open `PushBackdropFilter` opened a layer: its pop closes that layer and
+        // no other (A1-42).
+        let mut backdrop_promoted: Vec<bool> = Vec::new();
         // The scroll frames painted IN PLACE rather than promoted (see the
         // `PushScrollFrame` arm), each with the `layer_stack` depth it was
         // opened at. The rasteriser moves their content inside the parent
@@ -549,7 +552,7 @@ impl CompositorState {
                 .and_then(|id| layers.get(id))
                 .map_or(display_list.items.len(), |p| p.display_list_range.1);
             painted_over_later(
-                &display_list.items,
+                display_list,
                 end,
                 parent_end,
                 extent.unwrap_or(UNBOUNDED),
@@ -726,14 +729,20 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PushFilter { bounds, filters } => {
-                    let has_blur = filters.iter().any(|f| matches!(f, StyleFilter::Blur(_)));
-                    let (pw, ph) = if has_blur {
+                    // A layer for every list the flat walk does not apply itself
+                    // (`filters_need_a_layer`: anything but `flood()` / `composite()`), not
+                    // for a blur alone: a group with `grayscale()`, `brightness()`,
+                    // `opacity()` ... and no blur sent the full repaint here
+                    // (`full_repaint_needs_layers`), got no layer and was painted
+                    // unfiltered (A1-38).
+                    let needs_layer = super::raster::filters_need_a_layer(filters);
+                    let (pw, ph) = if needs_layer {
                         layer_pixel_size(bounds.inner().size, dpi_factor, node_of(display_list, i))
                     } else {
                         (0, 0)
                     };
                     let end = find_matching_pop(&display_list.items, i, MatchKind::Filter);
-                    let promote = has_blur && pw > 0 && ph > 0 && end > i + 1;
+                    let promote = needs_layer && pw > 0 && ph > 0 && end > i + 1;
                     filter_promoted.push(promote);
                     if promote {
                         let b = *bounds.inner();
@@ -885,7 +894,9 @@ impl CompositorState {
                 DisplayListItem::PushBackdropFilter { bounds, filters } => {
                     let b = *bounds.inner();
                     let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
-                    if pw > 0 && ph > 0 && !filters.is_empty() {
+                    let promote = pw > 0 && ph > 0 && !filters.is_empty();
+                    backdrop_promoted.push(promote);
+                    if promote {
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, b, pw, ph);
                         layer.filters.clone_from(filters);
@@ -909,13 +920,12 @@ impl CompositorState {
                     }
                 }
                 DisplayListItem::PopBackdropFilter => {
-                    if layer_stack.len() > 1 {
-                        let top_id = *layer_stack.last().unwrap();
-                        if let Some(layer) = self.layers.get(&top_id) {
-                            if layer.is_backdrop_filter {
-                                layer_stack.pop();
-                            }
-                        }
+                    // Paired by the RECORDED decision, like `PopOpacity` and `PopFilter`: a
+                    // test of the top layer's kind popped the layer of an OUTER backdrop
+                    // filter for an inner one that had opened none (no size, no filters),
+                    // and what the outer group opened after it was painted twice.
+                    if backdrop_promoted.pop() == Some(true) && layer_stack.len() > 1 {
+                        layer_stack.pop();
                     }
                 }
                 // `text-shadow` (Push/PopTextShadow) is a text-rasterization
@@ -1058,8 +1068,10 @@ impl CompositorState {
         // A layer unreachable from the root cannot exist after
         // `allocate_layers_from_display_list`, but render it rather than
         // drop it if it ever does.
+        // (Reached layers are the root and every key of `parent_of`: asked of the map, not of
+        // the list of all layers once per layer.)
         for id in self.layers.keys() {
-            if !order.contains(id) {
+            if *id != self.root_layer && !parent_of.contains_key(id) {
                 order.push(*id);
             }
         }
@@ -1095,7 +1107,7 @@ impl CompositorState {
             .collect();
 
         #[cfg(feature = "std")]
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if map_debug() {
             for (id, range, bounds, scroll_id, child_ranges) in &layer_ranges {
                 std::eprintln!(
                     "[cpu-layer] render id={:?} range={:?} bounds={:?} scroll={:?} skip={:?} \
@@ -1377,11 +1389,16 @@ impl CompositorState {
                     // Already where it is: `render_layers` moved each
                     // wrapping clip by the frames it was opened in.
                     let (sx, sy) = (sc.origin.x, sc.origin.y);
+                    // The pixels a paint under the clip may write (`AzRect::pixel_box`: both
+                    // edges truncated, A2-cpu-06). Rounded, a layer under a clip that ends
+                    // between two pixels lost the column the clip starts in and gained the
+                    // one it ends in, against every fill under the same clip.
+                    #[allow(clippy::cast_possible_truncation)] // saturating; cut to the frame below
                     let r = (
-                        (f64::from(sx) * dpi + pm.tx).round() as i32,
-                        (f64::from(sy) * dpi + pm.ty).round() as i32,
-                        (f64::from(sx + sc.size.width) * dpi + pm.tx).round() as i32,
-                        (f64::from(sy + sc.size.height) * dpi + pm.ty).round() as i32,
+                        (f64::from(sx) * dpi + pm.tx) as i32,
+                        (f64::from(sy) * dpi + pm.ty) as i32,
+                        (f64::from(sx + sc.size.width) * dpi + pm.tx) as i32,
+                        (f64::from(sy + sc.size.height) * dpi + pm.ty) as i32,
                     );
                     Some(clip.map_or(r, |c| {
                         (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))
@@ -1450,9 +1467,17 @@ impl CompositorState {
             return;
         }
 
-        // For root layer, just blit directly
+        // The root layer IS the frame: copied, not blended over what the frame was cleared to.
+        // Blending read and wrote every pixel through `blend_over` for what one copy does,
+        // and a clear colour that is neither opaque nor fully transparent (a translucent
+        // window) was blended onto itself (A1-40). A root of another size than the output
+        // (never, after `resize`) keeps the blit.
         if layer_id == self.root_layer {
-            blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0);
+            if layer.pixbuf.width == output.width && layer.pixbuf.height == output.height {
+                output.data_mut().copy_from_slice(layer.pixbuf.data());
+            } else {
+                blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0);
+            }
         } else if layer.is_backdrop_filter && !layer.filters.is_empty() {
             // `backdrop-filter`: the backdrop (parent + earlier siblings) is
             // ALREADY composited into `output` at this point (bottom-up
@@ -1548,98 +1573,6 @@ impl CompositorState {
         for child_id in &children {
             self.composite_layer_recursive(*child_id, output, child_base, child_clip, dpi_factor);
         }
-    }
-
-    /// Handle scroll by shifting pixels and re-rendering the exposed strip.
-    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
-    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-    /// # Panics
-    ///
-    /// Panics if `layer_id` is not present in the layer map.
-    /// # Errors
-    ///
-    /// Returns an error string if the layer cannot be scrolled.
-    pub fn scroll_layer(
-        &mut self,
-        scroll_id: LocalScrollId,
-        new_offset: (f32, f32),
-        display_list: &DisplayList,
-        dpi_factor: f32,
-        renderer_resources: &RendererResources,
-        font_manager: &FontManager<FontRef>,
-        glyph_cache: &mut GlyphCache,
-    ) -> Result<(), String> {
-        // Find the layer with this scroll_id
-        let layer_id = self
-            .layers
-            .iter()
-            .find(|(_, l)| l.scroll_id == Some(scroll_id))
-            .map(|(id, _)| *id);
-
-        let Some(layer_id) = layer_id else {
-            return Ok(()); // No layer for this scroll ID
-        };
-
-        let layer = self.layers.get_mut(&layer_id).unwrap();
-        let old_offset = layer.scroll_offset;
-        let dx = new_offset.0 - old_offset.0;
-        let dy = new_offset.1 - old_offset.1;
-
-        if dx.abs() < 0.5 && dy.abs() < 0.5 {
-            return Ok(());
-        }
-
-        // Shift pixels
-        let px_dx = (dx * dpi_factor).round() as i32;
-        let px_dy = (dy * dpi_factor).round() as i32;
-        shift_pixbuf(&mut layer.pixbuf, px_dx, px_dy);
-
-        // Compute exposed strips and re-render them.
-        // Diagonal scroll produces 2 rects (one vertical strip + one horizontal strip).
-        let exposed = compute_exposed_rects(&layer.bounds, dx, dy);
-        for exposed_rect in exposed {
-            layer.damage.push(exposed_rect);
-        }
-
-        layer.scroll_offset = new_offset;
-        layer.composite_dirty = true;
-
-        // Re-render damaged regions
-        let range = layer.display_list_range;
-        let bounds = layer.bounds;
-        let offset_x = bounds.origin.x;
-        let offset_y = bounds.origin.y;
-        // Child-layer ranges to skip (rendered separately) — same as render_layers.
-        let child_ranges: Vec<(usize, usize)> = self
-            .layers
-            .get(&layer_id)
-            .map(|l| {
-                l.children
-                    .iter()
-                    .filter_map(|cid| self.layers.get(cid).map(|c| c.display_list_range))
-                    .collect()
-            })
-            .unwrap_or_default();
-        // Scroll fast-path: VirtualView content (separate child DOMs) isn't
-        // re-composited here — an empty state suffices (VirtualViews inside a
-        // scrolling region are an edge case; the next full repaint composites them).
-        let empty_rs = CpuRenderState::new(ScrollOffsetMap::new());
-        render_display_list_range(
-            display_list,
-            &mut self.layers.get_mut(&layer_id).unwrap().pixbuf,
-            range.0,
-            range.1.min(display_list.items.len()),
-            &child_ranges,
-            offset_x,
-            offset_y,
-            dpi_factor,
-            renderer_resources,
-            font_manager,
-            glyph_cache,
-            &empty_rs,
-        )?;
-
-        Ok(())
     }
 }
 
@@ -1758,13 +1691,17 @@ fn rects_overlap(a: &LogicalRect, b: &LogicalRect) -> bool {
 /// later as its content moved by its live matrix. Conservative: a false
 /// "yes" costs a layer, never a wrong picture.
 fn painted_over_later(
-    items: &[DisplayListItem],
+    display_list: &DisplayList,
     end: usize,
     parent_end: usize,
     extent: LogicalRect,
     open_groups: &[OpenGroup],
     live_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> bool {
+    let items = &display_list.items;
+    // Where each later frame ends and what it paints: the list's index, not a walk from the
+    // frame's push to its pop for every frame after every candidate group (A1-39).
+    let index = display_list.frame_index();
     let mut extent = extent;
     // The frames around the group the walk has not left yet.
     let mut enclosing = open_groups.len();
@@ -1791,15 +1728,17 @@ fn painted_over_later(
                     later.push(None);
                 } else {
                     // Everything it paints, moved - then past its pop.
-                    let content =
-                        reference_frame_extent_walked(items, i).unwrap_or_else(|| *bounds.inner());
+                    let frame = index.frame_at(i);
+                    let content = frame.map_or_else(|| *bounds.inner(), |f| f.extent);
                     let moved = affine_rect_about(m, bounds.inner().origin, content)
                         .unwrap_or(UNBOUNDED);
                     let seen = later.iter().flatten().next().copied().unwrap_or(moved);
                     if rects_overlap(&seen, &extent) {
                         return true;
                     }
-                    i = find_matching_pop(items, i, MatchKind::ReferenceFrame).saturating_add(1);
+                    i = frame
+                        .map_or_else(|| find_matching_pop(items, i, MatchKind::ReferenceFrame), |f| f.end)
+                        .saturating_add(1);
                     continue;
                 }
             }
@@ -1883,75 +1822,6 @@ fn find_matching_pop(items: &[DisplayListItem], start: usize, kind: MatchKind) -
     items.len()
 }
 
-/// Compute exposed rectangles after a scroll of (dx, dy) in logical coords.
-/// Returns 0, 1, or 2 rects: a vertical strip (top/bottom) and/or a horizontal
-/// strip (left/right). Diagonal scrolling produces both strips.
-fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalRect> {
-    let w = bounds.size.width;
-    let h = bounds.size.height;
-    let mut rects = Vec::new();
-
-    // Vertical exposed strip (full width, covers top or bottom edge)
-    if dy.abs() > 0.5 {
-        let strip = if dy > 0.0 {
-            // Scrolled down — top strip exposed
-            LogicalRect {
-                origin: LogicalPosition {
-                    x: bounds.origin.x,
-                    y: bounds.origin.y,
-                },
-                size: LogicalSize {
-                    width: w,
-                    height: dy.min(h),
-                },
-            }
-        } else {
-            // Scrolled up — bottom strip exposed
-            LogicalRect {
-                origin: LogicalPosition {
-                    x: bounds.origin.x,
-                    y: bounds.origin.y + h + dy,
-                },
-                size: LogicalSize {
-                    width: w,
-                    height: (-dy).min(h),
-                },
-            }
-        };
-        rects.push(strip);
-    }
-
-    // Horizontal exposed strip (full height, covers left or right edge)
-    if dx.abs() > 0.5 {
-        let strip = if dx > 0.0 {
-            LogicalRect {
-                origin: LogicalPosition {
-                    x: bounds.origin.x,
-                    y: bounds.origin.y,
-                },
-                size: LogicalSize {
-                    width: dx.min(w),
-                    height: h,
-                },
-            }
-        } else {
-            LogicalRect {
-                origin: LogicalPosition {
-                    x: bounds.origin.x + w + dx,
-                    y: bounds.origin.y,
-                },
-                size: LogicalSize {
-                    width: (-dx).min(w),
-                    height: h,
-                },
-            }
-        };
-        rects.push(strip);
-    }
-
-    rects
-}
-
 /// Scroll a frame's clip region by *moving the pixels already on screen* and
 /// return the newly-exposed strip(s) (logical coords) that still need painting.
 ///
@@ -1964,8 +1834,9 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
 /// `render_single_item`/`scroll_rect` draw a content item at `position - offset`,
 /// so a *positive* `delta` (the user scrolled further down/right) moves on-screen
 /// content UP/LEFT. We therefore move the existing pixels UP/LEFT and expose a
-/// strip at the trailing (bottom/right) edge. `compute_exposed_rects` assumed the
-/// inverse and never matched the renderer — it and `scroll_layer` are dead code.
+/// strip at the trailing (bottom/right) edge. (`compute_exposed_rects` and
+/// `CompositorState::scroll_layer`, which assumed the inverse and were called by nothing but
+/// their tests, are removed: A1-41.)
 ///
 /// Only pixels strictly inside the (clamped) clip rectangle are moved, so the
 /// scrollbar, the parent background and sibling content outside the frame are
@@ -2003,7 +1874,52 @@ pub fn scroll_shift_region(
         new_offset,
         dpi_factor,
         false,
+        &mut None,
     )
+}
+
+/// Pixels a frame moved inside its target instead of painting them again (a scroll, a pan of
+/// a view), as a presenter that can move the pixels it already shows needs them (the contract
+/// is A10's, `audit/A10.md`, "The contract of `present_moves`").
+///
+/// Device pixels of the frame, y down. For every pixel `p` of `dst`, `new[p] = old[p - (dx,
+/// dy)]`: `dst` is the moved clip cut to where its source lies in the clip too,
+/// `clip ∩ (clip + (dx, dy))`. The rest of the clip (the strip that came into view) and
+/// whatever is painted over the moved content is in the frame's paint damage, which is
+/// presented AFTER the moves and wins over them. The invariant: the previous frame, with the
+/// frame's moves applied in order (as `memmove`), then the paint damage copied from the new
+/// frame, is the new frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PresentMove {
+    /// The destination: `(x, y, width, height)`.
+    pub dst: (u32, u32, u32, u32),
+    /// Device pixels the content moved to the right (negative: to the left). A scroll delta
+    /// `px_dx` moves the content by `-px_dx`.
+    pub dx: i32,
+    /// Device pixels the content moved down (negative: up).
+    pub dy: i32,
+}
+
+/// [`scroll_shift_region`], and the move it made (`None` when nothing was moved: a delta of no
+/// device pixel, an empty clip, or a move larger than the clip, whose strips are the clip).
+pub fn scroll_shift_region_moved(
+    pixmap: &mut AzulPixmap,
+    clip_bounds: &LogicalRect,
+    delta: (f32, f32),
+    new_offset: (f32, f32),
+    dpi_factor: f32,
+) -> (Vec<LogicalRect>, Option<PresentMove>) {
+    let mut moved = None;
+    let strips = scroll_shift_region_impl(
+        pixmap,
+        clip_bounds,
+        delta,
+        new_offset,
+        dpi_factor,
+        false,
+        &mut moved,
+    );
+    (strips, moved)
 }
 
 /// [`scroll_shift_region`] with EXACT strips (no 1-px over-cover). The
@@ -2026,6 +1942,7 @@ pub fn scroll_shift_region_exact(
         new_offset,
         dpi_factor,
         true,
+        &mut None,
     )
 }
 
@@ -2037,6 +1954,8 @@ fn scroll_shift_region_impl(
     new_offset: (f32, f32),
     dpi_factor: f32,
     exact_strips: bool,
+    // Set to the move that was made, for the frame's present information.
+    moved: &mut Option<PresentMove>,
 ) -> Vec<LogicalRect> {
     // The "just move the pixels" cost of a scroll frame, made visible as a
     // phase: this memmove inside OUR pixmap (plus the strip raster the
@@ -2063,13 +1982,15 @@ fn scroll_shift_region_impl(
     let pw = pixmap.width() as i32;
     let ph = pixmap.height() as i32;
 
-    // Clip rectangle in physical pixels, clamped to the pixmap.
+    // Clip rectangle in physical pixels, clamped to the pixmap: the pixels a paint under the
+    // clip may write, by the fills' rule (`AzRect::pixel_box`: `as i32` on both edges - the one
+    // clip rule of the CPU path, A2-cpu-06). The far edges used to be `ceil`: for a clip that
+    // ends at 1600.5 the fills stop at column 1599 and the move took column 1600, the
+    // neighbour's, along. (The near edges are clamped at 0, where `as i32` and `floor` agree.)
     let cx0 = ((clip_bounds.origin.x * dpi_factor).floor() as i32).clamp(0, pw);
     let cy0 = ((clip_bounds.origin.y * dpi_factor).floor() as i32).clamp(0, ph);
-    let cx1 =
-        (((clip_bounds.origin.x + clip_bounds.size.width) * dpi_factor).ceil() as i32).clamp(0, pw);
-    let cy1 = (((clip_bounds.origin.y + clip_bounds.size.height) * dpi_factor).ceil() as i32)
-        .clamp(0, ph);
+    let cx1 = (((clip_bounds.origin.x + clip_bounds.size.width) * dpi_factor) as i32).clamp(0, pw);
+    let cy1 = (((clip_bounds.origin.y + clip_bounds.size.height) * dpi_factor) as i32).clamp(0, ph);
     let region_w = cx1 - cx0;
     let region_h = cy1 - cy0;
     if region_w <= 0 || region_h <= 0 {
@@ -2086,6 +2007,21 @@ fn scroll_shift_region_impl(
     // 1-D pass; diagonal pan gets a SINGLE-pass 2-D move (each row copied once
     // from its diagonally-offset source) instead of two sequential full passes —
     // half the memory traffic. (no-op is already handled by the early return.)
+    // The movers shift content up / left for a positive delta: the content moved by its
+    // negative, (dx, dy) = (-px_dx, -px_dy). The destination is the region cut to where its
+    // source is in the region: [cx0, cx1) moved by dx and cut to [cx0, cx1), the same in y.
+    // (The shift is smaller than the region: checked above. The region is inside the pixmap.)
+    #[allow(clippy::cast_sign_loss)]
+    {
+        let (dx, dy) = (-px_dx, -px_dy);
+        let (x0, x1) = (cx0.max(cx0 + dx), cx1.min(cx1 + dx));
+        let (y0, y1) = (cy0.max(cy0 + dy), cy1.min(cy1 + dy));
+        *moved = Some(PresentMove {
+            dst: (x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32),
+            dx,
+            dy,
+        });
+    }
     let stride_px = pw;
     let data = pixmap.data_mut();
     match (px_dx != 0, px_dy != 0) {
@@ -2569,22 +2505,38 @@ pub fn scroll_fast_path_eligible_in(
         .get(&scroll_id)
         .copied()
         .unwrap_or((0.0, 0.0));
-    // A turned item inside it covers no part of the clip for certain.
-    let mut content: Vec<(&DisplayListItem, (f32, f32))> = Vec::new();
+    // A turned item inside it covers no part of the clip for certain. Only the opaque fills
+    // are kept (the one thing read from the content below), and the walk ends with the
+    // frame's last pop.
+    //
+    // Each fill is kept as the part of it that SHOWS, on screen at this map's offsets: cut by
+    // the clips and scroll frames opened INSIDE this frame (those move with the content; the
+    // frame's own clip and the ones around it do not, and are not applied here). A fill
+    // inside a nested clip used to count with its full bounds: a 400 px ground inside a
+    // 100 px clip "covered" a 300 px frame, and the move dragged the backdrop that shows
+    // around the clip (A1-48).
+    let mut content: Vec<LogicalRect> = Vec::new();
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
-    for (i, it) in items.iter().enumerate() {
+    let last_pop = pushes.iter().map(|&(_, e)| e).max().unwrap_or(0);
+    // How many frames and clips were open just inside this frame's push.
+    let mut inside_from = (0usize, 0usize);
+    for (i, it) in items.iter().enumerate().take(last_pop + 1) {
         if pushes.iter().any(|&(s, e)| i > s && i < e) {
-            if let Some(at) = stack.placement() {
-                content.push((
-                    it,
-                    (
-                        at.0 - around.0 - own_in_map.0,
-                        at.1 - around.1 - own_in_map.1,
-                    ),
-                ));
+            if let (Some(r), Some(at)) = (opaque_fill_rect(it), stack.placement()) {
+                let shown = stack.open[inside_from.0.min(stack.open.len())..]
+                    .iter()
+                    .map(|(_, _, clip)| *clip)
+                    .chain(stack.clips[inside_from.1.min(stack.clips.len())..].iter().copied())
+                    .fold(moved_by(r, at), intersect_logical_rects);
+                if shown.size.width > 0.0 && shown.size.height > 0.0 {
+                    content.push(shown);
+                }
             }
         }
         stack.step(it);
+        if pushes.iter().any(|&(s, _)| s == i) {
+            inside_from = (stack.open.len(), stack.clips.len());
+        }
     }
 
     // NOTE on overlays: anything painted AFTER the frame that overlaps the
@@ -2599,24 +2551,17 @@ pub fn scroll_fast_path_eligible_in(
     // onto the screen — at BOTH the old offset, where the dragged pixels were
     // rendered, and the new one). Then nothing behind can ever show through,
     // so the shift is always safe.
-    let covered_at = |off: (f32, f32)| {
-        let fills: Vec<LogicalRect> = content
-            .iter()
-            .filter_map(|&(it, inner)| {
-                opaque_fill_rect(it).map(|r| {
-                    moved_by(
-                        r,
-                        (
-                            around.0 + off.0 + inner.0,
-                            around.1 + off.1 + inner.1,
-                        ),
-                    )
-                })
-            })
-            .collect();
-        rect_covered_by(clip_bounds, &fills)
-    };
-    if covered_at(scroll_offset) && covered_at(prev_offset) {
+    // The fills where they are painted at the new offset. At the previous one each was
+    // `scroll_offset - prev_offset` further right and down, so they covered the clip then if
+    // these cover the clip moved that far left and up: one list for both questions.
+    // (`content` is on screen at the map's offset for this frame, `own_in_map`; at
+    // `scroll_offset` every fill is `scroll_offset - own_in_map` further up and left.)
+    let fills: Vec<LogicalRect> = content
+        .iter()
+        .map(|&shown| moved_by(shown, (scroll_offset.0 - own_in_map.0, scroll_offset.1 - own_in_map.1)))
+        .collect();
+    let since = (scroll_offset.0 - prev_offset.0, scroll_offset.1 - prev_offset.1);
+    if rect_covered_by(clip_bounds, &fills) && rect_covered_by(&moved_by(*clip_bounds, since), &fills) {
         return true;
     }
 
@@ -2782,31 +2727,72 @@ pub fn gpu_value_damage(
     new_opacities: &HashMap<usize, f32>,
     scroll_offsets: &ScrollOffsetMap,
 ) -> GpuValueDamage {
-    use std::collections::HashSet;
+    gpu_value_damage_of(
+        display_list,
+        &changed_keys(old_transforms, new_transforms),
+        &changed_keys(old_opacities, new_opacities),
+        old_transforms,
+        new_transforms,
+        scroll_offsets,
+    )
+}
 
-    let mut changed_t: HashSet<usize> = HashSet::new();
-    for (k, v) in new_transforms {
-        if old_transforms.get(k) != Some(v) {
-            changed_t.insert(*k);
+/// The keys whose value differs between two frames: changed, new or gone.
+fn changed_keys<V: PartialEq>(
+    old: &HashMap<usize, V>,
+    new: &HashMap<usize, V>,
+) -> std::collections::HashSet<usize> {
+    let mut changed = std::collections::HashSet::new();
+    for (k, v) in new {
+        if old.get(k) != Some(v) {
+            changed.insert(*k);
         }
     }
-    for k in old_transforms.keys() {
-        if !new_transforms.contains_key(k) {
-            changed_t.insert(*k);
+    // A key can only be gone if the old map holds one the new one does not: with every new
+    // key found in the old map and the same count, there is none.
+    if old.len() != new.len() || !changed.is_empty() {
+        for k in old.keys() {
+            if !new.contains_key(k) {
+                changed.insert(*k);
+            }
         }
     }
-    let mut changed_o: HashSet<usize> = HashSet::new();
-    for (k, v) in new_opacities {
-        if old_opacities.get(k) != Some(v) {
-            changed_o.insert(*k);
-        }
-    }
-    for k in old_opacities.keys() {
-        if !new_opacities.contains_key(k) {
-            changed_o.insert(*k);
+    changed
+}
+
+/// The keys of a window whose value differs between two frames ([`changed_keys`] of each
+/// kind), found ONCE per frame: every list of the window (its own and every view's) is asked
+/// what it owes for them, and each used to find them again from the full maps.
+#[derive(Debug, Default)]
+struct ChangedValues {
+    transforms: std::collections::HashSet<usize>,
+    opacities: std::collections::HashSet<usize>,
+    colors: std::collections::HashSet<usize>,
+}
+
+impl ChangedValues {
+    fn between(old: &WindowGpuValues, new: &WindowGpuValues) -> Self {
+        Self {
+            transforms: changed_keys(&old.transforms, &new.transforms),
+            opacities: changed_keys(&old.opacities, &new.opacities),
+            colors: changed_keys(&old.colors, &new.colors),
         }
     }
 
+    fn is_empty(&self) -> bool {
+        self.transforms.is_empty() && self.opacities.is_empty() && self.colors.is_empty()
+    }
+}
+
+/// [`gpu_value_damage`] for keys already known to have changed (`changed_t`, `changed_o`).
+fn gpu_value_damage_of(
+    display_list: &DisplayList,
+    changed_t: &std::collections::HashSet<usize>,
+    changed_o: &std::collections::HashSet<usize>,
+    old_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    new_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    scroll_offsets: &ScrollOffsetMap,
+) -> GpuValueDamage {
     let mut out = GpuValueDamage::default();
     if changed_t.is_empty() && changed_o.is_empty() {
         return out;
@@ -2815,7 +2801,7 @@ pub fn gpu_value_damage(
     // changes none of its pixels: no walk of the list (the keys it binds were found once, with
     // its index).
     let index = display_list.frame_index();
-    if !index.binds_a_transform_key(&changed_t) && !index.binds_an_opacity_key(&changed_o) {
+    if !index.binds_a_transform_key(changed_t) && !index.binds_an_opacity_key(changed_o) {
         return out;
     }
     crate::cpu_counters::count(
@@ -2870,21 +2856,29 @@ pub fn gpu_value_damage(
                     .copied()
                     .unwrap_or(*initial_transform);
                 if changed_t.contains(&transform_key.id) {
-                    let content = moved_by(
-                        reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner()),
-                        scrolled,
-                    );
+                    // What the frame paints WITH the frames inside it moved by their
+                    // matrices, as each frame painted them (A2-cpu-04): `None` is an inner
+                    // perspective, unbounded.
+                    let content_with = |values: &HashMap<usize, azul_core::transform::ComputedTransform3D>| {
+                        index.extent_with(items, idx, values).map(|e| moved_by(e, scrolled))
+                    };
+                    let (content_old, content_new) = (content_with(old_transforms), content_with(new_transforms));
                     // With the matrix each frame PAINTED it with: a key without a
                     // value is painted with the list's own matrix (`raster.rs`, the
                     // `PushReferenceFrame` arm), not with the identity.
                     // The content through its own matrix and the frames
                     // around it, in one go (`FrameStack::map`).
-                    let through = |frames: &FrameStack, m: &azul_core::transform::ComputedTransform3D| {
+                    let through = |frames: &FrameStack,
+                                   m: &azul_core::transform::ComputedTransform3D,
+                                   content: Option<LogicalRect>| {
                         let mut frames = frames.clone();
                         frames.push(origin, *m);
-                        frames.map(content)
+                        content.and_then(|content| frames.map(content))
                     };
-                    match (through(&frames_old, &old_m), through(&frames_new, &new_m)) {
+                    match (
+                        through(&frames_old, &old_m, content_old),
+                        through(&frames_new, &new_m, content_new),
+                    ) {
                         (Some(a), Some(b)) => {
                             out.rects.push(a);
                             out.rects.push(b);
@@ -2919,7 +2913,9 @@ pub fn gpu_value_damage(
                 // unlike a moved reference frame whose content extent is
                 // unknowable from the item.
                 if changed_o.contains(&k.id) {
-                    both(&mut out, moved_by(*bounds.inner(), scrolled), &frames_old, &frames_new);
+                    // All of what the group paints fades (A2-gpu-06), not only its box.
+                    let faded = index.opacity_extent(idx).unwrap_or_else(|| *bounds.inner());
+                    both(&mut out, moved_by(faded, scrolled), &frames_old, &frames_new);
                 }
             }
             _ => {}
@@ -2946,18 +2942,29 @@ pub fn color_value_damage(
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
     scroll_offsets: &ScrollOffsetMap,
 ) -> GpuValueDamage {
-    let changed = |key: usize| old_colors.get(&key) != new_colors.get(&key);
+    color_value_damage_of(
+        display_list,
+        &changed_keys(old_colors, new_colors),
+        transforms,
+        scroll_offsets,
+    )
+}
+
+/// [`color_value_damage`] for colour keys already known to have changed.
+fn color_value_damage_of(
+    display_list: &DisplayList,
+    changed_colors: &std::collections::HashSet<usize>,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    scroll_offsets: &ScrollOffsetMap,
+) -> GpuValueDamage {
+    let changed = |key: usize| changed_colors.contains(&key);
     let mut out = GpuValueDamage::default();
-    if new_colors.iter().all(|(k, v)| old_colors.get(k) == Some(v))
-        && old_colors.keys().all(|k| new_colors.contains_key(k))
-    {
+    if changed_colors.is_empty() {
         return out;
     }
     // Only a colour bound to a background of THIS list changes its pixels.
     let index = display_list.frame_index();
-    let bound_change = new_colors.iter().any(|(k, v)| old_colors.get(k) != Some(v) && index.binds_a_color_key(*k))
-        || old_colors.keys().any(|k| !new_colors.contains_key(k) && index.binds_a_color_key(*k));
-    if !bound_change {
+    if !changed_colors.iter().any(|k| index.binds_a_color_key(*k)) {
         return out;
     }
     crate::cpu_counters::count(
@@ -3034,10 +3041,13 @@ pub fn window_value_damage(
     new: &WindowGpuValues,
     scroll_offsets: &ScrollOffsetMap,
 ) -> GpuValueDamage {
-    if old == new {
+    // The keys that changed, found once for every list of the window (and nothing to do
+    // without one: what `old == new` asked before).
+    let changed = ChangedValues::between(old, new);
+    if changed.is_empty() {
         return GpuValueDamage::default();
     }
-    list_value_damage(display_list, views, old, new, scroll_offsets, 0)
+    list_value_damage(display_list, views, old, new, &changed, scroll_offsets, 0)
 }
 
 /// [`window_value_damage`] of one list, its rects in the space the list is painted in.
@@ -3046,18 +3056,19 @@ fn list_value_damage(
     views: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     old: &WindowGpuValues,
     new: &WindowGpuValues,
+    changed: &ChangedValues,
     scroll_offsets: &ScrollOffsetMap,
     depth: usize,
 ) -> GpuValueDamage {
-    let mut out = gpu_value_damage(
+    let mut out = gpu_value_damage_of(
         list,
+        &changed.transforms,
+        &changed.opacities,
         &old.transforms,
-        &old.opacities,
         &new.transforms,
-        &new.opacities,
         scroll_offsets,
     );
-    let colors = color_value_damage(list, &old.colors, &new.colors, &new.transforms, scroll_offsets);
+    let colors = color_value_damage_of(list, &changed.colors, &new.transforms, scroll_offsets);
     out.rects.extend(colors.rects);
     out.needs_full |= colors.needs_full;
     if views.is_empty() {
@@ -3071,7 +3082,7 @@ fn list_value_damage(
         if let DisplayListItem::VirtualView { child_dom_id, .. } = &list.items[at] {
             if let Some(child) = views.get(child_dom_id) {
                 let inner = (depth < MAX_VIEW_DEPTH)
-                    .then(|| list_value_damage(child, views, old, new, scroll_offsets, depth + 1));
+                    .then(|| list_value_damage(child, views, old, new, changed, scroll_offsets, depth + 1));
                 inners.push((at, inner));
             }
         }
@@ -3086,7 +3097,9 @@ fn list_value_damage(
     // The frames around each view item, with the live matrices of this frame: a view
     // inside a turned or scaled frame is painted through it.
     let mut stack = ScrollStack::with_transforms(scroll_offsets, &new.transforms);
-    for (idx, item) in list.items.iter().enumerate() {
+    // Up to the list's last view: nothing after it is placed here.
+    let walked = index.views().last().map_or(0, |last| last + 1);
+    for (idx, item) in list.items.iter().enumerate().take(walked) {
         if let DisplayListItem::VirtualView {
             bounds,
             content_offset,
@@ -3293,7 +3306,29 @@ pub fn collect_scroll_shifts(
         ((delta.0 * dpi_factor).abs() > 0.5 || (delta.1 * dpi_factor).abs() > 0.5).then_some(delta)
     };
     let mut out: Vec<(LocalScrollId, LogicalRect, (f32, f32), (f32, f32))> = Vec::new();
-    let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
+    // A frame is shifted only if its own offset moved: with no offset moved (every frame
+    // that is not a scroll step) there is nothing to find in the list.
+    if !scroll_offsets.iter().any(|(id, offset)| moved(id, offset).is_some()) {
+        return out;
+    }
+    // The offsets this frame PAINTS at: a frame that shifts paints at its new offset, one
+    // whose delta is under half a device pixel keeps the offset it was last painted at
+    // (`render_frame`'s `next_scroll_baseline`, the same rule). The clip of a shifting frame
+    // inside such a frame is where THOSE offsets put it: placed with the real offsets it
+    // was up to half a device pixel off, and the pixel move took a row or column of the
+    // neighbour with it or left one of its own behind (A1-45).
+    let painted_at: ScrollOffsetMap = scroll_offsets
+        .iter()
+        .map(|(id, offset)| {
+            let at = if moved(id, offset).is_some() {
+                *offset
+            } else {
+                previous_scroll_offsets.get(id).copied().unwrap_or(*offset)
+            };
+            (*id, at)
+        })
+        .collect();
+    let mut stack = ScrollStack::with_transforms(&painted_at, transforms);
     for item in &display_list.items {
         if let DisplayListItem::PushScrollFrame {
             clip_bounds,
@@ -3350,6 +3385,9 @@ pub struct ScrollShiftOutcome {
     /// Rects to present even though they were not re-rastered (the whole
     /// moved clip on the fast path).
     pub present_extra: Vec<LogicalRect>,
+    /// The same as moves: what a presenter that can move its own pixels does instead of
+    /// presenting `present_extra` ([`PresentMove`]).
+    pub moves: Vec<PresentMove>,
 }
 
 /// In-place R<->B swap over `rects` (x, y, w, h in BUFFER pixels) of a
@@ -3463,6 +3501,7 @@ pub fn execute_scroll_shift(
 ) -> ScrollShiftOutcome {
     let mut damage = Vec::new();
     let mut present_extra = Vec::new();
+    let mut moves = Vec::new();
     let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
     if scroll_fast_path_eligible_in(
         display_list,
@@ -3473,7 +3512,8 @@ pub fn execute_scroll_shift(
         scroll_offsets,
         transforms,
     ) {
-        let strips = scroll_shift_region(pixmap, clip, delta, offset, dpi_factor);
+        let (strips, moved) = scroll_shift_region_moved(pixmap, clip, delta, offset, dpi_factor);
+        moves.extend(moved);
         // Empty strips = the delta rounded to ZERO physical pixels: no
         // memmove ran, so nothing moved. The clip must then stay OUT of
         // present_extra - on the in-place
@@ -3508,6 +3548,7 @@ pub fn execute_scroll_shift(
     ScrollShiftOutcome {
         damage,
         present_extra,
+        moves,
     }
 }
 
@@ -3584,10 +3625,18 @@ pub fn collect_virtual_view_shifts(
     if old.items.len() != new.items.len() {
         return out;
     }
+    // One list against itself has no view whose offset differs, and nothing after the new
+    // list's last view is a view: the walk stops there (or does not start).
+    let Some(&last_view) = new.frame_index().views().last() else {
+        return out;
+    };
+    if core::ptr::eq(old, new) {
+        return out;
+    }
     let mut old_stack = ScrollStack::new(old_offsets);
     let mut new_stack = ScrollStack::new(new_offsets);
     let mut frames = 0usize;
-    for (index, (o, n)) in old.items.iter().zip(&new.items).enumerate() {
+    for (index, (o, n)) in old.items.iter().zip(&new.items).enumerate().take(last_view + 1) {
         let (old_at, new_at) = (old_stack.scrolled(), new_stack.scrolled());
         let visible = new_stack.visible();
         old_stack.step(o);
@@ -3649,9 +3698,47 @@ pub fn execute_virtual_view_shift(
     dpi_factor: f32,
     scroll_offsets: &ScrollOffsetMap,
 ) -> ScrollShiftOutcome {
+    execute_virtual_view_shift_with(
+        pixmap,
+        display_list,
+        views,
+        shift,
+        dpi_factor,
+        scroll_offsets,
+        &HashMap::new(),
+    )
+}
+
+/// An item that has bounds and paints nothing: no overlay to repaint after a move of the
+/// pixels under it (A2-cpu-19: a hit-test area over a view made every pan repaint the view).
+fn paints_nothing(item: &DisplayListItem) -> bool {
+    matches!(
+        item,
+        DisplayListItem::HitTestArea { .. }
+            | DisplayListItem::TextLayout { .. }
+            | DisplayListItem::WebView { .. }
+    )
+}
+
+/// [`execute_virtual_view_shift`] with the live matrices of the window's frames
+/// (`transforms`, by key): an opaque fill of the child covers the view only where it is
+/// painted, and inside a frame that is not the identity it is painted elsewhere than it is
+/// laid out (A2-cpu-27).
+#[must_use]
+#[allow(clippy::implicit_hasher)]
+pub fn execute_virtual_view_shift_with(
+    pixmap: &mut AzulPixmap,
+    display_list: &DisplayList,
+    views: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    shift: &ViewShift,
+    dpi_factor: f32,
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> ScrollShiftOutcome {
     let whole = ScrollShiftOutcome {
         damage: vec![shift.clip],
         present_extra: Vec::new(),
+        moves: Vec::new(),
     };
     let device = |v: f32| v * dpi_factor;
     let integral = |v: f32| (device(v) - device(v).round()).abs() < 1e-3;
@@ -3660,9 +3747,21 @@ pub fn execute_virtual_view_shift(
     // offset is its materialized window's origin minus the scroll, rarely a
     // whole pixel - requiring it whole sent every wheel step of AzDrive's
     // folder to a repaint of the view).
-    if !integral(shift.delta.0) || !integral(shift.delta.1) {
-        if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
-            eprintln!("[viewshift] delta {:?} is no whole device pixel", shift.delta);
+    // A2-cpu-07: and both OFFSETS must be whole, not only their difference. The pixels move by
+    // `round(new dpi) - round(prev dpi)` (`scroll_shift_region`), which is the delta only then:
+    // from 10.4999 to 13.5004 the delta is 3.0005 (whole within 1e-3) and the move 14 - 10 = 4,
+    // one pixel more than the content moved. Views' offsets are snapped to the device grid by
+    // their producer (A2-cpu-13), so a pan still moves; an offset off the grid repaints.
+    let prev_offset = (shift.offset.0 - shift.delta.0, shift.offset.1 - shift.delta.1);
+    let on_the_grid = [shift.offset.0, shift.offset.1, prev_offset.0, prev_offset.1]
+        .iter()
+        .all(|v| integral(*v));
+    if !integral(shift.delta.0) || !integral(shift.delta.1) || !on_the_grid {
+        if blit_debug() {
+            eprintln!(
+                "[viewshift] delta {:?} or offset {:?} is no whole device pixel",
+                shift.delta, shift.offset
+            );
         }
         return whole;
     }
@@ -3675,11 +3774,10 @@ pub fn execute_virtual_view_shift(
     else {
         return whole;
     };
-    // Where the view's item is painted from: the frames around it.
-    let mut stack = ScrollStack::new(scroll_offsets);
-    let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(shift.index);
+    // Where the view's item is painted from: the frames around it. With the live matrices of
+    // the reference frames, for what is painted OVER the view below (A1-36).
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for it in &items[..shift.index] {
-        backdrop.push((it, stack.scrolled()));
         stack.step(it);
     }
     let around = stack.scrolled();
@@ -3687,33 +3785,62 @@ pub fn execute_virtual_view_shift(
     // behind it can show. A child item is painted at its own rect + the
     // view's origin - the content's scroll offset (`offset`).
     let covered = views.get(child_dom_id).is_some_and(|child| {
-        let covered_at = |scroll: (f32, f32)| {
-            // The child's opaque fills are found once for the list (its index), not by
-            // reading the whole child list again on every pan frame.
-            let fills: Vec<LogicalRect> = child
-                .frame_index()
-                .opaque_fills()
-                .iter()
-                .map(|r| {
-                    moved_by(
-                        *r,
-                        (
-                            around.0 - bounds.inner().origin.x + scroll.0,
-                            around.1 - bounds.inner().origin.y + scroll.1,
-                        ),
-                    )
-                })
-                .collect();
-            rect_covered_by(&shift.clip, &fills)
+        // The child's opaque fills are found once for the list (its index), not by
+        // reading the whole child list again on every pan frame.
+        // Only the fills that are painted where they are laid out: in no frame, or in
+        // frames whose live matrix (a key without a value: the push's own) is the identity.
+        let laid_out_in_place = |frames: &[usize]| {
+            frames.iter().all(|push| match child.items.get(*push) {
+                Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, .. }) => {
+                    is_identity_2d(transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m))
+                }
+                _ => false,
+            })
         };
-        let prev = (
-            shift.offset.0 - shift.delta.0,
-            shift.offset.1 - shift.delta.1,
-        );
-        covered_at(shift.offset) && covered_at(prev)
+        // Where they are painted at the NEW offset.
+        let fills: Vec<LogicalRect> = child
+            .frame_index()
+            .opaque_fills_in_frames()
+            .filter(|(_, frames)| laid_out_in_place(frames))
+            .map(|(r, _)| r)
+            .map(|r| {
+                moved_by(
+                    *r,
+                    (
+                        around.0 - bounds.inner().origin.x + shift.offset.0,
+                        around.1 - bounds.inner().origin.y + shift.offset.1,
+                    ),
+                )
+            })
+            .collect();
+        // At the PREVIOUS offset (`offset - delta`) every fill was `delta` further right and
+        // down: they covered the clip then if these cover the clip moved `delta` left and up.
+        // One list of fills for both questions, not one built per question per pan frame.
+        rect_covered_by(&shift.clip, &fills)
+            && rect_covered_by(&moved_by(shift.clip, shift.delta), &fills)
     });
-    let backdrop_ok = covered || backdrop_drags_invisibly(&backdrop, &shift.clip);
-    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+    // What is painted before the view is read only when the content does not cover it: each
+    // item with the offset the frames around it paint it at. One inside a frame that turns
+    // or scales it, over the clip, cannot be told from a flat fill: the view is repainted.
+    let backdrop_ok = covered || {
+        let mut behind = ScrollStack::with_transforms(scroll_offsets, transforms);
+        let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(shift.index);
+        let mut turned_over_the_clip = false;
+        for it in &items[..shift.index] {
+            if let Some(at) = behind.placement() {
+                backdrop.push((it, at));
+            } else {
+                let turned = it.visual_bounds().map(|b| behind.on_screen(b));
+                if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, &shift.clip))) {
+                    turned_over_the_clip = true;
+                    break;
+                }
+            }
+            behind.step(it);
+        }
+        !turned_over_the_clip && backdrop_drags_invisibly(&backdrop, &shift.clip)
+    };
+    if blit_debug() {
         eprintln!(
             "[viewshift] clip={:?} delta={:?} covered={covered} backdrop_ok={backdrop_ok}",
             shift.clip, shift.delta
@@ -3722,12 +3849,14 @@ pub fn execute_virtual_view_shift(
     if !backdrop_ok {
         return whole;
     }
-    let strips = scroll_shift_region(pixmap, &shift.clip, shift.delta, shift.offset, dpi_factor);
+    let (strips, moved) =
+        scroll_shift_region_moved(pixmap, &shift.clip, shift.delta, shift.offset, dpi_factor);
     if strips.is_empty() {
         // The delta rounded to no device pixel: nothing moved.
         return ScrollShiftOutcome {
             damage: Vec::new(),
             present_extra: Vec::new(),
+            moves: Vec::new(),
         };
     }
     let mut damage = strips;
@@ -3738,15 +3867,22 @@ pub fn execute_virtual_view_shift(
         shift.clip.origin.y + shift.clip.size.height,
     );
     for it in &items[shift.index + 1..] {
-        let at = stack.scrolled();
+        // Where the item is PAINTED, read before stepping over it: through the scroll frames
+        // AND the reference frames around it, with their live matrices (A1-36). A panel
+        // placed by `transform` was repainted where it is laid out while the move dragged it
+        // where it is painted, and smeared by the delta every pan frame. Through a matrix
+        // with perspective it can be anywhere: the whole clip.
+        let painted = if it.is_state_management() || paints_nothing(it) {
+            None
+        } else {
+            it.visual_bounds()
+                .or_else(|| it.bounds())
+                .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
+        };
         stack.step(it);
-        if it.is_state_management() {
-            continue;
-        }
-        let Some(b) = it.visual_bounds().or_else(|| it.bounds()) else {
+        let Some(b) = painted else {
             continue;
         };
-        let b = moved_by(b, at);
         let ix = b.origin.x.max(shift.clip.origin.x);
         let iy = b.origin.y.max(shift.clip.origin.y);
         let ix1 = (b.origin.x + b.size.width).min(cx1);
@@ -3766,6 +3902,7 @@ pub fn execute_virtual_view_shift(
     ScrollShiftOutcome {
         damage,
         present_extra: vec![shift.clip],
+        moves: moved.into_iter().collect(),
     }
 }
 
@@ -3831,7 +3968,7 @@ pub fn overlay_rects_after_frame_in(
             .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED));
         let moved_with_the_frame = stack.is_open(scroll_id);
         stack.step(it);
-        if i < end || moved_with_the_frame || it.is_state_management() {
+        if i < end || moved_with_the_frame || it.is_state_management() || paints_nothing(it) {
             continue;
         }
         let Some(b) = on_screen else { continue };
@@ -3875,27 +4012,45 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     if covers.is_empty() {
         return false;
     }
+    // One fill over all of the target (a map's ground, a page's background): no sampling.
+    let (tx1, ty1) = (
+        target.origin.x + target.size.width,
+        target.origin.y + target.size.height,
+    );
+    if covers.iter().any(|r| {
+        r.origin.x <= target.origin.x
+            && r.origin.y <= target.origin.y
+            && r.origin.x + r.size.width >= tx1
+            && r.origin.y + r.size.height >= ty1
+    }) {
+        return true;
+    }
+    // Otherwise sampled, each row against the fills that cross it alone (every sample was
+    // tested against every fill: 220,000 samples of a 2510 x 1402 view times the fills).
     let step = 4.0_f32;
     let x0 = target.origin.x;
     let y0 = target.origin.y;
     let x1 = x0 + target.size.width;
     let y1 = y0 + target.size.height;
     let mut y = y0 + step * 0.5;
+    let mut on_row: Vec<(f32, f32)> = Vec::new();
     #[allow(clippy::while_float)]
     // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be
     // artificial
     while y < y1 {
+        on_row.clear();
+        on_row.extend(
+            covers
+                .iter()
+                .filter(|r| y >= r.origin.y && y < r.origin.y + r.size.height)
+                .map(|r| (r.origin.x, r.origin.x + r.size.width)),
+        );
         let mut x = x0 + step * 0.5;
         #[allow(clippy::while_float)]
         // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be
         // artificial
         while x < x1 {
-            let inside = covers.iter().any(|r| {
-                x >= r.origin.x
-                    && x < r.origin.x + r.size.width
-                    && y >= r.origin.y
-                    && y < r.origin.y + r.size.height
-            });
+            let inside = on_row.iter().any(|(left, right)| x >= *left && x < *right);
             if !inside {
                 return false;
             }
@@ -4189,11 +4344,27 @@ fn render_display_list_range(
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(offset_x, offset_y)];
     let mut text_shadow_stack: Vec<azul_css::props::style::box_shadow::StyleBoxShadow> = Vec::new();
 
-    for i in start..end {
+    // The child ranges in list order (they are disjoint: direct children), with a cursor on
+    // the next one - not every range asked for every item (17,495 x 2,118 tests for a root
+    // with a layer per turned frame, A1-39).
+    let mut skips = skip_ranges.to_vec();
+    skips.sort_unstable();
+    let mut next_skip = 0usize;
+    let mut i = start;
+    while i < end {
         // Skip items rendered by a child layer (see skip_ranges doc above).
-        if skip_ranges.iter().any(|(s, e)| i >= *s && i < *e) {
-            continue;
+        while skips.get(next_skip).is_some_and(|&(_, e)| e <= i) {
+            next_skip += 1;
         }
+        if let Some(&(s, e)) = skips.get(next_skip) {
+            if i >= s && i < e {
+                i = e;
+                continue;
+            }
+        }
+        let index_of_item = i;
+        i += 1;
+        let i = index_of_item;
         let bound_item = item_with_bound_color(&display_list.items[i], display_list.color_binding(i), render_state);
         let item = &*bound_item;
         render_single_item(
@@ -4251,6 +4422,32 @@ fn render_display_list_range(
 /// soundness gate is green with the refinements on; `AZ_DL_DIFF_REFINE=0`
 /// remains as the kill-switch.
 static DL_DIFF_REFINEMENTS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
+
+/// Is the trace switch `AZ_BLIT_DEBUG` set? Asked of the environment once per process: a read
+/// takes the process's lock on the environment and scans every variable, and the list diff
+/// asked once per mismatched pair of items (17,495 times for a map whose every item moved).
+#[doc(hidden)]
+#[must_use]
+pub fn blit_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_BLIT_DEBUG").is_some())
+}
+
+/// Is the trace switch `AZ_PATCH_DEBUG` set? Asked once per process, like [`blit_debug`].
+#[doc(hidden)]
+#[must_use]
+pub fn patch_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_PATCH_DEBUG").is_some())
+}
+
+/// Is the trace switch `AZ_MAP_DEBUG` set? Asked once per process, like [`blit_debug`].
+#[doc(hidden)]
+#[must_use]
+pub fn map_debug() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_MAP_DEBUG").is_ok())
+}
 
 #[must_use]
 pub fn dl_diff_refinements_enabled() -> bool {
@@ -4445,7 +4642,7 @@ pub struct TranslateBlitResult {
 /// old∪(old+delta) so both the vacated source and the destination lie
 /// inside the memmove region; exposed strips repaint per mover, and so does
 /// whatever is painted over a mover without moving with it, which the
-/// memmove dragged ([`painted_over_mover`]).
+/// memmove dragged ([`PaintedOverMovers`]).
 #[must_use]
 pub fn execute_translate_blit(
     output: &mut AzulPixmap,
@@ -4467,7 +4664,7 @@ pub fn execute_translate_blit(
         .map(|m| moved_by(*m, (-d.0, -d.1)))
         .chain(rider_rects.iter().copied())
         .collect();
-    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+    if blit_debug() {
         eprintln!(
             "[blit] delta={:?} movers={} exceptions={}",
             d,
@@ -4481,6 +4678,34 @@ pub fn execute_translate_blit(
             eprintln!("[blit]   exception {e:?}");
         }
     }
+    // Read from the list ONCE for every mover (A1-44): each mover used to read the whole
+    // list once per vacated strip for the text runs, and twice more for what is painted over
+    // it, with every destination asked for every item - movers x items x (2 + movers).
+    let text_boxes: Vec<LogicalRect> = if mover_rects.is_empty() {
+        Vec::new()
+    } else {
+        new_display_list
+            .items
+            .iter()
+            .filter(|item| matches!(item, DisplayListItem::Text { .. }))
+            .filter_map(DisplayListItem::bounds)
+            .map(|b| LogicalRect {
+                origin: LogicalPosition {
+                    x: b.origin.x - 1.0,
+                    y: b.origin.y - 1.0,
+                },
+                size: LogicalSize {
+                    width: b.size.width + 2.0,
+                    height: b.size.height + 2.0,
+                },
+            })
+            .collect()
+    };
+    let over_movers = if mover_rects.is_empty() {
+        PaintedOverMovers::default()
+    } else {
+        PaintedOverMovers::of(new_display_list, &destinations)
+    };
     for mr in mover_rects {
         let dest = LogicalRect {
             origin: LogicalPosition {
@@ -4530,27 +4755,13 @@ pub fn execute_translate_blit(
         // strip is damaged WHOLE — cleared and re-rendered exactly like the
         // full-repaint control.
         for strip in &strips {
-            for item in &new_display_list.items {
-                if let DisplayListItem::Text { .. } = item {
-                    if let Some(b) = item.bounds() {
-                        let inflated = LogicalRect {
-                            origin: LogicalPosition {
-                                x: b.origin.x - 1.0,
-                                y: b.origin.y - 1.0,
-                            },
-                            size: LogicalSize {
-                                width: b.size.width + 2.0,
-                                height: b.size.height + 2.0,
-                            },
-                        };
-                        let ix = inflated.origin.x < strip.origin.x + strip.size.width
-                            && strip.origin.x < inflated.origin.x + inflated.size.width
-                            && inflated.origin.y < strip.origin.y + strip.size.height
-                            && strip.origin.y < inflated.origin.y + inflated.size.height;
-                        if ix {
-                            res.damage.push(inflated);
-                        }
-                    }
+            for inflated in &text_boxes {
+                let ix = inflated.origin.x < strip.origin.x + strip.size.width
+                    && strip.origin.x < inflated.origin.x + inflated.size.width
+                    && inflated.origin.y < strip.origin.y + strip.size.height
+                    && strip.origin.y < inflated.origin.y + inflated.size.height;
+                if ix {
+                    res.damage.push(*inflated);
                 }
             }
         }
@@ -4566,7 +4777,7 @@ pub fn execute_translate_blit(
         // `translate_hint_for_patch` - so the list's bounds are where things
         // are painted.)
         if moved {
-            for over in painted_over_mover(new_display_list, &dest, &destinations) {
+            for over in over_movers.over(new_display_list, &dest) {
                 let under = intersect_logical_rects(over, clip);
                 if under.size.width > 0.0 && under.size.height > 0.0 {
                     res.damage.push(under);
@@ -4580,7 +4791,7 @@ pub fn execute_translate_blit(
         res.present_extra.push(clip);
     }
     res.damage.extend(exceptions.iter().copied());
-    if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+    if blit_debug() {
         eprintln!("[blit]   damage {:?}", res.damage);
     }
     res
@@ -4610,40 +4821,73 @@ fn scrollbar_bounds(it: &DisplayListItem) -> Option<LogicalRect> {
 /// before the mover is below its opaque background (`compute_patch_move_
 /// summary` blits only opaque movers). An item this finds that does not
 /// cross the blit clip costs nothing: the caller intersects.
+///
+/// Read from the list in two steps: [`PaintedOverMovers::of`] once for all movers of a
+/// frame, [`PaintedOverMovers::over`] per mover.
+#[cfg(test)]
 fn painted_over_mover(
     display_list: &DisplayList,
     dest: &LogicalRect,
     destinations: &[LogicalRect],
 ) -> Vec<LogicalRect> {
+    PaintedOverMovers::of(display_list, destinations).over(display_list, dest)
+}
+
+/// Is `r` inside `outer`, to half a pixel?
+fn inside_within_half_a_pixel(outer: &LogicalRect, r: &LogicalRect) -> bool {
     const EPS: f32 = 0.5;
-    let inside = |outer: &LogicalRect, r: &LogicalRect| {
-        r.origin.x >= outer.origin.x - EPS
-            && r.origin.y >= outer.origin.y - EPS
-            && r.origin.x + r.size.width <= outer.origin.x + outer.size.width + EPS
-            && r.origin.y + r.size.height <= outer.origin.y + outer.size.height + EPS
-    };
-    let paints = |it: &DisplayListItem| {
-        !it.is_state_management() && !matches!(it, DisplayListItem::HitTestArea { .. })
-    };
-    let first = display_list
-        .items
-        .iter()
-        .position(|it| paints(it) && it.bounds().is_some_and(|b| inside(dest, &b)));
-    display_list
-        .items
-        .iter()
-        .enumerate()
-        .filter_map(|(i, it)| {
-            if let Some(bar) = scrollbar_bounds(it) {
-                return Some(bar);
-            }
-            if first.is_none_or(|f| i <= f) || !paints(it) {
-                return None;
-            }
-            let b = it.visual_bounds()?;
-            (!destinations.iter().any(|m| inside(m, &b))).then_some(b)
-        })
-        .collect()
+    r.origin.x >= outer.origin.x - EPS
+        && r.origin.y >= outer.origin.y - EPS
+        && r.origin.x + r.size.width <= outer.origin.x + outer.size.width + EPS
+        && r.origin.y + r.size.height <= outer.origin.y + outer.size.height + EPS
+}
+
+/// Does `it` paint (for [`PaintedOverMovers`]: no state item, no hit-test area)?
+fn paints_for_a_mover(it: &DisplayListItem) -> bool {
+    !it.is_state_management() && !matches!(it, DisplayListItem::HitTestArea { .. })
+}
+
+/// What is painted over movers (the rule above `painted_over_mover`), the part that is the
+/// same for every mover of a frame, in list order: every scrollbar (`is_bar`), and every other painting item whose
+/// ink lies inside no destination. One mover then only needs the index of its first item.
+#[derive(Debug, Default)]
+struct PaintedOverMovers {
+    /// (index in the list, bounds, is it a scrollbar).
+    candidates: Vec<(usize, LogicalRect, bool)>,
+}
+
+impl PaintedOverMovers {
+    fn of(display_list: &DisplayList, destinations: &[LogicalRect]) -> Self {
+        let candidates = display_list
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, it)| {
+                if let Some(bar) = scrollbar_bounds(it) {
+                    return Some((i, bar, true));
+                }
+                if !paints_for_a_mover(it) {
+                    return None;
+                }
+                let b = it.visual_bounds()?;
+                (!destinations.iter().any(|m| inside_within_half_a_pixel(m, &b))).then_some((i, b, false))
+            })
+            .collect();
+        Self { candidates }
+    }
+
+    /// What is painted over the mover now at `dest`: every scrollbar, and the other
+    /// candidates after the mover's first item.
+    fn over(&self, display_list: &DisplayList, dest: &LogicalRect) -> Vec<LogicalRect> {
+        let first = display_list.items.iter().position(|it| {
+            paints_for_a_mover(it) && it.bounds().is_some_and(|b| inside_within_half_a_pixel(dest, &b))
+        });
+        self.candidates
+            .iter()
+            .filter(|(i, _, is_bar)| *is_bar || first.is_some_and(|f| *i > f))
+            .map(|(_, b, _)| *b)
+            .collect()
+    }
 }
 
 /// The reference frames (CSS transforms) open at a display-list item, as the
@@ -4881,14 +5125,19 @@ fn windowed_structural_damage(
     let mut unmappable = false;
     // `all` is one list and `window` its changed middle: a frame pushed inside the window is
     // read down to its pop, which may lie past the window (in the equal suffix).
-    let mut collect_window = |all: &[DisplayListItem],
+    // A frame's live matrices where the caller passed none: every frame as its push built it.
+    let built_only: HashMap<usize, azul_core::transform::ComputedTransform3D> = HashMap::new();
+    let mut collect_window = |list: &DisplayList,
                               window: core::ops::Range<usize>,
                               offsets: &ScrollOffsetMap,
                               frames: &FrameStack,
+                              live_values: Option<&HashMap<usize, azul_core::transform::ComputedTransform3D>>,
                               live: &dyn Fn(
         usize,
         azul_core::transform::ComputedTransform3D,
     ) -> azul_core::transform::ComputedTransform3D| {
+        let all = &list.items;
+        let index = list.frame_index();
         let mut stack = stack.clone();
         let mut frames = frames.clone();
         // The shadows of the prefix that are still open (a push inside a window was ruled
@@ -4960,11 +5209,20 @@ fn windowed_structural_damage(
             // Switch toggle's 2830 stale px — and, for Text, the LCD
             // subpixel fringe one column outside the box.
             // A frame in the window is damaged by what it PAINTS (its box and everything down
-            // to its pop: `reference_frame_extent_walked`), not by its box alone: its matrix
-            // may be what changed, and what it paints past its box (an overflowing child, a
-            // shadow) can lie in the equal suffix, where no item is damaged.
+            // to its pop), not by its box alone: its matrix may be what changed, and what it
+            // paints past its box (an overflowing child, a shadow) can lie in the equal
+            // suffix, where no item is damaged. With the frames INSIDE it where their
+            // matrices paint them (`FrameIndex::extent_with`, A1-37): the extent of the items
+            // where they are laid out missed a card moved by `translate(-100, 0)` inside the
+            // frame by 100 px. A matrix with perspective inside it: no rect covers it.
             let painted = match item {
-                DisplayListItem::PushReferenceFrame { .. } => reference_frame_extent_walked(all, at),
+                DisplayListItem::PushReferenceFrame { .. } => {
+                    let extent = index.extent_with(all, at, live_values.unwrap_or(&built_only));
+                    if extent.is_none() {
+                        unmappable = true;
+                    }
+                    extent
+                }
                 _ => item.visual_bounds().or_else(|| item.bounds()),
             };
             let Some(b) = painted else {
@@ -4999,17 +5257,19 @@ fn windowed_structural_damage(
     };
 
     collect_window(
-        o,
+        old,
         prefix..o.len() - suffix,
         old_offsets,
         &frames_old,
+        values.old,
         &|key, built| values.old_matrix(key, built),
     );
     collect_window(
-        n,
+        new,
         prefix..n.len() - suffix,
         new_offsets,
         &frames_new,
+        values.new,
         &|key, built| values.new_matrix(key, built),
     );
     if unmappable {
@@ -5197,16 +5457,23 @@ fn compute_display_list_damage_impl(
                 if !old_item.is_visually_equal(new_item) {
                     // A transform that changed moves the frame's whole
                     // content: damaged where it was and where it is.
-                    let content = |items: &[DisplayListItem], b: &LogicalRect, acc: (f32, f32)| {
-                        let c = reference_frame_extent_walked(items, idx).unwrap_or(*b);
-                        LogicalRect {
+                    // What the frame paints, with the frames INSIDE it where their matrices
+                    // paint them (`FrameIndex::extent_with`, A1-37; the list's index answers
+                    // without a walk from the push to the pop). `None`: a matrix with
+                    // perspective inside it, which no rect covers.
+                    let built_only = HashMap::new();
+                    let content = |list: &DisplayList,
+                                   live: Option<&HashMap<usize, azul_core::transform::ComputedTransform3D>>,
+                                   acc: (f32, f32)| {
+                        let c = list.frame_index().extent_with(&list.items, idx, live.unwrap_or(&built_only))?;
+                        Some(LogicalRect {
                             origin: at(c.origin, acc),
                             size: c.size,
-                        }
+                        })
                     };
                     let (Some(a), Some(b)) = (
-                        frames_old.map(content(&old.items, ob.inner(), acc_old)),
-                        frames_new.map(content(&new.items, nb.inner(), acc_new)),
+                        content(old, values.old, acc_old).and_then(|c| frames_old.map(c)),
+                        content(new, values.new, acc_new).and_then(|c| frames_new.map(c)),
                     ) else {
                         return None;
                     };
@@ -5227,7 +5494,14 @@ fn compute_display_list_damage_impl(
         match new_item {
             DisplayListItem::PushScrollFrame { scroll_id, .. } => {
                 let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
-                let o = old_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                // The OLD frame's own id for the old offsets: the pair is of one kind, not
+                // necessarily of one id (a frame rebuilt under another id kept the old one's
+                // place in the list).
+                let old_id = match old_item {
+                    DisplayListItem::PushScrollFrame { scroll_id: old_id, .. } => old_id,
+                    _ => scroll_id,
+                };
+                let o = old_offsets.get(old_id).copied().unwrap_or((0.0, 0.0));
                 let n = new_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
                 offset_stack.push((
                     (acc_old.0 + o.0, acc_old.1 + o.1),
@@ -5670,7 +5944,7 @@ fn compute_display_list_damage_impl(
                     }
                 }
             }
-            if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
+            if blit_debug() {
                 eprintln!(
                     "[dldiff] mismatch {:?} old_bounds={:?}",
                     std::mem::discriminant(new_item),
@@ -5964,12 +6238,18 @@ fn view_damage_in_list(
     depth: usize,
 ) -> Vec<LogicalRect> {
     let mut damage = Vec::new();
+    // Nothing after the list's last view can add damage here, and a list with no view
+    // (a map's own list of 17,495 items, asked every frame for the views inside it) none
+    // at all: the walk below only keeps the frames around the views.
+    let Some(&last_view) = list.frame_index().views().last() else {
+        return damage;
+    };
     // The frames around the current item, this frame's: a view is painted through them.
     let mut stack = match values.new {
         Some(live) => ScrollStack::with_transforms(new_offsets, live),
         None => ScrollStack::new(new_offsets),
     };
-    for item in &list.items {
+    for item in list.items.iter().take(last_view + 1) {
         if let DisplayListItem::VirtualView {
             child_dom_id,
             bounds,
@@ -6055,6 +6335,59 @@ fn view_damage_in_list(
     damage
 }
 
+/// More damage rects than this are first gathered into a coarse grid
+/// ([`gather_damage_into_grid`]). Up to here [`coalesce_damage_rects`] is exactly its merge
+/// rule; past it the rule's pair tests are the cost (2,000 scattered rects: 2 million tests
+/// per pass and 2,000 rects left, each a pass of the painter over the list), and where every
+/// label of a map changed the precision is worth nothing.
+const MAX_COALESCE_RECTS: usize = 256;
+
+/// The grid of [`gather_damage_into_grid`]: this many cells each way over the box around
+/// all the rects.
+const COALESCE_GRID: usize = 8;
+
+/// `rects` reduced to at most `MAX_COALESCE_RECTS + COALESCE_GRID^2`, every rect still
+/// covered: the box around all of them is cut into `COALESCE_GRID` x `COALESCE_GRID` cells,
+/// and the rects smaller than a cell both ways become one rect per cell, the box around
+/// those whose centre is in it. The larger ones stay as they are - unless there are more than
+/// `MAX_COALESCE_RECTS` of those too, which then cover the box between them: the box itself.
+fn gather_damage_into_grid(rects: &mut Vec<LogicalRect>) {
+    let Some(first) = rects.first().copied() else {
+        return;
+    };
+    let bound = rects.iter().skip(1).fold(first, |a, r| union_rect(&a, r));
+    let (cell_w, cell_h) = (
+        bound.size.width / COALESCE_GRID as f32,
+        bound.size.height / COALESCE_GRID as f32,
+    );
+    if !(cell_w > 0.0 && cell_h > 0.0) {
+        *rects = vec![bound];
+        return;
+    }
+    let mut cells: Vec<Option<LogicalRect>> = vec![None; COALESCE_GRID * COALESCE_GRID];
+    let mut large: Vec<LogicalRect> = Vec::new();
+    for r in rects.drain(..) {
+        if r.size.width > cell_w || r.size.height > cell_h {
+            large.push(r);
+            continue;
+        }
+        // The cell of the rect's centre (a NaN or a centre past the box lands in an edge
+        // cell: `as usize` saturates).
+        let column = (((r.origin.x + r.size.width * 0.5 - bound.origin.x) / cell_w) as usize)
+            .min(COALESCE_GRID - 1);
+        let row = (((r.origin.y + r.size.height * 0.5 - bound.origin.y) / cell_h) as usize)
+            .min(COALESCE_GRID - 1);
+        let cell = &mut cells[row * COALESCE_GRID + column];
+        *cell = Some(cell.map_or(r, |c| union_rect(&c, &r)));
+    }
+    if large.len() > MAX_COALESCE_RECTS {
+        rects.push(bound);
+        return;
+    }
+    rects.extend(large);
+    rects.extend(cells.into_iter().flatten());
+}
+
 /// Merge overlapping or adjacent damage rects to reduce overdraw.
 ///
 /// Two rects within 8 logical px of each other merge when their bounding box
@@ -6070,6 +6403,11 @@ fn view_damage_in_list(
 pub fn coalesce_damage_rects(rects: &mut Vec<LogicalRect>) {
     if rects.len() <= 1 {
         return;
+    }
+    // The merge below tests every pair, again after every pass that merged something, and
+    // every rect it leaves is one more pass of the painter over the list.
+    if rects.len() > MAX_COALESCE_RECTS {
+        gather_damage_into_grid(rects);
     }
     let area = |r: &LogicalRect| (r.size.width.max(0.0) * r.size.height.max(0.0)).max(0.0);
     let mut changed = true;
@@ -7285,70 +7623,6 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
         ];
         assert_eq!(find_matching_pop(&items, 0, MatchKind::ScrollFrame), 1);
-    }
-
-    // ============================== compute_exposed_rects ===================
-
-    #[test]
-    fn compute_exposed_rects_zero_and_subpixel_delta_expose_nothing() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        assert!(compute_exposed_rects(&b, 0.0, 0.0).is_empty());
-        assert!(
-            compute_exposed_rects(&b, 0.49, -0.49).is_empty(),
-            "|d| <= 0.5 is a no-op"
-        );
-    }
-
-    #[test]
-    fn compute_exposed_rects_nan_delta_exposes_nothing() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        // NaN.abs() > 0.5 is false — no strip, no panic.
-        assert!(compute_exposed_rects(&b, f32::NAN, f32::NAN).is_empty());
-    }
-
-    #[test]
-    fn compute_exposed_rects_clamps_strip_to_bounds() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        let r = compute_exposed_rects(&b, 0.0, 1000.0);
-        assert_eq!(r.len(), 1);
-        assert_eq!(
-            r[0].size.height, 100.0,
-            "strip cannot exceed the frame height"
-        );
-        assert_eq!(r[0].size.width, 200.0);
-    }
-
-    #[test]
-    fn compute_exposed_rects_infinite_delta_saturates_to_bounds() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        let pos = compute_exposed_rects(&b, 0.0, f32::INFINITY);
-        assert_eq!(pos.len(), 1);
-        assert_eq!(
-            pos[0].size.height, 100.0,
-            "+inf must clamp via min(h), not stay inf"
-        );
-        assert!(pos[0].origin.y.is_finite());
-
-        let neg = compute_exposed_rects(&b, 0.0, f32::NEG_INFINITY);
-        assert_eq!(neg.len(), 1);
-        assert_eq!(neg[0].size.height, 100.0);
-        assert!(!neg[0].size.height.is_nan());
-    }
-
-    #[test]
-    fn compute_exposed_rects_diagonal_yields_two_strips() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        let r = compute_exposed_rects(&b, -10.0, 10.0);
-        assert_eq!(
-            r.len(),
-            2,
-            "diagonal scroll = vertical strip + horizontal strip"
-        );
-        assert!(r.iter().any(|s| s.size.width == 200.0), "full-width strip");
-        assert!(
-            r.iter().any(|s| s.size.height == 100.0),
-            "full-height strip"
-        );
     }
 
     // ============================== scroll_shift_region =====================
@@ -10109,6 +10383,50 @@ mod autotest_generated {
         );
     }
 
+    /// A2-cpu-06 (the layered clip): a layer under a clip that ends between device pixels is
+    /// cut to the pixels a paint under the clip may write (`AzRect::pixel_box`: both edges
+    /// truncated). A clip (4.5, 0) 10 x 8 at a scale factor of 1 is 4.5 .. 14.5: a fill under
+    /// it writes the columns 4 .. 13, and so does the opacity group's layer.
+    /// Mutation: `round()` on the clip's edges (5 .. 15) leaves column 4 white and paints 14.
+    #[test]
+    fn a_layer_is_cut_by_the_clip_around_it_where_a_fill_is_cut() {
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let list = dlist(vec![
+            DisplayListItem::PushClip {
+                bounds: wlr(4.5, 0.0, 10.0, 8.0),
+                border_radius: crate::solver3::display_list::BorderRadius::default(),
+            },
+            DisplayListItem::PushOpacity {
+                bounds: wlr(0.0, 0.0, 24.0, 8.0),
+                opacity: 0.5,
+                opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
+            },
+            rect_item(0.0, 0.0, 24.0, 8.0, red),
+            DisplayListItem::PopOpacity,
+            DisplayListItem::PopClip,
+        ]);
+        let mut c = CompositorState::new(24, 24);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        assert_eq!(c.layers.len(), 2, "premise: the opacity group is a layer");
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
+        let mut out = AzulPixmap::new(24, 24).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        let white = [255, 255, 255, 255];
+        assert_eq!(at(&out, 3, 4), white, "left of the clip");
+        assert_ne!(at(&out, 4, 4), white, "the column the clip starts in is the clip's");
+        assert_ne!(at(&out, 13, 4), white, "its last whole column");
+        assert_eq!(at(&out, 14, 4), white, "the column it ends in is not written, as for a fill");
+    }
+
     /// The matrix baked into a `PushReferenceFrame` is the value at display-list
     /// BUILD time. An animated transform changes every frame without the list
     /// being rebuilt, so layer allocation must read the LIVE value.
@@ -11320,88 +11638,6 @@ mod autotest_generated {
         );
     }
 
-    // ============================== scroll_layer =============================
-
-    #[test]
-    fn scroll_layer_with_an_unknown_id_is_ok() {
-        let mut c = CompositorState::new(32, 32);
-        let list = dlist(vec![]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        let (rr, mut gc, _st) = render_deps();
-        assert!(
-            c.scroll_layer(
-                4242,
-                (0.0, 10.0),
-                &list,
-                1.0,
-                &rr,
-                &test_font_manager(),
-                &mut gc
-            )
-            .is_ok(),
-            "scrolling a frame that has no layer is a no-op, not a panic"
-        );
-    }
-
-    #[test]
-    fn scroll_layer_ignores_subpixel_deltas() {
-        // Taller than the frame: a frame covering the WHOLE root is the
-        // page's own and is painted in place, without a layer.
-        let mut c = CompositorState::new(32, 40);
-        let list = dlist(vec![
-            push_scroll(1, 0.0, 0.0, 32.0, 32.0),
-            opaque_rect(0.0, 0.0, 32.0, 200.0),
-            DisplayListItem::PopScrollFrame,
-        ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        let (rr, mut gc, _st) = render_deps();
-        c.scroll_layer(
-            1,
-            (0.0, 0.4),
-            &list,
-            1.0,
-            &rr,
-            &test_font_manager(),
-            &mut gc,
-        )
-        .unwrap();
-        let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
-        assert_eq!(
-            l.scroll_offset,
-            (0.0, 0.0),
-            "|dy| < 0.5 must not move anything"
-        );
-        assert!(l.damage.is_empty());
-    }
-
-    #[test]
-    fn scroll_layer_updates_offset_and_records_the_exposed_strip() {
-        // Taller than the frame: a frame covering the WHOLE root is the
-        // page's own and is painted in place, without a layer.
-        let mut c = CompositorState::new(32, 40);
-        let list = dlist(vec![
-            push_scroll(1, 0.0, 0.0, 32.0, 32.0),
-            opaque_rect(0.0, 0.0, 32.0, 200.0),
-            DisplayListItem::PopScrollFrame,
-        ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        let (rr, mut gc, _st) = render_deps();
-        c.scroll_layer(
-            1,
-            (0.0, 10.0),
-            &list,
-            1.0,
-            &rr,
-            &test_font_manager(),
-            &mut gc,
-        )
-        .unwrap();
-        let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
-        assert_eq!(l.scroll_offset, (0.0, 10.0));
-        assert_eq!(l.damage.len(), 1, "a single-axis scroll exposes one strip");
-        assert!(l.composite_dirty);
-    }
-
     // ============================== render_display_list_range ================
 
     #[test]
@@ -11762,5 +11998,704 @@ mod lane_az_1_a_group_inside_a_turned_frame {
                  differ along the edges only, not by {n} pixels"
             );
         }
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A1 (`audit/A1.md`): the ones that need this file's
+/// private items.
+#[cfg(test)]
+mod audit_a1_tests {
+    use super::*;
+
+    /// A 100 x 80 frame whose pixel (x, y) holds (x, y, 7, 255).
+    fn numbered() -> AzulPixmap {
+        let mut pm = AzulPixmap::new(100, 80).expect("a pixmap");
+        for y in 0..80u32 {
+            for x in 0..100u32 {
+                let i = ((y * 100 + x) * 4) as usize;
+                pm.data_mut()[i..i + 4].copy_from_slice(&[x as u8, y as u8, 7, 255]);
+            }
+        }
+        pm
+    }
+
+    fn at(pm: &AzulPixmap, x: i32, y: i32) -> (u8, u8) {
+        let i = ((y * 100 + x) * 4) as usize;
+        (pm.data()[i], pm.data()[i + 1])
+    }
+
+    /// A1-09 (f): the move a shift reports is the move it made, as the presenter's contract
+    /// asks: the previous frame with the move applied, then the painted strips copied from the
+    /// new frame, is the new frame. A clip (10, 10) 60 x 40 scrolled by (12, 0): the content
+    /// moves 12 px to the left, so pixel (20, 15) shows what (32, 15) showed; `dst` is the clip
+    /// cut to where its source is in the clip, (10, 10) 48 x 40, with dx = -12, dy = 0, and the
+    /// strip that came into view is the 13 columns x 57 .. 70 (12 and the one over-covered).
+    /// The same for the other seven directions.
+    /// Mutations: `dx: px_dx` (the sign), or `dst` the whole clip (its last 12 columns would
+    /// read from outside the clip) fail every direction.
+    #[test]
+    fn the_move_a_shift_reports_is_the_move_it_made() {
+        let clip = LogicalRect {
+            origin: LogicalPosition { x: 10.0, y: 10.0 },
+            size: LogicalSize { width: 60.0, height: 40.0 },
+        };
+        for delta in [(12.0_f32, 0.0_f32), (-12.0, 0.0), (0.0, 7.0), (0.0, -7.0), (5.0, 3.0), (-5.0, 3.0), (5.0, -3.0), (-5.0, -3.0)] {
+            let old = numbered();
+            let mut new = numbered();
+            let (strips, moved) = scroll_shift_region_moved(&mut new, &clip, delta, delta, 1.0);
+            let moved = moved.expect("pixels were moved");
+            let (dx, dy) = (-(delta.0 as i32), -(delta.1 as i32));
+            assert_eq!((moved.dx, moved.dy), (dx, dy), "delta {delta:?}");
+            assert_eq!(
+                moved.dst,
+                ((10 + dx.max(0)) as u32, (10 + dy.max(0)) as u32, (60 - dx.abs()) as u32, (40 - dy.abs()) as u32),
+                "delta {delta:?}: the clip cut to where its source is in the clip"
+            );
+            assert!(!strips.is_empty(), "delta {delta:?}: a strip came into view");
+            // The renderer paints the strips next: stand-in pixels no frame holds.
+            for strip in &strips {
+                new.fill_rect(strip.origin.x as i32, strip.origin.y as i32, strip.size.width as i32, strip.size.height as i32, 200, 200, 200, 255);
+            }
+            // The presenter: the frame before, the move, then the painted strips from the frame.
+            let mut shown = numbered();
+            let (x, y, w, h) = moved.dst;
+            for py in y..y + h {
+                for px in x..x + w {
+                    let from = (((py as i32 - dy) * 100 + (px as i32 - dx)) * 4) as usize;
+                    let to = ((py * 100 + px) * 4) as usize;
+                    let source = [old.data()[from], old.data()[from + 1], old.data()[from + 2], old.data()[from + 3]];
+                    shown.data_mut()[to..to + 4].copy_from_slice(&source);
+                }
+            }
+            for strip in &strips {
+                let (sx, sy) = (strip.origin.x as usize, strip.origin.y as usize);
+                let (sw, sh) = (strip.size.width as usize, strip.size.height as usize);
+                for py in sy..sy + sh {
+                    let row = (py * 100 + sx) * 4..(py * 100 + sx + sw) * 4;
+                    let painted = new.data()[row.clone()].to_vec();
+                    shown.data_mut()[row].copy_from_slice(&painted);
+                }
+            }
+            assert!(shown.data() == new.data(), "delta {delta:?}: the move and the strips give the frame");
+        }
+        let mut pm = numbered();
+        let (strips, moved) = scroll_shift_region_moved(&mut pm, &clip, (12.0, 0.0), (12.0, 0.0), 1.0);
+        assert_eq!(at(&pm, 20, 15), (32, 15), "the hand-computed pixel");
+        assert_eq!(moved, Some(PresentMove { dst: (10, 10, 48, 40), dx: -12, dy: 0 }));
+        assert_eq!(strips.len(), 1);
+        assert_eq!((strips[0].origin.x, strips[0].size.width), (57.0, 13.0));
+        // Nothing moved: no move.
+        let mut still = numbered();
+        assert_eq!(scroll_shift_region_moved(&mut still, &clip, (0.2, 0.0), (0.2, 0.0), 1.0).1, None);
+        // A move larger than the clip: its strips are the clip, nothing was moved.
+        let (whole, none) = scroll_shift_region_moved(&mut still, &clip, (80.0, 0.0), (80.0, 0.0), 1.0);
+        assert_eq!((whole.len(), none), (1, None));
+        assert_eq!(at(&still, 20, 15), (20, 15));
+    }
+
+    fn lr(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    fn opaque(x: f32, y: f32, w: f32, h: f32, rgb: [u8; 3]) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: lr(x, y, w, h).into(),
+            color: azul_css::props::basic::ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
+            border_radius: crate::solver3::display_list::BorderRadius::default(),
+        }
+    }
+
+    /// A2-cpu-19 and A2-cpu-27: a view (20, 10) 200 x 100 over a two-coloured backdrop, its
+    /// child one opaque ground inside a frame (key 7), and a `TextLayout` (it has bounds and
+    /// paints nothing) over the view. A pan by 12 px:
+    /// - with the frame at the identity the ground covers the view: the pixels move and the
+    ///   damage is the strip alone (x 207 .. 220), not the box of the item that paints nothing;
+    /// - with the frame scaled to a half the ground is painted on a quarter of the view: no
+    ///   move, the view is repainted.
+    /// Mutations: the item that paints nothing counted as an overlay adds two rects of the
+    /// view's size; the fills taken where they are laid out move the pixels under the scale.
+    #[test]
+    fn a_views_pan_moves_pixels_only_under_a_ground_that_is_painted_there() {
+        use std::sync::Arc;
+
+        use azul_core::dom::DomId;
+        let identity = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        let child = DisplayList {
+            items: vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 7 },
+                    initial_transform: azul_core::transform::ComputedTransform3D { m: identity },
+                    bounds: lr(0.0, 0.0, 400.0, 300.0).into(),
+                },
+                opaque(0.0, 0.0, 400.0, 300.0, [240, 240, 230]),
+                DisplayListItem::PopReferenceFrame,
+            ],
+            ..Default::default()
+        };
+        let view = lr(20.0, 10.0, 200.0, 100.0);
+        let host = DisplayList {
+            items: vec![
+                opaque(0.0, 0.0, 120.0, 200.0, [200, 0, 0]),
+                opaque(120.0, 0.0, 200.0, 200.0, [0, 0, 200]),
+                DisplayListItem::VirtualView {
+                    child_dom_id: DomId { inner: 1 },
+                    bounds: view.into(),
+                    clip_rect: view.into(),
+                    content_offset: LogicalPosition { x: -12.0, y: 0.0 },
+                },
+                DisplayListItem::TextLayout {
+                    layout: Arc::new(()),
+                    bounds: view.into(),
+                    font_hash: crate::text3::cache::FontHash::from_hash(0),
+                    font_size_px: 12.0,
+                    color: azul_css::props::basic::ColorU { r: 0, g: 0, b: 0, a: 255 },
+                },
+            ],
+            ..Default::default()
+        };
+        let views: std::collections::BTreeMap<DomId, Arc<DisplayList>> =
+            [(DomId { inner: 1 }, Arc::new(child))].into_iter().collect();
+        let shift = ViewShift { index: 2, clip: view, delta: (12.0, 0.0), offset: (12.0, 0.0) };
+        let pan = |values: &HashMap<usize, azul_core::transform::ComputedTransform3D>| {
+            let mut pm = AzulPixmap::new(300, 200).expect("a pixmap");
+            execute_virtual_view_shift_with(&mut pm, &host, &views, &shift, 1.0, &ScrollOffsetMap::new(), values)
+        };
+        let moved = pan(&HashMap::new());
+        assert_eq!(moved.moves, vec![PresentMove { dst: (20, 10, 188, 100), dx: -12, dy: 0 }]);
+        assert_eq!(moved.damage.len(), 1, "the strip alone: {:?}", moved.damage);
+        assert_eq!((moved.damage[0].origin.x, moved.damage[0].size.width), (207.0, 13.0));
+        let mut half = identity;
+        half[0][0] = 0.5;
+        half[1][1] = 0.5;
+        let scaled: HashMap<usize, azul_core::transform::ComputedTransform3D> =
+            [(7, azul_core::transform::ComputedTransform3D { m: half })].into_iter().collect();
+        let repainted = pan(&scaled);
+        assert!(repainted.moves.is_empty(), "the ground is painted elsewhere: no move");
+        assert_eq!(repainted.damage, vec![view], "the view is repainted");
+    }
+
+    /// A1-27: whether fills cover a rect is the answer the sampling gave, found with one test
+    /// per fill when one fill covers it and with a row's own fills otherwise: one ground over
+    /// the target; two halves that meet; two halves with a gap of 8 px (a sample falls in it);
+    /// a gap of 2 px between samples (not seen, as before); a strip missing at the bottom.
+    /// Mutation: the row's fills taken by x instead of by y calls the bottom strip covered.
+    #[test]
+    fn fills_cover_a_rect_as_the_samples_said() {
+        let target = lr(20.0, 10.0, 200.0, 100.0);
+        assert!(rect_covered_by(&target, &[lr(0.0, 0.0, 400.0, 300.0)]));
+        assert!(rect_covered_by(&target, &[lr(0.0, 0.0, 120.0, 300.0), lr(120.0, 0.0, 280.0, 300.0)]));
+        assert!(!rect_covered_by(&target, &[lr(0.0, 0.0, 120.0, 300.0), lr(128.0, 0.0, 280.0, 300.0)]));
+        // Samples are at x = 22, 26, ..: a gap of 123 .. 125 lies between 122 and 126.
+        assert!(rect_covered_by(&target, &[lr(0.0, 0.0, 123.0, 300.0), lr(125.0, 0.0, 280.0, 300.0)]));
+        assert!(!rect_covered_by(&target, &[lr(0.0, 0.0, 400.0, 90.0)]), "rows 90 .. 110 are bare");
+        assert!(!rect_covered_by(&target, &[]));
+    }
+
+    fn view_at(child: usize, r: LogicalRect, offset: (f32, f32)) -> DisplayListItem {
+        DisplayListItem::VirtualView {
+            child_dom_id: azul_core::dom::DomId { inner: child },
+            bounds: r.into(),
+            clip_rect: r.into(),
+            content_offset: LogicalPosition { x: offset.0, y: offset.1 },
+        }
+    }
+
+    fn listed(items: Vec<DisplayListItem>) -> DisplayList {
+        DisplayList { items, ..Default::default() }
+    }
+
+    /// A1-31: the walks that look for views stop at the list's last view - and still reach
+    /// it. A host of [fill, view, fill, fill]: the view is item 1 of 4.
+    /// - Its child changed (a 10 x 10 fill at (5, 5) turned from red to blue): the damage is
+    ///   that fill where the view shows it, (20 + 5, 10 + 5) 10 x 10.
+    /// - Its content scrolled by 12 px: one shift, of item 1, by 12.
+    /// - A host with no view at all: no damage, no shift.
+    /// Mutation: `.take(last_view)` in place of `.take(last_view + 1)` in either walk stops
+    /// before the view and finds nothing.
+    #[test]
+    fn the_walks_for_views_stop_at_the_last_view_and_reach_it() {
+        use std::sync::Arc;
+
+        use azul_core::dom::DomId;
+        let view = lr(20.0, 10.0, 200.0, 100.0);
+        let host = |offset: (f32, f32)| {
+            listed(vec![
+                opaque(0.0, 0.0, 300.0, 200.0, [9, 9, 9]),
+                view_at(1, view, offset),
+                opaque(250.0, 0.0, 10.0, 10.0, [1, 1, 1]),
+                opaque(250.0, 20.0, 10.0, 10.0, [2, 2, 2]),
+            ])
+        };
+        let child = |rgb: [u8; 3]| -> std::collections::BTreeMap<DomId, Arc<DisplayList>> {
+            [(DomId { inner: 1 }, Arc::new(listed(vec![opaque(5.0, 5.0, 10.0, 10.0, rgb)])))].into_iter().collect()
+        };
+        let none = ScrollOffsetMap::new();
+        let damage = compute_virtual_view_damage(&host((0.0, 0.0)), &child([0, 0, 255]), &child([255, 0, 0]), &none);
+        assert!(!damage.is_empty(), "the view is the list's last view, and is looked at");
+        let around = damage.iter().skip(1).fold(damage[0], |a, r| union_rect(&a, r));
+        assert!(
+            around.origin.x <= 25.0 && around.origin.y <= 15.0 && around.origin.x + around.size.width >= 35.0 && around.origin.y + around.size.height >= 25.0,
+            "the changed fill, where the view shows it: {damage:?}"
+        );
+        assert!(around.size.width < 40.0 && around.size.height < 40.0, "and not the view: {damage:?}");
+
+        let shifts = collect_virtual_view_shifts(&host((0.0, 0.0)), &host((-12.0, 0.0)), &none, &none);
+        assert_eq!(shifts.len(), 1);
+        assert_eq!((shifts[0].index, shifts[0].delta), (1, (12.0, 0.0)));
+        // One list against itself, and lists with no view: nothing.
+        let same = host((-12.0, 0.0));
+        assert!(collect_virtual_view_shifts(&same, &same, &none, &none).is_empty());
+        let plain = || listed(vec![opaque(0.0, 0.0, 300.0, 200.0, [9, 9, 9])]);
+        assert!(collect_virtual_view_shifts(&plain(), &plain(), &none, &none).is_empty());
+        assert!(compute_virtual_view_damage(&plain(), &child([0, 0, 255]), &child([255, 0, 0]), &none).is_empty());
+    }
+
+    /// A1-31: no scroll frame is shifted in a frame in which no offset moved, and the one
+    /// whose offset moved still is. A scroll frame (id 4) with the clip (10, 10) 100 x 50:
+    /// offsets (0, 0) -> (0, 0) give nothing; (0, 0) -> (0, 12) give that frame, by 12.
+    /// Mutation: the early return taken whenever ANY offset is in the map (`any(|_| true)`
+    /// negated) loses the shift.
+    #[test]
+    fn a_scroll_frame_is_shifted_only_in_a_frame_in_which_an_offset_moved() {
+        let id: LocalScrollId = 4;
+        let clip = lr(10.0, 10.0, 100.0, 50.0);
+        let host = listed(vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: clip.into(),
+                content_size: LogicalSize { width: 100.0, height: 500.0 },
+                scroll_id: id,
+            },
+            opaque(10.0, 10.0, 100.0, 500.0, [9, 9, 9]),
+            DisplayListItem::PopScrollFrame,
+        ]);
+        let at = |y: f32| -> ScrollOffsetMap { [(id, (0.0, y))].into_iter().collect() };
+        let no_transforms = HashMap::new();
+        assert!(collect_scroll_shifts(&host, &at(0.0), &at(0.0), &no_transforms, 1.0).is_empty());
+        let moved = collect_scroll_shifts(&host, &at(12.0), &at(0.0), &no_transforms, 1.0);
+        assert_eq!(moved.len(), 1);
+        assert_eq!((moved[0].0, moved[0].2), (id, (0.0, 12.0)));
+    }
+
+    /// A1-34: more damage rects than the merge can pair are gathered into a grid first. 2,000
+    /// rects of 4 x 4 on a lattice of 40 px, 50 columns by 40 rows: none is within 8 px of
+    /// another, so the pair rule alone merges nothing (two million tests a pass for 2,000
+    /// rects out, each a pass of the painter). The box around them is 1964 x 1564, a cell of
+    /// the 8 x 8 grid 245.5 x 195.5; every cell holds rects, whose boxes are 36 px or more
+    /// apart (the lattice's gap), so 64 rects come out, and every rect put in lies inside one.
+    /// 200 rects of the same lattice are under the bound and come out as they went in.
+    /// Mutation: `MAX_COALESCE_RECTS` at `usize::MAX` leaves 2,000 rects.
+    #[test]
+    fn many_scattered_damage_rects_are_gathered_into_a_grid() {
+        let lattice = |columns: usize, rows: usize| -> Vec<LogicalRect> {
+            (0..rows).flat_map(|j| (0..columns).map(move |i| lr(40.0 * i as f32, 40.0 * j as f32, 4.0, 4.0))).collect()
+        };
+        let put_in = lattice(50, 40);
+        let mut rects = put_in.clone();
+        coalesce_damage_rects(&mut rects);
+        assert_eq!(rects.len(), 64, "one rect per cell of the grid");
+        for r in &put_in {
+            assert!(
+                rects.iter().any(|g| g.origin.x <= r.origin.x
+                    && g.origin.y <= r.origin.y
+                    && g.origin.x + g.size.width >= r.origin.x + r.size.width
+                    && g.origin.y + g.size.height >= r.origin.y + r.size.height),
+                "{r:?} is still damaged"
+            );
+        }
+        let total: f32 = rects.iter().map(|g| g.size.width * g.size.height).sum();
+        assert!(total < 1964.0 * 1564.0, "the cells' boxes, not the box around everything");
+        let mut few = lattice(20, 10);
+        coalesce_damage_rects(&mut few);
+        assert_eq!(few, lattice(20, 10), "200 rects are under the bound: the pair rule alone");
+    }
+
+    /// A1-32: the keys whose value differs between two frames, found once per frame.
+    /// - equal maps: none;
+    /// - {1: 0.5, 2: 0.25} -> {1: 0.5, 2: 0.75}: key 2 (changed);
+    /// - {1: 0.5} -> {1: 0.5, 4: 1.0}: key 4 (new; the counts differ);
+    /// - {1: 0.5, 2: 0.25} -> {1: 0.5}: key 2 (gone; the counts differ);
+    /// - {1: 0.5, 2: 0.25} -> {1: 0.5, 3: 0.25}: keys 2 and 3 - the SAME count, one gone and
+    ///   one new: the old map is searched because a new key was not found in it.
+    /// Mutation: the search of the old map only when the counts differ loses key 2 of the
+    /// last case.
+    #[test]
+    fn the_keys_whose_value_changed_are_the_changed_the_new_and_the_gone() {
+        let map = |pairs: &[(usize, f32)]| -> HashMap<usize, f32> { pairs.iter().copied().collect() };
+        let changed = |old: &[(usize, f32)], new: &[(usize, f32)]| {
+            let mut keys: Vec<usize> = changed_keys(&map(old), &map(new)).into_iter().collect();
+            keys.sort_unstable();
+            keys
+        };
+        assert!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5), (2, 0.25)]).is_empty());
+        assert_eq!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5), (2, 0.75)]), vec![2]);
+        assert_eq!(changed(&[(1, 0.5)], &[(1, 0.5), (4, 1.0)]), vec![4]);
+        assert_eq!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5)]), vec![2]);
+        assert_eq!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5), (3, 0.25)]), vec![2, 3]);
+    }
+
+    /// A1-36: what is painted over a view inside a reference frame is repainted where it is
+    /// PAINTED when the view pans. A view (20, 10) 200 x 100 whose child is one opaque ground;
+    /// after it a 20 x 10 panel laid out at (30, 20) inside a frame that moves it by (50, 0):
+    /// it is painted at (80, 20). A pan by 12 px drags the pixels of x 80 .. 100 to 68 .. 88,
+    /// so the damage must hold the panel where it is, (80, 20) 20 x 10, and where the move
+    /// left it, (68, 20) 20 x 10.
+    /// Mutation: the overlay placed by the scroll offsets alone (`moved_by(b, stack.scrolled())`)
+    /// damages (30, 20) and (20, 20) instead, and neither rect reaches x = 88 .. 100.
+    #[test]
+    fn an_overlay_in_a_moved_frame_is_repainted_where_it_is_painted_when_the_view_pans() {
+        use std::sync::Arc;
+
+        use azul_core::dom::DomId;
+        let moved_by_50 = azul_core::transform::ComputedTransform3D {
+            m: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [50.0, 0.0, 0.0, 1.0]],
+        };
+        let view = lr(20.0, 10.0, 200.0, 100.0);
+        let host = listed(vec![
+            view_at(1, view, (-12.0, 0.0)),
+            DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 9 },
+                initial_transform: moved_by_50,
+                bounds: lr(30.0, 20.0, 20.0, 10.0).into(),
+            },
+            opaque(30.0, 20.0, 20.0, 10.0, [0, 200, 0]),
+            DisplayListItem::PopReferenceFrame,
+        ]);
+        let views: std::collections::BTreeMap<DomId, Arc<DisplayList>> =
+            [(DomId { inner: 1 }, Arc::new(listed(vec![opaque(0.0, 0.0, 400.0, 300.0, [240, 240, 230])])))].into_iter().collect();
+        let shift = ViewShift { index: 0, clip: view, delta: (12.0, 0.0), offset: (12.0, 0.0) };
+        let mut pm = AzulPixmap::new(300, 200).expect("a pixmap");
+        let out = execute_virtual_view_shift_with(&mut pm, &host, &views, &shift, 1.0, &ScrollOffsetMap::new(), &HashMap::new());
+        assert_eq!(out.moves.len(), 1, "the ground covers the view: the pixels move");
+        let holds = |x0: f32, x1: f32| {
+            out.damage.iter().any(|r| r.origin.x <= x0 && r.origin.x + r.size.width >= x1 && r.origin.y <= 20.0 && r.origin.y + r.size.height >= 30.0)
+        };
+        assert!(holds(80.0, 100.0), "the panel where it is painted: {:?}", out.damage);
+        assert!(holds(68.0, 88.0), "and where the move left its pixels: {:?}", out.damage);
+    }
+
+    /// A1-35: the coverage question at the PREVIOUS offset, asked with the fills of the new
+    /// one. A view (20, 10) 200 x 100 over a two-coloured backdrop; its child's ground is laid
+    /// out at (12, 0), 400 x 300. Panned from offset 0 to 12 (delta 12):
+    /// - now the ground is painted from x = 12 + 20 - 12 = 20: the clip (20 .. 220) is covered;
+    /// - before the pan it was painted from x = 12 + 20 - 0 = 32: the columns 20 .. 32 showed
+    ///   the backdrop, and those pixels must not be moved. Asked with the new fills that is
+    ///   the clip moved by the delta the other way, 8 .. 208, which the fill from 20 does not
+    ///   cover: no move, the view is repainted.
+    /// Mutation: the clip moved WITH the delta (`moved_by(shift.clip, (-delta.0, -delta.1))`,
+    /// 32 .. 232) is covered, and the backdrop's pixels move.
+    #[test]
+    fn a_pan_asks_whether_the_content_covered_the_view_before_it_too() {
+        use std::sync::Arc;
+
+        use azul_core::dom::DomId;
+        let view = lr(20.0, 10.0, 200.0, 100.0);
+        let host = listed(vec![
+            opaque(0.0, 0.0, 120.0, 200.0, [200, 0, 0]),
+            opaque(120.0, 0.0, 200.0, 200.0, [0, 0, 200]),
+            view_at(1, view, (-12.0, 0.0)),
+        ]);
+        let child = |x: f32| -> std::collections::BTreeMap<DomId, Arc<DisplayList>> {
+            [(DomId { inner: 1 }, Arc::new(listed(vec![opaque(x, 0.0, 400.0, 300.0, [240, 240, 230])])))].into_iter().collect()
+        };
+        let shift = ViewShift { index: 2, clip: view, delta: (12.0, 0.0), offset: (12.0, 0.0) };
+        let pan = |views: &std::collections::BTreeMap<DomId, Arc<DisplayList>>| {
+            let mut pm = AzulPixmap::new(300, 200).expect("a pixmap");
+            execute_virtual_view_shift_with(&mut pm, &host, views, &shift, 1.0, &ScrollOffsetMap::new(), &HashMap::new())
+        };
+        let uncovered_before = pan(&child(12.0));
+        assert!(uncovered_before.moves.is_empty(), "the backdrop showed at x 20 .. 32 before the pan");
+        assert_eq!(uncovered_before.damage, vec![view]);
+        // Laid out at 0 it covered the view before (from x = 20) and covers it now (from 8).
+        assert_eq!(pan(&child(0.0)).moves.len(), 1);
+    }
+
+    /// A1-37: a frame whose matrix changed with a new list is damaged by what it PAINTS, the
+    /// frames inside it where their matrices put them. An outer frame (key 1), box (0, 0)
+    /// 200 x 40, holds an inner frame (key 2) moved by (300, 0) with a 50 x 20 fill laid out
+    /// at (20, 0): the fill is painted at x 320 .. 370. The new list bakes `translate(10, 0)`
+    /// into the outer frame: the fill is now painted at 330 .. 380. The damage must hold the
+    /// fill where it was and where it is, x 320 .. 380.
+    /// Mutation: the extent of the items where they are laid out
+    /// (`reference_frame_extent_walked`: (0, 0) 200 x 40) damages x 0 .. 210 and leaves the
+    /// fill's old picture at 320 .. 370 on screen.
+    #[test]
+    fn a_frame_changed_by_a_new_list_is_damaged_where_the_frames_inside_it_paint() {
+        let moved = |tx: f32| azul_core::transform::ComputedTransform3D {
+            m: [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [tx, 0.0, 0.0, 1.0]],
+        };
+        let page = |outer: f32| {
+            listed(vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 1 },
+                    initial_transform: moved(outer),
+                    bounds: lr(0.0, 0.0, 200.0, 40.0).into(),
+                },
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 2 },
+                    initial_transform: moved(300.0),
+                    bounds: lr(20.0, 0.0, 50.0, 20.0).into(),
+                },
+                opaque(20.0, 0.0, 50.0, 20.0, [0, 200, 0]),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopReferenceFrame,
+            ])
+        };
+        let none = ScrollOffsetMap::new();
+        let damage = compute_display_list_damage(&page(0.0), &page(10.0), &none, &none).expect("a paired diff");
+        let holds = |x0: f32, x1: f32| {
+            damage.iter().any(|r| r.origin.x <= x0 && r.origin.x + r.size.width >= x1 && r.origin.y <= 0.0 && r.origin.y + r.size.height >= 20.0)
+        };
+        assert!(holds(320.0, 370.0), "the fill where it was painted: {damage:?}");
+        assert!(holds(330.0, 380.0), "and where it is painted now: {damage:?}");
+    }
+
+    /// A1-38: a filter the flat walk does not apply gets a layer whatever it is, not only a
+    /// blur. A 100 x 100 frame, a red 40 x 40 fill at (10, 10) inside `filter:
+    /// grayscale(100%)`: painted through the layers it is grey - 0.2126 * 255 = 54 in every
+    /// channel - and the page next to it is the white the frame was cleared to.
+    /// Mutation: a layer for a blur alone (`has_blur` in `allocate_layers_from_display_list`)
+    /// allocates none, and the fill comes out red.
+    #[test]
+    fn a_filter_without_a_blur_gets_a_layer_and_is_applied() {
+        use azul_css::props::basic::length::PercentageValue;
+        let dl = listed(vec![
+            DisplayListItem::PushFilter {
+                bounds: lr(10.0, 10.0, 40.0, 40.0).into(),
+                filters: vec![StyleFilter::Grayscale(PercentageValue::new(100.0))],
+            },
+            opaque(10.0, 10.0, 40.0, 40.0, [255, 0, 0]),
+            DisplayListItem::PopFilter,
+        ]);
+        let mut comp = CompositorState::new(100, 100);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
+        assert!(comp.layers.values().any(|l| !l.filters.is_empty() && !l.is_backdrop_filter), "a layer for the group");
+        let rr = RendererResources::default();
+        let fm = FontManager::new(rust_fontconfig::FcFontCache::default()).expect("a font manager");
+        let mut gc = GlyphCache::new();
+        comp.render_layers(&dl, 1.0, &rr, &fm, &mut gc, &CpuRenderState::new(ScrollOffsetMap::new())).unwrap();
+        let mut out = AzulPixmap::new(100, 100).expect("a pixmap");
+        out.fill(255, 255, 255, 255);
+        comp.composite_frame(&mut out, 1.0);
+        let (r, g, b) = {
+            let i = ((30 * 100 + 30) * 4) as usize;
+            (out.data()[i], out.data()[i + 1], out.data()[i + 2])
+        };
+        assert!(r == g && g == b && (53..=55).contains(&r), "grey of red, 54: got ({r}, {g}, {b})");
+    }
+
+    /// A1-42: a `PopBackdropFilter` closes the layer its own push opened, and no other. An
+    /// outer backdrop filter (a layer) holds an inner one with no filters (no layer) and,
+    /// after it, a filter group (a layer): that group's layer is the OUTER backdrop layer's
+    /// child.
+    /// Mutation: the pop paired by "is the top layer a backdrop layer" closes the outer layer
+    /// at the inner pop; the filter group's layer becomes the root's child and the outer
+    /// layer, which does not skip its range, paints the group a second time.
+    #[test]
+    fn a_backdrop_filters_pop_closes_the_layer_its_own_push_opened() {
+        use azul_css::props::basic::length::PercentageValue;
+        let invert = || vec![StyleFilter::Invert(PercentageValue::new(100.0))];
+        let dl = listed(vec![
+            opaque(0.0, 0.0, 100.0, 100.0, [0, 0, 255]),
+            DisplayListItem::PushBackdropFilter { bounds: lr(0.0, 0.0, 100.0, 100.0).into(), filters: invert() },
+            DisplayListItem::PushBackdropFilter { bounds: lr(0.0, 0.0, 50.0, 50.0).into(), filters: Vec::new() },
+            DisplayListItem::PopBackdropFilter,
+            DisplayListItem::PushFilter { bounds: lr(60.0, 60.0, 20.0, 20.0).into(), filters: invert() },
+            opaque(60.0, 60.0, 20.0, 20.0, [255, 0, 0]),
+            DisplayListItem::PopFilter,
+            DisplayListItem::PopBackdropFilter,
+        ]);
+        let mut comp = CompositorState::new(100, 100);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
+        let backdrop = comp.layers.values().find(|l| l.is_backdrop_filter).expect("the outer backdrop layer");
+        assert_eq!(backdrop.children.len(), 1, "the filter group inside it is its child");
+        let child = comp.layers.get(&backdrop.children[0]).expect("the child layer");
+        assert_eq!(child.display_list_range, (5, 6), "the filter group's own range");
+    }
+
+    /// A1-39: a layer's walk steps over the ranges of its child layers, however many, and
+    /// paints every other item. Six 10 x 10 fills side by side (item `k` at x = 10 k, red
+    /// 40 k); the ranges (1, 2) and (4, 6) belong to child layers: the items 0, 2 and 3 are
+    /// painted, 1, 4 and 5 are not (the pixmap keeps its white there).
+    /// Mutation: the cursor not advanced past a range that ended (`e <= i` as `e < i`) is
+    /// harmless here; `i = e + 1` after a range drops item 2; the ranges unsorted and the
+    /// cursor on the second one first paints item 1.
+    #[test]
+    fn a_layers_walk_steps_over_its_child_layers_ranges() {
+        let dl = listed((0..6u8).map(|k| opaque(10.0 * f32::from(k), 0.0, 10.0, 10.0, [40 * k, 0, 0])).collect());
+        let fm = FontManager::new(rust_fontconfig::FcFontCache::default()).expect("a font manager");
+        let mut gc = GlyphCache::new();
+        let mut pm = AzulPixmap::new(60, 10).expect("a pixmap");
+        pm.fill(255, 255, 255, 255);
+        render_display_list_range(
+            &dl,
+            &mut pm,
+            0,
+            6,
+            &[(4, 6), (1, 2)],
+            0.0,
+            0.0,
+            1.0,
+            &RendererResources::default(),
+            &fm,
+            &mut gc,
+            &CpuRenderState::new(ScrollOffsetMap::new()),
+        )
+        .unwrap();
+        let red_at = |k: u32| pm.data()[((5 * 60 + 10 * k + 5) * 4) as usize];
+        let green_at = |k: u32| pm.data()[((5 * 60 + 10 * k + 5) * 4 + 1) as usize];
+        for k in [0u32, 2, 3] {
+            assert_eq!((red_at(k), green_at(k)), ((40 * k) as u8, 0), "item {k} is this layer's and is painted");
+        }
+        for k in [1u32, 4, 5] {
+            assert_eq!((red_at(k), green_at(k)), (255, 255), "item {k} is a child layer's and is stepped over");
+        }
+    }
+
+    /// A1-40: the root layer is the frame - copied, not blended over what the frame was
+    /// cleared to. A translucent window: clear colour (0, 0, 255, 128), a red 10 x 10 fill at
+    /// (0, 0). Outside the fill the frame holds the clear colour exactly; blended onto the
+    /// frame the backend cleared to the same colour, its alpha came out 128 + 128 * 127 / 255
+    /// = 191.
+    /// Mutation: `blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0)` for the root gives 191.
+    #[test]
+    fn the_root_layer_is_copied_into_the_frame() {
+        let dl = listed(vec![opaque(0.0, 0.0, 10.0, 10.0, [255, 0, 0])]);
+        let clear = [0u8, 0, 255, 128];
+        let mut comp = CompositorState::new(40, 20);
+        comp.set_clear_color(clear);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
+        let fm = FontManager::new(rust_fontconfig::FcFontCache::default()).expect("a font manager");
+        let mut gc = GlyphCache::new();
+        comp.render_layers(&dl, 1.0, &RendererResources::default(), &fm, &mut gc, &CpuRenderState::new(ScrollOffsetMap::new())).unwrap();
+        let mut out = AzulPixmap::new(40, 20).expect("a pixmap");
+        out.fill(clear[0], clear[1], clear[2], clear[3]);
+        comp.composite_frame(&mut out, 1.0);
+        let at = |x: u32, y: u32| {
+            let i = ((y * 40 + x) * 4) as usize;
+            [out.data()[i], out.data()[i + 1], out.data()[i + 2], out.data()[i + 3]]
+        };
+        assert_eq!(at(30, 10), clear, "the cleared frame, once");
+        assert_eq!(at(5, 5), [255, 0, 0, 255], "the fill");
+    }
+
+    /// A1-44: what is painted over movers, read from the list once for all of them, is what
+    /// the per-mover reading found. A list of [mover A's fill, mover B's fill, a ring over
+    /// both, a scrollbar-less tail fill inside B]: destinations A = (0, 0) 100 x 20 and
+    /// B = (0, 30) 100 x 20.
+    /// - Over A: the items after A's first item (index 0) that lie inside no destination -
+    ///   the ring (index 2), not B's fill (inside B), not the tail (inside B).
+    /// - Over B: the items after B's first item (index 1): the ring again.
+    /// - A destination that holds no item (`first` is none): nothing.
+    /// Mutation: `*i >= f` in `over` returns a mover's own first item when it lies inside no
+    /// destination (here it lies inside one, so the mutation that drops the `first` test
+    /// altogether is the one this fails: the empty destination then gets the ring).
+    #[test]
+    fn what_is_painted_over_movers_is_read_once_and_found_per_mover() {
+        let (a, b) = (lr(0.0, 0.0, 100.0, 20.0), lr(0.0, 30.0, 100.0, 20.0));
+        let ring = lr(-2.0, -2.0, 104.0, 54.0);
+        let dl = listed(vec![
+            opaque(0.0, 0.0, 100.0, 20.0, [1, 1, 1]),
+            opaque(0.0, 30.0, 100.0, 20.0, [2, 2, 2]),
+            opaque(ring.origin.x, ring.origin.y, ring.size.width, ring.size.height, [3, 3, 3]),
+            opaque(10.0, 35.0, 20.0, 10.0, [4, 4, 4]),
+        ]);
+        let destinations = [a, b];
+        let once = PaintedOverMovers::of(&dl, &destinations);
+        assert_eq!(once.candidates.len(), 1, "the ring alone lies inside no destination");
+        assert_eq!(once.over(&dl, &a), vec![ring]);
+        assert_eq!(once.over(&dl, &b), vec![ring]);
+        assert_eq!(once.over(&dl, &a), painted_over_mover(&dl, &a, &destinations));
+        let nowhere = lr(500.0, 500.0, 10.0, 10.0);
+        assert!(once.over(&dl, &nowhere).is_empty(), "no item of the list is inside it");
+    }
+
+    /// A1-45: the clip of a shifting scroll frame is where the frames around it PAINT. An
+    /// outer frame (id 1) whose offset went from 0 to 0.3 px - under half a device pixel, so
+    /// it is not shifted and stays painted at 0 - around an inner frame (id 2) with the clip
+    /// (10, 50) 100 x 40, scrolled from 0 to 12. The inner frame's pixels are at y = 50 on
+    /// screen (the outer one did not move), and that is the clip to move; with the real
+    /// offsets it came out at 49.7.
+    /// Mutation: the walk's stack on `scroll_offsets` gives 49.7.
+    #[test]
+    fn a_shifting_frames_clip_is_where_the_frames_around_it_paint() {
+        let frame = |id: LocalScrollId, clip: LogicalRect| DisplayListItem::PushScrollFrame {
+            clip_bounds: clip.into(),
+            content_size: LogicalSize { width: 200.0, height: 2000.0 },
+            scroll_id: id,
+        };
+        let host = listed(vec![
+            frame(1, lr(0.0, 0.0, 200.0, 200.0)),
+            frame(2, lr(10.0, 50.0, 100.0, 40.0)),
+            opaque(10.0, 50.0, 100.0, 500.0, [9, 9, 9]),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopScrollFrame,
+        ]);
+        let before: ScrollOffsetMap = [(1, (0.0, 0.0)), (2, (0.0, 0.0))].into_iter().collect();
+        let now: ScrollOffsetMap = [(1, (0.0, 0.3)), (2, (0.0, 12.0))].into_iter().collect();
+        let shifts = collect_scroll_shifts(&host, &now, &before, &HashMap::new(), 1.0);
+        assert_eq!(shifts.len(), 1, "the inner frame alone shifts: {shifts:?}");
+        assert_eq!((shifts[0].0, shifts[0].2), (2, (0.0, 12.0)));
+        assert_eq!((shifts[0].1.origin.x, shifts[0].1.origin.y), (10.0, 50.0), "where its pixels are");
+    }
+
+    /// A1-48: a fill inside a clip nested in the scrolling frame covers what the clip lets
+    /// show, not its whole bounds. A scroll frame (id 4) with the clip (0, 0) 100 x 300 over a
+    /// two-coloured backdrop; its content is one opaque ground, 100 x 2000. Scrolled from 0 to
+    /// 12:
+    /// - the ground directly in the frame covers the clip at both offsets: the pixels move;
+    /// - the same ground inside a clip (0, 0) 100 x 100 of the content shows in the rows
+    ///   -12 .. 88 only; below it the backdrop shows, and moving the clip's pixels would drag
+    ///   it: not eligible.
+    /// Mutation: the fill counted with its full bounds makes the clipped one eligible.
+    #[test]
+    fn a_fill_inside_a_nested_clip_covers_only_what_the_clip_shows() {
+        let clip = lr(0.0, 0.0, 100.0, 300.0);
+        let page = |nested: bool| {
+            let mut items = vec![
+                opaque(0.0, 0.0, 50.0, 300.0, [200, 0, 0]),
+                opaque(50.0, 0.0, 50.0, 300.0, [0, 0, 200]),
+                DisplayListItem::PushScrollFrame {
+                    clip_bounds: clip.into(),
+                    content_size: LogicalSize { width: 100.0, height: 2000.0 },
+                    scroll_id: 4,
+                },
+            ];
+            if nested {
+                items.push(DisplayListItem::PushClip {
+                    bounds: lr(0.0, 0.0, 100.0, 100.0).into(),
+                    border_radius: crate::solver3::display_list::BorderRadius::default(),
+                });
+            }
+            items.push(opaque(0.0, 0.0, 100.0, 2000.0, [240, 240, 230]));
+            if nested {
+                items.push(DisplayListItem::PopClip);
+            }
+            items.push(DisplayListItem::PopScrollFrame);
+            listed(items)
+        };
+        let now: ScrollOffsetMap = [(4, (0.0, 12.0))].into_iter().collect();
+        let eligible = |list: &DisplayList| scroll_fast_path_eligible_in(list, 4, &clip, (0.0, 12.0), (0.0, 0.0), &now, &HashMap::new());
+        assert!(eligible(&page(false)), "the ground covers the frame at both offsets");
+        assert!(!eligible(&page(true)), "inside a 100 px clip it covers a third of it");
+    }
+
+    /// A2-cpu-06: a pixel move takes the columns a paint under the clip may write, and no
+    /// other. A clip (20, 10) 40.5 x 30 ends between the pixels 60 and 61: fills under it stop
+    /// at column 59. A pan by 4 moves the columns 24 .. 59 to 20 .. 55; column 56 keeps its
+    /// pixel (it is in the strip that is repainted) and column 60, the neighbour's, is not
+    /// read.
+    /// Mutation: the far edge by `ceil` (61) moves the neighbour's column 60 into column 56.
+    #[test]
+    fn a_pixel_move_stops_where_the_fills_under_the_clip_stop() {
+        let mut pm = numbered();
+        let clip = lr(20.0, 10.0, 40.5, 30.0);
+        let (_, moved) = scroll_shift_region_moved(&mut pm, &clip, (4.0, 0.0), (4.0, 0.0), 1.0);
+        assert_eq!(moved, Some(PresentMove { dst: (20, 10, 36, 30), dx: -4, dy: 0 }));
+        assert_eq!(at(&pm, 55, 15), (59, 15), "the last column that is the clip's");
+        assert_eq!(at(&pm, 56, 15), (56, 15), "not the neighbour's column 60");
+        assert_eq!(at(&pm, 60, 15), (60, 15));
     }
 }

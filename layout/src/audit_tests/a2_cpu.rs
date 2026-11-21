@@ -1315,7 +1315,6 @@ fn a2_cpu_17_a_border_thinner_than_a_device_pixel_is_one_pixel_inside_its_box() 
 /// the LAYOUT bounds of its items, x 0 .. 200, so the damage is x 0 .. 200 at both places and
 /// the left half of the card (x -100 .. 0) leaves a trail. Expected: a rect from x = -100.
 #[test]
-#[ignore = "A2-cpu-04: open, for A1 (the extent of a frame leaves out what its inner frames move)"]
 fn a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved() {
     use std::collections::HashMap;
 
@@ -1358,7 +1357,6 @@ fn a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved() {
 /// = 48` before and at `round(48 - 13.5004 + 10.3) = 45` after: it moved 3. Expected: the frame
 /// of a fresh render (the box whole repainted: such a pan has no whole-pixel move).
 #[test]
-#[ignore = "A2-cpu-07: open, for A1 (the view shift's gate is on the delta, its move on the offsets)"]
 fn a2_cpu_07_a_pan_between_offsets_off_the_pixel_grid_is_a_fresh_renders_frame() {
     let child = Arc::new(list(vec![
         rect(-256.0, -256.0, VIEW.2 + 512.0, VIEW.3 + 512.0, [47, 49, 54]),

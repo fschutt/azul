@@ -624,6 +624,9 @@ impl SceneBuilderThread {
             built_scene = Some(built);
         }
 
+        if built_scene.is_some() {
+            crate::azul_counters::scene_built(precise_time_ns() - scene_build_start);
+        }
         let scene_build_time_ms = profiler::ns_to_ms(precise_time_ns() - scene_build_start);
         profile.set(profiler::SCENE_BUILD_TIME, scene_build_time_ms);
 
