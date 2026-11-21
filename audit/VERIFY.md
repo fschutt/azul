@@ -427,3 +427,11 @@ What is left for the checkpoint, in order:
   named tests pass, no font test skips (`--nocapture`), `a_turned_label_of_a_view_is_drawn_without_a_surface`
   passes; `cpurender` 876 / 0 / 1 ignored, `audit_tests::a2_cpu` 19 / 0, `a1` 2 / 0, `a10` 20 / 0;
   `dl_patch_golden` 3 of 3. The dll was not rebuilt for this merge.
+- the fork's own tests (while waiting for the diff-first tip; `cargo test -p webrender --lib --no-run`: 35 s, 0
+  errors, the binary is 4 MB: the disk allows it): whole lib **107 passed, 0 failed**
+  (`render_api::audit_a4_tests` 2, `spatial_tree` 17). Tree of `webrender/` at that run:
+  `9d963f705bece577c4641f41b23f50ba2a46722e` (`git rev-parse HEAD:webrender`): if the gate's tree has the same,
+  the result stands.
+- early cross checks on head `cb9574447` (to be repeated in the gate): `cargo check -p azul-dll --target
+  x86_64-unknown-linux-gnu` 0 errors, `--target x86_64-pc-windows-gnu` 0 errors (logs `62-check-*`; target
+  directories deleted).
