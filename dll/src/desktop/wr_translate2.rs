@@ -2050,6 +2050,7 @@ pub fn generate_frame(
         // Nothing is drawn, so no frame is owed for the halos either: the
         // pass that follows the window's return scans the lists again.
         layout_window.gpu_state_manager.halos_owed = false;
+        layout_window.gpu_state_manager.transforms_settling = false;
         return;
     }
 
@@ -2274,7 +2275,105 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
         .submitted_digest_changed(SubmittedDigest::ScrollOffsets, digest.finish())
 }
 
+// ==== Text under a transform whose scale or rotation is moving (audit A4-02) ====
+
+/// How long the scale / rotation of a transform has to stand still before the
+/// text under it is rasterised sharp again ([`synchronize_gpu_values`]). Longer
+/// than the pause after which a view usually renders anew at its new scale
+/// (the map editor: 140 ms), so that such a view never pays for a sharp frame
+/// of the scaled picture right before it replaces it.
+const ZOOM_SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own [`ZOOM_SETTLE`], for the thread it runs on.
+    pub(crate) static TEST_ZOOM_SETTLE: std::cell::Cell<Option<std::time::Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+fn zoom_settle() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(settle) = TEST_ZOOM_SETTLE.with(std::cell::Cell::get) {
+        return settle;
+    }
+    ZOOM_SETTLE
+}
+
+/// Whether text under a moving transform is rasterised in local space
+/// (the default) or at every value of the transform (`AZ_ANIMATED_TEXT=screen`,
+/// what happened before). Read once per process.
+fn animated_text_is_local() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("AZ_ANIMATED_TEXT")
+            .map(|v| v != "screen")
+            .unwrap_or(true)
+    })
+}
+
+/// Everything of a transform but where it moves its content to (rows 0-2 of
+/// the matrix, bitwise): what a glyph rasterised under it depends on. A
+/// translation alone draws the same glyphs.
+type LinearPart = [u32; 12];
+
+fn linear_part(m: &[[f32; 4]; 4]) -> LinearPart {
+    let mut part = [0u32; 12];
+    for (row, slots) in m.iter().take(3).zip(part.chunks_exact_mut(4)) {
+        for (value, slot) in row.iter().zip(slots.iter_mut()) {
+            *slot = value.to_bits();
+        }
+    }
+    part
+}
+
+/// Whether `part` scales, turns and skews nothing (the diagonal is at 0, 5, 10).
+fn linear_part_is_identity(part: &LinearPart) -> bool {
+    part.iter().enumerate().all(|(i, bits)| {
+        let expected = if i % 5 == 0 { 1.0f32 } else { 0.0 };
+        (f32::from_bits(*bits) - expected).abs() < 1e-6
+    })
+}
+
+/// What a window's bound transforms were when they were last sent.
+#[derive(Default)]
+struct LiveTransforms {
+    /// The linear part of every transform of the last set, and the walk that
+    /// saw it last.
+    linear: HashMap<u64, (LinearPart, u64)>,
+    /// Counts the walks that collected a set.
+    walk: u64,
+    /// The keys whose text is rasterised in local space, and when their linear
+    /// part last moved.
+    zooming: BTreeMap<u64, std::time::Instant>,
+}
+
+thread_local! {
+    /// [`LiveTransforms`] by window (the document's namespace and id).
+    static LIVE_TRANSFORMS: RefCell<HashMap<(u32, u32), LiveTransforms>> =
+        RefCell::new(HashMap::new());
+}
+
+/// The window of `document_id` is gone: what was kept of its transforms goes too.
+pub(crate) fn forget_live_transforms(document_id: &azul_core::hit_test::DocumentId) {
+    LIVE_TRANSFORMS.with(|live| {
+        live.borrow_mut()
+            .remove(&(document_id.namespace_id.0, document_id.id));
+    });
+}
+
 /// Synchronize GPU-animated values (transforms, opacities) to WebRender.
+///
+/// A transform whose scale, rotation or skew MOVES from one set to the next is
+/// an animation or a zoom: WebRender rasterises text under a transform at the
+/// transform (one font instance per matrix), so every step of a zoom
+/// rasterised every glyph of the view again - one set per turned label on top,
+/// each has its own matrix - and uploaded them. Such a key is marked as being
+/// zoomed (`Transaction::set_is_transform_async_zooming`): text under it is
+/// rasterised once, untransformed, at a power of two, and scaled by the GPU
+/// (soft, grayscale) while it moves. It is drawn sharp again when its value
+/// returns to no scale and no turn (a view that rendered anew), or when it has
+/// stood still for [`ZOOM_SETTLE`] - `GpuStateManager::transforms_settling`
+/// keeps frames coming until then.
 ///
 /// Returns `true` if anything was actually written into `txn` — that is, if the
 /// property set DIFFERS from the one last handed to the renderer. Re-sending an
@@ -2298,6 +2397,37 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         .get_hidpi_factor()
         .inner
         .get();
+
+    // A transform that was moving and has stood still long enough is drawn
+    // sharp again: that is a frame of its own, whatever the values say.
+    let document = (
+        layout_window.document_id.namespace_id.0,
+        layout_window.document_id.id,
+    );
+    let now = std::time::Instant::now();
+    let track = animated_text_is_local();
+    let mut settled = false;
+    if track {
+        let settle = zoom_settle();
+        let mut still_moving = false;
+        LIVE_TRANSFORMS.with(|live| {
+            if let Some(window) = live.borrow_mut().get_mut(&document) {
+                window.zooming.retain(|key, moved| {
+                    if now.saturating_duration_since(*moved) < settle {
+                        return true;
+                    }
+                    txn.set_is_transform_async_zooming(
+                        false,
+                        webrender::api::PropertyBindingId::new(*key),
+                    );
+                    settled = true;
+                    false
+                });
+                still_moving = !window.zooming.is_empty();
+            }
+        });
+        layout_window.gpu_state_manager.transforms_settling = still_moving;
+    }
 
     // FIRST WALK: is the set the one last sent? Nothing is allocated for the
     // answer - a pan, a tile, a hover and every frame of a fade's hold ask it
@@ -2357,7 +2487,7 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
 
     // Nothing collected at all: nothing to send, nothing changed.
     if transform_count == 0 && float_count == 0 && color_count == 0 {
-        return false;
+        return settled;
     }
 
     let mut digest = mix_value(transform_sum, transform_count as u64);
@@ -2374,8 +2504,15 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
             float_count,
             transform_count
         );
-        return false;
+        return settled;
     }
+    // After a full transaction (the digest was forgotten) the scene may hold
+    // new spatial nodes for the keys that are being zoomed: they are marked
+    // again.
+    let scene_was_rebuilt = layout_window
+        .gpu_state_manager
+        .last_gpu_value_digest
+        .is_none();
     layout_window.gpu_state_manager.last_gpu_value_digest = Some(digest);
 
     // SECOND WALK, only for a set that differs: the values as WebRender takes
@@ -2385,6 +2522,18 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         floats: Vec::with_capacity(float_count),
         colors: Vec::with_capacity(color_count),
     };
+    // The keys to mark as zoomed, and to draw sharp again (see the function's
+    // comment): a key whose linear part differs from the one it had in the
+    // set before.
+    let mut zoom_on: Vec<u64> = Vec::new();
+    let mut zoom_off: Vec<u64> = Vec::new();
+    let mut live_guard = LIVE_TRANSFORMS.with(|live| live.take());
+    let live_window = live_guard.entry(document).or_default();
+    live_window.walk = live_window.walk.wrapping_add(1);
+    let walk = live_window.walk;
+    let LiveTransforms {
+        linear, zooming, ..
+    } = live_window;
     for dom_id in layout_window.layout_results.keys() {
         let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
             continue;
@@ -2393,6 +2542,21 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
             *dom_id,
             |key, transform| {
                 use webrender::api::units::LayoutTransform;
+                if track {
+                    let part = linear_part(&transform.m);
+                    match linear.insert(key as u64, (part, walk)) {
+                        Some((before, _)) if before != part => {
+                            if linear_part_is_identity(&part) {
+                                if zooming.remove(&(key as u64)).is_some() {
+                                    zoom_off.push(key as u64);
+                                }
+                            } else if zooming.insert(key as u64, now).is_none() {
+                                zoom_on.push(key as u64);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 // Translation scaled by DPI: compositor2 lays items out in
                 // logical px x dpi_scale, and a transform acts in that space.
                 // The perspective column is divided by it, as in the list's
@@ -2438,6 +2602,31 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                 ),
             });
         });
+    }
+
+    if track {
+        // A key that left the set takes its entries along (and is drawn sharp,
+        // should the scene still hold its frame).
+        linear.retain(|_, (_, seen)| *seen == walk);
+        zooming.retain(|key, _| {
+            let kept = linear.contains_key(key);
+            if !kept {
+                zoom_off.push(*key);
+            }
+            kept
+        });
+        if scene_was_rebuilt {
+            zoom_on.clear();
+            zoom_on.extend(zooming.keys().copied());
+        }
+        layout_window.gpu_state_manager.transforms_settling = !zooming.is_empty();
+    }
+    LIVE_TRANSFORMS.with(|live| live.replace(live_guard));
+    for key in zoom_off {
+        txn.set_is_transform_async_zooming(false, webrender::api::PropertyBindingId::new(key));
+    }
+    for key in zoom_on {
+        txn.set_is_transform_async_zooming(true, webrender::api::PropertyBindingId::new(key));
     }
 
     // The set REPLACES the one WebRender holds: `append_dynamic_properties`
