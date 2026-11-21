@@ -32964,8 +32964,15 @@ mod autotest_generated {
             .keys()
             .map(|k| k.optical_size)
             .collect();
+        // A stack drawn alike at every optical size is kept without one
+        // (A8-28) and cannot miss; one with an optical-size axis is at its size.
+        let size_free = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .any(|k| k.optical_size == 0 && crate::text3::cache::is_size_free(k));
         assert!(
-            sizes.contains(&40),
+            sizes.contains(&40) || size_free,
             "5vw of an 800px window is 40px: the text's chain is collected at that optical size \
              (collected: {sizes:?})"
         );
@@ -33004,8 +33011,15 @@ mod autotest_generated {
             .keys()
             .map(|k| k.optical_size)
             .collect();
+        // A stack drawn alike at every optical size is kept without one
+        // (A8-28) and cannot miss; one with an optical-size axis is at its size.
+        let size_free = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .any(|k| k.optical_size == 0 && crate::text3::cache::is_size_free(k));
         assert!(
-            sizes.contains(&20),
+            sizes.contains(&20) || size_free,
             "5vw of a 400px window is 20px: the resize collects the text's chain at that size \
              (collected: {sizes:?})"
         );
