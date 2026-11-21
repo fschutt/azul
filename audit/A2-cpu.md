@@ -628,7 +628,7 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
    `[x0, x1)` of its rows is copied back. What a pass reads of the target outside its clip rows: nothing (LCD text
    reads horizontal neighbours, and the band holds its rows in full width; the isolating filter groups snapshot their
    whole box, but rows outside the band are the band's private zeros and are not copied back; `flood` / `composite`
-   are per pixel). The exception A1 documents (a run's path chosen by the pixels under the clipped run) is A1-23 /
+   are per pixel; what such a group writes OUTSIDE the pass's rect is R10). The exception A1 documents (a run's path chosen by the pixels under the clipped run) is A1-23 /
    A1-24.
 2. **Frame stepping** (`8ff97ea4f`; `raster.rs` 3746-3843 `frame_paints_nothing`, `display_list.rs` 3794-4042
    `FrameIndex::of`): read, agree. Identity / translation leaf: `painted_box = extent - acc + t`, widened by the reach
@@ -856,6 +856,26 @@ at 11848; `cpu_backend.rs` 425-450, 583-640, 880-1110, 1240-1500. Not read: A1's
   of the walk (surface = bounds ⊕ radius, part = clip ⊕ radius, painted, blurred, composited under the clip), after
   which no list needs layers.
 - test: `a2_cpu_the_damaged_render_is_the_full_render...` with a blurred box in the scene (mutation: today's gate).
+
+#### A2-cpu-R10 an isolating filter group takes its whole box in every pass, whatever the pass's clip
+- severity: low (wrong pixels only for a filter chain that leaves colour where the group painted nothing: a bare
+  translucent `flood()`, `composite(out)`; otherwise work per pass)
+- where: `layout/src/cpurender/raster.rs:5367-5375` (the `PushFilter` arm), `1688-1737` (`FilterGroup`); not A1's
+  new code, found while checking item 1 ("a pass writes no pixel outside its rect")
+- algebra: `FilterGroup::begin` snapshots and clears `bounds - acc` as it is; the push is a state item, so every pass
+  (every damage rect, every band) does it for every such group of the list, then filters the box and writes "filtered
+  over backdrop" back. Outside the pass's clip the group painted nothing (its items are clipped): the box there is the
+  filter of nothing over the pixels of the frame before. For `flood() composite(in)` (the icon tint) that is the
+  backdrop again: no change, four sweeps of the box per pass. For a chain that is not transparent there, it is blended
+  onto pixels that already hold it, outside the rect the pass was given (in a band's own pixmap the rows outside the
+  band are not copied back, the columns outside `[x0, x1)` neither: bands and one pass differ there).
+- example: a 24 x 24 box at (10, 10) with `filter: flood(rgba(0, 0, 0, 0.5))`; a caret blinks at (300, 200): the pass
+  of the caret's rect (2 x 18) clears the box and writes half black over what it showed: darker with every blink.
+- change: the region of the group is its box INSIDE the clip, as an opacity group's is (`opacity_group_region`):
+  `intersect_clips(clip_stack.last().copied().flatten(), logical_rect_to_az_rect(..))`, and no group (`None`) when
+  that is empty.
+- test: a full paint, then `render_display_list_damaged` with a rect beside the box: the box's pixels are unchanged
+  (mutation: today's arm darkens them).
 
 ## Review of A10
 
