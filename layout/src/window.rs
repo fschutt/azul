@@ -31662,6 +31662,8 @@ impl LayoutWindow {
             layout_result.viewport.size,
         );
         let loaded_fonts = self.font_manager.get_loaded_fonts();
+        self.text_cache
+            .set_fonts_generation(self.font_manager.registered_fonts.generation());
         let intrinsic = solver3::sizing::measure_ifc_intrinsic_sizes(
             &mut self.text_cache,
             content,
@@ -31802,6 +31804,8 @@ impl LayoutWindow {
         self.ensure_fonts_loaded_for_content(content);
 
         let loaded_fonts = self.font_manager.get_loaded_fonts();
+        self.text_cache
+            .set_fonts_generation(self.font_manager.registered_fonts.generation());
         self.text_cache
             .shape_content(
                 content,

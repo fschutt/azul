@@ -455,6 +455,13 @@ pub struct TextShapingCache {
     /// `shape_content` sweeps ([`Self::sweep_if_due`]): twice what the last
     /// sweep kept, within [`SWEEP_AT_LEAST`] ..= [`SWEEP_AT_MOST`].
     pub(super) sweep_at: usize,
+    /// The generation of the registered fonts
+    /// ([`RegisteredFonts::generation`](crate::text3::fontreg::RegisteredFonts::generation))
+    /// the text is shaped under, which the owner of the font state sets
+    /// ([`Self::set_fonts_generation`]): a face registered while the app runs changes the face a
+    /// family resolves to, which a group's key holds nothing else of, so text shaped with the
+    /// fallback before is shaped again. 0 until it is set (nothing registered).
+    pub(super) fonts_generation: u64,
 }
 
 /// The caches are not swept below this many entries (in the largest of
@@ -563,7 +570,16 @@ impl TextShapingCache {
             stage_accessed: HashSet::new(),
             generation: 0,
             sweep_at: SWEEP_AT_LEAST,
+            fonts_generation: 0,
         }
+    }
+
+    /// Tells the cache the generation of the registered fonts the text is shaped under from now
+    /// on ([`RegisteredFonts::generation`](crate::text3::fontreg::RegisteredFonts::generation)
+    /// of the font manager the caller shapes with). A layout pass sets it first thing
+    /// (`solver3::layout_document`), as does each path that shapes outside a pass.
+    pub const fn set_fonts_generation(&mut self, generation: u64) {
+        self.fonts_generation = generation;
     }
 
     /// #28: fork this cache for a SPECULATIVE layout query (`LayoutWindow::
@@ -585,6 +601,7 @@ impl TextShapingCache {
             stage_accessed: HashSet::new(),
             generation: self.generation,
             sweep_at: self.sweep_at,
+            fonts_generation: self.fonts_generation,
         }
     }
 
@@ -1071,6 +1088,7 @@ impl TextShapingCache {
             &bidi_runs,
             &mut self.per_item_shaped,
             &mut self.per_item_accessed,
+            self.fonts_generation,
             font_chain_cache,
             fc_cache,
             loaded_fonts,
@@ -1669,29 +1687,18 @@ mod audit_a8_tests {
                 }
             }
         };
-        // The shaped store's key holds the font registry's generation, which is the
-        // PROCESS's: a face another test of this binary registers while a pass runs makes
-        // every later key a new one (2,275 paragraphs were shaped again in the first run of
-        // this test beside the `fontreg` tests). The two passes are counted only when no face
-        // was registered from the first call to the last.
-        let registry = crate::text3::fontreg::generation;
-        for attempt in 0.. {
-            assert!(attempt < 50, "premise: the font registry stands still for two passes");
-            let stood_at = registry();
-            let mut cache = TextShapingCache::new();
-            let before = shaped();
-            pass(&mut cache);
-            let first = shaped() - before;
-            let after_first = shaped();
-            pass(&mut cache);
-            let second = shaped() - after_first;
-            if registry() != stood_at {
-                continue;
-            }
-            assert_eq!(first, 5_000, "each paragraph is shaped once in a pass");
-            assert_eq!(second, 0, "the next pass over the same text shapes nothing");
-            break;
-        }
+        // The shaped store's key holds the generation of the registered fonts, which is the
+        // font manager's own: no other test registers a face in this one's registry.
+        let mut cache = TextShapingCache::new();
+        cache.set_fonts_generation(fm.registered_fonts.generation());
+        let before = shaped();
+        pass(&mut cache);
+        let first = shaped() - before;
+        let after_first = shaped();
+        pass(&mut cache);
+        let second = shaped() - after_first;
+        assert_eq!(first, 5_000, "each paragraph is shaped once in a pass");
+        assert_eq!(second, 0, "the next pass over the same text shapes nothing");
     }
 
     /// A8-16 (wrong output): the same text of the same node laid out at

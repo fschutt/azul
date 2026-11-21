@@ -59,6 +59,10 @@ use super::*;
 ///
 /// This is the incremental shaping path: when one word changes in a paragraph,
 /// only that word's item misses the per-item cache; all other items hit.
+///
+/// `fonts_generation` is the generation of the registered fonts the text is shaped under
+/// (`RegisteredFonts::generation`), part of every group's key: a face registered while the app
+/// runs changes the face a family resolves to.
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 /// # Errors
 ///
@@ -67,6 +71,7 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
     bidi_runs: &[BidiRun],
     per_item_cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>,
     per_item_accessed: &mut HashSet<u64>,
+    fonts_generation: u64,
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
@@ -151,7 +156,7 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
         // A face registered at runtime changes the face a family resolves
         // to, which the key holds nothing else of: text shaped with the
         // fallback before must be shaped again.
-        crate::text3::fontreg::generation().hash(&mut hasher);
+        fonts_generation.hash(&mut hasher);
         let group_key = hasher.finish();
 
         // Check per-item cache
@@ -1958,6 +1963,7 @@ mod audit_a8_tests {
                 &runs,
                 cache,
                 &mut accessed,
+                fm.registered_fonts.generation(),
                 &chains,
                 &fm.fc_cache,
                 &loaded,
