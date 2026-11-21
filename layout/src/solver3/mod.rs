@@ -2428,6 +2428,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         };
                         if !same_node {
                             reemit.insert(*new);
+                            // A member of an inline context paints nothing in a run of
+                            // its own: its glyphs and its inline box lie in the run of
+                            // the context's ROOT, each item under its own DOM node id
+                            // (`DisplayList::node_mapping`: what a hit, the hover and
+                            // decoration patch and the text patch address a node by). A
+                            // root that kept its own id and was not laid out again would
+                            // be copied with the id this member had in the tree before:
+                            // the id of another node now. So the root paints. (Only adds
+                            // a re-emit. By reading: a node that comes or goes inside an
+                            // earlier inline-block of unchanged size in the same line;
+                            // the fixture tried for it lays the line out again and does
+                            // not reach this, `a_text_whose_node_id_moved_..` in the dll.)
+                            if let Some(member) = new_tree
+                                .warm(LayoutNodeId::new(*new))
+                                .and_then(|warm| warm.ifc_membership)
+                            {
+                                reemit.insert(member.ifc_root_layout_index);
+                            }
                         }
                     }
                     for fresh in &recon_result.fresh_indices {

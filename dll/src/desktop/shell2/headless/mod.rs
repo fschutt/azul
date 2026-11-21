@@ -15165,6 +15165,128 @@ mod tests {
         assert!(copied >= 30, "the rows before the new ones are copied ({copied} runs)");
     }
 
+    /// The state of [`dfi_layout`]: how many boxes the inline-block of the line holds.
+    struct DfiLine(usize);
+
+    /// `body > div.dfi-line > text "one ", span.dfi-box > (span > "a") [, span.dfi-out ..],
+    /// text " two"`, and a second line below. The box is an inline-block of a fixed size and
+    /// a `span.dfi-out` is absolutely placed and takes no room: a box that comes inside the
+    /// inline-block moves nothing of the line, and gives the text after it another DOM node
+    /// id.
+    extern "C" fn dfi_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let inside = data
+            .downcast_ref::<DfiLine>()
+            .map(|line| line.0)
+            .expect("app state");
+        let text = |s: &str| Dom::create_text_do_not_use_without_block_level_wrapper(s.to_string());
+        let mut boxed = Dom::create_span()
+            .with_class("dfi-box".into())
+            .with_child(Dom::create_span().with_child(text("a")));
+        for _ in 1..inside {
+            boxed = boxed.with_child(Dom::create_span().with_class("dfi-out".into()));
+        }
+        Dom::create_body()
+            .with_css("margin: 0px; font-size: 14px;")
+            .with_component_css(azul_css::css::Css::from_string(
+                ".dfi-line { padding: 4px; background: #eeeeee; } .dfi-box { display: \
+                 inline-block; position: relative; width: 40px; height: 14px; background: \
+                 #ddddff; } .dfi-out { position: absolute; left: 0px; top: 0px; width: 0px; \
+                 height: 0px; }"
+                    .to_string()
+                    .into(),
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_class("dfi-line".into())
+                    .with_child(text("one "))
+                    .with_child(boxed)
+                    .with_child(text(" two")),
+            )
+            .with_child(
+                Dom::create_div()
+                    .with_class("dfi-line".into())
+                    .with_child(text("three")),
+            )
+    }
+
+    /// An item of a run copied across a changed tree is attributed to the DOM node it has
+    /// NOW (`node_mapping`). A line holds a text, an inline-block and a second text; a box
+    /// comes inside the inline-block and takes no room: the line keeps its DOM node id, its
+    /// size and its lines, and the second text is another DOM node id than it was. The run
+    /// of the line holds the glyphs of both texts under their texts' ids, so it must be
+    /// painted, not copied: every item and every table of the patched window is the
+    /// window's that was rebuilt in full ([`df_list_tables`]: `node_mapping` among them).
+    ///
+    /// What paints the line here (the verifier's run, 2026-11-21; `AZ_PATCH_DEBUG`:
+    /// `reflowed_ifcs={1, 8} fresh={6, 7, 8, 9}`): the line's inline context is laid out
+    /// again when a box comes inside its inline-block, and a context that was laid out
+    /// re-emits. So this test is green with and without the rule of `layout_document`'s arm
+    /// of a changed tree that was written for the case ("a carried box whose DOM node id
+    /// changed re-emits the root of its inline context"): it guards the property on this
+    /// page, it is NOT that rule's mutant test. A page on which the root is carried without
+    /// being laid out again was not found.
+    #[test]
+    fn a_text_whose_node_id_moved_is_not_copied_under_the_id_it_had() {
+        use azul_layout::solver3::display_list as list;
+
+        let window_of = |inside: usize| {
+            let state = Arc::new(RefCell::new(RefAny::new(DfiLine(inside))));
+            let mut window = make_window_sized(&state, dfi_layout, 400.0, 600.0);
+            window.regenerate_layout().expect("initial layout");
+            window.regenerate_layout().expect("settle");
+            let _ = window.common.take_regeneration();
+            (state, window)
+        };
+        let grow = |state: &Arc<RefCell<RefAny>>| {
+            let mut guard = state.borrow_mut();
+            let any: &mut RefAny = &mut guard;
+            let mut line = any.downcast_mut::<DfiLine>().expect("app state");
+            line.0 = 2;
+        };
+        let dump = |window: &HeadlessWindow| {
+            let mut lines = df_mask_key_ids(a3w_dump(window));
+            let lw = window.common.layout_window.as_ref().expect("a layout window");
+            lines.extend(df_list_tables(
+                &lw.layout_results[&azul_core::dom::DomId::ROOT_ID].display_list,
+            ));
+            lines
+        };
+        let (state_list, mut with_list) = window_of(1);
+        let (state_full, mut in_full) = window_of(1);
+        let stood = dump(&with_list);
+        grow(&state_list);
+        grow(&state_full);
+        let before = (
+            list::lists_patched_across_trees_on_this_thread(),
+            list::cached_runs_copied_on_this_thread(),
+        );
+        df_rebuild(&mut with_list, &azul_layout::window::DiffFirstStep::ALL);
+        let (across, copied) = (
+            list::lists_patched_across_trees_on_this_thread() - before.0,
+            list::cached_runs_copied_on_this_thread() - before.1,
+        );
+        df_rebuild(&mut in_full, &DF_BEFORE_TLIST);
+        assert_eq!(across, 1, "premise: the list is patched across the changed tree");
+        assert!(copied >= 1, "premise: the second line is copied ({copied} runs)");
+        let (left, right) = (dump(&with_list), dump(&in_full));
+        // What moved between the two trees, for the reader of a failure: the lines of the
+        // dump that are not what they were.
+        let moved = stood.iter().zip(right.iter()).filter(|(a, b)| a != b).count();
+        assert!(moved >= 1, "premise: the box that came changed the window");
+        let differs = left
+            .iter()
+            .zip(right.iter())
+            .position(|(a, b)| a != b)
+            .or((left.len() != right.len()).then_some(left.len().min(right.len())));
+        assert!(
+            differs.is_none(),
+            "line {differs:?} of the window differs ({across} lists patched across, {copied} \
+             runs copied)\n patched: {:?}\n in full: {:?}",
+            differs.and_then(|line| left.get(line)),
+            differs.and_then(|line| right.get(line)),
+        );
+    }
+
     /// The two cheapest rebuilds, counted: an identical one styles no node, runs no layout
     /// pass and keeps the display list where it lies (the renderers skip a list by its
     /// identity); one changed text styles no node either.
