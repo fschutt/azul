@@ -3541,6 +3541,8 @@ impl PaginationSession {
     }
 }
 
-#[cfg(all(test, feature = "text_layout"))]
+// The tests lay out documents written in XML (`DomXmlExt`), so they need the
+// `xml` feature as well as the text layout.
+#[cfg(all(test, feature = "text_layout", feature = "xml"))]
 #[path = "paged_layout_test.rs"]
 mod paged_layout_test;
