@@ -2442,7 +2442,10 @@ pub(crate) enum MemoryRelease {
 /// that follow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReleasePlan {
-    /// The CPU compositor's layers (the next frame makes them again).
+    /// What the CPU backend keeps only to make frames cheaper
+    /// (`CpuBackend::release_caches`): the kept group surfaces, the kept text
+    /// halos and turned text pictures, the compositor's layers. The frames
+    /// that follow make again what they show.
     pub compositor: bool,
     /// The glyph cache's older generation.
     pub glyph_generation: bool,
@@ -4753,25 +4756,10 @@ define_class!(
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Minimized);
                     macos_window.set_display_link_paused(true);
                     // A9-09: a window in the Dock shows nothing until it comes back, and what
-                    // is given back here is drawn again then: the CPU compositor's layers
-                    // (its root layer is one frame of pixels: 22 MB at 2940 x 1912, 59 MB
-                    // at 5120 x 2880; made again by the first frame after the window is
-                    // back), the glyph cache's older generation, WebRender's caches
-                    // (textures, glyphs, GPU cache:
-                    // re-uploaded from the templates it keeps), and the allocator's free
-                    // pages. `AZ_KEEP_CACHES_MINIMIZED=1` keeps everything.
-                    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-                    let keep = *KEEP.get_or_init(|| {
-                        std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0")
-                    });
-                    if !keep {
-                        macos_window.cpu_backend.compositor = None;
-                        macos_window.cpu_backend.glyph_cache.gc();
-                        if let Some(api) = macos_window.common.render_api.as_ref() {
-                            api.notify_memory_pressure();
-                        }
-                        azul_layout::probe::hint_purge_allocator();
-                    }
+                    // it gives back is drawn again then. The one release every reason goes
+                    // through (`release_regenerable_memory`: what, and the switch
+                    // `AZ_KEEP_CACHES_MINIMIZED=1`).
+                    macos_window.release_regenerable_memory(MemoryRelease::NotShown);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window minimized");
             }
@@ -9539,7 +9527,13 @@ impl MacOSWindow {
         #[cfg(feature = "cpurender")]
         {
             if plan.compositor {
-                self.cpu_backend.compositor = None;
+                // A1-29: the kept group surfaces (one view of the window with its overscan:
+                // 47 MB at 2940 x 1912), the kept halos and turned text pictures of this
+                // thread (up to 96 MB) and the compositor's layers (its root layer is one
+                // frame of pixels). This is the thread that paints the window's frames
+                // (`drawRect:`), which the halo store belongs to; the halos are the
+                // thread's, so every CPU window on it draws again the ones it shows.
+                self.cpu_backend.release_caches();
             }
             if plan.glyph_generation {
                 self.cpu_backend.glyph_cache.gc();

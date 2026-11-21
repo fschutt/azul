@@ -697,7 +697,8 @@ fn the_macos_shell_gives_memory_back_when_hidden_and_under_pressure() {
     let release = body(MACOS_RS, "pub(crate) fn release_regenerable_memory(");
     for call in [
         "release_plan(reason, keep_caches())",
-        "self.cpu_backend.compositor = None;",
+        // The compositor goes with everything else the CPU backend keeps (A1-29).
+        "self.cpu_backend.release_caches();",
         "self.cpu_backend.glyph_cache.gc();",
         "cpu_view.release_staging_bitmap();",
         "api.notify_memory_pressure();",
@@ -709,5 +710,10 @@ fn the_macos_shell_gives_memory_back_when_hidden_and_under_pressure() {
         body(MACOS_RS, "extern \"C\" fn on_memory_pressure(")
             .contains("super::release_memory_of_every_window(reason);"),
         "a pressure event releases through the same function"
+    );
+    assert!(
+        body(MACOS_RS, "fn window_did_miniaturize(")
+            .contains("macos_window.release_regenerable_memory(MemoryRelease::NotShown);"),
+        "and so does a window that goes to the Dock"
     );
 }
