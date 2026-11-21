@@ -2120,18 +2120,191 @@ fn dirty_rows_to_copy(
     width: usize,
     height: usize,
 ) -> (usize, usize, usize, usize) {
-    let (x, y, w, h) = dirty;
-    if full || !(w > 0.0 && h > 0.0) || width == 0 || height == 0 {
-        return (0, width, 0, height);
+    // bottom-left origin -> top-down rows: the arithmetic is shared (and
+    // tested on every platform) in `present_geometry`.
+    azul_layout::window::present_geometry::rows_of_bottom_left_rect(full, dirty, width, height)
+}
+
+/// The size in backing pixels of the framebuffer of a CPU view whose bounds
+/// are `bounds_pt` (points) at `scale` backing pixels per point.
+///
+/// THE renderer's formula ([`frame_size_px`]: `ceil(points * scale)` in
+/// `f32`), on the same numbers the window state holds (`bounds as f32`,
+/// `handle_resize`): the frame the renderer hands over and the buffer
+/// `drawRect:` keeps for it are the same size by construction. The view used
+/// to truncate the `f64` product, which is one pixel short of the frame for
+/// bounds that are not whole pixels (1280.3 pt at 2x: 2560 against 2561), and
+/// a frame of another size than the buffer takes the rescaling copy path on
+/// every present.
+///
+/// [`frame_size_px`]: azul_layout::window::present_geometry::frame_size_px
+pub(crate) fn cpu_view_framebuffer_size(bounds_pt: (f64, f64), scale: f64) -> (usize, usize) {
+    let (w, h) = azul_layout::window::present_geometry::frame_size_px(
+        bounds_pt.0 as f32,
+        bounds_pt.1 as f32,
+        scale as f32,
+    );
+    (w as usize, h as usize)
+}
+
+/// Where the present rect `rect` (buffer px: top-left origin, y down) of a
+/// framebuffer `fb_h` pixels high lies in the CPU view, in the view's own
+/// coordinates (points, BOTTOM-left origin: the view is not `isFlipped`), at
+/// `scale` backing pixels per point: what `setNeedsDisplayInRect:` takes.
+///
+/// `x' = x / s`, `y' = (fb_h - (y + h)) / s`, `w' = w / s`, `h' = h / s`. The
+/// exact inverse of what `drawRect:` does with the dirty rect it is handed
+/// (`convertRectToBacking:` = times `s`, then [`dirty_rows_to_copy`]), so the
+/// rows that are invalidated are the rows that are copied and drawn.
+pub(crate) fn present_rect_in_view_points(
+    rect: (u32, u32, u32, u32),
+    fb_h: usize,
+    scale: f64,
+) -> (f64, f64, f64, f64) {
+    let fb_h = u32::try_from(fb_h).unwrap_or(u32::MAX);
+    let (x, y, w, h) = azul_layout::window::present_geometry::flip_rect_y(rect, fb_h);
+    let s = if scale > 0.0 { scale } else { 1.0 };
+    (
+        f64::from(x) / s,
+        f64::from(y) / s,
+        f64::from(w) / s,
+        f64::from(h) / s,
+    )
+}
+
+/// The rect of the bitmap that holds the rows `y0..y1` and the columns
+/// `x0..x1` (top-down, half-open, what [`dirty_rows_to_copy`] returns) of a
+/// frame `height` pixels high, in the bitmap's own space: pixels with the
+/// origin at the BOTTOM-left, although its bytes are stored top row first.
+pub(crate) fn bitmap_source_rect(
+    span: (usize, usize, usize, usize),
+    height: usize,
+) -> (f64, f64, f64, f64) {
+    let (x0, x1, y0, y1) = span;
+    (
+        x0 as f64,
+        height.saturating_sub(y1) as f64,
+        x1.saturating_sub(x0) as f64,
+        y1.saturating_sub(y0) as f64,
+    )
+}
+
+/// A frame that is not the size of the view's framebuffer cannot be rendered
+/// into it, nor copied into it 1:1: it is rendered into a pixmap of its own
+/// and rescaled into the view (`CPUView::update_framebuffer`), the whole
+/// frame, on every present. One such frame is normal (a tick that renders at
+/// the new size before `drawRect:` resized the buffer, a move to a display of
+/// another scale); the same mismatch frame after frame means the two sizes are
+/// computed from numbers that disagree, and every frame is slow and soft. That
+/// is said once it has lasted three frames, at the error level so that a plain
+/// run shows it, and again every 600 frames.
+fn note_cpu_frame_size(frame: (usize, usize), view: (usize, usize)) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static MISMATCHED_IN_A_ROW: AtomicU32 = AtomicU32::new(0);
+    if frame == view {
+        MISMATCHED_IN_A_ROW.store(0, Ordering::Relaxed);
+        return;
     }
-    let fw = width as f64;
-    let fh = height as f64;
-    let x0 = x.floor().clamp(0.0, fw) as usize;
-    let x1 = (x + w).ceil().clamp(0.0, fw) as usize;
-    // bottom-left origin -> top-down rows
-    let y0 = (fh - (y + h)).floor().clamp(0.0, fh) as usize;
-    let y1 = (fh - y).ceil().clamp(0.0, fh) as usize;
-    (x0.min(x1), x1, y0.min(y1), y1)
+    let n = MISMATCHED_IN_A_ROW.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    if n == 3 || n % 600 == 0 {
+        log_error!(
+            LogCategory::Rendering,
+            "[CPUView] the frame is {}x{} px and the view's framebuffer {}x{} px, {} frames in a \
+             row: every present rescales the whole frame (slow, and not pixel-exact)",
+            frame.0,
+            frame.1,
+            view.0,
+            view.1,
+            n
+        );
+    }
+}
+
+/// Copy the rows `y0..y1` and the columns `x0..x1` of `framebuffer` (`width` x
+/// `height` pixels of RGBA8, top row first, tight rows) into `bitmap` and draw
+/// exactly that part of the bitmap, 1:1, into `to` of the current graphics
+/// context: the whole present of a `drawRect:`.
+///
+/// `from` is the span in the bitmap's space ([`bitmap_source_rect`]) and `to`
+/// its twin in the destination's coordinates (the view's points). Returns
+/// whether AppKit drew.
+///
+/// Nothing is read or written outside either buffer: a span that leaves the
+/// frame, a bitmap of another size than the frame and a framebuffer shorter
+/// than the frame draw nothing (and say so) instead of copying garbage.
+///
+/// # Safety
+/// Runs on the main thread with a current `NSGraphicsContext` (inside
+/// `drawRect:`, or with a bitmap context made current by a test).
+pub(crate) unsafe fn draw_framebuffer_span(
+    bitmap: &NSBitmapImageRep,
+    framebuffer: &[u8],
+    width: usize,
+    height: usize,
+    span: (usize, usize, usize, usize),
+    from: NSRect,
+    to: NSRect,
+) -> bool {
+    let (x0, x1, y0, y1) = span;
+    if x1 <= x0 || y1 <= y0 {
+        return false;
+    }
+    // The rep's stride is read back rather than assumed: AppKit allocated
+    // the buffer, and the sRGB copy of the bitmap may pad its rows. A padded
+    // `bytesPerRow` copied with the framebuffer's stride would shear every
+    // row, which on screen looks exactly like squashed, doubled text.
+    let stride = width * 4;
+    let dst_stride = usize::try_from(bitmap.bytesPerRow()).unwrap_or(0);
+    let dst_rows = usize::try_from(bitmap.pixelsHigh()).unwrap_or(0);
+    let dst = bitmap.bitmapData();
+    let fits = x1 <= width
+        && y1 <= height
+        && height <= dst_rows
+        && stride <= dst_stride
+        && framebuffer.len() >= stride * height;
+    if dst.is_null() || !fits {
+        log_error!(
+            LogCategory::Rendering,
+            "[CPUView] not presenting rows {}..{} x columns {}..{} of a {}x{} frame: framebuffer \
+             {} bytes, bitmap {} rows of {} bytes (null: {})",
+            y0,
+            y1,
+            x0,
+            x1,
+            width,
+            height,
+            framebuffer.len(),
+            dst_rows,
+            dst_stride,
+            dst.is_null()
+        );
+        return false;
+    }
+    {
+        // Our own part of a present: the framebuffer rows into the bitmap.
+        let _rows = azul_layout::probe::Probe::span("draw_rect_cpu_rows");
+        let n = (x1 - x0) * 4;
+        for row in y0..y1 {
+            // In bounds: `row < height`, `x1 <= width`, so the source ends at
+            // most at `stride * height <= framebuffer.len()` and the
+            // destination at most at `dst_stride * dst_rows`.
+            std::ptr::copy_nonoverlapping(
+                framebuffer.as_ptr().add(row * stride + x0 * 4),
+                dst.add(row * dst_stride + x0 * 4),
+                n,
+            );
+        }
+    }
+    // AppKit's part: the bitmap's span into the view's backing store.
+    let _draw = azul_layout::probe::Probe::span("draw_rect_cpu_appkit");
+    bitmap.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
+        to,
+        from,
+        NSCompositingOperation::Copy,
+        1.0,
+        false,
+        None,
+    )
 }
 
 /// The safe-area insets (`top, left, bottom, right`, points) the ROOT is laid
@@ -2467,8 +2640,15 @@ define_class!(
             let bounds = unsafe { self.bounds() };
             // Convert to backing pixels (2x on Retina)
             let backing = unsafe { self.convertRectToBacking(bounds) };
-            let width = backing.size.width as usize;
-            let height = backing.size.height as usize;
+            // Backing pixels per point, and the framebuffer's size from it:
+            // the renderer's own rounding (`cpu_view_framebuffer_size`).
+            let scale = if bounds.size.width > 0.0 {
+                backing.size.width / bounds.size.width
+            } else {
+                1.0
+            };
+            let (width, height) =
+                cpu_view_framebuffer_size((bounds.size.width, bounds.size.height), scale);
 
             let ivars = self.ivars();
 
@@ -2574,7 +2754,7 @@ define_class!(
 
                 if let Some(ref bitmap) = *cached {
                     let dirty_px = self.convertRectToBacking(dirty_rect);
-                    let (x0, x1, y0, y1) = dirty_rows_to_copy(
+                    let span = dirty_rows_to_copy(
                         ivars.cached_bitmap_stale.get(),
                         (
                             dirty_px.origin.x,
@@ -2588,46 +2768,23 @@ define_class!(
                     ivars.cached_bitmap_stale.set(false);
 
                     // Copy the dirty rows (or everything, once, after a
-                    // (re)allocation) into the bitmap's pixel buffer. The
-                    // rep's stride is read back rather than assumed: AppKit
-                    // allocated the buffer, and the sRGB copy of the bitmap
-                    // may pad its rows. A padded `bytesPerRow` copied with
-                    // the framebuffer's stride would shear every row, which
-                    // on screen looks exactly like squashed, doubled text.
-                    let stride = width * 4;
-                    let dst_stride = bitmap.bytesPerRow() as usize;
-                    let dst = bitmap.bitmapData();
-                    let span = (x1 - x0) * 4;
-                    if !dst.is_null() && span > 0 {
-                        for row in y0..y1 {
-                            let src_off = row * stride + x0 * 4;
-                            let dst_off = row * dst_stride + x0 * 4;
-                            if src_off + span <= framebuffer.len() {
-                                std::ptr::copy_nonoverlapping(
-                                    framebuffer.as_ptr().add(src_off),
-                                    dst.add(dst_off),
-                                    span,
-                                );
-                            }
-                        }
-                    }
-
-                    // Draw just that region, 1:1. The rep's coordinate space
-                    // is bottom-left-origin pixels, like the view's backing
+                    // (re)allocation) into the bitmap's pixel buffer and draw
+                    // just that region, 1:1. The rep's coordinate space is
+                    // bottom-left-origin pixels, like the view's backing
                     // space, so the source rect is the copied span flipped
-                    // back, and the destination is its point-space twin.
-                    let from_px = NSRect::new(
-                        NSPoint::new(x0 as f64, (height - y1) as f64),
-                        NSSize::new((x1 - x0) as f64, (y1 - y0) as f64),
-                    );
+                    // back (`bitmap_source_rect`), and the destination is its
+                    // point-space twin.
+                    let (fx, fy, fw, fh) = bitmap_source_rect(span, height);
+                    let from_px = NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh));
                     let to_pt = self.convertRectFromBacking(from_px);
-                    let _drawn: bool = bitmap.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
-                        to_pt,
+                    let _drawn: bool = draw_framebuffer_span(
+                        bitmap,
+                        &framebuffer,
+                        width,
+                        height,
+                        span,
                         from_px,
-                        NSCompositingOperation::Copy,
-                        1.0,
-                        false,
-                        None,
+                        to_pt,
                     );
                 }
             }
@@ -3463,25 +3620,13 @@ impl CPUView {
                     }
                 }
                 drop(fb);
-                let bounds = self.bounds();
-                let scale_x = view_w as f64 / bounds.size.width.max(1.0);
-                let scale_y = view_h as f64 / bounds.size.height.max(1.0);
-                for (rx, ry, rw, rh) in rects {
-                    let x_pt = f64::from(*rx) / scale_x;
-                    let w_pt = f64::from(*rw) / scale_x;
-                    let h_pt = f64::from(*rh) / scale_y;
-                    // flip: physical top-left origin → view bottom-left origin
-                    let y_pt = bounds.size.height - (f64::from(*ry) + f64::from(*rh)) / scale_y;
-                    let dirty = NSRect::new(NSPoint::new(x_pt, y_pt), NSSize::new(w_pt, h_pt));
-                    unsafe {
-                        let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
-                    }
-                }
+                self.invalidate_px_rects(rects, view_w, view_h);
                 return;
             }
         }
 
         // Every branch below rewrites the whole buffer.
+        note_cpu_frame_size((pixmap_w, pixmap_h), (view_w, view_h));
         self.ivars().fb_content_valid.set(true);
         if pixmap_w == view_w && pixmap_h == view_h {
             let len = (view_w * view_h * 4).min(pixmap_data.len()).min(fb.len());
@@ -3540,6 +3685,7 @@ impl CPUView {
         // copy path (which also handles DPI-mismatch rescaling).
         let (vw, vh) = (ivars.width.get(), ivars.height.get());
         if (vw != 0 || vh != 0) && (vw != w || vh != h) {
+            // Counted in `update_framebuffer`, where this frame ends up.
             return None;
         }
         // A resize just white-filled the buffer: the engine would render only
@@ -3552,9 +3698,26 @@ impl CPUView {
         }
         ivars.width.set(w);
         ivars.height.set(h);
+        note_cpu_frame_size((w, h), (w, h));
         let mut fb = ivars.framebuffer.borrow_mut();
         fb.resize(w * h * 4, 255);
         Some(fb.as_mut_ptr())
+    }
+
+    /// Mark the present rects `rects` (buffer px of the `fb_w` x `fb_h`
+    /// framebuffer: top-left origin, y down) as needing display: each one
+    /// flipped to the view's bottom-left origin and divided by the backing
+    /// scale ([`present_rect_in_view_points`]).
+    fn invalidate_px_rects(&self, rects: &[(u32, u32, u32, u32)], fb_w: usize, fb_h: usize) {
+        // The framebuffer's own pixels per point.
+        let scale = fb_w as f64 / self.bounds().size.width.max(1.0);
+        for rect in rects {
+            let (x, y, w, h) = present_rect_in_view_points(*rect, fb_h, scale);
+            let dirty = NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+            unsafe {
+                let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
+            }
+        }
     }
 
     /// #27: invalidate-only present — the frame was rendered DIRECTLY into
@@ -3567,20 +3730,7 @@ impl CPUView {
         if view_w == 0 || view_h == 0 {
             return;
         }
-        let bounds = self.bounds();
-        let scale_x = view_w as f64 / bounds.size.width.max(1.0);
-        let scale_y = view_h as f64 / bounds.size.height.max(1.0);
-        for (rx, ry, rw, rh) in rects {
-            let x_pt = f64::from(*rx) / scale_x;
-            let w_pt = f64::from(*rw) / scale_x;
-            let h_pt = f64::from(*rh) / scale_y;
-            // flip: physical top-left origin → view bottom-left origin
-            let y_pt = bounds.size.height - (f64::from(*ry) + f64::from(*rh)) / scale_y;
-            let dirty = NSRect::new(NSPoint::new(x_pt, y_pt), NSSize::new(w_pt, h_pt));
-            unsafe {
-                let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
-            }
-        }
+        self.invalidate_px_rects(rects, view_w, view_h);
     }
 }
 
@@ -9645,8 +9795,8 @@ impl MacOSWindow {
                     // (rescale in flight) skips the arm; that frame takes the
                     // legacy copy path below. BLIND-IMPLEMENTED per USER
                     // directive 2026-08-12 — not yet run on real hardware.
-                    let native_pw = (width * dpi).ceil() as u32;
-                    let native_ph = (height * dpi).ceil() as u32;
+                    let (native_pw, native_ph) =
+                        azul_layout::window::present_geometry::frame_size_px(width, height, dpi);
                     // Transparent material: the frame clears to alpha 0
                     // and the view composites it (macOS shapes the window's
                     // hit-testing by that alpha on its own).
@@ -11367,5 +11517,276 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             performFeedbackPattern: pattern,
             performanceTime: PERFORM_NOW
         ];
+    }
+}
+
+#[cfg(test)]
+mod audit_a10_tests {
+    //! A10 (`audit/A10.md`): the CPU present of the macOS shell. The
+    //! conversions between the renderer's rects (buffer px: top-left origin,
+    //! y down) and AppKit's (points, bottom-left origin, y up), and the one
+    //! AppKit call of a present, drawn into an offscreen bitmap so that the
+    //! rows can be read back without a window.
+
+    use objc2_app_kit::{NSColorSpace, NSGraphicsContext};
+
+    use super::*;
+
+    /// A10-01. The damage of a pan step: the strip at (1267, 20), 13 x 1402
+    /// logical px, in a 1280 x 1440 pt view.
+    ///
+    /// Scale 1: buffer 1280 x 1440, the rect is (1267, 20, 13, 1402) px. Its
+    /// bottom edge is 20 + 1402 = 1422 px from the top, 1440 - 1422 = 18 px
+    /// from the bottom: AppKit rect (1267, 18, 13, 1402) pt.
+    /// Scale 2: buffer 2560 x 2880, the rect is (2534, 40, 26, 2804) px,
+    /// bottom edge 2844 from the top, 36 px = 18 pt from the bottom: the SAME
+    /// AppKit rect.
+    ///
+    /// Mutation: `flip_rect_y` returning `y` unflipped invalidates y = 20 pt
+    /// (scale 1) and fails here.
+    #[test]
+    fn a_present_rect_is_invalidated_flipped_and_in_points() {
+        assert_eq!(
+            present_rect_in_view_points((1267, 20, 13, 1402), 1440, 1.0),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        assert_eq!(
+            present_rect_in_view_points((2534, 40, 26, 2804), 2880, 2.0),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        // An odd pixel rect at 2x is a half-point rect, still exact.
+        assert_eq!(
+            present_rect_in_view_points((2535, 41, 25, 2803), 2880, 2.0),
+            (1267.5, 18.0, 12.5, 1401.5)
+        );
+        // The whole buffer is the whole view.
+        assert_eq!(
+            present_rect_in_view_points((0, 0, 2560, 2880), 2880, 2.0),
+            (0.0, 0.0, 1280.0, 1440.0)
+        );
+    }
+
+    /// A10-01. `drawRect:` gets the invalidated rect back (in points), turns
+    /// it into backing pixels (times the scale) and copies and draws the
+    /// rows `dirty_rows_to_copy` names: exactly the rows of the present rect.
+    ///
+    /// Scale 1: rows 20..1422, columns 1267..1280, drawn from the bitmap's
+    /// (1267, 18, 13, 1402). Scale 2: rows 40..2844, columns 2534..2560, from
+    /// (2534, 36, 26, 2804).
+    #[test]
+    fn the_rows_drawn_are_the_rows_invalidated() {
+        for (rect, (fb_w, fb_h), scale) in [
+            ((1267_u32, 20_u32, 13_u32, 1402_u32), (1280_usize, 1440_usize), 1.0_f64),
+            ((2534, 40, 26, 2804), (2560, 2880), 2.0),
+            ((0, 0, 1, 1), (2560, 2880), 2.0),
+            ((2559, 2879, 1, 1), (2560, 2880), 2.0),
+            ((2535, 41, 25, 2803), (2560, 2880), 2.0),
+            ((0, 0, 2560, 2880), (2560, 2880), 2.0),
+        ] {
+            let (x, y, w, h) = present_rect_in_view_points(rect, fb_h, scale);
+            // What `convertRectToBacking:` does to the dirty rect.
+            let dirty_px = (x * scale, y * scale, w * scale, h * scale);
+            let span = dirty_rows_to_copy(false, dirty_px, fb_w, fb_h);
+            let (rx, ry, rw, rh) = rect;
+            assert_eq!(
+                span,
+                (
+                    rx as usize,
+                    (rx + rw) as usize,
+                    ry as usize,
+                    (ry + rh) as usize
+                ),
+                "{rect:?} at {scale}x"
+            );
+            // And the bitmap's part that is drawn is that span, flipped back.
+            assert_eq!(bitmap_source_rect(span, fb_h), dirty_px, "{rect:?} at {scale}x");
+        }
+        assert_eq!(
+            dirty_rows_to_copy(false, (1267.0, 18.0, 13.0, 1402.0), 1280, 1440),
+            (1267, 1280, 20, 1422)
+        );
+        assert_eq!(
+            bitmap_source_rect((1267, 1280, 20, 1422), 1440),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        assert_eq!(
+            dirty_rows_to_copy(false, (2534.0, 36.0, 26.0, 2804.0), 2560, 2880),
+            (2534, 2560, 40, 2844)
+        );
+    }
+
+    /// A10-01. AppKit may hand back MORE than was invalidated (a half-point
+    /// rect rounded to whole points, the bounding box of several rects): the
+    /// rows drawn are then a superset, never a subset.
+    #[test]
+    fn a_dirty_rect_rounded_outward_by_appkit_still_covers_the_damage() {
+        // (2535, 41, 25, 2803) px at 2x = (1267.5, 18, 12.5, 1401.5) pt,
+        // rounded outward to whole points: (1267, 18, 13, 1402) pt.
+        let span = dirty_rows_to_copy(false, (2534.0, 36.0, 26.0, 2804.0), 2560, 2880);
+        let (x0, x1, y0, y1) = span;
+        assert!(x0 <= 2535 && x1 >= 2560 && y0 <= 41 && y1 >= 2844, "{span:?}");
+    }
+
+    /// A10-02. The framebuffer is as large as the frame the renderer makes
+    /// for the same bounds: `ceil(points * scale)` in `f32`.
+    ///
+    /// 1280.3 pt at 2x: 2560.6, a 2561 px frame. The view truncated to 2560
+    /// and every present of that window took the rescaling copy path.
+    /// Mutation: `as usize` of the `f64` product instead of the shared
+    /// formula gives 2560 and fails here.
+    #[test]
+    fn the_views_framebuffer_is_the_size_of_the_renderers_frame() {
+        use azul_layout::window::present_geometry::frame_size_px;
+        assert_eq!(cpu_view_framebuffer_size((1280.0, 1440.0), 1.0), (1280, 1440));
+        assert_eq!(cpu_view_framebuffer_size((1280.0, 1440.0), 2.0), (2560, 2880));
+        assert_eq!(cpu_view_framebuffer_size((1280.5, 720.5), 2.0), (2561, 1441));
+        assert_eq!(cpu_view_framebuffer_size((1280.3, 720.0), 2.0), (2561, 1440));
+        for bounds in [(1280.3_f64, 719.9_f64), (1.0, 1.0), (2559.999_999_9, 1440.000_000_1)] {
+            for scale in [1.0_f64, 2.0] {
+                let (w, h) = frame_size_px(bounds.0 as f32, bounds.1 as f32, scale as f32);
+                assert_eq!(
+                    cpu_view_framebuffer_size(bounds, scale),
+                    (w as usize, h as usize),
+                    "{bounds:?} at {scale}x"
+                );
+            }
+        }
+    }
+
+    /// An sRGB surface AppKit can draw into, `width` x `height`, every pixel
+    /// `fill`: the stand-in for the view's backing store.
+    fn surface(width: usize, height: usize, fill: [u8; 4]) -> Retained<NSBitmapImageRep> {
+        let plain = unsafe {
+            NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+                NSBitmapImageRep::alloc(),
+                std::ptr::null_mut(),
+                width as isize,
+                height as isize,
+                8,
+                4,
+                true,
+                false,
+                ns_string!("NSDeviceRGBColorSpace"),
+                (width * 4) as isize,
+                32,
+            )
+        }
+        .expect("a bitmap");
+        let surface = plain
+            .bitmapImageRepByRetaggingWithColorSpace(&NSColorSpace::sRGBColorSpace())
+            .expect("an RGB bitmap takes the sRGB colour space");
+        let data = surface.bitmapData();
+        assert!(!data.is_null(), "the surface has a pixel buffer");
+        let stride = surface.bytesPerRow() as usize;
+        for row in 0..height {
+            for x in 0..width {
+                // SAFETY: `row < height` rows of `stride >= width * 4` bytes.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(fill.as_ptr(), data.add(row * stride + x * 4), 4);
+                }
+            }
+        }
+        surface
+    }
+
+    /// The pixel of `surface` in column `x` of the row `row` from the TOP.
+    fn pixel(surface: &NSBitmapImageRep, x: usize, row: usize) -> [u8; 3] {
+        let data = surface.bitmapData();
+        let stride = surface.bytesPerRow() as usize;
+        let mut px = [0_u8; 4];
+        // SAFETY: the callers stay inside the surface.
+        unsafe { std::ptr::copy_nonoverlapping(data.add(row * stride + x * 4), px.as_mut_ptr(), 4) };
+        [px[0], px[1], px[2]]
+    }
+
+    /// The colour of the frame's pixel in column `x` of the row `row` from
+    /// the top: every pixel another one.
+    fn frame_pixel(x: usize, row: usize) -> [u8; 4] {
+        [20 + 25 * x as u8, 20 + 35 * row as u8, 90, 255]
+    }
+
+    /// A10-01, on AppKit itself (no window: the backing store is a bitmap).
+    ///
+    /// An 8 x 6 frame whose every pixel is another colour; AppKit asks for
+    /// the dirty rect (2, 1, 3, 2) in its bottom-left pixels: columns 2..5,
+    /// and the rows whose bottom edge is 1..3 px above the bottom, which are
+    /// rows 3..5 from the top (6 - 3 = 3, 6 - 1 = 5). After the present the
+    /// surface holds the frame's rows 3..5 x columns 2..5 in the same place,
+    /// and its fill everywhere else.
+    ///
+    /// Mutations this must fail: `bitmap_source_rect` without the flip
+    /// (`y0` for `height - y1`) draws the bitmap's rows 1..3, which were not
+    /// copied; `rows_of_bottom_left_rect` without the flip copies rows 1..3
+    /// and draws rows 3..5; a row copied to another row of the bitmap
+    /// (bottom-up storage assumed) shows the frame upside down.
+    #[test]
+    fn appkit_shows_the_copied_rows_where_the_frame_has_them() {
+        const W: usize = 8;
+        const H: usize = 6;
+        const FILL: [u8; 4] = [3, 5, 7, 255];
+        let mut frame = vec![0_u8; W * H * 4];
+        for row in 0..H {
+            for x in 0..W {
+                frame[(row * W + x) * 4..][..4].copy_from_slice(&frame_pixel(x, row));
+            }
+        }
+        let bitmap = color_space::cpu_frame_bitmap(W, H).expect("the view's bitmap");
+        let target = surface(W, H, FILL);
+
+        let dirty = (2.0, 1.0, 3.0, 2.0);
+        let span = dirty_rows_to_copy(false, dirty, W, H);
+        assert_eq!(span, (2, 5, 3, 5), "columns 2..5, rows 3..5 from the top");
+        let (fx, fy, fw, fh) = bitmap_source_rect(span, H);
+        assert_eq!((fx, fy, fw, fh), dirty);
+        let from = NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh));
+
+        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&target)
+            .expect("a graphics context on the surface");
+        NSGraphicsContext::saveGraphicsState_class();
+        NSGraphicsContext::setCurrentContext(Some(&context));
+        // One point is one pixel in a bitmap context: the destination is the
+        // source rect, as it is in a view at scale 1.
+        let drawn = unsafe { draw_framebuffer_span(&bitmap, &frame, W, H, span, from, from) };
+        context.flushGraphics();
+        NSGraphicsContext::restoreGraphicsState_class();
+        assert!(drawn, "AppKit drew the span");
+
+        for row in 0..H {
+            for x in 0..W {
+                let inside = (2..5).contains(&x) && (3..5).contains(&row);
+                let want = if inside { frame_pixel(x, row) } else { FILL };
+                let got = pixel(&target, x, row);
+                assert!(
+                    got.iter().zip(&want[..3]).all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "column {x}, row {row} from the top: {got:?}, expected {:?} ({})",
+                    &want[..3],
+                    if inside { "the frame's pixel" } else { "untouched" }
+                );
+            }
+        }
+    }
+
+    /// A10-03. A span that leaves the frame, or a framebuffer shorter than
+    /// the frame, draws nothing instead of reading past the buffer.
+    #[test]
+    fn a_span_outside_the_frame_is_not_presented() {
+        const W: usize = 4;
+        const H: usize = 4;
+        let bitmap = color_space::cpu_frame_bitmap(W, H).expect("the view's bitmap");
+        let frame = vec![9_u8; W * H * 4];
+        let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(W as f64, H as f64));
+        unsafe {
+            // Rows 0..5 of a 4-row frame.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (0, W, 0, H + 1), rect, rect));
+            // Columns 0..5 of a 4-column frame.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (0, W + 1, 0, H), rect, rect));
+            // A framebuffer of 3 rows presented as 4.
+            assert!(!draw_framebuffer_span(&bitmap, &frame[..W * 3 * 4], W, H, (0, W, 0, H), rect, rect));
+            // A frame larger than the bitmap.
+            let big = vec![9_u8; W * (H + 2) * 4];
+            assert!(!draw_framebuffer_span(&bitmap, &big, W, H + 2, (0, W, 0, H + 2), rect, rect));
+            // An empty span.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (2, 2, 0, H), rect, rect));
+        }
     }
 }
