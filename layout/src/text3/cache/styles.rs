@@ -660,6 +660,8 @@ impl StyleProperties {
     #[must_use]
     pub fn layout_hash(&self) -> u64 {
         use std::hash::Hasher;
+        #[cfg(test)]
+        audit_a8_tests::LAYOUT_HASHES.with(|n| n.set(n.get() + 1));
         let mut hasher = DefaultHasher::new();
 
         // Font selection (affects shaping and metrics)
@@ -968,8 +970,13 @@ impl StyleProperties {
 
 /// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
 #[cfg(test)]
-mod audit_a8_tests {
+pub(super) mod audit_a8_tests {
     use super::*;
+
+    std::thread_local! {
+        /// `StyleProperties::layout_hash` calls on this thread.
+        pub(crate) static LAYOUT_HASHES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    }
 
     fn key(style: &StyleProperties) -> u64 {
         let mut hasher = DefaultHasher::new();
