@@ -3126,7 +3126,13 @@ pub(crate) fn walk_range(
         // content paints past its box.
         let scope_extent = frame.map(|f| f.extent).or_else(|| {
             matches!(item, DisplayListItem::PushOpacity { .. })
-                .then(|| frames.get_or_insert_with(|| list.frame_index()).opacity_extent(item_idx))
+                .then(|| {
+                    // With the frames inside the group where their live matrices paint them
+                    // (A1-60): the group's region has to hold what a moved child paints.
+                    frames
+                        .get_or_insert_with(|| list.frame_index())
+                        .opacity_extent_with(&list.items, item_idx, &render_state.transforms)
+                })
                 .flatten()
         });
         render_single_item(
@@ -20220,5 +20226,91 @@ mod audit_a1_tests {
         }
         let clamped = conic_gradient_picture(false, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
         assert_eq!(px(&clamped, 80, 80), [255, 255, 255, 255], "not repeating: white past the last stop");
+    }
+
+
+    /// A1-60 (found by A3-solver): what is painted inside a reference frame counts, in every
+    /// bound gathered over a group's items, where the frame's matrix puts it - not where it is
+    /// laid out. A column, box (0, 0) 200 x 400, holds a card, box (0, 0) 200 x 80 filled, built
+    /// with `translate(-100, 0)`: the card paints x -100 .. 100, so the column's laid-out
+    /// extent is (-100, 0) 300 x 400 (it was (0, 0) 200 x 400: only `extent_with` knew). The
+    /// same for an opacity group around the card; and with the card's LIVE matrix
+    /// `translate(50, 0)` the group paints (0, 0) 250 x 400.
+    /// Mutation: the `PushReferenceFrame` arm left out of `GroupBounds::step`.
+    #[test]
+    fn a_frame_inside_a_group_counts_where_its_matrix_paints_it() {
+        use azul_core::transform::ComputedTransform3D;
+        let card = frame(
+            2,
+            turn_scale_move(0.0, 1.0, -100.0, 0.0),
+            (200.0, 80.0),
+            vec![fill(0.0, 0.0, 200.0, 80.0, [200, 0, 0])],
+        );
+        let column = list(frame(1, IDENTITY, (200.0, 400.0), card.clone()));
+        let want = rect(-100.0, 0.0, 300.0, 400.0);
+        assert_eq!(column.frame_index().extent_of(0), Some(want));
+        assert_eq!(crate::solver3::display_list::reference_frame_extent_walked(&column.items, 0), Some(want));
+        assert_eq!(column.frame_index().extent_with(&column.items, 0, &HashMap::new()), Some(want));
+
+        let mut items = vec![DisplayListItem::PushOpacity {
+            bounds: wrect(0.0, 0.0, 200.0, 400.0),
+            opacity: 0.5,
+            opacity_key: None,
+            mix_blend_mode: Default::default(),
+        }];
+        items.extend(card);
+        items.push(DisplayListItem::PopOpacity);
+        let faded = list(items);
+        let index = faded.frame_index();
+        assert_eq!(index.opacity_extent(0), Some(want));
+        assert_eq!(index.opacity_extent_with(&faded.items, 0, &HashMap::new()), Some(want));
+        let mut live = HashMap::new();
+        live.insert(2, ComputedTransform3D { m: turn_scale_move(0.0, 1.0, 50.0, 0.0) });
+        assert_eq!(index.opacity_extent_with(&faded.items, 0, &live), Some(rect(0.0, 0.0, 250.0, 400.0)));
+    }
+
+    /// A1-60: a child that a transform moves out of a faded group's box is faded where it is
+    /// painted. A half-opaque group, box (10, 10) 40 x 40, holds a frame of the same box with a
+    /// red fill, moved by 60 px: the fill is painted at x 70 .. 110, half red over white
+    /// (255, 128, 128), and nothing is painted where it is laid out. With the group's region
+    /// taken from where the child is laid out, the moved fill was painted outside it at full
+    /// red. Both for a frame built with the matrix and for one moved by a live value.
+    /// Mutation: `opacity_extent` in place of `opacity_extent_with` in the walk fails the live
+    /// case; the frame arm left out of `GroupBounds::step` fails both.
+    #[test]
+    fn a_child_moved_out_of_a_faded_groups_box_is_faded_where_it_is_painted() {
+        use azul_core::transform::ComputedTransform3D;
+        let group = |built_with: [[f32; 4]; 4]| {
+            list(vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                    opacity: 0.5,
+                    opacity_key: None,
+                    mix_blend_mode: Default::default(),
+                },
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 7 },
+                    initial_transform: ComputedTransform3D { m: built_with },
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                },
+                fill(10.0, 10.0, 40.0, 40.0, [255, 0, 0]),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopOpacity,
+            ])
+        };
+        let moved = turn_scale_move(0.0, 1.0, 60.0, 0.0);
+        let (built, _) = full(&group(moved), &CpuRenderState::new(ScrollOffsetMap::new()), (160, 60));
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new());
+        state.transforms.insert(7, ComputedTransform3D { m: moved });
+        let (live, _) = full(&group(IDENTITY), &state, (160, 60));
+        for (what, painted) in [("built with the matrix", &built), ("moved by a live value", &live)] {
+            let [r, g, b, a] = px(painted, 90, 30);
+            assert!(
+                r == 255 && (120..=136).contains(&g) && (120..=136).contains(&b) && a == 255,
+                "{what}: half red over white where the child is painted, got {:?}",
+                [r, g, b, a]
+            );
+            assert_eq!(px(painted, 30, 30), [255, 255, 255, 255], "{what}: nothing where it is laid out");
+        }
     }
 }
