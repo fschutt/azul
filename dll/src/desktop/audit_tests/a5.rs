@@ -17,17 +17,22 @@
 //! - an unchanged view comes to rest: no image added or deleted, no halo
 //!   drawn, no frame owed.
 
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
 use azul_core::{
     dom::{Dom, DomId},
     geom::LogicalSize,
+    gl::OptionGlContextPtr,
     resources::{DpiScaleFactor, RendererResources},
     styled_dom::StyledDom,
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{text_halo_bounds_in_this_thread, text_halo_stats, text_halos, TextHaloStats},
+    managers::gpu_state::HaloRelease,
     window::LayoutWindow,
     window_state::FullWindowState,
 };
@@ -40,8 +45,8 @@ use webrender::{
 use crate::desktop::{
     compositor2::translate_displaylist_to_wr,
     wr_translate2::{
-        draw_every_halo_in_this_thread, draw_this_many_halos_a_frame_in_this_thread,
-        register_frame_resources,
+        build_full_transaction, build_lightweight_transaction, draw_every_halo_in_this_thread,
+        draw_this_many_halos_a_frame_in_this_thread, register_frame_resources,
     },
 };
 
@@ -165,6 +170,25 @@ impl Recorder {
         let mut txn = Transaction::new();
         let _ = register_frame_resources(&mut self.window, &mut txn, dpi);
         let (added, deleted, updated) = self.take(&txn);
+        let halos = self.painted();
+        let frame = Frame {
+            added,
+            deleted,
+            updated,
+            halos,
+            stats: text_halo_stats(),
+            owed: self.window.gpu_state_manager.halos_owed,
+        };
+        // The shells go on to the next epoch after a frame with lists.
+        self.window.epoch.increment();
+        frame
+    }
+
+    /// How a translation of the window's list made NOW paints each label's
+    /// halo, in list order. Fails when it names an image the renderer does not
+    /// hold.
+    pub(super) fn painted(&self) -> Vec<Halo> {
+        let dpi = DpiScaleFactor::new(self.dpi);
         let list = self
             .window
             .get_layout_result(&DomId::ROOT_ID)
@@ -183,8 +207,26 @@ impl Recorder {
         )
         .expect("the frame translates");
         // The shadows painted as pictures, in list order: own or standing in.
-        let stood: Vec<bool> = text_halos(&list.items, self.dpi, None)
+        // Every picture a look at the list finds is registered - except in a
+        // window whose pictures were given back (audit A5-20): the kept
+        // pictures of the thread may hold some another window paints, and this
+        // window's translation gives those shadows to the renderer.
+        let found = text_halos(&list.items, self.dpi, None);
+        let registered = |halo: &&azul_layout::cpurender::TextHalo| {
+            self.window
+                .renderer_resources
+                .currently_registered_images
+                .contains_key(&halo.image.get_hash())
+        };
+        if self.window.gpu_state_manager.halo_release == HaloRelease::Kept {
+            assert!(
+                found.iter().all(|halo| registered(&halo)),
+                "a kept halo of the list is not registered with the renderer"
+            );
+        }
+        let stood: Vec<bool> = found
             .iter()
+            .filter(registered)
             .map(|halo| halo.stand_in)
             .collect();
         let mut halos = Vec::new();
@@ -211,18 +253,65 @@ impl Recorder {
             }
         }
         assert_eq!(pictures, stood.len(), "every kept halo of the list is painted as its picture");
-        let frame = Frame {
-            added,
-            deleted,
-            updated,
-            halos,
-            stats: text_halo_stats(),
-            owed: self.window.gpu_state_manager.halos_owed,
-        };
-        // The shells go on to the next epoch after a frame with lists.
-        self.window.epoch.increment();
-        frame
+        halos
     }
+
+    /// The renderer takes the transaction of one pass of a shell.
+    fn sent(&mut self, txn: &Transaction, frame: bool) -> Pass {
+        let list = txn.first_display_list().is_some();
+        let (added, deleted, updated) = self.take(txn);
+        Pass {
+            added,
+            updated,
+            deleted,
+            list,
+            frame,
+        }
+    }
+
+    /// The pass of a frame whose layout was made again: the full transaction.
+    fn full_pass(&mut self) -> Pass {
+        let mut txn = Transaction::new();
+        build_full_transaction(&mut txn, &mut self.window, &OptionGlContextPtr::None)
+            .expect("the full transaction");
+        self.sent(&txn, true)
+    }
+
+    /// The pass of a frame that laid nothing out: the lightweight transaction,
+    /// which is also what the platform loop makes while the engine owes frames.
+    fn light_pass(&mut self) -> Pass {
+        let mut txn = Transaction::new();
+        let frame =
+            build_lightweight_transaction(&mut txn, &mut self.window, &OptionGlContextPtr::None)
+                .expect("the lightweight transaction");
+        self.sent(&txn, frame.changed)
+    }
+
+    /// Passes while the engine owes frames, as the platform loop makes them;
+    /// `each` looks at the window after every one. Returns how many it made.
+    fn passes_while_owed(&mut self, mut each: impl FnMut(&Self, &Pass, usize)) -> usize {
+        let mut made = 0;
+        while self.window.gpu_state_manager.halos_owed {
+            made += 1;
+            assert!(made < 40, "the halos come");
+            let pass = self.light_pass();
+            each(&*self, &pass, made);
+        }
+        made
+    }
+}
+
+/// What one pass of a shell handed the renderer.
+#[derive(Debug)]
+struct Pass {
+    /// The images its transaction added, gave new pixels and deleted.
+    added: Vec<ImageKey>,
+    updated: Vec<ImageKey>,
+    deleted: Vec<ImageKey>,
+    /// Whether it carried a display list.
+    list: bool,
+    /// Whether it asked the renderer for a frame.
+    frame: bool,
 }
 
 /// `count` labels of a map as the editor draws them: absolutely placed, each
@@ -851,4 +940,452 @@ fn a5_19_a_pan_in_a_full_cache_gets_its_new_labels_their_halos_in_the_next_frame
         }
     }
     assert_eq!(resting, 5, "the view came to rest");
+}
+
+// ==== A5-20: a window nobody sees gives back the pictures its lists paint ====
+
+/// `dom` laid out and drawn, pass by pass as a shell makes them, until the
+/// window owes no frame: every label that can have a picture has its own.
+fn a_view_at_rest(dpi: f32, dom: Dom) -> Recorder {
+    let mut view = Recorder::new(dpi);
+    view.lay_out(dom);
+    let first = view.full_pass();
+    assert!(first.list, "the first pass sends the list");
+    let _ = view.passes_while_owed(|_, _, _| {});
+    view
+}
+
+/// The keys of the labels painted with their own picture.
+fn own_keys(halos: &[Halo]) -> HashSet<ImageKey> {
+    halos
+        .iter()
+        .filter_map(|halo| match halo {
+            Halo::Own(key) => Some(*key),
+            _ => None,
+        })
+        .collect()
+}
+
+/// What the macOS shell does for a window nobody sees
+/// (`MacOSWindow::release_regenerable_memory`, the Dock or a hidden app): the
+/// renderer's keys of the window's halo pictures are deleted in a transaction
+/// and its lists go without them (`release_text_halo_images`); then the
+/// thread's kept pictures forget the window, the windows still `shown` mark
+/// what their lists paint, and the rest is given back. Returns the pass, the
+/// keys the release says it deleted, and what the thread gave back.
+fn hide(
+    view: &mut Recorder,
+    shown: &[&Recorder],
+) -> (Pass, usize, azul_layout::cpurender::TextHalosReleased) {
+    use azul_layout::cpurender::{release_text_halos, text_halos_forget_use, text_halos_in_use};
+
+    use crate::desktop::wr_translate2::release_text_halo_images;
+
+    let mut txn = Transaction::new();
+    let keys = release_text_halo_images(&mut view.window, &mut txn);
+    text_halos_forget_use();
+    for other in shown {
+        if other.window.gpu_state_manager.halo_release == HaloRelease::Kept {
+            text_halos_in_use(
+                other.window.layout_results.values().map(|result| &result.display_list),
+                other.dpi,
+            );
+        }
+    }
+    let released = release_text_halos(shown.is_empty());
+    (view.sent(&txn, false), keys, released)
+}
+
+/// A5-20, test 1. A window at rest paints twelve labels from twelve pictures:
+/// the thread keeps their bytes and the renderer holds the same bytes under
+/// twelve keys. The window goes to the Dock. Its release deletes every one of
+/// those keys in one transaction, which also carries the list translated
+/// without the pictures; the thread keeps no halo and no byte; the window is
+/// marked, and owes no frame. (The shell sends that transaction whenever the
+/// release says it deleted a key: `a5_20_the_macos_shell_...`.)
+///
+/// Mutation: the loop over `keys` that calls `txn.delete_image` removed from
+/// `release_text_halo_images` (the renderer keeps the bytes): `view.live` is not
+/// empty. `text_halos_forget_use()` removed from the release: the thread keeps
+/// the twelve pictures.
+#[test]
+fn a5_20_a_hidden_window_gives_back_the_pictures_its_lists_paint() {
+    use azul_core::resources::ImageSlot;
+
+    const LABELS: usize = 12;
+    draw_this_many_halos_a_frame_in_this_thread(4);
+    let mut view = a_view_at_rest(2.0, labels(LABELS, 1.0));
+    let held = view.painted();
+    let named = own_keys(&held);
+    assert_eq!(named.len(), LABELS, "premise: every label on its own picture: {held:?}");
+    let kept = text_halo_stats();
+    assert!(kept.kept as usize >= LABELS && kept.kept_bytes > 0, "premise: {kept:?}");
+
+    let (pass, keys, released) = hide(&mut view, &[]);
+    assert!(keys >= LABELS, "the release names the keys it deleted: {keys}");
+    assert_eq!(pass.deleted.len(), keys, "each in the transaction it filled");
+    assert!(
+        named.iter().all(|key| pass.deleted.contains(key)),
+        "a key a label was painted from is not deleted"
+    );
+    assert!(pass.added.is_empty() && pass.updated.is_empty());
+    assert!(pass.list, "the list goes with the deletes, translated without the pictures");
+    assert!(view.live.is_empty(), "the renderer still holds {:?}", view.live);
+    let rr = &view.window.renderer_resources;
+    assert!(
+        !rr.image_slots.keys().any(|slot| matches!(slot, ImageSlot::TextHalo(_))),
+        "a halo slot kept its key"
+    );
+    assert!(rr.currently_registered_images.is_empty() && rr.image_key_map.is_empty());
+    let left = text_halo_stats();
+    assert_eq!((left.kept, left.kept_bytes), (0, 0), "the halo bytes kept for the window");
+    assert_eq!(
+        (released.halos as u64, released.bytes as u64),
+        (kept.kept, kept.kept_bytes),
+        "all of them were given back by this release"
+    );
+    let state = &view.window.gpu_state_manager;
+    assert_eq!(state.halo_release, HaloRelease::Hidden);
+    assert!(!state.halos_owed, "nothing is drawn for a window nobody sees");
+    assert!(
+        view.painted().iter().all(|halo| *halo == Halo::None),
+        "the list the renderer holds names no picture"
+    );
+
+    // Hidden once more (the app is hidden while the window is in the Dock).
+    let (again, keys, _) = hide(&mut view, &[]);
+    assert_eq!((keys, again.deleted.len(), again.list), (0, 0, false));
+
+    // Shown, and hidden again before any pass brought the pictures back: the
+    // frame that was owed for them is owed no more, and nothing is sent.
+    assert!(view.window.gpu_state_manager.halos_return());
+    assert!(view.window.gpu_state_manager.halos_owed);
+    let (again, keys, _) = hide(&mut view, &[]);
+    assert_eq!((keys, again.deleted.len(), again.list), (0, 0, false));
+    let state = &view.window.gpu_state_manager;
+    assert_eq!((state.halo_release, state.halos_owed), (HaloRelease::Hidden, false));
+    let idle = view.light_pass();
+    assert!(!idle.frame && !idle.list && idle.added.is_empty(), "{idle:?}");
+}
+
+/// A5-20, test 2. The window is shown again. The shell says so
+/// (`GpuStateManager::halos_return`: a frame is owed); the pass that follows
+/// scans, draws the labels' own pictures by the frame's budget (four here) and
+/// a small picture for every other label, registers them and sends the list
+/// with them. The first frame after the return - and every frame after it -
+/// paints every label with a picture: none is bare. With type too small for a
+/// small picture (`zoom` 0.3: 7.2 device px per em) every label's own picture
+/// is drawn in that one scan, whatever the frame's budget.
+///
+/// Mutation: `self.halos_owed = true` removed from `halos_return` (nothing
+/// scans: the first pass sends nothing); the `Returning` arm removed from
+/// `collect_image_resource_updates_and_halos` passes at this size (twelve labels
+/// are within a frame's 64 small pictures; the scan's rule itself is the unit
+/// test `the_scan_after_a_release_draws_every_small_picture_...`);
+/// `whatever_the_time` removed from `text_halos` fails the small type: eight
+/// labels have no halo in the first frame.
+fn a_window_that_is_shown_again_has_every_halo_in_its_first_frame(zoom: f32) {
+    const LABELS: usize = 12;
+    draw_this_many_halos_a_frame_in_this_thread(4);
+    let mut view = a_view_at_rest(2.0, labels(LABELS, zoom));
+    assert_eq!(own_keys(&view.painted()).len(), LABELS, "premise: every label has a picture");
+    let _ = hide(&mut view, &[]);
+
+    // A hidden window at rest: a pass has nothing to send, and draws nothing.
+    let idle = view.light_pass();
+    assert!(!idle.frame && !idle.list && idle.added.is_empty(), "{idle:?}");
+    assert_eq!(text_halo_stats().kept, 0);
+
+    assert!(view.window.gpu_state_manager.halos_return(), "the window is shown again");
+    assert!(!view.window.gpu_state_manager.halos_return(), "once");
+    let first = view.light_pass();
+    assert!(first.frame && first.list, "the pictures and the list go: {first:?}");
+    let now = view.painted();
+    assert!(
+        now.iter().all(|halo| *halo != Halo::None),
+        "the first frame after the return paints a label without its halo: {now:?}"
+    );
+    assert_eq!(first.added.len(), LABELS, "a picture for every label, in that pass");
+    assert_eq!(view.window.gpu_state_manager.halo_release, HaloRelease::Kept);
+
+    let _ = view.passes_while_owed(|view, _, n| {
+        let now = view.painted();
+        assert!(
+            now.iter().all(|halo| *halo != Halo::None),
+            "pass {n} after the return paints a label without its halo: {now:?}"
+        );
+    });
+    assert_eq!(own_keys(&view.painted()).len(), LABELS, "every label has its own picture at last");
+    let rest = view.light_pass();
+    assert!(!rest.frame && !rest.list && rest.added.is_empty() && rest.updated.is_empty());
+}
+
+#[test]
+fn a5_20_a_window_that_is_shown_again_has_every_halo_in_its_first_frame() {
+    a_window_that_is_shown_again_has_every_halo_in_its_first_frame(1.0);
+}
+
+/// Type under 10 device px per em: there is no small picture for it.
+#[test]
+fn a5_20_a_window_of_small_type_that_is_shown_again_has_every_halo_in_its_first_frame() {
+    a_window_that_is_shown_again_has_every_halo_in_its_first_frame(0.3);
+}
+
+/// A5-20, test 3. A list that is sent while the window is hidden names no key
+/// that was deleted, and nothing is drawn for it:
+///
+/// - a colour patch (the pointer's last move, a timer): the list is a new
+///   allocation, the lightweight pass sends it without a scan;
+/// - a layout made again (the window resized in the Dock): the full
+///   transaction, whose scan of the lists draws and looks up no halo.
+///
+/// Both translate every label's shadow to the renderer's own
+/// (`Recorder::painted` fails on a key the renderer does not hold), add no
+/// image, keep no picture and owe no frame; the window stays hidden until the
+/// shell says it is shown, and then has every halo in its first frame.
+///
+/// Mutation: `halos_held_back` forced to `false` in
+/// `collect_image_resource_updates_and_halos` (a hidden window's scan draws
+/// halos): the full pass adds images and the thread keeps pictures again.
+#[test]
+fn a5_20_a_list_sent_while_the_window_is_hidden_names_no_deleted_key() {
+    const LABELS: usize = 12;
+    draw_this_many_halos_a_frame_in_this_thread(4);
+    let mut view = a_view_at_rest(2.0, labels(LABELS, 1.0));
+    let _ = hide(&mut view, &[]);
+    let hidden = |view: &Recorder, pass: &Pass, what: &str| {
+        assert!(pass.list, "{what}: premise: the list is sent");
+        assert!(
+            pass.added.is_empty() && pass.updated.is_empty() && pass.deleted.is_empty(),
+            "{what}: {pass:?}"
+        );
+        assert!(
+            view.painted().iter().all(|halo| *halo == Halo::None),
+            "{what}: the list names a picture"
+        );
+        assert_eq!(text_halo_stats().kept, 0, "{what}: a picture was drawn");
+        let state = &view.window.gpu_state_manager;
+        assert_eq!(state.halo_release, HaloRelease::Hidden, "{what}");
+        assert!(!state.halos_owed, "{what}: a frame is owed for a window nobody sees");
+    };
+
+    // A patch in place moves a list the renderer holds to a new allocation.
+    {
+        let result = view
+            .window
+            .layout_results
+            .get_mut(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out");
+        let before = Arc::as_ptr(&result.display_list);
+        let _ = Arc::make_mut(&mut result.display_list);
+        assert!(
+            !std::ptr::eq(before, Arc::as_ptr(&result.display_list)),
+            "premise: the renderer's record of the list makes a patch move it"
+        );
+    }
+    let patched = view.light_pass();
+    hidden(&view, &patched, "a patched list");
+
+    view.lay_out(labels(LABELS, 1.0));
+    let laid_out = view.full_pass();
+    hidden(&view, &laid_out, "a layout made again");
+
+    assert!(view.window.gpu_state_manager.halos_return());
+    let first = view.light_pass();
+    assert_eq!(first.added.len(), LABELS);
+    assert!(view.painted().iter().all(|halo| *halo != Halo::None));
+}
+
+/// A5-20, test 4. Two windows on one thread share the kept pictures. A shows
+/// labels 0..12, B labels 6..18: six pictures are both windows'. B goes to the
+/// Dock: B's keys are deleted, the thread gives back B's own six pictures (and
+/// what nothing paints) and keeps A's twelve, the shared ones among them. A
+/// loses nothing: an idle pass sends nothing, and a pass that scans A's lists
+/// again draws nothing and paints each label from the key it had. B comes
+/// back: the shared pictures are found kept, its own are drawn again.
+///
+/// Mutation: the loop over `shown` removed from the release (the shown
+/// window's lists do not mark what they paint): the thread keeps nothing, and
+/// A's next scan draws its pictures again.
+#[test]
+fn a5_20_a_hidden_window_takes_nothing_from_a_window_that_is_shown() {
+    const LABELS: usize = 12;
+    draw_this_many_halos_a_frame_in_this_thread(4);
+    let mut a = a_view_at_rest(2.0, labels(LABELS, 1.0));
+    let mut b = a_view_at_rest(2.0, labels_from(6, LABELS, 1.0));
+    let held = a.painted();
+    assert_eq!(own_keys(&held).len(), LABELS, "premise: A's labels have their pictures");
+    assert_eq!(own_keys(&b.painted()).len(), LABELS, "premise: B's too");
+
+    let (pass, keys, released) = hide(&mut b, &[&a]);
+    assert!(keys >= LABELS && pass.deleted.len() == keys);
+    assert!(b.live.is_empty(), "B's renderer still holds {:?}", b.live);
+    assert!(released.halos >= 6, "B's own six pictures at least: {released:?}");
+    let kept = text_halo_stats();
+    assert_eq!(kept.kept as usize, LABELS, "A's twelve pictures and no other: {kept:?}");
+
+    let idle = a.light_pass();
+    assert!(
+        !idle.frame && idle.added.is_empty() && idle.updated.is_empty() && idle.deleted.is_empty(),
+        "{idle:?}"
+    );
+    assert_eq!(a.painted(), held, "A paints what it painted");
+    a.lay_out(labels(LABELS, 1.0));
+    let scanned = a.full_pass();
+    assert!(scanned.added.is_empty() && scanned.updated.is_empty(), "{scanned:?}");
+    assert_eq!(text_halo_stats().created, 0, "A's scan draws nothing again");
+    assert_eq!(a.painted(), held, "each label from the picture and the key it had");
+
+    assert!(b.window.gpu_state_manager.halos_return());
+    let first = b.light_pass();
+    assert_eq!(first.added.len(), LABELS, "B has a picture for every label again");
+    assert!(b.painted().iter().all(|halo| *halo != Halo::None));
+    assert_eq!(a.painted(), held, "and A still paints what it painted");
+}
+
+/// A5-20, test 5. Hide and show ten times. After every hide the renderer holds
+/// no key of the window and the thread no picture; after every return, at rest,
+/// the renderer holds the same number of keys (as many as after the first
+/// return: nothing piles up), every key it holds is a slot's (none left
+/// behind), and the twelve labels are painted from twelve of them. No frame on
+/// the way paints a label without its halo.
+///
+/// Mutation: `rr.image_slots.remove(slot)` removed from
+/// `release_text_halo_images` (the slots keep keys that are deleted): the
+/// return's pictures are "updates" of keys the renderer does not hold
+/// (`Recorder::take` fails).
+#[test]
+fn a5_20_hiding_and_showing_a_window_ten_times_leaves_no_key_behind() {
+    const LABELS: usize = 12;
+    draw_this_many_halos_a_frame_in_this_thread(4);
+    let mut view = a_view_at_rest(2.0, labels(LABELS, 1.0));
+    // The keys the renderer holds when the window is at rest after a return.
+    let mut at_rest: Vec<usize> = Vec::new();
+    for round in 0..10 {
+        let named = own_keys(&view.painted());
+        assert_eq!(named.len(), LABELS, "round {round}: every label on its own picture");
+        assert!(named.is_subset(&view.live));
+        let rr = &view.window.renderer_resources;
+        assert_eq!(
+            (rr.image_slots.len(), rr.image_key_map.len()),
+            (view.live.len(), view.live.len()),
+            "round {round}: a key that is no slot's, or a slot without its key"
+        );
+
+        let (pass, keys, _) = hide(&mut view, &[]);
+        assert_eq!(pass.deleted.len(), keys, "round {round}");
+        assert!(view.live.is_empty(), "round {round}: left after the hide: {:?}", view.live);
+        assert_eq!(text_halo_stats().kept, 0, "round {round}");
+
+        assert!(view.window.gpu_state_manager.halos_return());
+        let first = view.light_pass();
+        assert_eq!(first.added.len(), LABELS, "round {round}");
+        let bare = |view: &Recorder| view.painted().iter().any(|halo| *halo == Halo::None);
+        assert!(!bare(&view), "round {round}: the first frame after the return");
+        let _ = view.passes_while_owed(|view, _, n| {
+            assert!(!bare(view), "round {round}, pass {n} after the return");
+        });
+        at_rest.push(view.live.len());
+    }
+    assert!(at_rest[0] >= LABELS && at_rest[0] <= 2 * LABELS, "{at_rest:?}");
+    assert!(
+        at_rest.iter().all(|keys| *keys == at_rest[0]),
+        "the keys the renderer holds after each return: {at_rest:?}"
+    );
+    assert_eq!(own_keys(&view.painted()).len(), LABELS);
+}
+
+/// A5-20. The macOS shell's half, read from the source (a delegate and a render
+/// pass cannot run headless; the statements are the ones the recorder tests
+/// above make by hand):
+///
+/// - a window that is released because nobody sees it has its halo keys
+///   deleted in a transaction that is SENT and waited for, BEFORE the thread's
+///   kept pictures forget it, and before the other windows mark theirs;
+/// - `AZ_HALO_RELEASE=lists` leaves the pictures a list paints (A5-18);
+/// - every render pass of a window that is shown brings the halos back
+///   (`halos_return`), and that pass waits for its frame;
+/// - a frame of a window whose halos are given back is not presented.
+///
+/// Mutation: the send or the wait removed from
+/// `release_halo_images_of_a_hidden_window`, the release moved behind
+/// `text_halos_forget_use`, `halos_return` or the flush guard removed: each
+/// fails here.
+#[test]
+fn a5_20_the_macos_shell_gives_a_hidden_windows_halos_back_and_brings_them_back() {
+    const MACOS_RS: &str = include_str!("../shell2/macos/mod.rs");
+    // The text of a function, from its name to the brace that closes it at
+    // `indent`.
+    let body_at = |from: &str, indent: &str| -> &'static str {
+        let at = MACOS_RS
+            .find(from)
+            .unwrap_or_else(|| panic!("`{from}` is missing"));
+        let rest = &MACOS_RS[at..];
+        let end = format!("\n{indent}}}\n");
+        &rest[..rest.find(end.as_str()).expect("the end of the function")]
+    };
+    let body = |from: &str| body_at(from, "    ");
+    let release = body("pub(crate) fn release_regenerable_memory(");
+    let at = |what: &str| {
+        release
+            .find(what)
+            .unwrap_or_else(|| panic!("the release: `{what}` is missing"))
+    };
+    assert!(
+        release.contains("let full = reason == MemoryRelease::NotShown && halo_release_is_full();"),
+        "a window nobody sees, unless the switch says otherwise"
+    );
+    let order = [
+        "self.release_halo_images_of_a_hidden_window();",
+        "azul_layout::cpurender::text_halos_forget_use();",
+        "for window in registry::get_all_window_ptrs()",
+        "azul_layout::cpurender::release_text_halos(not_shown)",
+    ];
+    for pair in order.windows(2) {
+        assert!(at(pair[0]) < at(pair[1]), "`{}` comes before `{}`", pair[0], pair[1]);
+    }
+    assert!(
+        release.contains("== azul_layout::managers::gpu_state::HaloRelease::Kept"),
+        "only a window whose pictures are kept marks what it paints"
+    );
+
+    let images = body("fn release_halo_images_of_a_hidden_window(");
+    let sent = [
+        "crate::desktop::wr_translate2::release_text_halo_images(layout_window, &mut txn) == 0",
+        "render_api.send_transaction(doc_id, txn);",
+        "render_api.flush_scene_builder();",
+    ];
+    let mut last = 0;
+    for call in sent {
+        let found = images
+            .find(call)
+            .unwrap_or_else(|| panic!("the release of the keys: `{call}` is missing"));
+        assert!(found >= last, "`{call}` is out of order");
+        last = found;
+    }
+
+    assert!(
+        body_at("fn halo_release_is_full(", "")
+            .contains("!std::env::var(\"AZ_HALO_RELEASE\").is_ok_and(|v| v == \"lists\")"),
+        "the switch"
+    );
+    for (statement, why) in [
+        (
+            "let _ = layout_window.gpu_state_manager.halos_return();",
+            "a pass of a window that is shown brings its halos back",
+        ),
+        ("|| halos_return_in_this_pass", "and waits for the frame that has them"),
+        ("if !halos_hidden {", "a frame without them is not presented"),
+        (
+            "let window_is_not_shown = self.is_not_shown();",
+            "whether the window is shown is asked in every pass",
+        ),
+    ] {
+        assert!(MACOS_RS.contains(statement), "{why}: `{statement}` is missing");
+    }
+    assert!(
+        body_at("fn window_did_deminiaturize(", "        ")
+            .contains("macos_window.request_redraw();"),
+        "a window back from the Dock asks for that pass"
+    );
 }

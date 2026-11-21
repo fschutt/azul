@@ -282,8 +282,41 @@ struct Budget {
     /// long they took.
     previews: usize,
     previews_spent: Duration,
+    /// The scan after a window's pictures were given back
+    /// ([`draw_every_small_halo_in_the_next_scan`]): a small picture for every
+    /// halo that has none, however many and however long.
+    every_small: bool,
 }
 
+thread_local! {
+    /// Whether the next scan of this thread is one with [`Budget::every_small`].
+    static EVERY_SMALL_NEXT: Cell<bool> = const { Cell::new(false) };
+}
+
+/// The next scan of this thread ([`within_halo_budget`]) draws a small picture
+/// for EVERY spread shadow that has neither its own picture nor one standing in,
+/// however many they are and however long it takes, and the own picture of type
+/// too small for a small one ([`SMALLEST_PREVIEWED`]). For the first scan of a
+/// window whose pictures were given back while nobody saw it (audit A5-20,
+/// [`text_halos_forget_use`]): its labels were on screen with their halos before,
+/// and a frame's 64 small pictures and 6 ms would paint the rest of them without
+/// outline for the frames it takes to draw the others. A small picture is a
+/// sixteenth of its halo's pixels and some fiftieth of its work: est. 30-60 ms
+/// for the 1,567 labels of a municipal map on a 2x display, once, in the frame
+/// the window comes back with. The labels' own pictures follow by the frame's
+/// budget, each into the place of its small one, as after a zoom.
+pub fn draw_every_small_halo_in_the_next_scan() {
+    EVERY_SMALL_NEXT.with(|next| next.set(true));
+}
+
+/// Whether the scan under way draws every small picture ([`Budget::every_small`]).
+fn every_small() -> bool {
+    BUDGET.with(|cell| cell.get().is_some_and(|budget| budget.every_small))
+}
+
+/// The smallest type, in device px per em, that a small picture is drawn for
+/// ([`Scope::preview`]): under it a half-size picture is a smudge.
+const SMALLEST_PREVIEWED: f32 = 10.0;
 /// Small stand-in pictures a frame draws however long they take ...
 const PREVIEWS_ANYWAY: usize = 64;
 /// ... and how long it goes on drawing them after those. One is a sixteenth of
@@ -322,6 +355,7 @@ pub fn within_halo_budget<R>(free: usize, time: Duration, f: impl FnOnce() -> R)
             deferred: 0,
             previews: 0,
             previews_spent: Duration::ZERO,
+            every_small: EVERY_SMALL_NEXT.with(|next| next.replace(false)),
         }))
     });
     let result = f();
@@ -391,7 +425,13 @@ fn spend(time: Duration) {
 /// holds the room is the frame before's pictures, which the next scan may drop:
 /// [`HaloCache::owes_a_scan_for_room`]).
 fn admit(box_bytes: usize, shape: u64) -> bool {
-    if !budget_left() {
+    admit_if(budget_left(), box_bytes, shape)
+}
+
+/// [`admit`] with the budget's answer given (`time_left`): a scan after a release
+/// draws some halos whatever the time ([`draw_every_small_halo_in_the_next_scan`]).
+fn admit_if(time_left: bool, box_bytes: usize, shape: u64) -> bool {
+    if !time_left {
         count_in_budget(false);
         HALOS.with(|halos| halos.borrow_mut().stats.pending += 1);
         return false;
@@ -418,7 +458,9 @@ fn admit(box_bytes: usize, shape: u64) -> bool {
 fn admit_preview(box_bytes: usize) -> bool {
     let within = BUDGET.with(|cell| {
         cell.get().is_none_or(|budget| {
-            budget.previews < PREVIEWS_ANYWAY || budget.previews_spent < PREVIEW_TIME
+            budget.every_small
+                || budget.previews < PREVIEWS_ANYWAY
+                || budget.previews_spent < PREVIEW_TIME
         })
     });
     if !within || !HALOS.with(|halos| halos.borrow_mut().make_room(box_bytes, None)) {
@@ -533,6 +575,22 @@ pub fn text_halos_in_use<'a>(lists: impl IntoIterator<Item = &'a Arc<DisplayList
     }
 }
 
+/// Forgets which kept halos the last scan used: from here on only what
+/// [`text_halos_in_use`] marks counts as painted, and [`release_text_halos`]
+/// gives back all the rest. For a window nobody sees any more (audit A5-20): the
+/// renderer host deletes that window's image keys (which is what frees a painted
+/// picture: the renderer holds the same bytes), calls this, has the windows that
+/// ARE shown mark what their lists paint, and releases. A picture two windows
+/// paint is kept while either is shown; the hidden window's own go.
+///
+/// Nothing is forgotten while a scan is under way.
+pub fn text_halos_forget_use() {
+    if BUDGET.with(|budget| budget.get().is_some()) {
+        return;
+    }
+    HALOS.with(|halos| halos.borrow_mut().forget_use());
+}
+
 /// Gives back what this thread keeps of text halos and no display list paints:
 /// for memory pressure, and for windows nobody sees (audit A5-18).
 ///
@@ -541,16 +599,19 @@ pub fn text_halos_in_use<'a>(lists: impl IntoIterator<Item = &'a Arc<DisplayList
 /// the pictures of labels that left the view, of the sizes before the last zoom,
 /// the small ones that stood in until a label's own was drawn. Kept is every
 /// picture a list paints - the label's own, one standing in, one drawn and
-/// waiting to be shown - whether the window is shown or not (`not_shown`), for two
-/// reasons. Its bytes are not this cache's alone: the renderer was handed the same
-/// allocation (a shared `ImageData::Raw`) and holds it for as long as a list names
-/// its key, so dropping it here frees nothing. And a list that is translated
-/// without a scan (one patched in place: a hover's colour) finds its pictures
-/// here; without them every label of it is painted without its halo, and no frame
-/// is owed that would draw them. So the frame after a release costs nothing more
-/// than the one before: no halo is drawn again, no image changes, no list goes.
-/// What the release costs comes later: a label that returns to the view, or a zoom
-/// back to a size that was kept, draws its picture again.
+/// waiting to be shown - for two reasons. Its bytes are not this cache's alone:
+/// the renderer was handed the same allocation (a shared `ImageData::Raw`) and
+/// holds it for as long as a list names its key, so dropping it here frees
+/// nothing. And a list that is translated without a scan (one patched in place: a
+/// hover's colour) finds its pictures here; without them every label of it is
+/// painted without its halo, and no frame is owed that would draw them. So the
+/// frame after a release costs nothing more than the one before: no halo is drawn
+/// again, no image changes, no list goes. What the release costs comes later: a
+/// label that returns to the view, or a zoom back to a size that was kept, draws
+/// its picture again.
+///
+/// The pictures a HIDDEN window's lists paint go when the host first deleted
+/// their keys and then asked to forget them ([`text_halos_forget_use`]).
 ///
 /// `not_shown` (no window of the thread is on screen: the app is hidden, the
 /// window is in the Dock) also gives back what only makes the next halo cheaper:
@@ -878,7 +939,15 @@ fn halos_of(
                     // The shadow's text itself, for the picture to draw (`shadow`
                     // was made from this item: it is there).
                     let scope = scope_at(items, shadow.push)?;
-                    let admitted = |box_bytes: usize| admit(box_bytes, sought.shape);
+                    // In the scan after a release, type too small for a small
+                    // picture gets its own whatever the time: it had its halo
+                    // on screen before, and nothing else can stand in for it.
+                    let whatever_the_time = shadow.spread > 0.0
+                        && sought.scale < SMALLEST_PREVIEWED
+                        && every_small();
+                    let admitted = |box_bytes: usize| {
+                        admit_if(whatever_the_time || budget_left(), box_bytes, sought.shape)
+                    };
                     // The place of the picture that stands in for this shadow,
                     // looked up before room is made for the new one (the
                     // stand-in may be what gives way to it).
@@ -1705,6 +1774,14 @@ impl HaloCache {
         owed
     }
 
+    /// What the last scan used counts as unused from here on, until it is used
+    /// again ([`text_halos_forget_use`]): a scan's number that no scan had. The
+    /// scan after it treats what is marked since as the scan before's.
+    fn forget_use(&mut self) {
+        self.scan += 1;
+        self.victims = None;
+    }
+
     /// Drops every entry the last scan did not use and nothing has used since
     /// ([`release_text_halos`]). Between two scans every entry a display list
     /// paints from has the last scan's number: the scan looked at every list, and
@@ -1943,7 +2020,7 @@ impl Scope<'_> {
     ) -> Option<Kept> {
         let divisor = if sought.scale >= 20.0 {
             4.0
-        } else if sought.scale >= 10.0 {
+        } else if sought.scale >= SMALLEST_PREVIEWED {
             2.0
         } else {
             return None;
@@ -3025,6 +3102,105 @@ mod audit_a5_tests {
             GLYPHS.with(|glyphs| glyphs.borrow().cells_len() + glyphs.borrow().paths_len()),
             0
         );
+    }
+
+    /// A5-20. A window that is hidden gives back its OWN pictures, and no other
+    /// window's. Window A paints labels 0..4, window B labels 2..6 (2 and 3 are
+    /// both windows'), B scanned last. B is hidden: its use is forgotten, A's
+    /// lists mark what they paint, the rest goes - labels 4 and 5, two pictures
+    /// of 64 bytes. A's four keep their pictures and slots. Then A is hidden too:
+    /// nothing is marked, and nothing is kept.
+    ///
+    /// Mutation: `self.scan += 1` removed from `forget_use`: the hidden window's
+    /// pictures are the last scan's and stay (the first count is 0).
+    #[test]
+    fn a_hidden_window_gives_back_its_own_pictures_and_no_other_windows() {
+        let scan = |cache: &mut HaloCache, labels: core::ops::Range<u64>| {
+            cache.begin_scan();
+            for n in labels {
+                let sought = label(n);
+                if let Some(id) = cache.find(sought.text, &GEOMETRY) {
+                    let _ = cache.use_own(id, true);
+                } else {
+                    assert!(cache.make_room(BYTES, None));
+                    cache.insert(&sought, &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
+                }
+            }
+        };
+        // A look without fonts at the lists of a window that is shown.
+        let mark = |cache: &mut HaloCache, labels: core::ops::Range<u64>| {
+            for n in labels {
+                let id = cache.find(label(n).text, &GEOMETRY).expect("kept");
+                assert!(cache.use_own(id, false).is_some());
+            }
+        };
+        let painted = |cache: &HaloCache, n: u64| {
+            let id = cache.find(label(n).text, &GEOMETRY)?;
+            let kept = cache.entries.get(&id)?.kept.as_ref()?;
+            Some((kept.slot, kept.image.get_hash()))
+        };
+        let mut cache = HaloCache::new(64, usize::MAX);
+        scan(&mut cache, 0..4);
+        scan(&mut cache, 2..6);
+        assert_eq!((cache.entries.len(), cache.bytes), (6, 6 * BYTES));
+        let before: Vec<_> = (0..4).map(|n| painted(&cache, n)).collect();
+
+        // B is hidden.
+        cache.forget_use();
+        mark(&mut cache, 0..4);
+        assert_eq!(
+            cache.release_unused(),
+            TextHalosReleased {
+                halos: 2,
+                bytes: 2 * BYTES
+            },
+            "labels 4 and 5: the hidden window's own"
+        );
+        assert!(painted(&cache, 4).is_none() && painted(&cache, 5).is_none());
+        let after: Vec<_> = (0..4).map(|n| painted(&cache, n)).collect();
+        assert_eq!(after, before, "the shown window's pictures and slots, the shared ones too");
+        // A's next frame draws nothing and drops nothing.
+        scan(&mut cache, 0..4);
+        assert_eq!((cache.stats.created, cache.stats.evicted), (0, 0));
+
+        // A is hidden too: nothing is painted any more.
+        cache.forget_use();
+        assert_eq!(cache.release_unused().halos, 4);
+        assert_eq!((cache.entries.len(), cache.bytes), (0, 0));
+        assert!(cache.by_text.is_empty() && cache.by_shape.is_empty());
+    }
+
+    /// A5-20. The scan after a window's pictures were given back draws a small
+    /// picture for every halo that has none: more than the 64 a frame draws as
+    /// of right, with the frame's time for them long spent. One scan only: the
+    /// next has the frame's budget again.
+    ///
+    /// Mutation: `budget.every_small ||` removed from `admit_preview` draws 64
+    /// in the first scan; `next.replace(false)` -> `next.get()` in
+    /// `within_halo_budget` draws 74 in the second.
+    #[test]
+    fn the_scan_after_a_release_draws_every_small_picture_and_the_next_scan_a_frames_worth() {
+        let asked = PREVIEWS_ANYWAY + 10;
+        let small_pictures = || {
+            let (drawn, _) = within_halo_budget(0, Duration::ZERO, || {
+                spend_on_previews(Duration::from_secs(1));
+                (
+                    (0..asked).filter(|_| admit_preview(BYTES)).count(),
+                    every_small(),
+                )
+            });
+            drawn
+        };
+        assert_eq!(small_pictures(), (PREVIEWS_ANYWAY, false), "a frame's worth");
+        draw_every_small_halo_in_the_next_scan();
+        assert_eq!(small_pictures(), (asked, true), "after a release: every one");
+        assert_eq!(small_pictures(), (PREVIEWS_ANYWAY, false), "and a frame's worth again");
+        // Type too small for a small picture: its own, whatever the time.
+        let ((), left) = within_halo_budget(0, Duration::ZERO, || {
+            assert!(!admit_if(budget_left(), BYTES, 1), "premise: the frame's budget is spent");
+            assert!(admit_if(true, BYTES, 2));
+        });
+        assert_eq!(left, 1, "what the budget left is still counted as left");
     }
 }
 

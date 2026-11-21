@@ -1133,10 +1133,21 @@ fn collect_image_resource_updates_and_halos(
     let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
     let (free, time) = halo_budget();
     let mut painted: Vec<(DomId, Vec<azul_layout::cpurender::TextHalo>)> = Vec::new();
-    let ((), halos_left) = azul_layout::cpurender::within_halo_budget(
-        free,
-        time,
-        || {
+    // A window nobody sees, whose pictures were given back
+    // (`release_text_halo_images`, audit A5-20): no halo is drawn and none is
+    // looked up - the kept pictures of the thread may hold some another window
+    // paints, and registering those would bring this window's back one by one.
+    // Its lists are translated to the renderer's own shadows meanwhile. The
+    // first scan after it shows again draws a small picture for every label.
+    let release = layout_window.gpu_state_manager.halo_release;
+    let halos_held_back = release == azul_layout::managers::gpu_state::HaloRelease::Hidden;
+    if release == azul_layout::managers::gpu_state::HaloRelease::Returning {
+        azul_layout::cpurender::draw_every_small_halo_in_the_next_scan();
+    }
+    let ((), halos_left) = if halos_held_back {
+        ((), 0)
+    } else {
+        azul_layout::cpurender::within_halo_budget(free, time, || {
             for (dom_id, layout_result) in &layout_window.layout_results {
                 let halos = azul_layout::cpurender::text_halos_of_list(
                     &layout_result.display_list,
@@ -1147,15 +1158,15 @@ fn collect_image_resource_updates_and_halos(
                     painted.push((*dom_id, halos));
                 }
             }
-        },
-    );
+        })
+    };
     // A scan that drew or dropped a picture, or showed one that waited, changed
     // what the shadows it had looked at before are painted with: the picture
     // that stood in for a shape is another one now, a slot shows another
     // picture. What the lists paint is then asked once more, the way their
     // translation asks (without fonts: nothing is drawn, nothing counted twice),
     // so that what is registered is what a translation finds.
-    if azul_layout::cpurender::halo_scan_changed_pictures() {
+    if !halos_held_back && azul_layout::cpurender::halo_scan_changed_pictures() {
         painted.clear();
         for (dom_id, layout_result) in &layout_window.layout_results {
             let halos =
@@ -1750,6 +1761,10 @@ fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransa
         let state = &mut layout_window.gpu_state_manager;
         state.halo_follow_ups = if follow_up { state.halo_follow_ups + 1 } else { 0 };
         state.halos_owed = halos.left > 0 && state.halo_follow_ups < HALO_FOLLOW_UPS_MAX;
+        // The scan of a window that is shown again drew its halos (A5-20).
+        if state.halo_release == azul_layout::managers::gpu_state::HaloRelease::Returning {
+            state.halo_release = azul_layout::managers::gpu_state::HaloRelease::Kept;
+        }
     }
 
     // --- Text halos: each slot's picture under the slot's key ---
@@ -2036,6 +2051,120 @@ fn reserve_image_places(
         );
         state.stale_display_lists.insert(dom_id);
     }
+}
+
+/// Gives back the pictures this window's display lists paint text halos from,
+/// for a window nobody sees (the Dock, a hidden app; audit A5-20): into `txn` a
+/// `DeleteImage` for the key of every halo slot, and the display lists that
+/// painted from them once more, translated WITHOUT them. Returns how many keys
+/// it deleted; when that is not 0 the caller sends `txn` (and then lets the
+/// kept pictures of the thread forget this window, `text_halos_forget_use`).
+///
+/// Why the keys: the renderer holds a picture's bytes as the image's template -
+/// the same allocation the kept picture has - for as long as the key lives, so
+/// only `DeleteImage` frees a picture that a list paints (est. 44-55 MB of them
+/// for a municipal map on a 2x display).
+///
+/// Why the lists go with it: so that the scene the renderer holds names no key
+/// that is gone. The registry forgets the pictures first, so the translation
+/// finds none registered and emits the renderer's own shadow for every label
+/// (`compositor2`, `PushTextShadow`); the render backend swaps that scene in
+/// before it applies the transaction's deletes. No frame is asked for: nobody
+/// sees one, and the frame on screen stays the last one that was presented.
+/// (A list that is not the one the renderer holds - a layout made and not sent
+/// yet - is not sent here: its fonts and images are registered by the pass that
+/// owes it, which sends it; until then the held scene names deleted keys, which
+/// the renderer skips, and no frame of a hidden window is presented.)
+///
+/// From here on the window is [`HaloRelease::Hidden`]: its scans draw and look up
+/// no halo (`collect_image_resource_updates_and_halos`), so a list sent while it
+/// is hidden - a colour patch, a layout after a resize - names no deleted key
+/// either, and nothing is drawn for a window nobody sees. When it is shown again
+/// the shell calls `GpuStateManager::halos_return`: a frame is owed, its scan
+/// draws a small picture for every label (`draw_every_small_halo_in_the_next_scan`)
+/// and the labels' own by the frame's budget, registers them under new keys, and
+/// the lists go with them in that transaction.
+///
+/// [`HaloRelease::Hidden`]: azul_layout::managers::gpu_state::HaloRelease::Hidden
+#[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+pub(crate) fn release_text_halo_images(
+    layout_window: &mut LayoutWindow,
+    txn: &mut WrTransaction,
+) -> usize {
+    use azul_core::resources::ImageSlot;
+    use azul_layout::managers::gpu_state::HaloRelease;
+
+    match layout_window.gpu_state_manager.halo_release {
+        HaloRelease::Kept => {}
+        HaloRelease::Hidden => return 0,
+        // Shown and hidden again before a pass brought the pictures back:
+        // there is nothing to delete, and the frame owed for them is not owed
+        // to a window nobody sees.
+        HaloRelease::Returning => {
+            let state = &mut layout_window.gpu_state_manager;
+            state.halo_release = HaloRelease::Hidden;
+            state.halos_owed = false;
+            return 0;
+        }
+    }
+    let keys: Vec<(ImageSlot, ImageKey)> = layout_window
+        .renderer_resources
+        .image_slots
+        .iter()
+        .filter(|(slot, _)| matches!(slot, ImageSlot::TextHalo(_)))
+        .map(|(slot, key)| (*slot, *key))
+        .collect();
+    if keys.is_empty() {
+        return 0;
+    }
+    {
+        let rr = &mut layout_window.renderer_resources;
+        for (slot, key) in &keys {
+            rr.image_slots.remove(slot);
+            let Some(hash) = rr.image_key_map.remove(key) else {
+                continue;
+            };
+            // The picture this key showed (another key may show it by now, A5-15).
+            if rr
+                .currently_registered_images
+                .get(&hash)
+                .is_some_and(|resolved| resolved.key == *key)
+            {
+                rr.currently_registered_images.remove(&hash);
+                rr.image_last_seen_epoch.remove(&hash);
+            }
+        }
+    }
+    let all_held = {
+        let env = translation_env(layout_window);
+        let LayoutWindow {
+            ref layout_results,
+            gpu_state_manager: ref mut state,
+            ..
+        } = *layout_window;
+        state.halo_release = HaloRelease::Hidden;
+        state.halos_owed = false;
+        state.halo_follow_ups = 0;
+        // Every list that painted a halo is owed to the renderer without them.
+        for dom_id in core::mem::take(&mut state.text_halo_digests).into_keys() {
+            if layout_results.contains_key(&dom_id) {
+                state.stale_display_lists.insert(dom_id);
+            }
+        }
+        state.submitted_translation_env == env && !state.display_lists_unsubmitted(layout_results)
+    };
+    if all_held {
+        renew_gl_textures_of_the_lists(layout_window);
+        // A list that does not translate stays marked: the next pass owes it.
+        if set_display_lists(txn, layout_window, false).is_ok() {
+            layout_window.epoch.increment();
+        }
+    }
+    let deleted = keys.len();
+    for (_, key) in keys {
+        txn.delete_image(translate_image_key(key));
+    }
+    deleted
 }
 
 /// The image GC deleted these keys: a text halo's slot whose key went is
