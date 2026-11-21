@@ -12441,4 +12441,40 @@ mod audit_a1_tests {
         assert!(holds(80.0, 100.0), "the panel where it is painted: {:?}", out.damage);
         assert!(holds(68.0, 88.0), "and where the move left its pixels: {:?}", out.damage);
     }
+
+    /// A1-35: the coverage question at the PREVIOUS offset, asked with the fills of the new
+    /// one. A view (20, 10) 200 x 100 over a two-coloured backdrop; its child's ground is laid
+    /// out at (12, 0), 400 x 300. Panned from offset 0 to 12 (delta 12):
+    /// - now the ground is painted from x = 12 + 20 - 12 = 20: the clip (20 .. 220) is covered;
+    /// - before the pan it was painted from x = 12 + 20 - 0 = 32: the columns 20 .. 32 showed
+    ///   the backdrop, and those pixels must not be moved. Asked with the new fills that is
+    ///   the clip moved by the delta the other way, 8 .. 208, which the fill from 20 does not
+    ///   cover: no move, the view is repainted.
+    /// Mutation: the clip moved WITH the delta (`moved_by(shift.clip, (-delta.0, -delta.1))`,
+    /// 32 .. 232) is covered, and the backdrop's pixels move.
+    #[test]
+    fn a_pan_asks_whether_the_content_covered_the_view_before_it_too() {
+        use std::sync::Arc;
+
+        use azul_core::dom::DomId;
+        let view = lr(20.0, 10.0, 200.0, 100.0);
+        let host = listed(vec![
+            opaque(0.0, 0.0, 120.0, 200.0, [200, 0, 0]),
+            opaque(120.0, 0.0, 200.0, 200.0, [0, 0, 200]),
+            view_at(1, view, (-12.0, 0.0)),
+        ]);
+        let child = |x: f32| -> std::collections::BTreeMap<DomId, Arc<DisplayList>> {
+            [(DomId { inner: 1 }, Arc::new(listed(vec![opaque(x, 0.0, 400.0, 300.0, [240, 240, 230])])))].into_iter().collect()
+        };
+        let shift = ViewShift { index: 2, clip: view, delta: (12.0, 0.0), offset: (12.0, 0.0) };
+        let pan = |views: &std::collections::BTreeMap<DomId, Arc<DisplayList>>| {
+            let mut pm = AzulPixmap::new(300, 200).expect("a pixmap");
+            execute_virtual_view_shift_with(&mut pm, &host, views, &shift, 1.0, &ScrollOffsetMap::new(), &HashMap::new())
+        };
+        let uncovered_before = pan(&child(12.0));
+        assert!(uncovered_before.moves.is_empty(), "the backdrop showed at x 20 .. 32 before the pan");
+        assert_eq!(uncovered_before.damage, vec![view]);
+        // Laid out at 0 it covered the view before (from x = 20) and covers it now (from 8).
+        assert_eq!(pan(&child(0.0)).moves.len(), 1);
+    }
 }
