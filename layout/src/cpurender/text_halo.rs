@@ -135,6 +135,15 @@ pub fn begin_cpu_halo_frame() {
     });
 }
 
+/// Drop every halo (and turned text picture) this thread's CPU renderer keeps: under memory
+/// pressure, or for a window that is not shown. The next frame draws the ones it shows again.
+pub fn release_cpu_halos() {
+    CPU_HALOS.with(|halos| {
+        *halos.borrow_mut() = ImageMemo::new(MAX_CPU_HALOS, MAX_CPU_HALO_BYTES);
+    });
+    CPU_HALO_FRAMES.with(|frames| frames.set((0, 0)));
+}
+
 /// The CPU renderer's kept halos while the bands of a repaint run (`bands`): the memo of the
 /// thread that paints the frame, moved behind a lock that its band threads share. A band thread
 /// starts with no thread-locals of its own, and one that drew every halo of its band again

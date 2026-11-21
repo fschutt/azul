@@ -308,6 +308,20 @@ impl CpuBackend {
         }
     }
 
+    /// Let go of everything this backend keeps only to make frames cheaper, on the thread
+    /// that paints its frames: the kept group surfaces, the band threads' glyph caches, the
+    /// kept halos and turned text pictures, the layered compositor. For memory pressure and
+    /// for a window that is not shown. The frame on screen (`last_frame`) and the window's own
+    /// glyph cache stay. The next frame is correct and costs what a first frame costs for
+    /// what was dropped: a zoom step paints its picture once, a repaint draws the halos and
+    /// turned labels it shows, a band thread rasterises its glyphs again.
+    pub fn release_caches(&mut self) {
+        self.retained_frames.clear();
+        self.glyph_cache.put_band_caches(Vec::new());
+        crate::cpurender::release_cpu_halos();
+        self.compositor = None;
+    }
+
     /// Read the window's transparency / shape flags off the window state
     /// before a frame: what the frame is cleared to, and whether its shape
     /// is computed. Every backend's CPU present calls this first.
