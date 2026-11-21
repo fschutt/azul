@@ -161,6 +161,46 @@ pub(crate) fn resolve_position_offsets(
     offsets
 }
 
+/// How many interiors of absolutely positioned boxes
+/// [`position_out_of_flow_elements`] laid out on this thread, and how many it
+/// read off the box's last run instead (`cache::AbsInterior`): what the tests
+/// count (`audit_tests::a3_solver`). A run made only to check a reuse (see
+/// [`checks_interior_reuse`]) counts as a reuse.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static ABS_INTERIORS_LAID_OUT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static ABS_INTERIORS_REUSED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Whether a reused interior (`cache::AbsInterior`) is laid out anyway and
+/// compared with what the reuse kept: in this crate's tests always, elsewhere
+/// when `AZ_CHECK_ABS_INTERIOR_REUSE` is set. A difference panics: the reuse
+/// kept something a run would have changed.
+fn checks_interior_reuse() -> bool {
+    cfg!(test) || env_flag!("AZ_CHECK_ABS_INTERIOR_REUSE")
+}
+
+/// The used size and the offset from its parent of every box below
+/// `node_index`, as bits: what an interior run of the box writes that the
+/// rest of the pass and the display list read.
+fn interior_state(tree: &LayoutTree, node_index: usize) -> Vec<(usize, Option<(u32, u32)>, Option<(u32, u32)>)> {
+    let mut state = Vec::new();
+    let mut stack: Vec<usize> = tree.children(node_index).to_vec();
+    while let Some(index) = stack.pop() {
+        let size = tree
+            .get(LayoutNodeId::new(index))
+            .and_then(|n| n.used_size)
+            .map(|s| (s.width.to_bits(), s.height.to_bits()));
+        let offset = tree
+            .warm(LayoutNodeId::new(index))
+            .and_then(|w| w.relative_position)
+            .map(|p| (p.x.to_bits(), p.y.to_bits()));
+        state.push((index, size, offset));
+        stack.extend_from_slice(tree.children(index));
+    }
+    state
+}
+
 // +spec:block-formatting-context:f5f992 - Out-of-flow: floated or absolutely positioned boxes laid
 // out outside normal flow +spec:positioning:bb19f8 - absolute/fixed positioning: out-of-flow,
 // positioned relative to containing block/viewport
@@ -192,6 +232,20 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     // The margin notes placed so far (`margin_note_place`), for the ones
     // after them on the same side of the same container.
     let mut margin_notes: Vec<PlacedMarginNote> = Vec::new();
+    // Whether this pass may read a box's interior off its last run
+    // (`cache::AbsInterior`). Not where something lays boxes out that the
+    // entry's bookkeeping does not see: a paged pass (fragments, footnote
+    // bodies), named flows (laid out through their regions after this
+    // function), content the overlay holds in place of the DOM's. And not
+    // with `AZ_NO_ABS_INTERIOR_REUSE` set - the switch back to a run per box
+    // per pass.
+    let reuse_interiors = !env_flag!("AZ_NO_ABS_INTERIOR_REUSE")
+        && ctx.fragmentation_context.is_none()
+        && !ctx.styled_dom.css_property_cache.ptr.paged_footnotes.get()
+        && !super::regions::document_has_named_flows(ctx.styled_dom)
+        && !ctx
+            .content_overlay
+            .is_some_and(crate::overlay::ContentOverlay::shapes_layout);
     // Returns `()` (not Result<()>): inner fallible calls use skip-on-err (see above), so this fn
     // never propagates Err. Avoids the lift-fragile Result<(),LayoutError> Ok-niche read.
     for node_index in 0..tree.nodes.len() {
@@ -835,31 +889,105 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     fragmentainer: None,
                     column_flow: None,
                 };
-                let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
-                    std::collections::HashMap::new();
-                let interior = layout_formatting_context(
-                    ctx,
-                    tree,
-                    text_cache,
-                    node_index,
-                    &constraints,
-                    &mut reflow_float_cache,
-                );
-
-                // The interior run writes each child's position into
-                // `output.positions` but NOT into `warm.relative_position`,
-                // which `position_bfc_child_descendants` (below) reads. Without
-                // this transfer, an absolutely-positioned box's 2nd+ in-flow
-                // children all collapse onto its content-box origin — a
-                // multi-item dropdown/list draws every row on top of the first.
-                // Mirrors the flex-item transfer in taffy_bridge.rs (~L2110).
-                if let Ok(res) = &interior {
-                    for (child_idx, child_pos) in &res.output.positions {
-                        if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_idx)) {
-                            child_warm.relative_position = Some(*child_pos);
+                // The run this box's interior was last laid out by, if the
+                // box is the one it ran in and its subtree is as that run
+                // left it (`cache::AbsInterior`: a dirty node below the box
+                // and a visit from the parent's flow that wrote anything
+                // drop the entry). Laying the interior out again would leave
+                // the tree as it is, so the content height is read off the
+                // entry. Only for a box nothing else lays out: one whose
+                // parent is a block container (a flex or grid container's
+                // taffy lays its absolutely positioned children out itself, a
+                // table its boxes), and no `::marker` or other pseudo box
+                // (laid out by its element's flow, under its element's node).
+                let interior_is_tracked = reuse_interiors
+                    && tree
+                        .warm(LayoutNodeId::new(node_index))
+                        .is_some_and(|w| w.pseudo_element.is_none())
+                    && tree.nodes[node_index]
+                        .parent
+                        .and_then(|p| tree.get(LayoutNodeId::new(p)))
+                        .is_none_or(|pn| {
+                            matches!(
+                                pn.formatting_context,
+                                azul_core::dom::FormattingContext::Block { .. }
+                                    | azul_core::dom::FormattingContext::Inline
+                                    | azul_core::dom::FormattingContext::InlineBlock
+                            )
+                        });
+                let laid_out_in = tree.nodes[node_index].box_props;
+                let kept_run = ctx
+                    .cache_map
+                    .entries
+                    .get(node_index)
+                    .and_then(|entry| entry.abs_interior)
+                    .filter(|run| interior_is_tracked && run.is_for(solved_size, &laid_out_in));
+                // The content height of the interior, where a run gave one.
+                let interior_height: Option<f32> = if let (Some(run), false) =
+                    (kept_run, checks_interior_reuse())
+                {
+                    #[cfg(test)]
+                    ABS_INTERIORS_REUSED.with(|n| n.set(n.get() + 1));
+                    Some(run.overflow_height)
+                } else {
+                    // What the reuse would have kept, to compare it with
+                    // what the run leaves (`checks_interior_reuse`).
+                    let kept_state = kept_run.map(|_| interior_state(tree, node_index));
+                    #[cfg(test)]
+                    {
+                        if kept_run.is_some() {
+                            ABS_INTERIORS_REUSED.with(|n| n.set(n.get() + 1));
+                        } else {
+                            ABS_INTERIORS_LAID_OUT.with(|n| n.set(n.get() + 1));
                         }
                     }
-                }
+                    let mut reflow_float_cache: std::collections::HashMap<usize, FloatingContext> =
+                        std::collections::HashMap::new();
+                    let interior = layout_formatting_context(
+                        ctx,
+                        tree,
+                        text_cache,
+                        node_index,
+                        &constraints,
+                        &mut reflow_float_cache,
+                    );
+
+                    // The interior run writes each child's position into
+                    // `output.positions` but NOT into `warm.relative_position`,
+                    // which `position_bfc_child_descendants` (below) reads. Without
+                    // this transfer, an absolutely-positioned box's 2nd+ in-flow
+                    // children all collapse onto its content-box origin — a
+                    // multi-item dropdown/list draws every row on top of the first.
+                    // Mirrors the flex-item transfer in taffy_bridge.rs (~L2110).
+                    if let Ok(res) = &interior {
+                        for (child_idx, child_pos) in &res.output.positions {
+                            if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_idx)) {
+                                child_warm.relative_position = Some(*child_pos);
+                            }
+                        }
+                    }
+                    let height = interior.as_ref().ok().map(|res| res.output.overflow_size.height);
+                    if let (Some(run), Some(kept_state)) = (kept_run, kept_state) {
+                        assert!(
+                            height.map(f32::to_bits) == Some(run.overflow_height.to_bits())
+                                && kept_state == interior_state(tree, node_index),
+                            "the interior of the absolutely positioned box {node_index} was read \
+                             off its last run, and a run now leaves it otherwise: content height \
+                             {:?} for the kept {:?}, or a size or an offset below the box moved \
+                             (`cache::AbsInterior`)",
+                            height,
+                            run.overflow_height,
+                        );
+                    }
+                    // What the next pass may read off this run. Stored after
+                    // it: the run itself writes into the subtree.
+                    if let Some(entry) = ctx.cache_map.entries.get_mut(node_index) {
+                        entry.abs_interior = height
+                            .filter(|_| interior_is_tracked)
+                            .map(|h| super::cache::AbsInterior::new(solved_size, &laid_out_in, h));
+                    }
+                    height
+                };
 
                 // §10.6.4 rules 1 and 3: with height:auto and at most one
                 // vertical inset, the used height IS the laid-out content
@@ -867,7 +995,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 // value was the 0 placeholder). Rule 1 (bottom set, top
                 // auto) then re-derives top with the REAL height.
                 if height_is_auto && (top_is_auto || bottom_is_auto) {
-                    if let Ok(res) = &interior {
+                    if let Some(overflow_height) = interior_height {
                         let bp = tree.nodes[node_index].box_props.unpack();
                         // A flex or grid box's overflow size already includes its
                         // padding (taffy measures the padding box); a block's does
@@ -883,7 +1011,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         } else {
                             bp.padding.top + bp.padding.bottom
                         };
-                        solved_size.height = res.output.overflow_size.height
+                        solved_size.height = overflow_height
                             + padding
                             + bp.border.top
                             + bp.border.bottom;

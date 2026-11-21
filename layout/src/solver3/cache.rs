@@ -255,6 +255,75 @@ pub struct NodeCache {
     /// from the question of such a node. Forgotten by [`Self::clear`], like
     /// `free_of_given_height`.
     pub width_free_of_given_height: Option<bool>,
+
+    /// For an absolutely positioned box: what the positioning pass
+    /// (`positioning::position_out_of_flow_elements`) last laid its interior
+    /// out for - see [`AbsInterior`]. Forgotten by [`Self::clear`] (the box
+    /// or something below it is dirty) and by every visit of the box by
+    /// [`calculate_layout_for_subtree_fragment`] that wrote into the tree.
+    pub abs_interior: Option<AbsInterior>,
+}
+
+/// What the positioning pass laid the interior of an absolutely positioned
+/// box out for, and what it took from that run.
+///
+/// The pass solves the box of every absolutely positioned node in every
+/// layout pass that is not the clean early exit, and used to lay the box's
+/// interior out again each time - for a box whose subtree nothing had touched
+/// and whose size had not moved, a run that leaves the tree as it found it.
+/// While this entry stands, the box's subtree holds what that run left:
+///
+/// - a dirty node below the box clears the box's [`NodeCache`]
+///   (`LayoutCacheMap::mark_dirty_all` clears every ancestor), and
+/// - a visit of the box from its parent's flow drops the entry unless it
+///   changed nothing in the tree ([`calculate_layout_for_subtree_fragment`],
+///   `LayoutCacheMap::tree_writes`).
+///
+/// So a pass that solves the box to the same size reads the content height
+/// off this entry instead of running the formatting context again.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AbsInterior {
+    /// The bits of the border-box width and height the interior was laid out
+    /// in (compared exactly: `LogicalSize`'s own equality is quantized).
+    pub size_bits: (u32, u32),
+    /// The box's packed margin, padding and border at that run.
+    pub margin: [i16; 4],
+    /// See `margin`.
+    pub padding: [i16; 4],
+    /// See `margin`.
+    pub border: [i16; 4],
+    /// `LayoutOutput::overflow_size.height` of that run: the content height
+    /// an auto-height box takes its used height from (CSS 2.2 10.6.4).
+    pub overflow_height: f32,
+}
+
+impl AbsInterior {
+    /// The entry of a run in a box of `size` and `box_props` that reported
+    /// `overflow_height`.
+    #[must_use]
+    pub fn new(
+        size: LogicalSize,
+        box_props: &super::geometry::PackedBoxProps,
+        overflow_height: f32,
+    ) -> Self {
+        Self {
+            size_bits: (size.width.to_bits(), size.height.to_bits()),
+            margin: box_props.margin,
+            padding: box_props.padding,
+            border: box_props.border,
+            overflow_height,
+        }
+    }
+
+    /// Whether this entry's run was in a box of exactly `size` and
+    /// `box_props`.
+    #[must_use]
+    pub fn is_for(&self, size: LogicalSize, box_props: &super::geometry::PackedBoxProps) -> bool {
+        self.size_bits == (size.width.to_bits(), size.height.to_bits())
+            && self.margin == box_props.margin
+            && self.padding == box_props.padding
+            && self.border == box_props.border
+    }
 }
 
 impl Default for NodeCache {
@@ -270,6 +339,7 @@ impl Default for NodeCache {
             taffy_width_only: None,
             free_of_given_height: None,
             width_free_of_given_height: None,
+            abs_interior: None,
         }
     }
 }
@@ -289,6 +359,7 @@ impl NodeCache {
         self.taffy_width_only = None;
         self.free_of_given_height = None;
         self.width_free_of_given_height = None;
+        self.abs_interior = None;
     }
 
     /// Compute the deterministic slot index from constraint dimensions.
@@ -497,6 +568,20 @@ impl NodeCache {
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCacheMap {
     pub entries: Vec<NodeCache>,
+    /// Counts what [`calculate_layout_for_subtree_fragment`] wrote into the
+    /// layout tree: one per layout it computed and one per cache hit that
+    /// left a node's size, scroll geometry, escaped margins, baseline or a
+    /// child's offset other than it found it. A visit that returns with the
+    /// count where it was changed nothing below its node - what keeps
+    /// [`NodeCache::abs_interior`]. Only ever compared within one visit.
+    pub tree_writes: u64,
+    /// The node whose own used size - and nothing else - a `PerformLayout`
+    /// cache hit changed, with the value `tree_writes` had after it. A visit
+    /// of an absolutely positioned box that wrote this alone keeps the box's
+    /// [`NodeCache::abs_interior`]: the positioning pass sets that size anew
+    /// before it reads it (the flow's size of such a box and the solved one
+    /// are the same content height added up in another order).
+    pub own_size_write: Option<(usize, u64)>,
     /// What the multi-column containers of one layout pass leave for the
     /// next on paged media (`multicol::ColumnPages`).
     pub column_pages: super::multicol::ColumnPages,
@@ -4953,6 +5038,90 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
     compute_mode: ComputeMode,
     fragment: Option<fc::FragmentainerSpace<'_>>,
+    fragment_out: Option<&mut Option<crate::solver3::break_token::BreakToken>>,
+) -> Result<()> {
+    // A visit that wrote into the tree - below this node or into the node -
+    // left its subtree other than the positioning pass's last interior run
+    // left it: that run's entry no longer describes it ([`AbsInterior`]).
+    // Every visit of a node comes through here, the recursion's included.
+    let writes_before = ctx.cache_map.tree_writes;
+    let result = calculate_layout_for_subtree_visit_counted(
+        ctx,
+        tree,
+        text_cache,
+        node_index,
+        containing_block_pos,
+        cb,
+        calculated_positions,
+        reflow_needed_for_scrollbars,
+        float_cache,
+        compute_mode,
+        fragment,
+        fragment_out,
+    );
+    let writes = ctx.cache_map.tree_writes;
+    if writes != writes_before {
+        // ...but for a hit that changed this node's own size alone
+        // (`LayoutCacheMap::own_size_write`).
+        let own_size_alone = writes == writes_before.wrapping_add(1)
+            && ctx.cache_map.own_size_write == Some((node_index, writes));
+        if !own_size_alone {
+            if let Some(entry) = ctx.cache_map.entries.get_mut(node_index) {
+                entry.abs_interior = None;
+            }
+        }
+    }
+    result
+}
+
+/// Whether `held` is exactly `size`, bit for bit (`LogicalSize`'s own
+/// equality is quantized).
+fn holds_size(held: Option<LogicalSize>, size: LogicalSize) -> bool {
+    held.is_some_and(|h| {
+        h.width.to_bits() == size.width.to_bits() && h.height.to_bits() == size.height.to_bits()
+    })
+}
+
+/// Whether `held` is exactly `value`, bit for bit, or both are none.
+fn holds_f32(held: Option<f32>, value: Option<f32>) -> bool {
+    held.map(f32::to_bits) == value.map(f32::to_bits)
+}
+
+/// Whether `held` is exactly `position`, bit for bit.
+fn holds_position(held: Option<LogicalPosition>, position: LogicalPosition) -> bool {
+    held.is_some_and(|h| {
+        h.x.to_bits() == position.x.to_bits() && h.y.to_bits() == position.y.to_bits()
+    })
+}
+
+/// Whether `held` is exactly `scrollbars`, field for field.
+fn holds_scrollbars(held: Option<&ScrollbarRequirements>, scrollbars: &ScrollbarRequirements) -> bool {
+    held.is_some_and(|h| {
+        h.needs_horizontal == scrollbars.needs_horizontal
+            && h.needs_vertical == scrollbars.needs_vertical
+            && h.bar_kind == scrollbars.bar_kind
+            && h.scrollbar_width.to_bits() == scrollbars.scrollbar_width.to_bits()
+            && h.scrollbar_height.to_bits() == scrollbars.scrollbar_height.to_bits()
+            && h.visual_width_px.to_bits() == scrollbars.visual_width_px.to_bits()
+    })
+}
+
+/// [`calculate_layout_for_subtree_fragment`] proper: one visit of a node.
+/// Called by nothing else, so that every visit is counted there.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn calculate_layout_for_subtree_visit_counted<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    node_index: usize,
+    containing_block_pos: LogicalPosition,
+    cb: &super::geometry::ContainingBlock,
+    calculated_positions: &mut super::PositionVec,
+    reflow_needed_for_scrollbars: &mut bool,
+    float_cache: &mut HashMap<usize, fc::FloatingContext>,
+    compute_mode: ComputeMode,
+    fragment: Option<fc::FragmentainerSpace<'_>>,
     mut fragment_out: Option<&mut Option<crate::solver3::break_token::BreakToken>>,
 ) -> Result<()> {
     // Legacy flattened view for the cache keys and the not-yet-migrated
@@ -5041,13 +5210,27 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                     // SIZING CACHE HIT — set used_size and return immediately.
                     // No child positioning needed in ComputeSize mode.
                     drop(crate::probe::Probe::span("size_cache_hit_sizing"));
+                    // Whether the hit finds the node as it leaves it
+                    // (`LayoutCacheMap::tree_writes`).
+                    let mut as_found = true;
                     if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_size(node.used_size, cached_sizing.result_size);
                         node.used_size = Some(cached_sizing.result_size);
                     }
                     if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_f32(
+                            warm.escaped_top_margin,
+                            cached_sizing.escaped_top_margin,
+                        ) && holds_f32(
+                            warm.escaped_bottom_margin,
+                            cached_sizing.escaped_bottom_margin,
+                        ) && holds_f32(warm.baseline, cached_sizing.baseline);
                         warm.escaped_top_margin = cached_sizing.escaped_top_margin;
                         warm.escaped_bottom_margin = cached_sizing.escaped_bottom_margin;
                         warm.baseline = cached_sizing.baseline;
+                    }
+                    if !as_found {
+                        ctx.cache_map.tree_writes = ctx.cache_map.tree_writes.wrapping_add(1);
                     }
                     return Ok(());
                 }
@@ -5058,12 +5241,24 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 if let Some(cached_layout) = layout_hit {
                     // Layout slot hit in ComputeSize mode — extract size only
                     drop(crate::probe::Probe::span("size_cache_hit_layout"));
+                    let mut as_found = true;
                     if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_size(node.used_size, cached_layout.result_size);
                         node.used_size = Some(cached_layout.result_size);
                     }
                     if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_size(
+                            warm.overflow_content_size,
+                            cached_layout.content_size,
+                        ) && holds_scrollbars(
+                            warm.scrollbar_info.as_ref(),
+                            &cached_layout.scrollbar_info,
+                        );
                         warm.overflow_content_size = Some(cached_layout.content_size);
                         warm.scrollbar_info = Some(cached_layout.scrollbar_info);
+                    }
+                    if !as_found {
+                        ctx.cache_map.tree_writes = ctx.cache_map.tree_writes.wrapping_add(1);
                     }
                     return Ok(());
                 }
@@ -5128,12 +5323,31 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 if let Some(cached_layout) = layout_hit {
                     drop(crate::probe::Probe::span("pos_cache_hit"));
                     // LAYOUT CACHE HIT — apply cached results with child positions
+                    // Whether the hit finds the node and its children's
+                    // offsets as it leaves them (`LayoutCacheMap::tree_writes`).
+                    let mut as_found = true;
+                    let mut size_as_found = true;
                     if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
+                        size_as_found = holds_size(node.used_size, cached_layout.result_size);
                         node.used_size = Some(cached_layout.result_size);
                     }
                     if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_size(
+                            warm.overflow_content_size,
+                            cached_layout.content_size,
+                        ) && holds_scrollbars(
+                            warm.scrollbar_info.as_ref(),
+                            &cached_layout.scrollbar_info,
+                        );
                         warm.overflow_content_size = Some(cached_layout.content_size);
                         warm.scrollbar_info = Some(cached_layout.scrollbar_info);
+                    }
+                    if !as_found || !size_as_found {
+                        ctx.cache_map.tree_writes = ctx.cache_map.tree_writes.wrapping_add(1);
+                        if as_found {
+                            ctx.cache_map.own_size_write =
+                                Some((node_index, ctx.cache_map.tree_writes));
+                        }
                     }
 
                     let box_props = tree
@@ -5186,6 +5400,11 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                         if laid_out_by_table {
                             if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))
                             {
+                                if !holds_position(child_warm.relative_position, *child_relative_pos)
+                                {
+                                    ctx.cache_map.tree_writes =
+                                        ctx.cache_map.tree_writes.wrapping_add(1);
+                                }
                                 child_warm.relative_position = Some(*child_relative_pos);
                             }
                             let child_bp = tree
@@ -5204,6 +5423,11 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                         if items_laid_out_by_taffy {
                             if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))
                             {
+                                if !holds_position(child_warm.relative_position, *child_relative_pos)
+                                {
+                                    ctx.cache_map.tree_writes =
+                                        ctx.cache_map.tree_writes.wrapping_add(1);
+                                }
                                 child_warm.relative_position = Some(*child_relative_pos);
                             }
                             let (child_bp, child_used_size) = tree
@@ -5255,6 +5479,8 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     if compute_mode == ComputeMode::PerformLayout {
         drop(crate::probe::Probe::span("pos_cache_miss"));
     }
+    // The node is laid out: its subtree is written (`LayoutCacheMap::tree_writes`).
+    ctx.cache_map.tree_writes = ctx.cache_map.tree_writes.wrapping_add(1);
 
     // returned Ok; 0x64 = layout_formatting_context returned Ok. Last value before the
     // Err pins the failing phase (fires per recursive node; bare body is shallow).

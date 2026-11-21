@@ -1043,6 +1043,150 @@ fn a_relatively_positioned_box_inside_a_re_laid_one_is_shifted_once() {
     assert_as_in_a_fresh_layout(&incremental, &fresh(page, &second), &[1, 2, 3]);
 }
 
+/// `page` (a body) with one more child after everything else: a block holding `text` - what a
+/// pass can change without touching any box the page had.
+fn with_a_paragraph(page: Dom, text: &str) -> Dom {
+    page.with_child(Dom::create_div_with_text(text.to_string()))
+}
+
+/// The interiors `positioning::position_out_of_flow_elements` laid out and the ones it read off
+/// their last run, on this thread since the last call.
+fn abs_interiors_since_last_asked() -> (usize, usize) {
+    use crate::solver3::positioning::{ABS_INTERIORS_LAID_OUT, ABS_INTERIORS_REUSED};
+    (
+        ABS_INTERIORS_LAID_OUT.with(|n| n.replace(0)),
+        ABS_INTERIORS_REUSED.with(|n| n.replace(0)),
+    )
+}
+
+/// A3-solver-14. The positioning pass solves every absolutely positioned box in every pass and
+/// laid the interior of each out again, whatever the pass was for: a paragraph beside a layer
+/// of 200 labels changed its text, and 200 label interiors were laid out. A box whose subtree
+/// nothing touched and whose size came out the same keeps its interior (`cache::AbsInterior`).
+/// In this crate's tests a kept interior is laid out all the same and compared with what was
+/// kept (`positioning::checks_interior_reuse`), so a label kept wrongly panics here.
+///
+/// Mutation: the store in `position_out_of_flow_elements` writing `None` lays out 200.
+#[test]
+fn a_pass_for_a_paragraph_lays_out_no_interior_of_the_labels_beside_it() {
+    let k = 200;
+    let mut lw = window();
+    lay_out(&mut lw, with_a_paragraph(layer_of_absolute_blocks(k), "one"));
+    let (first, _) = abs_interiors_since_last_asked();
+    assert!(first >= k, "harness: the first pass laid out the {k} labels' interiors ({first})");
+    lay_out(&mut lw, with_a_paragraph(layer_of_absolute_blocks(k), "another, longer text"));
+    let (laid_out, kept) = abs_interiors_since_last_asked();
+    assert_eq!(
+        laid_out, 0,
+        "a pass that changed one paragraph laid out {laid_out} interiors of labels beside it"
+    );
+    assert!(kept >= k, "harness: the {k} labels were solved again ({kept} kept)");
+    let mut fresh = window();
+    lay_out(&mut fresh, with_a_paragraph(layer_of_absolute_blocks(k), "another, longer text"));
+    assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 100, 101, 2 * k, 2 * k + 1]);
+}
+
+/// A3-solver-14. One label of a layer gets another text: the layer is laid out again, which
+/// visits every label from the flow (`cache::process_out_of_flow_children`). A clean label's
+/// visit is a cache hit that writes nothing into the tree, so its interior is still the one the
+/// positioning pass left, and only the changed label's is laid out.
+///
+/// Mutation: `calculate_layout_for_subtree_fragment` dropping `abs_interior` on every visit
+/// (`if true` for the comparison of `tree_writes`) lays out all 200.
+#[test]
+fn a_label_that_changed_is_the_only_one_whose_interior_is_laid_out_again() {
+    let k = 200;
+    let page = |changed: Option<usize>| {
+        let mut layer =
+            Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
+        for i in 0..k {
+            let text = if changed == Some(i) {
+                "renamed".to_string()
+            } else {
+                format!("label {i}")
+            };
+            layer = layer.with_child(Dom::create_div_with_text(text).with_css(&format!(
+                "position: absolute; left: {}px; top: {}px;",
+                (i % 50) * 10,
+                (i / 50) * 9
+            )));
+        }
+        Dom::create_body().with_css("margin: 0px;").with_child(layer)
+    };
+    let mut lw = window();
+    lay_out(&mut lw, page(None));
+    let _ = abs_interiors_since_last_asked();
+    lay_out(&mut lw, page(Some(70)));
+    let (laid_out, kept) = abs_interiors_since_last_asked();
+    assert!(
+        (1..=2).contains(&laid_out),
+        "one label changed its text and {laid_out} label interiors were laid out"
+    );
+    assert!(kept >= k - 2, "harness: the other labels were solved again ({kept} kept)");
+    let mut fresh = window();
+    lay_out(&mut fresh, page(Some(70)));
+    // The changed label (2 + 2 * 70) and its text, and labels around it.
+    assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 140, 142, 143, 144, 2 * k]);
+}
+
+/// A3-solver-14 with A3-solver-41: a view rendered again in which the labels only moved. Each
+/// label keeps its box (41) and is placed again by the positioning pass, which solves its box
+/// to the size it had and so keeps its interior: no text is laid out for a label that moved.
+///
+/// Mutation: `AbsInterior::is_for` comparing the box's position too (or the store writing
+/// `None`) lays out all 200.
+#[test]
+fn labels_that_only_moved_are_placed_again_without_laying_out_their_interiors() {
+    let k = 200;
+    let mut lw = window();
+    lay_out(&mut lw, labels_moved(k, 0, 0, 5));
+    let _ = abs_interiors_since_last_asked();
+    lay_out(&mut lw, labels_moved(k, 7, 3, 25));
+    assert_eq!(
+        lw.layout_cache.last_reconcile_fresh, 0,
+        "harness: the labels that only moved kept their boxes"
+    );
+    let (laid_out, kept) = abs_interiors_since_last_asked();
+    assert_eq!(laid_out, 0, "{laid_out} interiors of labels that only moved were laid out");
+    assert!(kept >= k, "harness: the {k} labels were solved again ({kept} kept)");
+    let mut fresh = window();
+    lay_out(&mut fresh, labels_moved(k, 7, 3, 25));
+    assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 100, 101, 102, 2 * k, 2 * k + 1]);
+}
+
+/// A3-solver-14, a node graph in small: absolutely positioned boxes that each hold a flex row.
+/// The interior of such a box is a block with a flex container in it - a taffy bridge per box
+/// per pass, for a pass that changed a paragraph beside the canvas.
+///
+/// Mutation: as for the labels (the store writing `None`).
+#[test]
+fn a_pass_for_a_paragraph_lays_out_no_interior_of_the_flex_boxes_beside_it() {
+    use crate::solver3::taffy_bridge::BRIDGES_MADE;
+    let k = 40;
+    let mut lw = window();
+    lay_out(&mut lw, with_a_paragraph(canvas_of_flex_nodes(k, 3), "one"));
+    let _ = abs_interiors_since_last_asked();
+    BRIDGES_MADE.with(|n| n.set(0));
+    lay_out(&mut lw, with_a_paragraph(canvas_of_flex_nodes(k, 3), "another, longer text"));
+    let (laid_out, kept) = abs_interiors_since_last_asked();
+    assert_eq!(
+        laid_out, 0,
+        "a pass that changed one paragraph laid out {laid_out} interiors of boxes beside it"
+    );
+    assert!(kept >= k, "harness: the {k} boxes were solved again ({kept} kept)");
+    // A kept interior is laid out once more by the check, and a row whose box is kept is a
+    // cache hit of its block: no bridge is made for it.
+    let bridges = BRIDGES_MADE.with(std::cell::Cell::get);
+    assert!(
+        bridges * 4 <= k,
+        "{bridges} taffy bridges were made for {k} flex rows that nothing touched"
+    );
+    let mut fresh = window();
+    lay_out(&mut fresh, with_a_paragraph(canvas_of_flex_nodes(k, 3), "another, longer text"));
+    // The first box (2), its row (3) and the row's first item (4); the second box (10).
+    assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 4, 10, 11]);
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
