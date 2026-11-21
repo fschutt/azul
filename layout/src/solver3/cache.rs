@@ -3354,16 +3354,23 @@ fn reconcile_node(
             let _ = (0xBB00_0002u32);
         }
         recon.reused_nodes += 1;
-        // Paint-only or clean: clone the old node (preserving layout cache)
+        // Paint-only or clean: the old node goes on into the new tree
+        // (preserving layout cache). It is read out of the old tree once -
+        // a copy of its hot, warm and cold parts, without its child list,
+        // which the new tree fills again - and that copy is MOVED into the
+        // builder. It was read with its children and then cloned a second
+        // time (`clone_node_from_old(&old_full_node, ..)`): every box, map
+        // and list of every clean node copied twice per reconcile.
         let old_full_node = old_tree
-            .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node(idx)))
+            .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node_without_children(idx)))
             .ok_or(LayoutError::InvalidTree)?;
-        // The clone reuses the OLD node's measurements under the NEW node's
+        // The node reuses the OLD node's measurements under the NEW node's
         // identity: `old_tree_idx` may have come from the positional
-        // fallback below, in which case `old_full_node.dom_node_id` names a
+        // fallback below, in which case `old_dom_node_id` names a
         // different (or, after the DOM shrank, a nonexistent) node.
+        let old_dom_node_id = old_full_node.dom_node_id;
         let mut idx =
-            new_tree_builder.clone_node_from_old(&old_full_node, new_parent_idx, Some(new_dom_id));
+            new_tree_builder.adopt_node_from_old(old_full_node, new_parent_idx, Some(new_dom_id));
         // A node that became a hit-test target, or stopped being one (a
         // handler, a tab stop, a context menu came or went), is laid out as
         // it was, but the items it keeps hold the hit-test area of what it
@@ -3392,7 +3399,7 @@ fn reconcile_node(
         // `layout_document`'s `cache_map` remap hands it the per-node cache -
         // and `final_layout_current` - of its own id. The two must describe
         // the same node for a memoised final layout to be served.
-        let paired_by_position = diff.now(old_full_node.dom_node_id) != Some(new_dom_id);
+        let paired_by_position = diff.now(old_dom_node_id) != Some(new_dom_id);
         if let Some(cloned) = new_tree_builder.get_mut(idx) {
             // The clone keeps its flex measurements (`clone_node_from_old`) -
             // unless a restyle on it or above it may have moved what it
