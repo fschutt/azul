@@ -1315,6 +1315,7 @@ fn the_layout_of_a_label_takes_what_its_measure_shaped() {
     let mut lw = window();
     MEASURED_PARAGRAPHS_KEPT.with(|n| n.set(0));
     MEASURED_PARAGRAPHS_TAKEN.with(|n| n.set(0));
+    crate::solver3::sizing::MEASURED_PARAGRAPHS_REFUSED.with(|n| n.set([0; 4]));
     // In the built-in mock font (`text3::mock_fonts`, registered in every font manager): the
     // labels are shaped into glyphs.
     let mut layer = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
@@ -1336,9 +1337,11 @@ fn the_layout_of_a_label_takes_what_its_measure_shaped() {
     let kept = MEASURED_PARAGRAPHS_KEPT.with(std::cell::Cell::get);
     let taken = MEASURED_PARAGRAPHS_TAKEN.with(std::cell::Cell::get);
     assert!(kept >= k, "harness: the measure of the {k} labels kept what it shaped ({kept})");
+    let refused = crate::solver3::sizing::MEASURED_PARAGRAPHS_REFUSED.with(std::cell::Cell::get);
     assert!(
         taken >= k,
-        "the layout of {taken} of {k} labels took what the label's measure had shaped"
+        "the layout of {taken} of {k} labels took what the label's measure had shaped; refused \
+         by (direction, unicode-bidi, registered faces, content): {refused:?}"
     );
     // The labels stand at their insets (label i at 10 * (i % 50), 9 * (i / 50)).
     let label = position_of(&lw, 2 + 2 * 57);
