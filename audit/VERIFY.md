@@ -222,7 +222,38 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
   37, 33, 42, 47, 6], ...): 9 differences, the first: Some(\"node 9: matched rules\")": the restricted cascade
   (`009e311d8`, `recascade_nodes`) against a new cascade. Owner: diff-first.
 
-## State for a successor (CURRENT; kept by the second verifier, who took over at `a23a72fde`)
+## State for a successor (CURRENT: the fourth verifier's block comes first)
+
+<!-- STATE4-BEGIN -->
+**FOURTH VERIFIER (took over at `70b0434de` = the pushed `19e207928` + a log commit; the second round of merges).
+This block is the current one; the blocks below it are history.** Environment, helpers and the way a round
+goes: as the third verifier's block says (`env.sh`: `run`, `summ`; `pinenv.sh`: `prun`; delete the test
+binaries before every build); new: `<scratchpad>/verify/rootenv.sh` (`rrun <log> <cargo args>`: the ROOT
+workspace of the m4p worktree, its own `target/`, deleted after use), logs `400` ff. (m4p), `500` ff. (azul).
+
+Editor side first (m4p `audit/integration`, `audit/PIN_PASS.md` section 9): the contour label at (inf, NaN) is
+closed (`6efb0f0`: line against line is crossed in m4p-types, `segment_crossing`; behaviour changed on purpose);
+root workspace 233 / 0 / 1 ignored, editor 236 / 0 / 12, `scripts/e2e.sh` whole green, binary
+`~/Development/m4p-bin/mapedit3-6efb0f0`; the coordinator pushed m4p `origin/master` = `f8e4b86`. A patch for the
+user's crate `beziercurve-wkt` 0.1.3 is at `<scratchpad>/patches/beziercurve-wkt-0.1.3-line-line.patch` (not
+published).
+
+azul, second round, in the coordinator's order (it confirms each merge by name and pushes green tips; the
+editor's pin moves once, after the last green merge of the round, on its word):
+- **2a `audit/diff-first` at `83098e8c4`: MERGED as `340bc27b3`** (no conflict, 0 compile errors, no fix).
+  Layout lib 10,915 / 2 / 1 ignored, `tests/all` 3,060 / 0 / 5 (log `501`). The 2: the known font TEST race
+  (alone 3 of 3), and `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`
+  (`55c008027`) on its first PREMISE ("0 runs were translated"): measured with a probe (log `502`, removed
+  again): the `ContentChange::NodeCss` relayout of a view's document builds the document's list in FULL (every
+  patch counter stays 0, `last_build_was_patched` false; the list is the built one under both policies): the
+  page proves nothing about moved runs, as the premise says; the property is green in
+  `audit_tests::diff_first::a_box_a_patched_pass_moved_is_painted_as_a_build_paints_it` and
+  `the_switch_translates_a_moved_run_as_before` (a resize). WITH THE COORDINATOR (the test is not touched without
+  its word). dll: IN PROGRESS (log `503` the build; then the named tests, the lib whole, `headless_lifecycle`).
+- 2b `audit/A3-solver` at `8539c5b03` (an `api.json` addition: the Rust outputs of `target/codegen` must be made
+  again, see "Generated code"), 2c `audit/A5` at `dbde1ccf5`, 2d `audit/dom-builder` at `234ec3de2`: NOT merged
+  yet. A dry `git merge-tree` of each against `70b0434de` showed no conflict.
+<!-- STATE4-END -->
 
 <!-- STATE3-BEGIN -->
 **THIRD VERIFIER (took over at `f99429b52`, milestone 6, which the coordinator pushed to
