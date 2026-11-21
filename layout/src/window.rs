@@ -775,6 +775,84 @@ pub mod present_geometry {
     /// `(x, y, width, height)` in device pixels.
     pub type PxRect = (u32, u32, u32, u32);
 
+    /// Device pixels per logical pixel of a window whose state says `dpi`:
+    /// `dpi / 96`, and 1.0 for a DPI of 0 (a window that was never told).
+    ///
+    /// THE factor of a frame (with [`super::LayoutWindow::frame_scale`], which
+    /// adds the one case `dpi` cannot hold). It is NOT
+    /// `WindowSize::get_hidpi_factor()`: that one is a `FloatValue`, three
+    /// decimals, cut off, so DPI 128 (4/3) reads 1.333 there and 1.333_333_4
+    /// here, and a window 1280 logical px wide is 1706.67 -> 1707 px with this
+    /// one and 1706.24 -> 1706 px with that one. (At 125 % and 150 % the two
+    /// are the same number.) Nothing that sizes or places a frame may use
+    /// that one.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)] // a DPI is far below 2^24
+    pub fn frame_dpi_factor(dpi: u32) -> f32 {
+        if dpi == 0 {
+            1.0
+        } else {
+            dpi as f32 / 96.0
+        }
+    }
+
+    /// The scale a Wayland compositor prefers for a surface, from the
+    /// numerator wp-fractional-scale-v1 sends (`scale_120 / 120`).
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn preferred_scale(scale_120: u32) -> f32 {
+        scale_120 as f32 / 120.0
+    }
+
+    /// The whole DPI (96 per 1.0) nearest to a preferred scale: what
+    /// `size.dpi` holds for it. Exact only when `scale_120` is a multiple of
+    /// 5 (125 % = 150 -> 120, 150 % = 180 -> 144); 110 % = 132 -> 105.6 -> 106,
+    /// which is a factor of 1.104, not 1.1.
+    #[must_use]
+    pub const fn dpi_of_preferred_scale(scale_120: u32) -> u32 {
+        (scale_120.saturating_mul(96).saturating_add(60)) / 120
+    }
+
+    /// The factor of a Wayland window's frames and buffers.
+    ///
+    /// On the fractional path (the compositor sent a preferred scale AND the
+    /// surface has a viewport to map the buffer back to surface units) it is
+    /// the compositor's own `scale_120 / 120`: the surface is
+    /// `round(units * scale_120 / 120)` device pixels, and only a buffer of
+    /// exactly that size is shown 1:1. `size.dpi / 96` is that scale rounded
+    /// to a whole DPI: at 110 % it is 106 / 96 = 1.104, and 1000 units become
+    /// a 1104 px buffer for an 1100 px surface, resampled as a whole.
+    /// Otherwise (integer scales) it is [`frame_dpi_factor`].
+    #[must_use]
+    pub fn wayland_frame_scale(dpi: u32, preferred_scale_120: Option<u32>, has_viewport: bool) -> f32 {
+        match preferred_scale_120 {
+            Some(scale_120) if has_viewport && scale_120 > 0 => preferred_scale(scale_120),
+            _ => frame_dpi_factor(dpi),
+        }
+    }
+
+    /// Whether what a shell last handed to its window system still shows the
+    /// frame: no frame was rendered since, or exactly one was and it changed
+    /// nothing (its present damage is `None`). A shell that presents whole
+    /// frames (a layer's `contents`) has nothing to do then.
+    ///
+    /// `frames_now` and `frames_at_last_present` count rendered frames
+    /// (`FrameTimings::frame_count`); `None` = nothing was presented yet.
+    /// Two or more frames since the last present are never "shown": the
+    /// damage of the last one says nothing about the one before it.
+    #[must_use]
+    pub fn frame_already_shown(
+        frames_now: u64,
+        frames_at_last_present: Option<u64>,
+        last_damage_is_none: bool,
+    ) -> bool {
+        match frames_at_last_present {
+            None => false,
+            Some(then) if frames_now == then => true,
+            Some(then) => frames_now == then.saturating_add(1) && last_damage_is_none,
+        }
+    }
+
     /// The size in device pixels of the CPU frame of a `logical_w` x
     /// `logical_h` window at `dpi_factor`: the formula of
     /// `CpuBackend::render_frame` (`(logical * dpi).ceil()`, in `f32`), for a
@@ -899,6 +977,32 @@ pub mod present_geometry {
     }
 }
 
+impl LayoutWindow {
+    /// THE factor of this window's frame, device pixels per logical pixel:
+    /// what every shell hands `CpuBackend::render_frame` and sizes its buffer
+    /// with, and so the grid everything that has to land on whole device
+    /// pixels is snapped on.
+    ///
+    /// `size.dpi / 96` ([`present_geometry::frame_dpi_factor`]), unless the
+    /// shell knows the factor more exactly than a whole DPI can say
+    /// ([`Self::set_frame_scale`]: a Wayland compositor's preferred scale of
+    /// 110 % is 1.1, and DPI 106 is 1.104). Never
+    /// `WindowSize::get_hidpi_factor()`, which is cut to three decimals.
+    #[must_use]
+    pub fn frame_scale(&self) -> f32 {
+        self.frame_clock.frame_scale().unwrap_or_else(|| {
+            present_geometry::frame_dpi_factor(self.current_window_state.size.dpi)
+        })
+    }
+
+    /// The shell says what the frame's factor exactly is (`None`: `size.dpi /
+    /// 96` again). Through `&self`: a shell holds the window shared while it
+    /// renders.
+    pub fn set_frame_scale(&self, exact: Option<f32>) {
+        self.frame_clock.set_frame_scale(exact);
+    }
+}
+
 /// How long this window's frames take, for the app itself: what
 /// `CallbackInfo::get_frame_timings` answers ([`LayoutWindow::frame_timings`]).
 ///
@@ -941,9 +1045,30 @@ pub struct FrameClock {
     interval_ns: core::sync::atomic::AtomicU64,
     work_ns: core::sync::atomic::AtomicU64,
     layout_ns: core::sync::atomic::AtomicU64,
+    /// The frame's exact factor when `size.dpi` cannot hold it, as the bits
+    /// of an `f32`; 0 = none (`LayoutWindow::frame_scale`, A10-10).
+    frame_scale_bits: core::sync::atomic::AtomicU32,
 }
 
 impl FrameClock {
+    /// See `LayoutWindow::set_frame_scale`. A factor that is not a positive
+    /// finite number is no factor.
+    pub fn set_frame_scale(&self, exact: Option<f32>) {
+        let bits = exact
+            .filter(|scale| scale.is_finite() && *scale > 0.0)
+            .map_or(0, f32::to_bits);
+        self.frame_scale_bits.store(bits, Ordering::Relaxed);
+    }
+
+    /// See `LayoutWindow::frame_scale`.
+    #[must_use]
+    pub fn frame_scale(&self) -> Option<f32> {
+        match self.frame_scale_bits.load(Ordering::Relaxed) {
+            0 => None,
+            bits => Some(f32::from_bits(bits)),
+        }
+    }
+
     /// Work for the next frame starts at `now` (nanoseconds); the first
     /// start since the last presented frame counts.
     pub fn note_work(&self, now: u64) {

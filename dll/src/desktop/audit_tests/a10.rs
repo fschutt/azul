@@ -286,7 +286,7 @@ fn x11_and_win32_render_a_frame_of_the_windows_pixel_size() {
             .unwrap_or_else(|| panic!("{shell}: the CPU arm no longer calls render_frame"));
         let before = &arm[..render];
         assert!(
-            before.contains("let phys = ws.size.get_physical_size();")
+            before.matches("present_geometry::surface_len_px(").count() == 2
                 && before.matches("present_geometry::logical_len_for_px(").count() == 2,
             "{shell}: width and height of the CPU frame must come from the window's pixel size"
         );
@@ -294,7 +294,101 @@ fn x11_and_win32_render_a_frame_of_the_windows_pixel_size() {
             !before.contains("let width = ws.size.dimensions.width;"),
             "{shell}: the CPU frame is sized from the stored logical size again"
         );
+        // A10-17: and that pixel size is round(logical * THE factor), never
+        // `get_physical_size()` / `get_hidpi_factor()` of the three decimals.
+        assert!(
+            !before.contains("get_physical_size()") && !before.contains("get_hidpi_factor()"),
+            "{shell}: the CPU frame is sized with the three-decimal factor again"
+        );
     }
+}
+
+const IOS_RS: &str = include_str!("../shell2/ios/mod.rs");
+const CORE_WINDOW_RS: &str = include_str!("../../../../core/src/window.rs");
+
+/// A10-17. Every shell renders its frame at THE factor of the window
+/// (`LayoutWindow::frame_scale()`, or `present_geometry::frame_dpi_factor` of
+/// the state's DPI where no layout window is at hand): `dpi / 96`, not
+/// `WindowSize::get_hidpi_factor()`, which is cut to three decimals (1.333 for
+/// 4/3) and makes a frame, a buffer or a logical size that is a pixel row or
+/// column off the other one. X11 derives its logical sizes with the same
+/// factor (`hidpi()`), and `WindowSize::get_physical_size()` uses it too.
+///
+/// Mutations: `get_hidpi_factor()` back in `X11Window::hidpi` or in
+/// `WindowSize::get_physical_size`, or `ws.size.dpi as f32 / 96.0` back in an
+/// arm, fail here.
+#[test]
+fn every_shell_renders_at_the_windows_frame_factor() {
+    // (shell, source, where its CPU frame starts, the factor expression, how many frames)
+    let arms: [(&str, &str, &str, &str, usize); 6] = [
+        (
+            "macOS",
+            MACOS_RS,
+            "pub fn render_and_present_in_draw_rect(",
+            "let dpi = layout_window.frame_scale();",
+            1,
+        ),
+        (
+            "X11",
+            X11_RS,
+            "if let RenderMode::Cpu(gc) = &self.render_mode {",
+            "let dpi = layout_window.frame_scale();",
+            1,
+        ),
+        (
+            "Win32",
+            WINDOWS_RS,
+            "pub fn render_and_present(&mut self, layout_was_regenerated: bool)",
+            "let dpi = layout_window.frame_scale();",
+            1,
+        ),
+        (
+            "Wayland",
+            WAYLAND_RS,
+            "RenderMode::Cpu(Some(cpu_state)) => {",
+            "let dpi = layout_window.frame_scale();",
+            1,
+        ),
+        (
+            "iOS",
+            IOS_RS,
+            "impl IOSWindow {",
+            "let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);",
+            2,
+        ),
+        (
+            "Android",
+            ANDROID_RS,
+            "impl AndroidWindow {",
+            "let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);",
+            1,
+        ),
+    ];
+    for (shell, source, start, factor, frames) in arms {
+        let from = source
+            .find(start)
+            .unwrap_or_else(|| panic!("{shell}: `{start}` not found - was it renamed?"));
+        assert_eq!(
+            source[from..].matches(factor).count(),
+            frames,
+            "{shell}: its CPU frame(s) must be rendered at `{factor}`"
+        );
+        assert!(
+            !source.contains("let dpi = ws.size.dpi as f32 / 96.0;")
+                && !source.contains("let dpi = ws.size.dpi as f32 / BASE_DPI;"),
+            "{shell}: a frame is rendered at a factor of its own"
+        );
+    }
+    let hidpi = body(X11_RS, "pub(crate) fn hidpi(&self) -> f32");
+    assert!(
+        hidpi.contains("present_geometry::frame_dpi_factor(") && !hidpi.contains(".get_hidpi_factor()"),
+        "X11: logical sizes must be derived with the frame's factor"
+    );
+    let physical = body(CORE_WINDOW_RS, "pub fn get_physical_size(&self) -> PhysicalSize<u32>");
+    assert!(
+        physical.contains("dpi as f32 / 96.0") && !physical.contains(".get_hidpi_factor()"),
+        "WindowSize::get_physical_size must use dpi / 96, not the three-decimal factor"
+    );
 }
 
 /// A10-09. At a fractional scale a Wayland toplevel is `round(logical *

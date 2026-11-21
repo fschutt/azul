@@ -1867,7 +1867,8 @@ impl IOSWindow {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
+            // THE factor of the window's frame (A10-17), not get_hidpi_factor().
+            let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);
             // Shared per-frame content preparation (journal clock, image
             // callbacks through the content chokepoint, scrollbar cache).
             if let Some(lw) = self.common.layout_window.as_mut() {
@@ -2044,7 +2045,8 @@ impl IOSWindow {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
+            // THE factor of the window's frame (A10-17), not get_hidpi_factor().
+            let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);
             // Shared per-frame content preparation (journal clock, image
             // callbacks through the content chokepoint, scrollbar cache).
             // Before this, image callbacks were NEVER invoked on this host —

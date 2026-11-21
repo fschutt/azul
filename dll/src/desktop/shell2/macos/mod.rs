@@ -9867,7 +9867,8 @@ impl MacOSWindow {
                 let ws = &layout_window.current_window_state;
                 let width = ws.size.dimensions.width;
                 let height = ws.size.dimensions.height;
-                let dpi = ws.size.dpi as f32 / BASE_DPI;
+                // THE factor of the window's frame (A10-17).
+                let dpi = layout_window.frame_scale();
 
                 if width > 0.0 && height > 0.0 {
                     // Shared per-frame content preparation (journal clock, image

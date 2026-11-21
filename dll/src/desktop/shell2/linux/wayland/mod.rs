@@ -7931,7 +7931,8 @@ impl WaylandWindow {
                         // need to know one exists before computing window dims.
                         if layout_window.layout_results.contains_key(&dom_id) {
                             let ws = &layout_window.current_window_state;
-                            let dpi = ws.size.dpi as f32 / 96.0;
+                            // THE factor of the window's frame (A10-17).
+                            let dpi = layout_window.frame_scale();
                             // A10-09: at a fractional scale the surface is
                             // round(logical * scale) device pixels, and the
                             // shm buffers are that size (`cpu_buffer_spec`).

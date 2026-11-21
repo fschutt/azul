@@ -1273,20 +1273,27 @@ impl Win32Window {
                     // to know one exists before computing window dims.
                     if layout_window.layout_results.contains_key(&dom_id) {
                         let ws = &layout_window.current_window_state;
-                        let dpi = ws.size.dpi as f32 / 96.0;
+                        // THE factor of the window's frame (A10-17).
+                        let dpi = layout_window.frame_scale();
                         // A10-05: the frame is as large as the CLIENT AREA, in
                         // device pixels. The logical size is px / dpi, and the
                         // renderer's ceil(logical * dpi) of that lands one
                         // pixel above px wherever the f32 round trip
                         // overshoots (1003 px at 175 %: a 1004 px frame, and a
                         // DIB one pixel larger than the window). Hand it the
-                        // length that renders to exactly px.
-                        let phys = ws.size.get_physical_size();
+                        // length that renders to exactly px: px is
+                        // round(logical * dpi), with the frame's own factor.
+                        let phys_w = azul_layout::window::present_geometry::surface_len_px(
+                            ws.size.dimensions.width, dpi,
+                        );
+                        let phys_h = azul_layout::window::present_geometry::surface_len_px(
+                            ws.size.dimensions.height, dpi,
+                        );
                         let width = azul_layout::window::present_geometry::logical_len_for_px(
-                            phys.width, dpi,
+                            phys_w, dpi,
                         );
                         let height = azul_layout::window::present_geometry::logical_len_for_px(
-                            phys.height, dpi,
+                            phys_h, dpi,
                         );
 
                         if width > 0.0 && height > 0.0 {

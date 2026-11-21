@@ -12,10 +12,11 @@ use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
 use crate::window::{
     present_geometry::{
-        area_px, bounding_rect, flip_rect_y, frame_size_px, logical_len_for_px,
-        rows_of_bottom_left_rect, surface_len_px, PxRect,
+        area_px, bounding_rect, dpi_of_preferred_scale, flip_rect_y, frame_already_shown,
+        frame_dpi_factor, frame_size_px, logical_len_for_px, preferred_scale,
+        rows_of_bottom_left_rect, surface_len_px, wayland_frame_scale, PxRect,
     },
-    FrameDamage,
+    FrameClock, FrameDamage,
 };
 
 fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
@@ -327,4 +328,163 @@ fn a_wayland_frame_at_a_fractional_scale_is_the_surfaces_size() {
             assert!(px.abs_diff(frame_size_px(logical as f32, 1.0, scale).0) <= 1);
         }
     }
+}
+
+fn window_size(width: f32, height: f32, dpi: u32) -> azul_core::window::WindowSize {
+    azul_core::window::WindowSize {
+        dimensions: LogicalSize { width, height },
+        dpi,
+        ..Default::default()
+    }
+}
+
+/// A10-17. THE factor of a frame is `dpi / 96`; `WindowSize::get_hidpi_factor()`
+/// is that number cut to three decimals, and nothing that sizes a frame may
+/// use it.
+///
+/// A 1280 x 720 logical window:
+/// - 150 % (DPI 144) and 125 % (DPI 120): both functions say 1.5 and 1.25,
+///   the frame is 1920 x 1080 and 1600 x 900 either way.
+/// - DPI 128 (4/3): `frame_dpi_factor` 1.333_333_4, `get_hidpi_factor` 1.333.
+///   Width 1280: 1706.67 -> 1707 px by the first, 1706.24 -> 1706 px by the
+///   second: a column apart.
+/// - A window of 2100 px at DPI 128 is 1575 logical. `get_physical_size()`
+///   said round(1575 * 1.333) = round(2099.475) = 2099 px; it now uses
+///   `dpi / 96` and says 2100.
+///
+/// Mutation: `get_hidpi_factor().inner.get()` back in `get_physical_size`
+/// fails the last assertion (2099 for 2100).
+#[test]
+fn the_frame_factor_is_dpi_over_96_not_the_three_decimal_one() {
+    for (dpi, px) in [(144_u32, (1920_u32, 1080_u32)), (120, (1600, 900))] {
+        let exact = frame_dpi_factor(dpi);
+        let cut = window_size(1280.0, 720.0, dpi).get_hidpi_factor().inner.get();
+        assert_eq!(exact, cut, "DPI {dpi}: the two factors are the same number");
+        assert_eq!(frame_size_px(1280.0, 720.0, exact), px, "DPI {dpi}");
+        let phys = window_size(1280.0, 720.0, dpi).get_physical_size();
+        assert_eq!((phys.width, phys.height), px, "DPI {dpi}");
+    }
+    let exact = frame_dpi_factor(128);
+    let cut = window_size(1280.0, 720.0, 128).get_hidpi_factor().inner.get();
+    assert!((exact - 4.0 / 3.0).abs() < 1e-6, "{exact}");
+    assert!((cut - 1.333).abs() < 1e-6, "{cut}");
+    assert_eq!(surface_len_px(1280.0, exact), 1707);
+    assert_eq!(surface_len_px(1280.0, cut), 1706);
+    assert_eq!(frame_size_px(1280.0, 720.0, exact), (1707, 960));
+
+    let logical = 2100.0_f32 / exact;
+    assert_eq!(logical, 1575.0);
+    assert_eq!(surface_len_px(logical, cut), 2099, "what the cut factor made of 2100 px");
+    assert_eq!(window_size(logical, 720.0, 128).get_physical_size().width, 2100);
+
+    assert_eq!(frame_dpi_factor(96), 1.0);
+    assert_eq!(frame_dpi_factor(192), 2.0);
+    assert_eq!(frame_dpi_factor(0), 1.0, "a window that was never told its DPI");
+}
+
+/// A10-17. A shell that learns its size in pixels stores `px / factor`; with
+/// THE factor, `round(logical * factor)` is `px` again for every DPI from 96
+/// to 384 and every length up to 4096 px. (With the three-decimal factor it
+/// is another number for 32 % of them: 381,189 of 1,183,744.)
+#[test]
+fn a_pixel_size_survives_the_round_trip_through_the_logical_size() {
+    for dpi in 96_u32..=384 {
+        let factor = frame_dpi_factor(dpi);
+        for px in 1_u32..=4096 {
+            assert_eq!(surface_len_px(px as f32 / factor, factor), px, "DPI {dpi}, {px} px");
+        }
+    }
+    // And through `WindowSize::get_physical_size`, which every shell uses.
+    for (dpi, px) in [(128_u32, 2100_u32), (110, 1467), (125, 3001), (106, 4000), (168, 1003)] {
+        let logical = px as f32 / frame_dpi_factor(dpi);
+        assert_eq!(window_size(logical, 1.0, dpi).get_physical_size().width, px, "DPI {dpi}");
+    }
+}
+
+/// A10-17, A10-10. A window's frame factor is `dpi / 96` until its shell
+/// says what it exactly is; a factor that is not a positive number is none.
+#[test]
+fn a_shell_can_say_the_frames_factor_exactly() {
+    let clock = FrameClock::default();
+    assert_eq!(clock.frame_scale(), None);
+    clock.set_frame_scale(Some(1.1));
+    assert_eq!(clock.frame_scale(), Some(1.1));
+    clock.set_frame_scale(Some(0.0));
+    assert_eq!(clock.frame_scale(), None);
+    clock.set_frame_scale(Some(1.75));
+    clock.set_frame_scale(Some(f32::NAN));
+    assert_eq!(clock.frame_scale(), None);
+    clock.set_frame_scale(Some(2.0));
+    clock.set_frame_scale(None);
+    assert_eq!(clock.frame_scale(), None);
+}
+
+/// A10-10. A Wayland compositor's preferred scale is `n / 120`; `size.dpi`
+/// (whole, 96 per 1.0) holds it exactly only when `n` is a multiple of 5.
+///
+/// 110 % (n = 132): the scale is 1.1, the DPI 105.6 -> 106, and 106 / 96 =
+/// 1.104_17. A surface of 1000 units is round(1000 * 1.1) = 1100 device
+/// pixels; sized with the DPI the buffer was round(1000 * 1.104_17) = 1104 px
+/// (1105 before A10-09), shown in 1100: the whole window resampled. Sized with
+/// the scale itself it is 1100.
+/// 115 % (n = 138): DPI 110.4 -> 110 = 1.145_83: 1146 px for a 1150 px surface.
+/// 125 % (n = 150): DPI 120 = 1.25 exactly: 1250 either way.
+///
+/// Mutation: `frame_dpi_factor(dpi)` on the fractional path of
+/// `wayland_frame_scale` fails here (1104 for 1100).
+#[test]
+fn a_wayland_frame_is_sized_with_the_compositors_scale_not_with_the_rounded_dpi() {
+    assert_eq!(dpi_of_preferred_scale(132), 106);
+    assert_eq!(dpi_of_preferred_scale(138), 110);
+    assert_eq!(dpi_of_preferred_scale(150), 120);
+    assert_eq!(dpi_of_preferred_scale(120), 96);
+    assert_eq!(dpi_of_preferred_scale(240), 192);
+
+    let at_110 = wayland_frame_scale(106, Some(132), true);
+    assert_eq!(at_110, preferred_scale(132));
+    assert!((at_110 - 1.1).abs() < 1e-6, "{at_110}");
+    assert_eq!(surface_len_px(1000.0, at_110), 1100, "the surface, and now the buffer");
+    assert_eq!(surface_len_px(1000.0, frame_dpi_factor(106)), 1104, "the buffer the DPI made");
+
+    let at_115 = wayland_frame_scale(110, Some(138), true);
+    assert_eq!(surface_len_px(1000.0, at_115), 1150);
+    assert_eq!(surface_len_px(1000.0, frame_dpi_factor(110)), 1146);
+
+    // Where the DPI holds the scale exactly, nothing changes.
+    for n in [120_u32, 150, 165, 180, 210, 240] {
+        let dpi = dpi_of_preferred_scale(n);
+        assert_eq!(wayland_frame_scale(dpi, Some(n), true), frame_dpi_factor(dpi), "{n}/120");
+    }
+    // Without a viewport, or before the compositor said a scale, the integer
+    // path: the DPI's factor.
+    assert_eq!(wayland_frame_scale(192, Some(132), false), 2.0);
+    assert_eq!(wayland_frame_scale(192, None, true), 2.0);
+    assert_eq!(wayland_frame_scale(96, Some(0), true), 1.0);
+
+    // The frame made from the length the shell hands the renderer is the
+    // surface's size, at every scale a compositor can send up to 300 %.
+    for n in 120_u32..=360 {
+        let scale = preferred_scale(n);
+        for units in [1_u32, 333, 640, 1000, 1001, 1280, 1917, 2560, 3840] {
+            let px = surface_len_px(units as f32, scale);
+            let len = logical_len_for_px(px, scale);
+            assert_eq!(frame_size_px(len, len, scale).0, px, "{units} units at {n}/120");
+        }
+    }
+}
+
+/// A10-11. A shell that presents whole frames (a layer's contents) skips the
+/// present when what it handed over last still shows the frame: nothing was
+/// rendered since, or one frame was and it changed nothing.
+///
+/// Mutation: treating "two frames since, the last one unchanged" as shown
+/// loses the first of the two frames; it fails the third assertion.
+#[test]
+fn a_whole_frame_present_is_skipped_only_when_the_frame_is_already_shown() {
+    assert!(!frame_already_shown(1, None, true), "nothing was presented yet");
+    assert!(frame_already_shown(7, Some(7), false), "no frame since the present");
+    assert!(!frame_already_shown(9, Some(7), true), "two frames since: the first may have changed");
+    assert!(frame_already_shown(8, Some(7), true), "one frame since, and it changed nothing");
+    assert!(!frame_already_shown(8, Some(7), false), "one frame since, with damage");
+    assert!(!frame_already_shown(u64::MAX, Some(u64::MAX - 2), true));
 }
