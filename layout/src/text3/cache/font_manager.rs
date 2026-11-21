@@ -182,6 +182,33 @@ struct AppFace {
     bytes: Vec<u8>,
     /// The code points of its cmap, read once when the app registered it.
     ranges: Vec<UnicodeRange>,
+    /// Its weight, slant and stretch, read once when the app registered it
+    /// (every `FontManager` built afterwards registers it).
+    style: FaceStyle,
+}
+
+/// The style of a face whose bytes live for the whole process (the bundled UI
+/// faces, the mock faces), parsed once per process: every `FontManager` -
+/// each window, each text image (`text_raster`), each SVG text painter -
+/// registers them, and `parse_face_style` is a whole-face parse. Kept by the
+/// address and length of the bytes, which a `'static` borrow never frees or
+/// moves, so an address names one face for good.
+fn static_face_style(bytes: &'static [u8]) -> FaceStyle {
+    static STYLES: std::sync::OnceLock<Mutex<Vec<(usize, usize, FaceStyle)>>> =
+        std::sync::OnceLock::new();
+    let styles = STYLES.get_or_init(|| Mutex::new(Vec::new()));
+    let at = (bytes.as_ptr() as usize, bytes.len());
+    if let Ok(known) = styles.lock() {
+        if let Some((_, _, style)) = known.iter().find(|(ptr, len, _)| (*ptr, *len) == at) {
+            return *style;
+        }
+    }
+    // The family only names the parsed record; the style is the bytes'.
+    let style = parse_face_style(bytes, "");
+    if let Ok(mut known) = styles.lock() {
+        known.push((at.0, at.1, style));
+    }
+    style
 }
 
 /// The font faces the app ships (`AppConfig::add_font`), for the process:
@@ -204,6 +231,7 @@ pub fn set_app_fonts(fonts: &[azul_core::resources::NamedFont]) {
                 family: font.name.as_str().to_string(),
                 bytes: font.bytes.as_ref().to_vec(),
                 ranges,
+                style: parse_face_style(font.bytes.as_ref(), font.name.as_str()),
             })
         })
         .collect();
@@ -498,6 +526,25 @@ impl<T: ParsedFontTrait> FontManager<T> {
         coverage: Vec<UnicodeRange>,
         tier: MemoryFontTier,
     ) -> FontId {
+        self.register_named_font_styled(family, bytes, coverage, tier, || {
+            parse_face_style(bytes, family)
+        })
+    }
+
+    /// [`Self::register_named_font_in_tier`] with the face's style from
+    /// `style_of` (called when the face is not a variable font, where it was
+    /// parsed before): a face whose style is known already - a bundled or
+    /// mock face, parsed once per process ([`static_face_style`]); an app
+    /// face, parsed when the app set it - is not parsed again by every
+    /// manager made.
+    fn register_named_font_styled(
+        &mut self,
+        family: &str,
+        bytes: &[u8],
+        coverage: Vec<UnicodeRange>,
+        tier: MemoryFontTier,
+        style_of: impl FnOnce() -> FaceStyle,
+    ) -> FontId {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
 
         // Variable fonts: expand into one STATIC instance per weight bucket so the
@@ -519,7 +566,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // its internal family "Helvetica" must both yield weight=Bold. A font can
         // (and Helvetica does) reuse the same family name across faces, so faces
         // are distinguished by (weight, italic, oblique), never by name alone.
-        let style = parse_face_style(bytes, family);
+        let style = style_of();
 
         // IDEMPOTENT: several `FontManager`s (one per window, plus the PDF
         // writer) share one `FcFontCache`. Registering the same face twice would
@@ -528,15 +575,21 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // existing memory font ONLY when family AND (weight, italic, oblique)
         // match — a bold face must not be deduplicated against the regular one.
         let mut existing: Vec<(FontId, Vec<UnicodeRange>)> = Vec::new();
+        // Every pattern of the cache is looked at (the system's faces too,
+        // for every face registered): the style first, and the family as
+        // `normalize_family_name(f) == norm` without making the `String`.
         self.fc_cache.for_each_pattern(|pattern, id| {
-            let fam_hit = pattern
-                .family
-                .as_deref()
-                .is_some_and(|f| rust_fontconfig::utils::normalize_family_name(f) == norm);
             let style_hit = pattern.weight == style.weight
                 && (pattern.italic == PatternMatch::True) == style.italic
                 && (pattern.oblique == PatternMatch::True) == style.oblique;
-            if fam_hit && style_hit {
+            let fam_hit = style_hit
+                && pattern.family.as_deref().is_some_and(|f| {
+                    f.chars()
+                        .filter(|c| c.is_alphanumeric())
+                        .map(|c| c.to_ascii_lowercase())
+                        .eq(norm.chars())
+                });
+            if fam_hit {
                 existing.push((*id, pattern.unicode_ranges.clone()));
             }
         });
@@ -703,7 +756,14 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// path as production instead of a test-only bypass.
     pub fn register_builtin_mock_fonts(&mut self) {
         for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
-            self.register_named_font(family, bytes, crate::text3::mock_fonts::mock_font_ranges());
+            let bytes: &'static [u8] = *bytes;
+            self.register_named_font_styled(
+                family,
+                bytes,
+                crate::text3::mock_fonts::mock_font_ranges(),
+                MemoryFontTier::Primary,
+                || static_face_style(bytes),
+            );
         }
         self.register_builtin_ui_fonts();
     }
@@ -719,20 +779,23 @@ impl<T: ParsedFontTrait> FontManager<T> {
             if face.bytes.is_empty() {
                 continue;
             }
-            self.register_named_font_in_tier(
+            let bytes: &'static [u8] = face.bytes.as_slice();
+            self.register_named_font_styled(
                 face.family,
-                &face.bytes,
+                bytes,
                 face.ranges(),
                 MemoryFontTier::Fallback,
+                || static_face_style(bytes),
             );
         }
         if let Ok(faces) = APP_FONTS.read() {
             for face in faces.iter() {
-                self.register_named_font_in_tier(
+                self.register_named_font_styled(
                     &face.family,
                     &face.bytes,
                     face.ranges.clone(),
                     MemoryFontTier::Fallback,
+                    || face.style,
                 );
             }
         }
@@ -1516,5 +1579,28 @@ mod audit_a8_tests {
         with_chain_key(&b, |key| assert_eq!(*key, FontChainKey::from_selectors(&b)));
         with_chain_key(&a, |key| assert_eq!(*key, FontChainKey::from_selectors(&a)));
         assert_eq!(built() - before, 3, "each change of stack builds the new one's key");
+    }
+
+    /// A8-14: the built-in faces' styles are parsed once per process: a
+    /// second `FontManager` (a window, a text image, an SVG painter) parses
+    /// none, and the kept style is the one a parse gives.
+    /// Mutation: `|| static_face_style(bytes)` -> `|| parse_face_style(bytes,
+    /// family)` in `register_builtin_ui_fonts` fails the count.
+    #[test]
+    fn a_second_font_manager_parses_no_built_in_face() {
+        type Manager = FontManager<azul_css::props::basic::FontRef>;
+        let parses = || FACE_STYLE_PARSES.with(core::cell::Cell::get);
+        drop(Manager::new(FcFontCache::default()).expect("a manager"));
+        let after_first = parses();
+        drop(Manager::new(FcFontCache::default()).expect("a manager"));
+        assert_eq!(parses(), after_first, "the second manager parsed a built-in face");
+        for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
+            let kept = format!("{:?}", static_face_style(*bytes));
+            assert_eq!(kept, format!("{:?}", parse_face_style(bytes, family)));
+        }
+        for face in crate::text3::ui_fonts::bundled_ui_fonts() {
+            let kept = format!("{:?}", static_face_style(face.bytes.as_slice()));
+            assert_eq!(kept, format!("{:?}", parse_face_style(&face.bytes, face.family)));
+        }
     }
 }
