@@ -4732,6 +4732,61 @@ mod audit_a3_window_tests {
         assert!(!faded.needs_layout(), "{faded:?}");
     }
 
+    /// THE CONDITION of `INLINE_STYLE_PAINT` (coordinator's ruling, 2026-11-21), first half: a
+    /// change of the VALUE of an inline `transform` / `opacity` while the property stays
+    /// present is paint - the display list binds both by key, no box moves.
+    #[test]
+    fn a_transform_or_opacity_value_that_changes_while_the_property_stays_is_paint() {
+        for (old, new) in [
+            ("transform: rotate(10deg);", "transform: rotate(80deg);"),
+            ("transform: rotate(10deg);", "transform: translate(5px, 7px);"),
+            ("opacity: 0.4;", "opacity: 0.9;"),
+            ("opacity: 1;", "opacity: 0.5;"),
+            ("transform: rotate(10deg); opacity: 0.4;", "transform: rotate(20deg); opacity: 0.6;"),
+        ] {
+            let set = change(
+                &NodeData::create_div().with_css(&format!("width: 10px; {old}")),
+                &NodeData::create_div().with_css(&format!("width: 10px; {new}")),
+            );
+            assert!(
+                set.contains(NodeChangeSet::INLINE_STYLE_PAINT) && !set.needs_layout(),
+                "`{old}` -> `{new}` is a value: {set:?}"
+            );
+        }
+    }
+
+    /// Second half: a `transform` or an `opacity` that COMES or GOES (and anything else that
+    /// makes a stacking context or a reference frame) changes the structure of the display
+    /// list and, for a transform, the containing block of positioned descendants
+    /// (`scroll_chain.rs`): never paint alone. Here it is a layout change, which rebuilds the
+    /// node's box and its part of the list.
+    #[test]
+    fn a_transform_or_opacity_that_comes_or_goes_is_not_paint() {
+        for (old, new) in [
+            ("", "transform: rotate(10deg);"),
+            ("transform: rotate(10deg);", ""),
+            ("transform: none;", "transform: rotate(10deg);"),
+            ("transform: rotate(10deg);", "transform: none;"),
+            ("", "opacity: 0.5;"),
+            ("opacity: 0.5;", ""),
+            ("position: relative; z-index: 1;", "position: relative; z-index: 2;"),
+            ("position: static;", "position: relative;"),
+        ] {
+            let set = change(
+                &NodeData::create_div().with_css(&format!("width: 10px; {old}")),
+                &NodeData::create_div().with_css(&format!("width: 10px; {new}")),
+            );
+            assert!(
+                set.contains(NodeChangeSet::INLINE_STYLE_LAYOUT) && set.needs_layout(),
+                "`{old}` -> `{new}` is not a value alone: {set:?}"
+            );
+            assert!(
+                !set.contains(NodeChangeSet::INLINE_STYLE_PAINT),
+                "`{old}` -> `{new}` must not be classified as paint: {set:?}"
+            );
+        }
+    }
+
     /// A view that grows: `k` labels under one parent become `2k`, while `k` labels under a
     /// second parent go. The `k` new labels without a positional twin (2k nodes with their texts)
     /// reach the shallow tiers; the old labels of the second parent (2k nodes) are what is left
