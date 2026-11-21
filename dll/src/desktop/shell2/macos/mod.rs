@@ -4554,6 +4554,26 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Minimized);
                     macos_window.set_display_link_paused(true);
+                    // A9-09: a window in the Dock shows nothing until it comes back, and what
+                    // is given back here is drawn again then: the CPU compositor's layers
+                    // (its root layer is one frame of pixels: 22 MB at 2940 x 1912, 59 MB
+                    // at 5120 x 2880; made again by the first frame after the window is
+                    // back), the glyph cache's older generation, WebRender's caches
+                    // (textures, glyphs, GPU cache:
+                    // re-uploaded from the templates it keeps), and the allocator's free
+                    // pages. `AZ_KEEP_CACHES_MINIMIZED=1` keeps everything.
+                    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+                    let keep = *KEEP.get_or_init(|| {
+                        std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0")
+                    });
+                    if !keep {
+                        macos_window.cpu_backend.compositor = None;
+                        macos_window.cpu_backend.glyph_cache.gc();
+                        if let Some(api) = macos_window.common.render_api.as_ref() {
+                            api.notify_memory_pressure();
+                        }
+                        azul_layout::probe::hint_purge_allocator();
+                    }
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window minimized");
             }
