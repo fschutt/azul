@@ -4104,10 +4104,22 @@ fn paint_turned_text_frame(
             shadow_spread_px(shadow_px(&sh.spread_radius.inner), dpi_factor),
         )
     };
+    // Where the glyphs of the run at `at` of the frame can paint, NOT cut to the run's clip:
+    // the ink the list knows (A3-core-26), else the item's own estimate (which is cut). The
+    // box of a run's pictures is taken around it: with the estimate - an em right of the
+    // last pen, 1.5 em up - a glyph that reaches further was cut at the picture's edge, and
+    // every picture of an ordinary run was a third larger than its ink.
+    let ink_of = |at: usize, it: &DisplayListItem| match list.text_ink_at(frame.push + 1 + at) {
+        Some((x0, y0, x1, y1)) => Some(LogicalRect {
+            origin: LogicalPosition { x: x0, y: y0 },
+            size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+        }),
+        None => it.visual_bounds(),
+    };
     // Everything in the frame can be drawn this way, or the frame is a group.
     // The reach of the halos open at the item, for the size of a run's pictures.
     let mut open_reaches: Vec<f64> = Vec::new();
-    for it in items {
+    for (at, it) in items.iter().enumerate() {
         match it {
             DisplayListItem::PushTextShadow { shadow } => {
                 open_reaches.push(turned_halo(Some(halo_of(shadow)), grow).2);
@@ -4121,15 +4133,23 @@ fn paint_turned_text_frame(
                 {
                     return false;
                 }
-                if let Some(ink) = it.visual_bounds() {
+                // A run whose own clip cuts its glyphs makes the frame a group: a picture is
+                // the whole run. Asked of the glyphs' boxes, which only the list knows (its
+                // ink less the pad around it); the item's own estimate is cut to the clip
+                // already, so with it this test could never fail (it was asked of that
+                // estimate until A3-core-26, and never did).
+                if let Some((x0, y0, x1, y1)) = list.text_ink_at(frame.push + 1 + at) {
+                    let pad = crate::solver3::display_list::text_ink_pad(*font_size_px);
                     let c = clip_rect.inner();
-                    if ink.origin.x < c.origin.x - 0.5
-                        || ink.origin.y < c.origin.y - 0.5
-                        || ink.origin.x + ink.size.width > c.origin.x + c.size.width + 0.5
-                        || ink.origin.y + ink.size.height > c.origin.y + c.size.height + 0.5
+                    if x0 + pad < c.origin.x - 0.5
+                        || y0 + pad < c.origin.y - 0.5
+                        || x1 - pad > c.origin.x + c.size.width + 0.5
+                        || y1 - pad > c.origin.y + c.size.height + 0.5
                     {
                         return false;
                     }
+                }
+                if let Some(ink) = ink_of(at, it) {
                     // A run no picture can be made of (a 1,200 px line under `scale(8)` is
                     // 9,600 px of turned ink) makes the frame a group, which paints the part
                     // that lands. Decided here, before anything is drawn: the paint loop
@@ -4195,7 +4215,7 @@ fn paint_turned_text_frame(
             DisplayListItem::Text { glyphs, font_hash, font_size_px, color, .. } => {
                 crate::cpu_counters::count(crate::cpu_counters::Counter::TextRuns, 1);
                 crate::cpu_counters::count(crate::cpu_counters::Counter::Glyphs, glyphs.len() as u64);
-                let (Some(ink), Some(first)) = (it.visual_bounds(), glyphs.first()) else {
+                let (Some(ink), Some(first)) = (ink_of(at, it), glyphs.first()) else {
                     continue;
                 };
                 let run = TurnedRun { glyphs, font_hash: *font_hash, font_size_px: *font_size_px, ink };
@@ -4353,8 +4373,14 @@ fn turned_run_picture(
         )
     };
     let (radius, spread, reach) = turned_halo(halo, grow);
+    // The box the turned ink can reach, from the anchor: the ink's corners through the matrix.
+    // Part of the key: the same glyphs with another box - the ink of a list that knows it,
+    // the estimate of one that does not, a pixel's difference between two places of a run -
+    // are another picture, and the caller culled by THIS box.
+    let (bx0, by0, w, h) = turned_picture_box(run, map, reach, dpi_factor)?;
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     0xD1_u8.hash(&mut hasher);
+    [bx0, by0, w, h].hash(&mut hasher);
     halo.is_some().hash(&mut hasher);
     radius.hash(&mut hasher);
     spread.to_bits().hash(&mut hasher);
@@ -4379,8 +4405,6 @@ fn turned_run_picture(
         }
     }
 
-    // The box the turned ink can reach, from the anchor: the ink's corners through the matrix.
-    let (bx0, by0, w, h) = turned_picture_box(run, map, reach, dpi_factor)?;
     let mut buffer = AzulPixmap::new_transparent(w as u32, h as u32)?;
 
     let font_ref = font_manager.resolve_font_by_hash(run.font_hash.font_hash)?;
@@ -21897,5 +21921,231 @@ mod audit_a1_tests {
             assert_eq!(ParsedFontTrait::glyph_ink_box(&font, u16::MAX), None, "no such glyph: not known");
             assert_eq!(wrapped.glyph_ink_box(u16::MAX), None);
         }
+    }
+
+    /// An `A` and the glyph of `font` whose outline reaches furthest right of its pen, when
+    /// that is more than 1.15 em (the item's own estimate ends an em right of the last pen).
+    fn a_letter_and_a_wide_glyph(font: &ParsedFont) -> Option<(u16, u16)> {
+        let units_per_em = f32::from(font.font_metrics.units_per_em);
+        let (reach, wide) = (0..font.num_glyphs)
+            .filter_map(|id| {
+                let glyph = font.get_or_decode_glyph(id)?;
+                (!glyph.outline.is_empty()).then_some((glyph.bounding_box.max_x, id))
+            })
+            .max()?;
+        let letter = font.lookup_glyph_index('A' as u32)?;
+        (f32::from(reach) > 1.15 * units_per_em).then_some((letter, wide))
+    }
+
+    /// A view (900 x 700, white) of one run in a frame turned by a quarter about its corner
+    /// (300, 60) - the run reads downwards from there: a point `s` along the baseline and `t`
+    /// below it is painted at (300 - size - t, 60 + s). The glyphs `ids` at `size` px in
+    /// `rgb`, with the ink the face gives the run (`with_ink`) or without the list's table.
+    fn turned_inked_run(
+        font: &ParsedFont,
+        font_hash: FontHash,
+        ids: &[u16],
+        size: f32,
+        rgb: [u8; 3],
+        with_ink: bool,
+    ) -> (DisplayList, CpuRenderState) {
+        let run = inked_run(font, font_hash, ids, size, (300.0, 60.0 + size), rgb);
+        let mut child = list(vec![
+            fill(0.0, 0.0, 900.0, 700.0, [255, 255, 255]),
+            DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 31 },
+                initial_transform: azul_core::transform::ComputedTransform3D { m: turn_scale_move(90.0, 1.0, 0.0, 0.0) },
+                bounds: wrect(300.0, 60.0, 400.0, size * 1.5),
+            },
+            run.items[0].clone(),
+            DisplayListItem::PopReferenceFrame,
+        ]);
+        if with_ink {
+            child.text_ink = vec![None, None, run.text_ink[0], None];
+        }
+        let host = list(vec![DisplayListItem::VirtualView {
+            child_dom_id: azul_core::dom::DomId { inner: 1 },
+            bounds: wrect(0.0, 0.0, 900.0, 700.0),
+            clip_rect: wrect(0.0, 0.0, 900.0, 700.0),
+            content_offset: LogicalPosition { x: 0.0, y: 0.0 },
+        }]);
+        let state = CpuRenderState::new(ScrollOffsetMap::new()).with_virtual_view_display_lists(
+            [(azul_core::dom::DomId { inner: 1 }, Arc::new(child))].into_iter().collect(),
+        );
+        (host, state)
+    }
+
+    /// A3-core-26 (b): a turned run that is drawn through its matrix (`paint_turned_text_frame`)
+    /// is drawn WHOLE where its ink reaches past the item's estimate. The run's picture is a
+    /// box around where its glyphs can paint; taken around the estimate, the end of a glyph
+    /// more than an em wide was cut at the picture's edge. An `A` and the widest glyph of
+    /// the test font at 96 px, turned by a quarter (the picture's box is then the turned
+    /// estimate itself; at other angles the box around a turned estimate has room in its
+    /// corners and cuts later): how far down the painted pixels reach - along the turned
+    /// baseline - is what the group path paints (within 3 px: the anchor is rounded and the
+    /// edges are sharper), and without the list's table it is at least 8 px short (the
+    /// estimate ends an em past the pen, the glyph reaches 1.15 em or more: 0.15 x 96 = 14
+    /// px, less the picture's 2 px of margin). A damage strip across the end of the glyph
+    /// repaints the pixels of a full paint, and no others.
+    /// Skipped, with a message, for a font without such a glyph.
+    /// Mutations: `ink_of` answering the item's estimate (the first assertion); a picture
+    /// kept under a key without its box, painted first for the run without a table (the same
+    /// assertion: the cut picture is served for the run with ink).
+    #[test]
+    fn a_turned_run_is_drawn_whole_where_its_ink_reaches_past_the_estimate() {
+        let Some(font) = test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let Some((letter, wide)) = a_letter_and_a_wide_glyph(&font) else {
+            eprintln!("[skip] no glyph of the test font reaches more than 1.15 em right of its pen");
+            return;
+        };
+        let (rr, fm, font_hash) = resources(Some(&font));
+        let font_hash = font_hash.expect("the font's hash");
+        let paint = |rgb: [u8; 3], with_ink: bool| {
+            let (host, state) = turned_inked_run(&font, font_hash, &[letter, wide], 96.0, rgb, with_ink);
+            let mut pm = AzulPixmap::new(900, 700).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            crate::cpu_counters::reset();
+            render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
+            (pm, crate::cpu_counters::take())
+        };
+        // How far the painted pixels reach along the turned baseline: the last painted row.
+        let along = |pm: &AzulPixmap| {
+            let mut far = -1.0_f32;
+            for y in 0..pm.height {
+                if (0..pm.width).any(|x| px(pm, x, y)[..3] != [255, 255, 255]) {
+                    far = y as f32;
+                }
+            }
+            far
+        };
+        // The run without a table first: its (cut) picture must not be the one that is kept
+        // for the run with ink.
+        let (cut, counted_cut) = paint([0, 0, 0], false);
+        let (direct, counted) = paint([0, 0, 0], true);
+        assert_eq!((counted.groups_opened, counted_cut.groups_opened), (0, 0), "premise: drawn without a surface");
+        TURNED_TEXT_IN_GROUPS.with(|g| g.set(true));
+        let (grouped, counted_grouped) = paint([0, 0, 0], true);
+        TURNED_TEXT_IN_GROUPS.with(|g| g.set(false));
+        assert_eq!(counted_grouped.groups_opened, 1, "premise: the path it is compared with");
+        let (far_direct, far_grouped, far_cut) = (along(&direct), along(&grouped), along(&cut));
+        assert!(
+            (far_direct - far_grouped).abs() <= 3.0,
+            "the run reaches {far_direct} along its baseline drawn directly, {far_grouped} through a group"
+        );
+        assert!(
+            far_cut + 8.0 <= far_direct,
+            "harness: the estimate cuts the wide glyph ({far_cut} against {far_direct})"
+        );
+
+        // A damage strip across the end of the wide glyph, on the frame of the black run.
+        let (red_host, red_state) = turned_inked_run(&font, font_hash, &[letter, wide], 96.0, [200, 0, 0], true);
+        let (red, _) = paint([200, 0, 0], true);
+        let (mut y0, mut y1) = (u32::MAX, 0u32);
+        for y in 0..red.height {
+            if (0..red.width).any(|x| px(&red, x, y)[..3] != [255, 255, 255]) {
+                y0 = y0.min(y);
+                y1 = y1.max(y);
+            }
+        }
+        assert!(y1 > y0 + 40, "harness: the red run is painted");
+        let strip_y = y0 + (y1 - y0) * 6 / 10;
+        let strip = [rect(0.0, strip_y as f32, 900.0, (y1 + 4 - strip_y) as f32)];
+        let mut damaged = direct.clone_pixmap();
+        let mut gc = GlyphCache::new();
+        render_display_list_damaged(&red_host, &mut damaged, 1.0, &rr, &fm, &mut gc, &red_state.with_paint_threads(1), &strip).unwrap();
+        let (mut wrong_inside, mut wrong_outside, mut red_inside) = (0usize, 0usize, 0usize);
+        for y in 0..damaged.height {
+            for x in 0..damaged.width {
+                let inside = y >= strip_y && y < y1 + 4;
+                let want = if inside { px(&red, x, y) } else { px(&direct, x, y) };
+                if px(&damaged, x, y) != want {
+                    if inside {
+                        wrong_inside += 1;
+                    } else {
+                        wrong_outside += 1;
+                    }
+                }
+                red_inside += usize::from(inside && px(&red, x, y)[..3] != [255, 255, 255]);
+            }
+        }
+        assert!(red_inside > 50, "harness: the strip holds the end of the run ({red_inside} px)");
+        assert_eq!((wrong_inside, wrong_outside), (0, 0), "inside the strip the red frame, outside it the black one");
+    }
+
+    /// A3-core-26 (d), a guard for the per-glyph reach of the text functions
+    /// (`glyph_ink_reach`: 4 em from the pen, which stays - the box of a glyph is not at hand
+    /// where the glyphs are swept, see the notes): a damage rect that lies wholly BESIDE a
+    /// wide glyph's pen, where only the end of the glyph is, still repaints the glyph. An
+    /// `A` and the widest glyph of the test font at 40 px, black, then red: the strip from
+    /// 1.1 em right of the wide glyph's pen to the end of the run's ink, repainted on the
+    /// black frame, shows the red frame inside and the black one outside.
+    /// Skipped, with a message, for a font without a glyph wider than 1.15 em.
+    /// Mutations: a per-glyph reach of one em (`em_px * 1.0` in `glyph_ink_reach`) drops the
+    /// glyph for this strip (its pen is 1.1 em away): the strip is cleared and stays empty;
+    /// the walk's cull asked of the item's estimate (no table: the last block) does the same.
+    #[test]
+    fn a_damage_rect_beside_a_wide_glyphs_pen_still_repaints_the_glyph() {
+        let Some(font) = test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let Some((letter, wide)) = a_letter_and_a_wide_glyph(&font) else {
+            eprintln!("[skip] no glyph of the test font reaches more than 1.15 em right of its pen");
+            return;
+        };
+        let (rr, fm, font_hash) = resources(Some(&font));
+        let font_hash = font_hash.expect("the font's hash");
+        let size = 40.0_f32;
+        let run_in = |rgb: [u8; 3]| inked_run(&font, font_hash, &[letter, wide], size, (100.0, 150.0), rgb);
+        let paint = |dl: &DisplayList| {
+            let mut pm = AzulPixmap::new(900, 300).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            let state = CpuRenderState::new(ScrollOffsetMap::new());
+            render_display_list_with_state(dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
+            pm
+        };
+        let (black, red) = (run_in([0, 0, 0]), run_in([200, 0, 0]));
+        let DisplayListItem::Text { glyphs, .. } = &red.items[0] else {
+            panic!("harness: a run");
+        };
+        let wide_pen = glyphs[1].point.x;
+        let ink = red.visual_bounds_of(0).expect("the run has ink");
+        let strip_x0 = (wide_pen + 1.1 * size).ceil();
+        let strip_x1 = (ink.origin.x + ink.size.width).ceil().min(899.0);
+        assert!(strip_x1 > strip_x0 + 1.0, "harness: the glyph's ink ends past 1.1 em ({strip_x1} against {strip_x0})");
+        let strip = [rect(strip_x0, 0.0, strip_x1 - strip_x0, 300.0)];
+        let (black_frame, red_frame) = (paint(&black), paint(&red));
+        let repaint = |new: &DisplayList| {
+            let mut pm = black_frame.clone_pixmap();
+            let mut gc = GlyphCache::new();
+            let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(1);
+            render_display_list_damaged(new, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &strip).unwrap();
+            pm
+        };
+        let wrong = |pm: &AzulPixmap| {
+            let (mut wrong, mut red_inside) = (0usize, 0usize);
+            for y in 0..pm.height {
+                for x in 0..pm.width {
+                    let inside = (x as f32) >= strip_x0 && (x as f32) < strip_x1;
+                    let want = if inside { px(&red_frame, x, y) } else { px(&black_frame, x, y) };
+                    wrong += usize::from(px(pm, x, y) != want);
+                    red_inside += usize::from(inside && px(&red_frame, x, y)[..3] != [255, 255, 255]);
+                }
+            }
+            (wrong, red_inside)
+        };
+        let (wrong_px, red_inside) = wrong(&repaint(&red));
+        assert!(red_inside > 0, "harness: the end of the wide glyph lies in the strip");
+        assert_eq!(wrong_px, 0, "the strip beside the pen shows the red glyph, the rest the black frame");
+        // Without the table the walk culls the run for this strip (its estimate ends an em
+        // right of the pen): the strip is cleared and nothing is painted into it.
+        let mut bare = red.clone();
+        bare.text_ink.clear();
+        assert!(wrong(&repaint(&bare)).0 > 0, "harness: the estimate does not reach the strip");
     }
 }
