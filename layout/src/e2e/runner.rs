@@ -1183,6 +1183,13 @@ impl Runner {
                 timestamp,
             )
         };
+        // The hover change of the pointer's last hit test is told by this
+        // pass (the events above). The passes that follow without a new hit
+        // test must not tell it again: the shells' pass marks it the same
+        // way (`process_window_events_inner`, audit A6-09).
+        self.layout_window
+            .hover_manager
+            .mark_hover_changes_delivered();
 
         // PRESS-TARGET CAPTURE: the node a button was pressed on gets that
         // button's release even when the pointer released elsewhere. The DLL

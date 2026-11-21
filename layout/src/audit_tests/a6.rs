@@ -524,3 +524,30 @@ mod a_drag_that_selects_nothing_new {
         assert_eq!(selection(&lw), Some(pressed), "back on the anchor: the caret again");
     }
 }
+
+/// A6-09 in the e2e runner: its event pass marks the hover change as told, as the shells'
+/// pass does, so a scenario sees an enter / leave once per hit test and not again at the
+/// next key.
+#[cfg(feature = "text_layout")]
+mod the_runner_tells_a_hover_change_once {
+    const RUNNER_RS: &str = include_str!("../e2e/runner.rs");
+
+    /// A guard on the source: the mark follows the pass's event determination.
+    /// Mutation: the mark taken out of the runner (the old re-telling in every scenario)
+    /// fails this. The rule itself is tested in `event_determination.rs`
+    /// (`a_hover_change_is_told_once_per_hit_test`).
+    #[test]
+    fn the_runners_pass_marks_the_hover_change_delivered() {
+        let pass = RUNNER_RS
+            .find("fn process_window_events(&mut self, depth: usize)")
+            .expect("the runner's pass");
+        let body = &RUNNER_RS[pass..];
+        let determined = body
+            .find("event_determination::determine_all_events(")
+            .expect("the pass determines its events");
+        let marked = body
+            .find(".mark_hover_changes_delivered();")
+            .expect("the pass marks the hover change");
+        assert!(determined < marked && marked - determined < 1500);
+    }
+}
