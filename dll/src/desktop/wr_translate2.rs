@@ -2253,7 +2253,13 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
     let transform_count = properties.transforms.len();
     let color_count = properties.colors.len();
 
-    // WebRender renamed update_dynamic_properties to append_dynamic_properties
+    // The set REPLACES the one WebRender holds: `append_dynamic_properties`
+    // alone only ever adds to its pending list (`SceneProperties::add_properties`
+    // extends it, and nothing but a reset empties it), so every changed frame
+    // left the whole set behind once more - a map view's 2 000 label
+    // transforms per zoom step, kept twice, compared, hashed and cloned again
+    // on every later frame (audit A4-01).
+    txn.reset_dynamic_properties();
     txn.append_dynamic_properties(properties);
 
     log_debug!(

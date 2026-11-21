@@ -1,1 +1,106 @@
 //! A4, the GPU path (WebRender integration).
+//!
+//! Counts, not times: what a transaction holds and what a translation emits.
+
+use azul_core::{
+    dom::{Dom, DomId, NodeId},
+    geom::LogicalSize,
+    resources::{OpacityKey, RendererResources},
+    styled_dom::StyledDom,
+};
+use azul_layout::{
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+};
+use rust_fontconfig::FcFontCache;
+use webrender::render_api::FrameMsg;
+
+use crate::desktop::wr_translate2::{synchronize_gpu_values, WrTransaction};
+
+/// A laid-out window of one box.
+fn window() -> LayoutWindow {
+    let dom = Dom::create_body()
+        .with_child(Dom::create_div().with_css("width: 40px; height: 20px; background: #3366cc;"));
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(200.0, 100.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        StyledDom::create_from_dom(dom),
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the window lays out");
+    lw
+}
+
+/// `node` of the root DOM gets a bound opacity of `value` (what an animation
+/// tick or a `set_css_property` of a GPU-only value writes).
+fn bind_opacity(lw: &mut LayoutWindow, node: usize, key: OpacityKey, value: f32) {
+    let cache = lw.gpu_state_manager.get_or_create_cache(DomId::ROOT_ID);
+    cache.opacity_keys.insert(NodeId::new(node), key);
+    cache.current_opacity_values.insert(NodeId::new(node), value);
+}
+
+/// How many values the frame operations of `txn` leave PENDING in WebRender,
+/// replayed the way `SceneProperties` applies them: a reset empties the
+/// pending set, an append adds to it.
+fn pending_after(pending: &mut usize, txn: WrTransaction) -> (usize, usize) {
+    let (mut resets, mut appends) = (0, 0);
+    for op in txn.get_frame_ops() {
+        match op {
+            FrameMsg::ResetDynamicProperties => {
+                resets += 1;
+                *pending = 0;
+            }
+            FrameMsg::AppendDynamicProperties(properties) => {
+                appends += 1;
+                *pending +=
+                    properties.transforms.len() + properties.floats.len() + properties.colors.len();
+            }
+            FrameMsg::AppendDynamicTransformProperties(transforms) => {
+                appends += 1;
+                *pending += transforms.len();
+            }
+            _ => {}
+        }
+    }
+    (resets, appends)
+}
+
+/// A4-01. A changed set of GPU values REPLACES the set WebRender holds: the
+/// pending values after n changed frames are the window's bound values, not n
+/// times as many. Mutation: remove `txn.reset_dynamic_properties()` from
+/// `synchronize_gpu_values` and the count after frame 16 is 16 times the count
+/// after frame 1.
+#[test]
+fn a4_01_changed_gpu_values_replace_the_set_webrender_holds() {
+    let mut lw = window();
+    let key = OpacityKey::unique();
+    let mut pending = 0usize;
+    let mut after_first = 0usize;
+    for frame in 0..16u32 {
+        bind_opacity(&mut lw, 0, key, 0.25 + frame as f32 / 64.0);
+        let mut txn = WrTransaction::new();
+        assert!(
+            synchronize_gpu_values(&mut lw, &mut txn),
+            "frame {frame}: the value moved, so the set is sent"
+        );
+        let (resets, appends) = pending_after(&mut pending, txn);
+        assert_eq!((resets, appends), (1, 1), "frame {frame}: one reset, then one append");
+        if frame == 0 {
+            after_first = pending;
+        }
+    }
+    assert!(after_first >= 1, "the bound opacity is in the set");
+    assert_eq!(
+        pending, after_first,
+        "16 changed frames leave the set once, not 16 times ({after_first} values a frame)"
+    );
+
+    // An unchanged set is not sent at all.
+    let mut txn = WrTransaction::new();
+    assert!(!synchronize_gpu_values(&mut lw, &mut txn));
+    assert!(txn.is_empty(), "nothing in the transaction for values that stood still");
+}
