@@ -347,16 +347,13 @@ editor's pin moves once, after the last green merge of the round, on its word):
 - **2c `audit/A5` at `dbde1ccf5`: MERGED as `ff653f3f4`** (no conflict: `gpu_state.rs` holds both `HaloRelease`
   and `ZoomFrameState`; a first local merge made before the renderer turn was taken back with `git reset --hard
   0e38a2020` on the unpushed tip and made again). Layout: 0 compile errors, lib 10,921 / 0 / 1 ignored,
-  `tests/all` 3,060 / 0 / 5 (log `552`). dll lib and `headless_lifecycle`: NOT RUN YET: the disk fell to 7.3 GB
-  during the layout step (the chain's guard refused the dll build: "DISK: only 7 GB free, not building") and the
-  coordinator stopped all builds. Not of this verifier's making by `du`: `azul-target` 4.0 GB then (3.3 GB after
-  deleting the three `libazul_layout` rlibs + rmeta and `libazul.rlib`: the next dll build makes the one it
-  needs), `verify` 0.2 GB, the m4p worktree's `mapedit3/target` 0.2 GB, `target/codegen` 87 MB; deleted too: the
-  e2e-feature units of the pin in the shared editor target (806 MB, today 13:05-13:14; the next `scripts/e2e.sh`
-  rebuilds them). Free after that: 8.9 GB. A dll test build needs 1.2-1.5 GB (+ 0.25 GB for the layout library):
-  it must not start under about 10.3 GB free, or it ends under the floor of 8.5 GB. TO DO for 2c: `run <log> test
-  -p azul-dll --lib --no-fail-fast` (the 563 new lines of `audit_tests/a5.rs`, `macos/mod.rs`,
-  `wr_translate2.rs`) and `--test headless_lifecycle`; then the report.
+  `tests/all` 3,060 / 0 / 5 (log `552`); dll lib 3,882 / 0 / 9 ignored (`560`; +7: `audit_tests/a5.rs`),
+  `headless_lifecycle` 8 / 0 (`561`). **2c IS GREEN at `ff653f3f4`** (+ log commits). css / core untouched;
+  `api.json` unchanged by 2c. (Between the layout and the dll step the disk fell to 7.3 GB, not by this
+  verifier's files by `du`; the chain's guard refused the dll build, the coordinator freed space; what was
+  deleted here: the three `libazul_layout` rlibs + rmeta and `libazul.rlib` of `azul-target`, and the e2e-feature
+  units of the pin in the shared editor target, 806 MB, today 13:05-13:14; the coordinator also deleted the azul
+  units of the pin `19e207928` there: THE NEXT EDITOR BUILD COMPILES azul AGAIN, about 0.8 GB per feature set.)
 - 2d `audit/dom-builder` at `234ec3de2` (a second `api.json` addition: the Rust outputs once more; a dry
   `merge-tree` against `ff653f3f4` shows no conflict): NOT merged yet.
 - DISK RULE (the coordinator's, from 14:50): before EVERY build `df -h /`; under 9.0 GB delete first; under 8.7 GB
