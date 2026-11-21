@@ -135,6 +135,42 @@ std::thread_local! {
     /// Tests: how often this thread has parsed a face's style
     /// ([`parse_face_style`]: a whole-face parse).
     pub(crate) static FACE_STYLE_PARSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// Tests: how often [`with_chain_key`] has had to build a key on this thread.
+    pub(crate) static CHAIN_KEYS_BUILT: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+std::thread_local! {
+    /// The selectors [`with_chain_key`] was last asked for, with their key.
+    static LAST_CHAIN_KEY: core::cell::RefCell<Option<(Vec<FontSelector>, FontChainKey)>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+/// `f` with the chain key of `selectors` ([`FontChainKey::from_selectors`]),
+/// kept on the thread for the last selectors asked. Every `layout_ifc` entry
+/// asks for the key of its container's font stack (the strut,
+/// [`FontManager::first_available_font_metrics`]), the reuse path included,
+/// and consecutive containers mostly share one stack (a map's labels come
+/// layer by layer): the key - a `Vec<String>` of the families - was built,
+/// hashed and dropped for each, 12,500 times a pass in a Berlin view. Equal
+/// selectors give an equal key (`from_selectors` reads nothing else), so a
+/// hit compares them and hands out the kept key.
+pub(crate) fn with_chain_key<R>(
+    selectors: &[FontSelector],
+    f: impl FnOnce(&FontChainKey) -> R,
+) -> R {
+    LAST_CHAIN_KEY.with(|last| {
+        let mut last = last.borrow_mut();
+        let known = matches!(&*last, Some((seen, _)) if seen.as_slice() == selectors);
+        if !known {
+            #[cfg(test)]
+            CHAIN_KEYS_BUILT.with(|n| n.set(n.get() + 1));
+            *last = Some((selectors.to_vec(), FontChainKey::from_selectors(selectors)));
+        }
+        match &*last {
+            Some((_, key)) => f(key),
+            None => f(&FontChainKey::from_selectors(selectors)),
+        }
+    })
 }
 
 /// One face an app registered for the process ([`set_app_fonts`]): every
@@ -1149,9 +1185,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
         match font_stack {
             FontStack::Ref(font_ref) => Some(font_ref.get_font_metrics()),
             FontStack::Stack(selectors) => {
-                let chain = self
-                    .font_chain_cache
-                    .get(&FontChainKey::from_selectors(selectors))?;
+                let chain =
+                    with_chain_key(selectors, |key| self.font_chain_cache.get(key))?;
                 let id = covering_font(chain, ' ')
                     .or_else(|| chain.resolve_codepoint(u32::from(' ')).map(|(id, _)| id))?;
                 let parsed = self.parsed_fonts.lock().ok()?;
@@ -1448,5 +1483,38 @@ mod app_font_tests {
             "with the coverage of its cmap: {:?}",
             faces[0].font_match.unicode_ranges
         );
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    fn stack(family: &str, optical_size: u16) -> Vec<FontSelector> {
+        vec![FontSelector {
+            family: family.to_string(),
+            optical_size,
+            ..FontSelector::default()
+        }]
+    }
+
+    /// A8-12: asking again for the stack asked last builds no chain key, a
+    /// change of stack builds the new one's, and the key handed out is always
+    /// `FontChainKey::from_selectors` of the selectors asked.
+    /// Mutation: drop the `known` check (build every time) and the count is
+    /// 102, not 3; compare only the families and the two sizes share a key.
+    #[test]
+    fn a_stack_asked_again_keeps_its_chain_key() {
+        let built = || CHAIN_KEYS_BUILT.with(core::cell::Cell::get);
+        let (a, b) = (stack("Azul Mock Mono", 12), stack("Azul Mock Mono", 13));
+        let before = built();
+        for _ in 0..100 {
+            with_chain_key(&a, |key| assert_eq!(*key, FontChainKey::from_selectors(&a)));
+        }
+        assert_eq!(built() - before, 1, "one stack asked 100 times: one key");
+        with_chain_key(&b, |key| assert_eq!(*key, FontChainKey::from_selectors(&b)));
+        with_chain_key(&a, |key| assert_eq!(*key, FontChainKey::from_selectors(&a)));
+        assert_eq!(built() - before, 3, "each change of stack builds the new one's key");
     }
 }
