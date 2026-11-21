@@ -1662,3 +1662,315 @@ fn a2_cpu_22_a_group_down_a_scrolled_list_in_a_scaled_panel_is_on_screen_where_i
         "unscrolled it is at rows 600 .. 700, under the window"
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Hand-built lists: a run that changed under a text shadow that did not (A2-cpu-29)
+// ---------------------------------------------------------------------------------------------
+
+/// The push of a drop shadow: offset (8, 8), blur 4, no spread, half-black. Its reach
+/// (`text_shadow_reach`: the larger offset + blur + spread) is 12 px.
+fn drop_shadow() -> DisplayListItem {
+    use azul_css::props::{basic::pixel::PixelValueNoPercent, style::box_shadow::StyleBoxShadow};
+
+    let length = |v: f32| PixelValueNoPercent {
+        inner: PixelValue::px(v),
+    };
+    DisplayListItem::PushTextShadow {
+        shadow: StyleBoxShadow {
+            offset_x: length(8.0),
+            offset_y: length(8.0),
+            blur_radius: length(4.0),
+            spread_radius: length(0.0),
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 128,
+            },
+            clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+        },
+    }
+}
+
+/// A run of 12 px `glyphs` under a clip far larger than its ink (the whole 400 x 200 page), so
+/// that its `visual_bounds` are the padded box of its pens.
+fn run_of(
+    glyphs: Vec<azul_core::ui_solver::GlyphInstance>,
+    font_hash: crate::text3::cache::FontHash,
+) -> DisplayListItem {
+    DisplayListItem::Text {
+        glyphs,
+        font_hash,
+        font_size_px: 12.0,
+        color: ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 255,
+        },
+        clip_rect: wlr(0.0, 0.0, 400.0, 200.0),
+        line_box: wlr(0.0, 0.0, 400.0, 200.0),
+        source_node_index: None,
+    }
+}
+
+/// A run of 12 px glyphs (no font behind them: for the diffs, which read pens and sizes) with
+/// its pens at `pens` on the baseline `y`.
+fn run(pens: &[f32], y: f32) -> DisplayListItem {
+    use azul_core::ui_solver::GlyphInstance;
+
+    use crate::text3::cache::FontHash;
+
+    run_of(
+        pens.iter()
+            .map(|x| GlyphInstance {
+                index: 1,
+                point: LogicalPosition::new(*x, y),
+                size: LogicalSize::new(10.0, 12.0),
+            })
+            .collect(),
+        FontHash {
+            font_hash: 1,
+            synthetic_bold: false,
+        },
+    )
+}
+
+/// Does one rect of `damage` hold `want`?
+fn holds(damage: &[LogicalRect], want: LogicalRect) -> bool {
+    damage.iter().any(|r| {
+        r.origin.x <= want.origin.x + 0.01
+            && r.origin.y <= want.origin.y + 0.01
+            && r.origin.x + r.size.width >= want.origin.x + want.size.width - 0.01
+            && r.origin.y + r.size.height >= want.origin.y + want.size.height - 0.01
+    })
+}
+
+/// A2-cpu-29. A run that changes under a text shadow that does NOT change is damaged with the
+/// shadow's halo, in the paired diff and in the structural one.
+///
+/// A run under a shadow paints the shadow `text_shadow_reach` past its ink (the ink moved by
+/// the offset, grown by the blur and the spread). The diffs damaged a changed run by its ink
+/// (`visual_bounds`) and one pixel of fringe; only a shadow that itself changed widened it
+/// (A2-cpu-05). So the old run's shadow stayed on screen past that pixel and the new run's was
+/// cut at the damage rect.
+///
+/// Hand-computed: a 12 px run with its pens at x 100, 110, 120 on the baseline 50 (each glyph
+/// 10 px wide), under a clip far larger: `visual_bounds` = x `100 - 12 .. 120 + 12`, y `50 -
+/// 18 .. 50 + 9` = (88, 32) 44 x 27. The shadow, offset (8, 8), blur 4: reach 12; the ink ends
+/// at x 130 and y 50, its shadow at x `130 + 8 + 4` = 142 and y `50 + 8 + 4` = 62: columns 132
+/// .. 142 and rows 59 .. 62 are past the run's bounds, 9 columns and 2 rows past the fringe.
+/// The run loses its last glyph (pens 100, 110: (88, 32) 34 x 27).
+///
+/// Paired diff, widened by the reach 12 and the slack 3: the old run **(73, 17) 74 x 57**, the
+/// new one (73, 17) 64 x 57, inside it. (Before: (87, 31) 46 x 29, which ends at x 133 and
+/// y 60.)
+///
+/// Structural diff (the run breaks in two: pens 100, 110 on the baseline 50 and pen 100 on the
+/// baseline 70, one item more; the shadow's push is in the equal prefix): the old run and the
+/// first new one as above, the second new one (88, 52) 24 x 27 widened to (73, 37) 54 x 57;
+/// together **(73, 17) 74 x 77** (the union adds 400 px to what the two cover: merged).
+/// (Before: (87, 31) 46 x 49.)
+///
+/// mutation: `old_halo` / `new_halo` = 0 in `compute_display_list_damage_impl`, or `pad` =
+/// 1.0 in `windowed_structural_damage`, fail the rects and the "holds the old shadow" lines.
+#[test]
+fn a2_cpu_29_a_run_that_changed_under_an_unchanged_shadow_is_damaged_with_its_halo() {
+    use crate::cpurender::compute_display_list_damage;
+
+    let page = || rect(0.0, 0.0, 400.0, 200.0, [255, 255, 255]);
+    let none = ScrollOffsetMap::new();
+    // Where the old run's shadow painted: its ink x 100 .. 130 up to the baseline 50, moved
+    // by (8, 8) and grown by the blur 4: to x 142 and y 62.
+    let old_shadow = lr(104.0, 40.0, 38.0, 22.0);
+
+    // The paired diff: the same items, the run shorter.
+    let before = list(vec![
+        page(),
+        drop_shadow(),
+        run(&[100.0, 110.0, 120.0], 50.0),
+        DisplayListItem::PopTextShadow,
+    ]);
+    let shorter = list(vec![
+        page(),
+        drop_shadow(),
+        run(&[100.0, 110.0], 50.0),
+        DisplayListItem::PopTextShadow,
+    ]);
+    assert_eq!(
+        compute_display_list_damage(&before, &before, &none, &none),
+        Some(Vec::new()),
+        "harness: the same run under the same shadow is no damage"
+    );
+    let damage = compute_display_list_damage(&before, &shorter, &none, &none)
+        .expect("the lists pair item by item");
+    assert!(
+        same_rects(&damage, &[lr(73.0, 17.0, 74.0, 57.0)]),
+        "the old run's bounds (88, 32) 44 x 27 widened by 12 + 3: {damage:?}"
+    );
+    assert!(
+        holds(&damage, old_shadow),
+        "the damage holds the old run's shadow, to x 142 and y 62: {damage:?}"
+    );
+
+    // Without a shadow the run is damaged by its fringe, as before.
+    let bare = |pens: &[f32]| list(vec![page(), run(pens, 50.0)]);
+    let damage = compute_display_list_damage(
+        &bare(&[100.0, 110.0, 120.0]),
+        &bare(&[100.0, 110.0]),
+        &none,
+        &none,
+    )
+    .expect("the lists pair item by item");
+    assert!(
+        same_rects(&damage, &[lr(87.0, 31.0, 46.0, 29.0)]),
+        "no shadow: the bounds and one pixel of fringe: {damage:?}"
+    );
+
+    // The structural diff: the run breaks in two, the shadow's push is in the equal prefix.
+    let broken = list(vec![
+        page(),
+        drop_shadow(),
+        run(&[100.0, 110.0], 50.0),
+        run(&[100.0], 70.0),
+        DisplayListItem::PopTextShadow,
+    ]);
+    let damage = compute_display_list_damage(&before, &broken, &none, &none)
+        .expect("a local change: rects, not a full repaint");
+    assert!(
+        same_rects(&damage, &[lr(73.0, 17.0, 74.0, 77.0)]),
+        "the old run and the two new ones, each widened by 12 + 3: {damage:?}"
+    );
+    assert!(
+        holds(&damage, old_shadow),
+        "the damage holds the old run's shadow, to x 142 and y 62: {damage:?}"
+    );
+}
+
+/// A system font for a test that needs ink (the candidates of `raster.rs`'s
+/// `text_shadow_tests`); `None` on a machine with none of them: the test is skipped.
+fn test_font() -> Option<crate::font::parsed::ParsedFont> {
+    use crate::font::parsed::ParsedFont;
+
+    let candidates = [
+        "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+    ];
+    for path in candidates {
+        if let Ok(bytes) = std::fs::read(path) {
+            let source = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(bytes.as_slice())));
+            if let Some(font) = ParsedFont::from_bytes(&bytes, 0, &mut Vec::new())
+                .map(|f| f.with_source_bytes(source))
+            {
+                return Some(font);
+            }
+        }
+    }
+    None
+}
+
+/// `text` shaped with `font` at 12 px, its first pen at `(x, y)`: one glyph per character,
+/// each advanced by the font's own advance.
+fn shaped(
+    font: &crate::font::parsed::ParsedFont,
+    text: &str,
+    x: f32,
+    y: f32,
+) -> Vec<azul_core::ui_solver::GlyphInstance> {
+    let scale = 12.0 / f32::from(font.font_metrics.units_per_em);
+    let mut pen_x = x;
+    let mut out = Vec::new();
+    for c in text.chars() {
+        let gid = font.lookup_glyph_index(c as u32).unwrap_or(0);
+        let advance = f32::from(font.get_horizontal_advance(gid)) * scale;
+        out.push(azul_core::ui_solver::GlyphInstance {
+            index: u32::from(gid),
+            point: LogicalPosition::new(pen_x, y),
+            size: LogicalSize::new(advance, 12.0),
+        });
+        pen_x += advance;
+    }
+    out
+}
+
+/// A2-cpu-29, the pixels. A label that gets shorter under a drop shadow that stays: the frame
+/// the damage repaints is the frame a full paint gives.
+///
+/// "Hammm" becomes "Ha", 12 px, first pen at (100, 50), under the shadow of `drop_shadow`
+/// (offset (8, 8), blur 4). The old label's shadow ends `8 + 4` = 12 px to the right of and
+/// below its ink; the run's bounds end at most 12 px to the right of its LAST PEN (so less
+/// than 12 px past the ink, whatever the font's advance for "m") and 9 px below the baseline.
+/// Damaged by the bounds and one pixel of fringe, the right end and the lowest rows of the old
+/// shadow stayed on screen.
+///
+/// mutation: `old_halo` = 0 in `compute_display_list_damage_impl`: the old shadow's end is
+/// not repainted, the frames differ.
+#[test]
+fn a2_cpu_29_a_label_that_gets_shorter_under_a_drop_shadow_leaves_none_of_the_shadow() {
+    use crate::{cpurender::compute_display_list_damage, text3::cache::FontHash};
+
+    let Some(font) = test_font() else {
+        eprintln!("[skip] no system font available");
+        return;
+    };
+    let font_ref = crate::parsed_font_to_font_ref(font.clone());
+    let font_hash = FontHash::from_hash(crate::font_ref_to_parsed_font(&font_ref).hash);
+    let fonts = font_manager();
+    fonts.insert_font(rust_fontconfig::FontId::new(), font_ref);
+
+    let scene = |text: &str| {
+        list(vec![
+            rect(0.0, 0.0, 400.0, 200.0, [255, 255, 255]),
+            drop_shadow(),
+            run_of(shaped(&font, text, 100.0, 50.0), font_hash),
+            DisplayListItem::PopTextShadow,
+        ])
+    };
+    let paint = |out: &mut AzulPixmap, scene: &DisplayList, damage: &[LogicalRect]| {
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let mut glyphs = GlyphCache::new();
+        render_display_list_damaged(
+            scene,
+            out,
+            1.0,
+            &RendererResources::default(),
+            &fonts,
+            &mut glyphs,
+            &state,
+            damage,
+        )
+        .expect("the damage repaints");
+    };
+    let blank = || {
+        let mut out = AzulPixmap::new(400, 200).expect("a pixmap");
+        out.fill(255, 255, 255, 255);
+        out
+    };
+    let whole = [lr(0.0, 0.0, 400.0, 200.0)];
+    let none = ScrollOffsetMap::new();
+    let (before, now) = (scene("Hammm"), scene("Ha"));
+
+    // The frame before, then the damage of the change repainted into it.
+    let mut frame = blank();
+    paint(&mut frame, &before, &whole);
+    let mut full = blank();
+    paint(&mut full, &now, &whole);
+    assert!(
+        differing(&frame, &full).0 > 0,
+        "harness: the shorter label is another picture"
+    );
+    let damage = compute_display_list_damage(&before, &now, &none, &none)
+        .expect("the lists pair item by item");
+    assert!(!damage.is_empty(), "a run that changed is damage");
+    paint(&mut frame, &now, &damage);
+
+    let (count, first) = differing(&frame, &full);
+    assert_eq!(
+        count, 0,
+        "the frame the damage repainted differs from a full paint in {count} pixels, first at \
+         {first:?} (damage {damage:?})"
+    );
+}
