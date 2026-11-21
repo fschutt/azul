@@ -10491,6 +10491,9 @@
                                 },
                                 "gpu_render_us": {
                                     "type": "u64"
+                                },
+                                "gpu_tiles_drawn": {
+                                    "type": "u64"
                                 }
                             }
                         ],

@@ -3614,8 +3614,47 @@ extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo)
     Update::DoNothing
 }
 
-extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
+/// A3-solver-55 (the widget half): the gesture is over, its transforms go back to the model.
+///
+/// A drag or a pan writes `set_css_property(box, transform)` per mouse move, which pins the
+/// value as an override (and keeps the box's own style equal to it). An override is carried
+/// onto the matched node of every rebuild and outranks the rebuilt style, so a rebuild from
+/// a model that says otherwise - an undo of the move, a programmatic move, a zoom - showed
+/// the gesture's transform. The override of every node box and wire is cleared here: the
+/// own styles are in sync, so the picture stays (the engine takes the entry out and nothing
+/// else, `LayoutWindow::apply_node_css_change`), and the next rebuild is the model's.
+///
+/// `graph_box` is the graph's box (the node the drag and the release are heard on): its
+/// first child holds the wires, the next one the nodes, each in a holder of its own
+/// (`dom_in_view`).
+fn release_gesture_transforms(info: &mut CallbackInfo, graph_box: azul_core::dom::DomNodeId) {
+    let Some(connections) = info.get_first_child(graph_box) else {
+        return;
+    };
+    let mut written = Vec::new();
+    let mut next = info.get_first_child(connections);
+    while let Some(holder) = next {
+        next = info.get_next_sibling(holder);
+        written.extend(info.get_first_child(holder));
+    }
+    if let Some(nodes) = info.get_next_sibling(connections) {
+        let mut next = info.get_first_child(nodes);
+        while let Some(holder) = next {
+            next = info.get_next_sibling(holder);
+            written.extend(info.get_first_child(holder));
+        }
+    }
+    for node in written {
+        info.override_css_property(node, CssProperty::initial(CssPropertyType::Transform));
+    }
+}
+
+extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() {
+        if refany.active_node_being_dragged.is_some() || refany.graph_dragged {
+            let graph_box = info.get_hit_node();
+            release_gesture_transforms(&mut info, graph_box);
+        }
         refany.active_node_being_dragged = None;
         // A graph dragged while its DOM is culled to the box shows the nodes the
         // drag brought near the box only once its DOM is built again at the
@@ -3653,6 +3692,26 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
     let cur = info.get_current_mouse_state();
     if !(cur.left_down && prev.left_down) {
         // event is not a drag event
+        //
+        // A3-solver-55b: a move with the button UP while a gesture is still on
+        // record: the button went up outside the graph's box, where
+        // `nodegraph_unset_active_node` (heard on the box only) did not hear
+        // it. The gesture ends here as it ends there: its transforms go back
+        // to the model, and a pan that brought a node without DOM near the box
+        // asks for its one rebuild. (Not on the move that carries the press -
+        // the button is down then - so a node just made active stays active.)
+        if !cur.left_down && (refany.active_node_being_dragged.is_some() || refany.graph_dragged) {
+            let graph_box = info.get_hit_node();
+            release_gesture_transforms(&mut info, graph_box);
+            refany.active_node_being_dragged = None;
+            if core::mem::take(&mut refany.graph_dragged) {
+                if let Some(built) = refany.culled.as_ref() {
+                    if pan_needs_rebuild(built, &refany.node_graph, &refany.index) {
+                        return Update::RefreshDom;
+                    }
+                }
+            }
+        }
         return Update::DoNothing;
     }
 
@@ -4618,7 +4677,7 @@ mod autotest_generated {
                 warm: Vec::new(),
                 cold: Vec::new(),
                 root: 0,
-                dom_to_layout: BTreeMap::new(),
+                dom_to_layout: Default::default(),
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
@@ -4639,6 +4698,18 @@ mod autotest_generated {
         hit: DomNodeId,
         f: impl FnOnce(&mut CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
+        with_info_between(styled_dom, hit, None, FullWindowState::default(), f)
+    }
+
+    /// As [`with_info`], between two window states: the previous one (the mouse
+    /// before the event; `None` for the very first event) and the current one.
+    fn with_info_between<R>(
+        styled_dom: StyledDom,
+        hit: DomNodeId,
+        previous_window_state: Option<FullWindowState>,
+        current_window_state: FullWindowState,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         layout_window
@@ -4646,8 +4717,6 @@ mod autotest_generated {
             .insert(DomId::ROOT_ID, layout_result(styled_dom));
 
         let renderer_resources = RendererResources::default();
-        let previous_window_state: Option<FullWindowState> = None;
-        let current_window_state = FullWindowState::default();
         let gl_context = OptionGlContextPtr::None;
         let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
             BTreeMap::new();
@@ -6350,6 +6419,174 @@ mod autotest_generated {
             let d = probe.downcast_ref::<NodeGraphLocalDataset>().expect("gd");
             assert!(d.active_node_being_dragged.is_none());
         }
+    }
+
+    /// A3-solver-55 (the widget half): the release after a pan or a node drag clears the
+    /// transform override of every node box and wire - one `override_css_property(initial
+    /// transform)` each and nothing else - so the next rebuild shows the model (an undo, a
+    /// programmatic move), not the gesture; a release without a gesture writes nothing.
+    /// Mutation: `release_gesture_transforms` not called (no change is pushed: the
+    /// overrides stay and migrate onto every rebuild).
+    #[test]
+    fn the_release_after_a_gesture_hands_every_transform_back() {
+        let g = graph();
+        let dom = g.clone().dom();
+        let boxes = dom.children.as_ref()[0].children.as_ref()[1].children.len();
+        let wires = connections_with_dom(&dom);
+        assert!(boxes > 0, "harness: the graph has nodes");
+        // The graph's box: the first child of the widget's wrapper.
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let release = |gd: &RefAny| {
+            with_info(StyledDom::create_from_dom(g.clone().dom()), graph_box, |info| {
+                nodegraph_unset_active_node(gd.clone(), *info)
+            })
+            .1
+        };
+
+        let untouched = graph_dataset(&g);
+        assert!(release(&untouched).is_empty(), "no gesture: nothing to hand back");
+
+        for pan in [true, false] {
+            let gd = graph_dataset(&g);
+            {
+                let mut probe = gd.clone();
+                let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
+                if pan {
+                    d.graph_dragged = true;
+                } else {
+                    d.active_node_being_dragged = Some(N2);
+                }
+            }
+            let changes = release(&gd);
+            assert_eq!(changes.len(), boxes + wires, "pan {pan}: one clear per box and wire");
+            for change in &changes {
+                let clears = matches!(
+                    change,
+                    CallbackChange::OverrideNodeCssProperties { properties, .. }
+                        if properties.as_ref().len() == 1
+                            && properties.as_ref()[0]
+                                == CssProperty::initial(CssPropertyType::Transform)
+                );
+                assert!(clears, "pan {pan}: every change clears a transform override");
+            }
+        }
+    }
+
+    /// A3-solver-55b: a button released OUTSIDE the graph's box is not heard by
+    /// `nodegraph_unset_active_node` (the release is heard on the box only). The next
+    /// mouse move over the graph with the button up ends the gesture instead: the same
+    /// clears, the flags down, the one rebuild of a culled pan. A move without a
+    /// gesture on record, and the move that carries the press, write nothing.
+    /// Mutation: the `!cur.left_down && ..` block of `nodegraph_drag_graph_or_nodes`
+    /// removed (no change is pushed, the flags stay up, no rebuild is asked for).
+    #[test]
+    fn a_move_with_the_button_up_ends_a_gesture_released_outside_the_box() {
+        let g = column(3, 0.0, 300.0);
+        let dom = g.clone().dom();
+        let boxes = dom.children.as_ref()[0].children.as_ref()[1].children.len();
+        let wires = connections_with_dom(&dom);
+        assert!(boxes > 0 && wires > 0, "harness: the graph has nodes and wires");
+        // The graph's box: the first child of the widget's wrapper.
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let mouse = |left_down: bool| {
+            let mut state = FullWindowState::default();
+            state.mouse_state.left_down = left_down;
+            state
+        };
+        // One mouse move over the graph's box: the button before it and with it.
+        let moved = |gd: &RefAny, was_down: bool, is_down: bool| {
+            with_info_between(
+                StyledDom::create_from_dom(g.clone().dom()),
+                graph_box,
+                Some(mouse(was_down)),
+                mouse(is_down),
+                |info| nodegraph_drag_graph_or_nodes(gd.clone(), *info),
+            )
+        };
+        let gesture = |gd: &RefAny| {
+            let mut probe = gd.clone();
+            let d = probe.downcast_ref::<NodeGraphLocalDataset>().expect("gd");
+            (d.active_node_being_dragged.map(|n| n.inner), d.graph_dragged)
+        };
+        let with_gesture = |pan: bool| {
+            let gd = graph_dataset(&g);
+            {
+                let mut probe = gd.clone();
+                let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
+                if pan {
+                    d.graph_dragged = true;
+                } else {
+                    d.active_node_being_dragged = Some(N2);
+                }
+            }
+            gd
+        };
+
+        let untouched = graph_dataset(&g);
+        let (update, changes) = moved(&untouched, false, false);
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "no gesture on record: a move writes nothing");
+
+        for pan in [true, false] {
+            // the button was up before the move too: it went up outside the box
+            for was_down in [false, true] {
+                let gd = with_gesture(pan);
+                let (update, changes) = moved(&gd, was_down, false);
+                assert_eq!(update, Update::DoNothing, "pan {pan}: a graph shown whole needs no rebuild");
+                assert_eq!(
+                    changes.len(),
+                    boxes + wires,
+                    "pan {pan}, button down before {was_down}: one clear per box and wire"
+                );
+                for change in &changes {
+                    let clears = matches!(
+                        change,
+                        CallbackChange::OverrideNodeCssProperties { properties, .. }
+                            if properties.as_ref().len() == 1
+                                && properties.as_ref()[0]
+                                    == CssProperty::initial(CssPropertyType::Transform)
+                    );
+                    assert!(clears, "pan {pan}: every change clears a transform override");
+                }
+                assert_eq!(gesture(&gd), (None, false), "pan {pan}: the gesture is over");
+                // once: the next move finds no gesture
+                assert!(moved(&gd, false, false).1.is_empty());
+            }
+        }
+
+        // The move that carries the press (down now, up before): the node just made
+        // active stays active, nothing is handed back.
+        let pressed = with_gesture(false);
+        let (update, changes) = moved(&pressed, false, true);
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "a press is not a release");
+        assert_eq!(gesture(&pressed), (Some(N2.inner), false));
+
+        // A culled graph panned onto nodes without DOM (built 50 000 px to the right
+        // of the box, standing on it now), released outside: its one rebuild.
+        let view = ViewWindow::new(VIEW).expect("a box to cull to");
+        let away = NodeGraph {
+            offset: LogicalPosition { x: 50_000.0, y: 0.0 },
+            ..g.clone()
+        };
+        let culled = RefAny::new(NodeGraphLocalDataset {
+            node_graph: g.clone(),
+            index: GraphIndex::of(&g),
+            last_input_or_output_clicked: None,
+            active_node_being_dragged: None,
+            marker_prefix: "azul-nodegraph-test".into(),
+            callbacks: g.callbacks.clone(),
+            culled: Some(CulledDom::of(&away, &GraphIndex::of(&g), view)),
+            graph_dragged: true,
+        });
+        assert_eq!(moved(&culled, false, false).0, Update::RefreshDom);
+        assert_eq!(moved(&culled, false, false).0, Update::DoNothing, "once: the flag is spent");
     }
 
     #[test]

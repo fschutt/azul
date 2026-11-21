@@ -1513,6 +1513,270 @@ impl core::fmt::Display for LayoutNodeId {
     }
 }
 
+/// The boxes of every DOM node: [`LayoutTree::dom_to_layout`].
+///
+/// A table indexed by the DOM node's index (DOM node ids are dense, `0..` the
+/// DOM's node count). A node has no entry (`display: none`, a text run its
+/// parent's line holds), ONE box - nearly every node - which lies in the table
+/// itself, or a list of its own: several boxes (a list item and its
+/// `::marker`, the parts of a split preview) in the order they were made.
+///
+/// It was a `BTreeMap<NodeId, Vec<LayoutNodeId>>`: one heap list per DOM node
+/// and a tree node for every few of them, allocated by every reconciling pass
+/// and freed with the tree of the pass before (A3-solver-25b). The methods
+/// have the map's names and answer what the map answered - [`Self::get`] and
+/// `boxes[&node]` the node's boxes as a slice, the iterators in node order -
+/// with one difference: an iterator hands a key out by value (`NodeId`), the
+/// table holds none to lend.
+#[derive(Debug, Clone, Default)]
+pub struct DomBoxes {
+    /// Per DOM node index: the node's boxes.
+    slots: Vec<DomBoxSlot>,
+    /// The lists of the nodes that hold none or more than one box.
+    lists: Vec<Vec<LayoutNodeId>>,
+    /// How many nodes have an entry.
+    len: usize,
+}
+
+/// One DOM node's entry in [`DomBoxes`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum DomBoxSlot {
+    /// No entry for the node.
+    Vacant,
+    /// The node's one box.
+    One(LayoutNodeId),
+    /// The node's boxes are `DomBoxes::lists[n]`.
+    Listed(u32),
+}
+
+impl DomBoxes {
+    /// A table without an entry (and without an allocation).
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            slots: Vec::new(),
+            lists: Vec::new(),
+            len: 0,
+        }
+    }
+
+    /// Room for the entries of a DOM of `dom_nodes` nodes: the one allocation
+    /// of a table whose nodes have a box each.
+    pub fn reserve_nodes(&mut self, dom_nodes: usize) {
+        self.slots
+            .reserve(dom_nodes.saturating_sub(self.slots.len()));
+    }
+
+    /// The boxes of `node`, in the order they were made; `None` for a node
+    /// without an entry.
+    #[must_use]
+    pub fn get(&self, node: &NodeId) -> Option<&[LayoutNodeId]> {
+        match self.slots.get(node.index())? {
+            DomBoxSlot::Vacant => None,
+            DomBoxSlot::One(only) => Some(core::slice::from_ref(only)),
+            DomBoxSlot::Listed(list) => self.lists.get(*list as usize).map(Vec::as_slice),
+        }
+    }
+
+    /// Does `node` have an entry?
+    #[must_use]
+    pub fn contains_key(&self, node: &NodeId) -> bool {
+        self.slots
+            .get(node.index())
+            .is_some_and(|slot| *slot != DomBoxSlot::Vacant)
+    }
+
+    /// How many nodes have an entry.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Has no node an entry?
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Adds `layout` to the boxes of `node`, behind the ones it has: the
+    /// map's `entry(node).or_default().push(layout)`.
+    pub fn push(&mut self, node: NodeId, layout: LayoutNodeId) {
+        let index = node.index();
+        if index >= self.slots.len() {
+            self.slots.resize(index + 1, DomBoxSlot::Vacant);
+        }
+        let slot = self.slots[index];
+        match slot {
+            DomBoxSlot::Vacant => {
+                self.slots[index] = DomBoxSlot::One(layout);
+                self.len += 1;
+            }
+            DomBoxSlot::One(first) => {
+                let list = self.new_list(vec![first, layout]);
+                self.slots[index] = DomBoxSlot::Listed(list);
+            }
+            DomBoxSlot::Listed(list) => {
+                if let Some(boxes) = self.lists.get_mut(list as usize) {
+                    boxes.push(layout);
+                }
+            }
+        }
+    }
+
+    /// Makes `boxes` the boxes of `node`, in place of the ones it has: the
+    /// map's `insert`. An empty list is an entry too (`get` answers an empty
+    /// slice for it).
+    pub fn insert(&mut self, node: NodeId, boxes: Vec<LayoutNodeId>) {
+        let index = node.index();
+        if index >= self.slots.len() {
+            self.slots.resize(index + 1, DomBoxSlot::Vacant);
+        }
+        let before = self.slots[index];
+        let slot = if boxes.len() == 1 {
+            DomBoxSlot::One(boxes[0])
+        } else {
+            match before {
+                // The node's own list is written over. (A list no slot names
+                // any more stays where it is: the others' numbers must hold.)
+                DomBoxSlot::Listed(list) if (list as usize) < self.lists.len() => {
+                    self.lists[list as usize] = boxes;
+                    DomBoxSlot::Listed(list)
+                }
+                _ => DomBoxSlot::Listed(self.new_list(boxes)),
+            }
+        };
+        self.slots[index] = slot;
+        if before == DomBoxSlot::Vacant {
+            self.len += 1;
+        }
+    }
+
+    fn new_list(&mut self, boxes: Vec<LayoutNodeId>) -> u32 {
+        let list = u32::try_from(self.lists.len()).unwrap_or(u32::MAX);
+        self.lists.push(boxes);
+        list
+    }
+
+    /// Every node with an entry and its boxes, in node order.
+    #[must_use]
+    pub const fn iter(&self) -> DomBoxesIter<'_> {
+        DomBoxesIter {
+            boxes: self,
+            next: 0,
+        }
+    }
+
+    /// Every node with an entry, in node order.
+    pub fn keys(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.iter().map(|(node, _)| node)
+    }
+
+    /// The boxes of every node with an entry, in node order.
+    pub fn values(&self) -> impl Iterator<Item = &[LayoutNodeId]> + '_ {
+        self.iter().map(|(_, boxes)| boxes)
+    }
+
+    /// The entry of the highest node that has one.
+    #[must_use]
+    pub fn last_key_value(&self) -> Option<(NodeId, &[LayoutNodeId])> {
+        (0..self.slots.len()).rev().find_map(|index| {
+            let node = NodeId::new(index);
+            self.get(&node).map(|boxes| (node, boxes))
+        })
+    }
+
+    /// Approximate heap bytes of the table and its lists.
+    #[must_use]
+    pub fn heap_bytes(&self) -> usize {
+        self.slots.capacity() * core::mem::size_of::<DomBoxSlot>()
+            + self.lists.capacity() * core::mem::size_of::<Vec<LayoutNodeId>>()
+            + self
+                .lists
+                .iter()
+                .map(|list| list.capacity() * core::mem::size_of::<LayoutNodeId>())
+                .sum::<usize>()
+    }
+
+    /// How many lists the table allocated beside itself (one per node that
+    /// holds none or more than one box): what a test reads.
+    #[must_use]
+    pub fn list_count(&self) -> usize {
+        self.lists.len()
+    }
+
+    /// How many nodes the table has room for without growing: what a test
+    /// compares to see that building a tree did not regrow it.
+    #[cfg(test)]
+    pub(crate) fn slot_capacity(&self) -> usize {
+        self.slots.capacity()
+    }
+}
+
+/// [`DomBoxes::iter`].
+#[derive(Debug, Clone)]
+pub struct DomBoxesIter<'a> {
+    boxes: &'a DomBoxes,
+    next: usize,
+}
+
+impl<'a> Iterator for DomBoxesIter<'a> {
+    type Item = (NodeId, &'a [LayoutNodeId]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let table: &'a DomBoxes = self.boxes;
+        while self.next < table.slots.len() {
+            let node = NodeId::new(self.next);
+            self.next += 1;
+            if let Some(boxes) = table.get(&node) {
+                return Some((node, boxes));
+            }
+        }
+        None
+    }
+}
+
+impl<'a> IntoIterator for &'a DomBoxes {
+    type IntoIter = DomBoxesIter<'a>;
+    type Item = (NodeId, &'a [LayoutNodeId]);
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl core::ops::Index<&NodeId> for DomBoxes {
+    type Output = [LayoutNodeId];
+
+    /// The boxes of `node`. Panics for a node without an entry, as the map did.
+    fn index(&self, node: &NodeId) -> &[LayoutNodeId] {
+        self.get(node).expect("the DOM node has no box")
+    }
+}
+
+/// Two tables are equal when the same nodes have the same boxes in the same
+/// order, however the lists are numbered.
+impl PartialEq for DomBoxes {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.iter().eq(other.iter())
+    }
+}
+
+impl FromIterator<(NodeId, Vec<LayoutNodeId>)> for DomBoxes {
+    fn from_iter<I: IntoIterator<Item = (NodeId, Vec<LayoutNodeId>)>>(entries: I) -> Self {
+        let mut boxes = Self::new();
+        for (node, of_node) in entries {
+            boxes.insert(node, of_node);
+        }
+        boxes
+    }
+}
+
+impl From<BTreeMap<NodeId, Vec<LayoutNodeId>>> for DomBoxes {
+    fn from(map: BTreeMap<NodeId, Vec<LayoutNodeId>>) -> Self {
+        map.into_iter().collect()
+    }
+}
+
 /// The complete layout tree structure.
 ///
 /// Uses a struct-of-arrays (`SoA`) layout for cache performance:
@@ -1529,13 +1793,14 @@ pub struct LayoutTree {
     pub cold: Vec<LayoutNodeCold>,
     /// Root node index
     pub root: usize,
-    /// Mapping from DOM node IDs to layout node indices
-    // BTreeMap (not HashMap): std HashMap's RandomState hasher needs an RNG seed
-    // that isn't available in the remill-lifted wasm (no getrandom), so inserts
+    /// Mapping from DOM node IDs to layout node indices: a dense table
+    /// ([`DomBoxes`]) with the lookups of the map it was.
+    // No hash map: std HashMap's RandomState hasher needs an RNG seed that
+    // isn't available in the remill-lifted wasm (no getrandom), so inserts
     // silently no-op there — dom_to_layout came back empty (node mapping lost,
-    // get_node_size/position returned None → 0-rects). BTreeMap is deterministic,
-    // matches the rest of azul-core, and lifts reliably (M12.7).
-    pub dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>>,
+    // get_node_size/position returned None → 0-rects). The table is
+    // deterministic and needs no hasher (M12.7).
+    pub dom_to_layout: DomBoxes,
     /// Flat arena holding all children indices contiguously.
     pub children_arena: Vec<usize>,
     /// Per-node (start, len) into `children_arena`. Indexed by node index.
@@ -1650,11 +1915,12 @@ impl LayoutTree {
     pub(crate) fn mirroring_dom(styled_dom: &StyledDom) -> Self {
         let hierarchy = styled_dom.node_hierarchy.as_container();
         let count = styled_dom.node_data.as_container().len();
-        let mut dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>> = BTreeMap::new();
+        let mut dom_to_layout = DomBoxes::new();
+        dom_to_layout.reserve_nodes(count);
         let mut nodes: Vec<LayoutNodeHot> = Vec::with_capacity(count);
         for i in 0..count {
             let node = NodeId::new(i);
-            dom_to_layout.insert(node, vec![LayoutNodeId::new(i)]);
+            dom_to_layout.push(node, LayoutNodeId::new(i));
             nodes.push(LayoutNodeHot {
                 box_props: crate::solver3::geometry::PackedBoxProps::default(),
                 dom_node_id: Some(node),
@@ -1703,13 +1969,8 @@ impl LayoutTree {
             glyph_instance_count: 0,
             warm_taffy_cache_bytes: 0,
         };
-        // HashMap<NodeId, Vec<usize>> — approximate: (key + Vec-header) per entry
-        // plus heap for each inner Vec.
-        let entries = self.dom_to_layout.len();
-        report.dom_to_layout_bytes = entries * (size_of::<NodeId>() + size_of::<Vec<usize>>());
-        for v in self.dom_to_layout.values() {
-            report.dom_to_layout_bytes += v.capacity() * size_of::<usize>();
-        }
+        // The table's slots, and the lists of the nodes with several boxes.
+        report.dom_to_layout_bytes = self.dom_to_layout.heap_bytes();
         // Inline layout data lives behind Arc — count Arc heap-shares once
         // per node that has a cached layout. Counted conservatively.
         let mut text_arcs: alloc::collections::BTreeSet<usize> =
@@ -2663,9 +2924,9 @@ thread_local! {
 pub struct LayoutTreeBuilder {
     nodes: Vec<LayoutNode>,
     /// As [`LayoutTree::dom_to_layout`] has it, so that `build` hands the
-    /// map over as it is (it made a second map from this one, entry by
+    /// table over as it is (it made a second map from this one, entry by
     /// entry: A3-solver-25).
-    dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>>,
+    dom_to_layout: DomBoxes,
     viewport_size: LogicalSize,
 }
 
@@ -2674,7 +2935,7 @@ impl LayoutTreeBuilder {
     pub const fn new(viewport_size: LogicalSize) -> Self {
         Self {
             nodes: Vec::new(),
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: DomBoxes::new(),
             viewport_size,
         }
     }
@@ -3535,9 +3796,7 @@ impl LayoutTreeBuilder {
 
         // Register with DOM mapping for counter resolution
         self.dom_to_layout
-            .entry(list_item_dom_id)
-            .or_default()
-            .push(LayoutNodeId::new(index));
+            .push(list_item_dom_id, LayoutNodeId::new(index));
 
         Some(index)
     }
@@ -3611,6 +3870,9 @@ impl LayoutTreeBuilder {
     /// size does not regrow (and copy) the node buffer on the way.
     pub fn reserve_nodes(&mut self, additional: usize) {
         self.nodes.reserve(additional);
+        // The reconcile asks for the DOM's node count and a margin for
+        // anonymous boxes: room for every DOM node's entry in one allocation.
+        self.dom_to_layout.reserve_nodes(additional);
     }
 
     pub fn create_node_from_dom(
@@ -3728,9 +3990,7 @@ impl LayoutTreeBuilder {
             self.nodes[p].children.push(index);
         }
         self.dom_to_layout
-            .entry(dom_id)
-            .or_default()
-            .push(LayoutNodeId::new(index));
+            .push(dom_id, LayoutNodeId::new(index));
         // DEBUG (2026-06-02 children-None tree-build): count create_node_from_dom
         // calls @0x40500 + record each dom_id into a 14-slot ring @0x40504. REVERT
         // before commit. Runs only in lifted wasm (server lifts, never runs natively).
@@ -3896,9 +4156,7 @@ impl LayoutTreeBuilder {
                 self.nodes[p].dirty_flag = DirtyFlag::Layout;
             }
             self.dom_to_layout
-                .entry(*node)
-                .or_default()
-                .push(LayoutNodeId::new(part2_idx));
+                .push(*node, LayoutNodeId::new(part2_idx));
         }
     }
 
@@ -3986,9 +4244,7 @@ impl LayoutTreeBuilder {
             self.nodes[p].dirty_flag = DirtyFlag::Layout;
         }
         self.dom_to_layout
-            .entry(dom_node)
-            .or_default()
-            .push(LayoutNodeId::new(part2_idx));
+            .push(dom_node, LayoutNodeId::new(part2_idx));
     }
 
     /// The min/max DOM ordinal among an anonymous wrapper's DIRECT layout
@@ -4141,8 +4397,8 @@ impl LayoutTreeBuilder {
     fn apply_merge_preview(&mut self, first_dom: NodeId, second_dom: NodeId) {
         // Unmapped or exotic multi-part mappings are staged.
         let ((Some(&[first_idx]), Some(&[second_idx]))) = (
-            self.dom_to_layout.get(&first_dom).map(Vec::as_slice),
-            self.dom_to_layout.get(&second_dom).map(Vec::as_slice),
+            self.dom_to_layout.get(&first_dom),
+            self.dom_to_layout.get(&second_dom),
         ) else {
             return;
         };
@@ -4246,9 +4502,7 @@ impl LayoutTreeBuilder {
         }
         if let Some(dom_id) = new_dom_id {
             self.dom_to_layout
-                .entry(dom_id)
-                .or_default()
-                .push(LayoutNodeId::new(index));
+                .push(dom_id, LayoutNodeId::new(index));
         }
         index
     }
@@ -6063,7 +6317,7 @@ mod autotest_generated {
             warm: vec![LayoutNodeWarm::default(); n],
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: DomBoxes::new(),
             children_arena,
             children_offsets,
             subtree_needs_intrinsic: Vec::new(),
@@ -7661,7 +7915,7 @@ mod autotest_generated {
             "the clone must describe the node it was reconciled AGAINST"
         );
         assert_eq!(
-            b.dom_to_layout.get(&new_id).map(Vec::as_slice),
+            b.dom_to_layout.get(&new_id),
             Some(&[LayoutNodeId::new(idx)][..]),
             "dom_to_layout must index the clone under its NEW id"
         );
@@ -9079,7 +9333,7 @@ mod autotest_generated {
                         i < LayoutNodeId::new(n),
                         "dom_to_layout[{dom_id:?}] points at {i}, out of range"
                     );
-                    assert_eq!(tree.get(i).unwrap().dom_node_id, Some(*dom_id));
+                    assert_eq!(tree.get(i).unwrap().dom_node_id, Some(dom_id));
                 }
             }
         }
@@ -9257,9 +9511,10 @@ mod audit_a3_solver_tests {
         let boxes: Vec<usize> = (1..=40)
             .map(|i| builder.create_node_from_dom(&sd, NodeId::new(i), Some(root), &mut msgs))
             .collect();
-        let entry_of = |map: &BTreeMap<NodeId, Vec<LayoutNodeId>>, i: usize| {
-            core::ptr::from_ref(&map[&NodeId::new(i)]) as usize
-        };
+        // Where the entry of a node lies: its one box is IN the table (25b), so this is an
+        // address inside the table's slots.
+        let entry_of =
+            |map: &DomBoxes, i: usize| map[&NodeId::new(i)].as_ptr() as usize;
         let before: Vec<usize> = (0..=40).map(|i| entry_of(&builder.dom_to_layout, i)).collect();
         let tree = builder.build(root);
         let after: Vec<usize> = (0..=40).map(|i| entry_of(&tree.dom_to_layout, i)).collect();
@@ -9274,6 +9529,157 @@ mod audit_a3_solver_tests {
                 i + 1
             );
         }
+    }
+
+    /// A3-solver-25b, the count: the boxes of a DOM whose nodes have a box each lie in ONE
+    /// table - no list per node, at n nodes and at 4 n - and the table the reconcile reserved
+    /// for the DOM is not regrown while the tree is built. It was a map of lists: n heap lists
+    /// and a tree node for every few of them, per reconciling pass.
+    ///
+    /// Mutations: `DomBoxes::push` opening a list for a node's first box -> 41 and 161 lists;
+    /// `LayoutTreeBuilder::reserve_nodes` not reserving the table -> its capacity grows.
+    #[test]
+    fn a_tree_of_one_box_per_node_keeps_no_list_per_node() {
+        for n in [40_usize, 160] {
+            let mut body = azul_core::dom::Dom::create_body();
+            for _ in 0..n {
+                body = body.with_child(azul_core::dom::Dom::create_div());
+            }
+            let sd = StyledDom::create_from_dom(body);
+            let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
+            builder.reserve_nodes(n + 1);
+            let reserved = builder.dom_to_layout.slot_capacity();
+            assert!(reserved >= n + 1, "the table has room for every DOM node");
+            let mut msgs = None;
+            let root = builder.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+            for i in 1..=n {
+                builder.create_node_from_dom(&sd, NodeId::new(i), Some(root), &mut msgs);
+            }
+            let tree = builder.build(root);
+            assert_eq!(tree.dom_to_layout.len(), n + 1, "harness: a box per DOM node");
+            assert_eq!(
+                tree.dom_to_layout.list_count(),
+                0,
+                "{n} nodes of one box each: no list beside the table"
+            );
+            assert_eq!(
+                tree.dom_to_layout.slot_capacity(),
+                reserved,
+                "{n} nodes: the table was not regrown"
+            );
+        }
+        // A second box of a node (a list item's marker, the second part of a split) costs
+        // that node a list, and no other node one.
+        let mut table = DomBoxes::new();
+        for i in 0..100 {
+            table.push(NodeId::new(i), LayoutNodeId::new(i));
+        }
+        table.push(NodeId::new(7), LayoutNodeId::new(100));
+        table.push(NodeId::new(7), LayoutNodeId::new(101));
+        assert_eq!(table.list_count(), 1);
+        assert_eq!(
+            table[&NodeId::new(7)],
+            vec![
+                LayoutNodeId::new(7),
+                LayoutNodeId::new(100),
+                LayoutNodeId::new(101)
+            ]
+        );
+    }
+
+    /// A3-solver-25b, the equality: the table answers every lookup as the map it replaces.
+    /// Both are filled by the same generated sequence of `push` (the builder's only write;
+    /// nodes end with no, one or several boxes, pushed in no node order) and of `insert`
+    /// (what fixtures use: an empty list, one box, several, a second insert for the same
+    /// node), and every reader the map had is asked of both.
+    ///
+    /// Mutations: `get` answering `None` for a node with an empty list; `push` to a node
+    /// with one box replacing it; the iterator starting at slot 1; `last_key_value`
+    /// answering the first entry -> each fails its assertion.
+    #[test]
+    fn the_table_answers_what_the_map_answered() {
+        fn slice_of(boxes: &Vec<LayoutNodeId>) -> &[LayoutNodeId] {
+            boxes.as_slice()
+        }
+
+        let mut map: BTreeMap<NodeId, Vec<LayoutNodeId>> = BTreeMap::new();
+        let mut table = DomBoxes::new();
+        assert!(table.is_empty());
+        assert_eq!(table.last_key_value(), None);
+        assert_eq!(table.get(&NodeId::ZERO), None);
+
+        // A linear congruential generator: the same sequence on every run.
+        let mut seed: u32 = 0x9E37_79B9;
+        for layout_index in 0..600_usize {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let node = NodeId::new((seed >> 8) as usize % 257);
+            map.entry(node)
+                .or_default()
+                .push(LayoutNodeId::new(layout_index));
+            table.push(node, LayoutNodeId::new(layout_index));
+        }
+        let fixtures: [(usize, Vec<usize>); 6] = [
+            (300, vec![]),
+            (5, vec![9000]),
+            (6, vec![1, 2, 3]),
+            (301, vec![7]),
+            (5, vec![]),
+            (6, vec![4, 5]),
+        ];
+        for (node, boxes) in fixtures {
+            let boxes: Vec<LayoutNodeId> = boxes.into_iter().map(LayoutNodeId::new).collect();
+            map.insert(NodeId::new(node), boxes.clone());
+            table.insert(NodeId::new(node), boxes);
+        }
+        assert!(map.values().any(|boxes| boxes.len() == 1), "harness: nodes with one box");
+        assert!(map.values().any(|boxes| boxes.len() > 2), "harness: nodes with several");
+        assert!(map.len() < 257, "harness: nodes without a box");
+
+        assert_eq!(table.len(), map.len());
+        assert_eq!(table.is_empty(), map.is_empty());
+        for index in 0..400 {
+            let node = NodeId::new(index);
+            assert_eq!(table.get(&node), map.get(&node).map(slice_of), "get({index})");
+            assert_eq!(
+                table.contains_key(&node),
+                map.contains_key(&node),
+                "contains_key({index})"
+            );
+        }
+        for (node, boxes) in &map {
+            assert_eq!(&table[node], boxes.as_slice(), "index {node:?}");
+        }
+        assert_eq!(
+            table.keys().collect::<Vec<_>>(),
+            map.keys().copied().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            table.values().collect::<Vec<_>>(),
+            map.values().map(slice_of).collect::<Vec<_>>()
+        );
+        let entries_of_map: Vec<(NodeId, &[LayoutNodeId])> = map
+            .iter()
+            .map(|(node, boxes)| (*node, boxes.as_slice()))
+            .collect();
+        assert_eq!(table.iter().collect::<Vec<_>>(), entries_of_map);
+        let mut walked = Vec::new();
+        for (node, boxes) in &table {
+            walked.push((node, boxes));
+        }
+        assert_eq!(walked, entries_of_map);
+        assert_eq!(
+            table.last_key_value(),
+            map.last_key_value()
+                .map(|(node, boxes)| (*node, boxes.as_slice()))
+        );
+
+        // Equal tables are equal however they were filled; one box more is another table.
+        let collected: DomBoxes = map.clone().into_iter().collect();
+        assert_eq!(collected, table);
+        assert_eq!(DomBoxes::from(map.clone()), table);
+        let mut other = table.clone();
+        other.push(NodeId::new(0), LayoutNodeId::new(77_777));
+        assert_ne!(other, table);
     }
 
     /// `body(0) > div(1)` as a tree of two boxes, the div's carrying what a layout leaves on

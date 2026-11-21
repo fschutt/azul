@@ -94,6 +94,12 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
         // new size into it, so the first registration of every resize read
         // the previous window's.
         let viewport_size = layout_result.viewport.size;
+        // What an earlier run raised beside THIS tree stays (flags are only
+        // ever raised, and the list built since paints the bar); what was
+        // raised beside another tree went with that tree.
+        layout_window
+            .scroll_manager
+            .keep_raised_bars_of(*dom_id, &layout_result.layout_tree);
         // What the VirtualView callbacks published for this DOM, read the way
         // `display_list::paint_scrollbars` reads it — same producer, same
         // `children_rect.size`, so the two cannot disagree about the extent.
@@ -170,22 +176,29 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                 )
             };
 
-            let Some(mut scrollbar_info) = layout_result
-                .layout_tree
-                .warm(LayoutNodeId::new(node_idx))
-                .and_then(|w| w.scrollbar_info)
-            else {
+            // The layout pass's answer, or what an earlier run on this same
+            // result raised beside the tree (`ScrollManager::scrollbar_info`).
+            let Some(mut scrollbar_info) = layout_window.scroll_manager.scrollbar_info(
+                *dom_id,
+                node_idx,
+                &layout_result.layout_tree,
+            ) else {
                 continue;
             };
 
             // A VirtualView's scrollable extent does not exist during layout —
             // it is whatever its callback just published. Amend the flags here,
             // where both the tree and the ScrollManager are in reach, and store
-            // the answer back so every later consumer (the GPU thumb updater
+            // the answer so every later consumer (the GPU thumb updater
             // `update_scrollbar_transforms`, the registration below, the
             // hit-test scrollbar states) reads one decision rather than
             // re-deriving it. `paint_scrollbars` calls the same function while
             // building the display list, which is why the numbers agree.
+            //
+            // Stored BESIDE the tree (`ScrollManager::raise_bars`), not in it:
+            // after a layout pass the tree is the one the solver's cache
+            // starts its next pass from, and a write into it copied every node
+            // of it, per pass, for a DOM whose view raises a bar.
             if let Some(pos) = scroll_states.get(&dom_node_id) {
                 let raised = crate::solver3::cache::apply_virtual_scroll_necessity(
                     &layout_result.styled_dom,
@@ -195,12 +208,12 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                     &mut scrollbar_info,
                 );
                 if raised {
-                    if let Some(warm) = layout_result
-                        .layout_tree_mut()
-                        .warm_mut(LayoutNodeId::new(node_idx))
-                    {
-                        warm.scrollbar_info = Some(scrollbar_info);
-                    }
+                    layout_window.scroll_manager.raise_bars(
+                        *dom_id,
+                        &mut layout_result.layout_tree,
+                        node_idx,
+                        scrollbar_info,
+                    );
                 }
             }
 
@@ -223,12 +236,12 @@ pub fn register_scroll_nodes(layout_window: &mut LayoutWindow, now: &Instant) {
                     &mut scrollbar_info,
                 );
                 if raised {
-                    if let Some(warm) = layout_result
-                        .layout_tree_mut()
-                        .warm_mut(LayoutNodeId::new(node_idx))
-                    {
-                        warm.scrollbar_info = Some(scrollbar_info);
-                    }
+                    layout_window.scroll_manager.raise_bars(
+                        *dom_id,
+                        &mut layout_result.layout_tree,
+                        node_idx,
+                        scrollbar_info,
+                    );
                 }
             }
 

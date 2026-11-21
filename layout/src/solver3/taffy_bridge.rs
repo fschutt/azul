@@ -758,6 +758,103 @@ pub struct TaffyPassMemo {
     /// from here ([`TaffyBridge::cache_store`]) - the second way keeps every
     /// measurement stored from then on, and this was the one it missed.
     last_measures: HashMap<(usize, usize), SpilledMeasure>,
+    /// `Some` while a measure is computed whose writes are taken back when it
+    /// is done ([`MeasureJournal`]): the measurements stored for the nodes
+    /// below it meanwhile, by any bridge of the pass, to be stored again
+    /// once the nodes hold what they held before.
+    measure_journal: Option<Vec<KeptMeasure>>,
+    /// How many computations of this pass wrote into the tree and left what
+    /// they wrote: a final layout, a measure that is not journaled, a
+    /// cleared taffy cache. A flex or grid container whose measure moved
+    /// this number by nothing holds what its last final layout wrote
+    /// ([`TaffyBridge::compute_child_layout`]).
+    unrestored_writes: u64,
+}
+
+/// A measurement the nodes below a journaled measure answered while it was
+/// computed ([`MeasureJournal`]): taken back with everything else those nodes
+/// held, and stored again, through the function that stored it, on what they
+/// held before.
+#[derive(Debug, Clone, Copy)]
+enum KeptMeasure {
+    /// [`TaffyBridge::cache_store`] of a `RunMode::ComputeSize` answer.
+    Stored {
+        node_idx: usize,
+        input: LayoutInput,
+        output: LayoutOutput,
+    },
+    /// A pure content measure (`LayoutNodeWarm::measured_content_sizes`), at
+    /// min-content or at max-content.
+    Pure {
+        node_idx: usize,
+        min_content: bool,
+        output: LayoutOutput,
+    },
+    /// [`TaffyBridge::keep_width_only_answer`].
+    WidthOnly {
+        node_idx: usize,
+        input: LayoutInput,
+        width: f32,
+    },
+}
+
+/// What one node held before a journaled measure.
+struct JournaledNode {
+    index: usize,
+    hot: crate::solver3::layout_tree::LayoutNodeHot,
+    warm: crate::solver3::layout_tree::LayoutNodeWarm,
+    cold: Option<crate::solver3::layout_tree::LayoutNodeCold>,
+    cache: Option<crate::solver3::cache::NodeCache>,
+}
+
+/// A3-solver-17c: what the subtree of a block or inline box held before a
+/// MEASURE of it was computed, to be put back when the measure is done.
+///
+/// A measure of such a box lays its content out at the measure's constraints
+/// (`compute_non_flex_layout`): the lines of its text, the sizes and offsets
+/// of its children, their scrollbars and per-node caches then describe that
+/// question, not the box's last final layout. The final layout taffy's cache
+/// holds was therefore marked stale by every computed measure
+/// (`NodeCache::final_layout_current`) and computed again - a second layout of
+/// the subtree for every question a warm pass had to compute.
+///
+/// With the journal a measure leaves the subtree as it found it: every node
+/// of it is copied before (hot, warm and cold data, its `NodeCache`), moved
+/// back after, and the final layout stays current. Only the OUTERMOST measure
+/// of a pass keeps a journal (`TaffyPassMemo::measure_journal`): what is
+/// computed inside it - by this bridge or one made below it - is put back
+/// with the rest. The measurements the nodes below answered meanwhile are
+/// answers, not layout: they are stored again afterwards ([`KeptMeasure`]).
+///
+/// Opened only for a box whose final layout is current (a first layout pays
+/// nothing), and for a subtree of at most [`JOURNALED_NODES_AT_MOST`] boxes.
+/// `AZ_NO_TAFFY_MEASURE_JOURNAL` in the environment turns it off: every
+/// computed measure then marks the final layout stale, as before.
+struct MeasureJournal {
+    nodes: Vec<JournaledNode>,
+    /// `TaffyPassMemo::unrestored_writes` when the journal was opened.
+    writes: u64,
+}
+
+/// The largest subtree a [`MeasureJournal`] copies. A measure lays the whole
+/// subtree out, so the copy is the smaller part of it - unless the layout is
+/// served from the per-node caches of a very large subtree, which this bounds.
+const JOURNALED_NODES_AT_MOST: usize = 2048;
+
+/// Whether measures are journaled ([`MeasureJournal`]): unless
+/// `AZ_NO_TAFFY_MEASURE_JOURNAL` is set.
+fn measure_journal_on() -> bool {
+    !env_flag!("AZ_NO_TAFFY_MEASURE_JOURNAL")
+}
+
+/// How many measures were journaled on this thread ([`MeasureJournal`]), and
+/// how many layouts of a box were computed in `RunMode::PerformLayout` by a
+/// bridge (`TaffyBridge::compute_child_layout`: a final layout served from
+/// taffy's cache is not one).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MEASURES_JOURNALED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static FINAL_LAYOUTS_COMPUTED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 impl core::fmt::Debug for TaffyPassMemo {
@@ -2048,6 +2145,8 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 
     fn set_unrounded_layout(&mut self, node_id: taffy::NodeId, layout: &Layout) {
         let node_idx: usize = node_id.into();
+        // A child is placed: a write that stays.
+        self.note_unrestored_write();
 
         // FIX: Retrieve parent border/padding to adjust position.
         // Taffy positions are relative to the parent's Border Box origin.
@@ -2222,14 +2321,21 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             #[cfg(test)]
             WIDTH_ONLY_ROW_RUNS.with(|n| n.set(n.get() + 1));
             self.width_only_rows.push(node_idx);
+            let was_current = self.final_layout_current(node_idx);
+            let writes_before = self.unrestored_writes();
             let output = compute_flexbox_layout(self, node_id, inputs);
             self.width_only_rows.pop();
             // This bypasses `compute_cached_layout`, which marks what it
             // computes stale; the row's items still answered their width
             // questions in it (an item's min-content measure lays its text out
             // at that width), so the row's last final layout no longer
-            // describes its subtree: the next one runs again.
-            self.set_final_layout_current(node_idx, false);
+            // describes its subtree and the next one runs again - unless every
+            // one of those answers was found or taken back
+            // (`MeasureJournal`): then the row holds what it held.
+            let untouched = was_current
+                && measure_journal_on()
+                && self.unrestored_writes() == writes_before;
+            self.set_final_layout_current(node_idx, untouched);
             self.keep_width_only_answer(node_idx, &inputs, output.size.width);
             return LayoutOutput::from_outer_size(Size {
                 width: output.size.width,
@@ -2343,9 +2449,18 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         let mut result = if width_only_column {
             drop(crate::probe::Probe::span("taffy_width_only_column"));
             // What `compute_cached_layout` would mark: the measure rewrote
-            // the subtree, its last final layout no longer describes it.
+            // the subtree, its last final layout no longer describes it -
+            // unless every answer of its items was found or taken back
+            // (`MeasureJournal`).
+            let was_current = self.final_layout_current(node_idx);
+            let writes_before = self.unrestored_writes();
             self.set_final_layout_current(node_idx, false);
-            compute_flexbox_layout(self, node_id, inputs)
+            let output = compute_flexbox_layout(self, node_id, inputs);
+            if was_current && measure_journal_on() && self.unrestored_writes() == writes_before
+            {
+                self.set_final_layout_current(node_idx, true);
+            }
+            output
         } else {
             compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
             let node_idx: usize = node_id.into();
@@ -2360,6 +2475,22 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             // offsets, inline layout, scrollbars) for THESE inputs, so the
             // memoised final layout no longer describes it until a final
             // computation has run again (`NodeCache::final_layout_current`).
+            //
+            // A MEASURE need not leave that behind (A3-solver-17c). Of a block
+            // or inline box it is journaled: the subtree is copied before and
+            // put back after (`MeasureJournal`), flag included. Of a flex or
+            // grid container it writes nothing itself - its items' answers do
+            // - so the container holds what it held when none of them left a
+            // write (`TaffyPassMemo::unrestored_writes`).
+            let is_measure = inputs.run_mode == RunMode::ComputeSize;
+            let container = matches!(fc, FormattingContext::Flex | FormattingContext::Grid);
+            let journal = if is_measure && !container {
+                tree.begin_measure_journal(node_idx)
+            } else {
+                None
+            };
+            let was_current = tree.final_layout_current(node_idx);
+            let writes_before = tree.unrestored_writes();
             tree.set_final_layout_current(node_idx, false);
             let output = match fc {
                 FormattingContext::Flex => compute_flexbox_layout(tree, node_id, inputs),
@@ -2368,8 +2499,29 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 // This ensures proper recursive layout of all formatting contexts
                 _ => tree.compute_non_flex_layout_inside_its_gutter(node_idx, inputs),
             };
-            if inputs.run_mode == RunMode::PerformLayout {
-                tree.set_final_layout_current(node_idx, true);
+            if !is_measure {
+                // A final layout: its writes are the subtree's state.
+                tree.note_unrestored_write();
+                #[cfg(test)]
+                FINAL_LAYOUTS_COMPUTED.with(|n| n.set(n.get() + 1));
+                if inputs.run_mode == RunMode::PerformLayout {
+                    tree.set_final_layout_current(node_idx, true);
+                }
+            } else if let Some(journal) = journal {
+                // Put back, with the flag the node had: current.
+                tree.end_measure_journal(journal);
+            } else if container {
+                if was_current
+                    && measure_journal_on()
+                    && tree.unrestored_writes() == writes_before
+                {
+                    tree.set_final_layout_current(node_idx, true);
+                }
+            } else {
+                // A measure of a block or inline box that is not journaled
+                // (its final layout was not current, it is computed inside a
+                // journaled one, or the journal is off): what it wrote stays.
+                tree.note_unrestored_write();
             }
             output
             })
@@ -2382,6 +2534,13 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                     0 => warm.measured_content_sizes.0 = Some(result),
                     _ => warm.measured_content_sizes.1 = Some(result),
                 }
+            }
+            if let Some(kept) = self.ctx.pass_memo.taffy.measure_journal.as_mut() {
+                kept.push(KeptMeasure::Pure {
+                    node_idx,
+                    min_content: slot == 0,
+                    output: result,
+                });
             }
         }
         if free_column_width_query {
@@ -2422,6 +2581,14 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             // scrollbar_info computed from zero content would be wrong anyway.
             if taffy_content_width <= 0.0 && taffy_content_height <= 0.0 {
                 return result;
+            }
+            // A measure of a flex or grid container carries no content size
+            // (taffy answers `LayoutOutput::from_outer_size`), so this is a
+            // final layout. Should a measure ever get here, what it writes
+            // below is not the final layout's: say so.
+            if inputs.run_mode == RunMode::ComputeSize {
+                self.note_unrestored_write();
+                self.set_final_layout_current(node_idx, false);
             }
 
             let (scrollbar_info, eff_content_w, eff_content_h) = compute_taffy_scrollbar_info(
@@ -2465,6 +2632,128 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     fn set_final_layout_current(&mut self, node_idx: usize, current: bool) {
         if let Some(c) = self.ctx.cache_map.entries.get_mut(node_idx) {
             c.final_layout_current = current;
+        }
+    }
+
+    /// `TaffyPassMemo::unrestored_writes`.
+    fn unrestored_writes(&self) -> u64 {
+        self.ctx.pass_memo.taffy.unrestored_writes
+    }
+
+    /// A computation wrote into the tree and leaves what it wrote.
+    fn note_unrestored_write(&mut self) {
+        let memo = &mut self.ctx.pass_memo.taffy;
+        memo.unrestored_writes = memo.unrestored_writes.wrapping_add(1);
+    }
+
+    /// Opens a [`MeasureJournal`] for a measure of `node_idx` that is about
+    /// to be computed: a copy of what every node of its subtree holds. `None`
+    /// - and the measure's writes stay - when the node's final layout is not
+    /// current, when a journal is open already (this measure is computed
+    /// inside a journaled one), for a subtree above
+    /// [`JOURNALED_NODES_AT_MOST`], or when journals are off.
+    fn begin_measure_journal(&mut self, node_idx: usize) -> Option<MeasureJournal> {
+        if !measure_journal_on()
+            || self.ctx.pass_memo.taffy.measure_journal.is_some()
+            || !self.final_layout_current(node_idx)
+        {
+            return None;
+        }
+        let mut nodes: Vec<JournaledNode> = Vec::new();
+        let mut walk = vec![node_idx];
+        while let Some(index) = walk.pop() {
+            if nodes.len() >= JOURNALED_NODES_AT_MOST {
+                return None;
+            }
+            let (Some(hot), Some(warm)) = (self.tree.nodes.get(index), self.tree.warm.get(index))
+            else {
+                return None;
+            };
+            nodes.push(JournaledNode {
+                index,
+                hot: hot.clone(),
+                warm: warm.clone(),
+                cold: self.tree.cold.get(index).cloned(),
+                cache: self.ctx.cache_map.entries.get(index).cloned(),
+            });
+            walk.extend_from_slice(self.tree.children(index));
+        }
+        #[cfg(test)]
+        MEASURES_JOURNALED.with(|n| n.set(n.get() + 1));
+        self.ctx.pass_memo.taffy.measure_journal = Some(Vec::new());
+        Some(MeasureJournal {
+            nodes,
+            writes: self.unrestored_writes(),
+        })
+    }
+
+    /// Closes `journal`: every node of the subtree holds again what it held
+    /// when the journal was opened - its sizes and offsets, its lines, its
+    /// scrollbars, its per-node caches and the flag that says its final
+    /// layout is current - and the measurements the nodes below answered
+    /// meanwhile are stored again on top ([`KeptMeasure`]).
+    fn end_measure_journal(&mut self, journal: MeasureJournal) {
+        let kept = self
+            .ctx
+            .pass_memo
+            .taffy
+            .measure_journal
+            .take()
+            .unwrap_or_default();
+        for node in journal.nodes {
+            let JournaledNode {
+                index,
+                hot,
+                warm,
+                cold,
+                cache,
+            } = node;
+            if let Some(slot) = self.tree.nodes.get_mut(index) {
+                *slot = hot;
+            }
+            if let Some(slot) = self.tree.warm.get_mut(index) {
+                *slot = warm;
+            }
+            if let (Some(slot), Some(cold)) = (self.tree.cold.get_mut(index), cold) {
+                *slot = cold;
+            }
+            if let (Some(slot), Some(cache)) = (self.ctx.cache_map.entries.get_mut(index), cache)
+            {
+                *slot = cache;
+            }
+        }
+        // What was written since the journal opened is taken back ...
+        self.ctx.pass_memo.taffy.unrestored_writes = journal.writes;
+        // ... but it was written: a visit that keeps an absolutely positioned
+        // box's interior by the tree's write count (A3-solver-14) must see a
+        // write it cannot take for the box's own.
+        self.ctx.cache_map.tree_writes = self.ctx.cache_map.tree_writes.wrapping_add(1);
+        for measure in kept {
+            match measure {
+                KeptMeasure::Stored {
+                    node_idx,
+                    input,
+                    output,
+                } => self.cache_store(node_idx.into(), &input, output),
+                KeptMeasure::Pure {
+                    node_idx,
+                    min_content,
+                    output,
+                } => {
+                    if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                        if min_content {
+                            warm.measured_content_sizes.0 = Some(output);
+                        } else {
+                            warm.measured_content_sizes.1 = Some(output);
+                        }
+                    }
+                }
+                KeptMeasure::WidthOnly {
+                    node_idx,
+                    input,
+                    width,
+                } => self.keep_width_only_answer(node_idx, &input, width),
+            }
         }
     }
 
@@ -2546,6 +2835,13 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     fn keep_width_only_answer(&mut self, node_idx: usize, inputs: &LayoutInput, width: f32) {
         if !self.width_only_answers_keep() {
             return;
+        }
+        if let Some(kept) = self.ctx.pass_memo.taffy.measure_journal.as_mut() {
+            kept.push(KeptMeasure::WidthOnly {
+                node_idx,
+                input: *inputs,
+                width,
+            });
         }
         let primary_empty = self
             .tree
@@ -3531,6 +3827,17 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         layout_output: LayoutOutput,
     ) {
         let node_idx: usize = node_id.into();
+        // Inside a journaled measure the nodes below are put back as they
+        // were: what they answer meanwhile is stored again afterwards.
+        if input.run_mode == RunMode::ComputeSize {
+            if let Some(kept) = self.ctx.pass_memo.taffy.measure_journal.as_mut() {
+                kept.push(KeptMeasure::Stored {
+                    node_idx,
+                    input: *input,
+                    output: layout_output,
+                });
+            }
+        }
         // Decide what the key reads, so the answer is stored under the key
         // the next `cache_get` looks for.
         if asked_in_a_definite_height(input) {
@@ -3617,6 +3924,8 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         }
         // What this bridge kept for the node was answered before this clear.
         self.width_only_fresh.remove(&node_idx);
+        // The node's memo is gone: a write that stays.
+        self.note_unrestored_write();
     }
 }
 
@@ -6063,6 +6372,187 @@ mod audit_a3_solver_tests {
                 height: 30.0
             }),
             "the first measurement of the class is in neither cache once the second evicted it"
+        );
+    }
+
+    /// The final layout of a flex item: `width` px wide, in a row 400 px wide.
+    fn final_layout_at(width: f32) -> LayoutInput {
+        LayoutInput {
+            run_mode: RunMode::PerformLayout,
+            sizing_mode: taffy::SizingMode::InherentSize,
+            axis: taffy::RequestedAxis::Both,
+            known_dimensions: Size {
+                width: Some(width),
+                height: None,
+            },
+            parent_size: Size {
+                width: Some(400.0),
+                height: None,
+            },
+            available_space: Size {
+                width: AvailableSpace::Definite(400.0),
+                height: AvailableSpace::MaxContent,
+            },
+            vertical_margins_are_collapsible: Line {
+                start: false,
+                end: false,
+            },
+        }
+    }
+
+    /// A measure of a flex item: how tall at `width` px wide.
+    fn how_tall_at(width: f32) -> LayoutInput {
+        LayoutInput {
+            run_mode: RunMode::ComputeSize,
+            axis: taffy::RequestedAxis::Vertical,
+            ..final_layout_at(width)
+        }
+    }
+
+    /// A3-solver-17c, the count. A flex item that is a block - `body > row >
+    /// item > inner`, the inner box half as wide as the item - is laid out,
+    /// asked how tall it is at another width, and laid out again as before.
+    /// The measure lays the item's content out at its own width; it used to
+    /// leave that behind and mark the final layout stale, so the second
+    /// final layout was computed although taffy's cache held it. Now the
+    /// measure is journaled: the subtree holds afterwards what the final
+    /// layout wrote, the final layout is found, and the same measure asked
+    /// again computes nothing.
+    ///
+    /// Mutations: `begin_measure_journal` answering `None` (no journal) ->
+    /// the final layout is computed a second time (2 computed, not 1), and
+    /// the inner box keeps the width of the measure; `end_measure_journal`
+    /// not moving the hot nodes back -> the inner box keeps the measure's
+    /// width; not moving the `NodeCache`s back -> the final layout is not
+    /// current and is computed again.
+    #[test]
+    fn a_measure_of_a_block_item_leaves_its_subtree_as_the_final_layout_wrote_it() {
+        let mut env = Env::of(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row;")
+                    .with_child(
+                        Dom::create_div()
+                            .with_child(Dom::create_div().with_css("width: 50%; height: 20px;")),
+                    ),
+            ),
+        );
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let row = tree.children(tree.root)[0];
+        let item = tree.children(row)[0];
+        let inner = tree.children(item)[0];
+        let mut text_cache = crate::font_traits::TextLayoutCache::new();
+        let text_cache = core::ptr::from_mut(&mut text_cache);
+        let held = |tree: &LayoutTree, ctx: &LayoutContext<'_, _>, node: usize| {
+            format!(
+                "{:?} {:?} {:?}",
+                tree.nodes[node], tree.warm[node], ctx.cache_map.entries[node]
+            )
+        };
+        MEASURES_JOURNALED.with(|n| n.set(0));
+        FINAL_LAYOUTS_COMPUTED.with(|n| n.set(0));
+
+        let laid_out = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(item.into(), final_layout_at(200.0));
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            1,
+            "harness: the item's first final layout is computed"
+        );
+        assert!(
+            tree.nodes[inner].used_size.is_some(),
+            "harness: the final layout sized the inner box"
+        );
+        let inner_as_laid_out = held(&tree, &ctx, inner);
+        let item_size = tree.nodes[item].used_size;
+
+        let measured = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(item.into(), how_tall_at(120.0));
+        assert_eq!(
+            MEASURES_JOURNALED.with(core::cell::Cell::get),
+            1,
+            "the measure of an item whose final layout is current is journaled"
+        );
+        assert_eq!(measured.size.width, 120.0, "the measure answers for its own width");
+        assert_eq!(
+            held(&tree, &ctx, inner),
+            inner_as_laid_out,
+            "the measure left something behind on the inner box"
+        );
+        assert_eq!(tree.nodes[item].used_size, item_size);
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            1,
+            "harness: a measure is no final layout"
+        );
+
+        let again = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(item.into(), final_layout_at(200.0));
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            1,
+            "the final layout taffy's cache holds was computed a second time after a measure"
+        );
+        assert_eq!(again.size, laid_out.size);
+        assert_eq!(held(&tree, &ctx, inner), inner_as_laid_out);
+
+        // The same question again: found, nothing computed and nothing copied.
+        let measured_again = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(item.into(), how_tall_at(120.0));
+        assert_eq!(measured_again.size, measured.size);
+        assert_eq!(
+            MEASURES_JOURNALED.with(core::cell::Cell::get),
+            1,
+            "a measure repeated at the same constraints was computed again"
+        );
+    }
+
+    /// A3-solver-17c for a flex CONTAINER (`body > row > row > item`, the
+    /// inner row asked): its measure writes nothing itself, its items'
+    /// answers do. When every one of those is found or journaled the
+    /// container holds what its final layout wrote, and that layout is found
+    /// again after the measure.
+    ///
+    /// Mutation: the container's flag left cleared after its measure (the
+    /// `was_current && .. unrestored_writes() == writes_before` arm removed)
+    /// -> the inner row's final layout is computed again: 3 computed, not 2.
+    #[test]
+    fn a_measure_of_a_flex_container_whose_items_leave_no_write_keeps_its_final_layout() {
+        let mut env = rows();
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let outer = tree.children(tree.root)[0];
+        let inner_row = tree.children(outer)[0];
+        let mut text_cache = crate::font_traits::TextLayoutCache::new();
+        let text_cache = core::ptr::from_mut(&mut text_cache);
+        FINAL_LAYOUTS_COMPUTED.with(|n| n.set(0));
+
+        let laid_out = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(inner_row.into(), final_layout_at(200.0));
+        let computed_first = FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get);
+        assert!(
+            computed_first >= 1,
+            "harness: the inner row's first final layout is computed"
+        );
+
+        let _ = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(inner_row.into(), how_tall_at(120.0));
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            computed_first,
+            "harness: the measure of the row computed no final layout"
+        );
+
+        let again = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(inner_row.into(), final_layout_at(200.0));
+        assert_eq!(again.size, laid_out.size);
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            computed_first,
+            "the row's final layout was computed again after a measure that left no write"
         );
     }
 }
