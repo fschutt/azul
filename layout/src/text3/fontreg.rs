@@ -210,6 +210,23 @@ impl crate::callbacks::CallbackInfo {
         }
         registered
     }
+
+    /// [`Self::register_font`] for bytes the app shares (`SharedBytes`): the
+    /// registry keeps that allocation - every window's font cache and every face
+    /// loaded from it share it with the app's own handle - and copies nothing.
+    /// The bytes stay alive for the process, as every registered face does,
+    /// whatever the app does with its handle afterwards.
+    pub fn register_font_shared(
+        &mut self,
+        family: azul_css::AzString,
+        bytes: azul_css::shared_bytes::SharedBytes,
+    ) -> bool {
+        let registered = register_font_shared(family.as_str(), bytes.to_arc());
+        if registered {
+            drop(ensure_in(&self.get_layout_window().font_manager.fc_cache));
+        }
+        registered
+    }
 }
 
 /// `bytes` as a plain TrueType / OpenType font when they are a WOFF or a WOFF2 (a web font: its
@@ -467,5 +484,35 @@ mod audit_a8_tests {
             panic!("a runtime face's bytes are owned");
         };
         assert!(Arc::ptr_eq(held, &bytes), "the registry holds the caller's allocation");
+    }
+
+    /// A8-26 (the C API's type): a face registered through `SharedBytes`
+    /// shares the caller's bytes - the registry and every loaded face hold the
+    /// very allocation (pointer equality) - and the bytes outlive the caller's
+    /// handle.
+    /// Mutation: `bytes.to_arc()` -> `Arc::from(bytes.as_slice())` in the path
+    /// `CallbackInfo::register_font_shared` takes fails the `ptr_eq`.
+    #[test]
+    fn a_face_registered_through_shared_bytes_shares_and_outlives_the_callers_handle() {
+        use azul_css::shared_bytes::SharedBytes;
+        let fonts = crate::text3::ui_fonts::bundled_ui_fonts();
+        let family = "Azul A8 SharedBytes Face";
+        let handle = SharedBytes::from_arc(Arc::from(&fonts[2 % fonts.len()].bytes[..]));
+        let data = handle.as_slice().as_ptr();
+        // what `CallbackInfo::register_font_shared` does with the handle
+        assert!(register_font_shared(family, handle.to_arc()));
+        drop(handle);
+        let norm = rust_fontconfig::utils::normalize_family_name(family);
+        let id = ensure_in(&FcFontCache::default())
+            .into_iter()
+            .find(|(n, _)| *n == norm)
+            .map(|(_, face)| face.font_match.id)
+            .expect("the face is registered");
+        let shared = shared_bytes(&id).expect("a runtime face");
+        let rust_fontconfig::FontBytes::Owned(held) = &*shared else {
+            panic!("a runtime face's bytes are owned");
+        };
+        assert!(core::ptr::eq(held.as_ptr(), data), "the caller's allocation, not a copy");
+        assert_eq!(&held[..], &fonts[2 % fonts.len()].bytes[..], "alive after the handle is gone");
     }
 }
