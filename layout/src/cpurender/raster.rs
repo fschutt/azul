@@ -16800,15 +16800,15 @@ pub(super) mod lcd_pretile_tests {
     use super::*;
     use crate::font::parsed::ParsedFont;
 
-    pub(super) fn load_test_font_pub() -> Option<ParsedFont> {
+    pub(in crate::cpurender) fn load_test_font_pub() -> Option<ParsedFont> {
         load_test_font()
     }
-    pub(super) fn rr_with_pub(
+    pub(in crate::cpurender) fn rr_with_pub(
         f: &ParsedFont,
     ) -> (RendererResources, FontManager<FontRef>, FontHash) {
         rr_with(f)
     }
-    pub(super) fn shape_pub(
+    pub(in crate::cpurender) fn shape_pub(
         p: &ParsedFont,
         t: &str,
         sz: f32,

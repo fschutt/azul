@@ -9614,6 +9614,46 @@ impl MacOSWindow {
                 self.cpu_backend.glyph_cache.gc();
             }
         }
+        if !keep_caches() {
+            // A5-18: the GPU backend's kept text halos (up to 96 MB of pictures) are
+            // this thread's, and every GPU window on it paints from them. What no
+            // window's display lists paint goes: the pictures of labels that left
+            // the view and of the sizes before the last zoom. What a list paints
+            // stays, whether its window is shown or not: the renderer holds the same
+            // bytes for as long as a list names their keys, and a list translated
+            // without a scan finds its pictures there
+            // (`cpurender::release_text_halos`). So first every window's lists mark
+            // what they paint (a window that made no scan lately would lose its
+            // pictures to the windows that did).
+            let me: *const Self = &*self;
+            let painted_by = |window: &Self| {
+                let Some(layout_window) = window
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .filter(|_| window.common.render_api.is_some())
+                else {
+                    return;
+                };
+                let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+                azul_layout::cpurender::text_halos_in_use(
+                    layout_window.layout_results.values().map(|result| &result.display_list),
+                    dpi,
+                );
+            };
+            for window in registry::get_all_window_ptrs() {
+                if !core::ptr::eq(window.cast_const(), me) {
+                    // SAFETY: a registered window is alive, this is the main thread
+                    // (`release_memory_of_every_window`), and it is not `self`.
+                    painted_by(unsafe { &*window });
+                }
+            }
+            painted_by(&*self);
+            // The halos' glyphs and the shadows kept per list only make the next
+            // halo cheaper: they go when no window of the thread is on screen.
+            let not_shown = reason == MemoryRelease::NotShown && registry::window_count() <= 1;
+            let _ = azul_layout::cpurender::release_text_halos(not_shown);
+        }
         if plan.staging_bitmap {
             if let Some(ref cpu_view) = self.cpu_view {
                 cpu_view.release_staging_bitmap();

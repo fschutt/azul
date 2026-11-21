@@ -2183,8 +2183,21 @@ where
                     // of the window to find that out - for each of the pictures
                     // a frame replaces (2,200 keys x 40 pictures a frame on a
                     // municipal map).
-                    rr.currently_registered_images.remove(&old);
-                    rr.image_last_seen_epoch.remove(&old);
+                    // Unless the picture is painted from another slot by now and
+                    // that slot was planned before this one (two windows on one
+                    // thread share the kept pictures: the other's scan put a new
+                    // picture into this slot and the old one got a new slot at
+                    // its next use): its registration is then that slot's, and
+                    // removing it left the label that paints it without a halo
+                    // for good (audit A5-15).
+                    if rr
+                        .currently_registered_images
+                        .get(&old)
+                        .is_some_and(|resolved| resolved.key == key)
+                    {
+                        rr.currently_registered_images.remove(&old);
+                        rr.image_last_seen_epoch.remove(&old);
+                    }
                 } else {
                     rr.release_frame(key, old);
                 }
