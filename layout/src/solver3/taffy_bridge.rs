@@ -1535,7 +1535,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// The Taffy style of a layout node, built once ([`Self::node_styles`]).
     fn get_taffy_style(&self, node_idx: usize) -> &Style {
         match self.node_styles.get(node_idx) {
-            Some(cell) => cell.get_or_init(|| self.build_taffy_style(node_idx)),
+            Some(cell) => &**cell.get_or_init(|| Box::new(self.build_taffy_style(node_idx))),
             None => &self.default_style,
         }
     }
@@ -1757,31 +1757,46 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
     /// Helper to get children that participate in layout (i.e., not `display: none`).
     fn get_layout_children(&self, node_idx: usize) -> Vec<usize> {
-        use crate::solver3::getters::{get_display_property, MultiValue};
-        let Some(node) = self.tree.get(LayoutNodeId::new(node_idx)) else {
+        #[cfg(test)]
+        CHILD_LISTS_BUILT.with(|n| n.set(n.get() + 1));
+        // No children for a node the tree does not have.
+        if self.tree.get(LayoutNodeId::new(node_idx)).is_none() {
             return Vec::new();
-        };
-
+        }
         self.tree
             .children(node_idx)
             .iter()
-            .filter(|&&child_idx| {
-                let Some(child_node) = self.tree.get(LayoutNodeId::new(child_idx)) else {
-                    return false;
-                };
-                let Some(child_dom_id) = child_node.dom_node_id else {
-                    return true;
-                };
-
-                // Check if child has display: none
-                let display = get_display_property(self.ctx.styled_dom, Some(child_dom_id));
-                let is_display_none = matches!(display, MultiValue::Exact(LayoutDisplay::None));
-
-                !is_display_none
-            })
             .copied()
+            .filter(|&child_idx| self.is_layout_child(child_idx))
             .collect()
     }
+
+    /// Whether the layout box `child_idx` is laid out by taffy as a child of
+    /// its parent: every box but one of a `display: none` node.
+    // (CHILD_LISTS_BUILT, below the impl, counts `get_layout_children`.)
+    fn is_layout_child(&self, child_idx: usize) -> bool {
+        use crate::solver3::getters::{get_display_property, MultiValue};
+        let Some(child_node) = self.tree.get(LayoutNodeId::new(child_idx)) else {
+            return false;
+        };
+        let Some(child_dom_id) = child_node.dom_node_id else {
+            return true;
+        };
+
+        // Check if child has display: none
+        let display = get_display_property(self.ctx.styled_dom, Some(child_dom_id));
+        let is_display_none = matches!(display, MultiValue::Exact(LayoutDisplay::None));
+
+        !is_display_none
+    }
+}
+
+/// How many child lists [`TaffyBridge::get_layout_children`] built on this
+/// thread (`audit_tests::a3_solver`: one per run of a container, not one per
+/// child asked for).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CHILD_LISTS_BUILT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// Main entry point for laying out a Flexbox or Grid container using Taffy.
@@ -1888,14 +1903,37 @@ impl<T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'_, '_, T> {
             .into_iter()
     }
 
+    // `child_count` and `get_child_id` count and step through the children
+    // `get_layout_children` lists, without the list: they built it for every
+    // ask, and taffy's final pass asks `get_child_id` for every child of a
+    // container twice (2 n + 4 lists of n per container and run).
     fn child_count(&self, node_id: taffy::NodeId) -> usize {
         let node_idx: usize = node_id.into();
-
-        self.get_layout_children(node_idx).len()
+        if self.tree.get(LayoutNodeId::new(node_idx)).is_none() {
+            return 0;
+        }
+        self.tree
+            .children(node_idx)
+            .iter()
+            .filter(|&&child_idx| self.is_layout_child(child_idx))
+            .count()
     }
 
     fn get_child_id(&self, node_id: taffy::NodeId, index: usize) -> taffy::NodeId {
-        self.get_layout_children(node_id.into())[index].into()
+        let node_idx: usize = node_id.into();
+        let child = if self.tree.get(LayoutNodeId::new(node_idx)).is_some() {
+            self.tree
+                .children(node_idx)
+                .iter()
+                .copied()
+                .filter(|&child_idx| self.is_layout_child(child_idx))
+                .nth(index)
+        } else {
+            None
+        };
+        child
+            .expect("taffy asks for a child below child_count")
+            .into()
     }
 }
 

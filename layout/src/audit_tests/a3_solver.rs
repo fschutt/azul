@@ -328,3 +328,29 @@ fn flex_rows_in_absolute_boxes_place_their_items_side_by_side() {
         }
     }
 }
+
+/// A3-solver-06. Taffy asks a container for its children through `child_ids` (once per run),
+/// `child_count` and `get_child_id(i)` (for every child, twice in a final run). The bridge
+/// built the filtered child list for each of those asks: `2 n + 4` lists of `n` per container
+/// and run. `child_count` and `get_child_id` count and step without a list.
+///
+/// Mutation: `get_child_id` through `get_layout_children(..)[index]` builds a list per child:
+/// 8 items per row give 19 lists per bridge and fail the bound.
+#[test]
+fn taffy_counts_and_indexes_a_containers_children_without_listing_them() {
+    use crate::solver3::taffy_bridge::{BRIDGES_MADE, CHILD_LISTS_BUILT};
+    let mut lw = window();
+    BRIDGES_MADE.with(|n| n.set(0));
+    CHILD_LISTS_BUILT.with(|n| n.set(0));
+    lay_out(&mut lw, canvas_of_flex_nodes(40, 8));
+    let bridges = BRIDGES_MADE.with(std::cell::Cell::get);
+    let lists = CHILD_LISTS_BUILT.with(std::cell::Cell::get);
+    assert!(
+        bridges >= 40 && lists >= 40,
+        "harness: 40 flex rows were laid out ({bridges} bridges, {lists} child lists)"
+    );
+    assert!(
+        lists <= 4 * bridges,
+        "{bridges} runs of a flex row of 8 items built {lists} child lists"
+    );
+}
