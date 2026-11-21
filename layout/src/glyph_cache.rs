@@ -422,6 +422,261 @@ impl GlyphCache {
         false
     }
 
+    /// The key of the grayscale cell set [`Self::get_or_build_cells_emboldened`]
+    /// keeps for these arguments, and the integer pixel offset it hands out with
+    /// it: one function for the builder and the read-only probe
+    /// [`Self::cached_cells`], so both key alike.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                       // font/fixed-point cast
+    #[allow(clippy::too_many_arguments)]
+    fn gray_cell_key(
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        embolden_px: f32,
+    ) -> (GlyphCellKey, i32, i32) {
+        let embolden_64 = embolden_key(embolden_px);
+        // Hinted outline built at integer ppem needs rescaling only when the
+        // effective size is fractional (hint_correction != 1). Otherwise it stays
+        // pixel-grid-snapped (rounded placement) as hinting intends.
+        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
+        let grid_snapped = is_hinted && !rescale_hinted;
+
+        // Sub-pixel HORIZONTAL positioning (default ON): even a grid-snapped
+        // (hinted-at-integer-ppem) glyph places its ORIGIN at a 1/4-pixel X
+        // bucket, so advances accumulate smoothly and the run lands where
+        // CoreText (fractional-x) puts it, instead of each origin rounding to a
+        // whole pixel. The grid-fitted OUTLINE is unchanged — only where we drop
+        // it horizontally shifts — so vertical stems stay crisp. The Y baseline
+        // stays grid-snapped (`subpx_y == 0` for grid_snapped). With
+        // `AZ_TEXT_SUBPIXEL=0` the grid_snapped case reverts to integer X
+        // (sub-pixel 0, rounded origin), the previous behaviour.
+        let subpx_x_snap = grid_snapped && !text_subpixel_enabled();
+        let subpx_x = if subpx_x_snap {
+            0
+        } else {
+            quantize_subpx(glyph_x)
+        };
+        // Hinted glyphs keep a grid-snapped baseline (the rescale is horizontal only).
+        let subpx_y = if is_hinted {
+            0
+        } else {
+            quantize_subpx(glyph_y)
+        };
+        debug_assert!(
+            (0.0..65536.0).contains(&scale),
+            "scale out of range for fixed-point: {scale}"
+        );
+        let scale_fixed = if is_hinted {
+            if rescale_hinted {
+                (hint_correction * 65536.0) as u32
+            } else {
+                0
+            }
+        } else {
+            (scale * 65536.0) as u32
+        };
+
+        let cell_key = GlyphCellKey {
+            font_hash,
+            glyph_id,
+            ppem,
+            scale_fixed,
+            subpx_x,
+            subpx_y,
+            x_subsamples: 1,
+            embolden_64,
+        };
+
+        // Integer pixel offset — the cells are at sub-pixel origin, offset by int
+        // part. `int_x + subpx_x*0.25` must reconstruct `glyph_x`, so the floor
+        // pairs with the quantized fraction; only the integer-X-snap case rounds.
+        let int_x = if subpx_x_snap {
+            glyph_x.round() as i32
+        } else {
+            glyph_x.floor() as i32
+        };
+        // Pairs with `subpx_y` above: every hinted glyph rounds its baseline.
+        let int_y = if is_hinted {
+            glyph_y.round() as i32
+        } else {
+            glyph_y.floor() as i32
+        };
+        (cell_key, int_x, int_y)
+    }
+
+    /// The key of the LCD cell set [`Self::get_or_build_cells_lcd_emboldened`]
+    /// keeps for these arguments and the integer pixel offset (whole pixels) it
+    /// hands out with it; see [`Self::gray_cell_key`].
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded graphics/coord/
+                                                                       // font/fixed-point cast
+    #[allow(clippy::too_many_arguments)]
+    fn lcd_cell_key(
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        embolden_px: f32,
+    ) -> (GlyphCellKey, i32, i32) {
+        let embolden_64 = embolden_key(embolden_px);
+
+        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
+        let subpx = text_subpixel_enabled();
+
+        // Mirrors the uncached LCD path exactly: fractional x when sub-pixel
+        // positioning is on, rounded x when it is off, always-rounded y.
+        let (int_x, subpx_x) = if subpx {
+            (glyph_x.floor() as i32, quantize_subpx_lcd(glyph_x))
+        } else {
+            (glyph_x.round() as i32, 0)
+        };
+        let int_y = glyph_y.round() as i32;
+
+        debug_assert!(
+            (0.0..65536.0).contains(&scale),
+            "scale out of range for fixed-point: {scale}"
+        );
+        let scale_fixed = if is_hinted {
+            if rescale_hinted {
+                (hint_correction * 65536.0) as u32
+            } else {
+                0
+            }
+        } else {
+            (scale * 65536.0) as u32
+        };
+
+        let cell_key = GlyphCellKey {
+            font_hash,
+            glyph_id,
+            ppem,
+            scale_fixed,
+            subpx_x,
+            subpx_y: 0,
+            x_subsamples: 3,
+            embolden_64,
+        };
+        (cell_key, int_x, int_y)
+    }
+
+    /// What [`Self::get_or_build_cells_emboldened`] hands out for these
+    /// arguments when this cache holds the cell set, in either generation,
+    /// without building, promoting, rotating or counting anything: `None` when
+    /// it does not hold it, `Some(None)` when it holds that the glyph has no
+    /// cells. A read-only probe through a shared `&GlyphCache`: the band
+    /// threads of a repaint can look up the window's cache first and build
+    /// into their own only what it lacks (A9 C9, `## For area A1` of
+    /// audit/A8.md), then hand what they built back ([`Self::absorb`]).
+    #[allow(clippy::too_many_arguments, clippy::option_option)]
+    #[must_use]
+    pub fn cached_cells(
+        &self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        embolden_px: f32,
+    ) -> Option<Option<(&[CellAa], i32, i32)>> {
+        let (key, int_x, int_y) = Self::gray_cell_key(
+            font_hash,
+            glyph_id,
+            ppem,
+            glyph_x,
+            glyph_y,
+            scale,
+            is_hinted,
+            hint_correction,
+            embolden_px,
+        );
+        let entry = self.cells.get(&key).or_else(|| self.cells_prev.get(&key))?;
+        Some(entry.as_ref().map(|cc| (cc.cells.as_slice(), int_x, int_y)))
+    }
+
+    /// [`Self::cached_cells`] for the LCD cells of
+    /// [`Self::get_or_build_cells_lcd_emboldened`].
+    #[allow(clippy::too_many_arguments, clippy::option_option)]
+    #[must_use]
+    pub fn cached_cells_lcd(
+        &self,
+        font_hash: u64,
+        glyph_id: u16,
+        ppem: u16,
+        glyph_x: f32,
+        glyph_y: f32,
+        scale: f32,
+        is_hinted: bool,
+        hint_correction: f32,
+        embolden_px: f32,
+    ) -> Option<Option<(&[CellAa], i32, i32)>> {
+        let (key, int_x, int_y) = Self::lcd_cell_key(
+            font_hash,
+            glyph_id,
+            ppem,
+            glyph_x,
+            glyph_y,
+            scale,
+            is_hinted,
+            hint_correction,
+            embolden_px,
+        );
+        let entry = self.cells.get(&key).or_else(|| self.cells_prev.get(&key))?;
+        Some(entry.as_ref().map(|cc| (cc.cells.as_slice(), int_x, int_y)))
+    }
+
+    /// Moves what `other` holds - paths, cell sets, LCD tiles - and this cache
+    /// does not into this cache's young generation, rotating as a build would
+    /// at the entry limits: a band thread's cache handed back after a repaint,
+    /// so the next repaint's bands find its cells in the shared cache
+    /// ([`Self::cached_cells`]) and no band keeps a copy across frames. Moves,
+    /// never copies; `other`'s counters are not added.
+    pub fn absorb(&mut self, other: Self) {
+        let Self {
+            paths,
+            paths_prev,
+            cells,
+            cells_prev,
+            lcd_tiles,
+            ..
+        } = other;
+        for (key, value) in paths_prev.into_iter().chain(paths) {
+            if self.paths.contains_key(&key) || self.paths_prev.contains_key(&key) {
+                continue;
+            }
+            if self.paths.len() >= MAX_PATH_ENTRIES {
+                self.paths_prev = core::mem::take(&mut self.paths);
+            }
+            self.paths.insert(key, value);
+        }
+        for (key, value) in cells_prev.into_iter().chain(cells) {
+            if self.cells.contains_key(&key) || self.cells_prev.contains_key(&key) {
+                continue;
+            }
+            if self.cells.len() >= MAX_CELL_ENTRIES {
+                self.cells_prev = core::mem::take(&mut self.cells);
+            }
+            self.cells.insert(key, value);
+        }
+        for (key, value) in lcd_tiles {
+            if self.lcd_tiles.len() >= MAX_TILE_ENTRIES {
+                break;
+            }
+            self.lcd_tiles.entry(key).or_insert(value);
+        }
+    }
+
     /// Drop the previous generation of both caches.
     ///
     /// Intended to be called AFTER a frame is presented, never during one:
@@ -491,73 +746,24 @@ impl GlyphCache {
         hint_correction: f32,
         embolden_px: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
-        let embolden_64 = embolden_key(embolden_px);
-        // Hinted outline built at integer ppem needs rescaling only when the
-        // effective size is fractional (hint_correction != 1). Otherwise it stays
-        // pixel-grid-snapped (rounded placement) as hinting intends.
-        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
-        let grid_snapped = is_hinted && !rescale_hinted;
-
-        // Sub-pixel HORIZONTAL positioning (default ON): even a grid-snapped
-        // (hinted-at-integer-ppem) glyph places its ORIGIN at a 1/4-pixel X
-        // bucket, so advances accumulate smoothly and the run lands where
-        // CoreText (fractional-x) puts it, instead of each origin rounding to a
-        // whole pixel. The grid-fitted OUTLINE is unchanged — only where we drop
-        // it horizontally shifts — so vertical stems stay crisp. The Y baseline
-        // stays grid-snapped (`subpx_y == 0` for grid_snapped). With
-        // `AZ_TEXT_SUBPIXEL=0` the grid_snapped case reverts to integer X
-        // (sub-pixel 0, rounded origin), the previous behaviour.
-        let subpx_x_snap = grid_snapped && !text_subpixel_enabled();
-        let subpx_x = if subpx_x_snap {
-            0
-        } else {
-            quantize_subpx(glyph_x)
-        };
-        // Hinted glyphs keep a grid-snapped baseline (the rescale is horizontal only).
-        let subpx_y = if is_hinted {
-            0
-        } else {
-            quantize_subpx(glyph_y)
-        };
-        debug_assert!(
-            (0.0..65536.0).contains(&scale),
-            "scale out of range for fixed-point: {scale}"
-        );
-        let scale_fixed = if is_hinted {
-            if rescale_hinted {
-                (hint_correction * 65536.0) as u32
-            } else {
-                0
-            }
-        } else {
-            (scale * 65536.0) as u32
-        };
-
-        let cell_key = GlyphCellKey {
+        let (cell_key, int_x, int_y) = Self::gray_cell_key(
             font_hash,
             glyph_id,
             ppem,
-            scale_fixed,
+            glyph_x,
+            glyph_y,
+            scale,
+            is_hinted,
+            hint_correction,
+            embolden_px,
+        );
+        let GlyphCellKey {
             subpx_x,
             subpx_y,
-            x_subsamples: 1,
             embolden_64,
-        };
-
-        // Integer pixel offset — the cells are at sub-pixel origin, offset by int
-        // part. `int_x + subpx_x*0.25` must reconstruct `glyph_x`, so the floor
-        // pairs with the quantized fraction; only the integer-X-snap case rounds.
-        let int_x = if subpx_x_snap {
-            glyph_x.round() as i32
-        } else {
-            glyph_x.floor() as i32
-        };
-        // Pairs with `subpx_y` above: every hinted glyph rounds its baseline.
-        let int_y = if is_hinted {
-            glyph_y.round() as i32
-        } else {
-            glyph_y.floor() as i32
-        };
+            ..
+        } = cell_key;
+        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
 
         if !self.cells.contains_key(&cell_key) && !self.promote_or_rotate_cells(&cell_key) {
             self.cells_built += 1;
@@ -694,44 +900,23 @@ impl GlyphCache {
         embolden_px: f32,
     ) -> Option<(&[CellAa], i32, i32)> {
         let _p = crate::probe::Probe::span("glyph_cache_lcd_lookup");
-        let embolden_64 = embolden_key(embolden_px);
-
-        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
-        let subpx = text_subpixel_enabled();
-
-        // Mirrors the uncached LCD path exactly: fractional x when sub-pixel
-        // positioning is on, rounded x when it is off, always-rounded y.
-        let (int_x, subpx_x) = if subpx {
-            (glyph_x.floor() as i32, quantize_subpx_lcd(glyph_x))
-        } else {
-            (glyph_x.round() as i32, 0)
-        };
-        let int_y = glyph_y.round() as i32;
-
-        debug_assert!(
-            (0.0..65536.0).contains(&scale),
-            "scale out of range for fixed-point: {scale}"
-        );
-        let scale_fixed = if is_hinted {
-            if rescale_hinted {
-                (hint_correction * 65536.0) as u32
-            } else {
-                0
-            }
-        } else {
-            (scale * 65536.0) as u32
-        };
-
-        let cell_key = GlyphCellKey {
+        let (cell_key, int_x, int_y) = Self::lcd_cell_key(
             font_hash,
             glyph_id,
             ppem,
-            scale_fixed,
+            glyph_x,
+            glyph_y,
+            scale,
+            is_hinted,
+            hint_correction,
+            embolden_px,
+        );
+        let GlyphCellKey {
             subpx_x,
-            subpx_y: 0,
-            x_subsamples: 3,
             embolden_64,
-        };
+            ..
+        } = cell_key;
+        let rescale_hinted = is_hinted && (hint_correction - 1.0).abs() > 1e-4;
 
         if !self.cells.contains_key(&cell_key) && !self.promote_or_rotate_cells(&cell_key) {
             self.cells_built += 1;
@@ -2262,5 +2447,89 @@ mod audit_a8_tests {
         );
         assert_eq!((x1, x2), (10, 50));
         assert!(!first.rgba.is_empty());
+    }
+
+    /// A system or repo font with its source bytes, or `None` (the test skips).
+    fn a_font() -> Option<ParsedFont> {
+        let candidates = [
+            "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+        ];
+        candidates
+            .iter()
+            .find_map(|path| std::fs::read(path).ok())
+            .and_then(|bytes| ParsedFont::from_bytes(&bytes, 0, &mut Vec::new()))
+    }
+
+    /// For A1's band threads (A9 C9): the read-only probe finds exactly what
+    /// the builders keep - the same cells (the same allocation) and offsets,
+    /// on both paths, in either generation, a glyph without cells as held -
+    /// and nothing they do not keep; it builds, promotes and counts nothing. A
+    /// band's cache absorbed into the window's is found there by the probe and
+    /// by the builders without a build.
+    /// Mutation: `x_subsamples: 1` in `lcd_cell_key` (the LCD probe keys as the
+    /// grayscale one) fails the LCD comparison.
+    #[test]
+    fn a_probe_finds_what_the_builders_keep_and_an_absorbed_band_is_found() {
+        let font = a_font();
+        let gid = font.as_ref().and_then(|f| f.lookup_glyph_index(u32::from('g')));
+        let scale = font.as_ref().map_or(1.0, |f| 20.0 / f32::from(f.font_metrics.units_per_em));
+        let install = |cache: &mut GlyphCache| {
+            if let (Some(f), Some(g)) = (font.as_ref(), gid) {
+                let _ = cache.get_or_build_decoding(7, g, f, 0, || f.get_or_decode_glyph(g));
+            }
+        };
+        let glyph = gid.unwrap_or(3);
+        let places = [(0.0_f32, 0.0_f32), (0.3, 0.6), (12.75, -3.2), (-7.4, 5.5), (3.5, 9.99)];
+        let mut cache = GlyphCache::new();
+        install(&mut cache);
+        for &(x, y) in &places {
+            for (font_hash, embolden) in [(7_u64, 0.0_f32), (7, 0.4), (8, 0.0)] {
+                assert!(cache.cached_cells(font_hash, glyph, 0, x, y, scale, false, 1.0, embolden).is_none());
+                assert!(cache.cached_cells_lcd(font_hash, glyph, 0, x, y, scale, false, 1.0, embolden).is_none());
+                let built = cache
+                    .get_or_build_cells_emboldened(font_hash, glyph, 0, x, y, scale, false, 1.0, embolden)
+                    .map(|(c, ix, iy)| (c.as_ptr(), c.len(), ix, iy));
+                let probed = cache
+                    .cached_cells(font_hash, glyph, 0, x, y, scale, false, 1.0, embolden)
+                    .expect("held")
+                    .map(|(c, ix, iy)| (c.as_ptr(), c.len(), ix, iy));
+                assert_eq!(probed, built, "gray at ({x}, {y})");
+                let built = cache
+                    .get_or_build_cells_lcd_emboldened(font_hash, glyph, 0, x, y, scale, false, 1.0, embolden)
+                    .map(|(c, ix, iy)| (c.as_ptr(), c.len(), ix, iy));
+                let probed = cache
+                    .cached_cells_lcd(font_hash, glyph, 0, x, y, scale, false, 1.0, embolden)
+                    .expect("held")
+                    .map(|(c, ix, iy)| (c.as_ptr(), c.len(), ix, iy));
+                assert_eq!(probed, built, "LCD at ({x}, {y})");
+            }
+        }
+        if font.is_some() {
+            assert!(
+                cache.cached_cells(7, glyph, 0, 0.3, 0.6, scale, false, 1.0, 0.0).flatten().is_some(),
+                "a real glyph has cells"
+            );
+        }
+        let built = cache.cells_built();
+        // the previous generation is probed too
+        cache.cells_prev = core::mem::take(&mut cache.cells);
+        assert!(cache.cached_cells(7, glyph, 0, 0.3, 0.6, scale, false, 1.0, 0.0).is_some());
+        assert_eq!(cache.cells_built(), built, "the probe builds nothing");
+        assert!(cache.cells.is_empty(), "and promotes nothing");
+
+        // a band builds into its own cache; the window's absorbs it
+        let mut window = GlyphCache::new();
+        let mut band = GlyphCache::new();
+        install(&mut band);
+        let _ = band.get_or_build_cells_lcd_emboldened(7, glyph, 0, 1.25, 2.0, scale, false, 1.0, 0.0);
+        let _ = band.get_or_build_cells(9, glyph, 0, 0.0, 0.0, scale, false, 1.0);
+        window.absorb(band);
+        assert!(window.cached_cells_lcd(7, glyph, 0, 1.25, 2.0, scale, false, 1.0, 0.0).is_some());
+        assert!(window.cached_cells(9, glyph, 0, 0.0, 0.0, scale, false, 1.0, 0.0).is_some());
+        let _ = window.get_or_build_cells_lcd_emboldened(7, glyph, 0, 1.25, 2.0, scale, false, 1.0, 0.0);
+        let _ = window.get_or_build_cells(9, glyph, 0, 0.0, 0.0, scale, false, 1.0);
+        assert_eq!(window.cells_built(), 0, "what a band built is not built again");
     }
 }
