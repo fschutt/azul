@@ -3120,8 +3120,8 @@ mod audit_diff_first_tests {
     };
 
     /// One section of [`page`]: which `k<kind>` class its heading and its box wear, which of
-    /// [`PLACES`] is the box's inline style, the text of its paragraph, and whether the
-    /// paragraph holds a link.
+    /// [`PLACES`] styles the box (as a sheet hung on it in [`page`], as its own inline style
+    /// in [`page_own`]), the text of its paragraph, and whether the paragraph holds a link.
     #[derive(Clone, PartialEq, Debug)]
     struct Section {
         kind: usize,
@@ -3145,7 +3145,28 @@ mod audit_diff_first_tests {
     /// sheet with a `*` rule, class rules with inherited and font-relative values, a
     /// descendant and a child rule, a hover rule with an inherited value and - with `siblings`
     /// - two sibling rules.
+    ///
+    /// A section's place is a SHEET hung on its box here (`Dom::with_css`: scoped to the box,
+    /// listed in the fingerprints' `sheets`): a rebuild that changes one is no change of
+    /// nodes where they stand (`same_tree_changes` answers `None`), it is the reconciling
+    /// rebuild's ([`tree_page`], `cascade_reusing`). [`page_own`] is the page for the exits
+    /// that keep the DOM.
     fn page(sections: &[Section], dense: bool, siblings: bool) -> Dom {
+        page_of(sections, dense, siblings, false)
+    }
+
+    /// [`page`] with each section's place as its box's OWN inline style (`NodeData::set_css`):
+    /// what a rebuild changes "where the node stands", named by `same_tree_changes` and
+    /// styled again by the cascade over the changed nodes. The walks of that cascade were
+    /// written against [`page`] and never styled a place: a step that changed one found the
+    /// two builds "not a change of nodes" and compared the untouched DOM with a new one.
+    fn page_own(sections: &[Section], dense: bool, siblings: bool) -> Dom {
+        page_of(sections, dense, siblings, true)
+    }
+
+    /// [`page`] (`own` false: a place is a sheet hung on the box) and [`page_own`] (`own`
+    /// true: it is the box's own style).
+    fn page_of(sections: &[Section], dense: bool, siblings: bool, own: bool) -> Dom {
         let text = |value: &str| {
             Dom::create_text_do_not_use_without_block_level_wrapper(value.to_string())
         };
@@ -3159,7 +3180,11 @@ mod audit_diff_first_tests {
                 .with_class("box".into())
                 .with_class(class.clone().into());
             if !PLACES[section.place].is_empty() {
-                block = block.with_css(PLACES[section.place]);
+                if own {
+                    block.root.set_css(PLACES[section.place]);
+                } else {
+                    block = block.with_css(PLACES[section.place]);
+                }
             }
             let mut paragraph = Dom::create_node(NodeType::P).with_child(text(WORDS[section.text]));
             if section.link {
@@ -3307,7 +3332,9 @@ mod audit_diff_first_tests {
     /// Writes the nodes `fresh` changed onto `kept` and styles them again as the window does:
     /// the cascade over the nodes the changes reach, and the whole cascade (with the prune a
     /// created DOM has) where that says no. Answers how many nodes the changes reach and
-    /// whether the cascade over them ran; `None` when the two builds are alike.
+    /// whether the cascade over them ran; `None` when the two builds are alike - and when the
+    /// rebuild is no change of nodes where they stand (another tree, a sheet hung on a node
+    /// that changed): `kept` is then untouched, and the caller must not take it for rebuilt.
     fn rebuild_onto(kept: &mut StyledDom, old: &Dom, fresh: &Dom) -> Option<(usize, bool)> {
         let changed = same_tree_changes(&fingerprint_dom(old).0, &fingerprint_dom(fresh).0)?;
         let _ = adopt_changed_nodes(kept.node_data.as_mut(), fresh, &changed);
@@ -3332,8 +3359,8 @@ mod audit_diff_first_tests {
         for seed in [1u64, 7, 20261121] {
             let mut spec = sections(9);
             let mut dense = false;
-            let mut old = page(&spec, dense, siblings);
-            let mut kept = StyledDom::create_from_dom(page(&spec, dense, siblings));
+            let mut old = page_own(&spec, dense, siblings);
+            let mut kept = StyledDom::create_from_dom(page_own(&spec, dense, siblings));
             // Pre-order: body 0, the list 1, section 0 (a box, its heading and text, its
             // paragraph and text, its link and text) 2..=8, section 1's box 9.
             let hover_node = NodeId::new(9);
@@ -3359,11 +3386,20 @@ mod audit_diff_first_tests {
                 let kind = next(7);
                 let picks = [next(64), next(64), next(64), next(64), next(64), next(64)];
                 mutate(&mut spec, &mut dense, kind, picks);
-                let fresh = page(&spec, dense, siblings);
-                if rebuild_onto(&mut kept, &old, &fresh).is_some_and(|(_, ran)| ran) {
+                let fresh = page_own(&spec, dense, siblings);
+                let rebuilt = rebuild_onto(&mut kept, &old, &fresh);
+                // A step the kept DOM was not rebuilt for must be a step that changed
+                // nothing (a pick that names the value a section has): anything else left
+                // `kept` as it was and the comparison below would blame the cascade.
+                assert!(
+                    rebuilt.is_some() || fingerprint_dom(&old).0 == fingerprint_dom(&fresh).0,
+                    "harness: seed {seed}, step {step} (kind {kind}, picks {picks:?}) changed \
+                     the page and is no change of nodes where they stand"
+                );
+                if rebuilt.is_some_and(|(_, ran)| ran) {
                     over_the_nodes += 1;
                 }
-                let mut full = StyledDom::create_from_dom(page(&spec, dense, siblings));
+                let mut full = StyledDom::create_from_dom(page_own(&spec, dense, siblings));
                 raise(&mut full);
                 let found = differences(&kept, &full);
                 assert!(

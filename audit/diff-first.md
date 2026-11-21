@@ -664,8 +664,11 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   `recascade_nodes` for the first time in any run (the inline declarations of the node, inherited ones for what
   is below it, `inline_overruled`). If they are still red after this, that is a real defect of exit 1.46's
   cascade, and the message names the node and the property.
+- a wrong detail in the message of 8420ec290 (branches are append-only): the mutant "`subtree_len` not compared"
+  answers `Some([1, 4])` for the nested tree (the row's child count moved too), not `Some([4])`; the test fails
+  on it either way (it wants `None`).
 - severity: medium (seven red tests; no wrong output)
-- status: fixed (the two commits after diff-first-15; hashes in the hand-over table)
+- status: fixed 8420ec290 (`diff_test.rs`) and the commit after it (`styled_dom_test.rs`)
 
 ### A3-window-32 (styled_dom part) the preparation walks of a `Dom` before it is styled
 - file:line: `core/src/styled_dom.rs` `create_from_dom_inheriting`, `create_from_prepared_dom`
@@ -928,7 +931,7 @@ ARENA after the flatten, never `nodes_at`.
 | diff-first-13 (a written DOM gets no clean flags; the slider) | 6c43652f1 | dll `dragging_the_slider_leaves_no_thumb_behind`, `a_style_a_callback_wrote_is_laid_out_by_the_rebuild_it_asked_for` |
 | diff-first-14 (the gate `animation`, per reached node) | 6e4391abc | dll `an_animated_node_elsewhere_does_not_send_a_rebuild_down_the_full_path`, `an_identical_rebuild_and_a_changed_text_style_no_node` |
 | diff-first-15 (a moved box is painted anew by a patched pass; `AZ_DL_TRANSLATE_MOVED_RUNS`) | 8447aa202 | layout `audit_tests::diff_first::*` (three), `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`; dll the five walks `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_the_tree_*`, `a_view_rendered_again_leaves_what_the_full_path_leaves` |
-| diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | `git log --grep diff-first-17` (two commits: `diff_test.rs`, then `styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
+| diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | 8420ec290 (`diff_test.rs`), then `git log --grep "diff-first-17: the walks"` (`styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
 
 **The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
 1. `dragging_the_slider_leaves_no_thumb_behind`: a real defect of the kept exits: fixed 6c43652f1 (diff-first-13).
