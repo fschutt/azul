@@ -1,0 +1,17 @@
+# row: X-DELTA-W1S47A-2
+# why: `group_move` asks `move_loosens` whether the effective policy of any group of the moved subtree would get looser (azlin_policy::check_tightens of the policy now against the policy on the path of the new parent); the patch makes the answer always None, so a group admin loosens a policy an admin set by moving a group out from under the restricted one (story 14 of azlin-escalate-e1)
+# killers: azlin-teamlog:moving_a_group_cannot_loosen_its_effective_policy
+# replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-W1S47A-2.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
+# mutant: move_loosening_check_dropped
+# guard: a group_move that loosens refuses a group admin (PolicyForbids(Loosens), even with an admin's cosignature) and asks an owner or an admin for the quorum of a policy change: the killer builds eng > hr > sub with hr restricted by an admin (no external sharing, one-hour credentials), has the group admin of eng move sub out from under hr to eng and to a loose sibling, and demands PolicyForbids(Loosens) naming credential_ttl and external_sharing with the values (3600 s against 43200 s).
+--- a/examples/azlin-teamlog/src/admit.rs
++++ b/examples/azlin-teamlog/src/admit.rs
+@@ -1324,7 +1324,7 @@
+     }
+     // A move that would loosen the effective policy of a group of the subtree is for an owner or an admin
+     // with the quorum of a policy change: a group admin only tightens.
+-    let loosens = move_loosens(c, group, new_parent)?;
++    let loosens: Option<Vec<Loosened>> = None;
+     let facts = QuorumFacts {
+         move_loosens_policy: loosens.is_some(),
+         ..QuorumFacts::default()

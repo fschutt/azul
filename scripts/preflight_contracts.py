@@ -299,6 +299,22 @@ DEMO_STATEFUL_WIDGETS = (
 )
 
 
+def _demo_sources(check: str) -> list:
+    """Every source file of the AzWidgets demo as (name, comment-free text).
+
+    The demo is split into modules (lib.rs, forms.rs, video.rs, ...); a check
+    that read only lib.rs never saw a widget built in the others.
+    """
+    src_dir = ROOT / "examples" / "azul-widgets" / "src"
+    if not (src_dir / "lib.rs").is_file():
+        fail(check, f"missing demo source {src_dir / 'lib.rs'}")
+        return []
+    return [
+        (f.name, _strip_rust_comments(f.read_text(encoding="utf-8", errors="replace")))
+        for f in sorted(src_dir.glob("*.rs"))
+    ]
+
+
 def check_demo_state_round_trip() -> None:
     """Every stateful widget in the demo must round-trip its value to the host.
 
@@ -314,27 +330,72 @@ def check_demo_state_round_trip() -> None:
     is the reference every app is copied from, so it is the right place to pin
     the contract.
     """
-    demo = ROOT / "examples" / "azul-widgets" / "src" / "lib.rs"
-    if not demo.is_file():
-        fail("demo-round-trip", f"missing demo source {demo}")
-        return
-    src = _strip_rust_comments(demo.read_text(encoding="utf-8", errors="replace"))
-    for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
-        name = m.group(1)
-        if name not in DEMO_STATEFUL_WIDGETS:
-            continue
-        tail = src[m.end(): m.end() + 900]
-        stop = tail.find(".dom()")
-        span = tail if stop == -1 else tail[:stop]
-        if not re.search(r"\.with_on_\w+", span):
-            line = src[: m.start()].count("\n") + 1
+    sources = _demo_sources("demo-round-trip")
+    for fname, src in sources:
+        for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
+            name = m.group(1)
+            if name not in DEMO_STATEFUL_WIDGETS:
+                continue
+            tail = src[m.end(): m.end() + 900]
+            stop = tail.find(".dom()")
+            span = tail if stop == -1 else tail[:stop]
+            if not re.search(r"\.with_on_\w+", span):
+                line = src[: m.start()].count("\n") + 1
+                fail(
+                    "demo-round-trip",
+                    f"{name}::create(...) near line {line} of the AzWidgets demo's {fname} has "
+                    f"no .with_on_* hook, so its value is never stored in Showcase. "
+                    f"The widget is rebuilt from host state every layout, so the "
+                    f"next RefreshDom from ANY other callback throws away whatever "
+                    f"the user typed or picked.",
+                )
+
+
+# Widgets in the reference demo that have no text of their own to derive an
+# accessible name from: only the call site knows what each one is called. The
+# widget warns at build time (`warn_widget_needs_a_name`), and a ProgressBar's
+# role node is rendered inside its VirtualView, where a name patched onto the
+# finished Dom never arrives - so the name goes on the BUILDER.
+DEMO_NAMED_WIDGETS = ("Slider", "Switch", "CheckBox", "RadioGroup", "ProgressBar")
+
+
+def check_demo_accessibility() -> None:
+    """The reference demo builds what it teaches, or its launch log says otherwise.
+
+    The runtime lints print on every launch of an unnamed control
+    (`[a11y-widget] Slider was built without an accessible name`) and of a
+    `<div>` whose only child is text (`[div-as-text]`: a label belongs in a
+    span, prose in a p, a section title in a heading). The demo is the page
+    every app is copied from, so it must be silent.
+    """
+    src_dir = ROOT / "examples" / "azul-widgets" / "src"
+    for fname, src in _demo_sources("demo-a11y"):
+        for m in re.finditer(r"\b([A-Z][A-Za-z]*)::create\s*\(", src):
+            name = m.group(1)
+            if name not in DEMO_NAMED_WIDGETS:
+                continue
+            tail = src[m.end(): m.end() + 900]
+            stop = tail.find(".dom()")
+            span = tail if stop == -1 else tail[:stop]
+            if ".with_accessibility_name(" not in span:
+                line = src[: m.start()].count("\n") + 1
+                fail(
+                    "demo-a11y",
+                    f"{name}::create(...) near line {line} of the AzWidgets demo's {fname} has "
+                    f"no .with_accessibility_name(..) before .dom(). It has no text "
+                    f"to derive a name from, so a screen reader announces only its "
+                    f"role, and the widget warns about it on every launch.",
+                )
+    for f in sorted(src_dir.glob("*.rs")):
+        text = _strip_rust_comments(f.read_text(encoding="utf-8", errors="replace"))
+        for m in re.finditer(r"\bcreate_div_with_text\s*\(", text):
+            line = text[: m.start()].count("\n") + 1
             fail(
-                "demo-round-trip",
-                f"{name}::create(...) near line {line} of the AzWidgets demo has "
-                f"no .with_on_* hook, so its value is never stored in Showcase. "
-                f"The widget is rebuilt from host state every layout, so the "
-                f"next RefreshDom from ANY other callback throws away whatever "
-                f"the user typed or picked.",
+                "demo-a11y",
+                f"examples/azul-widgets/src/{f.name} near line {line} builds a "
+                f"<div> whose only child is text: use create_span_with_text for a "
+                f"label, create_p_with_text for prose, or a heading for a title "
+                f"(the runtime div-as-text lint reports it on every launch).",
             )
 
 
@@ -412,14 +473,52 @@ def check_miri_cache_secrets() -> None:
                 )
 
 
+# --------------------------------------------------------------------------
+# 8. Naming: "theme" is the app theme, "mode" is light / dark / system.
+#
+# User ruling 2026-09-29. Before it, the same call meant both:
+# `LayoutCallbackInfo::get_theme` returned light / dark while
+# `CallbackInfo::get_theme` returned the app theme, and the light / dark API
+# was `*_color_scheme`. Every binding generates its method names from these,
+# so a new `*_color_scheme` fn is a third name for the mode in 30+ languages.
+# The OS's own `color-scheme` setting (the XDG portal key) is read by private
+# fns and stays as it is; only PUBLIC fns are held to the ruling.
+# --------------------------------------------------------------------------
+PUB_COLOR_SCHEME_FN = re.compile(
+    r"\bpub(?:\s*\([^)]*\))?\s+(?:const\s+)?(?:unsafe\s+)?(?:extern\s+\"[^\"]*\"\s+)?"
+    r"fn\s+([A-Za-z0-9_]*color_scheme[A-Za-z0-9_]*)"
+)
+
+
+def check_mode_naming() -> None:
+    for crate in ("core", "layout", "dll"):
+        src_dir = ROOT / crate / "src"
+        if not src_dir.is_dir():
+            fail("mode-naming", f"missing source directory {src_dir}")
+            continue
+        for f in sorted(src_dir.rglob("*.rs")):
+            src = _strip_rust_comments(f.read_text(encoding="utf-8", errors="replace"))
+            for m in PUB_COLOR_SCHEME_FN.finditer(src):
+                line = src[: m.start()].count("\n") + 1
+                fail(
+                    "mode-naming",
+                    f"{f.relative_to(ROOT)} near line {line}: pub fn {m.group(1)}. Light / dark "
+                    f"/ system is the MODE (`get_mode`, `set_mode`, `AppConfig::with_mode`) and "
+                    f"the app theme is the THEME; a `color_scheme` name is a third spelling "
+                    f"of the mode that every binding would generate.",
+                )
+
+
 def main() -> int:
     check_api_json_parses()
     check_demo_naming()
     check_widget_wiring()
     check_widget_override_latch()
     check_demo_state_round_trip()
+    check_demo_accessibility()
     check_sparse_checkout()
     check_miri_cache_secrets()
+    check_mode_naming()
 
     if FAILURES:
         print("preflight contracts FAILED:\n", file=sys.stderr)
@@ -428,7 +527,8 @@ def main() -> int:
         return 1
     print(
         "preflight contracts OK (naming, widget wiring, override latch, "
-        "demo round-trip, sparse checkout, api.json, miri/cache/secrets)"
+        "demo round-trip, demo a11y, sparse checkout, api.json, miri/cache/secrets, "
+        "mode naming)"
     )
     return 0
 

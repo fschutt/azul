@@ -59,7 +59,7 @@ use azul_css::{
 
 use super::{
     button::{Button, OptionButtonOnClick},
-    themes::flat,
+    themes::{flat, style_kit, system_palette, OptionUiTheme, UiTheme},
     titlebar,
 };
 
@@ -333,6 +333,14 @@ fn push_box_border(v: &mut Vec<Cond>, c: ColorU) {
     )));
 }
 
+/// Whether `t` is the stock Office palette: a LIGHT band that has no dark
+/// counterpart of its own, so its dark twins come from the desktop's palette.
+/// A palette from [`QuickAccessTheme::from_system`] already is the desktop's
+/// own titlebar colours for its theme, and gets none.
+fn is_stock_light_palette(t: &QuickAccessTheme) -> bool {
+    *t == QuickAccessTheme::office_2013()
+}
+
 fn theme_bar(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
     let mut v = Vec::new();
     push_row_center(&mut v);
@@ -345,10 +353,23 @@ fn theme_bar(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
         TITLE_PX,
     ))));
     v.push(cond_bg(t.bg));
+    if is_stock_light_palette(t) {
+        // The white band is a light island on a dark window: it is window
+        // chrome, so it takes the desktop's window background.
+        v.push(system_palette::DARK_WINDOW_BACKGROUND);
+    }
     v.push(Cond::simple(P::const_padding_left(
         LayoutPaddingLeft::const_px(8),
     )));
     CssPropertyWithConditionsVec::from_vec(v)
+}
+
+/// `color: c`, plus the stock palette's dark twin `dark`.
+fn cond_text_color_themed(v: &mut Vec<Cond>, t: &QuickAccessTheme, c: ColorU, dark: Cond) {
+    v.push(cond_text_color(c));
+    if is_stock_light_palette(t) {
+        v.push(dark);
+    }
 }
 
 fn theme_leading(_t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
@@ -377,30 +398,31 @@ fn theme_action_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_action_icon(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(QAT_ICON_PX))),
-        cond_text_color(t.icon),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        QAT_ICON_PX,
+    )))];
+    cond_text_color_themed(&mut v, t, t.icon, system_palette::DARK_SECONDARY_TEXT);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// The small "customize quick access toolbar" chevron after the actions.
 fn theme_menu_arrow(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(12))),
-        cond_text_color(t.icon),
-        Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(1))),
-        Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(4))),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(12)))];
+    cond_text_color_themed(&mut v, t, t.icon, system_palette::DARK_SECONDARY_TEXT);
+    v.push(Cond::simple(P::const_margin_left(LayoutMarginLeft::const_px(1))));
+    v.push(Cond::simple(P::const_margin_right(LayoutMarginRight::const_px(4))));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_title(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
+    let mut v = vec![
         Cond::simple(P::const_flex_grow(LayoutFlexGrow::const_new(1))),
         Cond::simple(P::const_text_align(StyleTextAlign::Center)),
         Cond::simple(P::const_font_size(StyleFontSize::const_px(TITLE_PX))),
-        cond_text_color(t.text),
-        Cond::simple(P::user_select(StyleUserSelect::None)),
-    ])
+    ];
+    cond_text_color_themed(&mut v, t, t.text, system_palette::DARK_TEXT);
+    v.push(Cond::simple(P::user_select(StyleUserSelect::None)));
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 fn theme_window_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
@@ -420,10 +442,11 @@ fn theme_window_button(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
 }
 
 fn theme_window_icon(t: &QuickAccessTheme) -> CssPropertyWithConditionsVec {
-    CssPropertyWithConditionsVec::from_vec(vec![
-        Cond::simple(P::const_font_size(StyleFontSize::const_px(WIN_ICON_PX))),
-        cond_text_color(t.icon),
-    ])
+    let mut v = vec![Cond::simple(P::const_font_size(StyleFontSize::const_px(
+        WIN_ICON_PX,
+    )))];
+    cond_text_color_themed(&mut v, t, t.icon, system_palette::DARK_SECONDARY_TEXT);
+    CssPropertyWithConditionsVec::from_vec(v)
 }
 
 /// APPENDED to the close button: the caption-red hover.
@@ -783,6 +806,12 @@ pub struct QuickAccessBar {
     /// `PixelValue::to_pixels_absolute()`. `0.0` (the default) is exactly the
     /// old behaviour, so desktop callers need change nothing.
     pub top_inset: f32,
+
+    /// The widget theme, or `None` to follow the app theme
+    /// (`AppConfig::with_theme`). Flat is the Office look [`Self::style`]
+    /// describes; flora lays flora's recessed band and paper keys on the same
+    /// metrics. A part the caller set in [`Self::style`] wins in either theme.
+    pub theme: OptionUiTheme,
 }
 
 // -- CSS classes --
@@ -818,7 +847,22 @@ impl QuickAccessBar {
             on_close: None.into(),
             style: QuickAccessStyle::office_2013(),
             top_inset: 0.0,
+            theme: OptionUiTheme::None,
         }
+    }
+
+    /// Pick the widget theme: the band and its buttons keep this look
+    /// whatever the app theme is. Unset (`None`), the band follows the app
+    /// theme (`AppConfig::with_theme`, flat by default).
+    pub const fn set_theme(&mut self, theme: UiTheme) {
+        self.theme = OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[must_use]
+    pub const fn with_theme(mut self, theme: UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// Sets the safe-area inset above the band - see [`Self::top_inset`].
@@ -874,9 +918,40 @@ impl QuickAccessBar {
         self
     }
 
-    /// Renders the band.
+    /// Renders the band in its theme: a pinned theme is that look; no theme
+    /// follows the app theme (both looks in one tree, each inside its
+    /// `@theme(<name>)` block, in the structure of the theme the DOM is built
+    /// for).
     #[must_use]
     pub fn dom(self) -> Dom {
+        match self.theme.into_option() {
+            Some(theme) => self.build_in(theme),
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                Self::flat_look,
+                Self::flora_look,
+            ),
+        }
+    }
+
+    /// The band in the flat look (a `follow_app_theme` builder).
+    fn flat_look(self) -> Dom {
+        self.build_in(UiTheme::Flat)
+    }
+
+    /// The band in the flora look (a `follow_app_theme` builder).
+    fn flora_look(self) -> Dom {
+        self.build_in(UiTheme::Flora)
+    }
+
+    /// The band in exactly `theme`'s look: flat is the palette's own parts;
+    /// flora fills every part the caller left `None` with flora's paint on
+    /// the same geometry (`themes::flora::quick_access_style`). Its buttons
+    /// are built in that look too, and the root carries the theme marker.
+    fn build_in(mut self, theme: UiTheme) -> Dom {
+        if theme == UiTheme::Flora {
+            self.style = crate::widgets::themes::flora::quick_access_style(self.style);
+        }
         let Self {
             leading,
             actions,
@@ -891,6 +966,9 @@ impl QuickAccessBar {
             on_close,
             style,
             top_inset,
+            // The look to build is `theme`: the field is the caller's pin,
+            // already resolved by `dom`.
+            theme: _,
         } = self;
 
         // Every part resolved up front: the resolvers borrow `&style`, and
@@ -915,7 +993,7 @@ impl QuickAccessBar {
         }
 
         for action in actions.into_library_owned_vec() {
-            children.push(action_button(action, &part_action_button, &style));
+            children.push(action_button(action, &part_action_button, &style, theme));
         }
 
         if show_menu_arrow {
@@ -932,7 +1010,7 @@ impl QuickAccessBar {
         );
 
         for action in trailing_actions.into_library_owned_vec() {
-            children.push(action_button(action, &part_window_button, &style));
+            children.push(action_button(action, &part_window_button, &style, theme));
         }
 
         // The window controls come from the DESKTOP's icon theme first
@@ -957,6 +1035,7 @@ impl QuickAccessBar {
                 part_window_button.clone(),
                 &style,
                 or_default(on_minimize, titlebar::callbacks::csd_minimize),
+                theme,
             ));
         }
         if show_maximize {
@@ -976,6 +1055,7 @@ impl QuickAccessBar {
                 part_window_button.clone(),
                 &style,
                 or_default(on_maximize, titlebar::callbacks::csd_maximize),
+                theme,
             ));
         }
         if show_close {
@@ -985,6 +1065,7 @@ impl QuickAccessBar {
                 merged_style(&part_window_button, &part_close_button),
                 &style,
                 or_default(on_close, titlebar::callbacks::csd_close),
+                theme,
             ));
         }
 
@@ -1010,7 +1091,10 @@ impl QuickAccessBar {
         };
 
         Dom::create_div()
-            .with_ids_and_classes(IdOrClassVec::from_const_slice(CLS_QAB))
+            .with_ids_and_classes(IdOrClassVec::from_vec(vec![
+                CLS_QAB[0].clone(),
+                style_kit::marker(theme),
+            ]))
             .with_css_props(bar_style)
             .with_children(DomVec::from_vec(children))
     }
@@ -1034,35 +1118,35 @@ fn merged_style(
     base: &CssPropertyWithConditionsVec,
     extra: &CssPropertyWithConditionsVec,
 ) -> CssPropertyWithConditionsVec {
-    if extra.as_ref().is_empty() {
-        return base.clone();
-    }
-    let mut v: Vec<Cond> = base.as_ref().to_vec();
-    v.extend_from_slice(extra.as_ref());
-    CssPropertyWithConditionsVec::from_vec(v)
+    crate::widgets::themes::theme_blocks::stack_parts(base, extra)
 }
 
 /// Expands one action to the existing [`Button`] widget with the given
-/// container style injected.
+/// container style injected, built in the band's theme: the button is part
+/// of the band's look.
 fn action_button(
     action: QuickAccessAction,
     container: &CssPropertyWithConditionsVec,
     style: &QuickAccessStyle,
+    theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.icon = action.icon;
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container.clone());
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_action_icon_style());
     b.on_click = action.on_click;
+    b.set_theme(theme);
     b.dom()
 }
 
+/// One window control, built in the band's theme (see [`action_button`]).
 fn window_button(
     icon: AzString,
     icon_dom: OptionDom,
     container: CssPropertyWithConditionsVec,
     style: &QuickAccessStyle,
     on_click: OptionButtonOnClick,
+    theme: UiTheme,
 ) -> Dom {
     let mut b = Button::create(AzString::from_const_str(""));
     b.icon = icon;
@@ -1070,6 +1154,7 @@ fn window_button(
     b.container_style = OptionCssPropertyWithConditionsVec::Some(container);
     b.icon_style = OptionCssPropertyWithConditionsVec::Some(style.resolved_window_icon_style());
     b.on_click = on_click;
+    b.set_theme(theme);
     b.dom()
 }
 
@@ -1428,5 +1513,181 @@ mod tests {
             Class(s) => s.as_str().contains("quick-access-leading"),
             IdOrClass::Id(_) => false,
         }));
+    }
+}
+
+/// The title band's flora look (W5a): flora's recessed desk band, the title
+/// in flora's intro ink, keys that are bare paper until the pointer lifts
+/// them, a close key that warms to clay - on exactly the flat band's metrics.
+#[cfg(test)]
+mod flora_tests {
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
+        props::property::CssPropertyType,
+    };
+
+    use super::*;
+    use crate::widgets::themes::{flora, theme_checks as tc};
+
+    /// The Office band: save / undo / redo, the customize chevron, the
+    /// title, help, and the three window controls.
+    fn band(theme: UiTheme) -> Dom {
+        QuickAccessBar::office_2013(AzString::from("Document1 - AzWriter"))
+            .with_theme(theme)
+            .dom()
+    }
+
+    /// `node`'s background in the light or dark mode and `state` (`None`: at
+    /// rest), as its layers.
+    fn face(node: &Dom, dark: bool, state: Option<PseudoStateType>) -> Vec<StyleBackgroundContent> {
+        tc::resolve(node, CssPropertyType::BackgroundContent, dark, state)
+            .map(|p| tc::bg_layers(&p))
+            .unwrap_or_default()
+    }
+
+    fn fill(color: ColorU) -> Vec<StyleBackgroundContent> {
+        vec![StyleBackgroundContent::Color(color)]
+    }
+
+    /// The band's keys in tree order: save, undo, redo, help, minimize,
+    /// maximize, close.
+    fn keys(dom: &Dom) -> Vec<&Dom> {
+        tc::find_all(dom, "__azul-native-button")
+    }
+
+    #[test]
+    fn a_flora_title_band_is_flora_s_recessed_desk_with_the_title_in_intro_ink() {
+        let dom = band(UiTheme::Flora);
+        let title = tc::find(&dom, "__azul-native-quick-access-title").expect("a title");
+        for (dark, desk, intro) in [
+            (false, flora::LIGHT_DESK, flora::LIGHT_INTRO),
+            (true, flora::DARK_DESK, flora::DARK_INTRO),
+        ] {
+            assert_eq!(face(&dom, dark, None), fill(desk), "the band (dark: {dark})");
+            assert_eq!(tc::text_color(title, dark), Some(intro), "the title (dark: {dark})");
+        }
+    }
+
+    #[test]
+    fn flora_band_keys_are_bare_paper_that_lift_under_the_pointer_and_ring_on_focus() {
+        let dom = band(UiTheme::Flora);
+        let keys = keys(&dom);
+        assert_eq!(keys.len(), 7);
+        let save_glyph = &keys[0].children.as_ref()[0];
+        for (dark, hover, icon) in [
+            (false, flora::HOVER_FACE_LIGHT, flora::LIGHT_ICON),
+            (true, flora::HOVER_FACE_DARK, flora::DARK_ICON),
+        ] {
+            assert_eq!(tc::text_color(save_glyph, dark), Some(icon), "glyph ink (dark: {dark})");
+            for key in &keys[..6] {
+                assert_eq!(face(key, dark, None), fill(ColorU::TRANSPARENT));
+                assert_eq!(face(key, dark, Some(PseudoStateType::Hover)), vec![hover.clone()]);
+            }
+            for key in &keys {
+                assert!(tc::has_focus_ring(key, dark), "every key is ringed (dark: {dark})");
+            }
+        }
+    }
+
+    #[test]
+    fn the_flora_close_key_warms_to_clay_under_the_pointer() {
+        let dom = band(UiTheme::Flora);
+        let close = *keys(&dom).last().expect("a close key");
+        assert_eq!(face(close, false, None), fill(ColorU::TRANSPARENT));
+        assert_eq!(
+            face(close, false, Some(PseudoStateType::Hover)),
+            fill(flora::STONE_CLAY.soft),
+            "clay's soft wash by day"
+        );
+        assert_eq!(
+            face(close, true, Some(PseudoStateType::Hover)),
+            fill(flora::STONE_CLAY.deep),
+            "clay's deep by night"
+        );
+    }
+
+    #[test]
+    fn the_flora_title_band_keeps_every_theme_invariant() {
+        tc::assert_theme_invariants("flora quick access band", &band(UiTheme::Flora));
+    }
+
+    /// Flora repaints the band; it does not re-measure it (the 28px band and
+    /// the 34px window controls are the flat band's numbers).
+    #[test]
+    fn a_flora_title_band_keeps_every_metric_of_the_flat_one() {
+        let moved = flora::chrome_metric_findings(&band(UiTheme::Flat), &band(UiTheme::Flora));
+        assert!(moved.is_empty(), "the flora band moves:\n  {}", moved.join("\n  "));
+    }
+
+    #[test]
+    fn a_pinned_title_band_builds_its_keys_in_its_theme() {
+        for theme in [UiTheme::Flat, UiTheme::Flora] {
+            let marker = match theme {
+                UiTheme::Flat => style_kit::FLAT_CLASS,
+                UiTheme::Flora => style_kit::FLORA_CLASS,
+            };
+            let dom = band(theme);
+            assert!(tc::has_class(&dom, marker), "the root carries its theme marker");
+            for key in keys(&dom) {
+                assert!(tc::has_class(key, marker), "a key is built in the band's theme");
+            }
+            // An unpinned key would carry every theme's `@theme(<name>)`
+            // block: a pinned band carries none anywhere.
+            let mut blocks = Vec::new();
+            for (path, n) in tc::nodes(&dom) {
+                for (_, conds) in n.root.style.iter_inline_properties() {
+                    let in_block = conds
+                        .as_ref()
+                        .iter()
+                        .any(|c| matches!(c, DynamicSelector::Theme(ThemeCondition::Custom(_))));
+                    if in_block {
+                        blocks.push(path.clone());
+                    }
+                }
+            }
+            assert!(blocks.is_empty(), "{theme:?}: theme blocks at {blocks:?}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod base_and_skin_tests {
+    //! R5: the title band's structure is its base - the flat part's geometry,
+    //! which the flora look keeps (`themes::flora::quick_access_style`) -
+    //! declared once for every app theme, never inside a `@theme(<name>)`
+    //! block.
+
+    use azul_core::dom::Dom;
+    use azul_css::AzString;
+
+    use super::QuickAccessBar;
+    use crate::widgets::themes::{
+        theme_blocks::checks::{under, BOTH},
+        theme_checks::assert_structure_is_shared,
+    };
+
+    #[test]
+    fn a_quick_access_band_declares_its_structure_once_for_every_theme() {
+        let title = || AzString::from("Document1 - AzWriter");
+        for t in BOTH {
+            // The Office band (actions, chevron, help, window keys), a bare
+            // band (title and window keys), and one with leading content.
+            let bands = [
+                ("office", QuickAccessBar::office_2013(title())),
+                ("bare", QuickAccessBar::new(title())),
+                (
+                    "leading",
+                    QuickAccessBar::office_2013(title()).with_leading(Dom::create_div()),
+                ),
+            ];
+            for (name, band) in bands {
+                let dom = under(t, || band.dom());
+                assert_structure_is_shared(
+                    &format!("quick access band ({name}) built for {}", t.name()),
+                    &dom,
+                    &[],
+                );
+            }
+        }
     }
 }

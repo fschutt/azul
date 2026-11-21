@@ -1,0 +1,3 @@
+fn main() {
+    azdashboard::start();
+}

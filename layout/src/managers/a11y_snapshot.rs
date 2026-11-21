@@ -75,6 +75,9 @@ pub struct A11yElement {
     pub children: Vec<usize>,
     /// What a screen reader announces. Empty when the node has no name.
     pub label: String,
+    /// Extra context read after the name (`UIKit`'s `accessibilityHint`): the
+    /// declared description, else a `title` that does not name the node.
+    pub description: Option<String>,
     /// The editable / current value, for inputs and contenteditable nodes.
     pub value: Option<String>,
     /// Element purpose.
@@ -120,6 +123,10 @@ pub struct A11ySnapshot {
     /// Window size in logical units, so a bridge can convert without also
     /// needing the window state.
     pub window_size: LogicalSize,
+    /// The language the window's text is in (BCP 47; empty when unknown):
+    /// `UIKit`'s `accessibilityLanguage` of every element, the voice `VoiceOver`
+    /// reads it with. Set by `LayoutWindow::build_a11y_snapshot`.
+    pub language: String,
 }
 
 impl A11ySnapshot {
@@ -146,6 +153,7 @@ impl A11ySnapshot {
         focused_node: Option<DomNodeId>,
         title: &str,
         window_size: LogicalSize,
+        translate: Option<crate::managers::a11y::A11yTranslate<'_>>,
     ) -> Self {
         let mut elements: Vec<A11yElement> = Vec::new();
         let mut roots: Vec<usize> = Vec::new();
@@ -159,9 +167,15 @@ impl A11ySnapshot {
             let styled_dom = &layout_result.styled_dom;
             let node_data_slice = styled_dom.node_data.as_ref();
             let node_hierarchy = styled_dom.node_hierarchy.as_ref();
+            let rendered = crate::managers::a11y::rendered_nodes(layout_result);
+            let hidden = crate::managers::a11y::hidden_from_assistive_technology(layout_result);
+            let labels = crate::managers::a11y::label_texts(node_data_slice, node_hierarchy);
 
             for (dom_idx, node_data) in node_data_slice.iter().enumerate() {
-                if !is_exposed_to_accessibility(node_data) {
+                if !rendered.get(dom_idx).copied().unwrap_or(true)
+                    || hidden.get(dom_idx).copied().unwrap_or(false)
+                    || !is_exposed_to_accessibility(node_data)
+                {
                     continue;
                 }
                 let node_id = NodeId::new(dom_idx);
@@ -185,33 +199,32 @@ impl A11ySnapshot {
                 let editable = node_data.is_contenteditable()
                     || matches!(node_data.node_type, NodeType::TextArea | NodeType::Input);
 
-                let mut label = String::new();
-                let mut value: Option<String> = None;
-
-                if let Some(info) = node_data.get_accessibility_info() {
-                    if let Some(name) = info.accessibility_name.as_option() {
-                        label = name.as_str().to_string();
+                // The accesskit tree's precedence, translated the same way
+                // (`A11yManager::declared_strings`): a declared name or a
+                // label's, else the node's text, else its title.
+                let mut declared = crate::managers::a11y::A11yManager::declared_strings(
+                    node_data,
+                    translate,
+                    labels.get(&dom_idx).map(String::as_str),
+                );
+                let own_text = match &node_data.node_type {
+                    NodeType::Text(text) => Some(text.as_str().to_string()),
+                    _ if !editable
+                        && !has_non_text_children
+                        && !child_text.trim().is_empty() =>
+                    {
+                        Some(child_text.clone())
                     }
-                    if let Some(v) = info.accessibility_value.as_option() {
-                        value = Some(v.as_str().to_string());
-                    }
-                }
-                if let Some(l) = node_data.get_accessible_label() {
-                    label = l.to_string();
-                }
-                if let Some(v) = node_data.get_accessible_value() {
-                    value = Some(v.to_string());
-                }
-                if let NodeType::Text(text) = &node_data.node_type {
-                    label = text.as_str().to_string();
-                }
-                if !child_text.is_empty() {
-                    if editable {
-                        value = Some(child_text);
-                    } else if !has_non_text_children && label.is_empty() {
-                        label = child_text;
-                    }
-                }
+                    _ => None,
+                };
+                declared.resolve_title(own_text.is_some());
+                let label = declared.name.take().or(own_text).unwrap_or_default();
+                let description = declared.description.take();
+                let value = if editable && !child_text.is_empty() {
+                    Some(child_text)
+                } else {
+                    declared.value.take()
+                };
 
                 // A DECLARED role wins; `Unknown` is the default that means
                 // "not specified" and must not erase the element's own kind.
@@ -256,6 +269,7 @@ impl A11ySnapshot {
                     parent: None,
                     children: Vec::new(),
                     label,
+                    description,
                     value,
                     role,
                     bounds,
@@ -319,6 +333,7 @@ impl A11ySnapshot {
             elements,
             roots,
             window_size,
+            language: String::new(),
         }
     }
 
@@ -427,13 +442,7 @@ fn element_bounds(
         layout_idx.index(),
         local,
         &|d, n| scroll_manager.get_current_offset(d, n),
-        &|d, n| {
-            gpu_state
-                .caches
-                .get(&d)
-                .and_then(|c| c.css_current_transform_values.get(&n))
-                .copied()
-        },
+        &|d, n| gpu_state.painted_transform_of(d, n),
     );
 
     let clamp = |v: f32, max: f32| v.max(0.0).min(max);

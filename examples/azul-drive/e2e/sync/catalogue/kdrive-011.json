@@ -1,0 +1,58 @@
+[
+  {
+    "name": "a file in the root that is a hard link of a file outside: a download replaces the name, never writes into the shared file",
+    "description": "KDRIVE-011 (kDrive): hardlinked files in the sync folder made errors until kDrive refused them entirely. Rule S4: a download renames over the name, so a hard link of a file outside the root never carries a remote write out; the link is listed (hardlink). sync-chaos sec-hardlink-outside.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_hardlink", "device": "a", "path": "linked.txt", "target": "{outside}/target.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "b", "path": "linked.txt", "text": "edited on b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "linked.txt", "text": "edited on b" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "hardlink", "key": "linked.txt" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "two hard-linked names inside the root sync as independent files; a later edit through one is never lost and never loops",
+    "description": "KDRIVE-011 (kDrive), the catalogue's repro: ln a.bin b.bin inside the root, then edits. Rules S4 and D4: hard links inside the root are independent files on the drive; an edit through one name goes up, a remote edit of the other replaces only that name; the passes settle.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a.bin", "size": 10000, "seed": 1 },
+      { "op": "drive_hardlink", "device": "a", "path": "b.bin", "target": "a.bin" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 2 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "b.bin", "same_as": "{root:a}/a.bin" },
+      { "op": "drive_overwrite_in_place", "device": "a", "path": "a.bin", "size": 10000, "seed": 2 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "a.bin", "same_as": "{root:a}/a.bin" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "b.bin", "same_as": "{root:a}/b.bin" },
+      { "op": "drive_write", "device": "b", "path": "b.bin", "size": 10000, "seed": 3 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "b.bin", "same_as": "{root:b}/b.bin" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "a.bin", "same_as": "{root:b}/a.bin" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

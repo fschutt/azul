@@ -1,0 +1,31 @@
+{
+  "name": "a cloud-only file edited elsewhere takes the new size and time without being downloaded",
+  "description": "SYNCCOM-019 (Sync.com): a cloud-only placeholder kept a wrong modified date after a web edit. Rules P13/P6: a cloud-only file's size and mtime follow the drive's version, it stays cloud-only.",
+  "pending": "an encrypted drive keeps no file's modification time: a drive synced by name has no way to send one (Drive::put takes none) and lists only the upload's second (ObjectInfo.modified), so the named sync sets mtime_ns 0 and a download gets the download time. It needs a time in the put calls, the pointer and the listing (P6/P12 on encrypted drives)",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "report.txt", "text": "first", "mtime": 1767225600000000000 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_evict", "device": "b", "path": "report.txt" },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files[\"report.txt\"].cloud_only", "equals": true },
+    { "op": "drive_write", "device": "a", "path": "report.txt", "text": "edited later on a", "mtime": 1769904000000000000 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files[\"report.txt\"].cloud_only", "equals": true },
+    { "op": "assert_response", "path": "result.files[\"report.txt\"].size", "equals": 17 },
+    { "op": "drive_base", "device": "b" },
+    { "op": "assert_response", "path": "result.entries[\"report.txt\"].size", "equals": 17 },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files[\"report.txt\"].modified", "equals": 1769904000 },
+    { "op": "drive_cleanup" }
+  ]
+}

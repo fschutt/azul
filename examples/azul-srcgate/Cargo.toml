@@ -1,0 +1,21 @@
+[package]
+name = "azul-srcgate"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    The source-gate kit of azul's apps: a small Rust lexer (comments blanked, `#[cfg(test)]`
+    items blanked, string literals resolved), the files a build compiles under a crate's roots,
+    finders for calls, identifiers, macros and string literals, and a Budget of counted
+    allowances. A gate is a test that reads the code and fails when a rule is broken where it
+    must not be; it never runs the code it reads. Dev only: nothing depends on it.
+"""
+publish = false
+
+# No dependencies: it reads source text, it does not parse Rust.
+[dependencies]
+
+[lib]
+name = "azul_srcgate"
+path = "src/lib.rs"

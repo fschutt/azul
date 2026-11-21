@@ -26,7 +26,7 @@
 //! (`RemoveChildren [s, e)` ⇄ `InsertChildren` of the removed fragment).
 
 use azul_core::dom::{Dom, NodeType};
-use azul_css::{impl_result, impl_result_inner};
+use azul_css::impl_result;
 
 use crate::managers::changeset::{
     DocOpInsertChildren, DocOpMergeNodes, DocOpRemoveChildren, DocOpReplaceChildren,

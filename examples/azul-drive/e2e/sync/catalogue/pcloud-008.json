@@ -1,0 +1,53 @@
+[
+  {
+    "name": "a small saved file is on the drive seconds after the save, so a second machine edits the new version without a conflict",
+    "description": "PCLOUD-008 (pCloud): the client waited 4-5 minutes before uploading a saved file; a shutdown or an edit elsewhere in that window made conflicts. Rules A6/C3: the settle period is 2 seconds; repeated edits never conflict.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r", "settle_ms": 2000 },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "notes.txt", "text": "v1" },
+      { "op": "wait", "ms": 2500, "real": true },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 10000 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "notes.txt", "text": "edited, then the lid closes" },
+      { "op": "wait", "ms": 2500, "real": true },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 10000 },
+      { "op": "assert_response", "path": "result.up", "equals": 1 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "notes.txt", "text": "edited, then the lid closes" },
+      { "op": "drive_write", "device": "b", "path": "notes.txt", "text": "edited on the second machine" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "notes.txt", "text": "edited on the second machine" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "notes.txt", "count": 0 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "notes.txt", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a save just before the app quits or the machine sleeps is sent first (or the quit says why)",
+    "description": "PCLOUD-008 (pCloud): users set a 6-minute timer before shutting down. Rules A2/E2: a pending change is flushed at quit, and a pass follows a save within seconds without the user asking.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r", "settle_ms": 2000 },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_watch", "device": "a", "on": true },
+      { "op": "drive_write", "device": "a", "path": "notes.txt", "text": "saved 30 s before shutdown" },
+      { "op": "drive_wait_auto", "device": "a", "within_ms": 10000 },
+      { "op": "drive_write", "device": "a", "path": "notes2.txt", "text": "saved right before quit" },
+      { "op": "drive_quit", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "notes.txt", "text": "saved 30 s before shutdown" },
+      { "op": "drive_check", "check": "remote_file", "key": "notes2.txt", "text": "saved right before quit" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

@@ -1,0 +1,29 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Container height calculation with fractional line height and fractional child height</title>
+<style>
+  .container { float:left; overflow:auto; width:50px; }
+  .container &gt; span { display:inline-block; width:10px; }
+</style>
+</head>
+<body><p>There should be nothing below.</p>
+
+
+
+<div class="container" style="line-height:19.75px;">
+  <span style="height:100.25px;"></span>
+</div>
+
+<div class="container" style="line-height:19.75px;">
+  <span style="height:100.75px;"></span>
+</div>
+
+<div class="container" style="line-height:19.25px;">
+  <span style="height:100.25px;"></span>
+</div>
+
+<div class="container" style="line-height:19.25px;">
+  <span style="height:100.75px;"></span>
+</div>
+</body>
+</html>

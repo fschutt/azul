@@ -1,0 +1,60 @@
+[
+  {
+    "name": "a link to ../../ or to the home folder in a shared folder is never followed and never sends anything",
+    "description": "ICLOUD-012 (sync-chaos sec-remote-link-objects, local side): Files.app followed a shared 'contarct.pdf' -> ../../ and sent the victim's whole iCloud Drive. Rule S1: links are inert; with the default they are listed (symlink-skipped), never followed, nothing behind them goes up.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "shared/doc.txt", "text": "a real document" },
+      { "op": "drive_symlink", "device": "a", "path": "shared/contarct.pdf", "target": "../../" },
+      { "op": "drive_symlink", "device": "a", "path": "shared/escape.pdf", "target": "../../../../outside" },
+      { "op": "drive_symlink", "device": "a", "path": "shared/abs.pdf", "target": "{outside}" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_never_has" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "shared/contarct.pdf" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "symlink-skipped", "key": "shared/escape.pdf" },
+      { "op": "drive_check", "check": "remote_count", "glob": "shared/*", "count": 1 },
+      { "op": "drive_check", "check": "link", "device": "b", "path": "shared/contarct.pdf", "absent": true },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "shared/doc.txt", "text": "a real document" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "links made by another device: one leaving the root is never created, nothing is written through one",
+    "description": "ICLOUD-012 (sync-chaos sec-remote-link-objects): rules S2, S1 and M1: a remote link pointing out of the root (../../, absolute, /etc) is refused (link-refused); a remote file under a link is refused (through-link).",
+    "pending": "the sync keeps no links yet (MISS25-A): the engine needs link entries in the drive's index (a RemoteFile of kind 'link' with its relative target, behind an index feature 'links' so an older version leaves them alone), a scan that takes a relative link whose target stays inside the folder as such an entry under the pairing's link policy (SyncSetup.links: skip | in-root), the merge comparing a link by its target, and a download that makes the link through beneath (never through another link, refusing a target that leaves the folder); then drive_pair links: in-root and drive_tamper put kind: link (group B) drive it",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "d", "remote": "r2" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "d", "path": "docs/a.txt", "text": "doc" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "escape1", "kind": "link", "target": "../../../outside/.ssh" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "escape2", "kind": "link", "target": "{outside}/.ssh" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "etc", "kind": "link", "target": "/etc" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "escape2/authorized_keys", "text": "ssh-ed25519 AAAA-the-attackers-key" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "docs-alias", "kind": "link", "target": "docs" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "docs-alias/planted.txt", "text": "through a link" },
+      { "op": "drive_sync", "device": "d", "expect": "any" },
+      { "op": "drive_sync", "device": "d", "expect": "any" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "link", "device": "d", "path": "escape1", "absent": true },
+      { "op": "drive_check", "check": "link", "device": "d", "path": "escape2", "absent": true },
+      { "op": "drive_check", "check": "link", "device": "d", "path": "etc", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "link-refused", "key": "escape1" },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "link-refused", "key": "escape2" },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "link-refused", "key": "etc" },
+      { "op": "drive_check", "check": "link", "device": "d", "path": "docs-alias" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "docs/planted.txt", "absent": true },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "through-link", "key": "docs-alias/planted.txt" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

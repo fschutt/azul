@@ -1,0 +1,77 @@
+{
+  "contract": 4,
+  "family": "link_options",
+  "section": "5.12",
+  "tables": [
+    {
+      "name": "strengths",
+      "header": ["name"],
+      "rows": [
+        ["key"],
+        ["server"],
+        ["app"]
+      ]
+    },
+    {
+      "name": "groups",
+      "header": ["name"],
+      "rows": [
+        ["who"],
+        ["what"],
+        ["when"],
+        ["how much"],
+        ["rights"],
+        ["telling the sharer"],
+        ["presentation"]
+      ]
+    },
+    {
+      "name": "options",
+      "header": ["group", "options", "kind", "strength"],
+      "rows": [
+        ["who", "audience", "each", "key + server"],
+        ["who", "password", "each", "key + server"],
+        ["who", "app_only", "each", "app"],
+        ["what", "kind", "each", "key"],
+        ["what", "subfolders", "each", "key"],
+        ["when", "not_before, expires_at", "each", "server"],
+        ["when", "expires_after_open", "each", "server"],
+        ["when", "idle_expiry", "each", "server"],
+        ["when", "one_time", "each", "server"],
+        ["how much", "max_downloads, bytes_cap", "each", "server"],
+        ["how much", "max_devices", "each", "server"],
+        ["rights", "download, preview_only", "choice", "app"],
+        ["rights", "allow_upload", "each", "key + server"],
+        ["rights", "edit", "each", "key + server"],
+        ["rights", "comment", "each", "server"],
+        ["rights", "allow_reshare", "each", "app"],
+        ["rights", "watermark", "each", "app"],
+        ["telling the sharer", "notify", "each", "server"],
+        ["telling the sharer", "open_log", "each", "server"],
+        ["presentation", "title, message", "each", "key"],
+        ["presentation", "slug", "each", "server"]
+      ]
+    },
+    {
+      "name": "values",
+      "header": ["option", "values"],
+      "rows": [
+        ["audience", "anyone, signed_in, members, people, approval"],
+        ["kind", "file, selection, folder_snapshot, folder_live, version"],
+        ["rights", "download, preview_only"],
+        ["notify", "never, first_open, every_open"]
+      ]
+    },
+    {
+      "name": "audience_strengths",
+      "header": ["audience", "strength"],
+      "rows": [
+        ["anyone", "key"],
+        ["signed_in", "server"],
+        ["members", "server"],
+        ["people", "key"],
+        ["approval", "key"]
+      ]
+    }
+  ]
+}

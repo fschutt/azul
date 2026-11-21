@@ -119,13 +119,17 @@ fn window_with_pending_edit() -> LayoutWindow {
     lw.current_window_state = window_state;
     re_render(&mut lw);
 
-    let ok = lw.set_cross_block_selection(
-        DomId::ROOT_ID,
-        NodeId::new(1),
-        cursor(6),
-        NodeId::new(3),
-        cursor(6),
-    );
+    let block = |lw: &LayoutWindow, n: usize| {
+        lw.text_block_of(azul_core::dom::DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(
+                NodeId::new(n),
+            )),
+        })
+        .expect("a paragraph is a text block")
+    };
+    let (anchor, focus) = (block(&lw, 1), block(&lw, 3));
+    let ok = lw.set_cross_block_selection(anchor, cursor(6), focus, cursor(6));
     assert!(ok, "selection must be accepted");
     lw.delete_cross_block_selection()
         .expect("cross-block delete records a changeset");

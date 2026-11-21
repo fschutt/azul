@@ -117,6 +117,53 @@ See the [Observability Guide](../deploying/observability.md) for how to monitor 
 and Grafana for live errors (which would show you the `azul.Bind` errors) - additionally, you can write 
 unit tests with coverage to make sure no downcast errors happen and that `stdout` is clean of warnings.
 
+### Missing values and errors in callbacks
+
+An optional parameter takes `nil` for "none" (or a pointer to the value); an 
+optional return value or field gives `(value, ok)`; a call that can fail gives 
+`(value, err)` with an `*azul.AzulError` holding the API's error value. A resume 
+callback (a file dialog's answer) is a plain Go function too: `azul.Bind3` adapts 
+`func(*Model, *azul.CallbackInfo, any) azul.Update`, and its last argument goes 
+straight into the matching `Downcast`.
+
+A folder picker. Before, the start folder was an `AzOptionString`, the callback 
+had to be a `*azul.ResumeCallback` with no way to build one from a Go function, 
+the downcast returned a raw `AzOptionFileOpenResult`, and the result arrived as 
+`nil`:
+
+```go
+azul.FileDialogOpenDirectory(azul.Str("Choose a folder"), azul.AzOptionString_None(), m, /* ? */)
+```
+
+Now:
+
+```go
+func onChooseFolder(m *model, _ *azul.CallbackInfo) azul.Update {
+	azul.FileDialogOpenDirectory(azul.Str("Choose a folder"), nil, m, azul.Bind3(onPickFolder))
+	return azul.Update_DoNothing
+}
+
+func onPickFolder(m *model, _ *azul.CallbackInfo, result any) azul.Update {
+	picked, ok := azul.FileOpenResultDowncast(result)
+	if !ok {
+		return azul.Update_DoNothing
+	}
+	path, ok := picked.Path()
+	if !ok {
+		return azul.Update_DoNothing // cancelled
+	}
+	m.Folder = path.GetInner()
+	return azul.Update_RefreshDom
+}
+
+func onOpenLink(m *model, _ *azul.CallbackInfo) azul.Update {
+	if _, err := azul.UrlParse(azul.Str(m.Link)); err != nil {
+		return azul.Update_DoNothing
+	}
+	return azul.Update_RefreshDom
+}
+```
+
 ### Build and run
 
 ```sh

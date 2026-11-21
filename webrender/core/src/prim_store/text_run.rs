@@ -223,6 +223,42 @@ pub struct TextRunPrimitive {
     pub requested_raster_space: RasterSpace,
 }
 
+/// How the glyphs of a run under `transform` are rasterised and placed:
+/// (subpixel AA may be used, the glyphs are rasterised UNDER the transform,
+/// the glyph buffers get texture padding, the font is over the size limit).
+///
+/// The second is always `false` here. Upstream asks its rasterisers (FreeType,
+/// CoreText, DirectWrite) for glyphs under any 2D transform that is more than
+/// a translation and keeps them by that transform. This fork's rasteriser
+/// (`wr_azul_glyph_rasterizer::FontContext::rasterize_glyph`) draws a glyph at
+/// the font's size alone - it reads no transform and only ever returns
+/// `GlyphFormat::Alpha` - and the text shader then draws that upright bitmap
+/// through the transform (the path without `GLYPH_TRANSFORM`, chosen by the
+/// glyph's format). Asking for transformed glyphs all the same changed nothing
+/// of the picture and cost three things (azul audit A4-02): the glyph cache is
+/// keyed by the font instance WITH its transform, so every new scale of a
+/// zoomed view rasterised and uploaded every glyph on screen again, the same
+/// bitmaps as before; every turned label, whose matrix is its own, kept a set
+/// of glyphs of its own; and the batcher computed the bounds of such a run as
+/// if its bitmaps were placed upright in device space (`batch.rs`,
+/// `TRANSFORM_GLYPHS`), which is not where the shader draws them.
+fn glyph_raster_mode(
+    raster_space: RasterSpace,
+    transform: &LayoutToWorldTransform,
+    device_font_size: f32,
+) -> (bool, bool, bool, bool) {
+    if raster_space != RasterSpace::Screen
+        || transform.has_perspective_component()
+        || !transform.has_2d_inverse()
+    {
+        (false, false, true, device_font_size > FONT_SIZE_LIMIT)
+    } else if transform.exceeds_2d_scale((FONT_SIZE_LIMIT / device_font_size) as f64) {
+        (false, false, true, true)
+    } else {
+        (true, false, false, false)
+    }
+}
+
 impl TextRunPrimitive {
     pub fn update_font_instance(
         &mut self,
@@ -257,17 +293,8 @@ impl TextRunPrimitive {
         // Only support transforms that can be coerced to simple 2D transforms.
         // Add texture padding to the rasterized glyph buffer when one anticipates
         // the glyph will need to be scaled when rendered.
-        let (use_subpixel_aa, transform_glyphs, texture_padding, oversized) = if raster_space
-            != RasterSpace::Screen
-            || transform.has_perspective_component()
-            || !transform.has_2d_inverse()
-        {
-            (false, false, true, device_font_size > FONT_SIZE_LIMIT)
-        } else if transform.exceeds_2d_scale((FONT_SIZE_LIMIT / device_font_size) as f64) {
-            (false, false, true, true)
-        } else {
-            (true, !transform.is_simple_2d_translation(), false, false)
-        };
+        let (use_subpixel_aa, transform_glyphs, texture_padding, oversized) =
+            glyph_raster_mode(raster_space, transform, device_font_size);
 
         let font_transform = if transform_glyphs {
             // Get the font transform matrix (skew / scale) from the complete transform.
@@ -304,7 +331,14 @@ impl TextRunPrimitive {
         // snap offsets to adjust its clip). These rects are fairly conservative
         // to begin with and do not appear to be causing significant issues at
         // this time.
-        self.snapped_reference_frame_relative_offset = if transform_glyphs {
+        // A run the shader draws through a scale or a rotation keeps its
+        // offset as it is, as it did while such a run asked for transformed
+        // glyphs (`glyph_raster_mode`): only what the glyphs are kept by has
+        // changed, not where they are drawn.
+        let drawn_through_transform = use_subpixel_aa && !transform.is_simple_2d_translation();
+        self.snapped_reference_frame_relative_offset = if transform_glyphs
+            || drawn_through_transform
+        {
             // Don't touch the reference frame relative offset. We'll let the
             // shader do the snapping in device pixels.
             self.reference_frame_relative_offset
@@ -494,4 +528,53 @@ fn test_struct_sizes() {
         80,
         "TextRunPrimitive size changed"
     );
+}
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! A4-02: a run under a scale or a rotation is rasterised like a run that
+    //! is only moved - its glyphs are the same glyph cache entries.
+    use api::{units::LayoutToWorldTransform, RasterSpace};
+    use euclid::Angle;
+
+    use super::glyph_raster_mode;
+
+    #[test]
+    fn no_2d_transform_asks_for_glyphs_rasterised_under_it() {
+        let moved = LayoutToWorldTransform::translation(12.5, -3.0, 0.0);
+        let plain = glyph_raster_mode(RasterSpace::Screen, &moved, 14.0);
+        assert_eq!(plain, (true, false, false, false));
+
+        let mut steps = vec![LayoutToWorldTransform::identity()];
+        // The steps of a zoom, a turned label, a turned label in a zoomed view.
+        for k in [1.02f32, 1.04, 1.414, 2.0, 0.7] {
+            steps.push(LayoutToWorldTransform::scale(k, k, 1.0));
+        }
+        steps.push(LayoutToWorldTransform::rotation(0.0, 0.0, 1.0, Angle::degrees(37.0)));
+        steps.push(
+            LayoutToWorldTransform::rotation(0.0, 0.0, 1.0, Angle::degrees(-12.0))
+                .pre_scale(1.3, 1.3, 1.0),
+        );
+        for transform in &steps {
+            assert_eq!(
+                glyph_raster_mode(RasterSpace::Screen, transform, 14.0),
+                plain,
+                "{transform:?}: the mode of a run that is only moved, so the same font instance \
+                 and the same glyphs (mutant: `!transform.is_simple_2d_translation()` asks for \
+                 glyphs under each of these)"
+            );
+        }
+
+        // What needed another mode before still gets it.
+        assert_eq!(
+            glyph_raster_mode(RasterSpace::Local(2.0), &moved, 14.0),
+            (false, false, true, false)
+        );
+        let huge = LayoutToWorldTransform::scale(40.0, 40.0, 1.0);
+        assert_eq!(
+            glyph_raster_mode(RasterSpace::Screen, &huge, 14.0),
+            (false, false, true, true),
+            "a scale past the font size limit"
+        );
+    }
 }

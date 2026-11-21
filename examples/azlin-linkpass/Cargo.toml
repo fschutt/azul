@@ -1,0 +1,19 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2): the FINAL manifest. Lanes never edit it: a missing dependency is a drift row.
+# opaque-ke is NOT here yet (approval A2, D-W1 point 2): the coordinator's dependency commit adds the line (pinned with =).
+
+[package]
+name = "azlin-linkpass"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin linkpass: link_login with OPAQUE and the guess ledger"
+publish = false
+
+[dependencies]
+azlin-seams = { path = "../azlin-seams" }
+argon2 = { version = "0.5.3", default-features = false, features = ["alloc", "zeroize"] }
+zeroize = "1.8"
+blake3 = "1.8"
+thiserror = "2"

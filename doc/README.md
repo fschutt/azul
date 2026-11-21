@@ -780,7 +780,7 @@ Key layout source files reviewed by spec agents:
 
 ```
 layout/src/solver3/
-├── fc.rs           # Formatting context solver (BFC, IFC, floats)
+├── fc/             # Formatting context solver (BFC, IFC, floats, tables, flex/grid)
 ├── sizing.rs       # Width/height calculation (CSS 2.2 §10.3/§10.6)
 ├── positioning.rs  # Absolute/relative positioning
 ├── geometry.rs     # Box model geometry structs
@@ -790,7 +790,7 @@ layout/src/solver3/
 └── taffy_bridge.rs # Flexbox integration
 
 layout/src/text3/
-├── cache.rs        # Text layout cache, constraint builder
+├── cache/          # Text layout cache, constraint builder
 ├── knuth_plass.rs  # Knuth-Plass line breaking algorithm
 └── glyphs.rs       # Glyph metrics, line height
 ```

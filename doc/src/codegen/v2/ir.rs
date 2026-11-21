@@ -4,7 +4,7 @@
 //! API surface in a language-agnostic way. The IR is built from api.json
 //! and then consumed by language-specific generators.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use indexmap::IndexMap;
 
@@ -94,6 +94,60 @@ impl CodegenIR {
     /// Find an enum by name
     pub fn find_enum(&self, name: &str) -> Option<&EnumDef> {
         self.enums.iter().find(|e| e.name == name)
+    }
+
+    /// The `T` of an Option mirror (`None` + `Some(T)`), found by shape. Every
+    /// binding maps these to its own optional (`Maybe`, `T?`, `Optional`), in
+    /// both directions.
+    pub fn option_payload(&self, name: &str) -> Option<&str> {
+        let e = self.find_enum(name)?;
+        if !e.generic_params.is_empty() || !e.variants.iter().any(|v| v.name == "None") {
+            return None;
+        }
+        match &e.variants.iter().find(|v| v.name == "Some")?.kind {
+            EnumVariantKind::Tuple(types) if types.len() == 1 => Some(types[0].0.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The `(ok, err)` payloads of a Result mirror (`Ok` + `Err` and nothing
+    /// else), found by shape; a unit side is `None` (`ResultVoidString`'s `Ok`).
+    pub fn result_payloads(&self, name: &str) -> Option<(Option<&str>, Option<&str>)> {
+        let e = self.find_enum(name)?;
+        if !e.generic_params.is_empty() || e.variants.len() != 2 {
+            return None;
+        }
+        let side = |n: &str| -> Option<Option<&str>> {
+            match &e.variants.iter().find(|v| v.name == n)?.kind {
+                EnumVariantKind::Unit => Some(None),
+                EnumVariantKind::Tuple(types) if types.len() == 1 => Some(Some(types[0].0.as_str())),
+                _ => None,
+            }
+        };
+        Some((side("Ok")?, side("Err")?))
+    }
+
+    /// The unit enums a callback answers with (`Update`): the return type of
+    /// at least one callback typedef, every variant without a payload. Their
+    /// first variant is the engine's answer for a skipped callback, which is
+    /// what the bindings' "nothing to do" helpers answer as well.
+    pub fn callback_return_unit_enums(&self) -> Vec<&EnumDef> {
+        let returned: BTreeSet<&str> = self
+            .callback_typedefs
+            .iter()
+            .filter_map(|cb| cb.return_type.as_deref())
+            .map(str::trim)
+            .collect();
+        self.enums
+            .iter()
+            .filter(|e| returned.contains(e.name.as_str()))
+            .filter(|e| {
+                !e.is_union
+                    && e.generic_params.is_empty()
+                    && !e.variants.is_empty()
+                    && e.variants.iter().all(|v| matches!(v.kind, EnumVariantKind::Unit))
+            })
+            .collect()
     }
 
     /// Find a type alias by name
@@ -302,6 +356,28 @@ pub struct StructDef {
     /// - A field with a callback_typedef type (the function pointer)
     /// - A "callable" field with type "OptionRefAny" (storage for the callable)
     pub callback_wrapper_info: Option<CallbackWrapperInfo>,
+}
+
+/// Does a struct with these field names (in declaration order) have the
+/// field count of the FFI Vec layout?
+///
+/// The layout is `[ptr, len, cap, destructor]`, since 2026-09 followed by
+/// `flags: u8` - a per-value byte `impl_vec!` gives every Vec type (bit 0
+/// marks an `AzString` as a Fluent translation key). Both counts are
+/// accepted, the fifth field only under that name. This is the ONE place an
+/// emitter learns how many fields a Vec has; the field NAMES it relies on
+/// (`ptr`, `len`, ...) it still checks itself.
+#[must_use]
+pub fn is_vec_field_count<'a, I>(field_names: I) -> bool
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let names: Vec<&str> = field_names.into_iter().collect();
+    match names.len() {
+        4 => true,
+        5 => names[4] == "flags",
+        _ => false,
+    }
 }
 
 /// Information about a callback wrapper struct

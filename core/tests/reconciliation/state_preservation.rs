@@ -8,7 +8,10 @@
 // State is transferred via reconcile_dom → create_migration_map → transfer_states.
 
 use azul_core::{
-    diff::{create_migration_map, reconcile_dom, transfer_states, ChangeAccumulator},
+    diff::{
+        create_migration_map, reconcile_dom, transfer_states, ChangeAccumulator,
+        NodeIdentityConfig,
+    },
     dom::{DomId, NodeData},
     geom::LogicalRect,
     id::NodeId,
@@ -39,6 +42,7 @@ fn reconcile(old: &[NodeData], new: &[NodeData]) -> azul_core::diff::DiffResult 
         &new_layout,
         DomId { inner: 0 },
         Instant::now(),
+        NodeIdentityConfig::default(),
     )
 }
 

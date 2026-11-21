@@ -28,7 +28,7 @@ fn inline_css_scopes_to_subtree_no_leak() {
     let bg = |i: usize| {
         let id = NodeId::new(i);
         cache
-            .get_background_content(&nd[id], &id, &sn[id].styled_node_state)
+            .get_background_color(&nd[id], &id, &sn[id].styled_node_state)
             .cloned()
     };
 
@@ -82,7 +82,7 @@ fn parent_non_inherited_prop_does_not_leak_to_child() {
     let bg = |i: usize| {
         let id = NodeId::new(i);
         cache
-            .get_background_content(&nd[id], &id, &sn[id].styled_node_state)
+            .get_background_color(&nd[id], &id, &sn[id].styled_node_state)
             .cloned()
     };
 

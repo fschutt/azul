@@ -171,6 +171,34 @@ is another reference to it, not a copy. `layout` gets its `Counter` the same way
 The bindings allow you to use native Crystal symbols as enum arguments
 (`with_button_type(:primary)`) and strings convert to `AzString` automatically.
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is a Crystal nilable: a parameter takes `nil`, a 
+field or a return value is a `T?`, and a failed call raises 
+`Azul::ResultError(E)`. An exception raised inside a callback is logged and the 
+callback does nothing.
+
+A folder picker, written with `try` and an early `return`:
+
+```crystal
+def on_choose_folder(model : Model, info : Azul::CallbackInfo) : Azul::Update
+  Azul::FileDialog.open_directory("Choose a folder", nil, model, ->on_pick_folder(Model, Azul::CallbackInfo, Azul::RefAny))
+  Azul::Update::DoNothing
+end
+
+def on_pick_folder(model : Model, info : Azul::CallbackInfo, result : Azul::RefAny) : Azul::Update
+  path = Azul::FileOpenResult.downcast(result).try(&.path)
+  return Azul::Update::DoNothing unless path # not a folder pick, or cancelled
+  model.folder = path.inner
+  Azul::Update::RefreshDom
+end
+
+def on_open_link(model : Model, info : Azul::CallbackInfo) : Azul::Update
+  url = Azul::Url.parse(model.link) # an Err is logged, the callback does nothing
+  Azul::Update::RefreshDom
+end
+```
+
 ## Build and run
 
  From the directory containing your `shard.yml` and the native library, 

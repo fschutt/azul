@@ -565,6 +565,12 @@ pub struct DbConfig {
     pub backup_sync_url: OptionString,
     /// Bearer token sent with every sync request.
     pub auth_token: OptionString,
+    /// The certificate authorities the sync's TLS trusts: the app's set by default
+    /// (`AppConfig::trust_roots`, the public roots unless the app hardened them), or the
+    /// backup endpoint's own (a hosted database's provider), so a forged certificate is
+    /// refused before the token or a row leaves. On web the browser's roots apply: `fetch`
+    /// cannot pin.
+    pub trust_roots: crate::tls::TrustRoots,
     pub schema: DbSchema,
     /// The working set replicated locally; `None` = everything.
     pub scope: OptionDbScope,
@@ -583,6 +589,7 @@ impl DbConfig {
             local_name,
             backup_sync_url: OptionString::None,
             auth_token: OptionString::None,
+            trust_roots: crate::tls::TrustRoots::app_default(),
             schema: DbSchema::empty(),
             scope: OptionDbScope::None,
             local_budget_bytes: 0,
@@ -599,6 +606,13 @@ impl DbConfig {
     #[must_use]
     pub fn with_auth_token(mut self, token: AzString) -> Self {
         self.auth_token = OptionString::Some(token);
+        self
+    }
+
+    /// Trust only these certificate authorities for the backup sync.
+    #[must_use]
+    pub fn with_trust_roots(mut self, trust_roots: crate::tls::TrustRoots) -> Self {
+        self.trust_roots = trust_roots;
         self
     }
 

@@ -108,10 +108,9 @@ main :: proc() {
 	data := my_data_upcast(model)
 
 	window := azul.AzWindowCreateOptions_create(layout)
-	title_bytes := "Hello World"
-	window.window_state.title = azul.AzString_fromUtf8(raw_data(title_bytes), uint(len(title_bytes)))
-	window.window_state.size.dimensions.width = 400.0
-	window.window_state.size.dimensions.height = 300.0
+	// The setter releases the old title; plain-data fields are assigned directly.
+	azul.FullWindowState_set_title(&window.window_state, "Hello World")
+	window.window_state.size.dimensions = azul.AzLogicalSize{width = 400.0, height = 300.0}
 
 	app := azul.AzApp_create(data, azul.AzAppConfig_create())
 	azul.AzApp_run(&app, window)

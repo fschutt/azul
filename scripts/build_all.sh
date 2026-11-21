@@ -112,6 +112,11 @@ for example in "${RUST_EXAMPLES[@]}"; do
         "cargo build -p azul-examples --example ${example} --no-default-features --features link-static" || true
 done
 
+# Build AzBuilder explicitly with debug-server feature
+run_build "Rust example: azbuilder (static)" \
+    "cargo build -p azul-examples --example azbuilder --no-default-features --features link-static,debug-server" || true
+
+
 # ============================================
 # Step 6: Build all Rust examples (dynamic linking)
 # ============================================
@@ -124,6 +129,11 @@ if [[ -f "${DYLIB_PATH}" ]]; then
         run_build "Rust example: ${example} (dynamic)" \
             "CARGO_TARGET_DIR=${PROJECT_ROOT}/target/consumer cargo build -p azul-examples --example ${example} --no-default-features --features link-dynamic" || true
     done
+
+    # Build AzBuilder explicitly with debug-server feature
+    run_build "Rust example: azbuilder (dynamic)" \
+        "CARGO_TARGET_DIR=${PROJECT_ROOT}/target/consumer cargo build -p azul-examples --example azbuilder --no-default-features --features link-dynamic,debug-server" || true
+
 else
     echo -e "${YELLOW}[SKIP]${NC} Dynamic Rust examples - shared library not found at ${DYLIB_PATH}"
 fi

@@ -498,13 +498,13 @@ mod autotest_generated {
         assert_eq!(some.as_ref().map(AudioFrame::frame_count), Some(1));
     }
 
-    /// edge_access: `into_option` clones out of a `&self`, so calling it twice must
+    /// edge_access: `to_option` clones out of a `&self`, so calling it twice must
     /// yield two equal, independently-owned frames (no move-out / double-free).
     #[test]
-    fn option_audio_frame_into_option_twice() {
+    fn option_audio_frame_to_option_twice() {
         let wrapped: OptionAudioFrame = Some(frame(48_000, 2, vec![0.0, 0.5, -0.5, 1.0])).into();
-        let a = wrapped.into_option().expect("some");
-        let b = wrapped.into_option().expect("some");
+        let a = wrapped.to_option().expect("some");
+        let b = wrapped.to_option().expect("some");
         assert_eq!(a, b);
         assert_eq!(a.frame_count(), 2);
         drop(a);

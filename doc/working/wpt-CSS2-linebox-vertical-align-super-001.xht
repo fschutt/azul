@@ -1,0 +1,31 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Vertical-align set to 'super' does not adjust font-size</title>
+<meta name="assert" content="The 'vertical-align' property value 'super' has no effect on the font-size of an element's text."/>
+<style>
+div
+            {
+                font-size: 1in;
+            }
+            #span1
+            {
+                color: red;
+                position: absolute;
+            }
+            #span2
+            {
+                color: green;
+                position: absolute;
+                vertical-align: super;
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if there is <strong>no red</strong>.</p>
+        <div>
+            <span id="span1">Filler Text</span>
+            <span id="span2">Filler Text</span>
+        </div>
+    
+</body>
+</html>

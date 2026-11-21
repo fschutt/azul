@@ -1,0 +1,32 @@
+{
+  "name": "SYNCCOM-014: a folder deleted elsewhere still holds Word's ~$ lock file here: the document goes to the trash, the lock stays, no error loop",
+  "description": "SYNCCOM-014 (Sync.com): an Office lock file prevented a remotely deleted folder from being removed locally (stuck sync). Rules P11 (lock files are ignored and never deleted by the sync), D2, E6. sync-chaos port-office-lock-folder-delete.",
+  "steps": [
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "proj/doc.docx", "text": "the document" },
+    { "op": "drive_write", "device": "a", "path": "proj/other.txt", "text": "other" },
+    { "op": "drive_write", "device": "a", "path": "outside-proj.txt", "text": "stays" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_write", "device": "b", "path": "proj/~$doc.docx", "text": "word has it open" },
+    { "op": "drive_rmtree", "device": "a", "path": "proj" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "trash_has", "device": "b", "text": "the document" },
+    { "op": "drive_check", "check": "trash_has", "device": "b", "text": "other" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "proj/~$doc.docx", "text": "word has it open" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "proj/doc.docx", "absent": true },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "outside-proj.txt", "text": "stays" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+    { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+    { "op": "drive_cleanup" }
+  ]
+}

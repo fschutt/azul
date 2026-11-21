@@ -22,6 +22,7 @@ use std::collections::BTreeSet;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -157,18 +158,29 @@ fn emit_simple_enum(b: &mut CodeBuilder, e: &EnumDef) {
 // Tagged union (Crystal `union` of per-variant structs)
 // ============================================================================
 
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant).
+fn emit_variant_padding(b: &mut CodeBuilder, padding: usize) {
+    if padding > 0 {
+        b.line(&format!("    _pad0 : UInt8[{}]", padding));
+    }
+}
+
 fn emit_tagged_union(b: &mut CodeBuilder, e: &EnumDef, ir: &CodegenIR) {
     for d in &e.doc {
         b.line(&format!("  # {}", sanitize_comment(d)));
     }
     let name = ffi_type_name(&e.name);
     let tag_ty = tag_type(e.repr.as_deref());
+    let payload = union_payload_layout(&e.name, ir);
 
     // One struct per variant, each carrying the discriminant first.
     for v in &e.variants {
         let vstruct = format!("{}Variant_{}", name, enum_member_name(&v.name));
         b.line(&format!("  struct {}", vstruct));
         b.line(&format!("    tag : {}", tag_ty));
+        emit_variant_padding(b, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
         match &v.kind {
             EnumVariantKind::Unit => {}
             EnumVariantKind::Tuple(types) => {
@@ -359,10 +371,12 @@ fn emit_monomorphized_alias(
         }
         MonomorphizedKind::TaggedUnion { repr, variants } => {
             let tag_ty = tag_type(repr.as_deref());
+            let payload = union_payload_layout(&ta.name, ir);
             for v in variants {
                 let vstruct = format!("{}Variant_{}", name, enum_member_name(&v.name));
                 b.line(&format!("  struct {}", vstruct));
                 b.line(&format!("    tag : {}", tag_ty));
+                emit_variant_padding(b, payload.as_ref().map_or(0, |p| p.padding(&v.name)));
                 if let Some(payload_ty) = &v.payload_type {
                     let fty = field_type_for_ref_kind(payload_ty, &v.payload_ref_kind, ir);
                     b.line(&format!("    payload : {}", fty));

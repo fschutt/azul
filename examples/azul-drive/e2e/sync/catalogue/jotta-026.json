@@ -1,0 +1,47 @@
+[
+  {
+    "name": "the drive unreachable for 48 hours while both devices go on editing: nothing lost, nothing deleted that was not deleted, a clean catch-up",
+    "description": "JOTTA-026 (Jottacloud): multi-day reachability loss during a DDoS; the catalogue's engine test is a 48 h API outage that leaves clients consistent. Rules E1 (offline edits merge on reconnect), E6 and D6.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "shared.txt", "text": "shared" },
+      { "op": "drive_write", "device": "a", "path": "old.txt", "text": "to be deleted offline" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "remote": "r", "partition": true },
+      { "op": "drive_write", "device": "a", "path": "from-a.txt", "text": "a offline" },
+      { "op": "drive_write", "device": "b", "path": "from-b.txt", "text": "b offline" },
+      { "op": "drive_rm", "device": "a", "path": "old.txt" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_clock", "device": "a", "jump": 172800 },
+      { "op": "drive_clock", "device": "b", "jump": 172800 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["remote-offline", "transient"], "when": "last" },
+      { "op": "drive_fault", "remote": "r", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "kept_live", "texts": ["shared", "a offline", "b offline"] },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "old.txt", "absent": true },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "to be deleted offline" },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "shared.txt", "count": 0 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "shared.txt", "count": 0 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "upload throttling by stored volume and deletion after a plan change",
+    "description": "JOTTA-026 (Jottacloud): the Unlimited plan throttled uploads stepwise past 5 TB; one user reported 60 days to download before deletion. That is the provider's policy (rule V7: never throttle or delete by stored volume without an explicit plan limit), tested by the token server's money test (sync-chaos srv-account-never-deleted), not by AzDrive.",
+    "not_applicable": "a server pricing/policy complaint (throttling and deletion by stored volume): no sync behaviour of AzDrive's; the outage part is the test above",
+    "steps": []
+  }
+]

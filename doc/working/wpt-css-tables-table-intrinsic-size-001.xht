@@ -1,0 +1,29 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta name="assert" content="This test verifies that a table's content-box inline size is never smaller than its minimum intrinsic inline size."/>
+<style>
+.outer {
+  width: min-content;
+  background: green;
+}
+.table {
+  display: table;
+  inline-size: 30px; /* Smaller than .content's inline size */
+  block-size: 100px;
+  border-inline: 10px solid green;
+  margin-inline: 10px;
+}
+.content {
+  inline-size: 60px;
+  height: 100px;
+}
+</style>
+</head>
+<body><p>Test passes if there is a filled green square.</p>
+<div class="outer">
+  <div class="table">
+    <div class="content"></div>
+  </div>
+</div>
+</body>
+</html>

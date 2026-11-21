@@ -38,11 +38,11 @@ use azul_core::{
         DbMergeCallback, DbRows, DbRowsResult, DbScope, DbSyncState, DbSyncStatus,
         DbSyncStatusResult, DbValue, DbValueResult, DbValueVec, OptionDbScope, OptionDbValue,
     },
-    refany::RefAny,
+    refany::{RefAny, RefAnyHolder, Repointing},
     task::RequestId,
 };
 use azul_css::{
-    corety::OptionString, impl_option, impl_option_inner, impl_result_inner, AzString, StringVec,
+    corety::OptionString, impl_option, AzString, StringVec,
     U8Vec,
 };
 use azul_layout::{callbacks::ResumeCallback, request};
@@ -103,6 +103,60 @@ struct DbState {
 /// the next tick.
 static OPEN_DBS: Mutex<Vec<std::sync::Weak<Inner>>> = Mutex::new(Vec::new());
 
+/// Registers [`repoint_open_dbs`] with the runtime once, on the first open.
+static REPOINT_OPEN_DBS: std::sync::Once = std::sync::Once::new();
+
+impl RefAnyHolder for Subscription {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
+impl RefAnyHolder for StatusSubscription {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
+impl RefAnyHolder for MergeHook {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.data);
+    }
+}
+
+/// A handler often subscribes with a clone of its node's dataset.
+impl RefAnyHolder for DbState {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        for subscription in &mut self.subscriptions {
+            subscription.for_each_refany(visit);
+        }
+        for subscription in &mut self.status_subscriptions {
+            subscription.for_each_refany(visit);
+        }
+        for hook in &mut self.merge_hooks {
+            hook.for_each_refany(visit);
+        }
+    }
+}
+
+/// Points the data of every open store's subscriptions at what a rebuild's
+/// dataset merge kept, so a change is still delivered where the app looks.
+fn repoint_open_dbs(repointing: &Repointing) {
+    let live: Vec<Arc<Inner>> = OPEN_DBS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter_map(std::sync::Weak::upgrade)
+        .collect();
+    for inner in live {
+        let mut state = inner
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        repointing.repoint(&mut *state);
+    }
+}
+
 /// Milliseconds of a `Duration` (ticks count as milliseconds on targets
 /// without a system clock).
 fn duration_ms(d: &azul_core::task::Duration) -> u64 {
@@ -119,6 +173,8 @@ fn duration_ms(d: &azul_core::task::Duration) -> u64 {
 const IDLE_SYNC_MS: u64 = 1500;
 
 /// Free bytes on the volume holding `path` (`0` = unknown / in-memory).
+/// The probe is azul-layout's `file::disk_space`, the one free-space helper
+/// (a private statvfs / GetDiskFreeSpaceExW twin of it lived here).
 fn free_bytes_at(path: &str) -> u64 {
     if path == ":memory:" {
         return 0;
@@ -127,52 +183,7 @@ fn free_bytes_at(path: &str) -> u64 {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| std::path::PathBuf::from("."));
-    #[cfg(all(unix, feature = "libc"))]
-    {
-        use std::os::unix::ffi::OsStrExt;
-        let Ok(c_dir) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
-            return 0;
-        };
-        // SAFETY: `statvfs` is zero-initialised and only read after the call
-        // reported success; `c_dir` is a valid NUL-terminated path.
-        unsafe {
-            let mut stats: libc::statvfs = core::mem::zeroed();
-            if libc::statvfs(c_dir.as_ptr(), &mut stats) == 0 {
-                return u64::from(stats.f_bavail).saturating_mul(u64::from(stats.f_frsize));
-            }
-        }
-        0
-    }
-    #[cfg(all(windows, feature = "winapi"))]
-    {
-        use std::os::windows::ffi::OsStrExt;
-        let wide: Vec<u16> = dir
-            .as_os_str()
-            .encode_wide()
-            .chain(core::iter::once(0))
-            .collect();
-        let mut free_to_caller: winapi::shared::ntdef::ULARGE_INTEGER =
-            unsafe { core::mem::zeroed() };
-        // SAFETY: `wide` is NUL-terminated; the out-pointer is a valid, writable
-        // ULARGE_INTEGER; the two other out-pointers may be null.
-        let ok = unsafe {
-            winapi::um::fileapi::GetDiskFreeSpaceExW(
-                wide.as_ptr(),
-                &mut free_to_caller,
-                core::ptr::null_mut(),
-                core::ptr::null_mut(),
-            )
-        };
-        if ok != 0 {
-            return unsafe { *free_to_caller.QuadPart() };
-        }
-        0
-    }
-    #[cfg(not(any(all(unix, feature = "libc"), all(windows, feature = "winapi"))))]
-    {
-        let _ = dir;
-        0
-    }
+    azul_layout::file::disk_space(&dir.to_string_lossy()).map_or(0, |space| space.free)
 }
 
 /// Run the automatic syncs that are due (`DbAutoSync::interval` elapsed, or
@@ -409,6 +420,7 @@ impl Db {
 
     /// The synchronous half of [`Self::open`] (Rust-internal).
     pub fn open_blocking(config: DbConfig) -> Result<Db, DbError> {
+        REPOINT_OPEN_DBS.call_once(|| request::register_holder_walk(repoint_open_dbs));
         #[cfg(not(az_db_engine))]
         {
             announce_db_stub("Db::open");
@@ -1599,7 +1611,9 @@ mod sync {
     #[cfg(feature = "http")]
     fn http(state: &DbState, method_post: bool, url: &str, body: Vec<u8>) -> Transport {
         use azul_layout::http::{HttpError, HttpRequestConfig, ResultHttpResponseHttpError};
-        let mut cfg = HttpRequestConfig::new().with_timeout(30);
+        let mut cfg = HttpRequestConfig::new()
+            .with_timeout(30)
+            .with_trust_roots(state.config.trust_roots.clone());
         if let Some(token) = state.config.auth_token.as_ref() {
             cfg = cfg.with_header("Authorization", format!("Bearer {}", token.as_str()));
         }
@@ -1988,5 +2002,63 @@ mod tests {
         assert!(!other.is_open());
         let got = other.get_blocking(AzString::from("notes"), DbValue::Integer(1));
         assert!(got.error.is_some());
+    }
+
+    /// A backup sync (the app's Turso database) trusts what its config pins: a server whose
+    /// certificate comes from another authority is refused in the handshake, before the token
+    /// or a row leaves; its own root pinned, the request goes out.
+    #[cfg(feature = "http")]
+    #[test]
+    fn a_backup_sync_trusts_only_the_roots_its_config_pins() {
+        use azul_layout::tls_testing::{serve_tls, TestCa};
+        let ours = TestCa::new("azul test root A");
+        let forged = TestCa::new("azul test root B");
+        let (port, seen) = serve_tls(forged.server_for_loopback());
+        let pinned = |ca: &TestCa| {
+            azul_core::tls::TrustRoots::pinned(azul_css::StringVec::from_vec(vec![AzString::from(
+                ca.cert_pem.clone(),
+            )]))
+        };
+        let sync_with = |roots: azul_core::tls::TrustRoots| {
+            let config = DbConfig::new(AzString::from(":memory:"))
+                .with_schema(memory_db_schema())
+                .with_backup_sync_url(AzString::from(format!("https://127.0.0.1:{port}")))
+                .with_auth_token(AzString::from("token-that-must-not-leave"))
+                .with_trust_roots(roots);
+            let db = Db::open_blocking(config).expect("opens");
+            assert!(db.set(AzString::from("notes"), DbValue::Integer(1), DbValue::Null));
+            let _ = db.sync_now_blocking(OptionDbScope::None);
+            seen.recv_timeout(std::time::Duration::from_secs(20))
+                .expect("the sync reached the server")
+        };
+        let refused = sync_with(pinned(&ours));
+        assert!(refused.is_err(), "a certificate outside the pinned set: {refused:?}");
+        while seen.try_recv().is_ok() {}
+        let accepted = sync_with(pinned(&forged));
+        assert!(accepted.is_ok(), "its own root is pinned: {accepted:?}");
+        while seen.try_recv().is_ok() {}
+        let both = azul_core::tls::TrustRoots::pinned(azul_css::StringVec::from_vec(vec![
+            AzString::from(ours.cert_pem.clone()),
+            AzString::from(forged.cert_pem.clone()),
+        ]));
+        let distrusted = sync_with(both.clone().with_distrusted(azul_css::StringVec::from_vec(
+            vec![AzString::from(forged.cert_pem.clone())],
+        )));
+        assert!(distrusted.is_err(), "its root is distrusted: {distrusted:?}");
+        while seen.try_recv().is_ok() {}
+        let other = sync_with(both.with_distrusted(azul_css::StringVec::from_vec(vec![
+            AzString::from(ours.cert_pem.clone()),
+        ])));
+        assert!(other.is_ok(), "another root is distrusted, its own stays: {other:?}");
+    }
+
+    fn memory_db_schema() -> DbSchema {
+        DbSchema {
+            stores: DbStoreSchemaVec::from_vec(vec![DbStoreSchema {
+                name: AzString::from("notes"),
+                indexes: DbIndexSchemaVec::from_vec(Vec::new()),
+                conflict_policy: DbConflictPolicy::LastWriteWins,
+            }]),
+        }
     }
 }

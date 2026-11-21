@@ -1,0 +1,22 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2): the FINAL manifest. Lanes never edit it: a missing dependency is a drift row.
+
+[package]
+name = "azlin-requests"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin requests: requests and AZD2 drops"
+publish = false
+
+[dependencies]
+azlin-seams = { path = "../azlin-seams" }
+azlin-policy = { path = "../azlin-policy" }
+blake3 = "1.8"
+thiserror = "2"
+
+[dev-dependencies]
+x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize", "precomputed-tables"] }
+chacha20poly1305 = "0.10.1"
+hkdf = "0.12.4"

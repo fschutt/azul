@@ -1,0 +1,30 @@
+{
+  "name": "an edit on two devices of an encrypted drive is held, and keep both makes one conflict copy",
+  "description": "sync-chaos merge-offline-edit-both on AzDrive: the conflict is held for the user (conflict-held), the answer keep both keeps both versions.",
+  "steps": [
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "f.txt", "text": "one" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_write", "device": "a", "path": "f.txt", "text": "a's version of f" },
+    { "op": "drive_write", "device": "b", "path": "f.txt", "text": "b's version of f" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "assert_response", "path": "result.conflicts", "equals": 1 },
+    { "op": "drive_check", "check": "problem", "device": "b", "code": "conflict-held", "key": "f.txt" },
+    { "op": "drive_resolve", "device": "b", "key": "f.txt", "choice": "both" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "f.txt", "count": 1 },
+    { "op": "drive_check", "check": "kept_live", "texts": ["a's version of f", "b's version of f"] },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_check", "check": "remote_never_has", "marker": "b's version of f" },
+    { "op": "drive_cleanup" }
+  ]
+}

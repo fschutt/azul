@@ -25,7 +25,7 @@ use azul_core::{
     task::{Duration as CoreDuration, Instant as CoreInstant},
     window::WindowPosition,
 };
-use azul_css::{impl_option, impl_option_inner, AzString};
+use azul_css::{impl_option, AzString};
 
 #[cfg(feature = "std")]
 static NEXT_EVENT_ID: AtomicU64 = AtomicU64::new(1);
@@ -372,21 +372,88 @@ impl_option!(
     [Debug, Clone, Copy, PartialEq, Eq]
 );
 
-/// Result of pinch gesture detection
+/// Result of pinch gesture detection.
+///
+/// `scale` is CUMULATIVE: the scale since the gesture began, on every source
+/// (two touches, a trackpad magnify, a platform recognizer). A consumer zooms
+/// by the ratio of successive updates of one gesture - `scale / previous`,
+/// with `previous = 1.0` on the update that has `began` set - and never by an
+/// update's scale on its own.
+///
+/// `ended` marks the gesture's last update: the fingers lifted. Its `scale`
+/// is the gesture's final one (no step of its own), so a consumer that zooms
+/// by the ratio does nothing more there and can settle: snap to a zoom
+/// level, render at full quality. Without it an app could only debounce.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct DetectedPinch {
-    /// Scale factor (< 1.0 for pinch in, > 1.0 for pinch out)
-    pub scale: f32,
+    // Fields by decreasing alignment (repr(C), no padding): the u64 first,
+    // the 4-byte ones, the bool last. `autofix` flagged the old order (the
+    // u64 after four f32s) as wasting 8 bytes per instance.
+    /// Duration of pinch (milliseconds)
+    pub duration_ms: u64,
     /// Center point of the pinch gesture
     pub center: LogicalPosition,
+    /// Scale since the gesture began (< 1.0 pinched in, > 1.0 spread out)
+    pub scale: f32,
     /// Initial distance between touch points
     pub initial_distance: f32,
     /// Current distance between touch points
     pub current_distance: f32,
-    /// Duration of pinch (milliseconds)
-    pub duration_ms: u64,
+    /// This is the first update of its gesture (once per gesture): `scale` is
+    /// measured from 1.0 here, and a new gesture starts no matter what the
+    /// last one ended at.
+    pub began: bool,
+    /// This is the last update of its gesture (once per gesture, where the
+    /// source reports an end): the fingers lifted, or the OS cancelled the
+    /// gesture. `scale` repeats the last update's. A one-step gesture (a
+    /// Ctrl + wheel notch) has `began` and `ended` both.
+    pub ended: bool,
 }
+
+/// The zoom step of one notch of a Ctrl + wheel turned into a pinch
+/// (`AppConfig::synthesize_pinch_from_ctrl_wheel`): 10 %, the ratio browsers
+/// use for a zoom level.
+pub const CTRL_WHEEL_PINCH_STEP_PER_NOTCH: f32 = 0.1;
+
+impl DetectedPinch {
+    /// The pinch of `notches` of a Ctrl + wheel turn at `center`: a gesture of
+    /// one update (`began` and `ended`), `1 + 0.1 * notches` - more than 1
+    /// (zoom in) for a wheel turned away from the user, a scroll up. `None`
+    /// for no turn, or a turn that would scale by nothing or less.
+    #[must_use]
+    pub fn from_ctrl_wheel_notches(notches: f32, center: LogicalPosition) -> Option<Self> {
+        let scale = 1.0 + notches * CTRL_WHEEL_PINCH_STEP_PER_NOTCH;
+        if notches.abs() < f32::EPSILON || !scale.is_finite() || scale <= 0.0 {
+            return None;
+        }
+        Some(Self {
+            scale,
+            center,
+            initial_distance: PINCH_NOMINAL_DISTANCE,
+            current_distance: PINCH_NOMINAL_DISTANCE * scale,
+            duration_ms: 0,
+            began: true,
+            ended: true,
+        })
+    }
+}
+
+/// The phase of a trackpad gesture event, as the OS reports it (macOS
+/// `NSEvent.phase`: `Began`, `Changed` / `Stationary`, `Ended` / `Cancelled`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackpadGesturePhase {
+    /// The fingers came down: a gesture begins.
+    Began,
+    /// An update of the gesture in flight.
+    Changed,
+    /// The fingers lifted, or the OS cancelled the gesture.
+    Ended,
+}
+
+/// Nominal finger distance for pinches that report a ratio, not a distance:
+/// `current_distance / initial_distance == scale`.
+const PINCH_NOMINAL_DISTANCE: f32 = 100.0;
 
 /// Result of rotation gesture detection
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -702,6 +769,22 @@ pub const fn tablet_usb_vendor_name(vendor_id: u32) -> &'static str {
     }
 }
 
+/// What follows the pointer in a node drag instead of the dragged node: the
+/// node of the dragged DOM whose `id` attribute is `id` - a ghost the app
+/// renders while it drags (`position: fixed` at the top left of the
+/// window, say) - with its border box at the pointer plus `offset`. Named by
+/// a `DragStart` callback (`CallbackInfo::set_drag_image`); by id, because
+/// the ghost usually appears with the rebuild that callback asks for.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DragImage {
+    /// The `id` attribute of the node that follows the pointer.
+    pub id: AzString,
+    /// Where the node's border box stands from the pointer (logical px;
+    /// positive: right / down). Keep it off the pointer, or the image is
+    /// what the pointer is over.
+    pub offset: LogicalPosition,
+}
+
 /// Manager for multi-frame gestures and drag operations
 ///
 /// This collects raw input samples and analyzes them to detect gestures.
@@ -733,6 +816,16 @@ pub struct GestureAndDragManager {
     /// "the drag suddenly stops" desync. Remapped across DOM rebuilds,
     /// cleared when the button releases / the gesture ends.
     drag_source_node: azul_core::dom::OptionDomNodeId,
+    /// The drag image a `DragStart` callback named for the current node drag
+    /// (`CallbackInfo::set_drag_image`): the node with that id follows the
+    /// pointer instead of the dragged node. Cleared when the drag ends, so
+    /// the next drag starts without one.
+    pub(crate) drag_image: Option<DragImage>,
+    /// The node `LayoutWindow::update_drag_visual` keyed in the GPU
+    /// animation channel to follow the pointer (the drag image or the
+    /// dragged node), so the drag's end releases exactly that key. Remapped
+    /// across DOM rebuilds like the drag source.
+    pub(crate) drag_visual_node: Option<(DomId, NodeId)>,
     /// Current pen/stylus state
     pub pen_state: Option<PenState>,
     /// Pen state as of the previous determine-events pass (for diffing pen events).
@@ -799,6 +892,17 @@ pub struct GestureAndDragManager {
     /// Seat id -> the session its pressed button owns (9b-ii-b-i); the
     /// per-seat twin of `touch_sessions`.
     seat_sessions: alloc::collections::btree_map::BTreeMap<u64, u64>,
+    /// The trackpad pinch in flight ([`Self::trackpad_magnify`]): its
+    /// cumulative scale. `None` between gestures.
+    trackpad_pinch_scale: Option<f32>,
+    /// The finger travel of the two-finger trackpad scroll in flight while
+    /// it can still be a page swipe ([`Self::trackpad_scroll_swipe`]).
+    /// `None` between gestures, and once a box scrolled sideways with it.
+    trackpad_swipe_travel: Option<LogicalPosition>,
+    /// The two touch sessions whose pinch was dispatched
+    /// ([`Self::note_pinch_dispatched`]): a pinch of the same pair does not
+    /// begin a gesture again.
+    touch_pinch_pair: Option<(u64, u64)>,
 }
 
 /// Gesture detected by a platform-native recognizer.
@@ -856,6 +960,8 @@ impl GestureAndDragManager {
             next_session_id: 1,
             active_drag: None,
             drag_source_node: azul_core::dom::OptionDomNodeId::None,
+            drag_image: None,
+            drag_visual_node: None,
 
             pen_state: None,
             previous_pen_state: None,
@@ -875,6 +981,133 @@ impl GestureAndDragManager {
             touch_sessions: alloc::collections::btree_map::BTreeMap::new(),
             seat_sessions: alloc::collections::btree_map::BTreeMap::new(),
             seat_pens: alloc::collections::btree_map::BTreeMap::new(),
+            trackpad_pinch_scale: None,
+            trackpad_swipe_travel: None,
+            touch_pinch_pair: None,
+        }
+    }
+
+    /// Feeds one event of a two-finger trackpad scroll and answers the page
+    /// swipe it made, at its end, for [`Self::inject_native_gesture`].
+    ///
+    /// `finger` is the event's finger motion in device terms (+x right,
+    /// +y down: the scroll delta with the natural-scrolling inversion taken
+    /// out). `scrolled_across` says a box took the sideways part of it.
+    pub fn trackpad_scroll_swipe(
+        &mut self,
+        phase: TrackpadGesturePhase,
+        finger: LogicalPosition,
+        scrolled_across: bool,
+    ) -> Option<GestureDirection> {
+        /// The sideways finger travel a page swipe needs, px.
+        const MIN_TRAVEL: f32 = 60.0;
+        let travel = match phase {
+            TrackpadGesturePhase::Began => Some(finger),
+            TrackpadGesturePhase::Changed => self
+                .trackpad_swipe_travel
+                .map(|t| LogicalPosition::new(t.x + finger.x, t.y + finger.y)),
+            TrackpadGesturePhase::Ended => {
+                let t = self.trackpad_swipe_travel.take()?;
+                let sideways = t.x.abs() >= MIN_TRAVEL && t.x.abs() > 2.0 * t.y.abs();
+                return sideways.then_some(if t.x > 0.0 {
+                    GestureDirection::Right
+                } else {
+                    GestureDirection::Left
+                });
+            }
+        };
+        // A box that scrolls sideways owns the motion: the gesture is a
+        // scroll, never a page turn, for the rest of it.
+        self.trackpad_swipe_travel = travel.filter(|_| !scrolled_across);
+        None
+    }
+
+    /// Feeds one trackpad magnification event and answers the CUMULATIVE
+    /// pinch it amounts to, for [`Self::inject_native_gesture`].
+    ///
+    /// macOS `magnifyWithEvent:` reports each event's OWN magnification (a
+    /// delta), not the gesture's. Injected as is, two zoom-in steps of +2 %
+    /// and +1 % read as scales 1.02 then 1.01 - a zoom OUT to every consumer
+    /// that compares successive updates (the `AzMaps` jitter). So: `Began`
+    /// starts a gesture at 1.0 (`began` set); `Changed` multiplies in
+    /// `1 + magnification` (an update with no gesture open begins one; a
+    /// delta that is not a finite growth factor changes nothing); `Ended`
+    /// ends the gesture and answers its last update again, `ended` set (or
+    /// nothing, with no gesture open).
+    pub fn trackpad_magnify(
+        &mut self,
+        phase: TrackpadGesturePhase,
+        magnification: f32,
+        center: LogicalPosition,
+    ) -> Option<DetectedPinch> {
+        let (scale, began) = match phase {
+            TrackpadGesturePhase::Ended => {
+                let scale = self.trackpad_pinch_scale.take()?;
+                return Some(DetectedPinch {
+                    scale,
+                    center,
+                    initial_distance: PINCH_NOMINAL_DISTANCE,
+                    current_distance: PINCH_NOMINAL_DISTANCE * scale,
+                    duration_ms: 0,
+                    began: false,
+                    ended: true,
+                });
+            }
+            TrackpadGesturePhase::Began => (1.0, true),
+            TrackpadGesturePhase::Changed => {
+                let (base, began) = match self.trackpad_pinch_scale {
+                    Some(scale) => (scale, false),
+                    None => (1.0, true),
+                };
+                let step = 1.0 + magnification;
+                let scale = if step.is_finite() && step > 0.0 {
+                    base * step
+                } else {
+                    base
+                };
+                (scale, began)
+            }
+        };
+        self.trackpad_pinch_scale = Some(scale);
+        Some(DetectedPinch {
+            scale,
+            center,
+            initial_distance: PINCH_NOMINAL_DISTANCE,
+            current_distance: PINCH_NOMINAL_DISTANCE * scale,
+            // A trackpad magnify carries no gesture clock.
+            duration_ms: 0,
+            began,
+            ended: false,
+        })
+    }
+
+    /// The last two input sessions, if both are live contacts: the pair a
+    /// touch pinch is measured between.
+    fn active_touch_pair(&self) -> Option<(&InputSession, &InputSession)> {
+        let n = self.input_sessions.len();
+        if n < 2 {
+            return None;
+        }
+        let (a, b) = (&self.input_sessions[n - 2], &self.input_sessions[n - 1]);
+        (!a.ended && !b.ended).then_some((a, b))
+    }
+
+    /// Called by the event loop at the end of every pass (next to
+    /// [`Self::clear_native_gesture`]): a touch pinch that was dispatched is
+    /// not `began` again while the same two touches last, however many passes
+    /// see it; a new pair of touches begins a new gesture.
+    pub fn note_pinch_dispatched(&mut self) {
+        let pair = self
+            .active_touch_pair()
+            .map(|(a, b)| (a.session_id, b.session_id));
+        match pair {
+            None => self.touch_pinch_pair = None,
+            Some(pair) if self.touch_pinch_pair == Some(pair) => {}
+            Some(pair) => {
+                // Recorded only once the pinch was actually reported: under the
+                // threshold, nothing has begun yet.
+                self.touch_pinch_pair = self.detect_touch_pinch().map(|_| pair);
+            }
         }
     }
 
@@ -981,15 +1214,18 @@ impl GestureAndDragManager {
         window_position: WindowPosition,
         screen_position: LogicalPosition,
     ) -> u64 {
-        // Clear old ended sessions, but keep the most recent ended session
-        // for double-click detection. detect_double_click() needs two ended
-        // sessions to compare timing and distance.
-        let last_ended_idx = self.input_sessions.iter().rposition(|s| s.ended);
-        let mut idx = 0usize;
+        // Clear old ended sessions, but keep the two most recent: with this
+        // press they are the clicks `detect_click_count` counts - a third
+        // press needs both earlier clicks to be a triple click (a paragraph
+        // selection). Keeping only the last made every triple click a double.
+        let ended = self.input_sessions.iter().filter(|s| s.ended).count();
+        let mut ended_seen = 0usize;
         self.input_sessions.retain(|session| {
-            let keep = !session.ended || Some(idx) == last_ended_idx;
-            idx += 1;
-            keep
+            if !session.ended {
+                return true;
+            }
+            ended_seen += 1;
+            ended_seen + 2 > ended
         });
 
         let session_id = self.next_session_id;
@@ -1075,6 +1311,38 @@ impl GestureAndDragManager {
             touch_radius: LogicalSize::new(touch_radius.0, touch_radius.1),
         });
 
+        true
+    }
+
+    /// Record that the pointer is STILL down where it last was, at
+    /// `timestamp`: the current session's last sample, repeated.
+    ///
+    /// A motionless hold produces no input events, so its session never grows
+    /// past the press, `duration_ms` stays 0 and `detect_long_press` cannot
+    /// fire for it however long the button is held. This is the sample
+    /// [`Self::record_input_sample`] asks a system timer to provide; the shell
+    /// records one when the long-press wake-up runs, right before the pass
+    /// that evaluates the gesture.
+    ///
+    /// Returns whether a sample was recorded: `false` without a session, or
+    /// once its button was released.
+    pub fn record_hold_sample(&mut self, timestamp: CoreInstant) -> bool {
+        let Some(session) = self.last_primary_session_mut() else {
+            return false;
+        };
+        if session.ended {
+            return false;
+        }
+        let Some(mut sample) = session.last_sample().cloned() else {
+            return false;
+        };
+        sample.timestamp = timestamp;
+        sample.event_id = allocate_event_id();
+        if session.samples.len() >= MAX_SAMPLES_PER_SESSION {
+            let remove_count = session.samples.len() - MAX_SAMPLES_PER_SESSION + DRAIN_BATCH_SIZE;
+            session.samples.drain(0..remove_count);
+        }
+        session.samples.push(sample);
         true
     }
 
@@ -1947,6 +2215,28 @@ impl GestureAndDragManager {
         self.get_drag_direction()
     }
 
+    /// The swipe an event pass has to TELL: an injected native swipe (the
+    /// event loop takes it back at the end of the pass), or - on the pass
+    /// that saw the button released (`release_edge`) - a pointer session that
+    /// ended fast ([`Self::detect_swipe_direction`]).
+    ///
+    /// The session of a drag is kept after its release (the click count
+    /// needs it, `sample_cleanup_interval_ms`), and a fast one answers
+    /// `is_swipe()` for as long as it is the newest: asked on every pass, it
+    /// was told as a swipe on every pointer move of the drag and on every
+    /// pass of the two seconds after it, each time after a walk over every
+    /// sample of the session (`total_distance`, up to 1,000).
+    #[must_use]
+    pub fn swipe_to_tell(&self, release_edge: bool) -> Option<GestureDirection> {
+        if let Some(NativeGestureEvent::Swipe(d)) = self.native_gesture {
+            return Some(d);
+        }
+        if !release_edge || !self.is_swipe() {
+            return None;
+        }
+        self.get_drag_direction()
+    }
+
     /// Detect pinch gesture (two-touch zoom in/out)
     ///
     /// Returns Some if two touch points are active and distance is changing
@@ -1957,24 +2247,62 @@ impl GestureAndDragManager {
         if let Some(NativeGestureEvent::Pinch(p)) = self.native_gesture {
             return Some(p);
         }
-        // Need at least two active sessions for pinch
-        if self.input_sessions.len() < 2 {
-            return None;
-        }
+        self.detect_touch_pinch()
+    }
 
-        // Get last two sessions (most recent touches)
-        let session1 = &self.input_sessions[self.input_sessions.len() - 2];
-        let session2 = &self.input_sessions[self.input_sessions.len() - 1];
-
+    /// The pinch of the two live touches, measured from where they landed
+    /// (cumulative); `began` until [`Self::note_pinch_dispatched`] saw it.
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    fn detect_touch_pinch(&self) -> Option<DetectedPinch> {
         // A pinch is a TWO-finger gesture: both contacts must be concurrently
         // active. A desktop mouse produces *sequential* sessions (the previous one
         // is `ended` on button-up before the next begins), so without this guard a
         // stale ended session (e.g. a prior click on a button) pairs with the
         // current drag and is misread as a pinch — the map zooms on a plain click.
-        if session1.ended || session2.ended {
-            return None;
+        let Some((session1, session2)) = self.active_touch_pair() else {
+            return self.ended_touch_pinch();
+        };
+        let pinch = Self::touch_pinch_between(session1, session2)?;
+
+        // Check if scale change is significant (threshold from config)
+        let scale_threshold = 1.0 + self.config.pinch_scale_threshold;
+        if pinch.scale > 1.0 / scale_threshold && pinch.scale < scale_threshold {
+            return None; // Change too small
         }
 
+        Some(DetectedPinch {
+            began: self.touch_pinch_pair != Some((session1.session_id, session2.session_id)),
+            ..pinch
+        })
+    }
+
+    /// The last update of a touch pinch: the pair it was reported for (by
+    /// [`Self::note_pinch_dispatched`]) has just lost a finger. Its scale
+    /// where the fingers were last, `ended` set - once: the pass's
+    /// `note_pinch_dispatched` forgets the pair.
+    fn ended_touch_pinch(&self) -> Option<DetectedPinch> {
+        let pair = self.touch_pinch_pair?;
+        let n = self.input_sessions.len();
+        if n < 2 {
+            return None;
+        }
+        let (a, b) = (&self.input_sessions[n - 2], &self.input_sessions[n - 1]);
+        if (a.session_id, b.session_id) != pair || !(a.ended || b.ended) {
+            return None;
+        }
+        Some(DetectedPinch {
+            ended: true,
+            ..Self::touch_pinch_between(a, b)?
+        })
+    }
+
+    /// The pinch between two touch sessions, measured from where they landed
+    /// to where they are (no threshold; neither `began` nor `ended`).
+    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
+    fn touch_pinch_between(
+        session1: &InputSession,
+        session2: &InputSession,
+    ) -> Option<DetectedPinch> {
         // Both must have samples
         let first1 = session1.first_sample()?;
         let first2 = session2.first_sample()?;
@@ -1999,12 +2327,6 @@ impl GestureAndDragManager {
         // Calculate scale factor
         let scale = current_distance / initial_distance;
 
-        // Check if scale change is significant (threshold from config)
-        let scale_threshold = 1.0 + self.config.pinch_scale_threshold;
-        if scale > 1.0 / scale_threshold && scale < scale_threshold {
-            return None; // Change too small
-        }
-
         // Calculate center point
         let center = LogicalPosition {
             x: f32::midpoint(last1.position.x, last2.position.x),
@@ -2021,6 +2343,8 @@ impl GestureAndDragManager {
             initial_distance,
             current_distance,
             duration_ms,
+            began: false,
+            ended: false,
         })
     }
 
@@ -2441,7 +2765,8 @@ impl GestureAndDragManager {
     }
 
     /// End the current drag and return the context
-    pub const fn end_drag(&mut self) -> Option<DragContext> {
+    pub fn end_drag(&mut self) -> Option<DragContext> {
+        self.drag_image = None;
         self.active_drag.take()
     }
 
@@ -2451,7 +2776,21 @@ impl GestureAndDragManager {
             drag.cancelled = true;
         }
         self.active_drag = None;
+        self.drag_image = None;
         self.drag_source_node = azul_core::dom::OptionDomNodeId::None;
+    }
+
+    /// Name the drag image of the current node drag: the node whose `id` is
+    /// `image.id` follows the pointer, its border box at the pointer plus
+    /// `image.offset`, until the drag ends (`LayoutWindow::update_drag_visual`).
+    pub fn set_drag_image(&mut self, image: DragImage) {
+        self.drag_image = Some(image);
+    }
+
+    /// The drag image of the current node drag, if a `DragStart` named one.
+    #[must_use]
+    pub const fn drag_image(&self) -> Option<&DragImage> {
+        self.drag_image.as_ref()
     }
 
     // ========================================================================
@@ -2592,6 +2931,13 @@ impl crate::managers::NodeIdRemap for GestureAndDragManager {
                 self.active_drag = None;
             }
         }
+        // The node the drag visual keyed follows its node like the GPU
+        // cache's keys do; an unmounted one has no key left to release.
+        if let Some((dom, node)) = self.drag_visual_node {
+            if dom == dom_id {
+                self.drag_visual_node = map.resolve(node).map(|n| (dom, n));
+            }
+        }
         // The drag SOURCE follows its node; an unmounted source ends the
         // gesture's targeting (Drag events fall back to the hover node).
         if let azul_core::dom::OptionDomNodeId::Some(src) = self.drag_source_node {
@@ -2632,6 +2978,12 @@ mod touch_session_tests {
     /// so they express time in the same unit the thresholds use.
     /// `duration_to_millis_*` still pins the conversion itself.
     fn ts(n: u64) -> CoreInstant {
+        ts_us(n * 1000)
+    }
+
+    /// A timestamp `n` MICROSECONDS from the origin - frame spacing at a
+    /// refresh rate that is not a whole number of milliseconds.
+    fn ts_us(n: u64) -> CoreInstant {
         // `Instant::System` wraps a real std Instant, so "n ms from the origin"
         // needs a STABLE origin — a fresh `now()` per call would make ts(0) and
         // ts(20) differ by however long the test took, not by 20 ms. One
@@ -2639,7 +2991,41 @@ mod touch_session_tests {
         use std::sync::OnceLock;
         static BASE: OnceLock<std::time::Instant> = OnceLock::new();
         let base = *BASE.get_or_init(std::time::Instant::now);
-        (base + core::time::Duration::from_millis(n)).into()
+        (base + core::time::Duration::from_micros(n)).into()
+    }
+
+    /// USER RULING 2026-09-30 ("ready for 120fps"): gesture thresholds are
+    /// TIME, never frames. A motionless hold sampled once per frame becomes a
+    /// long press on the first frame at or past the 500 ms threshold, at
+    /// 60 Hz and at 120 Hz alike.
+    #[test]
+    fn a_long_press_takes_the_same_milliseconds_at_60_and_120_hz() {
+        let first_long_press_at_us = |frame_us: u64| -> Option<u64> {
+            let mut m = GestureAndDragManager::new();
+            let at = pos(10.0, 10.0);
+            m.start_input_session(at, ts_us(0), 0x01, WindowPosition::Uninitialized, at);
+            let mut t_us = 0;
+            while t_us < 2_000_000 {
+                t_us += frame_us;
+                let _ = m.record_hold_sample(ts_us(t_us));
+                if m.detect_long_press().is_some() {
+                    return Some(t_us);
+                }
+            }
+            None
+        };
+        let threshold_us = GestureAndDragManager::new()
+            .config
+            .long_press_time_threshold_ms
+            * 1000;
+        for frame_us in [16_667, 8_333] {
+            let at = first_long_press_at_us(frame_us);
+            assert!(
+                at.is_some_and(|t| t >= threshold_us && t < threshold_us + frame_us + 1000),
+                "a hold sampled every {frame_us} us became a long press at {at:?} us; the \
+                 threshold is {threshold_us} us whatever the frame rate"
+            );
+        }
     }
 
     fn pos(x: f32, y: f32) -> LogicalPosition {
@@ -2755,6 +3141,179 @@ mod touch_session_tests {
         assert!(!m.input_sessions[1].ended);
         // Further moves for the lifted finger are ignored.
         assert!(!m.touch_move(1, pos(0.0, 0.0), ts(3), pos(0.0, 0.0)));
+    }
+
+    // --- A pinch is CUMULATIVE since its gesture began, on every source ------
+    //
+    // REPORTED (AzMaps, 2026-09-30): a trackpad pinch "works but then jitters
+    // back and forth between zooming in and out". macOS `magnifyWithEvent:`
+    // reports each event's OWN magnification, a delta, and the shell injected
+    // it as is: two zoom-in steps of +2 % and +1 % became scales 1.02 then
+    // 1.01, which every consumer comparing successive samples read as a zoom
+    // OUT. `DetectedPinch::scale` is now the scale since the gesture began on
+    // every source, and `began` marks the gesture's first update.
+
+    #[test]
+    fn trackpad_magnify_deltas_add_up_to_a_growing_cumulative_scale() {
+        let mut m = GestureAndDragManager::new();
+        let c = pos(10.0, 20.0);
+        let first = m
+            .trackpad_magnify(TrackpadGesturePhase::Began, 0.0, c)
+            .expect("a gesture begins");
+        assert!(first.began);
+        assert_eq!(first.scale, 1.0);
+        let mut last = first.scale;
+        for (i, delta) in [0.02_f32, 0.01, 0.03].into_iter().enumerate() {
+            let p = m
+                .trackpad_magnify(TrackpadGesturePhase::Changed, delta, c)
+                .expect("an update");
+            assert!(!p.began, "only the first update of a gesture begins it");
+            assert!(
+                p.scale > last,
+                "update {i}: zoom-in deltas must grow the cumulative scale ({} after {last})",
+                p.scale
+            );
+            assert!((p.current_distance / p.initial_distance - p.scale).abs() < 1e-5);
+            assert_eq!(p.center, c);
+            last = p.scale;
+        }
+        assert!((last - 1.02 * 1.01 * 1.03).abs() < 1e-5);
+        // A new gesture starts from 1.0 again.
+        let again = m
+            .trackpad_magnify(TrackpadGesturePhase::Began, 0.0, c)
+            .expect("a second gesture");
+        assert!(again.began);
+        assert_eq!(again.scale, 1.0);
+    }
+
+    #[test]
+    fn a_trackpad_pinch_ends_and_an_update_without_a_begin_opens_a_new_one() {
+        let mut m = GestureAndDragManager::new();
+        let c = pos(0.0, 0.0);
+        let _ = m.trackpad_magnify(TrackpadGesturePhase::Began, 0.0, c);
+        let _ = m.trackpad_magnify(TrackpadGesturePhase::Changed, 0.5, c);
+        // The lift is reported: the gesture's last scale again, `ended` set
+        // (the editor debounced its pinch for want of it).
+        let end = m
+            .trackpad_magnify(TrackpadGesturePhase::Ended, 0.0, c)
+            .expect("the end of an open gesture is reported");
+        assert!(end.ended && !end.began, "{end:?}");
+        assert!(
+            (end.scale - 1.5).abs() < 1e-6,
+            "the end repeats the last scale: {}",
+            end.scale
+        );
+        assert!(
+            m.trackpad_magnify(TrackpadGesturePhase::Ended, 0.0, c)
+                .is_none(),
+            "an end with no gesture open reports nothing"
+        );
+        let p = m
+            .trackpad_magnify(TrackpadGesturePhase::Changed, 0.1, c)
+            .expect("an update");
+        assert!(p.began, "an update with no gesture open begins one");
+        assert!((p.scale - 1.1).abs() < 1e-6);
+        // A nonsense delta leaves the scale where it was.
+        let q = m
+            .trackpad_magnify(TrackpadGesturePhase::Changed, f32::NAN, c)
+            .expect("an update");
+        assert!(!q.began);
+        assert!((q.scale - 1.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_touch_pinch_begins_once_per_pair_of_touches() {
+        let mut m = GestureAndDragManager::new();
+        let u = WindowPosition::Uninitialized;
+        m.touch_down(1, pos(100.0, 100.0), ts(0), u, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), u, pos(200.0, 100.0));
+        m.touch_move(2, pos(260.0, 100.0), ts(2), pos(260.0, 100.0));
+        let first = m.detect_pinch().expect("a pinch");
+        assert!(
+            first.began,
+            "the first pinch of two touches begins a gesture"
+        );
+        m.note_pinch_dispatched();
+
+        m.touch_move(2, pos(300.0, 100.0), ts(3), pos(300.0, 100.0));
+        let next = m.detect_pinch().expect("still a pinch");
+        assert!(!next.began, "the same two touches continue the gesture");
+        assert!(
+            next.scale > first.scale,
+            "cumulative: the fingers moved further apart"
+        );
+        // Seen again by a later pass, it is still no beginning.
+        m.note_pinch_dispatched();
+        assert!(!m.detect_pinch().expect("a pinch").began);
+
+        // Two new touches are a new gesture.
+        m.touch_up(1, pos(100.0, 100.0), ts(4), pos(100.0, 100.0));
+        m.touch_up(2, pos(300.0, 100.0), ts(5), pos(300.0, 100.0));
+        m.note_pinch_dispatched();
+        m.touch_down(3, pos(100.0, 300.0), ts(6), u, pos(100.0, 300.0));
+        m.touch_down(4, pos(200.0, 300.0), ts(7), u, pos(200.0, 300.0));
+        m.touch_move(4, pos(260.0, 300.0), ts(8), pos(260.0, 300.0));
+        assert!(m.detect_pinch().expect("a new pinch").began);
+    }
+
+    /// A finger of a reported touch pinch lifts: one last update, `ended`,
+    /// at the scale the fingers had - and nothing after it.
+    #[test]
+    fn a_touch_pinch_reports_its_end_once_when_a_finger_lifts() {
+        let mut m = GestureAndDragManager::new();
+        let u = WindowPosition::Uninitialized;
+        m.touch_down(1, pos(100.0, 100.0), ts(0), u, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), u, pos(200.0, 100.0));
+        m.touch_move(2, pos(300.0, 100.0), ts(2), pos(300.0, 100.0));
+        let pinch = m.detect_pinch().expect("a pinch");
+        assert!(!pinch.ended);
+        m.note_pinch_dispatched();
+
+        m.touch_up(2, pos(300.0, 100.0), ts(3), pos(300.0, 100.0));
+        let end = m.detect_pinch().expect("the lift ends the pinch");
+        assert!(end.ended && !end.began, "{end:?}");
+        assert!(
+            (end.scale - pinch.scale).abs() < 1e-6,
+            "the end keeps the scale ({} vs {})",
+            end.scale,
+            pinch.scale
+        );
+        m.note_pinch_dispatched();
+        assert!(m.detect_pinch().is_none(), "the end is reported once");
+    }
+
+    /// Two touches that never pinched (under the threshold) end no pinch.
+    #[test]
+    fn a_pair_of_touches_that_never_pinched_reports_no_end() {
+        let mut m = GestureAndDragManager::new();
+        let u = WindowPosition::Uninitialized;
+        m.touch_down(1, pos(100.0, 100.0), ts(0), u, pos(100.0, 100.0));
+        m.touch_down(2, pos(200.0, 100.0), ts(1), u, pos(200.0, 100.0));
+        m.touch_move(2, pos(201.0, 100.0), ts(2), pos(201.0, 100.0));
+        assert!(m.detect_pinch().is_none(), "premise: under the threshold");
+        m.note_pinch_dispatched();
+        m.touch_up(2, pos(201.0, 100.0), ts(3), pos(201.0, 100.0));
+        assert!(m.detect_pinch().is_none());
+    }
+
+    /// A Ctrl + wheel notch is a pinch of one update: 10 % a notch, `began`
+    /// and `ended` both.
+    #[test]
+    fn a_ctrl_wheel_notch_is_a_pinch_of_one_update() {
+        let c = pos(5.0, 6.0);
+        let up = DetectedPinch::from_ctrl_wheel_notches(1.0, c).expect("a notch");
+        assert!(up.began && up.ended, "{up:?}");
+        assert!((up.scale - 1.1).abs() < 1e-6);
+        assert!((up.current_distance / up.initial_distance - up.scale).abs() < 1e-6);
+        assert_eq!(up.center, c);
+        let down = DetectedPinch::from_ctrl_wheel_notches(-2.0, c).expect("two notches");
+        assert!((down.scale - 0.8).abs() < 1e-6);
+        for nothing in [0.0, -10.0, -20.0, f32::NAN, f32::INFINITY] {
+            assert!(
+                DetectedPinch::from_ctrl_wheel_notches(nothing, c).is_none(),
+                "{nothing} notches"
+            );
+        }
     }
 }
 
@@ -3273,9 +3832,9 @@ mod autotest_generated {
     }
 
     #[test]
-    fn starting_a_session_prunes_all_but_the_newest_ended_session() {
+    fn starting_a_session_prunes_all_but_the_two_newest_ended_sessions() {
         let mut m = GestureAndDragManager::new();
-        for tick in [0u64, 10, 20] {
+        for tick in [0u64, 10, 20, 30] {
             m.start_input_session(
                 pos(0.0, 0.0),
                 ts(tick),
@@ -3285,14 +3844,12 @@ mod autotest_generated {
             );
             m.end_current_session();
         }
-        // Bounded growth: never more than "one ended + one live" session.
-        assert_eq!(m.session_count(), 2);
+        // Bounded growth: never more than "two ended + one live" sessions -
+        // the two clicks before a press make it a triple click.
+        assert_eq!(m.session_count(), 3);
         assert_eq!(m.input_sessions[0].session_id, 2);
-        assert_eq!(m.input_sessions[1].session_id, 3);
-        // KNOWN LIMITATION: because the history is pruned to a single ended
-        // session, a genuine triple-click through the public API can only ever
-        // report 2. detect_click_count()'s triple-click arm is unreachable here.
-        assert_eq!(m.detect_click_count(), 2);
+        assert_eq!(m.input_sessions[2].session_id, 4);
+        assert_eq!(m.detect_click_count(), 3);
     }
 
     // ------------------------------------------------- touch sessions
@@ -3667,6 +4224,26 @@ mod autotest_generated {
     }
 
     #[test]
+    fn three_presses_through_the_session_api_are_a_triple_click() {
+        // Press, release, press, release, press: the third press is click 3
+        // - what selects a paragraph. Starting a session pruned every ended
+        // one but the last, so the third press saw two clicks: a triple
+        // click selected a word.
+        let mut m = GestureAndDragManager::new();
+        for (i, t) in [0u64, 100, 200].into_iter().enumerate() {
+            m.start_input_session(
+                pos(10.0, 10.0),
+                ts(t),
+                0x01,
+                WindowPosition::Uninitialized,
+                pos(10.0, 10.0),
+            );
+            assert_eq!(m.detect_click_count(), i as u32 + 1, "press {}", i + 1);
+            m.end_current_session();
+        }
+    }
+
+    #[test]
     fn detect_click_count_ignores_live_sessions_and_defaults_to_one() {
         let mut m = GestureAndDragManager::new();
         // Only a live (un-ended) session => nothing to count => 1.
@@ -4034,6 +4611,8 @@ mod autotest_generated {
             initial_distance: 0.0,
             current_distance: f32::NAN,
             duration_ms: 0,
+            began: true,
+            ended: false,
         };
         m.inject_native_gesture(NativeGestureEvent::Pinch(pinch));
         let got = m.detect_pinch().expect("native pinch is passed through");
@@ -4642,5 +5221,139 @@ mod rotary_units_tests {
     fn a_nonfinite_sample_answers_zero() {
         assert_eq!(rotary_units_to_radians(f32::NAN, 20.0), 0.0);
         assert_eq!(rotary_units_to_radians(f32::INFINITY, 20.0), 0.0);
+    }
+}
+
+#[cfg(test)]
+mod trackpad_scroll_swipe_tests {
+    use azul_core::geom::LogicalPosition;
+
+    use super::{GestureAndDragManager, GestureDirection, TrackpadGesturePhase};
+
+    /// A two-finger gesture of `steps` finger motions, nothing scrolling
+    /// sideways unless `across`; the swipe it ends with.
+    fn gesture(steps: &[(f32, f32)], across: bool) -> Option<GestureDirection> {
+        let mut m = GestureAndDragManager::new();
+        let mut out = None;
+        for (i, (dx, dy)) in steps.iter().enumerate() {
+            let phase = if i == 0 {
+                TrackpadGesturePhase::Began
+            } else {
+                TrackpadGesturePhase::Changed
+            };
+            out = out.or(m.trackpad_scroll_swipe(phase, LogicalPosition::new(*dx, *dy), across));
+        }
+        out.or(m.trackpad_scroll_swipe(
+            TrackpadGesturePhase::Ended,
+            LogicalPosition::zero(),
+            across,
+        ))
+    }
+
+    #[test]
+    fn a_sideways_flick_over_nothing_that_scrolls_sideways_turns_a_page() {
+        assert_eq!(
+            gesture(&[(-10.0, 0.0), (-30.0, 2.0), (-30.0, 1.0)], false),
+            Some(GestureDirection::Left),
+            "the fingers went 70 px left: a swipe left"
+        );
+        assert_eq!(
+            gesture(&[(12.0, -1.0), (40.0, 0.0), (25.0, 3.0)], false),
+            Some(GestureDirection::Right)
+        );
+    }
+
+    #[test]
+    fn a_swipe_is_answered_once_at_the_lift() {
+        let mut m = GestureAndDragManager::new();
+        let left = LogicalPosition::new(-50.0, 0.0);
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Began, left, false),
+            None
+        );
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Changed, left, false),
+            None,
+            "the fingers are still down: no swipe yet"
+        );
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Ended, LogicalPosition::zero(), false),
+            Some(GestureDirection::Left)
+        );
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Ended, LogicalPosition::zero(), false),
+            None,
+            "a second lift is not a second swipe"
+        );
+    }
+
+    #[test]
+    fn a_sideways_scroll_a_box_takes_turns_no_page() {
+        assert_eq!(gesture(&[(-10.0, 0.0), (-60.0, 0.0)], true), None);
+    }
+
+    #[test]
+    fn a_mostly_vertical_scroll_turns_no_page() {
+        assert_eq!(gesture(&[(-10.0, 30.0), (-50.0, 50.0)], false), None);
+    }
+
+    #[test]
+    fn a_short_sideways_nudge_turns_no_page() {
+        assert_eq!(gesture(&[(-5.0, 0.0), (-15.0, 0.0)], false), None);
+    }
+
+    #[test]
+    fn an_update_with_no_gesture_open_turns_no_page() {
+        let mut m = GestureAndDragManager::new();
+        let left = LogicalPosition::new(-80.0, 0.0);
+        m.trackpad_scroll_swipe(TrackpadGesturePhase::Changed, left, false);
+        assert_eq!(
+            m.trackpad_scroll_swipe(TrackpadGesturePhase::Ended, LogicalPosition::zero(), false),
+            None,
+            "a gesture whose start was not seen is not judged"
+        );
+    }
+}
+
+/// Audit A6-20: what a pointer session tells an event pass.
+#[cfg(test)]
+mod audit_a6_tests {
+    use super::*;
+
+    fn at(ms: u64) -> CoreInstant {
+        use std::sync::OnceLock;
+        static BASE: OnceLock<std::time::Instant> = OnceLock::new();
+        let base = *BASE.get_or_init(std::time::Instant::now);
+        (base + core::time::Duration::from_millis(ms)).into()
+    }
+
+    fn p(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition::new(x, y)
+    }
+
+    /// A drag of 120 px in 100 ms (1,200 px/s, over the 500 px/s of a swipe): while the button
+    /// is held there is nothing to tell, the pass of the release is told the swipe, and the
+    /// passes after it nothing - the session is still the newest and still fast. A native
+    /// swipe is told whatever the buttons do.
+    /// Mutation: `release_edge` ignored in `swipe_to_tell` (the old rule) answers `Some` in
+    /// the first and the third step.
+    #[test]
+    fn a_swipe_of_the_pointer_is_told_at_the_release_only() {
+        let mut m = GestureAndDragManager::new();
+        m.start_input_session(p(0.0, 0.0), at(0), 1, WindowPosition::Uninitialized, p(0.0, 0.0));
+        for i in 1..=10_u8 {
+            let x = 12.0 * f32::from(i);
+            assert!(m.record_input_sample(p(x, 0.0), at(10 * u64::from(i)), 1, p(x, 0.0)));
+        }
+        assert!(m.is_swipe(), "harness: 1,200 px/s");
+        assert_eq!(m.swipe_to_tell(false), None, "the button is held");
+
+        m.end_current_session();
+        assert_eq!(m.swipe_to_tell(true), Some(GestureDirection::Right));
+        assert!(m.is_swipe(), "the ended session is kept, and still fast");
+        assert_eq!(m.swipe_to_tell(false), None, "a pass after the release");
+
+        m.inject_native_gesture(NativeGestureEvent::Swipe(GestureDirection::Up));
+        assert_eq!(m.swipe_to_tell(false), Some(GestureDirection::Up));
     }
 }

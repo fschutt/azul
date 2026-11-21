@@ -119,6 +119,20 @@ fn render_backend_from_env(val: &str) -> Option<AzBackend> {
 }
 
 impl AzBackend {
+    /// Whether the `AZ_BACKEND` value `val` selects the headless backend.
+    #[must_use]
+    pub fn headless_selected_by(val: Option<&str>) -> bool {
+        val.and_then(render_backend_from_env) == Some(AzBackend::Headless)
+    }
+
+    /// Whether this process runs headless (`AZ_BACKEND=headless`) - known
+    /// before `App::run` starts the headless loop, for what an app asks while
+    /// it builds its state (`PlatformCapability::notifications()`).
+    #[must_use]
+    pub fn headless_selected() -> bool {
+        Self::headless_selected_by(std::env::var("AZ_BACKEND").ok().as_deref())
+    }
+
     /// Resolve the backend from environment variable and config.
     ///
     /// Priority order:
@@ -486,6 +500,21 @@ mod render_selector_tests {
     #[test]
     fn the_default_desktop_renderer_is_cpu() {
         assert_eq!(AzBackend::default(), AzBackend::Cpu);
+    }
+
+    /// A capability probe that runs BEFORE `App::run` - an app building its state: AzClock asks
+    /// `PlatformCapability::notifications()` whether to hand its alarms to the OS - must know
+    /// the run will be headless. The run loop's own switch (`use_headless_backend`) comes too
+    /// late for it: AzClock's E2E saw `UNUserNotificationCenter`, unavailable, and scheduled
+    /// nothing (E2E-A, 2026-10-06). The answer comes from the `AZ_BACKEND` value `resolve`
+    /// reads.
+    #[test]
+    fn headless_is_known_from_az_backend_before_the_run_loop() {
+        assert!(AzBackend::headless_selected_by(Some("headless")));
+        assert!(AzBackend::headless_selected_by(Some("Headless")));
+        assert!(!AzBackend::headless_selected_by(Some("cpu")));
+        assert!(!AzBackend::headless_selected_by(Some("x11")));
+        assert!(!AzBackend::headless_selected_by(None));
     }
 }
 

@@ -1,0 +1,504 @@
+//! The bridge's drive: the user's Azlin drive through a device account of the bridge's own.
+//!
+//! The bridge is a device like any other (azcloud-kit's [`Account`] in its state folder): it
+//! signs up (a development server) or joins a drive with a code from `azcloud invite` / AzDrive,
+//! and so holds its OWN token family - sharing AzMail's or AzDrive's drive token would make each
+//! refresh spend the other's token, and the token server revokes a family when a spent token
+//! comes back. The credentials are renewed under the state folder's lock six hours before they
+//! run out ([`Account::ensure_fresh`]), and once more when the bucket refuses them.
+//!
+//! Every request goes through azcloud-kit's failover, as an app's Azlin drive does: iroh to the
+//! nodes first when the bridge is built with libazul (`os-keyring`, `tray`: azul's iroh
+//! endpoint, [`AccountDrive::with_iroh`]), then the block endpoint, the nodes the last refresh
+//! listed and its failover URLs, each reached at its addresses when its name does not resolve.
+
+use std::sync::{Arc, Mutex};
+
+use azcloud_kit::{
+    drive::TransportFactory,
+    error::{CloudError, CloudResult},
+    failover::{Failover, Node},
+    Account, IrohDialer, IrohLane, StateDir,
+};
+use azul_storage::{
+    ByteRange, Drive, DriveError, Limit, ListPage, ListRequest, ObjectInfo, Precondition, S3Config,
+    S3Drive,
+};
+
+/// The S3 error codes that mean "these credentials no longer work".
+const REFUSED_CREDENTIALS: &[&str] = &[
+    "ExpiredToken",
+    "InvalidToken",
+    "TokenRefreshRequired",
+    "InvalidAccessKeyId",
+];
+
+fn drive_error(e: &CloudError) -> DriveError {
+    if e.is_sign_in() {
+        return DriveError::Denied {
+            message: e.to_string(),
+        };
+    }
+    match e.root() {
+        CloudError::Drive(inner) => inner.clone(),
+        _ => DriveError::Transport(e.to_string()),
+    }
+}
+
+/// The drive of the bridge's device account, refreshing its credentials by itself.
+pub struct AccountDrive {
+    account: Mutex<Account>,
+    transports: TransportFactory,
+    /// An S3 endpoint to use instead of the token server's (`--s3-url`).
+    s3_override: Option<String>,
+    /// The bucket of the current credentials, by their access key.
+    bucket: Mutex<Option<(String, Arc<S3Drive>)>>,
+    /// Where every request goes (the failover of the drive's block endpoint).
+    failover: Mutex<Option<Arc<Failover>>>,
+    /// iroh to the nodes first, when the bridge dials it.
+    lane: Option<Arc<IrohLane>>,
+}
+
+impl std::fmt::Debug for AccountDrive {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AccountDrive").finish_non_exhaustive()
+    }
+}
+
+impl AccountDrive {
+    /// The drive this device holds in `state` (its current one), refreshed at `token_url`.
+    /// Sends nothing.
+    ///
+    /// # Errors
+    ///
+    /// When the state folder holds no drive (sign up or join first).
+    pub fn open(
+        state: &StateDir,
+        token_url: &str,
+        transports: TransportFactory,
+        s3_override: Option<String>,
+    ) -> CloudResult<AccountDrive> {
+        let account = Account::open(state, token_url, transports.clone(), None)?;
+        Ok(AccountDrive {
+            account: Mutex::new(account),
+            transports,
+            s3_override: s3_override.filter(|s| !s.trim().is_empty()),
+            bucket: Mutex::new(None),
+            failover: Mutex::new(None),
+            lane: None,
+        })
+    }
+
+    /// Sends every request over iroh first: to each ready node the node list names with an iroh
+    /// id, dialed through `dialer` and relayed through `relay`; HTTPS with the failover is the
+    /// fallback.
+    #[must_use]
+    pub fn with_iroh(mut self, dialer: Arc<dyn IrohDialer>, relay: Option<&str>) -> Self {
+        self.lane = Some(Arc::new(IrohLane::new(dialer, relay)));
+        self
+    }
+
+    /// The failover of `endpoint` (kept while the endpoint stays), with the node list and the
+    /// failover URLs of the refresh `record` holds.
+    fn failover_for(&self, endpoint: &str, record: &azcloud_kit::account::DriveRecord) -> Arc<Failover> {
+        let mut kept = self
+            .failover
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let wanted = endpoint.trim().trim_end_matches('/');
+        let failover = match kept.as_ref() {
+            Some(failover) if failover.block() == wanted => failover.clone(),
+            _ => {
+                let failover = Arc::new(Failover::new(endpoint));
+                failover.set_lane(self.lane.clone());
+                *kept = Some(failover.clone());
+                failover
+            }
+        };
+        failover.set_nodes(Node::list(&record.nodes));
+        failover.set_alternatives(record.failover.clone());
+        failover
+    }
+
+    /// The drive's id (for people).
+    #[must_use]
+    pub fn drive_id(&self) -> String {
+        self.account
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .record()
+            .id
+            .clone()
+    }
+
+    /// The drive's newest restore announcement as the last refresh answered it: the token server's
+    /// word (never the bucket's) that an operator restored the drive from its off-site copy. What
+    /// the bridge's copy of the drive index takes once, instead of refusing the restored drive as a
+    /// rollback for good (X-DELTA-AZDRIVE-SYNC-3; AzDrive's `AzlinAccount::restore_notice`).
+    #[must_use]
+    pub fn restore_notice(&self) -> Option<azcloud_kit::sync::RestoreNotice> {
+        self.account
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .record()
+            .restore
+            .clone()
+    }
+
+    /// The bucket with credentials that work now; `force` renews them first.
+    fn current(&self, force: bool) -> Result<(Arc<S3Drive>, String), DriveError> {
+        let mut account = self
+            .account
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if force {
+            account.refresh().map_err(|e| drive_error(&e))?;
+        } else {
+            account.ensure_fresh().map_err(|e| drive_error(&e))?;
+        }
+        let credentials = account.credentials().map_err(|e| drive_error(&e))?;
+        let key = credentials.access_key_id.clone();
+        let mut bucket = self
+            .bucket
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some((cached_key, drive)) = bucket.as_ref() {
+            if *cached_key == key {
+                return Ok((drive.clone(), key));
+            }
+        }
+        let record = account.record();
+        let config = S3Config {
+            endpoint: self
+                .s3_override
+                .clone()
+                .unwrap_or_else(|| record.endpoint.clone()),
+            region: if record.region.trim().is_empty() {
+                String::from("us-east-1")
+            } else {
+                record.region.clone()
+            },
+            bucket: record.bucket.clone(),
+            path_style: record.path_style,
+        };
+        let failover = self.failover_for(&config.endpoint, &record);
+        let drive =
+            Arc::new(S3Drive::new(config, credentials, (self.transports)())?.with_router(failover));
+        *bucket = Some((key.clone(), drive.clone()));
+        Ok((drive, key))
+    }
+
+    /// Runs `call` on the bucket; when the bucket refuses the credentials, renews them and
+    /// runs it once more.
+    fn with_bucket<T>(&self, call: impl Fn(&S3Drive) -> Result<T, DriveError>) -> Result<T, DriveError> {
+        let (drive, _) = self.current(false)?;
+        match call(&drive) {
+            Err(DriveError::Service(service))
+                if REFUSED_CREDENTIALS.contains(&service.code.as_str()) =>
+            {
+                let (drive, _) = self.current(true)?;
+                call(&drive)
+            }
+            other => other,
+        }
+    }
+}
+
+impl Drive for AccountDrive {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        self.with_bucket(|b| b.list(request))
+    }
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        self.with_bucket(|b| b.get(key))
+    }
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        self.with_bucket(|b| b.get_range(key, range))
+    }
+    // The bucket's `If-Match` on a ranged GET: a copy that reads one object in many requests asks it
+    // of every one (X-DELTA-SYNC2-3).
+    fn get_range_if(
+        &self,
+        key: &str,
+        range: ByteRange,
+        condition: &Precondition,
+    ) -> Result<Vec<u8>, DriveError> {
+        self.with_bucket(|b| b.get_range_if(key, range, condition))
+    }
+    // The bucket's own guard stands: a drive that wraps another forwards the limit, so the
+    // transport refuses an answer past it before it is held in memory.
+    fn get_limited(&self, key: &str, limit: Limit) -> Result<Vec<u8>, DriveError> {
+        self.with_bucket(|b| b.get_limited(key, limit))
+    }
+    fn put(&self, key: &str, bytes: &[u8]) -> Result<(), DriveError> {
+        self.with_bucket(|b| b.put(key, bytes))
+    }
+    // The bucket's conditional write (S3 If-None-Match / If-Match): what an encrypted drive's
+    // index commits with; the default of the trait would refuse it.
+    fn put_if(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        condition: &Precondition,
+    ) -> Result<Option<String>, DriveError> {
+        self.with_bucket(|b| b.put_if(key, bytes, condition))
+    }
+    // The bucket's streamed write (parts for a big file). Once: the body cannot be read again for
+    // a retry, so the credentials are made fresh before it starts.
+    fn put_from(&self, key: &str, body: &mut dyn std::io::Read) -> Result<u64, DriveError> {
+        let (drive, _) = self.current(false)?;
+        drive.put_from(key, body)
+    }
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        self.with_bucket(|b| b.delete(key))
+    }
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        self.with_bucket(|b| b.head(key))
+    }
+    fn copy(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.with_bucket(|b| b.copy(from, to))
+    }
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.with_bucket(|b| b.create_folder(prefix))
+    }
+    fn rename(&self, from: &str, to: &str) -> Result<(), DriveError> {
+        self.with_bucket(|b| b.rename(from, to))
+    }
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        self.with_bucket(|b| b.delete_folder(prefix))
+    }
+    fn remove_empty_folder(&self, prefix: &str) -> Result<bool, DriveError> {
+        self.with_bucket(|b| b.remove_empty_folder(prefix))
+    }
+    // The bucket asks its condition when an upload completes: a conditional file upload goes to
+    // it as it is, not read into memory by the trait's default.
+    fn conditional_writes(&self) -> bool {
+        true
+    }
+    fn put_file_if(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        condition: &Precondition,
+        ctl: &dyn azul_storage::Ctl,
+    ) -> Result<Option<String>, DriveError> {
+        self.with_bucket(|b| b.put_file_if(key, path, condition, ctl))
+    }
+    // inherits: site - the bucket is opened with credentials the bridge may have to ask for: the
+    // drive answers as the very object it is
+    // inherits: local_path, resume_folder - the bridge serves a bucket, it has no file on this disk
+    // and keeps no upload state
+    // inherits: put_file, put_file_checked, put_from_if, put_many, delete_many, move_many,
+    // put_from_many - the trait's, which call this drive's own put_from, put_if, delete and copy
+    // inherits: delete_for, delete_many_for, delete_folder_for - the trait's (ARCH30-1): the reason is
+    // checked against the key the caller names, and this drive's own delete, delete_many (the
+    // trait's, over delete) and delete_folder then open the bucket with the account's credentials
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        self.with_bucket(|b| b.metadata(key))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use azcloud_kit::{
+        account::{read_grant, store_grant},
+        drive::TransportFactory,
+        StateDir,
+    };
+    use azul_storage::{
+        testing::TempDir, ByteRange, Drive, HttpCall, HttpReply, ListRequest, Precondition,
+        Transport,
+    };
+
+    use super::AccountDrive;
+
+    const TOKEN: &str = "http://127.0.0.1:18081";
+    const BLOCK: &str = "http://127.0.0.1:19000";
+    const NODE: &str = "http://127.0.0.1:19002";
+
+    /// The block endpoint refuses every connection; the node answers an empty listing. Every
+    /// call's URL is kept.
+    struct Cloud(Arc<Mutex<Vec<String>>>);
+
+    impl Transport for Cloud {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            self.0.lock().unwrap().push(call.url.clone());
+            if call.url.starts_with(BLOCK) {
+                return Err(String::from("connection refused"));
+            }
+            Ok(HttpReply {
+                status: 200,
+                headers: vec![(String::from("content-type"), String::from("application/xml"))],
+                body: b"<?xml version=\"1.0\" encoding=\"UTF-8\"?><ListBucketResult><Name>d-1</Name>\
+                        <Prefix></Prefix><KeyCount>0</KeyCount><MaxKeys>1000</MaxKeys>\
+                        <IsTruncated>false</IsTruncated></ListBucketResult>"
+                    .to_vec(),
+            })
+        }
+    }
+
+    /// The bridge's device holding drive d_1 at the block endpoint, its refresh's node list
+    /// naming one node (credentials good until 2099: no refresh).
+    fn device(dir: &TempDir) -> StateDir {
+        let state = StateDir::open(dir.path()).unwrap();
+        let answer: serde_json::Value = serde_json::from_str(&format!(
+            r#"{{"drive": {{"id": "d_1", "name": "Azlin Storage",
+                  "location": {{"kind": "s3", "endpoint": "{BLOCK}", "region": "us-east-1",
+                                "bucket": "d-1", "path_style": true,
+                                "auth": {{"type": "azlin", "drive_id": "d_1",
+                                          "account_url": "{TOKEN}"}}}}}},
+                "credentials": {{"access_key_id": "AKID1", "secret_access_key": "secret",
+                                 "session_token": "session", "expires_at": "2099-01-01T00:00:00Z"}},
+                "failover": [], "nodes": [{{"name": "n2", "url": "{NODE}", "ready": true}}],
+                "quota_bytes": 100000000000, "read_only": false,
+                "period_until": "2099-01-01T00:00:00Z", "drive_token": "dt_f.0.aaa",
+                "tier": "100GB"}}"#
+        ))
+        .unwrap();
+        store_grant(&state, &read_grant(&answer, TOKEN, "owner", 0).unwrap()).unwrap();
+        state
+    }
+
+    /// Every call kept whole, answered as a bucket answers a ranged read of an object it holds: 206, the bytes
+    /// and the tag of the version it served.
+    struct Recorder(Arc<Mutex<Vec<HttpCall>>>);
+
+    impl Transport for Recorder {
+        fn send(&self, call: &HttpCall) -> Result<HttpReply, String> {
+            self.0.lock().unwrap().push(call.clone());
+            Ok(HttpReply {
+                status: 206,
+                headers: vec![(String::from("etag"), String::from("\"tag-1\""))],
+                body: b"abcd".to_vec(),
+            })
+        }
+    }
+
+    /// X-DELTA-STRUCT3-8. The bridge's drive is written by hand (the census reads its method NAMES): its
+    /// `get_range_if` has to send the condition to the bucket - an `If-Match` on the ranged GET, which a copy
+    /// that reads one object in many requests asks of every one (X-DELTA-SYNC2-3). A `get_range_if` that called
+    /// `get_range` dropped it and passed every check of the names; the bucket then serves whatever object the
+    /// name names when the range is read, and the copy is a splice of two versions. The probe here is the
+    /// transport: the one pinned read of the test is ONE ranged GET of the object with the range and the tag.
+    #[test]
+    fn x_delta_struct3_8_the_bridges_account_drive_sends_a_pinned_read_with_its_if_match() {
+        let dir = TempDir::new("bridge-pinned-read");
+        let state = device(&dir);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let transports: TransportFactory =
+            Arc::new(move || Box::new(Recorder(seen.clone())) as Box<dyn Transport>);
+        let drive = AccountDrive::open(&state, TOKEN, transports, None).unwrap();
+        let range = ByteRange::new(0, Some(3));
+        let tag = Precondition::Matches(String::from("tag-1"));
+        assert_eq!(drive.get_range_if("object", range, &tag).unwrap(), b"abcd");
+        let reads = |calls: &Arc<Mutex<Vec<HttpCall>>>| -> Vec<HttpCall> {
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|call| call.url.ends_with("/d-1/object"))
+                .cloned()
+                .collect()
+        };
+        let header = |call: &HttpCall, name: &str| {
+            call.headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.clone())
+        };
+        let pinned = reads(&calls);
+        assert_eq!(pinned.len(), 1, "one ranged GET of the object: {pinned:?}");
+        assert_eq!(header(&pinned[0], "range").as_deref(), Some("bytes=0-3"));
+        assert_eq!(
+            header(&pinned[0], "if-match").as_deref(),
+            Some("\"tag-1\""),
+            "the condition reached the bucket"
+        );
+        // The control: the plain range of the same object asks no version.
+        assert_eq!(drive.get_range("object", range).unwrap(), b"abcd");
+        let both = reads(&calls);
+        assert_eq!(both.len(), 2);
+        assert_eq!(header(&both[1], "if-match"), None);
+    }
+
+    /// X-DELTA-STRUCT4-4. The bridge's drive writes `put_from_if`, `put_file_if` and the batches by hand too: each
+    /// conditional write has to reach the bucket as a PUT of the object with the `If-Match` it was given (the census
+    /// read the names only), and the control - a plain `put` - asks nothing. The probe is the transport.
+    #[test]
+    fn x_delta_struct4_4_the_bridges_account_drive_sends_every_conditional_write_with_its_if_match()
+    {
+        use azul_storage::BatchPut;
+
+        let dir = TempDir::new("bridge-conditional-writes");
+        let state = device(&dir);
+        let file = dir.path().join("one-byte.txt");
+        std::fs::write(&file, b"x").unwrap();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let transports: TransportFactory =
+            Arc::new(move || Box::new(Recorder(seen.clone())) as Box<dyn Transport>);
+        let drive = AccountDrive::open(&state, TOKEN, transports, None).unwrap();
+        let tag = Precondition::Matches(String::from("tag-1"));
+        drive.put_if("object", b"x", &tag).unwrap();
+        drive.put_from_if("object", &mut &b"x"[..], &tag).unwrap();
+        drive
+            .put_file_if("object", &file, &tag, &azul_storage::ctl::Quiet)
+            .unwrap();
+        let answers = drive.put_many(&[BatchPut::new("object", b"x").when(&tag)]);
+        assert!(answers.iter().all(Result::is_ok), "{answers:?}");
+        let header = |call: &HttpCall, name: &str| {
+            call.headers
+                .iter()
+                .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.clone())
+        };
+        let puts: Vec<HttpCall> = calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| {
+                call.url.ends_with("/d-1/object") && call.method == azul_storage::Method::Put
+            })
+            .cloned()
+            .collect();
+        assert_eq!(puts.len(), 4, "one PUT of the object for each: {puts:?}");
+        for put in &puts {
+            assert_eq!(
+                header(put, "if-match").as_deref(),
+                Some("\"tag-1\""),
+                "the condition reached the bucket: {put:?}"
+            );
+        }
+        // The control: an unconditional write asks nothing of the bucket.
+        drive.put("other", b"x").unwrap();
+        let plain: Vec<HttpCall> = calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|call| call.url.ends_with("/d-1/other"))
+            .cloned()
+            .collect();
+        assert_eq!(plain.len(), 1, "{plain:?}");
+        assert_eq!(header(&plain[0], "if-match"), None);
+    }
+
+    #[test]
+    fn the_bridges_drive_fails_over_to_the_nodes_its_refresh_listed() {
+        let dir = TempDir::new("bridge-failover");
+        let state = device(&dir);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let seen = calls.clone();
+        let transports: TransportFactory =
+            Arc::new(move || Box::new(Cloud(seen.clone())) as Box<dyn Transport>);
+        let drive = AccountDrive::open(&state, TOKEN, transports, None).unwrap();
+        drive.list(&ListRequest::folder("")).unwrap();
+        let calls = calls.lock().unwrap().clone();
+        assert!(calls.first().is_some_and(|url| url.starts_with(BLOCK)), "{calls:?}");
+        assert!(
+            calls.last().is_some_and(|url| url.starts_with(NODE)),
+            "the block endpoint gave no answer: the node did - {calls:?}"
+        );
+    }
+}

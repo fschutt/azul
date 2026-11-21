@@ -1,0 +1,32 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Backgrounds and Borders Test: background-clip - padding-box keyword value</title>
+<meta name="assert" content="Background-clip with 'padding-box' implies to paint the background within (clipped to) the padding box."/>
+<style>
+        #test-overlapped-red {
+            background-clip: padding-box;
+            background-color: red;
+            border: transparent dotted 5px;
+            height: 100px;
+            padding: 25px;
+            width: 100px;
+        }
+        #ref-overlapping-green {
+            background-color: green;
+            bottom: 155px;
+            height: 150px;
+            left: 5px;
+            position: relative;
+            width: 150px;
+        }
+    
+</style>
+</head>
+<body>
+    <p>Test passes if there is a filled green square and <strong>no red</strong>.</p>
+    <div id="test-overlapped-red"></div>
+    <div id="ref-overlapping-green"></div>
+  
+
+</body>
+</html>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="ISO-8859-1"?>
+<!DOCTYPE rss PUBLIC "-//Netscape Communications//DTD RSS 0.91//EN"
+            "http://my.netscape.com/publish/formats/rss-0.91.dtd">
+<rss version="0.91">
+  <channel>
+    <title>Cooking Corner</title>
+    <link>http://cooking.example.com/</link>
+    <description>Recipes since 1999</description>
+    <language>en-us</language>
+    <image>
+      <title>Cooking Corner</title>
+      <url>http://cooking.example.com/logo.gif</url>
+      <link>http://cooking.example.com/</link>
+    </image>
+    <item>
+      <title>Grandma&apos;s apple pie</title>
+      <link>http://cooking.example.com/pie.html</link>
+      <description>Flaky crust, tart apples.</description>
+    </item>
+    <item>
+      <title>Lentil soup</title>
+      <link>http://cooking.example.com/soup.html</link>
+    </item>
+  </channel>
+</rss>

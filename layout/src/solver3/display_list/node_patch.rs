@@ -1,0 +1,916 @@
+//! One node's background, border and shadows painted again INTO a display list that is kept.
+//!
+//! A `:hover { background }` on one label of a map changes what ONE paint call of the
+//! build emits: the node's background-and-border run (`EmitPhase::BgBorder`). The list was
+//! built again whole for it - 12,470 nodes walked, 17,495 items emitted - on every enter
+//! and every leave. Here the run alone is painted, by the build's own function
+//! (`DisplayListGenerator::paint_node_background_and_border_inner`), and put where the
+//! build puts it:
+//!
+//! - in place of the node's run, when the list holds one (a leave: the hover colour goes;
+//!   an enter over a label that has a background of its own);
+//! - right before the first item of the node's CONTENT run, when the node painted no
+//!   background or border before (the item a colour that was transparent needs: the
+//!   insert). The build paints a box's background-and-border run, then - for that box -
+//!   its scroll hit area, its clip and scroll frames, the stacking contexts below it, its
+//!   selection and its placeholder prompt, then its content run. [`plan`] asks the build's
+//!   own functions whether any of those emits something for the box; when none does, the
+//!   two runs are neighbours and the place is known.
+//!
+//! Everything else is a reason to build the list again, which the caller does when
+//! [`plan`] or [`locate`] answer `None`: a box painted in several pieces or by another box
+//! (an inline box on a line, a table part, the canvas' root, a list marker, an SVG shape's
+//! stroke), a box in a named flow, a box inside an opacity group (the group's bounds are
+//! what it paints), a run that did not change (the decorations are painted somewhere this
+//! patch does not look).
+//!
+//! What a node's background changes beyond its own run is the PROOF of the text below it
+//! ([`DisplayList::uniform_text_bgs`]): a run that had one gets the proof a build gives it
+//! now, as a copied run does (`try_copy_cached_run`); a run without one keeps none, which
+//! every renderer paints correctly (the proof is only a faster path).
+
+use super::*;
+
+/// How many boxes below a restyled node are looked at for the text runs whose proven
+/// background the node's own background can change. A node with more is built again
+/// with its list.
+const MAX_SUBTREE: usize = 256;
+
+/// One node's background-and-border run as a build paints it now, and what [`locate`]
+/// needs to put it into a list.
+#[derive(Debug)]
+pub(crate) struct DecorationPatch {
+    /// The node's layout box.
+    layout_index: usize,
+    /// The run: its items and their side tables, a list of its own.
+    run: DisplayList,
+    /// Whether the build emits nothing between this run and the node's content run, so
+    /// that a run the list does not hold yet goes right before the content run.
+    content_follows: bool,
+    /// The layout boxes of the node's subtree, the node's own with them, sorted.
+    subtree: Vec<usize>,
+    /// The background a build proves now for a text run of each box of `subtree`
+    /// (`compute_uniform_text_bg`), in the order of `subtree`.
+    proofs: Vec<(usize, Option<(ColorU, WindowLogicalRect)>)>,
+}
+
+/// Does the box of `dom_id` open an opacity group around what it paints (the condition of
+/// `generate_for_stacking_context`)? Its `PushOpacity` carries the bounds of that paint.
+fn opens_opacity_group(
+    styled_dom: &StyledDom,
+    gpu_value_cache: Option<&GpuValueCache>,
+    dom_id: NodeId,
+) -> bool {
+    let node_data = styled_dom.node_data.as_container();
+    let styled_nodes = styled_dom.styled_nodes.as_container();
+    let (Some(node_data), Some(styled)) = (node_data.get(dom_id), styled_nodes.get(dom_id)) else {
+        return true;
+    };
+    let node_state = &styled.styled_node_state;
+    let opacity = crate::solver3::getters::get_opacity(styled_dom, dom_id, node_state);
+    let animated = gpu_value_cache.is_some_and(|cache| {
+        cache.anim_opacity_keys.contains_key(&dom_id)
+            && cache.anim_current_opacity_values.contains_key(&dom_id)
+    });
+    let mix_blend_mode = styled_dom
+        .css_property_cache
+        .ptr
+        .get_mix_blend_mode(node_data, &dom_id, node_state)
+        .and_then(|v| v.get_property().copied())
+        .unwrap_or_default();
+    opacity < 1.0 || animated || mix_blend_mode != StyleMixBlendMode::Normal
+}
+
+/// The patch of one node, `None` when its decorations cannot be painted alone.
+fn plan_one<T: ParsedFontTrait + Sync + 'static>(
+    generator: &mut DisplayListGenerator<'_, '_, T>,
+    node: NodeId,
+) -> Option<DecorationPatch> {
+    let tree = generator.positioned_tree.tree;
+    let styled_dom = generator.ctx.styled_dom;
+    let gpu_value_cache = generator.gpu_value_cache;
+
+    // One box, painted once: a node of several boxes (a list item and its marker) is not.
+    let boxes = tree.dom_to_layout.get(&node)?;
+    if boxes.len() != 1 {
+        return None;
+    }
+    let index = boxes[0].index();
+    let hot = tree.get(LayoutNodeId::new(index))?;
+    if hot.dom_node_id != Some(node) || crate::solver3::fc::is_marker_box(tree, index) {
+        return None;
+    }
+    // The canvas paints the root's background (and a body's it took over), a table paints
+    // its parts' backgrounds in its own run.
+    if generator.canvas_painted.contains(&Some(node))
+        || matches!(
+            hot.formatting_context,
+            FormattingContext::Table
+                | FormattingContext::TableRowGroup
+                | FormattingContext::TableRow
+                | FormattingContext::TableCell
+                | FormattingContext::TableColumnGroup
+                | FormattingContext::TableCaption
+        )
+    {
+        return None;
+    }
+    // The box and every box around it: none in a named flow (a region paints its parts),
+    // none an opacity group (its bounds are what it paints).
+    let mut at = Some(index);
+    let mut steps = 0_usize;
+    while let Some(i) = at {
+        steps += 1;
+        if steps > tree.nodes.len() {
+            return None;
+        }
+        let id = LayoutNodeId::new(i);
+        if tree.warm(id).is_some_and(|w| w.flow.is_some()) {
+            return None;
+        }
+        let around = tree.get(id)?;
+        if let Some(dom_id) = around.dom_node_id {
+            if opens_opacity_group(styled_dom, gpu_value_cache, dom_id) {
+                return None;
+            }
+        }
+        at = around.parent;
+    }
+    // An SVG shape takes its border as a stroke, painted outside this run.
+    let state = generator.get_styled_node_state(node);
+    let border_info = get_border_info(styled_dom, node, &state);
+    if generator.svg_stroke_for(node, &border_info).is_some() {
+        return None;
+    }
+
+    // The run, as the build paints it.
+    let mut builder = DisplayListBuilder::with_debug(false);
+    // The run is this node's alone: its own key is the only one it can bind. (Every key of
+    // the DOM was copied into the builder per patched node: a key per label that has a
+    // `:hover` background, audit A4-23.)
+    if let Some(key) = gpu_value_cache.and_then(|cache| cache.color_key(node)) {
+        builder.bound_colors.insert(node, key);
+    }
+    builder.set_current_layout(Some((index, EmitPhase::BgBorder)));
+    generator
+        .paint_node_background_and_border_inner(&mut builder, index)
+        .ok()?;
+    builder.set_current_layout(None);
+    if !builder.forced_page_breaks.is_empty() || !builder.open_opacity_groups.is_empty() {
+        return None;
+    }
+    let run = builder.build();
+    if !run.carets.is_empty() || !run.fixed_position_item_ranges.is_empty() {
+        return None;
+    }
+
+    // What the build emits for this box between the run and its content run: its scroll
+    // hit area, its clip and scroll frames, the stacking contexts below it, its selection,
+    // its placeholder prompt.
+    let scrolls = get_overflow_x(styled_dom, node, &state).is_scroll()
+        || get_overflow_y(styled_dom, node, &state).is_scroll();
+    let mut between = DisplayListBuilder::with_debug(false);
+    let clips = generator.push_node_clips(&mut between, index, hot);
+    generator.paint_selections(&mut between, index).ok()?;
+    if let Some(rect) = generator.get_paint_rect(index) {
+        generator.maybe_paint_placeholder_prompt(&mut between, index, &rect);
+    }
+    let contexts_below = generator.establishes_stacking_context(index)
+        && generator
+            .collect_stacking_contexts(index)
+            .ok()?
+            .child_contexts
+            .iter()
+            .any(|context| context.z_index < 0);
+    let content_follows = !scrolls && !clips && between.items.is_empty() && !contexts_below;
+
+    // The boxes whose text sits on this node's background.
+    let mut subtree = vec![index];
+    let mut next = 0_usize;
+    while next < subtree.len() {
+        if subtree.len() > MAX_SUBTREE {
+            return None;
+        }
+        let children = tree.children(subtree[next]);
+        subtree.extend_from_slice(children);
+        next += 1;
+    }
+    subtree.sort_unstable();
+    subtree.dedup();
+    let proofs = subtree
+        .iter()
+        .map(|i| (*i, generator.compute_uniform_text_bg(*i)))
+        .collect();
+
+    Some(DecorationPatch {
+        layout_index: index,
+        run,
+        content_follows,
+        subtree,
+        proofs,
+    })
+}
+
+/// The background-and-border runs of `nodes` as a build of the list paints them now, from
+/// the inputs `generate_display_list` takes. `None` when one of them cannot be painted
+/// alone: the caller builds the list.
+#[allow(clippy::too_many_arguments)] // the inputs of `generate_display_list`
+pub(crate) fn plan<T: ParsedFontTrait + Sync + 'static>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &crate::solver3::PositionVec,
+    scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
+    scroll_ids: &HashMap<LayoutNodeId, u64>,
+    gpu_value_cache: Option<&GpuValueCache>,
+    renderer_resources: &RendererResources,
+    id_namespace: IdNamespace,
+    dom_id: DomId,
+    nodes: &[NodeId],
+) -> Option<Vec<DecorationPatch>> {
+    let positioned_tree = PositionedTree {
+        tree,
+        calculated_positions,
+    };
+    let mut generator = DisplayListGenerator::new(
+        ctx,
+        scroll_offsets,
+        &positioned_tree,
+        scroll_ids,
+        gpu_value_cache,
+        renderer_resources,
+        id_namespace,
+        dom_id,
+    );
+    // The nodes whose background the canvas painted, as step 0 of the build finds them.
+    let root_dom_id = tree
+        .get(LayoutNodeId::new(tree.root))
+        .and_then(|root| root.dom_node_id)?;
+    let root_state = generator.get_styled_node_state(root_dom_id);
+    let body = crate::solver3::getters::body_background_propagated_to(
+        generator.ctx.styled_dom,
+        root_dom_id,
+        &root_state,
+    );
+    generator.canvas_painted = [Some(root_dom_id), body];
+
+    let mut patches = Vec::with_capacity(nodes.len());
+    for node in nodes {
+        patches.push(plan_one(&mut generator, *node)?);
+    }
+    Some(patches)
+}
+
+/// Where the runs of `patches` go in `list`: `(index of the first item, items replaced)`
+/// per patch. `None`, and nothing is to be changed, when one of them has no place this
+/// patch can prove: the caller builds the list.
+pub(crate) fn locate(list: &DisplayList, patches: &[DecorationPatch]) -> Option<Vec<(usize, usize)>> {
+    let n = list.items.len();
+    if list.layout_node_mapping.len() != n
+        || list.node_mapping.len() != n
+        || list.uniform_text_bgs.len() != n
+        || list.text_selection_colors.len() != n
+        || list.color_bindings.len() != n
+    {
+        return None;
+    }
+    // The runs of each patched box in the list: its background-and-border runs, and
+    // where its content runs start.
+    let mut background: Vec<Vec<(usize, usize)>> = vec![Vec::new(); patches.len()];
+    let mut content: Vec<Vec<usize>> = vec![Vec::new(); patches.len()];
+    // Whether the list holds a selection run of the box (`EmitPhase::Selection`, A3-core-17):
+    // it lies between the box's background run and its content run.
+    let mut selected: Vec<bool> = vec![false; patches.len()];
+    let mut i = 0_usize;
+    while i < n {
+        let tag = list.layout_node_mapping[i];
+        let start = i;
+        while i < n && list.layout_node_mapping[i] == tag {
+            i += 1;
+        }
+        let Some((index, phase)) = tag else {
+            continue;
+        };
+        let Some(k) = patches.iter().position(|p| p.layout_index == index) else {
+            continue;
+        };
+        match phase {
+            EmitPhase::BgBorder => background[k].push((start, i)),
+            EmitPhase::Content => content[k].push(start),
+            EmitPhase::Selection => selected[k] = true,
+            EmitPhase::ScWalk => {}
+        }
+    }
+
+    let mut placements: Vec<(usize, usize)> = Vec::with_capacity(patches.len());
+    for (k, patch) in patches.iter().enumerate() {
+        let (at, old_len) = match background[k].as_slice() {
+            [(start, end)] => (*start, *end - *start),
+            [] => match content[k].as_slice() {
+                // A run the list does not hold yet goes right before the content run only
+                // when nothing lies between the two: not when the box's highlight does
+                // (`plan_one` says so too, from the selection as it is now; this is the
+                // list as it was built).
+                [start] if patch.content_follows && !selected[k] => (*start, 0),
+                _ => return None,
+            },
+            _ => return None,
+        };
+        let end = at + old_len;
+        // A run that stays as it is: the node's decorations are painted somewhere this
+        // patch does not look (or the restyle changed nothing that is painted).
+        let old = &list.items[at..end];
+        if old.len() == patch.run.items.len()
+            && old
+                .iter()
+                .zip(&patch.run.items)
+                .all(|(a, b)| a.is_visually_equal(b))
+        {
+            return None;
+        }
+        // A fixed-position range that begins or ends at an insert: on which side of the
+        // new items it lies is not known. One that cuts through a run cannot be.
+        let ranges = &list.fixed_position_item_ranges;
+        if old_len == 0 && ranges.iter().any(|(s, e)| *s == at || *e == at) {
+            return None;
+        }
+        if ranges
+            .iter()
+            .any(|(s, e)| (*s > at && *s < end) || (*e > at && *e < end))
+        {
+            return None;
+        }
+        if list.carets.iter().any(|(index, _)| *index >= at && *index < end) {
+            return None;
+        }
+        if placements.iter().any(|(other, _)| *other == at) {
+            return None;
+        }
+        placements.push((at, old_len));
+    }
+    Some(placements)
+}
+
+/// Puts the runs of `patches` into `list` at the `placements` [`locate`] found in this
+/// very list, every side table and index range kept aligned.
+pub(crate) fn commit(list: &mut DisplayList, patches: &[DecorationPatch], placements: &[(usize, usize)]) {
+    // The proofs of the text runs painted below the nodes, while the indices still are
+    // the ones of the list as it was located in.
+    for i in 0..list.items.len() {
+        let Some(Some((index, EmitPhase::Content))) = list.layout_node_mapping.get(i).copied() else {
+            continue;
+        };
+        if list.uniform_text_bgs.get(i).copied().flatten().is_none() {
+            continue;
+        }
+        let Some(patch) = patches
+            .iter()
+            .find(|p| p.subtree.binary_search(&index).is_ok())
+        else {
+            continue;
+        };
+        let DisplayListItem::Text {
+            source_node_index: Some(source),
+            ..
+        } = &list.items[i]
+        else {
+            continue;
+        };
+        if let Ok(found) = patch.proofs.binary_search_by_key(source, |(box_index, _)| *box_index) {
+            list.uniform_text_bgs[i] = patch.proofs[found].1;
+        }
+    }
+
+    // From the back of the list, so the places of the earlier runs stay valid.
+    let mut order: Vec<usize> = (0..patches.len().min(placements.len())).collect();
+    order.sort_by_key(|k| core::cmp::Reverse(placements[*k].0));
+    for k in order {
+        let (at, old_len) = placements[k];
+        let run = &patches[k].run;
+        let new_len = run.items.len();
+        let end = at + old_len;
+        if end > list.items.len() {
+            continue;
+        }
+        list.items.splice(at..end, run.items.iter().cloned());
+        list.node_mapping
+            .splice(at..end, run.node_mapping.iter().copied());
+        list.layout_node_mapping
+            .splice(at..end, run.layout_node_mapping.iter().copied());
+        list.uniform_text_bgs
+            .splice(at..end, run.uniform_text_bgs.iter().copied());
+        // The ink table may be shorter than the list (a list from before it existed, a
+        // table nobody filled): padded up to the run, then kept in step like the others.
+        if list.text_ink.len() < end {
+            list.text_ink.resize(end, None);
+        }
+        list.text_ink.splice(
+            at..end,
+            (0..new_len).map(|i| run.text_ink.get(i).copied().flatten()),
+        );
+        list.text_selection_colors
+            .splice(at..end, run.text_selection_colors.iter().copied());
+        list.color_bindings
+            .splice(at..end, run.color_bindings.iter().copied());
+        if new_len == old_len {
+            continue;
+        }
+        // What lies behind the run moves by the difference; an index at or beyond `end`
+        // is at least `old_len` beyond `at`, so the subtraction cannot wrap.
+        let moved = |index: usize| index - old_len + new_len;
+        for (index, _) in &mut list.carets {
+            if *index >= end {
+                *index = moved(*index);
+            }
+        }
+        for (start, finish) in &mut list.fixed_position_item_ranges {
+            // `locate` let no range begin or end inside the run, nor at an insert.
+            if *start > at {
+                *start = moved(*start);
+            }
+            if *finish > at {
+                *finish = moved(*finish);
+            }
+        }
+    }
+    list.frame_index.clear();
+}
+
+/// A3-core-26 (a), by area A1: the ink table ([`DisplayList::text_ink`]) through a patch.
+/// A list patched by [`commit`] or moved by [`move_frame`] knows for every text run the ink a
+/// build of the changed document knows.
+#[cfg(test)]
+mod audit_a1_ink_tests {
+    use super::*;
+
+    fn pen(index: u32, x: f32, y: f32) -> GlyphInstance {
+        GlyphInstance {
+            index,
+            point: LogicalPosition { x, y },
+            size: LogicalSize { width: 0.0, height: 0.0 },
+        }
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    fn fill(x: f32, y: f32, w: f32, h: f32, rgb: [u8; 3]) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: rect(x, y, w, h).into(),
+            color: ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// A 1000-unit face: glyph 1 a letter (box 50 .. 550, -200 .. 700), glyph 2 a swash that
+    /// reaches 2.4 em right of its pen (box 0 .. 2400, 0 .. 700).
+    fn boxes(id: u16) -> Option<[i16; 4]> {
+        match id {
+            1 => Some([50, -200, 550, 700]),
+            2 => Some([0, 0, 2400, 700]),
+            _ => None,
+        }
+    }
+
+    /// The layout box of label `i`.
+    const fn label_box(i: usize) -> usize {
+        10 + i
+    }
+
+    /// A label as a build paints it: its background-and-border run and the glyphs of its
+    /// text at 20 px.
+    type Label = (Vec<DisplayListItem>, Vec<GlyphInstance>);
+
+    /// The background-and-border run of label `i` as a build paints it alone (what
+    /// `plan_one` hands to [`commit`]).
+    fn background_run(i: usize, background: &[DisplayListItem]) -> DisplayList {
+        let mut builder = DisplayListBuilder::with_debug(false);
+        builder.set_current_layout(Some((label_box(i), EmitPhase::BgBorder)));
+        for item in background {
+            builder.push_item(item.clone());
+        }
+        builder.set_current_layout(None);
+        builder.build()
+    }
+
+    /// The list a build gives for `labels`: per label its background run (tagged as the
+    /// build tags it) and its text run with the ink of its glyphs, as the generator's
+    /// `push_run` announces it.
+    fn built(labels: &[Label]) -> DisplayList {
+        let everything = rect(-10_000.0, -10_000.0, 20_000.0, 20_000.0);
+        let mut builder = DisplayListBuilder::with_debug(false);
+        for (i, (background, glyphs)) in labels.iter().enumerate() {
+            builder.set_current_layout(Some((label_box(i), EmitPhase::BgBorder)));
+            for item in background {
+                builder.push_item(item.clone());
+            }
+            builder.set_current_layout(Some((label_box(i), EmitPhase::Content)));
+            builder.next_text_ink = text_ink_of_run(glyphs, 20.0, 1000.0, boxes);
+            builder.push_item(DisplayListItem::Text {
+                glyphs: glyphs.clone(),
+                font_hash: FontHash::from_hash(1),
+                font_size_px: 20.0,
+                color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                clip_rect: everything.into(),
+                line_box: everything.into(),
+                source_node_index: Some(label_box(i)),
+            });
+        }
+        builder.set_current_layout(None);
+        builder.build()
+    }
+
+    fn patch_of(i: usize, background: &[DisplayListItem]) -> DecorationPatch {
+        DecorationPatch {
+            layout_index: label_box(i),
+            run: background_run(i, background),
+            content_follows: true,
+            subtree: vec![label_box(i)],
+            proofs: vec![(label_box(i), None)],
+        }
+    }
+
+    /// `list` patched with the new backgrounds of the labels `changed`.
+    fn patched(mut list: DisplayList, changed: &[(usize, &[DisplayListItem])]) -> DisplayList {
+        let patches: Vec<DecorationPatch> = changed.iter().map(|(i, background)| patch_of(*i, background)).collect();
+        let placements = locate(&list, &patches).expect("the runs have their places");
+        commit(&mut list, &patches, &placements);
+        list
+    }
+
+    /// The same table, and the same answer of the list for every item.
+    fn assert_same_ink(got: &DisplayList, want: &DisplayList, what: &str) {
+        assert_eq!(got.items.len(), want.items.len(), "{what}: the items");
+        assert_eq!(got.text_ink, want.text_ink, "{what}: the ink table");
+        for i in 0..want.items.len() {
+            assert_eq!(got.visual_bounds_of(i), want.visual_bounds_of(i), "{what}: item {i}");
+        }
+    }
+
+    /// Two labels, each a grey box and a text; label 1 ends in the wide swash, whose ink
+    /// (to x = 300 + 12 + 48 + 3 = 363) the item's own estimate (to 300 + 12 + 20 = 332)
+    /// does not hold.
+    fn two_labels() -> Vec<Label> {
+        vec![
+            (vec![fill(90.0, 30.0, 60.0, 30.0, [200, 200, 200])], vec![pen(1, 100.0, 50.0), pen(1, 112.0, 50.0)]),
+            (vec![fill(290.0, 30.0, 60.0, 30.0, [200, 200, 200])], vec![pen(1, 300.0, 50.0), pen(2, 312.0, 50.0)]),
+        ]
+    }
+
+    /// A3-core-26 (a): a patched list's ink table is a rebuilt list's.
+    /// - a colour patch (a hover colour: one item for one item): nothing moves;
+    /// - a patch that changes the item count (a border comes: one item becomes two, and two
+    ///   labels patched at once): the runs behind it move by one, their entries with them;
+    /// - a run the list did not hold (label 0 without a background gets one: an insert) and
+    ///   a run that goes (two items become none);
+    /// - a table shorter than the list (a list from before the table, a table nobody
+    ///   filled): no entry is put under a wrong item - every run answers with its estimate
+    ///   or with its own ink.
+    /// Premise of each: the swash's ink is what the list answers for label 1's run (to x =
+    /// 363), at the run's index after the patch.
+    /// Mutations: `commit` without the `text_ink.splice` leaves the table as it was: after
+    /// the border patch label 0's entry lies under the border and both runs answer with
+    /// their estimates (the first assertion of that block); without the `resize` before it
+    /// the splice of the short table panics (a range past the table's end).
+    #[test]
+    fn a_patched_lists_ink_table_is_a_rebuilt_lists() {
+        let labels = two_labels();
+        let ink_end = |list: &DisplayList, at: usize| {
+            let b = list.visual_bounds_of(at).expect("a run has bounds");
+            b.origin.x + b.size.width
+        };
+        let ends_at = |list: &DisplayList, at: usize, x: f32| (ink_end(list, at) - x).abs() <= 0.01;
+        assert!(ends_at(&built(&labels), 3, 363.0), "premise: the swash is held");
+        let estimate = built(&labels).items[3].visual_bounds().expect("a run has bounds");
+        assert!(estimate.origin.x + estimate.size.width < 340.0, "premise: the estimate ends before it: {estimate:?}");
+
+        // A colour patch.
+        let red = [fill(90.0, 30.0, 60.0, 30.0, [255, 0, 0])];
+        let mut want = labels.clone();
+        want[0].0 = red.to_vec();
+        let got = patched(built(&labels), &[(0, &red[..])]);
+        assert_same_ink(&got, &built(&want), "a colour patch");
+        assert!(ends_at(&got, 3, 363.0));
+
+        // A border comes on both labels: one item becomes two, twice.
+        let framed = |x: f32| [fill(x, 30.0, 60.0, 30.0, [255, 0, 0]), fill(x, 30.0, 60.0, 2.0, [0, 0, 0])];
+        let (first, second) = (framed(90.0), framed(290.0));
+        let mut want = labels.clone();
+        want[0].0 = first.to_vec();
+        want[1].0 = second.to_vec();
+        let got = patched(built(&labels), &[(0, &first[..]), (1, &second[..])]);
+        assert_same_ink(&got, &built(&want), "a border on both labels");
+        assert_eq!(got.items.len(), 6);
+        assert!(got.text_ink[2].is_some() && got.text_ink[5].is_some(), "the runs' entries moved with the runs");
+        assert!(ends_at(&got, 5, 363.0));
+
+        // The border goes again: two items become none on label 0.
+        let nothing: [DisplayListItem; 0] = [];
+        let got = patched(built(&want), &[(0, &nothing[..])]);
+        let mut bare = want.clone();
+        bare[0].0 = Vec::new();
+        assert_same_ink(&got, &built(&bare), "a run that goes");
+        // And comes back: an insert before the content run.
+        let got = patched(built(&bare), &[(0, &first[..])]);
+        assert_same_ink(&got, &built(&want), "a run the list did not hold");
+        assert!(ends_at(&got, 5, 363.0));
+
+        // A table shorter than the list.
+        let mut short = built(&labels);
+        short.text_ink.clear();
+        let got = patched(short, &[(0, &first[..])]);
+        assert_eq!(got.items.len(), 5);
+        for i in 0..got.items.len() {
+            assert_eq!(got.text_ink_at(i), None, "item {i}: no ink was known, none is claimed");
+            assert_eq!(got.visual_bounds_of(i), got.items[i].visual_bounds(), "item {i}: the estimate");
+        }
+        let mut half = built(&labels);
+        half.text_ink.truncate(2);
+        let got = patched(half, &[(1, &second[..])]);
+        assert_eq!(got.text_ink_at(1), built(&labels).text_ink_at(1), "the entry in front of the patch stays");
+        assert_eq!(got.text_ink_at(4), None, "label 1's run had no entry and gets none");
+        assert_eq!(got.visual_bounds_of(4), got.items[4].visual_bounds());
+    }
+
+    /// A3-core-26 (a): a frame moved where it lies ([`move_frame`]) keeps the ink of its
+    /// runs, moved with them: the entry is relative to the run's first pen, and the pens
+    /// move. Label 1 in a reference frame, moved by (25.5, -8): the list answers for its run
+    /// what a build of the moved label answers - the swash's end at 363 + 25.5 = 388.5 -
+    /// and the run in front of the frame answers as before.
+    /// Mutation: an entry kept as an absolute rect (or dropped by the move) answers 363, or
+    /// the estimate's 357.5.
+    #[test]
+    fn a_frame_moved_where_it_lies_keeps_the_ink_of_its_runs() {
+        let framed = |dx: f32, dy: f32| {
+            let labels = two_labels();
+            let everything = rect(-10_000.0, -10_000.0, 20_000.0, 20_000.0);
+            let mut builder = DisplayListBuilder::with_debug(false);
+            let run = |builder: &mut DisplayListBuilder, glyphs: &[GlyphInstance], dx: f32, dy: f32| {
+                let glyphs: Vec<GlyphInstance> = glyphs.iter().map(|g| pen(g.index, g.point.x + dx, g.point.y + dy)).collect();
+                builder.next_text_ink = text_ink_of_run(&glyphs, 20.0, 1000.0, boxes);
+                builder.push_item(DisplayListItem::Text {
+                    glyphs,
+                    font_hash: FontHash::from_hash(1),
+                    font_size_px: 20.0,
+                    color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                    clip_rect: everything.into(),
+                    line_box: everything.into(),
+                    source_node_index: None,
+                });
+            };
+            run(&mut builder, &labels[0].1, 0.0, 0.0);
+            builder.push_item(DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 7 },
+                initial_transform: azul_core::transform::ComputedTransform3D::IDENTITY,
+                bounds: rect(290.0 + dx, 30.0 + dy, 60.0, 30.0).into(),
+            });
+            builder.push_item(fill(290.0 + dx, 30.0 + dy, 60.0, 30.0, [200, 200, 200]));
+            run(&mut builder, &labels[1].1, dx, dy);
+            builder.push_item(DisplayListItem::PopReferenceFrame);
+            builder.build()
+        };
+        let mut moved = framed(0.0, 0.0);
+        assert!(matches!(moved.items[1], DisplayListItem::PushReferenceFrame { .. }));
+        move_frame(&mut moved, 1, 4, LogicalPosition { x: 25.5, y: -8.0 }, &[]);
+        let fresh = framed(25.5, -8.0);
+        let near = |a: Option<LogicalRect>, b: Option<LogicalRect>| match (a, b) {
+            (Some(a), Some(b)) => {
+                (a.origin.x - b.origin.x).abs() <= 0.01
+                    && (a.origin.y - b.origin.y).abs() <= 0.01
+                    && (a.size.width - b.size.width).abs() <= 0.01
+                    && (a.size.height - b.size.height).abs() <= 0.01
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        for i in 0..fresh.items.len() {
+            assert!(
+                near(moved.visual_bounds_of(i), fresh.visual_bounds_of(i)),
+                "item {i}: {:?}, a build of the moved label: {:?}",
+                moved.visual_bounds_of(i),
+                fresh.visual_bounds_of(i)
+            );
+        }
+        assert!(moved.text_ink_at(3).is_some(), "the moved run's entry is its own");
+        let b = moved.visual_bounds_of(3).expect("a run has bounds");
+        assert!((b.origin.x + b.size.width - 388.5).abs() <= 0.01, "the swash's end moved: {b:?}");
+        assert_eq!(moved.visual_bounds_of(0), framed(0.0, 0.0).visual_bounds_of(0), "the run in front stays");
+    }
+}
+
+/// Where the run of each patch lies in the list AFTER [`commit`] put the runs in at
+/// `placements`: `(first item, items)` per patch. A run in front of another one moved it by
+/// the difference between what it replaced and what it is.
+pub(crate) fn committed_runs(
+    patches: &[DecorationPatch],
+    placements: &[(usize, usize)],
+) -> Vec<(usize, usize)> {
+    let n = patches.len().min(placements.len());
+    (0..n)
+        .map(|k| {
+            let at = placements[k].0;
+            let mut first = at;
+            for j in 0..n {
+                if placements[j].0 < at {
+                    // A run in front: `first` is behind its old items, so the subtraction
+                    // cannot wrap.
+                    first = first + patches[j].run.items.len() - placements[j].1;
+                }
+            }
+            (first, patches[k].run.items.len())
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------------------
+// A box that MOVED where it lies: the items of its reference frame shifted (A3-window-49).
+//
+// A node that opens a reference frame (a `transform`: a turned label of a map) paints
+// everything it and the boxes below it paint between that frame's push and its pop, and
+// nothing else is painted there. When the node's `left` / `top` alone move, every item of
+// that range moves by the same vector and nothing else of the list changes: the range is
+// shifted in place instead of the document being laid out and its list built or patched.
+// ---------------------------------------------------------------------------------------
+
+/// How many items the reference frame of a moved node may hold; a larger one is laid out
+/// and built by a pass.
+pub(crate) const MAX_MOVED_ITEMS: usize = 4096;
+
+/// How many display-list items the search for a moved node's frame and the move itself
+/// looked at on this thread ([`frame_owners`], [`movable_frame`], [`move_frame`]): what a
+/// test reads to say that a move looks at its own items and not at the list.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MOVE_ITEM_VISITS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn moved_items(steps: usize) {
+    MOVE_ITEM_VISITS.with(|visits| visits.set(visits.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn moved_items(_steps: usize) {}
+
+/// The pushes of the reference frames of `list`, by the node each belongs to (the builder
+/// writes a frame's owner into `node_mapping`, `DisplayListBuilder::push_reference_frame`).
+/// One walk of the list, kept by the caller while the list holds the items it held; a node
+/// that owns two frames is left out (which of them is its box's is not known).
+pub(crate) fn frame_owners(list: &DisplayList) -> BTreeMap<NodeId, usize> {
+    moved_items(list.items.len());
+    let mut owners: BTreeMap<NodeId, usize> = BTreeMap::new();
+    let mut twice: Vec<NodeId> = Vec::new();
+    for (index, item) in list.items.iter().enumerate() {
+        if !matches!(item, DisplayListItem::PushReferenceFrame { .. }) {
+            continue;
+        }
+        let Some(owner) = list.node_mapping.get(index).copied().flatten() else {
+            continue;
+        };
+        if owners.insert(owner, index).is_some() {
+            twice.push(owner);
+        }
+    }
+    for owner in twice {
+        owners.remove(&owner);
+    }
+    owners
+}
+
+/// Whether two rects are the same box (to a hundredth of a pixel).
+fn same_box(a: LogicalRect, b: LogicalRect) -> bool {
+    let near = |x: f32, y: f32| (x - y).abs() <= 0.01;
+    near(a.origin.x, b.origin.x)
+        && near(a.origin.y, b.origin.y)
+        && near(a.size.width, b.size.width)
+        && near(a.size.height, b.size.height)
+}
+
+/// Where the reference frame that `owner` opens at `push` in `list` ends (the index of its
+/// pop), when that frame is the box `frame_box` and every item from the push to the pop
+/// can be moved with the box by [`move_frame`]. `None`, and the caller lays the document
+/// out: the push is not that frame any more (a list changed behind the index), or the
+/// frame holds something whose place is kept elsewhere too or in a space of its own - a
+/// scroll frame, a scrollbar, a `VirtualView`, a web view, an image mask, a stroked path -
+/// or its box's scrollbars follow it (a stacking context paints them behind its pop), or
+/// it holds more than [`MAX_MOVED_ITEMS`] items.
+pub(crate) fn movable_frame(
+    list: &DisplayList,
+    push: usize,
+    owner: NodeId,
+    frame_box: LogicalRect,
+) -> Option<usize> {
+    let n = list.items.len();
+    if list.node_mapping.len() != n || list.uniform_text_bgs.len() != n {
+        return None;
+    }
+    let DisplayListItem::PushReferenceFrame { bounds, .. } = list.items.get(push)? else {
+        return None;
+    };
+    if list.node_mapping[push] != Some(owner) || !same_box(bounds.0, frame_box) {
+        return None;
+    }
+    let mut depth = 0_usize;
+    let mut index = push;
+    loop {
+        if index >= n || index - push > MAX_MOVED_ITEMS {
+            return None;
+        }
+        moved_items(1);
+        match &list.items[index] {
+            DisplayListItem::PushReferenceFrame { .. } => depth += 1,
+            DisplayListItem::PopReferenceFrame => {
+                // The first item of the walk is a push: `depth` is at least 1 here.
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    break;
+                }
+            }
+            DisplayListItem::ScrollBar { .. }
+            | DisplayListItem::ScrollBarStyled { .. }
+            | DisplayListItem::VirtualView { .. }
+            | DisplayListItem::VirtualViewPlaceholder { .. }
+            | DisplayListItem::WebView { .. }
+            | DisplayListItem::PushScrollFrame { .. }
+            | DisplayListItem::PopScrollFrame
+            | DisplayListItem::PushImageMaskClip { .. }
+            | DisplayListItem::PopImageMaskClip
+            | DisplayListItem::StrokedPath { .. } => return None,
+            _ => {}
+        }
+        index += 1;
+    }
+    if matches!(
+        list.items.get(index + 1),
+        Some(DisplayListItem::ScrollBar { .. } | DisplayListItem::ScrollBarStyled { .. })
+    ) {
+        return None;
+    }
+    Some(index)
+}
+
+/// Moves the items `push ..= pop` of `list` - a frame [`movable_frame`] found in this very
+/// list - by `delta`, where they lie: the frame's own box, the rects, glyphs, clips and
+/// groups inside it and the frames inside it (a frame turns its content about its own
+/// box's corner, so its matrix stays). No item changes its kind or its index.
+///
+/// `proven_inside` (sorted) are the layout boxes whose text has its background proven by a
+/// box of the moved subtree ([`DisplayList::uniform_text_bgs`]): that proof's rect moves
+/// with them. A proof by a box outside stays (that box did not move); one of a run that
+/// does not name its box is dropped (a run without a proof is painted right, the proof is
+/// a faster path).
+pub(crate) fn move_frame(
+    list: &mut DisplayList,
+    push: usize,
+    pop: usize,
+    delta: LogicalPosition,
+    proven_inside: &[usize],
+) {
+    if list.items.is_empty() || (delta.x == 0.0 && delta.y == 0.0) {
+        return;
+    }
+    let pop = pop.min(list.items.len() - 1);
+    for index in push..=pop {
+        moved_items(1);
+        let source = match &list.items[index] {
+            DisplayListItem::Text {
+                source_node_index, ..
+            } => *source_node_index,
+            _ => None,
+        };
+        match &mut list.items[index] {
+            // The three pushes `translate_item` leaves where they are.
+            DisplayListItem::PushReferenceFrame { bounds, .. }
+            | DisplayListItem::PushFilter { bounds, .. }
+            | DisplayListItem::PushBackdropFilter { bounds, .. } => {
+                bounds.0.origin.x += delta.x;
+                bounds.0.origin.y += delta.y;
+            }
+            item => {
+                let taken = core::mem::replace(item, DisplayListItem::PopClip);
+                *item = translate_item(taken, delta);
+            }
+        }
+        if let Some(proof) = list.uniform_text_bgs.get_mut(index) {
+            if proof.is_some() {
+                match source {
+                    Some(source) => {
+                        if proven_inside.binary_search(&source).is_ok() {
+                            if let Some((_, rect)) = proof.as_mut() {
+                                rect.0.origin.x += delta.x;
+                                rect.0.origin.y += delta.y;
+                            }
+                        }
+                    }
+                    None => *proof = None,
+                }
+            }
+        }
+    }
+    list.frame_index.clear();
+}

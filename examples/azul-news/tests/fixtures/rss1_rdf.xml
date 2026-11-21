@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rdf:RDF
+ xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+ xmlns="http://purl.org/rss/1.0/"
+ xmlns:content="http://purl.org/rss/1.0/modules/content/"
+ xmlns:dc="http://purl.org/dc/elements/1.1/"
+>
+<channel rdf:about="https://lwn.example.org/headlines/rss">
+<title>LWN.example</title>
+<link>https://lwn.example.org/</link>
+<description>Linux news</description>
+<items>
+ <rdf:Seq>
+  <rdf:li rdf:resource="https://lwn.example.org/Articles/1001/" />
+  <rdf:li rdf:resource="https://lwn.example.org/Articles/1000/" />
+ </rdf:Seq>
+</items>
+</channel>
+<item rdf:about="https://lwn.example.org/Articles/1001/">
+<title>Kernel 7.2 merge window notes</title>
+<link>https://lwn.example.org/Articles/1001/</link>
+<dc:date>2026-09-30T17:00:00+00:00</dc:date>
+<dc:creator>corbet</dc:creator>
+<description>The merge window is closed.</description>
+<content:encoded>&lt;p&gt;The merge window is &lt;b&gt;closed&lt;/b&gt;.&lt;/p&gt;</content:encoded>
+</item>
+<item rdf:about="https://lwn.example.org/Articles/1000/">
+<title>Security updates for Wednesday</title>
+<link>https://lwn.example.org/Articles/1000/</link>
+<dc:date>2026-09-30T13:30:00+00:00</dc:date>
+<description>Security updates have been issued by Debian and Fedora.</description>
+</item>
+</rdf:RDF>

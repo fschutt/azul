@@ -1,0 +1,309 @@
+//! D42's burst guard: a run whose changes look like a burst or like ransomware pauses uploads
+//! until the user answers (`SyncOptions::allow_burst`, "these changes are mine").
+
+use std::collections::BTreeMap;
+
+use super::{
+    fake_s3::S3Bucket,
+    sync::{index_of, Device},
+};
+use crate::sync::{
+    guard::{
+        check_burst, entropy, Guard, PauseReason, BURST_CHANGES, BURST_WINDOW_SECS,
+        ENTROPY_REWRITES, HIGH_ENTROPY, LOW_ENTROPY,
+    },
+    local::hash_bytes,
+    Action, BaseEntry, LocalIndex,
+};
+
+/// `len` bytes that look encrypted (BLAKE3's output stream of `seed`).
+fn random_bytes(seed: &str, len: usize) -> Vec<u8> {
+    let mut out = vec![0u8; len];
+    blake3::Hasher::new()
+        .update(seed.as_bytes())
+        .finalize_xof()
+        .fill(&mut out);
+    out
+}
+
+/// `len` bytes of prose.
+fn prose(seed: &str, len: usize) -> Vec<u8> {
+    let line = format!("{seed}: the quick brown fox jumps over the lazy dog.\n");
+    line.repeat(len / line.len() + 1).into_bytes()[..len].to_vec()
+}
+
+#[test]
+fn prose_is_low_entropy_and_encrypted_bytes_high() {
+    assert!(entropy(&prose("a letter", 4096)) < LOW_ENTROPY);
+    assert!(entropy(&random_bytes("a", 4096)) > HIGH_ENTROPY);
+    assert!(entropy(&random_bytes("b", 1024)) > HIGH_ENTROPY);
+}
+
+#[test]
+fn more_than_200_changes_in_five_minutes_pause_uploads_until_the_user_answers() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let n = BURST_CHANGES + 1;
+    for i in 0..n {
+        a.write(&format!("f{i}.txt"), format!("{i}").as_bytes());
+    }
+    let first = a.sync(&store);
+    assert!(
+        first.paused.is_none(),
+        "new files are no burst: {}",
+        first.summary()
+    );
+    for i in 0..n {
+        a.write(&format!("f{i}.txt"), format!("{i}, edited").as_bytes());
+    }
+    let report = a.sync(&store);
+    let pause = report.paused.clone().expect("a burst pauses uploads");
+    assert_eq!((pause.reason, pause.changes), (PauseReason::Burst, n));
+    assert_eq!(report.files_up, 0, "{}", report.summary());
+    assert!(report.summary().contains("paused"), "{}", report.summary());
+    assert_eq!(
+        index_of(&store).files["f0.txt"].hash,
+        hash_bytes(b"0"),
+        "the drive keeps what it had"
+    );
+    // Paused until the user answers, also on the next run; the pause is in the folder's index.
+    assert_eq!(
+        a.sync(&store).paused.map(|p| p.reason),
+        Some(PauseReason::Burst)
+    );
+    let saved = LocalIndex::load(&a.index()).unwrap().expect("an index");
+    assert!(saved.guard.paused.is_some());
+    // "These changes are mine": one run with allow_burst sends them.
+    let mut opts = a.opts();
+    opts.allow_burst = true;
+    let report = a.sync_with(&store, &opts).unwrap();
+    assert!(report.paused.is_none(), "{}", report.summary());
+    assert_eq!(report.files_up, n);
+    let saved = LocalIndex::load(&a.index()).unwrap().expect("an index");
+    assert!(saved.guard.paused.is_none());
+    // The window starts afresh.
+    a.write("f0.txt", b"0, again");
+    let report = a.sync(&store);
+    assert!(report.paused.is_none(), "{}", report.summary());
+    assert_eq!(report.files_up, 1);
+}
+
+#[test]
+fn the_changes_of_several_runs_within_five_minutes_add_up() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    for i in 0..250 {
+        a.write(&format!("f{i}.txt"), format!("{i}").as_bytes());
+    }
+    a.sync(&store);
+    for i in 0..150 {
+        a.write(&format!("f{i}.txt"), format!("{i}, edited").as_bytes());
+    }
+    let report = a.sync(&store);
+    assert!(report.paused.is_none(), "{}", report.summary());
+    assert_eq!(report.files_up, 150);
+    for i in 150..210 {
+        a.write(&format!("f{i}.txt"), format!("{i}, edited").as_bytes());
+    }
+    let report = a.sync(&store);
+    let pause = report
+        .paused
+        .expect("150 and 60 changes within five minutes");
+    assert_eq!((pause.reason, pause.changes), (PauseReason::Burst, 210));
+}
+
+#[test]
+fn changes_older_than_five_minutes_no_longer_count() {
+    let now = 1_800_000_000;
+    let base: BTreeMap<String, BaseEntry> = (0..60)
+        .map(|i| {
+            let entry = BaseEntry {
+                hash: String::new(),
+                size: 1,
+                ..BaseEntry::default()
+            };
+            (format!("f{i}.txt"), entry)
+        })
+        .collect();
+    let actions: Vec<Action> = base
+        .keys()
+        .map(|key| Action::Upload { key: key.clone() })
+        .collect();
+    // No file is known to be low-entropy: nothing is read from the folder.
+    let root = std::env::temp_dir();
+    let mut old = Guard {
+        recent: vec![(now - BURST_WINDOW_SECS - 1, 150, 0)],
+        ..Guard::default()
+    };
+    assert_eq!(
+        check_burst(&mut old, &actions, &base, &root, now, false),
+        None
+    );
+    let mut fresh = Guard {
+        recent: vec![(now - 60, 150, 0)],
+        ..Guard::default()
+    };
+    let pause = check_burst(&mut fresh, &actions, &base, &root, now, false)
+        .expect("150 and 60 changes within five minutes");
+    assert_eq!((pause.reason, pause.changes), (PauseReason::Burst, 210));
+    assert_eq!(fresh.paused, Some(pause));
+}
+
+#[test]
+fn text_files_rewritten_into_random_bytes_pause_uploads_as_ransomware() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    let b = Device::new("dev-b");
+    for i in 0..30 {
+        a.write(
+            &format!("docs/{i}.txt"),
+            &prose(&format!("letter {i}"), 4096),
+        );
+    }
+    a.sync(&store);
+    b.sync(&store);
+    for i in 0..ENTROPY_REWRITES {
+        a.write(
+            &format!("docs/{i}.txt"),
+            &random_bytes(&format!("{i}"), 4096),
+        );
+    }
+    b.write("docs/from-b.txt", b"made on b");
+    b.sync(&store);
+    let report = a.sync(&store);
+    let pause = report
+        .paused
+        .clone()
+        .expect("encrypted rewrites pause uploads");
+    assert_eq!(
+        (pause.reason, pause.changes),
+        (PauseReason::Encryption, ENTROPY_REWRITES)
+    );
+    assert!(pause.files.iter().any(|f| f == "docs/0.txt"), "{pause:?}");
+    assert_eq!(report.files_up, 0, "{}", report.summary());
+    assert_eq!(
+        index_of(&store).files["docs/0.txt"].hash,
+        hash_bytes(&prose("letter 0", 4096)),
+        "the drive keeps the letter"
+    );
+    // Only uploads pause: what the drive got from b still comes here.
+    assert_eq!(report.files_down, 1, "{}", report.summary());
+    assert_eq!(
+        a.read("docs/from-b.txt").as_deref(),
+        Some(&b"made on b"[..])
+    );
+}
+
+#[test]
+fn new_or_rewritten_photos_do_not_pause() {
+    let store = S3Bucket::new();
+    let a = Device::new("dev-a");
+    for i in 0..40 {
+        a.write(
+            &format!("photos/{i}.jpg"),
+            &random_bytes(&format!("photo {i}"), 4096),
+        );
+    }
+    let report = a.sync(&store);
+    assert!(report.paused.is_none(), "{}", report.summary());
+    for i in 0..40 {
+        a.write(
+            &format!("photos/{i}.jpg"),
+            &random_bytes(&format!("edited {i}"), 4096),
+        );
+    }
+    let report = a.sync(&store);
+    assert!(report.paused.is_none(), "{}", report.summary());
+    assert_eq!(report.files_up, 40);
+}
+
+/// ARCH29 C6c, sync/guard.rs. The guard samples the first bytes of a file by an `OnDisk` key (a key of the
+/// scan or of an action of the pass): it looks at what is there and makes nothing. An action that names
+/// a file under a spelling the full rows refuse - a protected folder, an NTFS short name - samples
+/// nothing, forgets the file and leaves no folder behind. Green on the old code too (the walk never
+/// created): it pins what the type now holds.
+#[test]
+fn c6c_the_guard_samples_what_is_there_and_makes_no_folder_for_a_protected_name() {
+    use crate::sync::local::Scan;
+    let root = azul_storage::testing::TempDir::new("guard-c6c");
+    let mut guard = Guard {
+        classified: true,
+        ..Guard::default()
+    };
+    let keys = [".GIT/hooks/post-commit", "GIT~1/config", "proj/.hg./x"];
+    for key in keys {
+        guard.low_entropy.insert(key.to_string());
+    }
+    let actions: Vec<Action> = keys
+        .iter()
+        .map(|key| Action::Upload {
+            key: (*key).to_string(),
+        })
+        .collect();
+    crate::sync::guard::learn(&mut guard, &actions, root.path(), &Scan::default());
+    for key in keys {
+        assert!(
+            !guard.low_entropy.contains(key),
+            "{key:?}: nothing could be sampled, so it is no low-entropy file"
+        );
+    }
+    assert_eq!(
+        std::fs::read_dir(root.path()).unwrap().count(),
+        0,
+        "a folder was made for a look"
+    );
+}
+
+/// AZ-S8. An answer is for the question it was given to: the same keys in any order, no others;
+/// and "delete them too" is not "these changes are mine".
+#[test]
+fn az_s8_a_consent_covers_the_keys_it_was_given_for_and_no_others() {
+    use crate::sync::consent::{keys_hash, Consent, ConsentKind};
+    let asked = Consent::new(ConsentKind::MassDelete, &["b.txt", "a.txt", "c.txt"], 1);
+    assert!(
+        asked.covers(ConsentKind::MassDelete, &["c.txt", "a.txt", "b.txt"]),
+        "any order"
+    );
+    assert!(asked.covers(
+        ConsentKind::MassDelete,
+        &["a.txt", "a.txt", "b.txt", "c.txt"]
+    ));
+    assert!(
+        !asked.covers(ConsentKind::MassDelete, &["a.txt", "b.txt"]),
+        "fewer files"
+    );
+    assert!(
+        !asked.covers(
+            ConsentKind::MassDelete,
+            &["a.txt", "b.txt", "c.txt", "d.txt"]
+        ),
+        "more files"
+    );
+    assert!(
+        !asked.covers(ConsentKind::MassDelete, &["a.txt", "b.txt", "d.txt"]),
+        "other files"
+    );
+    assert!(
+        !asked.covers(ConsentKind::Burst, &["a.txt", "b.txt", "c.txt"]),
+        "another question"
+    );
+    // A name cannot be split to make another set: the hash takes each name whole.
+    assert_ne!(
+        keys_hash(ConsentKind::MassDelete, &["ab", "c"]),
+        keys_hash(ConsentKind::MassDelete, &["a", "bc"])
+    );
+    // A pause that began again is another question.
+    let pause = crate::sync::guard::Pause {
+        reason: PauseReason::Burst,
+        since: 100,
+        changes: 300,
+        files: Vec::new(),
+    };
+    let later = crate::sync::guard::Pause {
+        since: 400,
+        ..pause.clone()
+    };
+    let answer = Consent::new(ConsentKind::Burst, &[pause.identity().as_str()], 5);
+    assert!(answer.covers(ConsentKind::Burst, &[pause.identity().as_str()]));
+    assert!(!answer.covers(ConsentKind::Burst, &[later.identity().as_str()]));
+}

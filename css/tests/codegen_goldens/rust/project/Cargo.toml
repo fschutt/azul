@@ -1,0 +1,9 @@
+[package]
+name = "azul-styles"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# The bindings are served from the azul.rs registry (see .cargo/config.toml).
+# Link against the prebuilt library: export AZ_LINK_PATH=/path/to/libazul.so
+azul = { version = "0.2.0", registry = "azul" }

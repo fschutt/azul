@@ -5,7 +5,7 @@
 # This builds the native C-ABI shared library from source with the stable
 # Rust toolchain:
 #
-#     cargo build --release -p azul-dll --features build-dll
+#     cargo build --release -p azul-dll --features dist
 #
 # and installs:
 #   * /usr/lib/libazul.so          — the shared library (C ABI)
@@ -46,9 +46,10 @@ build() {
     cd "azul-$pkgver"
     export RUSTUP_TOOLCHAIN=stable
     export CARGO_TARGET_DIR=target
-    # Regenerate the C-ABI binding sources consumed by build-dll.
+    # Regenerate the C-ABI binding sources consumed by the shipped library.
     cargo run --release -p azul-doc codegen all
-    cargo build --release -p azul-dll --features build-dll
+    # `dist`, the libazul that ships: no debug server, no E2E scripting (`build-dll` has both).
+    cargo build --release -p azul-dll --features dist
 }
 
 package() {

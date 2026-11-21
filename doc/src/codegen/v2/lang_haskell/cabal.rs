@@ -83,6 +83,7 @@ library
     -- handle table behind refAnyCreate is a Data.Map).
     build-depends:      base >= 4.14 && < 5
                       , containers >= 0.6 && < 0.9
+                      , transformers >= 0.6 && < 0.7
     default-language:   Haskell2010
     extra-libraries:    azul
     -- extra-lib-dirs:  /path/to/libazul

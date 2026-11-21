@@ -71,6 +71,7 @@ fn publish_scroll_state(layout_window: &mut LayoutWindow) {
             &layout_window.scroll_manager,
             *dom_id,
             &layout_result.layout_tree,
+            &layout_result.styled_dom,
             &system_callbacks,
             azul_core::task::Duration::System(azul_core::task::SystemTimeDiff::from_millis(
                 SCROLLBAR_FADE_DELAY_MS,
@@ -253,6 +254,47 @@ pub fn regenerate_layout(
     let _frame_pump = azul_layout::telemetry::FramePump::begin("layout");
     azul_layout::probe::emit_phase_heap("start");
     let mut phases = PhaseTimer::new();
+    // One span per stage of a rebuild (`audit/A3-window.md`, "Why a full DOM rebuild is
+    // slow"): what `AZ_PROFILE=cpu` prints between the app's callback and the solver.
+    let span_preamble = azul_layout::probe::Probe::span("regen_preamble");
+
+    // ── The APP THEME (`CallbackInfo::set_theme`) ─────────────────────────
+    // THE place a window adopts the app's theme: a window whose DOM was
+    // built under another theme than the app's current one rebuilds under
+    // it NOW, and the pass says why (`ThemeChange`) whatever tag its
+    // request carried - the switching window's fan-out asks the others with
+    // a plain `RefreshDom`, and a backend that cannot reach a window at all
+    // still has it adopt at its next rebuild. The theme is then entered for
+    // this whole pass, so every DOM built in it - `layout()`, the widgets it
+    // creates, the form controls resolved after it - is built for the theme
+    // its cascade will match (`dynamic_selector_context` reads the same
+    // `app_theme`).
+    //
+    // A rice reload (`AZ_RICING=watch`, `azul_css::rice::poll_watch`) takes
+    // the same path: the window records the rice generation it was built
+    // under, and one that lags the loader's rebuilds as for a theme switch.
+    let app_theme = azul_core::app_theme::app_theme();
+    let rice_generation = azul_css::rice::generation();
+    let relayout_reason = if layout_window.app_theme == app_theme
+        && layout_window.rice_generation == rice_generation
+    {
+        relayout_reason
+    } else {
+        layout_window.app_theme = app_theme;
+        layout_window.rice_generation = rice_generation;
+        azul_core::callbacks::RelayoutReason::ThemeChange
+    };
+    let _theme_scope = azul_core::app_theme::ThemeScope::enter(layout_window.app_theme.clone());
+    // A theme switch takes the FULL path, like a mode rebuild: the
+    // pre-cascade skip's unchanged exit and the layout-equivalence shortcut
+    // below both keep the retained StyledDom without offering it the new
+    // context, and a migrated widget's DOM is often IDENTICAL across themes
+    // (it carries every theme's block; only the matcher differs).
+    let theme_rebuild = matches!(
+        relayout_reason,
+        azul_core::callbacks::RelayoutReason::ModeChange
+            | azul_core::callbacks::RelayoutReason::ThemeChange
+    );
 
     // ── Platform backends, registered BEFORE the layout callback runs ──────
     // Each of these installs a backend that a widget reads AT BUILD TIME, and
@@ -356,7 +398,10 @@ pub fn regenerate_layout(
                 "after_tokenize",
                 registry.chain_cache_len() as u64,
             );
-            registry.request_fonts(&font_stacks);
+            // Load them, resolve nothing: layout resolves the chains it needs,
+            // for the scripts the page uses (a default-script chain per common
+            // stack held megabytes each and was never asked for again).
+            registry.wait_for_fonts(&font_stacks);
             azul_layout::probe::emit_phase_heap_extra(
                 "after_request_fonts",
                 registry.chain_cache_len() as u64,
@@ -440,6 +485,20 @@ pub fn regenerate_layout(
     azul_layout::probe::emit_phase_heap("after_font_snapshot");
     phases.mark("after_font_snapshot");
 
+    // The desktop's own UI font setting (Linux: GNOME's / KDE's font, the
+    // detected `SystemStyle::fonts.ui_font`) is what `system-ui` and the
+    // widgets' `system:ui` draw with: it goes first in the cache's
+    // `system-ui` list (a no-op once it is). On macOS and Windows the
+    // platform list already is the OS UI font (SYSUI8).
+    if cfg!(target_os = "linux") {
+        if let Some(ui) = system_style.fonts.ui_font.as_ref() {
+            azul_layout::font::loading::use_system_ui_font(
+                &layout_window.font_manager.fc_cache,
+                ui.as_str(),
+            );
+        }
+    }
+
     // 1. Call user's layout callback to get new DOM
     log_debug!(
         LogCategory::Layout,
@@ -454,12 +513,23 @@ pub fn regenerate_layout(
     let image_cache_snapshot = ImageCache {
         image_id_map: layout_window.image_cache.image_id_map.clone(),
     };
+    // What `get_locale()` / `is_rtl()` answer: the app's `set_locale` choice,
+    // else the system language (the style was installed above).
+    let active_language = layout_window.active_language();
     let layout_ref_data = LayoutCallbackInfoRefData {
         image_cache: &image_cache_snapshot,
         gl_context: gl_context_ptr,
         system_fonts: &layout_window.font_manager.fc_cache,
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
+        locale: &active_language.id,
+        accessed_locale: core::cell::Cell::new(false),
+        accessed_text_direction: core::cell::Cell::new(false),
+        text_direction: if active_language.is_rtl {
+            azul_core::callbacks::TextDirection::RightToLeft
+        } else {
+            azul_core::callbacks::TextDirection::LeftToRight
+        },
         // #28 (d): monitor snapshot for content-bounding in layout() — the
         // platforms write the live list into layout_window.monitors; a
         // poisoned/contended lock degrades to "no info" rather than blocking
@@ -474,28 +544,45 @@ pub fn regenerate_layout(
         // it (Android from `WindowInsets`, iOS from `UIView.safeAreaInsets`,
         // macOS from `NSView`).
         safe_area: layout_window.safe_area_insets,
+        // Where each global hotkey stood BEFORE this pass (owner relative to
+        // this window): what `get_global_hotkey_status` answers from. A
+        // status that moves because of this pass's own declarations is seen
+        // by the one extra pass the sync below asks for.
+        global_hotkeys: layout_window.global_hotkeys.snapshot(),
+        // Which window this layout builds: an app with several windows of
+        // one kind tells them apart by it (`LayoutCallbackInfo::get_window_id`).
+        window_id: &current_window_state.window_id,
     };
 
     let callback_info = LayoutCallbackInfo::new_with_reason(
         &layout_ref_data,
         current_window_state.size,
-        current_window_state.theme,
+        current_window_state.mode,
         relayout_reason,
     );
 
     let app_data_borrowed = app_data.borrow_mut();
     azul_layout::probe::emit_phase_heap("before_callback");
     phases.mark("before_callback");
+    drop(span_preamble);
 
     // Clear any stale recording from an earlier callback on this thread —
     // the drain below must see ONLY what this invocation queried.
     let _ = azul_core::callbacks::take_recorded_size_queries();
     let _ = azul_core::callbacks::take_recorded_style_dependencies();
+    let _ = azul_core::global_hotkey::take_recorded_global_hotkeys();
 
     // The layout callback IS app code (DOM construction): give it a
     // cb:<name> span so "app builds the DOM" separates from engine solving.
     let _cb_span =
         azul_layout::probe::Probe::span_for_fn(current_window_state.layout_callback.cb as usize);
+    // The window this DOM is built for, for the widgets the callback builds:
+    // one whose structure depends on the window's width (the ribbon scales a
+    // tab that does not fit down to it) asks through
+    // `build_window_width_less_than`, which records its question with the
+    // callback's own - drained below, replayed on every resize.
+    let window_scope =
+        azul_core::callbacks::WindowSizeScope::enter(current_window_state.size.dimensions);
     // `invoke` hands the callback its stored ctx (host-handle for managed
     // FFIs, PyCallableWrapper for Python, None for native Rust) through
     // `info.get_ctx()`; calling `cb` directly, the host-invoker thunk would
@@ -503,6 +590,7 @@ pub fn regenerate_layout(
     let user_dom = current_window_state
         .layout_callback
         .invoke((*app_data_borrowed).clone(), callback_info);
+    drop(window_scope);
     drop(_cb_span);
 
     drop(app_data_borrowed); // Release borrow
@@ -520,6 +608,30 @@ pub fn regenerate_layout(
     // LayoutWindow::system_style_change_needs_full_regeneration.
     layout_window.recorded_style_dependencies =
         azul_core::callbacks::take_recorded_style_dependencies();
+    // ... and the global hotkeys the state it was built from wants. They go
+    // to the App's manager, which brings the OS grabs in line NOW: new ones
+    // grabbed, dropped ones released, kept ones untouched (a changed
+    // callback or RefAny is swapped without an OS call). A status change
+    // asks the passes that read one to run again, through the hotkey pump.
+    // A pass that does not run `layout()` declares nothing new: the last
+    // declaration stands.
+    let recorded_hotkeys = azul_core::global_hotkey::take_recorded_global_hotkeys();
+    if recorded_hotkeys.overflowed {
+        crate::plog_warn!(
+            "[global-hotkey] layout() declared more than {} global hotkeys; the rest were dropped",
+            azul_core::global_hotkey::GLOBAL_HOTKEY_DECLARATION_CAP
+        );
+    }
+    let _ = layout_window
+        .global_hotkeys
+        .declare_recorded(recorded_hotkeys);
+    // A `RefreshDom` is the one "the app state may have changed" signal:
+    // the `AppConfig`'s hotkeys callback re-derives its set at the next pump.
+    if relayout_reason == azul_core::callbacks::RelayoutReason::RefreshDom {
+        layout_window.global_hotkeys.shared().mark_app_dirty();
+    }
+    layout_window.depends_on_locale = layout_ref_data.accessed_locale.get();
+    layout_window.depends_on_text_direction = layout_ref_data.accessed_text_direction.get();
     azul_layout::probe::emit_phase_heap("after_callback");
     phases.mark("after_callback");
 
@@ -532,6 +644,28 @@ pub fn regenerate_layout(
     // apply (see `inject_software_menubar`).
     #[cfg(target_os = "linux")]
     let user_dom = inject_software_menubar(user_dom);
+    // X11 on a macOS host (`x11-macos`, `AZ_BACKEND=x11`): NSApplication never
+    // starts, so there is no app menu to hand the bar to - the window carries
+    // the software bar exactly as it does under an X11 session on Linux.
+    #[cfg(all(az_x11, not(target_os = "linux")))]
+    let user_dom = if crate::desktop::shell2::common::x11_host::active() {
+        inject_software_menubar(user_dom)
+    } else {
+        user_dom
+    };
+
+    // 1.35. RAW FORM CONTROLS -> WIDGETS (`azul_layout::form_controls`), and
+    // BEFORE the fingerprint below. A raw `<input>` is one node and its widget
+    // several: fingerprinting the raw DOM and then styling the resolved one
+    // would make the pre-cascade transfers (callbacks and datasets, BY INDEX)
+    // land on the wrong nodes of the retained StyledDom. Resolved here, the
+    // fresh DOM IS the retained DOM's shape, exactly as if the app had built
+    // the widgets itself; `style_user_dom_for` below then finds nothing left
+    // to replace.
+    let mut user_dom = user_dom;
+    let span_form_controls = azul_layout::probe::Probe::span("regen_form_controls");
+    let _ = layout_window.resolve_form_controls(&mut user_dom);
+    drop(span_form_controls);
 
     // 1.4. PRE-CASCADE DIFF (user directive 2026-08-08: "the start should just
     // scan over the NodeHierarchy to discover anything that changed, which is
@@ -552,12 +686,14 @@ pub fn regenerate_layout(
     // differs from the fingerprint walk (CSD titlebar injection shifts
     // NodeIds — the transfer indices would mis-target; those windows keep
     // the full path until the offset mapping exists).
+    let span_fingerprint = azul_layout::probe::Probe::span("regen_fingerprint_dom");
     let precascade = if layout_window.e2e_mount.xml().is_none() {
         Some(azul_core::diff::fingerprint_dom(&user_dom))
     } else {
         layout_window.last_dom_fingerprints = None;
         None
     };
+    drop(span_fingerprint);
     let window_size_changed_precheck = {
         let old_dims = layout_window.current_window_state.size.dimensions;
         let new_dims = current_window_state.size.dimensions;
@@ -569,14 +705,46 @@ pub fn regenerate_layout(
     // unchanged exit below returns WITHOUT entering the layout funnel, and the
     // funnel is where the new context (and with it the themed UA defaults and
     // every `@theme` twin) reaches the DOM — so a theme write that arrived
-    // without `RelayoutReason::ThemeChange` (a shell poll whose rediscovered
+    // without `RelayoutReason::ModeChange` (a shell poll whose rediscovered
     // style equalled the held one) used to keep the retained DOM's old theme
     // for as long as the app's DOM stayed structurally identical.
     let theme_changed_precheck =
-        layout_window.current_window_state.theme != current_window_state.theme;
+        layout_window.current_window_state.mode != current_window_state.mode;
+    // The window's DECORATION MODE moved since the retained DOM was built, so
+    // the tree this pass owes is a DIFFERENT SHAPE from the retained one: a CSD
+    // titlebar has to be prepended (or dropped). That injection lives on the
+    // FULL path alone — step 3 below — and NOTHING downstream of the layout
+    // callback can see the flip, because the app's DOM is identical either way:
+    // the fingerprints match, the node counts match, and the skip fired. So a
+    // compositor answering the xdg-decoration request with the mode the window
+    // did NOT ask for (KWin granting client-side where we asked for
+    // server-side) flipped the flags, asked for a regeneration — and got a
+    // no-op. The titlebar then appeared at the next app-driven rebuild
+    // instead, shifting every NodeId under the reconciler long after the
+    // window was up. Unlike the theme, this cannot settle for the warm
+    // relayout below: only the full path injects.
+    let csd_changed_precheck = csd::csd_injection_changed(
+        layout_window.current_window_state.flags.has_decorations,
+        layout_window.current_window_state.flags.decorations,
+        current_window_state.flags.has_decorations,
+        current_window_state.flags.decorations,
+    );
+    // The layout callback ran, so this is the app's re-render: it retires the
+    // overlay text the app acked, ends the structural previews and places an
+    // acked structural edit's caret in the new generation
+    // (`LayoutWindow::layout_new_generation`). Then neither "layout
+    // unchanged" exit below may keep the retained layout; the pass lays out
+    // as a new generation instead.
+    let overlay_retires = layout_window.rebuild_must_lay_out();
+    // Whether a callback wrote the window's kept DOM since its last layout pass (a style or
+    // a property set on a node of the retained arena): read before any exit lays it out.
+    // The exits that keep the DOM hand the solver no "this node is what it was" then.
+    let written_since_its_pass =
+        layout_window.dom_written_since_its_pass(azul_core::dom::DomId::ROOT_ID);
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
-            relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
+            !theme_rebuild
+                && !csd_changed_precheck
                 && fp.structure_root == prev.structure_root
                 && fp.style_root == prev.style_root
                 && layout_window
@@ -588,12 +756,12 @@ pub fn regenerate_layout(
     };
 
     if precascade_skip {
+        let _span_exit = azul_layout::probe::Probe::span("regen_precascade_exit");
         let (_fp, transfers) = precascade.expect("precascade_skip implies fingerprints");
         log_debug!(
             LogCategory::Layout,
-            "[regenerate_layout] pre-cascade fingerprints equal (both tiers) — skipping              cascade/icons/CSD; transferring {} image callbacks + {} callback lists",
-            transfers.image_callbacks.len(),
-            transfers.callbacks.len()
+            "[regenerate_layout] pre-cascade fingerprints equal (both tiers) — skipping              cascade/icons/CSD; carrying the fresh values of {} nodes",
+            transfers.nodes.len()
         );
         phases.mark("precascade_skip");
 
@@ -605,58 +773,54 @@ pub fn regenerate_layout(
         // unchanged exit can put it back into the map.
         let mut retained = core::mem::take(&mut old_result.styled_dom);
 
-        // Fresh RefAny payloads onto the retained DOM (same transfer the
-        // equivalence branch has always done — the callbacks may reference
-        // new app state even though the DOM shape is identical).
-        {
-            let node_data_mut = retained.node_data.as_mut();
-            for (idx, new_cb) in &transfers.image_callbacks {
-                if let Some(nd) = node_data_mut.get_mut(*idx) {
-                    nd.node_type = azul_core::dom::NodeType::Image(
-                        azul_css::css::BoxOrStatic::heap(azul_core::resources::ImageRef::callback(
-                            new_cb.callback.clone(),
-                            new_cb.refany.clone(),
-                        )),
-                    );
-                }
-            }
-            for (idx, new_cbs) in &transfers.callbacks {
-                if let Some(nd) = node_data_mut.get_mut(*idx) {
-                    nd.callbacks = new_cbs.clone();
-                }
-            }
-            // The callbacks just installed are clones of the FRESH build's
-            // datasets; the retained nodes still hold last frame's. Merge
-            // them the way the full path's `transfer_states` does (merge
-            // callback when the node has one, fresh wins otherwise) and
-            // re-point the fresh callbacks at the result. Without this an
-            // identical rebuild reset every widget's callback state — a
-            // slider's drag died on its second move whenever the app's
-            // `RefreshDom` was followed by a redraw-driven relayout — and
-            // split the widget across two allocations.
-            for (idx, fresh) in &transfers.datasets {
-                azul_core::diff::merge_fresh_dataset(node_data_mut, *idx, fresh.clone());
-            }
-        }
+        // Fresh RefAny payloads onto the retained DOM: the callbacks may
+        // reference new app state even though the DOM shape is identical. The
+        // views' payloads too (the fingerprint reads neither callback nor
+        // refany; a retained view that kept last build's refany while its
+        // handlers got the fresh one rendered a state nothing wrote any
+        // more), and the datasets merged as the full path merges them (an
+        // identical rebuild must not reset a slider's drag).
+        let repointing =
+            azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
+        // A carry can give a node a marker (carried, never compared): the lists the DOM
+        // derives from its node data are made again (A6-18b).
+        retained.rebuild_derived_node_lists();
+        layout_window.repoint_merged_datasets(&repointing);
 
         // Re-derive hover/focus/active flags from the managers. A state
         // delta concurrent with this RefreshDom must not be lost — but it
         // needs only a warm RELAYOUT of the retained DOM (states are
         // runtime overlays), never the cascade the full path would pay.
+        let span_states = azul_layout::probe::Probe::span("regen_runtime_states");
         let states_before: Vec<_> = retained
             .styled_nodes
             .as_ref()
             .iter()
             .map(|n| n.styled_node_state.clone())
             .collect();
-        let retained =
-            apply_runtime_states_before_layout(retained, layout_window, current_window_state);
+        let mut retained = raise_runtime_states(retained, layout_window, current_window_state);
         let states_changed = retained
             .styled_nodes
             .as_ref()
             .iter()
             .map(|n| &n.styled_node_state)
             .ne(states_before.iter());
+        // The kept DOM was cascaded under the states it holds: the last pass applied them,
+        // and every hover / focus / press since restyled what it flipped. A cascade is owed
+        // only for a state that came with THIS call. `restyle_for_raised_states` asks whether
+        // any state is raised, not whether one moved: with the pointer over any node and a
+        // rule that names a state left of its subject (`.btn:hover .ink`) it ran the whole
+        // cascade - every node matched, inherited and compacted again - on every identical
+        // rebuild, to arrive at what the DOM held. The drag states are written without a
+        // restyle (`SystemChange::InitDragVisualState`, `SetDragOverState`): while one is
+        // raised the cascade runs as before.
+        let drag_state_raised = retained.styled_nodes.as_ref().iter().any(|n| {
+            n.styled_node_state.dragging || n.styled_node_state.drag_over
+        });
+        if states_changed || drag_state_raised {
+            let _ = retained.restyle_for_raised_states();
+        }
+        drop(span_states);
 
         // An identical DOM whose inline docking changed (a panel dropped on
         // another zone, torn off, docked back) still has to re-graft: the
@@ -666,6 +830,7 @@ pub fn regenerate_layout(
             && !states_changed
             && !docks_changed
             && !theme_changed_precheck
+            && !overlay_retires
         {
             // Put the retained result back untouched.
             old_result.styled_dom = retained;
@@ -681,8 +846,16 @@ pub fn regenerate_layout(
             // none, so a `RefreshDom` whose only change lived inside a dataset
             // left the view showing last frame's data until some unrelated
             // event relaid out. Queue them all — the frame path drains the
-            // queue (`drain_virtual_view_updates`) before it paints.
-            layout_window.queue_all_virtual_view_reinvoke();
+            // queue (`drain_virtual_view_updates`) before it paints. All but a
+            // view whose node states the version it was rendered for: the app
+            // says its data did not change (`set_virtual_view_version`).
+            layout_window.queue_virtual_view_reinvoke_after_rebuild();
+            // A caret an app asked for with this rebuild (it reset an editor's
+            // content - AzMail's reply puts it at the top - or acked a structural
+            // edit) is placed by the tail of a full layout, which this exit never
+            // reaches: place it on the retained layout, before the focus the app
+            // gave the editor in the same callback seeds one at the end of the text.
+            let _ = layout_window.place_pending_caret_without_layout();
             log_debug!(
                 LogCategory::Layout,
                 "[regenerate_layout] COMPLETE (pre-cascade skip, layout unchanged)"
@@ -748,6 +921,301 @@ pub fn regenerate_layout(
         reconcile_transient_windows(layout_window, current_window_state);
         return Ok(LayoutRegenerateResult::LayoutChanged);
     }
+    // 1.45. DIFF FIRST, step 1: A REBUILD THAT CHANGED NOTHING BUT TEXTS.
+    //
+    // The fingerprints of this build against the last one name the nodes that differ before
+    // anything is styled. When every one of them is a text whose characters changed and nothing
+    // else did (`azul_core::diff::texts_alone_changed`: the same tree, the same nodes, the same
+    // styles), the retained StyledDom is still the styled DOM of this build but for those
+    // characters: no selector reads them, so its cascade stands. The texts are written onto
+    // it and it is laid out again, the solver told which nodes moved - instead of the cascade
+    // of every node, the reconciliation with its copies and the equivalence walk, all to learn
+    // that a counter went from 41 to 42.
+    //
+    // What a full rebuild would do beyond that, and this path does not, keeps it off: a text
+    // with a handler (the reconciliation tells an `Update` handler), a localizable text (the
+    // translation pass), a node that declares `animation: move` (the reconciliation slides
+    // it). `AZ_DIFF_FIRST=0` turns the path off.
+    let changed_texts: Option<Vec<usize>> = match (
+        &precascade,
+        layout_window.last_dom_fingerprints.as_ref(),
+    ) {
+        (Some((fp, _)), Some(prev))
+            if azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Text)
+                && !theme_rebuild
+                && !csd_changed_precheck
+                && fp.style_root == prev.style_root =>
+        {
+            azul_core::diff::texts_alone_changed(prev, fp)
+        }
+        _ => None,
+    };
+    let texts_adoptable = changed_texts.as_ref().is_some_and(|changed| {
+        layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .is_some_and(|lr| {
+                let retained = lr.styled_dom.node_data.as_ref();
+                precascade
+                    .as_ref()
+                    .is_some_and(|(fp, _)| retained.len() == fp.structure.len())
+                    && azul_core::diff::fresh_texts_are_adoptable(retained, &user_dom, changed)
+                    && !azul_layout::window::styled_dom_declares_a_move(&lr.styled_dom)
+            })
+    });
+    if let (true, Some(changed)) = (texts_adoptable, changed_texts) {
+        let _span_texts = azul_layout::probe::Probe::span("regen_texts_only");
+        let (fp, transfers) = precascade.expect("a diff of two builds has this build's");
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] only texts changed ({} nodes) - keeping the cascade",
+            changed.len()
+        );
+        phases.mark("texts_only");
+
+        let mut old_result = layout_window
+            .layout_results
+            .remove(&azul_core::dom::DomId::ROOT_ID)
+            .expect("checked by texts_adoptable");
+        let mut retained = core::mem::take(&mut old_result.styled_dom);
+        // The rest of the old result goes before the pass: its hold on the layout tree would
+        // make the solver copy the tree to write it.
+        drop(old_result);
+
+        // The values every build makes anew, as the pre-cascade skip carries them.
+        let repointing =
+            azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
+        layout_window.repoint_merged_datasets(&repointing);
+        azul_core::diff::adopt_fresh_texts(retained.node_data.as_mut(), &user_dom, &changed);
+        // A carry can give a node a marker (carried, never compared): the lists the DOM
+        // derives from its node data are made again (A6-18b).
+        retained.rebuild_derived_node_lists();
+
+        // The runtime states, as the pre-cascade skip writes them: a cascade only for a state
+        // that came with this call.
+        let states_before: Vec<_> = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| n.styled_node_state.clone())
+            .collect();
+        let mut retained = raise_runtime_states(retained, layout_window, current_window_state);
+        let states_changed = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| &n.styled_node_state)
+            .ne(states_before.iter());
+        let drag_state_raised = retained.styled_nodes.as_ref().iter().any(|n| {
+            n.styled_node_state.dragging || n.styled_node_state.drag_over
+        });
+        if states_changed || drag_state_raised {
+            let _ = retained.restyle_for_raised_states();
+        }
+
+        // The diff, handed to the solver: a node is clean when it and its ancestors are what
+        // they were. Not when a state came with the rebuild: the solver reads the states of
+        // the nodes it fingerprints, and this diff does not know them. And not when a
+        // callback WROTE the kept DOM since its last pass (`set_css_property`,
+        // `set_node_style`: `dom_written_since_its_pass`): the diff compares the app's two
+        // builds, the solver would take over a fingerprint from before the write for a node
+        // the diff calls clean, and the written style was never laid out - a slider's thumb
+        // stopped following the pointer.
+        if !states_changed && !written_since_its_pass {
+            let n = retained.node_data.as_ref().len();
+            let hierarchy = retained.node_hierarchy.as_container();
+            let mut clean = vec![true; n];
+            for index in &changed {
+                if let Some(flag) = clean.get_mut(*index) {
+                    *flag = false;
+                }
+            }
+            for i in 0..n {
+                let parent_clean = hierarchy
+                    .get(azul_core::id::NodeId::new(i))
+                    .and_then(|h| h.parent_id())
+                    .map_or(true, |p| clean.get(p.index()).copied().unwrap_or(false));
+                clean[i] = clean[i] && parent_clean;
+            }
+            layout_window.layout_cache.dom_diff_clean = Some(clean);
+        }
+        layout_window.last_dom_fingerprints = Some(fp);
+
+        azul_layout::probe::emit_phase_heap("before_layout_dl");
+        phases.mark("before_layout_dl_texts_only");
+        // A new generation, as on every path the layout callback ran on.
+        layout_window
+            .layout_new_generation(
+                retained,
+                current_window_state,
+                renderer_resources,
+                &ExternalSystemCallbacks::rust_internal(),
+                debug_messages,
+            )
+            .map_err(|e| format!("Layout error: {:?}", e))?;
+        azul_layout::probe::emit_phase_heap("after_layout_and_dl");
+        phases.mark("after_layout_and_dl");
+        layout_window.current_window_state = current_window_state.clone();
+        publish_scroll_state(layout_window);
+
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] COMPLETE (texts only, the cascade kept)"
+        );
+        phases.mark("end_texts_only");
+        phases.report();
+        reconcile_transient_windows(layout_window, current_window_state);
+        return Ok(LayoutRegenerateResult::LayoutChanged);
+    }
+    // 1.46. DIFF FIRST, step "nodes": A REBUILD THAT CHANGED NODES WHERE THEY STAND.
+    //
+    // The fingerprints say the tree is the tree it was and every attached sheet is what it was
+    // (`azul_core::diff::same_tree_changes`), and name the nodes whose own data moved: a
+    // class, an id, an attribute, an inline style, a flag, a text. When each of them is still
+    // the node it was (`changed_nodes_are_adoptable`: the reconciliation of a full rebuild
+    // would pair it with the node at its place and owe it nothing but a restyle), the retained
+    // StyledDom is kept: the fresh payloads are carried as the pre-cascade skip carries them,
+    // the changed nodes are written onto it, and it is styled again where it stands
+    // (`LayoutWindow::restyle_rebuilt_nodes`), which stages the CSS diff the layout takes -
+    // instead of flattening and cascading a new DOM, reconciling it against a copy of the old
+    // one, cascading it a second time under its states and comparing the two node by node.
+    //
+    // Not when the window's context moved with the rebuild (its size, its theme): the fresh
+    // DOM would be cascaded under the new one. `AZ_DIFF_FIRST` without `nodes` turns the path
+    // off; without `style` the restyle is the whole cascade.
+    let changed_nodes: Option<Vec<usize>> = match (
+        &precascade,
+        layout_window.last_dom_fingerprints.as_ref(),
+    ) {
+        (Some((fp, _)), Some(prev))
+            if azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Nodes)
+                && !theme_rebuild
+                && !csd_changed_precheck
+                && !theme_changed_precheck
+                && !window_size_changed_precheck
+                // With the step `text` off, a rebuild of texts alone takes the full path.
+                && (azul_layout::window::diff_first_step(
+                    azul_layout::window::DiffFirstStep::Text,
+                ) || azul_core::diff::texts_alone_changed(prev, fp).is_none()) =>
+        {
+            azul_core::diff::same_tree_changes(prev, fp)
+        }
+        _ => None,
+    };
+    let nodes_adoptable = changed_nodes.as_ref().is_some_and(|changed| {
+        layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .is_some_and(|lr| {
+                let retained = lr.styled_dom.node_data.as_ref();
+                precascade
+                    .as_ref()
+                    .is_some_and(|(fp, _)| retained.len() == fp.structure.len())
+                    && azul_core::diff::changed_nodes_are_adoptable(
+                        retained,
+                        &user_dom,
+                        changed,
+                        layout_window.node_identity,
+                    )
+                    && layout_window.rebuild_can_restyle_in_place(&lr.styled_dom, changed)
+            })
+    });
+    if let (true, Some(changed)) = (nodes_adoptable, changed_nodes) {
+        let _span_nodes = azul_layout::probe::Probe::span("regen_nodes_changed");
+        let (fp, transfers) = precascade.expect("a diff of two builds has this build's");
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] {} nodes changed where they stand - keeping the styled DOM",
+            changed.len()
+        );
+        phases.mark("nodes_changed");
+
+        let mut old_result = layout_window
+            .layout_results
+            .remove(&azul_core::dom::DomId::ROOT_ID)
+            .expect("checked by nodes_adoptable");
+        let mut retained = core::mem::take(&mut old_result.styled_dom);
+        // The rest of the old result goes before the pass: its hold on the layout tree would
+        // make the solver copy the tree to write it.
+        drop(old_result);
+
+        // The values every build makes anew, as the pre-cascade skip carries them, and then
+        // the changed nodes themselves (each keeps what was just carried onto its place).
+        let repointing =
+            azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
+        layout_window.repoint_merged_datasets(&repointing);
+        let replaced =
+            azul_core::diff::adopt_changed_nodes(retained.node_data.as_mut(), &user_dom, &changed);
+        // The carry can give a node a marker, a written node another tab index: the lists the
+        // DOM derives from its node data are made again (A6-18b's rule for a kept DOM).
+        retained.rebuild_derived_node_lists();
+
+        // The runtime states, as the pre-cascade skip writes them. The restyle below runs
+        // under them; a state that came with this call needs the whole cascade (a rule may
+        // name it left of its subject), which is also what the restyle is without `style`.
+        let states_before: Vec<azul_core::styled_dom::StyledNodeState> = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| n.styled_node_state)
+            .collect();
+        let mut retained = raise_runtime_states(retained, layout_window, current_window_state);
+        let states_changed = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| &n.styled_node_state)
+            .ne(states_before.iter());
+        let drag_state_raised = retained.styled_nodes.as_ref().iter().any(|n| {
+            n.styled_node_state.dragging || n.styled_node_state.drag_over
+        });
+        let reuse_styles =
+            azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Style)
+                && !states_changed
+                && !drag_state_raised;
+        let reached = layout_window.restyle_rebuilt_nodes(
+            &mut retained,
+            &replaced,
+            &states_before,
+            reuse_styles,
+        );
+
+        // The diff, handed to the solver: a node the changes do not reach is what it was.
+        // Not when a state came with the rebuild: the solver reads the states of the nodes it
+        // fingerprints, and this diff does not know them. Nor when a callback wrote the kept
+        // DOM since its last pass (see exit 1.45).
+        if !states_changed && !written_since_its_pass {
+            layout_window.layout_cache.dom_diff_clean =
+                Some(reached.iter().map(|reached| !*reached).collect());
+        }
+        layout_window.last_dom_fingerprints = Some(fp);
+
+        azul_layout::probe::emit_phase_heap("before_layout_dl");
+        phases.mark("before_layout_dl_nodes_changed");
+        // A new generation, as on every path the layout callback ran on.
+        layout_window
+            .layout_new_generation(
+                retained,
+                current_window_state,
+                renderer_resources,
+                &ExternalSystemCallbacks::rust_internal(),
+                debug_messages,
+            )
+            .map_err(|e| format!("Layout error: {:?}", e))?;
+        azul_layout::probe::emit_phase_heap("after_layout_and_dl");
+        phases.mark("after_layout_and_dl");
+        layout_window.current_window_state = current_window_state.clone();
+        publish_scroll_state(layout_window);
+
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] COMPLETE (nodes changed, the styled DOM kept)"
+        );
+        phases.mark("end_nodes_changed");
+        phases.report();
+        reconcile_transient_windows(layout_window, current_window_state);
+        return Ok(LayoutRegenerateResult::LayoutChanged);
+    }
     let prev_dom_fingerprints = layout_window.last_dom_fingerprints.take();
     if let Some((fp, _)) = &precascade {
         // Full produce ahead — record what we are about to adopt.
@@ -767,8 +1235,46 @@ pub fn regenerate_layout(
     // window rather than two calls here so that the OTHER producer of a user
     // DOM, a VirtualView callback deep inside layout, resolves icons too.
 
+    // 1.47. DIFF FIRST, step "tree": A REBUILD THAT CHANGED THE TREE.
+    //
+    // A node came, went or moved, or a sheet hung on a node changed: the exits above do not
+    // answer for it. Such a rebuild is RECONCILED BEFORE IT IS STYLED: the fresh `Dom` is
+    // flattened without a cascade (`LayoutWindow::flatten_user_dom_for`), the engine's
+    // reconciliation pairs its nodes with the tree before and moves the states over
+    // (`begin_reconciliation_before_styling`), the runtime states are raised on the new
+    // tree, and the cascade runs ONCE, under them, for the nodes that are not what they were
+    // (`style_reconciled_dom`) - where the path below cascades every node at rest, reconciles
+    // against a copy of the old arena, raises the states and cascades a second time when a
+    // rule reads one.
+    //
+    // Decided here by what is known before anything is styled; the reconciliation itself
+    // says no where it needs both cascades (an `animation`, an exit, another selector
+    // context), and the tree is then styled in full and reconciled as below. Not for a
+    // theme or rice rebuild (another sheet over the same nodes), nor where decorations are
+    // injected into the styled tree. `AZ_DIFF_FIRST` without `tree` turns it off.
+    let reconciles_first = azul_layout::window::diff_first_step(
+        azul_layout::window::DiffFirstStep::Tree,
+    ) && precascade.is_some()
+        && prev_dom_fingerprints.is_some()
+        && !theme_rebuild
+        && !csd_changed_precheck
+        && matches!(
+            csd::csd_injection_for(
+                current_window_state.flags.has_decorations,
+                current_window_state.flags.decorations,
+            ),
+            csd::CsdInjection::None
+        )
+        && layout_window
+            .layout_results
+            .contains_key(&azul_core::dom::DomId::ROOT_ID);
+
     let e2e_mount_xml = layout_window.e2e_mount.xml().map(str::to_string);
     let e2e_mount_dirty = layout_window.e2e_mount.take_dirty();
+    // Whether the tree comes out of ONE cascade over the app's `Dom` (not a mounted document,
+    // not a tree kept from an earlier mount): see the recompute below.
+    let mut styled_by_one_cascade = false;
+    let span_style = azul_layout::probe::Probe::span("regen_style_user_dom");
     let mut user_styled_dom = match e2e_mount_xml {
         Some(xml) => {
             let must_reparse = e2e_mount_dirty;
@@ -784,12 +1290,20 @@ pub fn regenerate_layout(
                 // Keep the already-mounted DOM (with any debug DOM mutations
                 // applied to it) instead of rebuilding it from the XML.
                 Some(styled) => styled,
-                None => match azul_layout::xml::parse_xml_to_styled_dom_resolving_icons(
-                    &xml,
-                    icon_provider,
-                    system_style,
-                ) {
+                // With THIS window's form-control memory: the document's
+                // replaced controls report their values to its forms, and a
+                // re-mount (a theme switch) keeps what the user gave them.
+                None => match layout_window.style_xml_document(&xml, icon_provider, system_style) {
                     Ok(styled) => {
+                        // The mount's virtual views (`mount`'s `virtual_views`), in
+                        // this document as in every one the mount parses. (A build
+                        // without the E2E engine has no `mount` and so no views.)
+                        #[cfg(any(feature = "debug-server", feature = "e2e-scripting"))]
+                        let styled = {
+                            let mut styled = styled;
+                            debug_server::apply_mount_views(layout_window, &mut styled);
+                            styled
+                        };
                         log_debug!(
                             LogCategory::Layout,
                             "[regenerate_layout] using E2E mount override ({} bytes of XML)",
@@ -811,8 +1325,30 @@ pub fn regenerate_layout(
         // `_for`: cascaded under the context THIS pass installs, so a DOM
         // built for a dark window is dark from its first cascade (the plain
         // `style_user_dom` styles for the previous pass's state).
-        None => layout_window.style_user_dom_for(user_dom, current_window_state),
+        None => {
+            styled_by_one_cascade = true;
+            if reconciles_first {
+                // Unstyled: the cascade follows the reconciliation (step "tree").
+                layout_window.flatten_user_dom_for(user_dom, current_window_state)
+            } else {
+                layout_window.style_user_dom_for(user_dom, current_window_state)
+            }
+        }
     };
+    // The rice listing, once per (re)load of the rice (`azul_css::rice`): the
+    // theme chain, every file with its priority and version, live versus
+    // inert rules under THIS window's context - at info level, so `AZ_DEBUG`
+    // shows it. Its warnings (a file ignored by its `azul:` key, a dropped
+    // remote url, a failed `requires`) are warnings.
+    if let Some(status) = azul_css::rice::take_pending_status(
+        &layout_window.dynamic_selector_context(current_window_state),
+    ) {
+        log_info!(LogCategory::Layout, "[rice] {}", status.to_report());
+        for warning in status.warnings.iter() {
+            crate::plog_warn!("[rice] {}", warning.as_str());
+        }
+    }
+    drop(span_style);
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
     phases.mark("after_create_from_dom");
 
@@ -825,64 +1361,80 @@ pub fn regenerate_layout(
     // wrong (all user NodeIds would be off by the titlebar node count). By
     // injecting the titlebar first, both old and new DOMs have matching structure
     // and reconciliation produces correct node mappings.
-    let mut styled_dom = if csd::should_inject_csd(
+    //
+    // WHICH injection applies is `csd::csd_injection_for` and nothing else —
+    // the same function the pre-cascade skip consults above, so the skip can
+    // never disagree with what this match would have built.
+    //
+    // Each arm also says what the decorations azul draws leave the content
+    // of the title bar (`LayoutWindow::drawn_titlebar`, read by
+    // `env(titlebar-area-*)`): nothing under a bar drawn above the content,
+    // the room the overlaid controls take, and nothing to say where azul
+    // draws none - the frame's own measure or the desktop's metrics apply.
+    let span_csd = azul_layout::probe::Probe::span("regen_csd");
+    let injection = csd::csd_injection_for(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
-    ) {
-        log_debug!(
-            LogCategory::Layout,
-            "[regenerate_layout] Injecting CSD decorations"
-        );
-        csd::wrap_user_dom_with_decorations(
-            user_styled_dom,
-            &current_window_state.title,
-            true,         // inject titlebar
-            system_style, // pass SystemStyle for native look
-        )
-    } else if current_window_state.flags.decorations
-        == azul_core::window::WindowDecorations::NoTitleAutoInject
-        && !cfg!(any(
-            target_os = "windows",
-            target_os = "linux",
-            // Mobile has no window to title, move or maximize: the surface is
-            // fullscreen and the OS owns the chrome above it. A software
-            // titlebar here lands UNDER the status bar and steals a strip of
-            // an already-small viewport. `csd::should_inject_csd` has excluded
-            // ios/android since MWA-C-csd; this branch is the same decision for
-            // the title-only mode and was simply never updated — its comment
-            // reasons about macOS vs Windows/Linux and stops there, so mobile
-            // fell into the macOS case by default.
-            target_os = "android",
-            target_os = "ios"
-        ))
-    {
-        // Auto-inject a Titlebar at the top of the user's DOM.
-        // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick
-        // callbacks — no special event-system hooks required.
-        //
-        // `NoTitleAutoInject` means "native controls visible, native title hidden,
-        // app draws its own title". That requires a frame that shows window
-        // controls WITHOUT a title bar — which only macOS provides (traffic
-        // lights over a title-less bar). Windows (WS_CAPTION) and Linux (KWin/
-        // Mutter server-side decorations, or X11 WM decorations) ALWAYS draw a
-        // full titlebar including the title text, so a software titlebar here is
-        // a duplicate "fake" bar below the real one (the double-titlebar bug).
-        // On those platforms the native caption already renders the title and
-        // handles dragging, so we leave the user DOM untouched and inject only on
-        // macOS. (Apps wanting fully custom chrome should use
-        // `WindowDecorations::None` + `has_decorations` → full CSD with buttons.)
-        log_debug!(
-            LogCategory::Layout,
-            "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
-        );
-        inject_software_titlebar(
-            layout_window,
-            user_styled_dom,
-            &current_window_state.title,
-            system_style,
-        )
-    } else {
-        user_styled_dom
+    );
+    // Every injection appends a styled tree to the user's (`append_child`).
+    let decorations_appended = !matches!(injection, csd::CsdInjection::None);
+    let mut styled_dom = match injection {
+        csd::CsdInjection::Titlebar => {
+            layout_window.drawn_titlebar = azul_css::system::TitlebarReport::NoArea;
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Injecting CSD decorations"
+            );
+            csd::wrap_user_dom_with_decorations(
+                user_styled_dom,
+                &current_window_state.title,
+                true,         // inject titlebar
+                system_style, // pass SystemStyle for native look
+                icon_provider,
+            )
+        }
+        csd::CsdInjection::SoftwareTitleOnly => {
+            // Auto-inject a Titlebar at the top of the user's DOM.
+            // The titlebar is a regular layout widget with DragStart/Drag/DoubleClick
+            // callbacks — no special event-system hooks required.
+            //
+            // The platform gate (macOS only) and why it is that way live on
+            // `csd::auto_injects_software_titlebar`. (Apps wanting fully custom
+            // chrome should use `WindowDecorations::None` + `has_decorations` →
+            // full CSD with buttons.)
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Auto-injecting Titlebar (NoTitleAutoInject)"
+            );
+            layout_window.drawn_titlebar = azul_css::system::TitlebarReport::NoArea;
+            inject_software_titlebar(
+                layout_window,
+                user_styled_dom,
+                &current_window_state.title,
+                system_style,
+            )
+        }
+        csd::CsdInjection::ControlsOnly => {
+            // `NoTitle` promised controls without a title, and this platform's
+            // frame cannot give them: draw them over the app's own chrome
+            // rather than leave the window with no way to close it.
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] Overlaying window controls (NoTitle)"
+            );
+            let controls = csd::create_controls_only_styled_dom(system_style, icon_provider);
+            let drawn = csd::drawn_controls_titlebar(
+                layout_window,
+                &controls,
+                current_window_state.size.dimensions,
+            );
+            layout_window.drawn_titlebar = drawn;
+            csd::overlay_window_controls(user_styled_dom, controls)
+        }
+        csd::CsdInjection::None => {
+            layout_window.drawn_titlebar = azul_css::system::TitlebarReport::Unmeasured;
+            user_styled_dom
+        }
     };
     azul_layout::probe::emit_phase_heap("after_csd");
     phases.mark("after_csd");
@@ -905,7 +1457,20 @@ pub fn regenerate_layout(
     //
     // Re-running inheritance + compact cache rebuild on the fully composed tree
     // fixes both issues. Cost: one extra O(n) pass — acceptable for correctness.
-    styled_dom.recompute_inheritance_and_compact_cache();
+    //
+    // Only for a COMPOSED tree. The app's `Dom`, styled by the one cascade above with
+    // nothing appended to it, has its inheritance and its compact cache from that cascade:
+    // building both a second time was a whole pass over every node of the window's DOM on
+    // every rebuild, to arrive at what was there.
+    // And for a tree that says so itself (`needs_recompute_after_append`: set by every
+    // `append_child`, cleared by the recompute): an append the two facts above do not know.
+    if !styled_by_one_cascade
+        || decorations_appended
+        || styled_dom.needs_recompute_after_append()
+    {
+        styled_dom.recompute_inheritance_and_compact_cache();
+    }
+    drop(span_csd);
     azul_layout::probe::emit_phase_heap("after_recompute_cache");
     phases.mark("after_recompute_cache");
 
@@ -927,174 +1492,235 @@ pub fn regenerate_layout(
     // capture threads). Previously the whole reconcile pass was gated on an
     // existing old layout, so frame 0 was skipped and AfterMount NEVER fired for
     // an app whose first DOM already contains the widget — only the synthetic
-    // empty→full path (headless_lifecycle test) ever exercised it. The `.to_vec()`
-    // clones below release the `layout_results` borrow before the later
-    // `update_managers_with_node_moves(layout_window, …)` &mut borrow.
-    // Filled at the diff seam below, consumed after the solve (see 3.5b / 5b).
-    // Locals rather than window state: First and Last are two points in THIS
-    // function, and parking them on `LayoutWindow` would invite a later frame
-    // to read a stale half-pair.
-    let mut anim_first_rects: std::collections::BTreeMap<
-        azul_core::dom::NodeId,
-        azul_core::geom::LogicalRect,
-    > = std::collections::BTreeMap::new();
-    let mut anim_node_moves: Vec<azul_core::diff::NodeMove> = Vec::new();
-    let mut anim_new_node_data: Vec<azul_core::dom::NodeData> = Vec::new();
-    let mut anim_new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> = Vec::new();
+    // empty→full path (headless_lifecycle test) ever exercised it.
+    // ONE reconciliation, the engine's (`LayoutWindow::begin_reconciliation`,
+    // completed by `finish_reconciliation` after the solve): the diff, the
+    // state transfer, the runtime-override migration, the NodeId remap, the
+    // CSS transitions a changed property starts, and a departing node's exit
+    // animation (kept as a zombie). This shell used to hand-roll its own
+    // reconcile with the FLIP moves only, so in the real app nothing entered,
+    // left or tweened on a rebuild - that only ever ran in the E2E runner.
+    let span_reconcile = azul_layout::probe::Probe::span("regen_begin_reconciliation");
+    // Step "tree": the half that reads no style, on the unstyled tree. `None` where the
+    // reconciliation needs both cascades: the tree is then styled in full, at rest, exactly
+    // as `style_user_dom_for` styles it, and reconciled as every rebuild was.
+    let reconciled_before_styling = if reconciles_first && styled_by_one_cascade {
+        layout_window.begin_reconciliation_before_styling(
+            azul_core::dom::DomId::ROOT_ID,
+            &mut styled_dom,
+            azul_core::task::Instant::now(),
+        )
+    } else {
+        None
+    };
+    let reconciled_first = reconciled_before_styling.is_some();
+    let mut pending = match reconciled_before_styling {
+        Some(pending) => pending,
+        None => {
+            if reconciles_first && styled_by_one_cascade {
+                styled_dom.cascade_at_rest();
+            }
+            layout_window.begin_reconciliation(
+                azul_core::dom::DomId::ROOT_ID,
+                &mut styled_dom,
+                azul_core::task::Instant::now(),
+            )
+        }
+    };
+    drop(span_reconcile);
+    // A resize, a mode or an app-theme rebuild is no state change:
+    // what it moves reflows in place (`RelayoutReason::animates_moves`).
+    pending.animate_moves = relayout_reason.animates_moves();
 
-    {
-        let (old_node_data, old_hierarchy): (
-            Vec<azul_core::dom::NodeData>,
-            Vec<azul_core::styled_dom::NodeHierarchyItem>,
-        ) = match layout_window
+    // `AZ_RECONCILE_DEBUG=1`: name every NEW node the reconcile could not
+    // match to an old one (it is a fresh mount: state, focus and scroll on
+    // its old counterpart are dropped). Diagnostic only.
+    if std::env::var_os("AZ_RECONCILE_DEBUG").is_some() {
+        let describe = |nd: &azul_core::dom::NodeData| {
+            let classes: Vec<String> = nd
+                .get_ids_and_classes()
+                .as_ref()
+                .iter()
+                .map(|c| format!("{c:?}"))
+                .collect();
+            format!("{:?} {}", nd.get_node_type(), classes.join(" "))
+        };
+        let nodes = styled_dom.node_data.as_container();
+        let unmatched: Vec<String> = pending
+            .entered
+            .iter()
+            .filter_map(|n| nodes.get(*n).map(|nd| (n, nd)))
+            .map(|(n, nd)| format!("#{} {}", n.index(), describe(nd)))
+            .collect();
+        // Whether the restyle diff could skip unchanged subtrees: it compares
+        // every matched node property by property while the two trees'
+        // dynamic contexts or global declarations differ.
+        let (same_context, same_globals) = layout_window
             .layout_results
             .get(&azul_core::dom::DomId::ROOT_ID)
-        {
-            Some(old_layout_result) => (
-                old_layout_result.styled_dom.node_data.as_ref().to_vec(),
-                old_layout_result
-                    .styled_dom
-                    .node_hierarchy
-                    .as_ref()
-                    .to_vec(),
-            ),
-            None => (Vec::new(), Vec::new()),
-        };
-
-        // Get new node data (from current frame — now also includes titlebar)
-        let mut new_node_data: Vec<azul_core::dom::NodeData> =
-            styled_dom.node_data.as_ref().to_vec();
-        let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
-            styled_dom.node_hierarchy.as_ref().to_vec();
-
-        // Build layout maps for reconciliation (empty for now - we just need node moves)
-        let old_layout_map = azul_core::OrderedMap::default();
-        let new_layout_map = azul_core::OrderedMap::default();
-
-        // Run reconciliation to find matched nodes
-        let diff_result = azul_core::diff::reconcile_dom(
-            &old_node_data,
-            &new_node_data,
-            &old_hierarchy,
-            &new_hierarchy,
-            &old_layout_map,
-            &new_layout_map,
-            azul_core::dom::DomId::ROOT_ID,
-            azul_core::task::Instant::now(),
-        );
-
-        // Execute state migration for matched nodes with merge callbacks
-        if !diff_result.node_moves.is_empty() {
-            let mut old_node_data_mut = old_node_data.clone();
-            azul_core::diff::transfer_states(
-                &mut old_node_data_mut,
-                &mut new_node_data,
-                &diff_result.node_moves,
-            );
-
-            // Update the styled_dom with the merged node data
-            styled_dom.node_data = new_node_data.into();
-
-            // Runtime CSS overrides follow node identity too — same contract
-            // as the dataset transfer above and the manager NodeId updates
-            // below. Without this, every `set_css_property` patch reverted on
-            // the next app-driven rebuild (the ribbon's collapsed band and
-            // open gallery panel "un-toggled" whenever any callback returned
-            // RefreshDom, e.g. the ribbon's own tab-click).
-            if let Some(old_layout_result) = layout_window
-                .layout_results
-                .get(&azul_core::dom::DomId::ROOT_ID)
-            {
-                styled_dom.migrate_user_overrides_from(
-                    &old_layout_result.styled_dom.css_property_cache.ptr,
-                    &diff_result.node_moves,
+            .map_or((false, false), |old| {
+                let (a, b) = (
+                    &old.styled_dom.css_property_cache.ptr,
+                    &styled_dom.css_property_cache.ptr,
                 );
-            }
-
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] State migration: {} node moves processed",
-                diff_result.node_moves.len()
-            );
-        }
-
-        // 3.5b. CAPTURE "FIRST" FOR ENGINE-DRIVEN LAYOUT ANIMATION
-        //
-        // This is the only moment both geometries are reachable: the old
-        // layout_results still hold the PREVIOUS frame's solved rects, and
-        // `node_moves` says which old node became which new one. The matching
-        // "Last" rects do not exist yet — the new tree has not been solved — so
-        // First is stashed here and the pair is completed after the solve.
-        //
-        // No application involvement: an app that returns a different DOM gets
-        // the transition for free, because the diff already knows what moved.
-        // Nothing is seeded yet, so a frame that ends up not animating has paid
-        // only for this map.
-        anim_first_rects = diff_result
-            .node_moves
-            .iter()
-            .filter_map(|m| {
-                let r =
-                    layout_window.get_node_bounds(azul_core::dom::DomId::ROOT_ID, m.old_node_id)?;
-                Some((m.old_node_id, layout_rect_to_logical(r)))
-            })
-            .collect();
-        anim_node_moves = diff_result.node_moves.clone();
-        anim_new_node_data = styled_dom.node_data.as_ref().to_vec();
-        anim_new_hierarchy = styled_dom.node_hierarchy.as_ref().to_vec();
-
-        // 3.6. UPDATE MANAGERS WITH NEW NODE IDS
-        // The node_moves tell us which old NodeIds map to which new NodeIds.
-        // We need to update FocusManager, ScrollManager, etc. so they point to
-        // the correct nodes in the new DOM.
-        update_managers_with_node_moves(
-            layout_window,
-            &diff_result.node_moves,
-            azul_core::dom::DomId::ROOT_ID,
+                (
+                    a.dynamic_context == b.dynamic_context,
+                    a.global_css_props == b.global_css_props,
+                )
+            });
+        eprintln!(
+            "[reconcile] {} compared, {} restyled, same context {same_context}, same globals \
+             {same_globals}",
+            pending.compared,
+            pending.restyled.len()
         );
+        eprintln!(
+            "[reconcile] {} old -> {} new, {} matched, {} unmatched: {}",
+            pending.old_node_data.len(),
+            pending.new_node_count,
+            pending.node_moves.len(),
+            unmatched.len(),
+            unmatched
+                .iter()
+                .take(60)
+                .map(|u| u.chars().take(90).collect::<String>())
+                .collect::<Vec<_>>()
+                .join(" | ")
+        );
+    }
 
-        // 3.7. QUEUE LIFECYCLE EVENTS FOR DISPATCH
-        //
-        // Mount / Update / Resize events target NEW NodeIds — they resolve
-        // cleanly against the freshly-installed `layout_results` later in
-        // the dispatch path.
-        //
-        // Unmount events are different: their `target.node` is an OLD NodeId
-        // that does NOT exist in the new tree. By the time
-        // `dispatch_events_propagated` runs, `layout_results` has already
-        // been replaced by the new layout, so a NodeId-based lookup will
-        // miss the BeforeUnmount callback. To keep that callback firing we
-        // resolve it RIGHT HERE — while the OLD `old_node_data` slice is
-        // still in scope — and stash a `(CoreCallbackData, SyntheticEvent)`
-        // pair on the layout window. The dispatcher drains this side queue
-        // and invokes the callbacks directly, bypassing the DOM lookup.
-        for event in diff_result.events {
-            use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
-            if event.event_type == EventType::Unmount {
-                let old_node_id = event
-                    .target
-                    .node
-                    .into_crate_internal()
-                    .map(|nid| nid.index());
-                if let Some(idx) = old_node_id {
-                    if let Some(nd) = old_node_data.get(idx) {
-                        for cb in nd.get_callbacks().as_ref().iter() {
-                            if matches!(
-                                cb.event,
-                                EventFilter::Component(ComponentEventFilter::BeforeUnmount)
-                            ) {
-                                layout_window
-                                    .pending_unmount_invocations
-                                    .push((cb.clone(), event.clone()));
-                            }
+    // 3.7. QUEUE LIFECYCLE EVENTS FOR DISPATCH
+    //
+    // Mount / Update / Resize events target NEW NodeIds — they resolve
+    // cleanly against the freshly-installed `layout_results` later in
+    // the dispatch path.
+    //
+    // Unmount events are different: their `target.node` is an OLD NodeId
+    // that does NOT exist in the new tree. By the time
+    // `dispatch_events_propagated` runs, `layout_results` has already
+    // been replaced by the new layout, so a NodeId-based lookup will
+    // miss the BeforeUnmount callback. To keep that callback firing we
+    // resolve it RIGHT HERE — while the OLD `old_node_data` slice is
+    // still in scope — and stash a `(CoreCallbackData, SyntheticEvent)`
+    // pair on the layout window. The dispatcher drains this side queue
+    // and invokes the callbacks directly, bypassing the DOM lookup.
+    let span_lifecycle = azul_layout::probe::Probe::span("regen_lifecycle_queue");
+    for event in core::mem::take(&mut pending.events) {
+        use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
+        if event.event_type == EventType::Unmount {
+            let old_node_id = event
+                .target
+                .node
+                .into_crate_internal()
+                .map(|nid| nid.index());
+            if let Some(idx) = old_node_id {
+                if let Some(nd) = pending.old_node_data.get(idx) {
+                    for cb in nd.get_callbacks().as_ref().iter() {
+                        if matches!(
+                            cb.event,
+                            EventFilter::Component(ComponentEventFilter::BeforeUnmount)
+                        ) {
+                            layout_window
+                                .pending_unmount_invocations
+                                .push((cb.clone(), event.clone()));
                         }
                     }
                 }
-            } else {
-                layout_window.pending_lifecycle_events.push(event);
+            }
+        } else {
+            layout_window.pending_lifecycle_events.push(event);
+        }
+    }
+
+    // A FOCUSED node that the rebuild did not carry over loses its focus -
+    // the arena index now denotes a different element - and it used to
+    // lose it silently: a plain field write in `remap_node_ids`, no Blur,
+    // no FocusLost, no line in the log. An app that commits a text field,
+    // closes a popup or validates when a field loses focus heard nothing
+    // at all, and the next thing it heard was the focus arriving
+    // somewhere else.
+    //
+    // The callback lives on the OLD node, which is gone from the new tree
+    // but still in `old_node_data` right here - the same reason
+    // BeforeUnmount is resolved at this exact spot, through the same side
+    // queue.
+    let focus_lost = layout_window.focus_manager.take_focus_lost_to_unmount();
+    let lost_primary_focus = !focus_lost.is_empty()
+        && layout_window.focus_manager.get_focused_node().is_none();
+    for lost in focus_lost {
+        use azul_core::events::{
+            EventData, EventFilter, EventSource, EventType, FocusEventFilter,
+            SyntheticEvent,
+        };
+        let Some(idx) = lost.node.into_crate_internal().map(|n| n.index()) else {
+            continue;
+        };
+        let Some(nd) = pending.old_node_data.get(idx) else {
+            continue;
+        };
+        let blur = SyntheticEvent::new(
+            EventType::Blur,
+            EventSource::Lifecycle,
+            lost,
+            azul_core::task::Instant::now(),
+            EventData::None,
+        );
+        for cb in nd.get_callbacks().as_ref().iter() {
+            if matches!(cb.event, EventFilter::Focus(FocusEventFilter::FocusLost)) {
+                layout_window
+                    .pending_unmount_invocations
+                    .push((cb.clone(), blur.clone()));
             }
         }
     }
+
+    // A POPUP whose focused node this rebuild took away - a date grid turned
+    // to another month: the focused day is gone - gives focus to the node
+    // its new content asks it for (`autofocus`: the grid's Tab-stop day).
+    // A popup cannot be Tabbed into from its parent, so a focus lost there
+    // strands a keyboard user. Set here, before the runtime states are
+    // applied below, so the first frame of the new content already shows
+    // it. Nothing is focused when the content names no node: it did not say
+    // where. (The popup's first focus is its autofocus pass, not this.)
+    if lost_primary_focus && super::transient::mailbox_of(current_window_state).is_some() {
+        let asked = styled_dom
+            .node_data
+            .as_container()
+            .linear_iter()
+            .find(|n| {
+                styled_dom
+                    .node_data
+                    .as_container()
+                    .get(*n)
+                    .is_some_and(azul_core::dom::NodeData::has_autofocus)
+            });
+        if let Some(n) = asked {
+            let node = azul_core::dom::DomNodeId {
+                dom: azul_core::dom::DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+            };
+            log_debug!(
+                LogCategory::Layout,
+                "[regenerate_layout] popup focus lost to the rebuild: focusing {:?}",
+                node
+            );
+            layout_window.focus_manager.set_focused_node(Some(node));
+        }
+    }
+    // A node with `autofocus` that mounted with this rebuild takes the focus; every node
+    // mounts on the window's first layout, so this is also "focus it when the window
+    // opens". Set before the runtime states below, so the first frame of the new tree is
+    // styled with it. A popup runs its own autofocus pass instead, which also carries the
+    // keyboard modality the popup was opened with (`process_window_events`).
+    if let Some(n) = pending.autofocus {
+        if super::transient::mailbox_of(current_window_state).is_none() {
+            layout_window.focus_mounted_autofocus(azul_core::dom::DomNodeId {
+                dom: azul_core::dom::DomId::ROOT_ID,
+                node: azul_core::styled_dom::NodeHierarchyItemId::from_crate_internal(Some(n)),
+            });
+        }
+    }
+    drop(span_lifecycle);
     azul_layout::probe::emit_phase_heap("after_state_migrate");
     phases.mark("after_state_migrate");
 
@@ -1105,7 +1731,7 @@ pub fn regenerate_layout(
     // The DOM text is intentionally stale. After layout_and_generate_display_list
     // runs on the new DOM, update_text_cache_after_edit will be called for each
     // dirty_text_node to patch the LayoutCache with the edited content.
-    // dirty_text_nodes keys are remapped in update_managers_with_node_moves (step 8).
+    // dirty_text_nodes keys are remapped by the reconciliation's remap_node_ids.
 
     log_debug!(
         LogCategory::Layout,
@@ -1118,8 +1744,40 @@ pub fn regenerate_layout(
     // The layout callback creates a fresh StyledDom with default states (focused=false, etc.)
     // We need to synchronize the StyledNodeState with the current runtime state
     // (FocusManager.focused_node, mouse hover position, etc.) BEFORE the display list is generated
-    let mut styled_dom =
-        apply_runtime_states_before_layout(styled_dom, layout_window, current_window_state);
+    let span_states = azul_layout::probe::Probe::span("regen_runtime_states");
+    // Step "tree": the nodes of the new tree that are what they were, under the id they
+    // had, with every ancestor (`LayoutWindow::style_reconciled_dom`).
+    let mut kept_rows: Option<Vec<bool>> = None;
+    let mut styled_dom = if reconciled_first {
+        // Step "tree": the managers name the new tree's nodes since the reconciliation.
+        // The states go onto the unstyled tree and the cascade runs once, under them.
+        let mut styled_dom = raise_runtime_states(styled_dom, layout_window, current_window_state);
+        // The sheets hung on the nodes of both builds, where each build's fingerprints
+        // number the nodes as its arena does (no node generated, resolved or injected).
+        let old_nodes = layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .map(|lr| lr.styled_dom.node_data.as_ref().len());
+        let sheets = match (&prev_dom_fingerprints, &precascade) {
+            (Some(prev), Some((fp, _)))
+                if Some(prev.structure.len()) == old_nodes
+                    && fp.structure.len() == styled_dom.node_data.as_ref().len() =>
+            {
+                Some((prev.sheets.as_slice(), fp.sheets.as_slice()))
+            }
+            _ => None,
+        };
+        kept_rows = layout_window.style_reconciled_dom(
+            azul_core::dom::DomId::ROOT_ID,
+            &mut styled_dom,
+            &mut pending,
+            sheets,
+        );
+        styled_dom
+    } else {
+        apply_runtime_states_before_layout(styled_dom, layout_window, current_window_state)
+    };
+    drop(span_states);
     azul_layout::probe::emit_phase_heap("after_runtime_states");
     phases.mark("after_runtime_states");
 
@@ -1148,12 +1806,16 @@ pub fn regenerate_layout(
     // check and threw the fresh-but-identical DOM into a from-scratch layout.
     // The size decides what happens WITH the equivalence result (below), not
     // whether it is worth knowing.
+    let span_equivalent = azul_layout::probe::Probe::span("regen_layout_equivalent");
     if let Some(old_layout_result) = layout_window
         .layout_results
         .get(&azul_core::dom::DomId::ROOT_ID)
     {
-        if relayout_reason != azul_core::callbacks::RelayoutReason::ThemeChange
-            && azul_core::styled_dom::is_layout_equivalent(&old_layout_result.styled_dom, &styled_dom)
+        if !theme_rebuild
+            && azul_core::styled_dom::is_layout_equivalent(
+                &old_layout_result.styled_dom,
+                &styled_dom,
+            )
         {
             log_debug!(
                 LogCategory::Layout,
@@ -1161,116 +1823,33 @@ pub fn regenerate_layout(
                  (size_changed={window_size_changed})"
             );
 
-            // Transfer the new image callback RefAnys to the old DOM's nodes.
-            // The old layout result keeps all its positions/sizes/display list data,
-            // but the image callback data needs to be updated so that re-invocation
-            // uses the freshly-created RefAny (which may reference new app state).
-            let old_node_data = old_layout_result.styled_dom.node_data.as_ref();
-            let new_node_data = styled_dom.node_data.as_ref();
-            // Collect updates first to avoid borrow issues
-            let mut image_updates: Vec<(usize, azul_core::callbacks::CoreImageCallback)> =
-                Vec::new();
-            for (idx, (old_nd, new_nd)) in
-                old_node_data.iter().zip(new_node_data.iter()).enumerate()
+            // The values every build makes anew go onto the retained DOM, as
+            // the table of a node's fields says (`NodeField`): an image's
+            // callback, the handlers, a view's callback and data, the menus,
+            // the marker, and the datasets. `transfer_states` above merged
+            // the fresh build's datasets with last frame's and re-pointed the
+            // fresh handlers at the result, so copying both keeps the retained
+            // node the unified one (a released slider stays released).
             {
-                if let (
-                    azul_core::dom::NodeType::Image(ref _old_img),
-                    azul_core::dom::NodeType::Image(ref new_img),
-                ) = (&old_nd.node_type, &new_nd.node_type)
-                {
-                    if let azul_core::resources::DecodedImage::Callback(new_cb) = new_img.get_data()
-                    {
-                        image_updates.push((idx, new_cb.clone()));
-                    }
-                }
-            }
-
-            // Now apply image callback updates to old DOM's node data
-            if !image_updates.is_empty() {
-                let old_layout_result_mut = layout_window
+                let fresh = styled_dom.node_data.as_ref();
+                let retained = layout_window
                     .layout_results
                     .get_mut(&azul_core::dom::DomId::ROOT_ID)
                     .expect("layout_result must exist after get() succeeded");
-                let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
-                for (idx, new_cb) in image_updates {
-                    if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
-                        old_nd.node_type =
-                            azul_core::dom::NodeType::Image(azul_css::css::BoxOrStatic::heap(
-                                azul_core::resources::ImageRef::callback(
-                                    new_cb.callback.clone(),
-                                    new_cb.refany.clone(),
-                                ),
-                            ));
-                    }
-                }
+                azul_core::diff::carry_fresh_values(retained.styled_dom.node_data.as_mut(), fresh);
+                // The marker is carried, never compared (A6-18b).
+                retained.styled_dom.rebuild_derived_node_lists();
             }
 
-            // Also transfer any updated callback data (RefAny) for event callbacks
-            // so that future events use fresh app state references.
-            //
-            // The DATASET (and a VirtualView's content refany) travel with
-            // them. `transfer_states` above merged the fresh build's datasets
-            // with last frame's and re-pointed the fresh callbacks at the
-            // result, so `styled_dom`'s nodes are unified: callbacks and
-            // dataset on ONE allocation. Copying only the callbacks onto the
-            // retained node left its dataset on last frame's allocation —
-            // every later callback mutated the one the dataset no longer was,
-            // and the NEXT rebuild merged from the stale dataset (a released
-            // slider came back mid-drag). Copy all three, so the retained
-            // node IS the unified one.
-            let mut callback_updates: Vec<(
-                usize,
-                azul_core::callbacks::CoreCallbackDataVec,
-                Option<RefAny>,
-                Option<RefAny>,
-            )> = Vec::new();
-            {
-                let old_nd_ref = layout_window
-                    .layout_results
-                    .get(&azul_core::dom::DomId::ROOT_ID)
-                    .expect("layout_result must exist after get() succeeded")
-                    .styled_dom
-                    .node_data
-                    .as_ref();
-                let new_nd_ref = styled_dom.node_data.as_ref();
-                for (idx, (_old_nd, new_nd)) in old_nd_ref.iter().zip(new_nd_ref.iter()).enumerate()
-                {
-                    let dataset = new_nd.get_dataset().cloned();
-                    let vv_refany = new_nd
-                        .get_virtual_view_node_ref()
-                        .map(|vv| vv.refany.clone());
-                    if !new_nd.callbacks.as_ref().is_empty()
-                        || dataset.is_some()
-                        || vv_refany.is_some()
-                    {
-                        callback_updates.push((idx, new_nd.callbacks.clone(), dataset, vv_refany));
-                    }
-                }
-            }
-            if !callback_updates.is_empty() {
-                let old_layout_result_mut = layout_window
-                    .layout_results
-                    .get_mut(&azul_core::dom::DomId::ROOT_ID)
-                    .expect("layout_result must exist after get() succeeded");
-                let old_node_data_mut = old_layout_result_mut.styled_dom.node_data.as_mut();
-                for (idx, new_callbacks, dataset, vv_refany) in callback_updates {
-                    if let Some(old_nd) = old_node_data_mut.get_mut(idx) {
-                        old_nd.callbacks = new_callbacks;
-                        if let Some(ds) = dataset {
-                            old_nd.set_dataset(azul_core::refany::OptionRefAny::Some(ds));
-                        }
-                        if let (Some(r), Some(vv)) = (vv_refany, old_nd.get_virtual_view_node()) {
-                            vv.refany = r;
-                        }
-                    }
-                }
-            }
-
-            if !window_size_changed {
+            if !window_size_changed && !overlay_retires {
                 // Same rule as the pre-cascade exit above: the DOM is
                 // equivalent, the transferred datasets / VirtualView refanys
-                // are not necessarily — re-invoke every view in place.
-                layout_window.queue_all_virtual_view_reinvoke();
+                // are not necessarily — re-invoke every view in place (all but a
+                // view that states the version it was rendered for).
+                layout_window.queue_virtual_view_reinvoke_after_rebuild();
+                // And the caret an app asked for with this rebuild (the pre-cascade
+                // exit above says why).
+                let _ = layout_window.place_pending_caret_without_layout();
                 log_debug!(
                     LogCategory::Layout,
                     "[regenerate_layout] COMPLETE (layout unchanged)"
@@ -1285,7 +1864,8 @@ pub fn regenerate_layout(
             }
 
             // R1 — THE EQUIVALENCE RESULT IS USED, NOT THROWN AWAY. The size
-            // changed but the DOM did not, so the freshly-produced StyledDom
+            // changed (or the overlay retires what the app acked) but the DOM
+            // did not, so the freshly-produced StyledDom
             // is DROPPED and the PREVIOUS one — the exact object solver3's
             // warm caches (shaping, intrinsic widths) were built against — is
             // re-laid-out at the new size below. Same-object identity makes
@@ -1308,9 +1888,12 @@ pub fn regenerate_layout(
                      StyledDom (warm caches) at the new size"
                 );
                 styled_dom = old_result.styled_dom;
+                // The flags of step "tree" describe the tree that was just dropped.
+                kept_rows = None;
             }
         }
     }
+    drop(span_equivalent);
     azul_layout::probe::emit_phase_heap("after_equivalence_check");
     phases.mark("after_equivalence_check");
 
@@ -1321,7 +1904,20 @@ pub fn regenerate_layout(
     // node count matches the walk (CSD injection shifts NodeIds — those
     // windows skip the hint) — the diff then feeds solver3 instead of
     // being thrown away.
-    if let (Some((new_fp, _)), Some(prev_fp)) = (&precascade, &prev_dom_fingerprints) {
+    //
+    // A rebuild that was reconciled before it was styled (step "tree") knows the same of
+    // its nodes from the reconciliation itself, whatever the node count: the nodes that
+    // are what they were under the id they had. The layout takes the fingerprint each of
+    // them had; with the count changed it used to hash every node again.
+    // Not when a callback wrote the kept DOM since its last pass (`written_since_its_pass`):
+    // these flags compare the two ARENAS, and a node the app now builds exactly as the
+    // callback had written it reads alike in both while the layout's fingerprint of it is
+    // from before the write.
+    if let Some(clean) = kept_rows.take().filter(|clean| {
+        !written_since_its_pass && clean.len() == styled_dom.node_data.as_ref().len()
+    }) {
+        layout_window.layout_cache.dom_diff_clean = Some(clean);
+    } else if let (Some((new_fp, _)), Some(prev_fp)) = (&precascade, &prev_dom_fingerprints) {
         let n = styled_dom.node_data.as_ref().len();
         if new_fp.structure.len() == n
             && prev_fp.structure.len() == n
@@ -1383,56 +1979,12 @@ pub fn regenerate_layout(
         layout_window.layout_results.len()
     );
 
-    // 5b. SEED LAYOUT ANIMATIONS ("Last" is now solved)
-    //
-    // The other half of 3.5b. Every diff correspondence whose rect actually
-    // changed becomes a FLIP; identity transforms are skipped by `seed_moves`
-    // so a static frame allocates nothing. Keyed by reconciliation identity, so
-    // a node that keeps animating across several rebuilds is RETARGETED — the
-    // spring keeps its position and velocity instead of snapping and restarting.
-    if !anim_node_moves.is_empty() {
-        // Collected BEFORE seeding: the "Last" accessor borrows `layout_window`
-        // to read the freshly solved rects, and seeding borrows it mutably to
-        // reach the manager. Two statements, so the read is finished before the
-        // write starts.
-        let correspondences = azul_core::animation::correspondences_from_moves(
-            &anim_node_moves,
-            &anim_new_node_data,
-            &anim_new_hierarchy,
-            |old_id| anim_first_rects.get(&old_id).copied(),
-            |new_id| {
-                layout_window
-                    .get_node_bounds(azul_core::dom::DomId::ROOT_ID, new_id)
-                    .map(layout_rect_to_logical)
-            },
-        );
-        // Rebuild the identity→NodeId bridge BEFORE seeding, so a key seeded
-        // this frame is already resolvable when the first tick composites it.
-        // Rebuilt wholesale: after a rebuild the previous NodeIds are
-        // meaningless, and a surviving stale entry would push this frame's
-        // transform onto whatever unrelated node inherited the array slot.
-        layout_window.anim_key_to_node = azul_core::animation::anim_keys_for_moves(
-            &anim_node_moves,
-            &anim_new_node_data,
-            &anim_new_hierarchy,
-        )
-        .into_iter()
-        .collect();
-
-        let seeded = azul_core::animation::seed_moves(
-            &mut layout_window.animations,
-            correspondences,
-            azul_core::animation::InterpolationMode::Spring(azul_core::animation::Spring::SMOOTH),
-        );
-        if seeded > 0 {
-            log_debug!(
-                LogCategory::Layout,
-                "[regenerate_layout] Seeded {} layout animation(s) from {} node move(s)",
-                seeded,
-                anim_node_moves.len()
-            );
-        }
-    }
+    // 5b. COMPLETE THE RECONCILIATION ("Last" is now solved): FLIP moves,
+    // enter animations (every entering node that declares one, the first
+    // frame included), and the zombies' rects.
+    let span_finish = azul_layout::probe::Probe::span("regen_finish_reconciliation");
+    layout_window.finish_reconciliation(azul_core::dom::DomId::ROOT_ID, &pending);
+    drop(span_finish);
 
     // 5. + 6. Register scrollable nodes / scrollbar states, then sync the
     // scrollbar fade opacities that follow from them.
@@ -1450,6 +2002,7 @@ pub fn regenerate_layout(
     // turns it into the OS location prompt. Snapshot the (capability, node)
     // pairs first so we don't hold a borrow on `layout_results` while the
     // diff mutates `permission_manager`.
+    let span_capabilities = azul_layout::probe::Probe::span("regen_capability_walks");
     let mut wants_gamepad = false;
     let mut wants_sensors = false;
     let permission_bearing: Vec<(
@@ -1470,7 +2023,7 @@ pub fn regenerate_layout(
                         azul_layout::managers::permission::Capability::Geolocation,
                         azul_core::dom::DomNodeId {
                             dom: *dom_id,
-                            node: azul_core::dom::NodeId::from_usize(i).into(),
+                            node: Some(azul_core::dom::NodeId::new(i)).into(),
                         },
                     ));
                 }
@@ -1541,6 +2094,7 @@ pub fn regenerate_layout(
     if !geolocation_events.is_empty() {
         crate::desktop::extra::geolocation::apply_diff_events(&geolocation_events);
     }
+    drop(span_capabilities);
 
     // 7a / 7c–7f (async drains: permission results, geolocation fixes,
     // biometric availability + requests + results, keyring requests +
@@ -1558,7 +2112,6 @@ pub fn regenerate_layout(
     // (7h-pre sensor ensure/poll and 7i-pre gamepad ensure/poll moved into
     // capability_pump::pump(), gated on the listener flags computed above —
     // no listeners, no native subscription, no polling.)
-
 
     log_debug!(LogCategory::Layout, "[regenerate_layout] COMPLETE");
     azul_layout::probe::emit_phase_heap("end");
@@ -1695,10 +2248,10 @@ pub(super) fn incremental_relayout(
     // resize path's cost — solver3 re-flow + display list on the EXISTING
     // StyledDom — is the number the <8ms interactivity target is measured
     // against. Without this span the fast path was invisible in the log.
-    let _span = crate::log_span!(
-        LogCategory::Window,
-        "incremental_relayout",
-    );
+    let _span = crate::log_span!(LogCategory::Window, "incremental_relayout",);
+    // The same pass as `app_phase_seconds{phase}` - one per frame of a
+    // layout-property tween (the Switch knob's margin-left).
+    let _probe = azul_layout::probe::Probe::span("shell_incremental_relayout");
 
     let system_callbacks = ExternalSystemCallbacks::rust_internal();
 
@@ -1738,8 +2291,9 @@ pub(super) fn incremental_relayout(
         // and the next full regeneration would mis-detect what changed.
         layout_window.current_window_state = current_window_state.clone();
     }
-
-    register_scroll_nodes(layout_window);
+    // The scroll nodes of this pass are registered: the layout funnel
+    // (`layout_and_generate_display_list`) does it before it returns, and a
+    // second registration here ran on every frame of a tween for nothing.
 
     log_debug!(LogCategory::Layout, "[incremental_relayout] COMPLETE");
 
@@ -1758,6 +2312,30 @@ pub(super) fn incremental_relayout(
 /// to work correctly - the display list generation reads these states to determine
 /// which CSS properties to apply.
 fn apply_runtime_states_before_layout(
+    styled_dom: azul_core::styled_dom::StyledDom,
+    layout_window: &LayoutWindow,
+    current_window_state: &FullWindowState,
+) -> azul_core::styled_dom::StyledDom {
+    let mut styled_dom = raise_runtime_states(styled_dom, layout_window, current_window_state);
+
+    // Rules that name a state left of their subject (`.btn:hover .ink`,
+    // `.frame:focus-within .hint`) were matched while every node was at rest;
+    // match them again now that the runtime states are back. And a node in a state hands
+    // its children the inheritable values the state declares (`.row:hover { color: .. }`):
+    // in a DOM cascaded at rest the children hold the resting value - the hovered row
+    // showed its hover colour and the text in it the resting one, until the pointer left
+    // and came back - so where no whole cascade ran, the inheritance passes run for the
+    // states (`StyledDom::let_raised_states_in` is both).
+    styled_dom.let_raised_states_in();
+
+    styled_dom
+}
+
+/// The flags of [`apply_runtime_states_before_layout`] without its cascade: every state the
+/// managers hold is raised on `styled_dom`, none is lowered, no rule is matched. For a DOM
+/// that was cascaded under its states already (the one the pre-cascade skip keeps): its
+/// caller runs the cascade only when a state came with this call.
+fn raise_runtime_states(
     mut styled_dom: azul_core::styled_dom::StyledDom,
     layout_window: &LayoutWindow,
     current_window_state: &FullWindowState,
@@ -1775,11 +2353,57 @@ fn apply_runtime_states_before_layout(
                 let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
                 if let Some(styled_node) = styled_nodes.get_mut(node_id) {
                     styled_node.styled_node_state.focused = true;
+                    // `:focus-visible`: rung only when the focus came from
+                    // the keyboard or assistive technology, not a click.
+                    styled_node.styled_node_state.focus_visible =
+                        layout_window.focus_manager.focus_is_visible;
                     log_debug!(
                         LogCategory::Layout,
                         "[apply_runtime_states_before_layout] Set focused=true for node {:?}",
                         node_id
                     );
+                }
+                drop(styled_nodes);
+                // The rebuilt DOM lost `:focus-within` on the focused node's
+                // ancestors too; raise it along the chain again.
+                styled_dom.raise_focus_within(node_id);
+            }
+        } else if let Some(anchor) = layout_window
+            .focus_change_per_dom(None, Some(*focused_node))
+            .get(&dom_id)
+            .and_then(|change| change.gained_within)
+        {
+            // The focus is inside a `VirtualView`'s content: the rebuilt page
+            // holds it within the view's host and every node above it.
+            if anchor.index() < styled_dom.node_data.len() {
+                styled_dom.raise_focus_within(anchor);
+            }
+        }
+    }
+
+    // 1b. A control the keyboard holds pressed (Space / Enter, until the key
+    // comes up) stays `:active` in a DOM its own click asked to rebuild -
+    // the focused node and its ancestors, as a pointer's press.
+    if layout_window.focus_manager.pressed_by_key {
+        if let Some(focused) = layout_window
+            .focus_manager
+            .get_focused_node()
+            .filter(|n| n.dom == dom_id)
+            .and_then(|n| n.node.into_crate_internal())
+        {
+            let chain: Vec<azul_core::id::NodeId> = {
+                let hierarchy = styled_dom.node_hierarchy.as_container();
+                core::iter::successors(Some(focused), |n| {
+                    hierarchy
+                        .get(*n)
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                })
+                .collect()
+            };
+            let mut styled_nodes = styled_dom.styled_nodes.as_container_mut();
+            for node in chain {
+                if let Some(styled_node) = styled_nodes.get_mut(node) {
+                    styled_node.styled_node_state.active = true;
                 }
             }
         }
@@ -1851,28 +2475,6 @@ fn apply_runtime_states_before_layout(
     styled_dom
 }
 
-/// Fold a DOM reconciliation into every piece of `NodeId`-keyed window state.
-///
-/// `NodeId`s are arena indices: a rebuild renumbers them, so any manager that is
-/// not remapped keeps pointing at a live-but-WRONG node (deleting a preceding
-/// sibling shifts every later index down by one). `node_moves` maps every
-/// MATCHED old id to its new one; an old id ABSENT from it was unmounted, and
-/// its state must be dropped, not kept.
-///
-/// This function is deliberately a two-liner: the exhaustive, can't-forget
-/// dispatch lives in `LayoutWindow::remap_node_ids` (layout/src/window.rs),
-/// where a new `LayoutWindow` field fails to compile until it is classified as
-/// node-keyed or exempt, and every node-keyed manager implements
-/// `azul_layout::managers::NodeIdRemap`.
-fn update_managers_with_node_moves(
-    layout_window: &mut LayoutWindow,
-    node_moves: &[azul_core::diff::NodeMove],
-    dom_id: azul_core::dom::DomId,
-) {
-    let map = azul_layout::managers::NodeIdMap::from_node_moves(node_moves);
-    layout_window.remap_node_ids(dom_id, &map);
-}
-
 /// Helper function to generate WebRender frame
 ///
 /// This should be called after regenerate_layout to submit the frame to WebRender.
@@ -1904,8 +2506,11 @@ pub fn generate_frame(
             .clone()
             .unwrap_or_else(|| Arc::new(SystemStyle::default()));
         let rr = std::mem::take(&mut layout_window.renderer_resources);
+        // One frame of THIS window (the step `tick_animations_now` just took
+        // is not kept; the zombie velocities only need the frame length).
+        let frame_step = layout_window.frame_step_s();
         let changes = layout_window.run_track_frames(
-            1.0 / 60.0,
+            frame_step,
             frame_start,
             &azul_core::window::RawWindowHandle::Unsupported,
             gl_context,
@@ -1931,6 +2536,7 @@ pub fn generate_frame(
     // Display list was rebuilt
     wr_translate2::generate_frame(&mut txn, layout_window, render_api, true, gl_context);
 
+    wr_translate2::count_transaction(&txn);
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
 }
 
@@ -1993,6 +2599,7 @@ pub fn submit_lightweight_frame(
         return false;
     }
 
+    wr_translate2::count_transaction(&txn);
     render_api.send_transaction(wr_translate2::wr_translate_document_id(document_id), txn);
     if flush_scene_builder {
         render_api.flush_scene_builder();
@@ -2084,7 +2691,7 @@ fn inject_software_titlebar(
 /// the raw `Dom` *before* `create_from_dom` so the bar's `with_css` rules are
 /// scoped in the main flatten pass. No-op (returns `user_dom` unchanged) when
 /// there is no menu bar or a native global menu is in use.
-#[cfg(target_os = "linux")]
+#[cfg(az_x11)]
 fn inject_software_menubar(user_dom: azul_core::dom::Dom) -> azul_core::dom::Dom {
     use azul_core::dom::{Dom, DomVec};
 
@@ -2095,11 +2702,23 @@ fn inject_software_menubar(user_dom: azul_core::dom::Dom) -> azul_core::dom::Dom
         Some(boxed_menu) => boxed_menu.clone(),
         None => return user_dom,
     };
-    let menubar = azul_layout::widgets::menubar::build_menubar_dom(&menu);
+    let menubar =
+        azul_layout::widgets::menubar::build_menubar_dom(&menu).with_css("flex-shrink: 0;");
 
     // Html root (not Body) so we don't double-nest <body> / double the UA margin.
     // Order: menu bar first, then the user's content below it.
-    Dom::create_html().with_children(DomVec::from_vec(vec![menubar, user_dom]))
+    //
+    // A COLUMN, not a block stack. Stacked, the bar was simply added on top of
+    // a `height: 100%` body that still resolved to the whole window, so the
+    // document came out taller than the window by the bar plus the UA margins
+    // - measured live at 640x480 as a 640x522 root, with the last 42px of the
+    // page below the bottom edge. Chrome the shell injects has to take its
+    // space FROM the user's content, and a column flex container is what makes
+    // the body shrink by exactly the bar's height without anyone doing the
+    // arithmetic.
+    Dom::create_html()
+        .with_css("display: flex; flex-direction: column; height: 100%;")
+        .with_children(DomVec::from_vec(vec![menubar, user_dom]))
 }
 
 /// `LayoutRect` (integer origin, used by the layout query API) → `LogicalRect`
@@ -2130,6 +2749,10 @@ pub(crate) fn reconcile_transient_windows(
     use azul_core::dom::DomId;
     use azul_layout::transient::collect_open_transient_windows;
 
+    // Whether a popup held the keyboard when this pass's display list was
+    // built: the list rings the invoker only if none did.
+    let keyboard_owned_before = layout_window.transient_keyboard_owner().is_some();
+
     // 1. What does the parent layout say is open, and where is each anchor?
     let wanted = {
         let Some(root) = layout_window.layout_results.get(&DomId::ROOT_ID) else {
@@ -2151,6 +2774,15 @@ pub(crate) fn reconcile_transient_windows(
         });
         rects
     };
+    // `anchor="viewport"` (a modal dialog's top layer) covers the whole
+    // window instead of hanging off its anchor node: anchored to the
+    // viewport and laid out at its size, so a resize of this window resizes
+    // the cover on the next pass.
+    let viewport = current_window_state.size.dimensions;
+    let wanted: Vec<_> = wanted
+        .into_iter()
+        .map(|p| p.cover_viewport(viewport))
+        .collect();
 
     // 2. Reconcile, measuring each popup's content on demand (on scratch caches — the popup window
     //    lays the content out itself).
@@ -2159,12 +2791,44 @@ pub(crate) fn reconcile_transient_windows(
         // manager is borrowed mutably — split the borrow by taking the
         // manager out, reconciling, and putting it back.
         let mut manager = core::mem::take(&mut layout_window.transient_windows);
+        // Where focus is as popups open: owed back on close, whichever way
+        // they opened (see `remember_focus_for_opened` below).
+        let focus_at_open = layout_window
+            .focus_manager
+            .get_focused_node()
+            .copied()
+            .map(|n| (n, layout_window.focus_manager.focus_is_visible));
+        // The screens around this window in its logical px, read once a pass and
+        // only when a popup is measured; each popup gets the room of the screen
+        // its anchor is on.
+        let window = layout_window.screen_mapping;
+        let mut screens = None;
         let diff = manager.reconcile(&wanted, |content_dom, placement| {
+            let screens =
+                screens.get_or_insert_with(|| super::transient::screens_seen_from(window));
+            let room = super::transient::popup_room(
+                current_window_state.size.dimensions,
+                screens,
+                placement.anchor_rect,
+            );
+            // A window with a title bar has that much less room for its content.
+            let titled = layout_window
+                .layout_results
+                .get(&DomId::ROOT_ID)
+                .is_some_and(|r| {
+                    super::transient::transient_has_titlebar(
+                        &r.styled_dom,
+                        placement.node,
+                        placement.anchor,
+                    )
+                });
+            let room = super::transient::content_room(room, titled);
             let measured = layout_window.layout_transient_content(
                 placement.node,
                 content_dom,
                 placement.size,
                 current_window_state,
+                room,
             )?;
             // A DROP-DOWN IS AT LEAST AS WIDE AS THE CONTROL IT DROPS OUT OF.
             // A popup on the top or bottom edge is the `<select>` shape - a
@@ -2181,7 +2845,10 @@ pub(crate) fn reconcile_transient_windows(
                     | azul_core::transient::TransientAnchor::Top
             ) {
                 azul_core::geom::LogicalSize::new(
-                    measured.width.max(placement.anchor_rect.size.width),
+                    measured
+                        .width
+                        .max(placement.anchor_rect.size.width)
+                        .min(room.width.max(measured.width)),
                     measured.height,
                 )
             } else {
@@ -2189,6 +2856,9 @@ pub(crate) fn reconcile_transient_windows(
             };
             Some(widened)
         });
+        // A window opened by its `open` ATTRIBUTE reached no callback seam
+        // that could have recorded the focus it owes back.
+        manager.remember_focus_for_opened(&diff, focus_at_open);
         layout_window.transient_windows = manager;
         diff
     };
@@ -2223,6 +2893,13 @@ pub(crate) fn reconcile_transient_windows(
     // about to be re-created that way. `merge` also cancels an open+close
     // pair the backend never saw, so nothing flashes.
     layout_window.pending_transient_diff.merge(diff);
+
+    // A popup took the keyboard (its invoker stops being ringed) or handed
+    // it back (the ring returns). The list was built BEFORE this reconcile,
+    // with the old answer, so rebuild it now.
+    if layout_window.transient_keyboard_owner().is_some() != keyboard_owned_before {
+        layout_window.refresh_focus_ring();
+    }
 }
 
 /// Build a `LayoutWindow` that SHARES the app-level font manager.
@@ -2254,9 +2931,7 @@ pub fn layout_window_sharing_fonts(
     fc_cache: &FcFontCache,
 ) -> Result<LayoutWindow, azul_layout::solver3::LayoutError> {
     match app_font_manager {
-        Some(fm) => Ok(LayoutWindow::from_font_manager(
-            fm.clone_shared(),
-        )),
+        Some(fm) => Ok(LayoutWindow::from_font_manager(fm.clone_shared())),
         None => LayoutWindow::new(fc_cache.clone()),
     }
 }

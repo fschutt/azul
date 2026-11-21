@@ -251,6 +251,8 @@ impl CppDialect for Cpp17Generator {
             ));
         }
 
+        code.push_str(&generate_field_accessor_decls(struct_def, ir, config, self.standard()));
+
         // Type-specific methods
         if is_vec_type(struct_def) {
             self.generate_vec_methods(code, struct_def, config);
@@ -476,6 +478,7 @@ impl CppDialect for Cpp17Generator {
             }
         }
 
+        code.push_str(&generate_field_accessor_impls(struct_def, ir, config, self.standard()));
         code.push_str(&generate_vec_from_std_vector_impl(struct_def, ir, config));
     }
 
@@ -697,6 +700,15 @@ impl CppDialect for Cpp17Generator {
         // payload has a wrapper class (consuming && form for non-copy ones).
         emit_option_to_std_optional(code, &inner_type, &c_inner_type, ir);
         emit_option_std_optional_aliases(code, &inner_type, &c_inner_type, ir, self.standard());
+        // A parameter of this type takes std::nullopt, a std::optional or the value.
+        emit_option_from_std_optional(
+            code,
+            &struct_def.name,
+            &c_type_name,
+            &inner_type,
+            &c_inner_type,
+            ir,
+        );
     }
 
     fn generate_result_methods(

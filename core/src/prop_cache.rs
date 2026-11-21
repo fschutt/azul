@@ -45,6 +45,15 @@ pub struct CssPropertyWithOrigin {
     pub origin: CssPropertyOrigin,
 }
 
+/// What the root of a HOSTED DOM - a `VirtualView`'s content - inherits from
+/// the node that hosts it.
+///
+/// The host's value of every inheritable property it has one for, sorted by
+/// type ([`CssPropertyCache::inherited_from_host`], built by
+/// [`CssPropertyCache::inherited_values_for_hosted_dom`]). Empty for a document
+/// of its own.
+pub type InheritedFromHost = Vec<(CssPropertyType, CssPropertyWithOrigin)>;
+
 use azul_css::{
     css::{Css, CssPath},
     dynamic_selector::{
@@ -57,8 +66,11 @@ use azul_css::{
             BoxDecorationBreakValue, BreakInsideValue, CaretAnimationDurationValue,
             CaretColorValue, CaretWidthValue, ClipPathValue, ColumnCountValue, ColumnFillValue,
             ColumnRuleColorValue, ColumnRuleStyleValue, ColumnRuleWidthValue, ColumnSpanValue,
-            ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CssProperty,
-            CssPropertyType, FlowFromValue, FlowIntoValue, LayoutAlignContentValue,
+            ColumnWidthValue, ContentValue, CounterIncrementValue, CounterResetValue, CounterSetValue,
+            CssProperty, StyleBackgroundOriginVecValue, StyleQuotesValue,
+            CssPropertyType, FlowFromValue, FlowIntoValue, RegionFragmentValue,
+            WrapFlowValue, WrapThroughValue,
+            LayoutAlignContentValue,
             LayoutAlignItemsValue, LayoutAlignSelfValue, LayoutBorderBottomWidthValue,
             LayoutBorderLeftWidthValue, LayoutBorderRightWidthValue, LayoutBorderSpacingValue,
             LayoutBorderTopWidthValue, LayoutBoxSizingValue, LayoutClearValue,
@@ -100,13 +112,16 @@ use azul_css::{
             StyleObjectFitValue, StyleObjectPositionValue, StyleOpacityValue,
             StyleOverflowClipMarginValue, StyleOverflowWrapValue, StylePerspectiveOriginValue,
             StyleScrollbarColorValue, StyleScrollbarGutterValue, StyleSpatialNavigationActionValue,
-            StyleSpatialNavigationContainValue, StyleTabSizeValue, StyleTextAlignLastValue,
+            StyleSpatialNavigationContainValue, StyleSpatialNavigationFunctionValue,
+            StyleTabSizeValue, StyleTextAlignLastValue,
             StyleTextAlignValue, StyleTextBoxEdgeValue, StyleTextBoxTrimValue, StyleTextColorValue,
             StyleTextCombineUprightValue, StyleTextDecorationValue, StyleTextIndentValue,
             StyleTextOrientationValue, StyleTextOverflowValue, StyleTextTransformValue,
             StyleTransformOriginValue, StyleTransformVecValue, StyleUnicodeBidiValue,
             StyleUserSelectValue, StyleVerticalAlignValue, StyleVisibilityValue,
-            StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, WidowsValue,
+            StyleWhiteSpaceValue, StyleWordBreakValue, StyleWordSpacingValue, StyleZoomValue, StyleBackgroundClipVecValue,
+            StyleFontFeatureSettingsValue, StyleFontVariantCapsValue,
+            StyleFontVariantNumericValue, WidowsValue,
         },
         style::{StyleCursor, StyleTextColor, StyleTransformOrigin},
     },
@@ -115,13 +130,16 @@ use azul_css::{
 
 use crate::{
     dom::{NodeData, NodeId, TabIndex, TagId},
-    id::{NodeDataContainer, NodeDataContainerRef},
+    id::NodeDataContainerRef,
     style::CascadeInfo,
     styled_dom::{
         NodeHierarchyItem, NodeHierarchyItemId, NodeHierarchyItemVec, ParentWithNodeDepth,
         ParentWithNodeDepthVec, StyledNodeState, TagIdToNodeIdMapping,
     },
 };
+// The tests build their trees with it (they import this module's names).
+#[cfg(test)]
+use crate::id::NodeDataContainer;
 
 #[cfg(feature = "std")]
 std::thread_local! {
@@ -152,12 +170,6 @@ pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
         })
         .unwrap_or_default()
 }
-
-// Unit conversion constants (CSS absolute units → pixels)
-const PT_TO_PX: f32 = 1.333_333;
-const IN_TO_PX: f32 = 96.0;
-const CM_TO_PX: f32 = 37.795_277;
-const MM_TO_PX: f32 = 3.779_527_7;
 
 /// Match on any `CssProperty` variant and access the inner `CssPropertyValue`<T>.
 #[allow(unused_macros)]
@@ -305,6 +317,9 @@ macro_rules! match_property_value {
             CssProperty::ColumnRuleColor($value) => $expr,
             CssProperty::FlowInto($value) => $expr,
             CssProperty::FlowFrom($value) => $expr,
+            CssProperty::WrapThrough($value) => $expr,
+            CssProperty::WrapFlow($value) => $expr,
+            CssProperty::RegionFragment($value) => $expr,
             CssProperty::ShapeOutside($value) => $expr,
             CssProperty::ShapeInside($value) => $expr,
             CssProperty::ShapeImageThreshold($value) => $expr,
@@ -335,7 +350,7 @@ macro_rules! match_property_value {
 /// Replaces the per-pseudo-state `BTreeMap` approach: instead of 6 `BTreeMaps`
 /// per node (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec
 /// per node and tag each property with its state. Lookups use `.iter().find()`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StatefulCssProperty {
     pub state: azul_css::dynamic_selector::PseudoStateType,
     pub prop_type: CssPropertyType,
@@ -353,7 +368,65 @@ pub struct StatefulCssProperty {
     /// origin tag is what lets a re-application strip exactly its own
     /// previous entries first (and nothing else).
     pub ua_origin: bool,
+    /// The `rule_priority` of the rule that declared this value: a value for
+    /// one state beats one for a stronger state, or the resting value beats
+    /// a state's, only from a higher priority (a rice at `priority: app`
+    /// over the app's `:hover` rule); at equal priority the stronger state
+    /// wins. `rule_priority::PRESENTATIONAL` for a presentational hint,
+    /// [`ENGINE_PRIORITY`] for what the engine decides itself, and 0 for
+    /// what the node inherited and for a UA default, which are never
+    /// compared this way.
+    pub priority: u8,
 }
+
+/// Where the declaration that won a property's cascade sits, comparable
+/// across two properties: the stronger rank is the one the cascade would
+/// have taken had both declared the same property.
+///
+/// By its source first (a runtime override, then the `::placeholder`'s own
+/// values, then what the node declares, then a `*` rule, then what it
+/// inherited or the UA default), then by `rule_priority`, then by the
+/// strength of the state it was declared for, then - for the node's own
+/// declarations - by their order (the later one wins).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct CascadeRank {
+    source: u8,
+    priority: u8,
+    state: u8,
+    order: u32,
+}
+
+impl CascadeRank {
+    pub const USER_OVERRIDE: Self = Self::of_source(4);
+    pub const PLACEHOLDER: Self = Self::of_source(3);
+    pub const GLOBAL_RULE: Self = Self::of_source(1);
+    pub const INHERITED: Self = Self::of_source(0);
+
+    const fn of_source(source: u8) -> Self {
+        Self {
+            source,
+            priority: 0,
+            state: 0,
+            order: 0,
+        }
+    }
+
+    /// A declaration of the node at `priority`, for a state of `state`
+    /// strength (the resting state the weakest).
+    const fn declared(priority: u8, state: u8) -> Self {
+        Self {
+            source: 2,
+            priority,
+            state,
+            order: 0,
+        }
+    }
+}
+
+/// The [`StatefulCssProperty::priority`] of what the engine decides itself
+/// (a generated node whose `content` makes nothing has no box): above every
+/// rule and the node's own style.
+pub const ENGINE_PRIORITY: u8 = u8::MAX;
 
 /// One bit per `CssPropertyType` (fewer than 256 variants): "this node has
 /// a Normal-state value of this type from a layer that beats the UA sheet".
@@ -405,6 +478,9 @@ pub struct FlatVecVec<T> {
     data: Vec<T>,
     /// `(start, len)` offsets into `data` for each node (populated after flatten).
     offsets: Vec<(u32, u32)>,
+    /// How many entries of `data` the rows [`Self::replace_rows`] replaced since the store
+    /// was last compacted pointed at (an upper bound of what no node points at any more).
+    orphaned: usize,
 }
 
 impl<T: PartialEq> PartialEq for FlatVecVec<T> {
@@ -429,6 +505,7 @@ impl<T> Default for FlatVecVec<T> {
             build: Vec::new(),
             data: Vec::new(),
             offsets: Vec::new(),
+            orphaned: 0,
         }
     }
 }
@@ -460,7 +537,90 @@ impl<T> FlatVecVec<T> {
             build,
             data: Vec::new(),
             offsets: Vec::new(),
+            orphaned: 0,
         }
+    }
+
+    /// Gives the nodes of `rows` the runs they come with and leaves every other node's run
+    /// where it lies: what a cascade over a few nodes of a DOM writes
+    /// ([`CssPropertyCache::recascade_nodes`]). In the read phase a row is appended to the flat
+    /// storage and its node pointed at it; the run the node had stays in the storage until
+    /// more than half of it is such runs, then the storage is compacted (`dedup_runs`). In
+    /// the build phase the node's inner `Vec` is replaced. A node outside the store is skipped.
+    pub fn replace_rows(&mut self, rows: impl Iterator<Item = (usize, Vec<T>)>)
+    where
+        T: Clone + PartialEq + core::hash::Hash,
+    {
+        if self.offsets.is_empty() {
+            for (node, row) in rows {
+                if let Some(slot) = self.build.get_mut(node) {
+                    *slot = row;
+                }
+            }
+            return;
+        }
+        for (node, row) in rows {
+            let Some(slot) = self.offsets.get_mut(node) else {
+                continue;
+            };
+            self.orphaned += slot.1 as usize;
+            if row.is_empty() {
+                *slot = (0, 0);
+                continue;
+            }
+            let start = u32::try_from(self.data.len()).unwrap_or(u32::MAX);
+            let len = u32::try_from(row.len()).unwrap_or(u32::MAX);
+            self.data.extend(row);
+            *slot = (start, len);
+        }
+        if self.orphaned > 256 && self.orphaned > self.data.len() / 2 {
+            self.dedup_runs();
+        }
+    }
+
+    /// The store of ANOTHER ARENA: node `n` of it has the run node `source[n]` has here, and
+    /// an empty run where `source[n]` is `None` or names no node of this store. What a
+    /// rebuild that changed the tree starts its cascade from
+    /// ([`CssPropertyCache::spliced`]): the nodes that are what they were keep their runs
+    /// under their new numbers.
+    ///
+    /// No run is copied node by node: the flat storage is cloned once (it holds each distinct
+    /// run once, `dedup_runs`) and the new nodes point into it, as the nodes of one rule set
+    /// share a run here. The runs no new node points at stay in the storage until they are
+    /// more than half of it, then it is compacted - the rule of [`Self::replace_rows`].
+    /// `None` in the build phase: there are no runs to point at.
+    #[must_use]
+    pub fn gathered(&self, source: &[Option<NodeId>]) -> Option<Self>
+    where
+        T: Clone + PartialEq + core::hash::Hash,
+    {
+        if self.offsets.is_empty() && !self.build.is_empty() {
+            return None;
+        }
+        let offsets: Vec<(u32, u32)> = source
+            .iter()
+            .map(|from| {
+                from.and_then(|old| self.offsets.get(old.index()).copied())
+                    .unwrap_or((0, 0))
+            })
+            .collect();
+        // What the new nodes point at, each distinct run once: runs are equal or disjoint.
+        let mut live_runs: Vec<(u32, u32)> =
+            offsets.iter().copied().filter(|(_, len)| *len != 0).collect();
+        live_runs.sort_unstable();
+        live_runs.dedup();
+        let live: usize = live_runs.iter().map(|(_, len)| *len as usize).sum();
+        let mut store = Self {
+            build: Vec::new(),
+            data: self.data.clone(),
+            offsets,
+            orphaned: 0,
+        };
+        store.orphaned = store.data.len().saturating_sub(live);
+        if store.orphaned > 256 && store.orphaned > store.data.len() / 2 {
+            store.dedup_runs();
+        }
+        Some(store)
     }
 
     /// Push an item to the inner Vec at `node_index` (build phase).
@@ -555,23 +715,54 @@ impl<T> FlatVecVec<T> {
     /// is rebuilt wholesale by `sort_each_and_flatten` / `retain`, never patched
     /// in place.
     ///
-    /// The run table is scanned linearly and CAPPED: distinct runs are few in
-    /// practice (a stylesheet has far fewer rule combinations than nodes), and
-    /// the cap turns the pathological case into "stops deduplicating" rather
-    /// than into quadratic time.
+    /// The run table is CAPPED: distinct runs are few in practice (a
+    /// stylesheet has far fewer rule combinations than nodes), and beyond the
+    /// cap new runs are stored without being recorded.
+    ///
+    /// A node's run is looked for in two steps, neither of which reads the
+    /// table: the run the node before it had (nodes of one rule set come one
+    /// after the other: the labels of a text style), then the recorded runs
+    /// filed under a key of the run's length and its first and last entry.
+    /// The table used to be read from its start for every node: nodes x
+    /// distinct runs when the rule sets alternate (the cells of a table with
+    /// a class per column, a list whose rows cycle through styles). Which run
+    /// is found does not depend on the order they are tried in: a run is
+    /// recorded once, so the one that equals is the same.
     fn dedup_runs(&mut self)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         /// Beyond this many distinct runs, stop recording new ones. Existing
         /// runs are still reused, so the result is partial sharing, never wrong.
         const MAX_RUNS: usize = 1024;
+
+        /// Is the recorded run `(start, len)` of `data` the run `run`?
+        fn same<T: PartialEq>(data: &[T], (rs, rl): (u32, u32), run: &[T]) -> bool {
+            #[cfg(all(test, feature = "std"))]
+            RUN_COMPARES.with(|c| c.set(c.get() + 1));
+            rl as usize == run.len() && data[rs as usize..(rs + rl) as usize] == *run
+        }
+
+        /// What a run is filed under: its length, its first and its last entry.
+        fn key_of<T: core::hash::Hash>(run: &[T]) -> u64 {
+            use core::hash::{Hash, Hasher};
+            let mut h = crate::hash::FastHasher::new();
+            run.len().hash(&mut h);
+            run.first().hash(&mut h);
+            run.last().hash(&mut h);
+            h.finish()
+        }
 
         if self.offsets.is_empty() {
             return;
         }
         let mut new_data: Vec<T> = Vec::new();
         let mut runs: Vec<(u32, u32)> = Vec::new();
+        // The recorded runs (their indices in `runs`) by `key_of`.
+        let mut by_key: alloc::collections::BTreeMap<u64, Vec<u32>> =
+            alloc::collections::BTreeMap::new();
+        // The recorded run the node before this one had.
+        let mut last: Option<usize> = None;
         let mut new_offsets = Vec::with_capacity(self.offsets.len());
 
         for &(start, len) in &self.offsets {
@@ -581,17 +772,34 @@ impl<T> FlatVecVec<T> {
             }
             let s = start as usize;
             let run = &self.data[s..s + len as usize];
-            let existing = runs
-                .iter()
-                .copied()
-                .find(|&(rs, rl)| rl == len && new_data[rs as usize..(rs + rl) as usize] == *run);
-            if let Some((rs, rl)) = existing {
-                new_offsets.push((rs, rl));
+            let mut existing = last.filter(|at| same(&new_data, runs[*at], run));
+            let mut key = None;
+            if existing.is_none() {
+                let k = key_of(run);
+                existing = by_key.get(&k).and_then(|filed| {
+                    filed
+                        .iter()
+                        .map(|at| *at as usize)
+                        .find(|at| Some(*at) != last && same(&new_data, runs[*at], run))
+                });
+                key = Some(k);
+            }
+            if let Some(at) = existing {
+                new_offsets.push(runs[at]);
+                last = Some(at);
                 continue;
             }
             let ns = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
             new_data.extend_from_slice(run);
+            last = None;
             if runs.len() < MAX_RUNS {
+                if let Some(k) = key {
+                    by_key
+                        .entry(k)
+                        .or_default()
+                        .push(u32::try_from(runs.len()).unwrap_or(u32::MAX));
+                }
+                last = Some(runs.len());
                 runs.push((ns, len));
             }
             new_offsets.push((ns, len));
@@ -599,6 +807,7 @@ impl<T> FlatVecVec<T> {
 
         self.data = new_data;
         self.offsets = new_offsets;
+        self.orphaned = 0;
     }
 
     /// Flatten: sort each inner Vec by key, deduplicate by keeping the last
@@ -608,7 +817,7 @@ impl<T> FlatVecVec<T> {
     /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
     pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         let node_count = self.build.len();
         let total: usize = self.build.iter().map(alloc::vec::Vec::len).sum();
@@ -671,7 +880,7 @@ impl<T> FlatVecVec<T> {
     /// Must be called after flatten. Preserves per-node ordering.
     pub fn retain(&mut self, predicate: impl Fn(&T) -> bool)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         if self.offsets.is_empty() {
             return;
@@ -813,6 +1022,29 @@ impl<'a, T> Iterator for FlatVecVecIter<'a, T> {
 
 impl<T> ExactSizeIterator for FlatVecVecIter<'_, T> {}
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many recorded runs `FlatVecVec::dedup_runs` compared a node's run
+    /// with on this thread: what the size sweep of the tests reads to say
+    /// nodes of one rule set do not each read the table of runs.
+    pub(crate) static RUN_COMPARES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many buckets of [`InheritedValues`] stores this thread looked at
+    /// to read or place values (`values_for`: all of them; placing a value:
+    /// its parent's, else the ones under its hash): what the size sweep of
+    /// the tests reads to say the inheritance pass does not look at every
+    /// distinct value of the DOM for every node.
+    pub(crate) static INHERITED_BUCKET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// How many times `CssPropertyCache::generate_tag_ids` walked a DOM on
+    /// this thread.
+    pub(crate) static TAG_ID_PASSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// How many buckets [`InheritedValues::get`] searched on this thread.
+    pub(crate) static INHERITED_GET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
 /// The slow path's inherited-value store, TRANSPOSED: one copy of each distinct
 /// value plus the nodes that resolve to it.
 ///
@@ -839,6 +1071,18 @@ pub struct InheritedValues {
     /// Node count this store was sized for; `Vec<Vec<_>>::len()` used to answer
     /// this and several callers (and tests) still ask.
     node_count: usize,
+    /// The buckets by the hash of their (type, value) ([`Self::bucket_hash`]),
+    /// in the order they were made: where a value's bucket is looked for
+    /// ([`Self::bucket_of`]). A map view has a bucket per text style and
+    /// inherited property; reading all of them for every value of every
+    /// node was nodes times distinct values.
+    by_hash: alloc::collections::BTreeMap<u64, Vec<u32>>,
+    /// The buckets of each property type, in the order they were made: what
+    /// [`Self::get`] searches. It used to pass over every bucket of the
+    /// store to find the ones of its type - 150 to 200 buckets on a map with
+    /// 26 text styles, for a property (`user-select`, `direction`) that has
+    /// one or two.
+    by_type: alloc::collections::BTreeMap<CssPropertyType, Vec<u32>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -855,7 +1099,46 @@ impl InheritedValues {
         Self {
             buckets: Vec::new(),
             node_count: 0,
+            by_hash: alloc::collections::BTreeMap::new(),
+            by_type: alloc::collections::BTreeMap::new(),
         }
+    }
+
+    /// The key a (type, value) is kept under in `by_hash`.
+    fn bucket_hash(prop_type: CssPropertyType, value: &CssPropertyWithOrigin) -> u64 {
+        use core::hash::{Hash, Hasher};
+        let mut hasher = crate::hash::FastHasher::new();
+        prop_type.hash(&mut hasher);
+        value.property.hash(&mut hasher);
+        value.origin.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// The bucket of (type, value), if there is one (there is at most one).
+    fn bucket_of(&self, prop_type: CssPropertyType, value: &CssPropertyWithOrigin) -> Option<usize> {
+        let candidates = self.by_hash.get(&Self::bucket_hash(prop_type, value))?;
+        candidates.iter().map(|b| *b as usize).find(|b| {
+            #[cfg(all(test, feature = "std"))]
+            INHERITED_BUCKET_READS.with(|c| c.set(c.get() + 1));
+            self.buckets
+                .get(*b)
+                .is_some_and(|bucket| bucket.prop_type == prop_type && bucket.value == *value)
+        })
+    }
+
+    /// Adds `bucket` as the newest one and answers its index.
+    fn push_bucket(&mut self, bucket: InheritedBucket) -> usize {
+        let index = self.buckets.len();
+        self.by_hash
+            .entry(Self::bucket_hash(bucket.prop_type, &bucket.value))
+            .or_default()
+            .push(u32::try_from(index).unwrap_or(u32::MAX));
+        self.by_type
+            .entry(bucket.prop_type)
+            .or_default()
+            .push(u32::try_from(index).unwrap_or(u32::MAX));
+        self.buckets.push(bucket);
+        index
     }
 
     #[must_use]
@@ -875,6 +1158,18 @@ impl InheritedValues {
         self.buckets.len()
     }
 
+    /// Every distinct `(type, value)` of the store with the nodes that resolve to it
+    /// (ascending): the store as it lies. For a reader that compares the values of many
+    /// nodes of two stores: [`Self::values_for`] reads every bucket for ONE node, so asking
+    /// it per node is nodes times distinct values.
+    pub fn buckets(
+        &self,
+    ) -> impl Iterator<Item = (CssPropertyType, &CssPropertyWithOrigin, &[u32])> + '_ {
+        self.buckets
+            .iter()
+            .map(|b| (b.prop_type, &b.value, b.nodes.as_slice()))
+    }
+
     /// Total (node, property) pairs — what the old per-node vecs would have
     /// stored one entry each for.
     #[must_use]
@@ -889,17 +1184,27 @@ impl InheritedValues {
     /// Drop every value, keeping the sizing. Called at the head of a cascade.
     pub fn clear_values(&mut self) {
         self.buckets.clear();
+        self.by_hash.clear();
+        self.by_type.clear();
     }
 
     /// The resolved value of `prop_type` for `node`, if any.
     ///
-    /// Linear over buckets (a handful) then binary over the node list.
+    /// Over the buckets of the type, in the order they were made (the first
+    /// that holds the node, as the scan of all buckets found it), then
+    /// binary over the node list.
     #[must_use]
     pub fn get(&self, node: usize, prop_type: CssPropertyType) -> Option<&CssPropertyWithOrigin> {
         let n = u32::try_from(node).ok()?;
-        self.buckets
+        self.by_type
+            .get(&prop_type)?
             .iter()
-            .find(|b| b.prop_type == prop_type && b.nodes.binary_search(&n).is_ok())
+            .filter_map(|index| self.buckets.get(*index as usize))
+            .find(|b| {
+                #[cfg(all(test, feature = "std"))]
+                INHERITED_GET_READS.with(|c| c.set(c.get() + 1));
+                b.nodes.binary_search(&n).is_ok()
+            })
             .map(|b| &b.value)
     }
 
@@ -910,6 +1215,8 @@ impl InheritedValues {
         let Ok(n) = u32::try_from(node) else {
             return Vec::new();
         };
+        #[cfg(all(test, feature = "std"))]
+        INHERITED_BUCKET_READS.with(|c| c.set(c.get() + self.buckets.len() as u64));
         let mut out: Vec<_> = self
             .buckets
             .iter()
@@ -946,24 +1253,147 @@ impl InheritedValues {
     /// Nodes are cascaded in ascending index order, so each `nodes` list is
     /// built by `push` and stays sorted without an insert.
     pub fn set_node(&mut self, node: usize, entries: &[(CssPropertyType, CssPropertyWithOrigin)]) {
-        let Ok(n) = u32::try_from(node) else { return };
+        drop(self.set_node_near(node, entries, None));
+    }
+
+    /// [`Self::set_node`], answering the bucket each entry went to (in the
+    /// order of `entries`), and looking for an entry's bucket first where
+    /// `near` has its type: `near` is another node's entries (ascending by
+    /// type) with the buckets they went to - the node's parent's. A value a
+    /// node inherits unchanged is in its parent's bucket, so most entries
+    /// are placed without reading the other buckets; an entry `near` does
+    /// not place is found by its hash ([`Self::bucket_of`]). A (type, value)
+    /// has one bucket, so both ways find the same one - the one a scan of
+    /// all buckets from the first found.
+    pub fn set_node_near(
+        &mut self,
+        node: usize,
+        entries: &[(CssPropertyType, CssPropertyWithOrigin)],
+        near: Option<(&[(CssPropertyType, CssPropertyWithOrigin)], &[u32])>,
+    ) -> Vec<u32> {
+        let Ok(n) = u32::try_from(node) else {
+            return Vec::new();
+        };
+        let mut placed = Vec::with_capacity(entries.len());
         for (prop_type, value) in entries {
-            match self
-                .buckets
-                .iter_mut()
-                .find(|b| b.prop_type == *prop_type && b.value == *value)
-            {
-                Some(b) => {
+            let hinted = near.and_then(|(near_entries, near_buckets)| {
+                let at = near_entries
+                    .binary_search_by_key(prop_type, |(t, _)| *t)
+                    .ok()?;
+                let bucket = *near_buckets.get(at)? as usize;
+                let b = self.buckets.get(bucket)?;
+                #[cfg(all(test, feature = "std"))]
+                INHERITED_BUCKET_READS.with(|c| c.set(c.get() + 1));
+                (b.prop_type == *prop_type && b.value == *value).then_some(bucket)
+            });
+            let found = hinted.or_else(|| self.bucket_of(*prop_type, value));
+            let bucket = match found {
+                Some(bucket) => {
+                    let b = &mut self.buckets[bucket];
                     if b.nodes.last() != Some(&n) {
                         b.nodes.push(n);
                     }
+                    bucket
                 }
-                None => self.buckets.push(InheritedBucket {
+                None => self.push_bucket(InheritedBucket {
                     prop_type: *prop_type,
                     value: value.clone(),
                     nodes: vec![n],
                 }),
-            }
+            };
+            placed.push(u32::try_from(bucket).unwrap_or(u32::MAX));
+        }
+        placed
+    }
+
+    /// Takes the nodes `gone` names (`gone[node]`) out of every value's node list: what a
+    /// cascade over a few nodes of a DOM does before it places their new values
+    /// ([`Self::place_node`]). The lists stay ascending; a value no node holds any more keeps
+    /// its (empty) bucket, which no lookup finds a node in.
+    pub fn remove_nodes(&mut self, gone: &[bool]) {
+        for bucket in &mut self.buckets {
+            bucket
+                .nodes
+                .retain(|node| !gone.get(*node as usize).copied().unwrap_or(false));
+        }
+    }
+
+    /// [`Self::set_node_near`] for a node that is placed out of turn - a node of a DOM whose
+    /// other nodes keep their values: its index goes into each value's node list at its
+    /// place, so the lists stay ascending and every lookup (a binary search) still finds the
+    /// nodes behind it. The node must hold no value yet ([`Self::remove_nodes`]).
+    pub fn place_node(
+        &mut self,
+        node: usize,
+        entries: &[(CssPropertyType, CssPropertyWithOrigin)],
+        near: Option<(&[(CssPropertyType, CssPropertyWithOrigin)], &[u32])>,
+    ) -> Vec<u32> {
+        let Ok(n) = u32::try_from(node) else {
+            return Vec::new();
+        };
+        let mut placed = Vec::with_capacity(entries.len());
+        for (prop_type, value) in entries {
+            let hinted = near.and_then(|(near_entries, near_buckets)| {
+                let at = near_entries
+                    .binary_search_by_key(prop_type, |(t, _)| *t)
+                    .ok()?;
+                let bucket = *near_buckets.get(at)? as usize;
+                let b = self.buckets.get(bucket)?;
+                (b.prop_type == *prop_type && b.value == *value).then_some(bucket)
+            });
+            let found = hinted.or_else(|| self.bucket_of(*prop_type, value));
+            let bucket = match found {
+                Some(bucket) => {
+                    let b = &mut self.buckets[bucket];
+                    if let Err(at) = b.nodes.binary_search(&n) {
+                        b.nodes.insert(at, n);
+                    }
+                    bucket
+                }
+                None => self.push_bucket(InheritedBucket {
+                    prop_type: *prop_type,
+                    value: value.clone(),
+                    nodes: vec![n],
+                }),
+            };
+            placed.push(u32::try_from(bucket).unwrap_or(u32::MAX));
+        }
+        placed
+    }
+
+    /// The store of ANOTHER ARENA of `node_count` nodes: old node `o` is new node
+    /// `new_of_old[o]` there, and an old node without a new one (`None`, or past the end of
+    /// `new_of_old`) holds no value in it ([`CssPropertyCache::spliced`]). Every value keeps
+    /// its bucket and the bucket its index, so the two indexes of the buckets stand as they
+    /// are; a bucket whose nodes all went is empty, which no lookup finds a node in. The
+    /// node lists are sorted again: the new numbers need not come in the order of the old.
+    #[must_use]
+    pub fn remapped(&self, new_of_old: &[Option<usize>], node_count: usize) -> Self {
+        let buckets = self
+            .buckets
+            .iter()
+            .map(|bucket| {
+                let mut nodes: Vec<u32> = bucket
+                    .nodes
+                    .iter()
+                    .filter_map(|old| new_of_old.get(*old as usize).copied().flatten())
+                    .filter(|new| *new < node_count)
+                    .filter_map(|new| u32::try_from(new).ok())
+                    .collect();
+                nodes.sort_unstable();
+                nodes.dedup();
+                InheritedBucket {
+                    prop_type: bucket.prop_type,
+                    value: bucket.value.clone(),
+                    nodes,
+                }
+            })
+            .collect();
+        Self {
+            buckets,
+            node_count,
+            by_hash: self.by_hash.clone(),
+            by_type: self.by_type.clone(),
         }
     }
 
@@ -971,17 +1401,17 @@ impl InheritedValues {
     /// composition), shifting its node indices by this store's node count.
     pub fn append(&mut self, other: &mut Self) {
         let shift = u32::try_from(self.node_count).unwrap_or(u32::MAX);
+        other.by_hash.clear();
+        other.by_type.clear();
         for mut ob in core::mem::take(&mut other.buckets) {
             for n in &mut ob.nodes {
                 *n = n.saturating_add(shift);
             }
-            match self
-                .buckets
-                .iter_mut()
-                .find(|b| b.prop_type == ob.prop_type && b.value == ob.value)
-            {
-                Some(b) => b.nodes.extend_from_slice(&ob.nodes),
-                None => self.buckets.push(ob),
+            match self.bucket_of(ob.prop_type, &ob.value) {
+                Some(b) => self.buckets[b].nodes.extend_from_slice(&ob.nodes),
+                None => {
+                    self.push_bucket(ob);
+                }
             }
         }
         self.node_count += other.node_count;
@@ -1013,10 +1443,56 @@ impl InheritedValues {
 // state (hover, active, focused, normal). This way we don't have to duplicate the CSS properties
 // onto every single node and exchange them when the style changes. Two caches can be appended
 // to each other by simply merging their NodeIds.
+/// Whether the document a [`CssPropertyCache`] styles is being laid out on
+/// PAGED media with footnotes in it (`float: footnote`, CSS Generated
+/// Content for Paged Media): the layout pass says so before it reads any
+/// style, and the readers of `position` and `float` treat a footnote as the
+/// out-of-flow box it is there and as `float: none` everywhere else.
+///
+/// It is a fact about the presentation, not about the cascade, and it is
+/// the layout that knows it - through a shared reference to the document.
+/// Hence the atomic, and why two caches compare equal whatever it says. A
+/// document must not be laid out on paged and on continuous media at the
+/// same time from two threads: the one flag would be right for one of them.
+#[derive(Debug, Default)]
+pub struct PagedFootnotes(core::sync::atomic::AtomicBool);
+
+impl PagedFootnotes {
+    /// Whether the last layout pass was a paged one of a document with
+    /// footnotes.
+    #[inline]
+    #[must_use]
+    pub fn get(&self) -> bool {
+        self.0.load(core::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Set by the layout pass, before it reads any style.
+    #[inline]
+    pub fn set(&self, paged_with_footnotes: bool) {
+        self.0
+            .store(paged_with_footnotes, core::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl Clone for PagedFootnotes {
+    fn clone(&self) -> Self {
+        Self(core::sync::atomic::AtomicBool::new(self.get()))
+    }
+}
+
+impl PartialEq for PagedFootnotes {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct CssPropertyCache {
     // number of nodes in the current DOM
     pub node_count: usize,
+
+    /// See [`PagedFootnotes`].
+    pub paged_footnotes: PagedFootnotes,
 
     // The author stylesheet this cache was last cascaded with. Retained so nodes
     // inserted at runtime can be re-styled (`StyledDom::restyle_retained`) — the
@@ -1028,6 +1504,25 @@ pub struct CssPropertyCache {
 
     // properties that were overridden in callbacks (not specific to any node state)
     pub user_overridden_properties: Vec<Vec<(CssPropertyType, CssProperty)>>,
+    /// Some node has, or had, a runtime override of `color` in
+    /// [`Self::user_overridden_properties`]. That is the one override a
+    /// node's DESCENDANTS take through inheritance while the precomputed
+    /// tables cannot see it, so a reader of the used colour walks to the
+    /// root for it (`inherited_color_override` in the layout crate) - once
+    /// ANY override exists, were it only a bound `transform`, unless this
+    /// says no node ever had one of `color`. Raised by every writer of the
+    /// table (`StyledDom::set_user_property_override_fast`,
+    /// `StyledDom::migrate_user_overrides_from`, [`Self::append`]) and never
+    /// lowered: `false` means there is none.
+    pub text_color_override_seen: bool,
+    /// Another styled DOM was appended to this one
+    /// (`StyledDom::append_child`) and the inheritance tables and the
+    /// compact cache have not been rebuilt for the composed tree since
+    /// (`StyledDom::recompute_inheritance_and_compact_cache`): what the
+    /// appended subtree inherits and its compact entries are still the ones
+    /// of its own, isolated cascade. A DOM that came out of one cascade has
+    /// both right and this `false`.
+    pub composed_since_recompute: bool,
     /// The window's dynamic-selector context (viewport size, theme, OS,
     /// media type...), provided by the layout funnel before the first
     /// layout. `None` = context UNKNOWN (a freshly created `StyledDom` that no
@@ -1062,6 +1557,11 @@ pub struct CssPropertyCache {
     /// for that (`paint_defaults_fingerprint`, the `last_dynamic_context`
     /// equality gate, `reset_incremental` on a style change) — theme-chain
     /// analysis 2026-09-12, R4/I5.
+    ///
+    /// Custom properties ride it too (design §9.1 pitfall 11): every
+    /// `var()` is resolved by the restyle, under the context, so a variable
+    /// that follows the mode or a rice edit is a new generation like any
+    /// other cascade input - no per-variable cache key to forget.
     ///
     /// NOT bumped by `set_user_property_override_fast`: that is the per-tick
     /// animation channel, whose caller patches the display list with the
@@ -1098,6 +1598,24 @@ pub struct CssPropertyCache {
     // cloned into each node's css_props (saves 50K×N clones).
     pub global_css_props: Vec<CssProperty>,
 
+    /// Every node's custom properties (`--name`) as the last restyle
+    /// computed them under the window's context; see
+    /// [`crate::custom_property_cascade`]. Empty for a DOM without variables.
+    pub custom_property_envs: crate::custom_property_cascade::CustomPropertyEnvs,
+
+    /// Per node (sparse): the node's OWN `var()` / `env()` declarations as the
+    /// last restyle resolved them. Every cascade reader of inline style goes
+    /// through [`Self::inline_properties`], which reads this.
+    pub resolved_inline:
+        alloc::collections::BTreeMap<usize, crate::custom_property_cascade::ResolvedInline>,
+
+    /// Whether the last restyle's variables depend on the window context
+    /// beyond the author rules' own conditions: a node's own definition under
+    /// a condition. `StyledDom::set_dynamic_selector_context` re-runs the
+    /// cascade then, even with an empty author stylesheet - as it does for a
+    /// node's own `env()` ([`Self::env_readers`]).
+    pub variables_depend_on_context: bool,
+
     /// Per-node resolved font-size, in pixels, for the `Normal`
     /// pseudo-state. Populated lazily on first call to
     /// [`crate::styled_dom::StyledDom::resolved_font_size_px`] via a
@@ -1112,6 +1630,124 @@ pub struct CssPropertyCache {
     /// count. Caching the pre-resolved pixel value collapses that
     /// to a single `Vec<f32>` indexed lookup.
     pub resolved_font_sizes_px: crate::sync::OnceLock<Vec<f32>>,
+    /// Per-node EFFECTIVE `zoom` (the product of `zoom` on the node and on
+    /// every ancestor) for the `Normal` pseudo-state, filled lazily by the
+    /// layout (`solver3::getters::get_effective_zoom`) in one top-down walk.
+    /// EMPTY when no node declares a zoom other than 1 - every lookup is
+    /// then 1.0 without an index. Cleared with the font sizes.
+    pub resolved_zooms: crate::sync::OnceLock<Vec<f32>>,
+
+    /// What the ROOT of this DOM inherits from OUTSIDE it: the computed
+    /// inheritable values of the node that hosts the DOM - a `VirtualView`'s
+    /// host ([`Self::inherited_values_for_hosted_dom`]), sorted by type, each
+    /// `CssPropertyOrigin::Inherited`. EMPTY for a document of its own (the
+    /// layout callback's DOM, a popup, a measured DOM with no host).
+    ///
+    /// A view is a virtualized part of the SAME document, not an iframe: its
+    /// root inherits from its host as any element inherits from its parent
+    /// (CSS Cascade 4 s7). Every cascade stage reads it where it reads a
+    /// parent: the inheritance walk of [`Self::restyle`] (the root's
+    /// `cascaded_props`, so a text node's UA I-beam yields to a host's
+    /// `cursor` as to a parent's), [`Self::compute_inherited_values`] (the
+    /// root's parent values) and the compact builder (the root's parent
+    /// slots). The document-wide UA defaults of the root
+    /// (`ua_css::get_ua_root_property_themed`, the text colour) stand in
+    /// for what a document root inherits from nothing, so they yield to a
+    /// type the host supplies (`takes_root_ua_default`). The DOM's
+    /// own declarations beat all of it, as they beat what any element
+    /// inherits. Set before the first cascade
+    /// (`StyledDom::create_from_dom_inheriting`) or re-seeded with a restyle
+    /// (`StyledDom::set_inherited_from_host`) when the host's values move.
+    pub inherited_from_host: Vec<(CssPropertyType, CssPropertyWithOrigin)>,
+
+    /// The states the last restyle's rules name LEFT of their subject
+    /// (`.btn:hover .ink`), one `style::state_bit` each. Such a rule holds by
+    /// the state its anchor was in when the cascade ran, so a state change
+    /// re-runs the cascade - only for a state set here, which keeps every
+    /// other hover or focus change free (`StyledDom::restyle_nodes_state`).
+    /// A DOM merge takes the union: the merged retained stylesheet holds
+    /// both halves' rules (`append`).
+    pub left_state_mask: u32,
+
+    /// Per node (sparse): the `(state, property)` pairs a stylesheet rule
+    /// ABOVE `rule_priority::INLINE` set for it (a rice at `widgets`, a
+    /// `force` sheet). The node's own declarations of such a property lose
+    /// to that rule, as a higher cascade origin wins; [`Self::inline_properties`]
+    /// leaves them out, so every reader of inline style agrees. A rule for
+    /// the resting state overrules the property's inline declarations of
+    /// every state, a rule for a state only that state's.
+    pub inline_overruled:
+        alloc::collections::BTreeMap<usize, Vec<(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)>>,
+
+    /// Per node and property (sparse): the value a CSS-wide keyword the node declares stands
+    /// for, where that is not the property's initial value as every reader takes a keyword -
+    /// the parent's value for `inherit` (and `unset` of a property that inherits), the user
+    /// agent's for `revert`, `inline` for `display: initial`. [`Self::get_property_slow`]
+    /// answers it in the keyword's place and the compact cache encodes it. Built in pre-order
+    /// by [`Self::compute_inherited_values`]; empty for a DOM without such keywords.
+    pub css_wide_values: alloc::collections::BTreeMap<
+        (usize, CssPropertyType, azul_css::css::CssWideKeyword),
+        CssProperty,
+    >,
+
+    /// The nodes the last restyle gave a value from the window's environment
+    /// (an `env()`, a `system:` length), so a new environment lays out only
+    /// them again.
+    pub env_readers: EnvReaders,
+}
+
+/// The nodes whose style reads the window's environment.
+///
+/// That is an `env()` or a `system:` length, which the cascade resolves
+/// against the window's context. A new value changes what such a node
+/// computes while its declarations, its data and its states stay the same,
+/// so nothing the layout compares sees it: the window hands these nodes to
+/// the layout as restyled (`LayoutWindow`'s css dirt) when the environment
+/// moves.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct EnvReaders {
+    /// Each node with the widest relayout a new value of its properties asks
+    /// for.
+    pub nodes: alloc::collections::BTreeMap<usize, azul_css::props::property::RelayoutScope>,
+    /// A value reaches further than [`Self::nodes`]: a `*` rule's reaches
+    /// every node, an inherited property's the node's descendants.
+    pub beyond_nodes: bool,
+    /// A value follows the viewport's size (`env(titlebar-area-width)`), so a
+    /// resize can move it.
+    pub follows_viewport: bool,
+}
+
+impl EnvReaders {
+    /// Notes that `node` (`None`: every node, a `*` rule) takes
+    /// `declaration`'s value, if that comes from the environment.
+    pub fn note(&mut self, node: Option<usize>, declaration: &azul_css::css::CssDeclaration) {
+        let azul_css::css::CssDeclaration::Dynamic(d) = declaration else {
+            return;
+        };
+        if !d.is_env() {
+            return;
+        }
+        self.follows_viewport |= d.env_follows_viewport();
+        let ty = d.default_value.get_type();
+        match node {
+            Some(node) if !ty.is_inheritable() => {
+                let scope = self.nodes.entry(node).or_default();
+                *scope = (*scope).max(ty.relayout_scope(true));
+            }
+            _ => self.beyond_nodes = true,
+        }
+    }
+
+    /// Takes `other`'s readers, whose nodes come `offset` after this DOM's.
+    pub fn append(&mut self, other: &mut Self, offset: usize) {
+        self.nodes.extend(
+            core::mem::take(&mut other.nodes)
+                .into_iter()
+                .map(|(node, scope)| (node + offset, scope)),
+        );
+        self.beyond_nodes |= other.beyond_nodes;
+        self.follows_viewport |= other.follows_viewport;
+    }
 }
 
 /// Heap-size breakdown of a `CssPropertyCache`, produced by
@@ -1183,9 +1819,11 @@ impl CssPropertyCache {
 
         let compact_bytes = self.compact_cache.as_ref().map_or(0, |c| {
             c.tier1_enums.capacity() * 8
-                + c.tier2_dims.capacity() * 68
+                + c.tier2_dims.capacity()
+                    * size_of::<azul_css::compact_cache::CompactNodeProps>()
                 + c.tier2_cold.capacity() * 28
-                + c.tier2b_text.capacity() * 24
+                + c.tier2b_text.capacity()
+                    * size_of::<azul_css::compact_cache::CompactTextProps>()
                 + c.prev_font_hashes.capacity() * 8
                 + c.font_dirty_nodes.capacity() * 8
         });
@@ -1259,20 +1897,7 @@ impl CssPropertyCache {
         // Those need the slow `css_props` walk at layout time because the compact
         // cache has nothing usable. We must keep them here or the slow path falls
         // back to UA CSS and silently clobbers the author's rule.
-        let keep = |p: &StatefulCssProperty| -> bool {
-            if p.state != PseudoStateType::Normal {
-                return true;
-            }
-            if !p.prop_type.has_compact_encoding() {
-                return true;
-            }
-            // Compact-encoded AND Normal: drop only if the compact cache fully
-            // captured the value (px metric, or Auto/Initial/Inherit/None).
-            if property_needs_slow_path_after_compact(&p.property) {
-                return true;
-            }
-            false
-        };
+        let keep = survives_the_prune;
         // css_props is STILL NOT PRUNED, but not for the reason recorded here
         // before. That reason — "regenerate_layout rebuilds the compact cache
         // from css_props every frame" (#8: white-space:pre-wrap collapsing) —
@@ -1340,11 +1965,23 @@ impl CssPropertyCache {
         state: azul_css::dynamic_selector::PseudoStateType,
         prop_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
+        Self::find_entry_in_stateful(props, state, prop_type).map(|p| &p.property)
+    }
+
+    /// [`Self::find_in_stateful`], answering the whole entry (its cascade
+    /// [`StatefulCssProperty::order`] with it).
+    #[inline]
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention
+    fn find_entry_in_stateful<'a>(
+        props: &'a [StatefulCssProperty],
+        state: azul_css::dynamic_selector::PseudoStateType,
+        prop_type: &CssPropertyType,
+    ) -> Option<&'a StatefulCssProperty> {
         let key = (state, *prop_type);
         props
             .binary_search_by_key(&key, |p| (p.state, p.prop_type))
             .ok()
-            .map(|idx| &props[idx].property)
+            .map(|idx| &props[idx])
     }
 
     /// Check if any properties exist for a specific pseudo-state in a stateful property vec.
@@ -1370,6 +2007,99 @@ impl CssPropertyCache {
             .filter(move |p| p.state == state)
             .map(|p| &p.prop_type)
     }
+}
+
+/// Whether [`CssPropertyCache::prune_compact_normal_props`] keeps the inherited entry `p`:
+/// every entry of a state, every property the compact cache has no encoding for, and a
+/// compact-encoded resting one only when the compact cache could not hold its value (a
+/// length that is not px: the slow path still has to find it).
+fn survives_the_prune(p: &StatefulCssProperty) -> bool {
+    use azul_css::dynamic_selector::PseudoStateType;
+    if p.state != PseudoStateType::Normal {
+        return true;
+    }
+    if !p.prop_type.has_compact_encoding() {
+        return true;
+    }
+    // Compact-encoded AND Normal: drop only if the compact cache fully
+    // captured the value (px metric, or Auto/Initial/Inherit/None).
+    property_needs_slow_path_after_compact(&p.property)
+}
+
+/// Whether a node's own declaration `prop` (under `conditions`) loses to a
+/// rule above `rule_priority::INLINE` that set the same property: for the
+/// resting state, in every state; for a state, in that state.
+fn inline_is_overruled(
+    overruled: &[(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)],
+    prop: &CssProperty,
+    conditions: &azul_css::dynamic_selector::DynamicSelectorVec,
+) -> bool {
+    use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+    let ty = prop.get_type();
+    let state = conditions
+        .as_slice()
+        .iter()
+        .find_map(|c| match c {
+            DynamicSelector::PseudoState(s) => Some(*s),
+            _ => None,
+        })
+        .unwrap_or(PseudoStateType::Normal);
+    overruled
+        .iter()
+        .any(|(s, t)| *t == ty && (*s == PseudoStateType::Normal || *s == state))
+}
+
+/// Drops from one node's stylesheet values (`css_props`, still in its build
+/// phase) what can never show:
+///
+/// - a value for a state whose rule has a lower priority than the node's
+///   resting value of the same property: priority ranks above the state (a
+///   rice at `priority: app` keeps its colour under the pointer), so the
+///   resting value wins in that state too. `::placeholder` is a
+///   pseudo-element the host's rules do not reach, so its values stay.
+/// - a presentational hint the `*` rules of the global bucket (`global`, the
+///   highest priority each sets a property at) outrank: a hint is the
+///   weakest author declaration (`<table bgcolor>` under `* { background }`).
+fn drop_outranked_values(
+    entries: &mut Vec<StatefulCssProperty>,
+    global: &[(CssPropertyType, u8)],
+) {
+    use azul_css::{css::rule_priority::PRESENTATIONAL, dynamic_selector::PseudoStateType};
+    let hint_outranked = |e: &StatefulCssProperty| {
+        e.state == PseudoStateType::Normal
+            && e.priority == PRESENTATIONAL
+            && global
+                .iter()
+                .any(|(ty, priority)| *ty == e.prop_type && *priority >= PRESENTATIONAL)
+    };
+    let stateful = entries.iter().any(|e| e.state != PseudoStateType::Normal);
+    if !stateful && (global.is_empty() || !entries.iter().any(hint_outranked)) {
+        return;
+    }
+    let mut resting: Vec<(CssPropertyType, u8)> = Vec::new();
+    for e in entries.iter().filter(|e| e.state == PseudoStateType::Normal) {
+        match resting.iter_mut().find(|(ty, _)| *ty == e.prop_type) {
+            Some(slot) => slot.1 = slot.1.max(e.priority),
+            None => resting.push((e.prop_type, e.priority)),
+        }
+    }
+    entries.retain(|e| match e.state {
+        PseudoStateType::Normal => !hint_outranked(e),
+        PseudoStateType::Placeholder => true,
+        _ => resting
+            .iter()
+            .find(|(ty, _)| *ty == e.prop_type)
+            .is_none_or(|(_, priority)| e.priority >= *priority),
+    });
+}
+
+/// Whether an unscoped `*` rule styles `node`. `*` selects elements, so it
+/// styles neither a text node, which only inherits, nor generated content,
+/// which the rules naming its pseudo-element style and which inherits from
+/// its host.
+#[must_use]
+pub(crate) const fn star_selects(node: &NodeData) -> bool {
+    !node.is_text_node() && !node.is_generated_content()
 }
 
 /// Returns true if `prop`'s value cannot be fully represented in the compact
@@ -1490,6 +2220,27 @@ fn is_resolved_parent_inherited(prop_type: CssPropertyType) -> bool {
     prop_type == CssPropertyType::FontSize
 }
 
+/// A declaration the descendants must NOT receive raw through
+/// `cascaded_props`, because it computes to a length against the font size
+/// of the element that declares it: `line-height` in `em` / `%` (CSS 2.2
+/// s10.8.1). They inherit the computed length through `computed_values`
+/// instead ([`CssPropertyCache::compute_inherited_values`]) - the raw `1.5em`
+/// would be re-resolved against each descendant's own font size. A number,
+/// `normal` and every other length are inherited as written. (`font-size`
+/// takes the same road for every value: [`is_resolved_parent_inherited`].)
+fn inherits_its_computed_length(p: &CssProperty) -> bool {
+    match p {
+        CssProperty::LineHeight(v) => v
+            .get_property()
+            .is_some_and(azul_css::props::style::StyleLineHeight::is_font_relative_length),
+        // `bolder` / `lighter` compute against the declaring element's
+        // PARENT (CSS Fonts 4 s2.2): the raw keyword re-applied at every
+        // descendant made the text inside a `<b>` bolder than the `<b>`.
+        CssProperty::FontWeight(v) => v.get_property().is_some_and(|w| w.is_relative()),
+        _ => false,
+    }
+}
+
 fn clone_inheritable_property(p: &CssProperty) -> CssProperty {
     use azul_css::props::property::CssProperty;
     if let CssProperty::FontFamily(v) = p {
@@ -1559,14 +2310,15 @@ fn clone_inheritable_property(p: &CssProperty) -> CssProperty {
 }
 
 impl CssPropertyCache {
-    /// Match CSS selectors to nodes and populate `css_props`.
-    /// Returns tag IDs for hit-testing. If `compact_cache` is available,
-    /// uses it for fast display/overflow checks; otherwise falls back to slow path.
+    /// [`Self::restyle_cascade`], then the tag ids for hit-testing
+    /// ([`Self::generate_tag_ids`]).
+    ///
+    /// A caller that builds the compact cache next wants the ids made AFTER
+    /// it (`generate_tag_ids` reads the compact cache for display and
+    /// overflow): it calls `restyle_cascade` and generates them once, then.
+    /// Both callers in `StyledDom` took the ids from here, dropped them and
+    /// generated them again: two walks of every node per styling.
     #[must_use]
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
-                                                                   // single-purpose
-                                                                   // parser/builder/dispatch (one
-                                                                   // branch per input variant)
     pub fn restyle(
         &mut self,
         css: &mut Css,
@@ -1574,11 +2326,40 @@ impl CssPropertyCache {
         node_hierarchy: &NodeHierarchyItemVec,
         non_leaf_nodes: &ParentWithNodeDepthVec,
         html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+        node_states: &[StyledNodeState],
     ) -> Vec<TagIdToNodeIdMapping> {
+        self.restyle_cascade(
+            css,
+            node_data,
+            node_hierarchy,
+            non_leaf_nodes,
+            html_tree,
+            node_states,
+        );
+        self.generate_tag_ids(node_data, node_hierarchy)
+    }
+
+    /// Match CSS selectors to nodes and populate `css_props`: the cascade
+    /// itself, without the tag ids ([`Self::restyle`]).
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
+    pub fn restyle_cascade(
+        &mut self,
+        css: &mut Css,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
+        node_hierarchy: &NodeHierarchyItemVec,
+        non_leaf_nodes: &ParentWithNodeDepthVec,
+        html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+        node_states: &[StyledNodeState],
+    ) {
         use azul_css::{
             css::{
+                CssDeclaration,
                 CssPathPseudoSelector::{
-                    Active, DragOver, Dragging, Focus, Hover, Placeholder, SeatFocus,
+                    self, Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, FocusWithin,
+                    Hover, Placeholder, SeatFocus,
                 },
                 CssPathSelector, CssRuleBlock,
             },
@@ -1586,7 +2367,19 @@ impl CssPropertyCache {
             props::layout::LayoutDisplay,
         };
 
+        use crate::custom_property_cascade::{needs_variable_pass, PendingVar, VarStage};
+
         let css_is_empty = css.is_empty();
+        crate::styled_dom::count_nodes_cascaded(node_data.len());
+
+        // Custom properties are CASCADE-level (design
+        // RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md §7.3): the rule
+        // matching below stages every `--name` definition on the nodes its
+        // rule matches and pushes a placeholder for every `var()` reference;
+        // the variable pass then resolves them under this context, before
+        // the inheritance walk copies values down.
+        let variables = needs_variable_pass(css, node_data.internal);
+        let mut var_stage = VarStage::new(self.css_props.len(), variables);
 
         // @-rule conditions (@media width/height, theme, OS...) gate whole
         // rule BLOCKS. Evaluated here against the window's dynamic context —
@@ -1594,17 +2387,28 @@ impl CssPropertyCache {
         // exactly as if absent, and `StyledDom::set_dynamic_selector_context`
         // re-runs the cascade when the context changes and the author css
         // has conditional rules. With NO context yet (a StyledDom no window
-        // has adopted), conditional rules do not apply — the same behaviour
-        // inline conditional properties have always had. (Until 2026-08-10
+        // has adopted), conditional rules do not apply - except the app
+        // theme's own `@theme(<name>)` blocks (`condition_holds`), the same
+        // rule inline conditional properties follow. (Until 2026-08-10
         // these conditions were silently IGNORED: an author
         // `@media (max-width: 720px)` block applied at every viewport.)
         let dyn_ctx = self.dynamic_context.clone();
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
         let rule_applies = |conds: &azul_css::dynamic_selector::DynamicSelectorVec| -> bool {
             let cs = conds.as_slice();
             cs.is_empty()
-                || dyn_ctx
-                    .as_deref()
-                    .is_some_and(|c| cs.iter().all(|sel| sel.matches(c)))
+                || cs.iter().all(|sel| {
+                    condition_holds(dyn_ctx.as_deref(), no_context_theme.as_ref(), sel)
+                })
+        };
+        // The THEME RANK of a rule or an inline declaration under the
+        // window's theme chain (`DynamicSelectorContext::cascade_rank`): the
+        // cascade orders by `(priority, rank, specificity, source order)`, a
+        // lower rank winning - so a live `@theme(xyz:pink)` block beats
+        // `@theme(xyz)` whatever their order. Without a context no theme
+        // block applies here, and every rank is the same.
+        let rank = |conds: &[DynamicSelector]| {
+            rank_of(dyn_ctx.as_deref(), no_context_theme.as_ref(), conds)
         };
 
         // Re-enter build phase before repopulating. restyle() is not
@@ -1645,7 +2449,67 @@ impl CssPropertyCache {
         // build_compact_cache_with_inheritance for each node, avoiding
         // 50K × N clones into per-node css_props Vecs.
         self.global_css_props.clear();
+        self.left_state_mask = 0;
+        self.inline_overruled.clear();
+        self.env_readers = EnvReaders::default();
+        // What the compounds left of a rule's subject read (`.btn:hover
+        // .ink`): the nodes' states as they are now, and the window's
+        // activation for `:backdrop`.
+        let ancestor_states = crate::style::AncestorStates {
+            nodes: node_states,
+            window_inactive: dyn_ctx.as_deref().is_some_and(|c| !c.window_focused),
+            every_state: false,
+        };
 
+        // A node's presentational hints (its markup attributes' style,
+        // `rule_priority::PRESENTATIONAL`) come FIRST among its stylesheet
+        // properties: the last pushed wins, so every matched rule overrides
+        // them - and the inline style, read before the stylesheet, does too.
+        for (index, nd) in node_data.internal.iter().enumerate() {
+            for rule in nd.style.rules.as_ref() {
+                let stateful = rule
+                    .conditions
+                    .as_slice()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::PseudoState(_)));
+                if rule.priority >= azul_css::css::rule_priority::INLINE
+                    || stateful
+                    || !rule_applies(&rule.conditions)
+                {
+                    continue;
+                }
+                for declaration in rule.declarations.as_ref() {
+                    self.env_readers.note(Some(index), declaration);
+                    if let Some(prop) = declaration.resolve_in_cascade(dyn_ctx.as_deref()) {
+                        self.css_props.push_to(
+                            index,
+                            StatefulCssProperty {
+                                state: PseudoStateType::Normal,
+                                prop_type: prop.get_type(),
+                                property: prop,
+                                ua_origin: false,
+                                priority: azul_css::css::rule_priority::PRESENTATIONAL,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+
+        // `:backdrop` is a WINDOW state (the window is not the active one):
+        // whether this DOM declares anything under it, in a stylesheet rule
+        // or inline, decides whether the inheritance walk below carries a
+        // backdrop tier at all. A DOM that never mentions it pays nothing.
+        let mut any_backdrop = node_data.internal.iter().any(|nd| {
+            nd.style.iter_inline_properties().any(|(_, conds)| {
+                conds.as_slice().iter().any(|c| {
+                    matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
+                })
+            })
+        });
+
+        // The priority of each declaration of the global `*` bucket, by type.
+        let mut global_priorities: Vec<(CssPropertyType, u8)> = Vec::new();
         if !css_is_empty {
             css.sort_by_specificity();
 
@@ -1653,14 +2517,40 @@ impl CssPropertyCache {
             // Global-only rules apply to ALL nodes — push directly into css_props
             // without per-node selector matching (avoids m×n for these rules).
             // Specific rules still go through matches_html_element per-node.
+            // A rule that defines or reads a custom property resolves PER
+            // NODE (each node sees its own variables), so it cannot ride the
+            // one-value-for-every-node global bucket. Nor can a rule above
+            // the inline declarations (a `widgets` rice): the bucket is read
+            // below them.
+            let is_global_only = |rule: &CssRuleBlock| {
+                let selectors = rule.path.selectors.as_ref();
+                selectors.len() == 1
+                    && matches!(selectors.first(), Some(CssPathSelector::Global))
+                    && rule.priority <= azul_css::css::rule_priority::INLINE
+                    && !rule
+                        .declarations
+                        .as_ref()
+                        .iter()
+                        .any(CssDeclaration::uses_custom_properties)
+            };
+            // Every rule in cascade order (the theme rank on top of the
+            // context-free order); both lists below keep it, as they are
+            // applied in turn (last wins). The bucket is read below every
+            // rule matched node by node, so a `*` rule of a higher priority
+            // than one of those (a rice's at `priority: app` over the app's
+            // own rules) is matched node by node too, where its priority
+            // decides.
+            let mut all: Vec<&CssRuleBlock> = css.rules().collect();
+            Css::sort_rules_in_cascade_order(&mut all, rank);
+            let lowest_matched = all
+                .iter()
+                .filter(|rule| !is_global_only(rule))
+                .map(|rule| rule.priority)
+                .min();
             let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
             let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
-
-            for rule in css.rules() {
-                let selectors = rule.path.selectors.as_ref();
-                let is_global_only = selectors.len() == 1
-                    && matches!(selectors.first(), Some(CssPathSelector::Global));
-                if is_global_only {
+            for rule in all {
+                if is_global_only(rule) && lowest_matched.is_none_or(|p| rule.priority <= p) {
                     global_only_rules.push(rule);
                 } else {
                     specific_rules.push(rule);
@@ -1675,7 +2565,9 @@ impl CssPropertyCache {
                     for d in &rule.declarations {
                         // `Static` as-is; an `env()` declaration resolved
                         // against the same context that gates the rule.
+                        self.env_readers.note(None, d);
                         if let Some(s) = d.resolve_in_cascade(dyn_ctx.as_deref()) {
+                            global_priorities.push((s.get_type(), rule.priority));
                             self.global_css_props.push(s);
                         }
                     }
@@ -1684,129 +2576,231 @@ impl CssPropertyCache {
 
             // Phase 2: Match specific rules per-node (only non-global rules)
             if !specific_rules.is_empty() {
-                // Per-node "which declarations match" lists are built as
-                // `(rule_idx, decl_idx)` pairs — 4 bytes per entry instead of
-                // cloning a 140-byte `CssProperty`. The clone only happens at
-                // the final push_to step, so the transient peak is ~35× smaller.
-                //
-                // rule_idx indexes into `specific_rules` (Vec<&CssRuleBlock>),
-                // decl_idx indexes into `rule.declarations.as_slice()`. Both
-                // fit in u16 since real stylesheets have far fewer than 65k
-                // rules and declarations per rule.
-                macro_rules! filter_rules {
-                    ($expected_pseudo_selector:expr, $node_id:expr) => {{
-                        let mut out: Vec<(u16, u16)> = Vec::new();
-                        for (rule_idx, rule_block) in specific_rules.iter().enumerate() {
-                            if !rule_applies(&rule_block.conditions) {
-                                continue;
-                            }
-                            if !crate::style::rule_ends_with(
-                                &rule_block.path,
-                                $expected_pseudo_selector,
-                            ) {
-                                continue;
-                            }
-                            if !crate::style::matches_html_element(
-                                &rule_block.path,
-                                $node_id,
-                                &node_hierarchy.as_container(),
-                                &node_data,
-                                &html_tree,
-                                $expected_pseudo_selector,
-                            ) {
-                                continue;
-                            }
-                            for (decl_idx, decl) in
-                                rule_block.declarations.as_slice().iter().enumerate()
-                            {
-                                if decl.is_cascade_resolvable() {
-                                    out.push((
-                                        u16::try_from(rule_idx).unwrap_or(u16::MAX),
-                                        u16::try_from(decl_idx).unwrap_or(u16::MAX),
-                                    ));
-                                }
-                            }
+                // The passes, one per state a rule's subject can be in: a rule
+                // takes part in the pass of the interaction pseudo-class its
+                // path ends with, the resting pass takes every other rule. A
+                // node's entries come out pass by pass in this order, and rule
+                // by rule (cascade order) within a pass.
+                let passes: [(Option<CssPathPseudoSelector>, PseudoStateType); 11] = [
+                    (None, PseudoStateType::Normal),
+                    (Some(Hover), PseudoStateType::Hover),
+                    (Some(Active), PseudoStateType::Active),
+                    (Some(Focus), PseudoStateType::Focus),
+                    (Some(SeatFocus), PseudoStateType::SeatFocus),
+                    (Some(FocusVisible), PseudoStateType::FocusVisible),
+                    (Some(FocusWithin), PseudoStateType::FocusWithin),
+                    (Some(Dragging), PseudoStateType::Dragging),
+                    (Some(DragOver), PseudoStateType::DragOver),
+                    (Some(Placeholder), PseudoStateType::Placeholder),
+                    (Some(Backdrop), PseudoStateType::Backdrop),
+                ];
+                let backdrop_pass: u16 = 1 << (passes.len() - 1);
+                // Per rule, one bit per pass it ends in; and the same bits
+                // only where its @-conditions hold under this context. Both
+                // belong to the rule, so they are answered once, not per node.
+                let ends_in: Vec<u16> = specific_rules
+                    .iter()
+                    .map(|rule| {
+                        passes
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, (pseudo, _))| {
+                                crate::style::rule_ends_with(&rule.path, pseudo.clone())
+                            })
+                            .fold(0u16, |bits, (pass, _)| bits | (1 << pass))
+                    })
+                    .collect();
+                let takes_part: Vec<u16> = specific_rules
+                    .iter()
+                    .zip(&ends_in)
+                    .map(|(rule, &bits)| {
+                        if rule_applies(&rule.conditions) {
+                            bits
+                        } else {
+                            0
                         }
-                        out
-                    }};
-                }
+                    })
+                    .collect();
+                // A stylesheet that mentions `:backdrop` at all gives the
+                // inheritance walk below its backdrop tier.
+                any_backdrop |= ends_in.iter().any(|bits| bits & backdrop_pass != 0);
+                let live_passes = takes_part.iter().fold(0u16, |all, bits| all | bits);
+                self.left_state_mask = specific_rules
+                    .iter()
+                    .zip(&takes_part)
+                    .filter(|(_, bits)| **bits != 0)
+                    .fold(0, |mask, (rule, _)| {
+                        mask | crate::style::left_state_bits(&rule.path)
+                    });
 
-                // Pre-check which pseudo-states have any matching rules at all.
-                // This avoids iterating 50K nodes for pseudo-states with zero rules
-                // (common: most stylesheets have no :hover/:focus/:active rules).
-                let has_normal = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, None));
-                let has_hover = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Hover)));
-                let has_active = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Active)));
-                let has_focus = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Focus)));
-                let has_seat_focus = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(SeatFocus)));
-                let has_dragging = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Dragging)));
-                let has_drag_over = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(DragOver)));
-                let has_placeholder = specific_rules
-                    .iter()
-                    .any(|r| crate::style::rule_ends_with(&r.path, Some(Placeholder)));
-
-                macro_rules! collect_and_assign {
-                    ($pseudo:expr, $state:expr, $has_any:expr) => {
-                        if $has_any {
-                            let indices: NodeDataContainer<(NodeId, Vec<(u16, u16)>)> = node_data
-                                .transform_nodeid_optional(|node_id| {
-                                    let r = filter_rules!($pseudo, node_id);
-                                    if r.is_empty() {
-                                        None
-                                    } else {
-                                        Some((node_id, r))
-                                    }
-                                });
-                            for (n, pairs) in indices.internal.into_iter() {
-                                for (rule_idx, decl_idx) in pairs {
-                                    let decl = &specific_rules[rule_idx as usize]
-                                        .declarations
-                                        .as_slice()[decl_idx as usize];
-                                    if let Some(prop) = decl.resolve_in_cascade(dyn_ctx.as_deref())
-                                    {
-                                        self.css_props.push_to(
-                                            n.index(),
-                                            StatefulCssProperty {
-                                                state: $state,
-                                                prop_type: prop.get_type(),
-                                                property: prop,
-                                                ua_origin: false,
-                                            },
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    };
-                }
-
-                collect_and_assign!(None, PseudoStateType::Normal, has_normal);
-                collect_and_assign!(Some(Hover), PseudoStateType::Hover, has_hover);
-                collect_and_assign!(Some(Active), PseudoStateType::Active, has_active);
-                collect_and_assign!(Some(Focus), PseudoStateType::Focus, has_focus);
-                collect_and_assign!(Some(SeatFocus), PseudoStateType::SeatFocus, has_seat_focus);
-                collect_and_assign!(Some(Dragging), PseudoStateType::Dragging, has_dragging);
-                collect_and_assign!(Some(DragOver), PseudoStateType::DragOver, has_drag_over);
-                collect_and_assign!(
-                    Some(Placeholder),
-                    PseudoStateType::Placeholder,
-                    has_placeholder
+                // Each node is tried only against the rules that can match it
+                // (`SubjectRuleIndex`): the unscoped ones and those of the
+                // `with_css` scopes around it, not every widget's sheet on
+                // the page - and of the rules that name a class, only those
+                // of the classes it carries, not every class of a sheet.
+                let hierarchy = node_hierarchy.as_container();
+                let mut index = crate::style::SubjectRuleIndex::new(
+                    specific_rules.iter().map(|rule| &rule.path),
+                    &hierarchy,
                 );
+                let mut candidates: Vec<usize> = Vec::new();
+                // What the `~` combinators of the rules found, for the nodes
+                // still to come (the node states and the rules are the same
+                // for every node and pass of this cascade).
+                let mut sibling_memo = crate::style::GeneralSiblingMemo::default();
+                let node_total = if live_passes == 0 { 0 } else { node_data.len() };
+                for node_index in 0..node_total {
+                    let node_id = NodeId::new(node_index);
+                    index.candidates_into(node_index, &node_data[node_id], &mut candidates);
+                    for (pass, (pseudo, state)) in passes.iter().enumerate() {
+                        let bit = 1u16 << pass;
+                        if live_passes & bit == 0 {
+                            continue;
+                        }
+                        let state = *state;
+                        // Each pass reads the node's candidates from the start.
+                        for &rule_idx in &candidates {
+                            if takes_part[rule_idx] & bit == 0 {
+                                continue;
+                            }
+                            let rule_block: &CssRuleBlock = specific_rules[rule_idx];
+                            if !crate::style::matches_html_element_remembering(
+                                &rule_block.path,
+                                node_id,
+                                &hierarchy,
+                                node_data,
+                                html_tree,
+                                pseudo.clone(),
+                                Some(ancestor_states),
+                                Some((&mut sibling_memo, rule_idx)),
+                            ) {
+                                continue;
+                            }
+                            if rule_block.priority > azul_css::css::rule_priority::INLINE {
+                                let overruled =
+                                    self.inline_overruled.entry(node_index).or_default();
+                                for ty in rule_block
+                                    .declarations
+                                    .as_slice()
+                                    .iter()
+                                    .filter_map(CssDeclaration::get_type)
+                                {
+                                    if !overruled.contains(&(state, ty)) {
+                                        overruled.push((state, ty));
+                                    }
+                                }
+                            }
+                            // Every declaration: properties, `env()` / `var()`
+                            // references and custom-property definitions.
+                            for decl in rule_block.declarations.as_slice() {
+                                if let Some(definition) = decl.custom_property() {
+                                    var_stage.define(node_index, state, definition);
+                                } else if let Some(reference) = decl.var_reference() {
+                                    // A placeholder at the position the
+                                    // cascade order gives it; the variable
+                                    // pass overwrites it.
+                                    let slot =
+                                        self.css_props.build_get(node_index).map_or(0, Vec::len);
+                                    self.css_props.push_to(
+                                        node_index,
+                                        StatefulCssProperty {
+                                            state,
+                                            prop_type: reference.default_value.get_type(),
+                                            property: reference.default_value.clone(),
+                                            ua_origin: false,
+                                            priority: rule_block.priority,
+                                        },
+                                    );
+                                    var_stage.pending.push(PendingVar {
+                                        node: node_index,
+                                        slot,
+                                        state,
+                                        reference: reference.clone(),
+                                    });
+                                } else if let Some(prop) =
+                                    decl.resolve_in_cascade(dyn_ctx.as_deref())
+                                {
+                                    self.env_readers.note(Some(node_index), decl);
+                                    self.css_props.push_to(
+                                        node_index,
+                                        StatefulCssProperty {
+                                            state,
+                                            prop_type: prop.get_type(),
+                                            property: prop,
+                                            ua_origin: false,
+                                            priority: rule_block.priority,
+                                        },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             } // end if !specific_rules.is_empty()
+        }
+
+        // The variable pass: every node's custom properties, then every
+        // `var()` / `env()` reference (the stylesheet placeholders above and
+        // the nodes' own declarations) resolved under this context - BEFORE
+        // the inheritance walk below copies resolved values to children.
+        if variables {
+            self.run_variable_pass(var_stage, node_data.internal, node_hierarchy, non_leaf_nodes);
+        } else {
+            self.custom_property_envs = crate::custom_property_cascade::CustomPropertyEnvs::default();
+            self.resolved_inline.clear();
+            self.variables_depend_on_context = false;
+        }
+
+        // A `::before` / `::after` whose `content` makes nothing gets no box,
+        // nor a `::marker` whose host is no inline list item.
+        self.hide_contentless_generated_nodes(
+            node_data.internal,
+            node_hierarchy.as_container().internal,
+        );
+
+        // A value for a state whose rule has a lower priority than the
+        // node's resting value never shows, nor a presentational hint a `*`
+        // rule outranks. Dropped here, they stay out of the lookups and out
+        // of what the node's children inherit.
+        let mut global: Vec<(CssPropertyType, u8)> = Vec::new();
+        for (ty, priority) in &global_priorities {
+            match global.iter_mut().find(|(t, _)| t == ty) {
+                Some(slot) => slot.1 = slot.1.max(*priority),
+                None => global.push((*ty, *priority)),
+            }
+        }
+        for (index, entries) in self.css_props.build_iter_mut().enumerate() {
+            let star = node_data.internal.get(index).is_some_and(star_selects);
+            drop_outranked_values(entries, if star { &global } else { &[] });
+        }
+
+        // What the ROOT inherits from OUTSIDE this DOM (`inherited_from_host`:
+        // a VirtualView's host) enters the walk where a parent's values would,
+        // as Normal-state entries of the root's `cascaded_props` - below the
+        // root's own declarations and its UA defaults (pushed after them, by
+        // `apply_ua_css`), handed on below like anything the root inherited.
+        // A text node's UA I-beam then yields to a host's `cursor` exactly as
+        // it yields to a parent's. `font-size` and a font-relative length go
+        // through `computed_values` and the compact cache instead, as they do
+        // from any parent (`is_resolved_parent_inherited`,
+        // `inherits_its_computed_length`).
+        if node_count > 0 && !self.inherited_from_host.is_empty() {
+            let from_host: Vec<StatefulCssProperty> = self
+                .inherited_from_host
+                .iter()
+                .filter(|(prop_type, value)| {
+                    !is_resolved_parent_inherited(*prop_type)
+                        && !inherits_its_computed_length(&value.property)
+                })
+                .map(|(prop_type, value)| StatefulCssProperty {
+                    state: PseudoStateType::Normal,
+                    prop_type: *prop_type,
+                    property: clone_inheritable_property(&value.property),
+                    ua_origin: false,
+                    priority: 0,
+                })
+                .collect();
+            self.cascaded_props.build_mut(0).extend(from_host);
         }
 
         // Inheritance: Inherit all values of the parent to the children, but
@@ -1821,77 +2815,126 @@ impl CssPropertyCache {
                 PseudoStateType::Hover,
                 PseudoStateType::Active,
                 PseudoStateType::Focus,
+                PseudoStateType::FocusVisible,
+                PseudoStateType::FocusWithin,
                 PseudoStateType::SeatFocus,
                 PseudoStateType::Dragging,
                 PseudoStateType::DragOver,
                 PseudoStateType::Placeholder,
+                // Last, and only when the DOM declares it (`any_backdrop`).
+                PseudoStateType::Backdrop,
             ];
+            let states = if any_backdrop {
+                &all_states[..]
+            } else {
+                &all_states[..all_states.len() - 1]
+            };
 
-            for &state in &all_states {
-                // 1. Inherit inline CSS properties from parent for this pseudo-state.
+            // 1. The parent's own inheritable declarations, per state.
+            //
+            // A declaration belongs to the pseudo-state named in its
+            // conditions (none = Normal), and its OTHER conditions — the
+            // theme, the viewport, the OS — must hold under the dynamic
+            // context, exactly as `apply_cascade_properties` decides for
+            // the node itself. Last match wins per property, the way inline
+            // declarations resolve everywhere else. This used to keep only
+            // declarations whose every condition was a pseudo-state, so a
+            // `dark_theme(color)` twin never qualified and the child got
+            // the light value as a cascaded declaration of ITS OWN — which
+            // `compute_inherited_values` then preferred over the twin it
+            // had just inherited from the parent. Every widget label under
+            // a dark window (the button's, the tree view's, the ribbon's)
+            // was dark-on-dark on a DOM cascaded under the window's
+            // context from the start; a DOM that had the context set
+            // afterwards was recascaded after the prune and came out
+            // right by accident.
+            //
+            // The parent's declarations are put in cascade order once for
+            // all states: ordering them is the costly part, and it does not
+            // depend on the state.
+            let mut inline_by_state: Vec<Vec<(CssPropertyType, CssProperty)>> = {
+                // The parent's own declarations AS RESOLVED (`var()`
+                // substituted), in cascade order (theme rank, then source
+                // order), so the last match below is the one that won on
+                // the parent.
+                let mut parent_inline = Vec::new();
+                azul_css::css::inline_in_cascade_order(
+                    self.inline_properties(&node_data[parent_id], parent_id.index()),
+                    rank,
+                    &mut parent_inline,
+                );
+                states
+                    .iter()
+                    .map(|&state| {
+                        let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                        for &(prop, conds) in &parent_inline {
+                            let conditions = conds.as_slice();
+                            let decl_state = conditions
+                                .iter()
+                                .find_map(|c| match c {
+                                    DynamicSelector::PseudoState(s) => Some(*s),
+                                    _ => None,
+                                })
+                                .unwrap_or(PseudoStateType::Normal);
+                            let applies = decl_state == state
+                                && conditions.iter().all(|c| match c {
+                                    DynamicSelector::PseudoState(s) => *s == state,
+                                    other => condition_holds(
+                                        dyn_ctx.as_deref(),
+                                        no_context_theme.as_ref(),
+                                        other,
+                                    ),
+                                });
+                            let prop_type = prop.get_type();
+                            if !applies
+                                || !prop_type.is_inheritable()
+                                || is_resolved_parent_inherited(prop_type)
+                            {
+                                continue;
+                            }
+                            let value = clone_inheritable_property(prop);
+                            match picked.iter_mut().find(|(t, _)| *t == prop_type) {
+                                Some(slot) => slot.1 = value,
+                                None => picked.push((prop_type, value)),
+                            }
+                        }
+                        picked
+                    })
+                    .collect()
+            };
+
+            for (state_index, &state) in states.iter().enumerate() {
+                let parent_inheritable_inline = core::mem::take(&mut inline_by_state[state_index]);
+
+                // 2. Inherit CSS stylesheet properties from parent for this pseudo-state.
                 //
-                // A declaration belongs to the pseudo-state named in its
-                // conditions (none = Normal), and its OTHER conditions — the
-                // theme, the viewport, the OS — must hold under the dynamic
-                // context, exactly as `apply_cascade_properties` decides for
-                // the node itself. Last match wins per property, the way inline
-                // declarations resolve everywhere else. This used to keep only
-                // declarations whose every condition was a pseudo-state, so a
-                // `dark_theme(color)` twin never qualified and the child got
-                // the light value as a cascaded declaration of ITS OWN — which
-                // `compute_inherited_values` then preferred over the twin it
-                // had just inherited from the parent. Every widget label under
-                // a dark window (the button's, the tree view's, the ribbon's)
-                // was dark-on-dark on a DOM cascaded under the window's
-                // context from the start; a DOM that had the context set
-                // afterwards was recascaded after the prune and came out
-                // right by accident.
-                let parent_inheritable_inline: Vec<(CssPropertyType, CssProperty)> = {
-                    let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
-                    for (prop, conds) in node_data[parent_id].style.iter_inline_properties() {
-                        let conditions = conds.as_slice();
-                        let decl_state = conditions
-                            .iter()
-                            .find_map(|c| match c {
-                                DynamicSelector::PseudoState(s) => Some(*s),
-                                _ => None,
-                            })
-                            .unwrap_or(PseudoStateType::Normal);
-                        let applies = decl_state == state
-                            && conditions.iter().all(|c| match c {
-                                DynamicSelector::PseudoState(s) => *s == state,
-                                other => dyn_ctx.as_deref().is_some_and(|ctx| other.matches(ctx)),
-                            });
-                        let prop_type = prop.get_type();
-                        if !applies
-                            || !prop_type.is_inheritable()
-                            || is_resolved_parent_inherited(prop_type)
-                        {
-                            continue;
-                        }
-                        let value = clone_inheritable_property(prop);
-                        match picked.iter_mut().find(|(t, _)| *t == prop_type) {
-                            Some(slot) => slot.1 = value,
-                            None => picked.push((prop_type, value)),
-                        }
-                    }
-                    picked
-                };
-
-                // 2. Inherit CSS stylesheet properties from parent for this pseudo-state
+                // `css_props` is still in its BUILD phase here (it is sorted and
+                // deduplicated only after this walk), so the parent's slice lists
+                // every matching declaration in cascade order - `color: #101828`
+                // AND the `@media (prefers-color-scheme: dark) { color: .. }`
+                // twin after it. The child must inherit the one that WON on the
+                // parent, the LAST per property (what `sort_each_and_flatten`
+                // keeps for the parent itself); the `or_insert` below takes the
+                // first it is offered, so the list is deduplicated last-wins
+                // first. Taking the first one painted the text inside every
+                // light/dark pair in its light value (the demo's headings, dark
+                // on a dark page) while the element itself resolved right.
                 let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
                     Vec::new()
                 } else {
-                    self.css_props
-                        .get_slice(parent_id.index())
-                        .iter()
-                        .filter(|p| {
-                            p.state == state
-                                && p.prop_type.is_inheritable()
-                                && !is_resolved_parent_inherited(p.prop_type)
-                        })
-                        .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
-                        .collect()
+                    let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                    for p in self.css_props.get_slice(parent_id.index()).iter().filter(|p| {
+                        p.state == state
+                            && p.prop_type.is_inheritable()
+                            && !is_resolved_parent_inherited(p.prop_type)
+                    }) {
+                        let value = clone_inheritable_property(&p.property);
+                        match picked.iter_mut().find(|(t, _)| *t == p.prop_type) {
+                            Some(slot) => slot.1 = value,
+                            None => picked.push((p.prop_type, value)),
+                        }
+                    }
+                    picked
                 };
 
                 // 3. Inherit cascaded properties from parent for this pseudo-state
@@ -1916,13 +2959,28 @@ impl CssPropertyCache {
                     continue;
                 }
 
+                // The parent's winning value per type: the first offered wins
+                // (inline, then stylesheet, then what it inherited itself). A
+                // winner that computes to a length against the PARENT's font
+                // size (`line-height: 1.5em`) is dropped - its children inherit
+                // the computed length through `computed_values` - and dropping
+                // the WINNER, not the entry, keeps a lower-priority value of the
+                // same type from standing in for it.
+                let mut offered: Vec<&(CssPropertyType, CssProperty)> = Vec::new();
+                for entry in parent_inheritable_inline
+                    .iter()
+                    .chain(parent_inheritable_css.iter())
+                    .chain(parent_inheritable_cascaded.iter())
+                {
+                    if !offered.iter().any(|(t, _)| *t == entry.0) {
+                        offered.push(entry);
+                    }
+                }
+                offered.retain(|(_, v)| !inherits_its_computed_length(v));
+
                 for child_id in parent_id.az_children(&node_hierarchy.as_container()) {
                     let child_vec = self.cascaded_props.build_mut(child_id.index());
-                    for (prop_type, prop_value) in parent_inheritable_inline
-                        .iter()
-                        .chain(parent_inheritable_css.iter())
-                        .chain(parent_inheritable_cascaded.iter())
-                    {
+                    for (prop_type, prop_value) in offered.iter().copied() {
                         // or_insert: only insert if child doesn't already have this (state,
                         // prop_type)
                         if !child_vec
@@ -1934,6 +2992,7 @@ impl CssPropertyCache {
                                 prop_type: *prop_type,
                                 property: prop_value.clone(),
                                 ua_origin: false,
+                                priority: 0,
                             });
                         }
                     }
@@ -1949,8 +3008,6 @@ impl CssPropertyCache {
         // Restyling can change font-size properties; the memoized resolved font
         // sizes are now stale and must be recomputed on next access.
         self.invalidate_resolved_font_sizes();
-
-        self.generate_tag_ids(node_data, node_hierarchy)
     }
 
     /// Generate hit-test tag IDs for nodes that need event handling.
@@ -1962,6 +3019,8 @@ impl CssPropertyCache {
         node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
     ) -> Vec<TagIdToNodeIdMapping> {
+        #[cfg(all(test, feature = "std"))]
+        TAG_ID_PASSES.with(|c| c.set(c.get() + 1));
         // Tag ID generation: determine which nodes need hit-test tags for
         // hover/click/scroll events. Uses compact cache for display/overflow
         // checks instead of get_property_slow (which searches 6 data structures).
@@ -1979,19 +3038,11 @@ impl CssPropertyCache {
             .filter_map(|(node_idx, node_data)| {
                 let node_id = NodeId::new(node_idx);
 
-                let should_auto_insert_tabindex = node_data
-                    .get_callbacks()
-                    .iter()
-                    .any(|cb| cb.event.is_focus_callback());
-
-                let tab_index = node_data.get_tab_index().map_or(
-                    if should_auto_insert_tabindex {
-                        Some(TabIndex::Auto)
-                    } else {
-                        None
-                    },
-                    Some,
-                );
+                // What of the node itself makes it a target: its handlers,
+                // its tab stop, its context menu. One reading, which the
+                // node fingerprints compare too.
+                let inputs = crate::layout_inputs::HitTestInputs::of(node_data);
+                let tab_index = inputs.tab_stop;
 
                 let mut need_tag = false;
 
@@ -2008,11 +3059,9 @@ impl CssPropertyCache {
                         } // 4 = LayoutDisplay::None (new encoding)
                     }
 
-                    if node_data.has_context_menu() || node_data.get_context_menu().is_some() {
-                        need_tag = true;
-                        break 'compute_need_tag;
-                    }
-                    if tab_index.is_some() {
+                    // A handler of an event that is not the window's, a tab
+                    // stop, a context menu.
+                    if inputs.make_a_target() {
                         need_tag = true;
                         break 'compute_need_tag;
                     }
@@ -2021,7 +3070,7 @@ impl CssPropertyCache {
                     {
                         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
                         let has_pseudo = |state: PseudoStateType| -> bool {
-                            node_data.style.iter_inline_properties().any(|(_p, conds)| {
+                            self.inline_properties(node_data, node_idx).any(|(_p, conds)| {
                                 conds.as_slice().iter().any(
                                     |c| matches!(c, DynamicSelector::PseudoState(s) if *s == state),
                                 )
@@ -2031,6 +3080,7 @@ impl CssPropertyCache {
                         if has_pseudo(PseudoStateType::Hover)
                             || has_pseudo(PseudoStateType::Active)
                             || has_pseudo(PseudoStateType::Focus)
+                            || has_pseudo(PseudoStateType::FocusVisible)
                             || has_pseudo(PseudoStateType::SeatFocus)
                             || has_pseudo(PseudoStateType::Dragging)
                             || has_pseudo(PseudoStateType::DragOver)
@@ -2040,24 +3090,12 @@ impl CssPropertyCache {
                         }
                     }
 
-                    // Non-window callbacks
-                    let has_non_window_cb = !node_data.get_callbacks().is_empty()
-                        && !node_data
-                            .get_callbacks()
-                            .iter()
-                            .all(|cb| cb.event.is_window_callback());
-                    if has_non_window_cb {
-                        need_tag = true;
-                        break 'compute_need_tag;
-                    }
-
                     // Cursor check — read from cached css_props or inline style.
                     if self.css_props.get_slice(node_idx).iter().any(|p| {
                         p.state == azul_css::dynamic_selector::PseudoStateType::Normal
                             && p.prop_type == CssPropertyType::Cursor
-                    }) || node_data
-                        .style
-                        .iter_inline_properties()
+                    }) || self
+                        .inline_properties(node_data, node_id.index())
                         .any(|(p, _)| p.get_type() == CssPropertyType::Cursor)
                     {
                         need_tag = true;
@@ -2155,6 +3193,9 @@ impl CssPropertyCache {
         let mut s = String::new();
         if let Some(p) = self.get_background_content(node_data, node_id, node_state) {
             let _ = write!(s, "background: {};", p.get_css_value_fmt());
+        }
+        if let Some(p) = self.get_background_color(node_data, node_id, node_state) {
+            let _ = write!(s, "background-color: {};", p.get_css_value_fmt());
         }
         if let Some(p) = self.get_background_position(node_data, node_id, node_state) {
             let _ = write!(s, "background-position: {};", p.get_css_value_fmt());
@@ -2470,8 +3511,11 @@ impl CssPropertyCache {
     pub fn empty(node_count: usize) -> Self {
         Self {
             node_count,
+            paged_footnotes: PagedFootnotes::default(),
             retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
+            text_color_override_seen: false,
+            composed_since_recompute: false,
             dynamic_context: None,
             ua_applied: false,
             cascade_epoch: 0,
@@ -2482,7 +3526,16 @@ impl CssPropertyCache {
             computed_values: InheritedValues::new(),
             compact_cache: None,
             global_css_props: Vec::new(),
+            custom_property_envs: crate::custom_property_cascade::CustomPropertyEnvs::default(),
+            resolved_inline: alloc::collections::BTreeMap::new(),
+            variables_depend_on_context: false,
             resolved_font_sizes_px: crate::sync::OnceLock::new(),
+            resolved_zooms: crate::sync::OnceLock::new(),
+            inherited_from_host: Vec::new(),
+            left_state_mask: 0,
+            inline_overruled: alloc::collections::BTreeMap::new(),
+            css_wide_values: alloc::collections::BTreeMap::new(),
+            env_readers: EnvReaders::default(),
         }
     }
 
@@ -2493,11 +3546,14 @@ impl CssPropertyCache {
     /// repopulates via a single bottom-up tree walk.
     pub fn invalidate_resolved_font_sizes(&mut self) {
         self.resolved_font_sizes_px = crate::sync::OnceLock::new();
+        // A restyle can change a `zoom` as well (and with it every font size).
+        self.resolved_zooms = crate::sync::OnceLock::new();
     }
 
     pub fn append(&mut self, other: &mut Self) {
         self.user_overridden_properties
             .append(&mut other.user_overridden_properties);
+        self.text_color_override_seen |= other.text_color_override_seen;
         // The parent's dynamic context wins; a child subtree styled before
         // composition has no window context of its own worth keeping.
         if self.dynamic_context.is_none() {
@@ -2509,13 +3565,95 @@ impl CssPropertyCache {
         self.cascaded_props.extend_from(&mut other.cascaded_props);
         self.css_props.extend_from(&mut other.css_props);
         self.computed_values.append(&mut other.computed_values);
+        // The variable side tables follow their nodes (indices shift by this
+        // DOM's node count).
+        self.custom_property_envs.append(
+            &mut other.custom_property_envs,
+            self.node_count,
+            other.node_count,
+        );
+        let offset = self.node_count;
+        self.resolved_inline.extend(
+            core::mem::take(&mut other.resolved_inline)
+                .into_iter()
+                .map(|(node, resolved)| (node + offset, resolved)),
+        );
+        self.variables_depend_on_context |= other.variables_depend_on_context;
+        self.env_readers.append(&mut other.env_readers, offset);
+        self.inline_overruled.extend(
+            core::mem::take(&mut other.inline_overruled)
+                .into_iter()
+                .map(|(node, overruled)| (node + offset, overruled)),
+        );
+        self.css_wide_values.extend(
+            core::mem::take(&mut other.css_wide_values)
+                .into_iter()
+                .map(|((node, ty, keyword), value)| ((node + offset, ty, keyword), value)),
+        );
+        // The other DOM's stylesheet goes with its nodes, so a later cascade
+        // over the merged DOM (a state anchor's re-run, a viewport or theme
+        // change) styles both halves as their own cascades did.
+        if !other.retained_author_css.is_empty() {
+            self.adopt_stylesheet_of(other);
+        }
 
         self.node_count += other.node_count;
         // Indices shifted — invalidate the font-size cache too.
         self.resolved_font_sizes_px = crate::sync::OnceLock::new();
+        self.resolved_zooms = crate::sync::OnceLock::new();
 
         // Invalidate compact cache since node IDs shifted
         self.compact_cache = None;
+    }
+
+    /// Takes `other`'s retained stylesheet into this one, for `append`
+    /// (`other`'s nodes are about to follow this cache's): its rules keep to
+    /// `other`'s nodes - their scopes move with the nodes, an unscoped rule
+    /// is scoped to them - and when this cache has rules of its own, its
+    /// unscoped ones are scoped to its own nodes, so neither sheet reaches
+    /// the other half. The rules anchored on a state left of their subject
+    /// keep their re-run (`left_state_mask`).
+    fn adopt_stylesheet_of(&mut self, other: &mut Self) {
+        use azul_css::css::CssPathSelector;
+        let offset = self.node_count;
+        let scoped = |rule: &azul_css::css::CssRuleBlock| {
+            matches!(rule.path.selectors.as_ref().first(), Some(CssPathSelector::Root(_)))
+        };
+        if !self.retained_author_css.rules.as_ref().is_empty() && offset > 0 {
+            for rule in self.retained_author_css.rules.as_mut() {
+                if !scoped(rule) {
+                    rule.path.push_front_scope_for(0, offset - 1, false);
+                }
+            }
+        }
+        let other_last = offset + other.node_count.saturating_sub(1);
+        let mut rules = core::mem::take(&mut other.retained_author_css.rules)
+            .into_library_owned_vec();
+        for rule in &mut rules {
+            if scoped(rule) {
+                let mut selectors = rule.path.selectors.as_ref().to_vec();
+                for selector in &mut selectors {
+                    if let CssPathSelector::Root(range) = selector {
+                        range.start += offset;
+                        range.end += offset;
+                    }
+                }
+                rule.path.selectors = selectors.into();
+            } else {
+                rule.path.push_front_scope_for(offset, other_last, false);
+            }
+        }
+        let mut merged = core::mem::take(&mut self.retained_author_css.rules)
+            .into_library_owned_vec();
+        merged.extend(rules);
+        self.retained_author_css.rules = merged.into();
+        let mut keyframes = core::mem::take(&mut self.retained_author_css.keyframes)
+            .into_library_owned_vec();
+        keyframes.extend(
+            core::mem::take(&mut other.retained_author_css.keyframes).into_library_owned_vec(),
+        );
+        self.retained_author_css.keyframes = keyframes.into();
+        self.left_state_mask |= other.left_state_mask;
     }
 
     pub fn is_horizontal_overflow_visible(
@@ -2582,6 +3720,88 @@ impl CssPropertyCache {
             .map(|idx| &v[idx].1)
     }
 
+    /// A node's own (inline) declarations as `(property, conditions)`, in
+    /// declaration order: the view every CASCADE reader of inline style uses
+    /// (the slow path, the compact builder, both inheritance passes, the
+    /// hit-test tagger).
+    ///
+    /// `Static` values as declared; `var()` / `env()` references as the last
+    /// restyle resolved them under the window's context (their declared
+    /// fallback before the first restyle, or for a declaration added since);
+    /// custom-property definitions skipped - they set no property; and last,
+    /// the state variants of resting `var()` declarations (see
+    /// [`crate::custom_property_cascade`]). The DECLARED static view is
+    /// `Css::iter_inline_properties`.
+    pub fn inline_properties<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_index: usize,
+    ) -> impl Iterator<
+        Item = (
+            &'a CssProperty,
+            &'a azul_css::dynamic_selector::DynamicSelectorVec,
+        ),
+    > + 'a {
+        use azul_css::css::CssDeclaration;
+
+        use crate::custom_property_cascade::ResolvedInline;
+
+        let resolved = if self.resolved_inline.is_empty() {
+            None
+        } else {
+            self.resolved_inline.get(&node_index)
+        };
+        let overruled: &[(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)] =
+            if self.inline_overruled.is_empty() {
+                &[]
+            } else {
+                self.inline_overruled
+                    .get(&node_index)
+                    .map_or(&[][..], Vec::as_slice)
+            };
+        let mut ordinal = 0usize;
+        node_data
+            .style
+            .rules
+            .as_ref()
+            .iter()
+            // Presentational hints are not inline style: they cascade as the
+            // first of the node's stylesheet properties (`restyle`).
+            .filter(|r| r.priority >= azul_css::css::rule_priority::INLINE)
+            .flat_map(|r| {
+                let conditions = &r.conditions;
+                r.declarations
+                    .as_ref()
+                    .iter()
+                    .map(move |d| (d, conditions))
+            })
+            .filter_map(move |(d, conditions)| match d {
+                CssDeclaration::Static(p) => Some((p, conditions)),
+                CssDeclaration::Dynamic(dy) => {
+                    let i = ordinal;
+                    ordinal += 1;
+                    Some((ResolvedInline::value_of(resolved, i, dy), conditions))
+                }
+                CssDeclaration::CustomProperty(_) => None,
+            })
+            .chain(resolved.into_iter().flat_map(ResolvedInline::variants))
+            .filter(move |(prop, conditions)| {
+                overruled.is_empty() || !inline_is_overruled(overruled, prop, conditions)
+            })
+    }
+
+    /// The value of the custom property `--name` (pass it without `--`) that
+    /// `node` sees in `state`, as the last restyle resolved it.
+    #[must_use]
+    pub fn get_custom_property(
+        &self,
+        node: NodeId,
+        state: azul_css::dynamic_selector::PseudoStateType,
+        name: &str,
+    ) -> Option<&str> {
+        self.custom_property_envs.get(node.index(), state, name)
+    }
+
     /// Does this node DECLARE the property itself (inline style or a matched
     /// stylesheet rule, any pseudo-state)? Inherited values do NOT count —
     /// this is the "inheritance re-roots here" test for the ancestor-override
@@ -2594,9 +3814,8 @@ impl CssPropertyCache {
         node_id: &NodeId,
         css_property_type: &CssPropertyType,
     ) -> bool {
-        if node_data
-            .style
-            .iter_inline_properties()
+        if self
+            .inline_properties(node_data, node_id.index())
             .any(|(p, _)| p.get_type() == *css_property_type)
         {
             return true;
@@ -2752,6 +3971,55 @@ impl CssPropertyCache {
         self.get_property_slow(node_data, node_id, node_state, css_property_type)
     }
 
+    /// Whether node `index` declares `ty` anywhere the cascade looks for a
+    /// declaration, in any state: a user override, its own style, a
+    /// stylesheet rule, what it inherited, or a `*` rule. `false` means
+    /// [`Self::get_property`] can only answer the computed value or the UA
+    /// default for it.
+    #[must_use]
+    pub fn declares(&self, node_data: &NodeData, index: usize, ty: CssPropertyType) -> bool {
+        self.user_overridden_properties
+            .get(index)
+            .is_some_and(|v| v.binary_search_by_key(&ty, |(k, _)| *k).is_ok())
+            || self.inline_properties(node_data, index).any(|(p, _)| p.get_type() == ty)
+            || self.css_props.get_slice(index).iter().any(|p| p.prop_type == ty)
+            || self.cascaded_props.get_slice(index).iter().any(|p| p.prop_type == ty)
+            || (star_selects(node_data) && self.global_css_props.iter().any(|p| p.get_type() == ty))
+    }
+
+    /// [`Self::get_property`], answering a type the node declares nowhere
+    /// ([`Self::declares`]) straight from its computed value and the UA
+    /// default instead of walking every state tier: what a pass that reads
+    /// one type of every node of a tree (a rebuild reading each node's
+    /// `animation`) wants, where most nodes declare none.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // the same signature as `get_property`
+    #[must_use]
+    pub fn get_property_if_declared<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<&'a CssProperty> {
+        let index = node_id.index();
+        if self.declares(node_data, index, *css_property_type) {
+            return self.get_property(node_data, node_id, node_state, css_property_type);
+        }
+        // The tail of the full walk (`get_property_slow`), which is all it
+        // could have found.
+        if css_property_type.is_inheritable() {
+            if let Some(v) = self.computed_values.get(index, *css_property_type) {
+                return Some(&v.property);
+            }
+        }
+        crate::ua_css::get_ua_default(
+            node_data,
+            takes_root_ua_default(index, *css_property_type, &self.inherited_from_host),
+            *css_property_type,
+            self.dynamic_context.as_deref(),
+        )
+    }
+
     #[cfg(feature = "std")]
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see
                                                  // find_in_stateful)
@@ -2777,9 +4045,9 @@ impl CssPropertyCache {
     /// Full cascade resolution for any CSS property type.
     /// Walks all cascade layers: user overrides → inline → stylesheet → cascaded → computed → UA.
     /// Also used by restyle functions that need state-aware lookups.
+    /// A CSS-wide keyword that wins is answered by the value it stands for
+    /// ([`Self::css_wide_values`]).
     #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
-                                     // (one branch per input variant)
     pub(crate) fn get_property_slow<'a>(
         &'a self,
         node_data: &'a NodeData,
@@ -2787,6 +4055,98 @@ impl CssPropertyCache {
         node_state: &StyledNodeState,
         css_property_type: &CssPropertyType,
     ) -> Option<&'a CssProperty> {
+        let declared =
+            self.get_declared_property(node_data, node_id, node_state, css_property_type)?;
+        Some(
+            self.css_wide_value_of(node_id.index(), declared)
+                .unwrap_or(declared),
+        )
+    }
+
+    /// [`Self::get_property`] with the [`CascadeRank`] of the declaration that won: what two
+    /// properties that paint one thing compare (a `background-color` and the bottom colour of a
+    /// layer list).
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[must_use]
+    pub fn get_ranked_property<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<(CascadeRank, &'a CssProperty)> {
+        let (mut rank, declared) =
+            self.get_declared_property_ranked(node_data, node_id, node_state, css_property_type)?;
+        // One of the node's own declarations: its place among them (1-based)
+        // tells two of them at one priority and state apart.
+        if rank.source == CascadeRank::declared(0, 0).source
+            && rank.priority == azul_css::css::rule_priority::INLINE
+        {
+            rank.order = self
+                .inline_properties(node_data, node_id.index())
+                .position(|(p, _)| core::ptr::eq(p, declared))
+                .map_or(0, |i| u32::try_from(i + 1).unwrap_or(u32::MAX));
+        }
+        Some((
+            rank,
+            self.css_wide_value_of(node_id.index(), declared)
+                .unwrap_or(declared),
+        ))
+    }
+
+    /// The value `declared`, a declaration of node `index`, stands for when it is a CSS-wide
+    /// keyword with a value of its own ([`Self::css_wide_values`]); `None` for any other
+    /// declaration, and for a keyword the readers take as the property's initial value.
+    #[must_use]
+    pub fn css_wide_value_of(&self, index: usize, declared: &CssProperty) -> Option<&CssProperty> {
+        if self.css_wide_values.is_empty() {
+            return None;
+        }
+        let keyword = declared.css_wide_keyword()?;
+        self.css_wide_values
+            .get(&(index, declared.get_type(), keyword))
+    }
+
+    /// The declaration that wins for `css_property_type` on the node, as written: a CSS-wide
+    /// keyword stays a keyword ([`Self::get_property_slow`] answers its value).
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
+    fn get_declared_property<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<&'a CssProperty> {
+        self.get_declared_property_ranked(node_data, node_id, node_state, css_property_type)
+            .map(|(_, p)| p)
+    }
+
+    /// [`Self::get_declared_property`] with the [`CascadeRank`] it won at.
+    #[allow(clippy::trivially_copy_pass_by_ref)] // uniform by-ref cascade-API convention (see find_in_stateful)
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose parser/builder/dispatch
+                                     // (one branch per input variant)
+    fn get_declared_property_ranked<'a>(
+        &'a self,
+        node_data: &'a NodeData,
+        node_id: &NodeId,
+        node_state: &StyledNodeState,
+        css_property_type: &CssPropertyType,
+    ) -> Option<(CascadeRank, &'a CssProperty)> {
+        /// Takes `property` (declared at `priority` for the state of
+        /// strength `state`) over what `found` holds only from a higher
+        /// priority: the states come strongest first.
+        fn offer<'p>(
+            found: &mut Option<(CascadeRank, &'p CssProperty)>,
+            priority: u8,
+            state: u8,
+            property: &'p CssProperty,
+        ) {
+            if found.is_none_or(|(best, _)| priority > best.priority) {
+                *found = Some((CascadeRank::declared(priority, state), property));
+            }
+        }
         use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
 
         // Helper: do these conditions identify a rule that applies in `state`
@@ -2799,375 +4159,201 @@ impl CssPropertyCache {
         // they had before contexts were wired through, so creation-time
         // styling is unchanged.
         let ctx = self.dynamic_context.as_deref();
+        let no_context_theme = ctx.is_none().then(crate::app_theme::current_theme);
+        // `::placeholder` is a pseudo-ELEMENT, not a state of the host: only
+        // a declaration that names it styles the prompt. A declaration
+        // conditioned only on the mode or the app theme (every declaration
+        // of a widget that follows the app theme sits in an `@theme(..)`
+        // block) is the HOST's - it reaches the prompt through the Normal
+        // tier, where the prompt declares nothing - and must not outrank
+        // the prompt's own declaration by coming later in source order.
         let matches_pseudo_state = |conds: &azul_css::dynamic_selector::DynamicSelectorVec,
                                     state: PseudoStateType|
          -> bool {
             let conditions = conds.as_slice();
             if conditions.is_empty() {
                 state == PseudoStateType::Normal
+            } else if state == PseudoStateType::Placeholder
+                && !conditions.iter().any(|c| {
+                    matches!(
+                        c,
+                        DynamicSelector::PseudoState(PseudoStateType::Placeholder)
+                    )
+                })
+            {
+                false
             } else {
                 conditions.iter().all(|c| match c {
                     DynamicSelector::PseudoState(s) => *s == state,
-                    non_pseudo => ctx.is_some_and(|ctx| non_pseudo.matches(ctx)),
+                    non_pseudo => condition_holds(ctx, no_context_theme.as_ref(), non_pseudo),
                 })
             }
         };
+        // Among the inline declarations that apply, the one of the LOWEST
+        // theme rank wins (`@theme(xyz:pink)` over `@theme(xyz)` over a
+        // declaration outside every block), the LAST in source order among
+        // equals - `Css::winning_inline_property`, the same order the compact
+        // builder applies them in. With no theme block in play that is the
+        // plain last match a widget's merged style relies on.
+        let rank = |conds: &[DynamicSelector]| rank_of(ctx, no_context_theme.as_ref(), conds);
 
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
             if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
-                return Some(&v[idx].1);
+                return Some((CascadeRank::USER_OVERRIDE, &v[idx].1));
             }
         }
 
-        // If that fails, see if there is an inline CSS property that matches
-        // ::placeholder FIRST. It is a pseudo-ELEMENT: the flag is only ever
-        // set for the ONE resolve the engine does to style the prompt it
-        // paints inside an empty editable, and for that resolve the
-        // pseudo-element's own declarations must outrank every state of the
-        // host. Anything `::placeholder` does not declare keeps falling
-        // through to the host's normal value below, which is what makes an
-        // unstyled prompt inherit the field's font.
+        // The states the node is in, strongest first, and the Normal base
+        // layer last. Every state looks in the same places: PRIORITY 1 the
+        // node's inline declarations for it, PRIORITY 2 its stylesheet rules
+        // for it (and, at rest, the global `*` rules), PRIORITY 3 what it
+        // inherited for it. A declaration of a weaker state, or the resting
+        // one, wins over one already found only from a higher
+        // `rule_priority` (a rice at `priority: app` keeps its resting value
+        // under the pointer, and the node's own resting style beats an
+        // author's `:hover` rule); at equal priority the stronger state wins.
+        // What a state inherited counts only while nothing is declared yet.
+        //
+        // - `::placeholder` FIRST. It is a pseudo-ELEMENT: the flag is only
+        //   ever set for the ONE resolve the engine does to style the prompt
+        //   it paints inside an empty editable, and for that resolve the
+        //   pseudo-element's own declarations (`on_placeholder(..)`,
+        //   `.field::placeholder { .. }`) must outrank every state of the
+        //   host. Anything `::placeholder` does not declare keeps falling
+        //   through to the host's normal value, which is what makes an
+        //   unstyled prompt inherit the field's font.
+        // - `:focus-visible` > `:focus` (a ring declared for seen focus wins
+        //   over the plain focus face) > `:focus-within` (a frame's ring for
+        //   the focus inside it; on a focused node `:focus` says more) >
+        //   `:seat-focus` (a non-primary seat's focus) > `:active` >
+        //   `:dragging` > `:drag-over` (both above `:hover`) > `:hover`.
+        // - `:backdrop` (GTK: the window is not the active one). A WINDOW
+        //   state: `StyledDom::sync_backdrop_state` raises the node flag,
+        //   while the window is inactive, on exactly the nodes that declare
+        //   or inherit a `:backdrop` value. Below every interaction state, so
+        //   a control of an inactive window still shows its hover.
+        // - Normal always applies, as the base layer. Between its stylesheet
+        //   rules and what it inherited sit the global `*` rules.
+        let index = node_id.index();
+        let tiers = [
+            (node_state.focus_visible, PseudoStateType::FocusVisible),
+            (node_state.focused, PseudoStateType::Focus),
+            (node_state.focus_within, PseudoStateType::FocusWithin),
+            (node_state.seat_focused, PseudoStateType::SeatFocus),
+            (node_state.active, PseudoStateType::Active),
+            (node_state.dragging, PseudoStateType::Dragging),
+            (node_state.drag_over, PseudoStateType::DragOver),
+            (node_state.hover, PseudoStateType::Hover),
+            (node_state.backdrop, PseudoStateType::Backdrop),
+            (true, PseudoStateType::Normal),
+        ];
+        let sheet = self.css_props.get_slice(index);
+        let inherited = self.cascaded_props.get_slice(index);
+
+        // The node's own declaration for `state`.
+        let own = |state: PseudoStateType| -> Option<&'a CssProperty> {
+            if state == PseudoStateType::Backdrop {
+                // `:backdrop` reads the DECLARED static view, the last match
+                // winning (the titlebar's `background_inactive`) - not the
+                // resolved (`var()`), theme-ranked view every other state
+                // reads.
+                node_data
+                    .style
+                    .iter_inline_properties()
+                    .filter(|&(prop, conds)| {
+                        prop.get_type() == *css_property_type && matches_pseudo_state(conds, state)
+                    })
+                    .last()
+                    .map(|(prop, _)| prop)
+            } else {
+                azul_css::css::winning_inline_in(
+                    self.inline_properties(node_data, index),
+                    *css_property_type,
+                    |conds| matches_pseudo_state(conds, state),
+                    rank,
+                )
+            }
+        };
+
+        // The prompt's own values: its declarations, its rules, and what it
+        // inherited for `::placeholder`, before anything of the host.
         if node_state.placeholder {
-            // PRIORITY 1: inline declarations (`on_placeholder(...)`)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Placeholder)
-                            && prop.get_type() == *css_property_type
-                        {
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
+            let placeholder = PseudoStateType::Placeholder;
+            if let Some(p) = own(placeholder)
+                .or_else(|| Self::find_in_stateful(sheet, placeholder, css_property_type))
+                .or_else(|| Self::find_in_stateful(inherited, placeholder, css_property_type))
             {
-                return Some(p);
-            }
-
-            // PRIORITY 2: stylesheet rules (`.field::placeholder { ... }`)
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Placeholder,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: cascaded / inherited
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Placeholder,
-                css_property_type,
-            ) {
-                return Some(p);
+                return Some((CascadeRank::PLACEHOLDER, p));
             }
         }
 
-        // :focus > :active > :hover > normal (fallback)
-        if node_state.focused {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Focus)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
-                return Some(p);
+        let mut found: Option<(CascadeRank, &'a CssProperty)> = None;
+        let tier_count = tiers.len();
+        for (tier, (raised, state)) in tiers.into_iter().enumerate() {
+            if !raised {
+                continue;
             }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Focus,
-                css_property_type,
-            ) {
-                return Some(p);
+            // The strongest state ranks highest.
+            let strength = u8::try_from(tier_count - tier).unwrap_or(u8::MAX);
+            // PRIORITY 1: inline declarations.
+            if let Some(p) = own(state) {
+                offer(&mut found, azul_css::css::rule_priority::INLINE, strength, p);
             }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Focus,
-                css_property_type,
-            ) {
-                return Some(p);
+            // PRIORITY 2: stylesheet rules (`.x:hover { .. }`).
+            if let Some(p) = Self::find_entry_in_stateful(sheet, state, css_property_type) {
+                offer(&mut found, p.priority, strength, &p.property);
             }
-        }
-
-        // `:seat-focus` (9b-ii-a-i-d-iii-a): a non-primary seat's focus, the
-        // same three-tier lookup as `:focus`.
-        if node_state.seat_focused {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::SeatFocus)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
-                return Some(p);
+            // PRIORITY 2b (Normal only): the global `*` rules (specificity
+            // 0,0,0), collected once during restyle for every element. They
+            // rank below every rule matched node by node (`restyle` keeps
+            // only those in the bucket) and above inheritance and the UA
+            // defaults. Collected in cascade order (priority, theme rank,
+            // source order), so the LAST of a property wins - as the compact
+            // builder, which applies them in turn, has it.
+            if state == PseudoStateType::Normal && found.is_none() && star_selects(node_data) {
+                if let Some(p) = self
+                    .global_css_props
+                    .iter()
+                    .rev()
+                    .find(|p| p.get_type() == *css_property_type)
+                {
+                    return Some((CascadeRank::GLOBAL_RULE, p));
+                }
             }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::SeatFocus,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::SeatFocus,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        if node_state.active {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Active)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Active,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Active,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // :dragging pseudo-state (higher priority than :hover)
-        if node_state.dragging {
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Dragging)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Dragging,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Dragging,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // :drag-over pseudo-state (higher priority than :hover)
-        if node_state.drag_over {
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::DragOver)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::DragOver,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::DragOver,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        if node_state.hover {
-            // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-            if let Some(p) =
-                node_data
-                    .style
-                    .iter_inline_properties()
-                    .fold(None, |acc, (prop, conds)| {
-                        if matches_pseudo_state(conds, PseudoStateType::Hover)
-                            && prop.get_type() == *css_property_type
-                        {
-                            // LAST matching inline declaration wins (CSS source order),
-                            // same as the compact builder's later-overwrites-earlier and
-                            // get_property_with_context - a widget's merged_style()
-                            // appends overrides and relies on exactly this.
-                            Some(prop)
-                        } else {
-                            acc
-                        }
-                    })
-            {
-                return Some(p);
-            }
-
-            // PRIORITY 2: CSS stylesheet properties
-            if let Some(p) = Self::find_in_stateful(
-                self.css_props.get_slice(node_id.index()),
-                PseudoStateType::Hover,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-
-            // PRIORITY 3: Cascaded/inherited properties
-            if let Some(p) = Self::find_in_stateful(
-                self.cascaded_props.get_slice(node_id.index()),
-                PseudoStateType::Hover,
-                css_property_type,
-            ) {
-                return Some(p);
-            }
-        }
-
-        // Normal/fallback properties - always apply as base layer
-        // PRIORITY 1: Inline CSS properties (highest priority per CSS spec)
-        if let Some(p) =
-            node_data
-                .style
-                .iter_inline_properties()
-                .fold(None, |acc, (prop, conds)| {
-                    if matches_pseudo_state(conds, PseudoStateType::Normal)
-                        && prop.get_type() == *css_property_type
+            // PRIORITY 3: cascaded / inherited properties, while nothing is
+            // declared.
+            if found.is_none() {
+                if let Some(entry) = Self::find_entry_in_stateful(inherited, state, css_property_type)
+                {
+                    // A resting COPY of the parent's value (not a UA default,
+                    // which is the node's own) where the inheritance pass
+                    // passed it over: the parent shows the property from a
+                    // state (`.row:hover { color }`, its own or one above
+                    // it), and the node holds what the parent shows, as an
+                    // inherited value (`apply_cascade_properties`). That is
+                    // the only way a node with such a copy holds the type
+                    // inherited: the pass applies every other copy as the
+                    // node's own. The row keeps the copy for the day the
+                    // state ends; until then the value is the inherited one.
+                    if state == PseudoStateType::Normal
+                        && !entry.ua_origin
+                        && css_property_type.is_inheritable()
                     {
-                        // LAST matching inline declaration wins (CSS source order),
-                        // same as the compact builder's later-overwrites-earlier and
-                        // get_property_with_context - the widget pattern
-                        // "display:none + display:flex @media(max-width)" relies on
-                        // exactly this ordering.
-                        Some(prop)
-                    } else {
-                        acc
+                        if let Some(shown) = self
+                            .computed_values
+                            .get(index, *css_property_type)
+                            .filter(|value| value.origin == CssPropertyOrigin::Inherited)
+                        {
+                            return Some((CascadeRank::INHERITED, &shown.property));
+                        }
                     }
-                })
-        {
-            return Some(p);
+                    return Some((CascadeRank::INHERITED, &entry.property));
+                }
+            }
         }
-
-        // PRIORITY 2: CSS stylesheet properties
-        if let Some(p) = Self::find_in_stateful(
-            self.css_props.get_slice(node_id.index()),
-            PseudoStateType::Normal,
-            css_property_type,
-        ) {
-            return Some(p);
-        }
-
-        // PRIORITY 2b: Global `*` selector properties (specificity 0,0,0)
-        // These are collected once during restyle and apply to all nodes.
-        // Lower priority than per-node rules but higher than inheritance/UA.
-        if let Some(p) = self
-            .global_css_props
-            .iter()
-            .find(|p| p.get_type() == *css_property_type)
-        {
-            return Some(p);
-        }
-
-        // PRIORITY 3: Cascaded/inherited properties
-        if let Some(p) = Self::find_in_stateful(
-            self.cascaded_props.get_slice(node_id.index()),
-            PseudoStateType::Normal,
-            css_property_type,
-        ) {
-            return Some(p);
+        if found.is_some() {
+            return found;
         }
 
         // Check computed values cache for inherited properties
@@ -3177,7 +4363,7 @@ impl CssPropertyCache {
                 .computed_values
                 .get(node_id.index(), *css_property_type)
             {
-                return Some(&v.property);
+                return Some((CascadeRank::INHERITED, &v.property));
             }
         }
 
@@ -3190,10 +4376,15 @@ impl CssPropertyCache {
         // (`prune_compact_normal_props`).
         crate::ua_css::get_ua_default(
             node_data,
-            node_id.index() == 0,
+            takes_root_ua_default(
+                node_id.index(),
+                *css_property_type,
+                &self.inherited_from_host,
+            ),
             *css_property_type,
             self.dynamic_context.as_deref(),
         )
+        .map(|p| (CascadeRank::INHERITED, p))
     }
 
     /// Get a CSS property using `DynamicSelectorContext` for evaluation.
@@ -3215,26 +4406,27 @@ impl CssPropertyCache {
         // First test if there is some user-defined override for the property
         if let Some(v) = self.user_overridden_properties.get(node_id.index()) {
             if let Ok(idx) = v.binary_search_by_key(css_property_type, |(k, _)| *k) {
-                return Some(&v[idx].1);
+                let declared = &v[idx].1;
+                return Some(
+                    self.css_wide_value_of(node_id.index(), declared)
+                        .unwrap_or(declared),
+                );
             }
         }
 
-        // Check inline CSS properties with DynamicSelectorContext evaluation.
-        // Iterate in REVERSE order across the flat (prop, conds) view —
-        // "last found wins" semantics, replacing the old Focus > Active >
-        // Hover > Normal priority chain.
-        // "last found wins": scan the flat (prop, conds) view forward and keep the
-        // last match (iter_inline_properties is not DoubleEndedIterator, so this
-        // replaces an earlier collect-then-rev-find_map).
-        let mut last_inline = None;
-        for (prop, conds) in node_data.style.iter_inline_properties() {
-            let conditions_match = conds.as_slice().iter().all(|c| c.matches(context));
-            if prop.get_type() == *css_property_type && conditions_match {
-                last_inline = Some(prop);
-            }
-        }
-        if let Some(prop) = last_inline {
-            return Some(prop);
+        // Check inline CSS properties with DynamicSelectorContext evaluation:
+        // among the declarations whose every condition holds, the lowest
+        // theme rank wins, the LAST in source order among equals
+        // (`azul_css::css::winning_inline_in`), over the node's inline style
+        // as the cascade resolved it (`var()` substituted) - replacing the
+        // old Focus > Active > Hover > Normal priority chain.
+        if let Some(prop) = azul_css::css::winning_inline_in(
+            self.inline_properties(node_data, node_id.index()),
+            *css_property_type,
+            |conds| conds.as_slice().iter().all(|c| c.matches(context)),
+            |conds| context.cascade_rank(conds),
+        ) {
+            return Some(self.css_wide_value_of(node_id.index(), prop).unwrap_or(prop));
         }
 
         // Fall back to CSS file and cascaded properties
@@ -3253,7 +4445,14 @@ impl CssPropertyCache {
         old_context: &DynamicSelectorContext,
         new_context: &DynamicSelectorContext,
     ) -> bool {
-        for (_prop, conds) in node_data.style.iter_inline_properties() {
+        // Every declaration kind counts (a `var()` reference or a
+        // custom-property definition under a condition flips too), so this
+        // walks the rules, not the static view.
+        for rule in node_data.style.rules.as_ref() {
+            if rule.declarations.as_ref().is_empty() {
+                continue;
+            }
+            let conds = &rule.conditions;
             let was_active = conds.as_slice().iter().all(|c| c.matches(old_context));
             let is_active = conds.as_slice().iter().all(|c| c.matches(new_context));
             if was_active != is_active {
@@ -3270,11 +4469,18 @@ impl CssPropertyCache {
         old_context: &DynamicSelectorContext,
         new_context: &DynamicSelectorContext,
     ) -> bool {
-        for (prop, conds) in node_data.style.iter_inline_properties() {
-            // Skip non-layout-affecting properties
-            if !prop.get_type().can_trigger_relayout() {
+        for rule in node_data.style.rules.as_ref() {
+            // Skip rules that set nothing layout-affecting (a custom-property
+            // definition can feed a layout property below it: it counts).
+            if !rule
+                .declarations
+                .as_ref()
+                .iter()
+                .any(azul_css::css::CssDeclaration::can_trigger_relayout)
+            {
                 continue;
             }
+            let conds = &rule.conditions;
 
             let was_active = conds.as_slice().iter().all(|c| c.matches(old_context));
             let is_active = conds.as_slice().iter().all(|c| c.matches(new_context));
@@ -3903,6 +5109,9 @@ impl CssPropertyCache {
     impl_get_prop!(get_flow_into, FlowIntoValue, FlowInto, as_flow_into);
 
     impl_get_prop!(get_flow_from, FlowFromValue, FlowFrom, as_flow_from);
+    impl_get_prop!(get_wrap_through, WrapThroughValue, WrapThrough, as_wrap_through);
+    impl_get_prop!(get_wrap_flow, WrapFlowValue, WrapFlow, as_wrap_flow);
+    impl_get_prop!(get_region_fragment, RegionFragmentValue, RegionFragment, as_region_fragment);
 
     impl_get_prop!(
         get_shape_margin,
@@ -3932,6 +5141,21 @@ impl CssPropertyCache {
         CounterIncrementValue,
         CounterIncrement,
         as_counter_increment
+    );
+
+    impl_get_prop!(get_counter_set, CounterSetValue, CounterSet, as_counter_set);
+    impl_get_prop!(get_quotes, StyleQuotesValue, Quotes, as_quotes);
+    impl_get_prop!(
+        get_background_origin,
+        StyleBackgroundOriginVecValue,
+        BackgroundOrigin,
+        as_background_origin
+    );
+    impl_get_prop!(
+        get_background_color,
+        StyleBackgroundContentValue,
+        BackgroundColor,
+        as_background_color
     );
 
     impl_get_prop!(get_string_set, StringSetValue, StringSet, as_string_set);
@@ -4076,6 +5300,31 @@ impl CssPropertyCache {
         as_border_bottom_right_radius
     );
     impl_get_prop!(get_opacity, StyleOpacityValue, Opacity, as_opacity);
+    impl_get_prop!(get_zoom, StyleZoomValue, Zoom, as_zoom);
+    impl_get_prop!(
+        get_background_clip,
+        StyleBackgroundClipVecValue,
+        BackgroundClip,
+        as_background_clip
+    );
+    impl_get_prop!(
+        get_font_variant_numeric,
+        StyleFontVariantNumericValue,
+        FontVariantNumeric,
+        as_font_variant_numeric
+    );
+    impl_get_prop!(
+        get_font_variant_caps,
+        StyleFontVariantCapsValue,
+        FontVariantCaps,
+        as_font_variant_caps
+    );
+    impl_get_prop!(
+        get_font_feature_settings,
+        StyleFontFeatureSettingsValue,
+        FontFeatureSettings,
+        as_font_feature_settings
+    );
     impl_get_prop!(
         get_transform,
         StyleTransformVecValue,
@@ -4117,6 +5366,12 @@ impl CssPropertyCache {
         StyleSpatialNavigationContainValue,
         SpatialNavigationContain,
         as_spatial_navigation_contain
+    );
+    impl_get_prop!(
+        get_spatial_navigation_function,
+        StyleSpatialNavigationFunctionValue,
+        SpatialNavigationFunction,
+        as_spatial_navigation_function
     );
     impl_get_prop!(get_display, LayoutDisplayValue, Display, as_display);
     impl_get_prop!(get_float, LayoutFloatValue, Float, as_float);
@@ -4753,56 +6008,22 @@ impl CssPropertyCache {
             },
         };
 
-        // Extract PixelValue from various property types (returns owned value)
-        let get_pixel_value = |prop: &CssProperty| -> Option<PixelValue> {
-            match prop {
-                CssProperty::FontSize(val) => val.get_property().map(|v| v.inner),
-                CssProperty::LetterSpacing(val) => val.get_property().map(|v| v.inner),
-                CssProperty::WordSpacing(val) => val.get_property().map(|v| v.inner),
-                CssProperty::PaddingLeft(val) => val.get_property().map(|v| v.inner),
-                CssProperty::PaddingRight(val) => val.get_property().map(|v| v.inner),
-                CssProperty::PaddingTop(val) => val.get_property().map(|v| v.inner),
-                CssProperty::PaddingBottom(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MarginLeft(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MarginRight(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MarginTop(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MarginBottom(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MinWidth(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MinHeight(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MaxWidth(val) => val.get_property().map(|v| v.inner),
-                CssProperty::MaxHeight(val) => val.get_property().map(|v| v.inner),
-                CssProperty::SelectionRadius(val) => val.get_property().map(|v| v.inner),
-                _ => None,
-            }
-        };
 
-        let target_pixel_value = get_pixel_value(target_property)?;
-        let reference_pixel_value = get_pixel_value(reference_property)?;
+        let target_pixel_value = pixel_value_of(target_property)?;
+        let reference_pixel_value = pixel_value_of(reference_property)?;
 
-        // Convert reference to absolute pixels first
-        let reference_px = match reference_pixel_value.metric {
-            SizeMetric::Px => reference_pixel_value.number.get(),
-            SizeMetric::Pt => reference_pixel_value.number.get() * PT_TO_PX,
-            SizeMetric::In => reference_pixel_value.number.get() * IN_TO_PX,
-            SizeMetric::Cm => reference_pixel_value.number.get() * CM_TO_PX,
-            SizeMetric::Mm => reference_pixel_value.number.get() * MM_TO_PX,
-            // Reference can't be relative (em/rem/%) or viewport-relative.
-            SizeMetric::Em
-            | SizeMetric::Rem
-            | SizeMetric::Percent
-            | SizeMetric::Vw
-            | SizeMetric::Vh
-            | SizeMetric::Vmin
-            | SizeMetric::Vmax => return None,
-        };
+        // Convert reference to absolute pixels first, by the one conversion
+        // of the absolute units (`PixelValue::absolute_px`, shared with the
+        // compact cache). The reference can't be relative (em/rem/%) or
+        // viewport-relative: `None` for those.
+        let reference_px = reference_pixel_value.absolute_px()?;
 
         // Resolve target based on reference
         let resolved_px = match target_pixel_value.metric {
-            SizeMetric::Px => target_pixel_value.number.get(),
-            SizeMetric::Pt => target_pixel_value.number.get() * PT_TO_PX,
-            SizeMetric::In => target_pixel_value.number.get() * IN_TO_PX,
-            SizeMetric::Cm => target_pixel_value.number.get() * CM_TO_PX,
-            SizeMetric::Mm => target_pixel_value.number.get() * MM_TO_PX,
+            // The absolute units: the same conversion.
+            SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+                target_pixel_value.absolute_px()?
+            }
             // em/rem both scale by reference (rem uses reference as root font-size).
             SizeMetric::Em | SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
@@ -4914,7 +6135,35 @@ impl CssPropertyCache {
     /// flip on a retained DOM — first removes the entries the previous call
     /// pushed (`StatefulCssProperty::ua_origin`) and answers them again.
     /// Leaves `cascaded_props` sorted and flattened.
+    ///
+    /// A UA default is a DECLARED value (CSS Cascade 4: the user-agent
+    /// origin), so on an ELEMENT it beats what the element would inherit: a
+    /// link under `<td style="color:#333">` is `#0000EE`, `<code>` under
+    /// `font-family: serif` is monospace. Only a TEXT node lets what it
+    /// inherited win over its own row (its I-beam cursor yields to a
+    /// button's pointer). Without the tree, the descendants of such an
+    /// element keep the stale value the inheritance walk handed them; the
+    /// cascade calls [`Self::apply_ua_css_in_tree`].
     pub fn apply_ua_css(&mut self, node_data: &[NodeData]) {
+        self.apply_ua_css_inner(node_data, None);
+    }
+
+    /// [`Self::apply_ua_css`], and then every node below an element whose UA
+    /// default overrode an inherited value inherits that default instead
+    /// ([`Self::hand_ua_defaults_down`]). What `StyledDom`'s cascade runs.
+    pub fn apply_ua_css_in_tree(
+        &mut self,
+        node_data: &[NodeData],
+        node_hierarchy: &[NodeHierarchyItem],
+    ) {
+        self.apply_ua_css_inner(node_data, Some(node_hierarchy));
+    }
+
+    fn apply_ua_css_inner(
+        &mut self,
+        node_data: &[NodeData],
+        node_hierarchy: Option<&[NodeHierarchyItem]>,
+    ) {
         use azul_css::dynamic_selector::PseudoStateType;
 
         let node_count = node_data.len();
@@ -4937,14 +6186,17 @@ impl CssPropertyCache {
         // computed value. The document root additionally carries the
         // document-wide defaults (the inherited text colour) — themed, and
         // IN the cascade from here on, so `computed_values` inherits it down
-        // to every text node and no paint-time reader has to guess it.
+        // to every text node and no paint-time reader has to guess it. A
+        // HOSTED root (`inherited_from_host`) inherits its host's value
+        // instead, for every type the host supplies.
         for (node_index, node) in node_data.iter().enumerate() {
-            let is_root = node_index == 0;
             let present = &prop_set[node_index];
             for prop_type in crate::ua_css::UA_PROPERTY_TYPES {
                 if prop_type_bit_test(present, *prop_type) {
                     continue;
                 }
+                let is_root =
+                    takes_root_ua_default(node_index, *prop_type, &self.inherited_from_host);
                 let Some(ua_prop) =
                     crate::ua_css::get_ua_default(node, is_root, *prop_type, ctx)
                 else {
@@ -4952,7 +6204,9 @@ impl CssPropertyCache {
                 };
                 // No bitset write needed: `UA_PROPERTY_TYPES` has no
                 // duplicates (pinned by `one_themed_ua_table` tests), so one
-                // node sees each type once.
+                // node sees each type once. On an element this may sit beside
+                // the value the inheritance walk handed it: pushed LAST, the
+                // UA default is the one `sort_cascaded_props` keeps.
                 self.cascaded_props.push_to(
                     node_index,
                     StatefulCssProperty {
@@ -4960,9 +6214,14 @@ impl CssPropertyCache {
                         prop_type: *prop_type,
                         property: ua_prop.clone(),
                         ua_origin: true,
+                        priority: 0,
                     },
                 );
             }
+        }
+
+        if let Some(node_hierarchy) = node_hierarchy {
+            self.hand_ua_defaults_down(node_data, node_hierarchy);
         }
 
         // Back to the read phase the rest of the pipeline expects
@@ -4998,10 +6257,107 @@ impl CssPropertyCache {
         }
     }
 
+    /// The inheritance walk of [`Self::restyle`] runs BEFORE the UA pass: it
+    /// handed every node a COPY of its parent's value as the parent stood
+    /// then. Where an element's UA default has since shadowed that value on
+    /// the element (a link's `color` under `<td style="color:#333">`,
+    /// `<code>`'s `font-family` under `font-family: serif`), the copies below
+    /// it are STALE: the text of the link painted the wrapper's grey.
+    ///
+    /// The stale copies are REMOVED, nothing is added: a node without a
+    /// cascaded entry inherits its parent's computed value
+    /// ([`Self::compute_inherited_values`], the compact builder alike), which
+    /// is the element's UA default - so the child INHERITS the colour and
+    /// never owns it (a UA `color` is on the root and inherited below; a
+    /// child that owned one would block an author colour above it). Only a
+    /// copy EQUAL to the shadowed value goes: a copy of something else (the
+    /// parent's live conditional inline declaration, which the walk resolves
+    /// and the bitset of declared types cannot see) is right and stays.
+    ///
+    /// One pre-order pass per inheritable UA type, the parent settled before
+    /// the child: `stale[p]` is the value the copies under `p` are stale
+    /// copies of, set where a UA push shadows the walk copy on `p` and
+    /// carried down through every node whose copy was removed; a node that
+    /// declares the type ends it (its children copied the declaration).
+    fn hand_ua_defaults_down(
+        &mut self,
+        node_data: &[NodeData],
+        node_hierarchy: &[NodeHierarchyItem],
+    ) {
+        use azul_css::dynamic_selector::PseudoStateType;
+
+        let node_count = node_data
+            .len()
+            .min(node_hierarchy.len())
+            .min(self.cascaded_props.len());
+        let types: Vec<CssPropertyType> = crate::ua_css::UA_PROPERTY_TYPES
+            .iter()
+            .copied()
+            .filter(|t| t.is_inheritable() && !is_resolved_parent_inherited(*t))
+            .collect();
+        let declared = self.declared_normal_props(node_data);
+        let mut stale: Vec<Option<CssProperty>> = vec![None; node_count];
+        for &ty in &types {
+            for s in &mut stale {
+                *s = None;
+            }
+            for node_index in 0..node_count {
+                if prop_type_bit_test(&declared[node_index], ty) {
+                    continue;
+                }
+                let is_normal_of = |e: &StatefulCssProperty| {
+                    e.state == PseudoStateType::Normal && e.prop_type == ty
+                };
+                // The walk's copy (never `ua_origin`) and the UA pass's push.
+                let (copy, ua) =
+                    self.cascaded_props
+                        .build_get(node_index)
+                        .map_or((None, None), |v| {
+                            let copy = v
+                                .iter()
+                                .rev()
+                                .find(|e| is_normal_of(e) && !e.ua_origin)
+                                .map(|e| clone_inheritable_property(&e.property));
+                            let ua = v
+                                .iter()
+                                .rev()
+                                .find(|e| is_normal_of(e) && e.ua_origin)
+                                .map(|e| clone_inheritable_property(&e.property));
+                            (copy, ua)
+                        });
+                // Pre-order arena: the parent is settled before the child.
+                let inherited_stale = node_hierarchy[node_index]
+                    .parent_id()
+                    .map(|p| p.index())
+                    .filter(|p| *p < node_index)
+                    .and_then(|p| stale[p].clone());
+                let Some(copy) = copy else {
+                    continue;
+                };
+                if inherited_stale.as_ref() == Some(&copy) {
+                    // A stale copy: out, so this node inherits. Its children
+                    // copied the same value.
+                    self.cascaded_props
+                        .build_mut(node_index)
+                        .retain(|e| !is_normal_of(e) || e.ua_origin);
+                    stale[node_index] = Some(copy);
+                } else if ua.is_some_and(|u| u != copy) {
+                    // The UA push shadows the copy on this element (pushed
+                    // last, it is the one the sort keeps); the children hold
+                    // the copy's value.
+                    stale[node_index] = Some(copy);
+                }
+            }
+        }
+    }
+
     /// Per node, which property types already have a Normal-state value from
-    /// a layer that beats the UA sheet: author css (`css_props`), the cascade
-    /// (`cascaded_props`, i.e. inherited values), unconditional inline
-    /// declarations, and the global `*` bucket.
+    /// a layer that beats the UA sheet: author css (`css_props`), unconditional
+    /// inline declarations, the global `*` bucket - and, on a TEXT node only,
+    /// what it inherited (`cascaded_props`): a text node has no UA sheet of
+    /// its own in CSS, and its one row here (the I-beam cursor) must yield to
+    /// an inherited value (a button's pointer). On an ELEMENT the UA default
+    /// is a declared value and beats the inherited one.
     ///
     /// A `* { margin: 0 }` reset is author CSS and must beat UA defaults on
     /// every ELEMENT (origin beats specificity), but it is stored once
@@ -5013,20 +6369,36 @@ impl CssPropertyCache {
     fn normal_props_present(&self, node_data: &[NodeData]) -> Vec<PropTypeBits> {
         use azul_css::dynamic_selector::PseudoStateType;
 
-        let mut prop_set: Vec<PropTypeBits> = vec![[0u128; 2]; node_data.len()];
-
-        for (node_idx, props) in self.css_props.iter_node_slices() {
+        let mut prop_set = self.declared_normal_props(node_data);
+        for (node_idx, props) in self.cascaded_props.iter_node_slices() {
+            if !node_data.get(node_idx).is_some_and(NodeData::is_text_node) {
+                continue;
+            }
             for p in props.iter().filter(|p| p.state == PseudoStateType::Normal) {
                 prop_type_bit_set(&mut prop_set[node_idx], p.prop_type);
             }
         }
-        for (node_idx, props) in self.cascaded_props.iter_node_slices() {
+        prop_set
+    }
+
+    /// Per node, which property types it DECLARES in the Normal state: author
+    /// css (`css_props`), an unconditional inline declaration, and - on an
+    /// element - the global `*` bucket. (What it inherited is not declared.)
+    fn declared_normal_props(&self, node_data: &[NodeData]) -> Vec<PropTypeBits> {
+        use azul_css::dynamic_selector::PseudoStateType;
+
+        let mut prop_set: Vec<PropTypeBits> = vec![[0u128; 2]; node_data.len()];
+
+        for (node_idx, props) in self.css_props.iter_node_slices() {
+            if node_idx >= prop_set.len() {
+                continue;
+            }
             for p in props.iter().filter(|p| p.state == PseudoStateType::Normal) {
                 prop_type_bit_set(&mut prop_set[node_idx], p.prop_type);
             }
         }
         for (node_idx, node) in node_data.iter().enumerate() {
-            for (prop, conds) in node.style.iter_inline_properties() {
+            for (prop, conds) in self.inline_properties(node, node_idx) {
                 if conds.as_slice().is_empty() {
                     prop_type_bit_set(&mut prop_set[node_idx], prop.get_type());
                 }
@@ -5038,7 +6410,7 @@ impl CssPropertyCache {
                 prop_type_bit_set(&mut global_bits, p.get_type());
             }
             for (node_idx, node) in node_data.iter().enumerate() {
-                if !node.is_text_node() {
+                if star_selects(node) {
                     prop_set[node_idx][0] |= global_bits[0];
                     prop_set[node_idx][1] |= global_bits[1];
                 }
@@ -5054,6 +6426,58 @@ impl CssPropertyCache {
             .sort_each_and_flatten(|p| (p.state, p.prop_type));
     }
 
+    /// The inheritable values node `index` holds because of a state it is in
+    /// (`:hover`, `:focus`, ...) rather than at rest: for each inheritable
+    /// property it declares for some pseudo-state, the declaration that wins
+    /// for the states it is in. Empty for a node at rest, the common case.
+    ///
+    /// Inheritance is computed from the resting cascade; this is what a
+    /// node's children take from it on top, so a `.bar:hover { color: red }`
+    /// reaches the text inside the hovered bar as it does in a browser.
+    #[must_use]
+    pub fn state_inherited_values(
+        &self,
+        node_data: &NodeData,
+        index: usize,
+        state: &StyledNodeState,
+    ) -> Vec<CssProperty> {
+        use azul_css::dynamic_selector::{DynamicSelector, PseudoStateType};
+        if state.is_normal() {
+            return Vec::new();
+        }
+        let mut types: Vec<CssPropertyType> = Vec::new();
+        let mut note = |ty: CssPropertyType| {
+            if ty.is_inheritable() && !types.contains(&ty) {
+                types.push(ty);
+            }
+        };
+        for p in self.css_props.get_slice(index) {
+            if p.state != PseudoStateType::Normal {
+                note(p.prop_type);
+            }
+        }
+        for p in self.cascaded_props.get_slice(index) {
+            if p.state != PseudoStateType::Normal {
+                note(p.prop_type);
+            }
+        }
+        for (p, conds) in self.inline_properties(node_data, index) {
+            let stateful = conds.as_slice().iter().any(|c| {
+                matches!(c, DynamicSelector::PseudoState(s) if *s != PseudoStateType::Normal)
+            });
+            if stateful {
+                note(p.get_type());
+            }
+        }
+        let id = NodeId::new(index);
+        types
+            .iter()
+            .filter_map(|ty| self.get_declared_property(node_data, &id, state, ty))
+            .filter(|p| p.css_wide_keyword().is_none())
+            .cloned()
+            .collect()
+    }
+
     /// Compute inherited values for all nodes in the DOM tree.
     ///
     /// Implements CSS inheritance: walk tree depth-first, apply cascade priority
@@ -5063,6 +6487,7 @@ impl CssPropertyCache {
         &mut self,
         node_hierarchy: &[NodeHierarchyItem],
         node_data: &[NodeData],
+        node_states: &[StyledNodeState],
     ) -> Vec<NodeId> {
         self.computed_values.grow_to(node_hierarchy.len());
         // The cascade rewrites every node, and the transposed store appends to
@@ -5071,17 +6496,98 @@ impl CssPropertyCache {
         // snapshot taken below, not against the live store.
         let previous = core::mem::replace(&mut self.computed_values, InheritedValues::new());
         self.computed_values.grow_to(node_hierarchy.len());
+        // The keywords' values are found node by node below, each from its parent's.
+        self.css_wide_values.clear();
+        // The values a node in a state hands its children on top of its
+        // resting ones (Step 5b): few nodes are in a state at a time.
+        let mut state_overlays: Vec<(usize, Vec<CssProperty>)> = Vec::new();
+        // The inheritable types a node shows its children FROM A STATE: what
+        // it holds for a state of its own (`state_overlays`) and what came to
+        // it from a state above and it declares nothing against. A child's
+        // copy of the resting value does not win over those
+        // (`apply_cascade_properties`). Empty while no node in a state hands
+        // a value down.
+        let mut from_a_state: alloc::collections::BTreeMap<usize, Vec<CssPropertyType>> =
+            alloc::collections::BTreeMap::new();
+        // The nodes whose children the walk is in, outermost first: each
+        // with the values it stored (what `values_for` reads back for it)
+        // and the buckets they went to. The arena is in document order, so
+        // a node's parent is on top once the subtrees that ended before the
+        // node are popped. Reading the parent's values back from the store
+        // instead cost every node a probe of every distinct value of the
+        // DOM, and placing a node's values a comparison with each of them.
+        let mut ancestors: Vec<(usize, Vec<(CssPropertyType, CssPropertyWithOrigin)>, Vec<u32>)> =
+            Vec::new();
         node_hierarchy
             .iter()
             .enumerate()
             .filter_map(|(node_index, hierarchy_item)| {
                 let node_id = NodeId::new(node_index);
                 let parent_id = hierarchy_item.parent_id();
-                // Materialised from the transposed store (a handful of bucket
-                // probes) instead of DEEP-CLONING the parent's vec of 136-byte
-                // enums once per node, which is what the per-node shape forced.
-                let parent_computed: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
-                    parent_id.map(|pid| self.computed_values.values_for(pid.index()));
+                // Whether the parent's stored values are on top of
+                // `ancestors` (not for an arena out of document order: its
+                // nodes read the store, as every node did).
+                let mut parent_on_top = false;
+                if let Some(pid) = parent_id {
+                    while ancestors
+                        .last()
+                        .is_some_and(|(node, _, _)| *node != pid.index())
+                    {
+                        ancestors.pop();
+                    }
+                    parent_on_top = !ancestors.is_empty();
+                }
+                // The parent's values as it shows them in the state it is in
+                // (Step 5b), which is what it hands down.
+                let overlay = parent_id
+                    .and_then(|pid| state_overlays.iter().find(|(i, _)| *i == pid.index()));
+                // A copy of the parent's values only where they are not the
+                // stored ones on top of `ancestors`: under a state overlay,
+                // read back from the store, or a HOSTED root's - its parent
+                // values are its host's (`inherited_from_host`): it inherits
+                // them, and an `em` of its own resolves against the host's
+                // font size.
+                let parent_owned: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
+                    match parent_id {
+                        Some(_) if parent_on_top && overlay.is_none() => None,
+                        Some(pid) => {
+                            let mut values = if parent_on_top {
+                                ancestors
+                                    .last()
+                                    .map(|(_, values, _)| values.clone())
+                                    .unwrap_or_default()
+                            } else {
+                                self.computed_values.values_for(pid.index())
+                            };
+                            if let Some((_, held)) = overlay {
+                                for property in held {
+                                    let ty = property.get_type();
+                                    let entry = (
+                                        ty,
+                                        CssPropertyWithOrigin {
+                                            property: property.clone(),
+                                            origin: CssPropertyOrigin::Own,
+                                        },
+                                    );
+                                    match values.binary_search_by_key(&ty, |(k, _)| *k) {
+                                        Ok(at) => values[at] = entry,
+                                        Err(at) => values.insert(at, entry),
+                                    }
+                                }
+                            }
+                            Some(values)
+                        }
+                        None if !self.inherited_from_host.is_empty() => {
+                            Some(self.inherited_from_host.clone())
+                        }
+                        None => None,
+                    };
+                let parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
+                    match parent_owned.as_ref() {
+                        Some(owned) => Some(owned),
+                        None if parent_on_top => ancestors.last().map(|(_, values, _)| values),
+                        None => None,
+                    };
 
                 let mut ctx = InheritanceContext {
                     node_id,
@@ -5089,25 +6595,216 @@ impl CssPropertyCache {
                     computed_values: Vec::new(),
                 };
 
+                // What the node's CSS-wide keywords stand for, from its parent's values (all
+                // known: pre-order), before its own values are computed from them.
+                let keyword_values = self.css_wide_values_of_node(node_data, node_index, parent_id);
+                self.css_wide_values.extend(keyword_values);
+
                 // Step 1: Inherit from parent
-                if let Some(ref parent_values) = parent_computed {
+                if let Some(parent_values) = parent_computed {
                     Self::inherit_from_parent(&mut ctx, parent_values);
                 }
+
+                // What the parent shows from a state, its own or one above.
+                let held_above: Vec<CssPropertyType> =
+                    match parent_id.and_then(|pid| from_a_state.get(&pid.index())) {
+                        Some(types) => types.clone(),
+                        None => Vec::new(),
+                    };
 
                 // Steps 2-5: Apply cascade in priority order
                 self.apply_cascade_properties(
                     &mut ctx,
                     node_id,
-                    parent_computed.as_ref(),
+                    parent_computed,
                     node_data,
                     node_index,
+                    &held_above,
                 );
+                // Step 5b: what a state the node is in declares, for its
+                // children to inherit (`state_inherited_values`). Kept out of
+                // the node's own values, which stay its resting ones: the
+                // restyle that ends the state compares against those.
+                let mut hands_on: Vec<CssPropertyType> = Vec::new();
+                if let Some(state) = node_states.get(node_index) {
+                    let held = self.state_inherited_values(&node_data[node_index], node_index, state);
+                    if !held.is_empty() {
+                        hands_on.extend(held.iter().map(|p| p.get_type()));
+                        state_overlays.push((node_index, held));
+                    }
+                }
+                // ... and what it took from a state above without declaring
+                // the property itself: its children take that from it too.
+                for ty in &held_above {
+                    if !hands_on.contains(ty) && holds_inherited(&ctx.computed_values, *ty) {
+                        hands_on.push(*ty);
+                    }
+                }
+                if !hands_on.is_empty() && hierarchy_item.last_child_id().is_some() {
+                    from_a_state.insert(node_index, hands_on);
+                }
+
+                // Step 6: a `line-height` in `em` / `%` computes to a length
+                // against the node's own font size, final only now.
+                Self::compute_font_relative_line_height(&mut ctx);
 
                 // Check for changes and store
-                let changed = self.store_if_changed(&ctx, &previous);
+                let near = if parent_on_top {
+                    ancestors
+                        .last()
+                        .map(|(_, values, buckets)| (values.as_slice(), buckets.as_slice()))
+                } else {
+                    None
+                };
+                let (changed, stored, buckets) = self.store_if_changed(&ctx, &previous, near);
+                if hierarchy_item.last_child_id().is_some() {
+                    ancestors.push((node_index, stored, buckets));
+                }
                 changed.then_some(node_id)
             })
             .collect()
+    }
+
+    /// The values node `index`'s CSS-wide keyword declarations stand for (see
+    /// [`Self::css_wide_values`]), in every tier and pseudo-state, its `parent`'s values
+    /// already computed (pre-order).
+    fn css_wide_values_of_node(
+        &self,
+        node_data: &[NodeData],
+        index: usize,
+        parent: Option<NodeId>,
+    ) -> Vec<(
+        (usize, CssPropertyType, azul_css::css::CssWideKeyword),
+        CssProperty,
+    )> {
+        let mut declared: Vec<(CssPropertyType, azul_css::css::CssWideKeyword)> = Vec::new();
+        let mut note = |p: &CssProperty| {
+            if let Some(keyword) = p.css_wide_keyword() {
+                let entry = (p.get_type(), keyword);
+                if !declared.contains(&entry) {
+                    declared.push(entry);
+                }
+            }
+        };
+        if let Some(user) = self.user_overridden_properties.get(index) {
+            for (_, p) in user {
+                note(p);
+            }
+        }
+        for (p, _) in self.inline_properties(&node_data[index], index) {
+            note(p);
+        }
+        for p in self.css_props.get_slice(index) {
+            note(&p.property);
+        }
+        for p in self.cascaded_props.get_slice(index) {
+            note(&p.property);
+        }
+        if star_selects(&node_data[index]) {
+            for p in &self.global_css_props {
+                note(p);
+            }
+        }
+        declared
+            .into_iter()
+            .filter_map(|(ty, keyword)| {
+                self.css_wide_value_for(node_data, index, parent, ty, keyword)
+                    .map(|value| ((index, ty, keyword), value))
+            })
+            .collect()
+    }
+
+    /// The value `keyword` stands for as node `index`'s `ty`; `None` for the property's
+    /// initial value where the readers take the keyword for it.
+    fn css_wide_value_for(
+        &self,
+        node_data: &[NodeData],
+        index: usize,
+        parent: Option<NodeId>,
+        ty: CssPropertyType,
+        keyword: azul_css::css::CssWideKeyword,
+    ) -> Option<CssProperty> {
+        use azul_css::css::CssWideKeyword;
+
+        let inherits = ty.is_inheritable();
+        let from_parent = match keyword {
+            CssWideKeyword::Inherit => true,
+            CssWideKeyword::Unset => inherits,
+            CssWideKeyword::Initial => false,
+            // The author's declarations are rolled back to the user agent's (there is no user
+            // style sheet): its value for the element, else as `unset`.
+            CssWideKeyword::Revert => {
+                let is_root = takes_root_ua_default(index, ty, &self.inherited_from_host);
+                if let Some(ua) = crate::ua_css::get_ua_default(
+                    &node_data[index],
+                    is_root,
+                    ty,
+                    self.dynamic_context.as_deref(),
+                ) {
+                    return Some(ua.clone());
+                }
+                inherits
+            }
+        };
+        if from_parent {
+            self.parent_value(node_data, parent, ty)
+        } else {
+            initial_value_unlike_the_default(ty)
+        }
+    }
+
+    /// The parent's value of `ty`, as `inherit` takes it: its computed value (a font-relative
+    /// length in pixels). `None` where the parent is at the initial value, and for the root of
+    /// a document (a hosted root's parent is its host).
+    fn parent_value(
+        &self,
+        node_data: &[NodeData],
+        parent: Option<NodeId>,
+        ty: CssPropertyType,
+    ) -> Option<CssProperty> {
+        let value = match parent {
+            None => self
+                .inherited_from_host
+                .iter()
+                .find(|(t, _)| *t == ty)
+                .map(|(_, v)| v.property.clone())?,
+            Some(parent) => self.own_value(node_data, parent, ty)?,
+        };
+        // A parent at its initial value hands that on.
+        value.css_wide_keyword().is_none().then_some(value)
+    }
+
+    /// Node `node`'s computed value of `ty`, as a child's `inherit` takes it.
+    fn own_value(
+        &self,
+        node_data: &[NodeData],
+        node: NodeId,
+        ty: CssPropertyType,
+    ) -> Option<CssProperty> {
+        if ty.is_inheritable() {
+            return self
+                .computed_values
+                .get(node.index(), ty)
+                .map(|v| v.property.clone());
+        }
+        let declared = self.get_property_slow(
+            &node_data[node.index()],
+            &node,
+            &StyledNodeState::default(),
+            &ty,
+        )?;
+        // A length in `em` computes against the node's own font size.
+        let em = pixel_value_of(declared)
+            .is_some_and(|v| v.metric == azul_css::props::basic::length::SizeMetric::Em);
+        let font_size = self
+            .computed_values
+            .get(node.index(), CssPropertyType::FontSize)
+            .filter(|_| em);
+        Some(
+            font_size
+                .and_then(|fs| Self::resolve_property_dependency(declared, &fs.property))
+                .unwrap_or_else(|| declared.clone()),
+        )
     }
 
     /// Inherit inheritable properties from parent node
@@ -5137,6 +6834,16 @@ impl CssPropertyCache {
     }
 
     /// Apply all cascade properties in priority order
+    ///
+    /// `from_a_state`: the inheritable types the node's PARENT shows it from a state - its
+    /// own (`.row:hover { color }`) or one above it that it hands on. The node's inherited
+    /// row holds a COPY of what its parent holds AT REST for each such type (the walk of
+    /// the cascade copies resting values), and Step 2 takes a copy for a declaration of
+    /// the node's own: applied, it put the resting colour back over the hover colour the
+    /// node had just inherited, on every node below a hovered one whenever the pass ran
+    /// over rows that still held their resting copies (a cascade before its prune:
+    /// `recascade_nodes`, `restyle`). A copy of such a type is passed over; a UA default
+    /// (a link's colour) is the node's own declaration and applies as ever.
     fn apply_cascade_properties(
         &self,
         ctx: &mut InheritanceContext,
@@ -5144,16 +6851,36 @@ impl CssPropertyCache {
         parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
         node_data: &[NodeData],
         node_index: usize,
+        from_a_state: &[CssPropertyType],
     ) {
         // Step 2: Cascaded properties (UA CSS)
         {
             let cascaded_slice = self.cascaded_props.get_slice(node_id.index());
             for p in cascaded_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal
+                    && (p.ua_origin || !from_a_state.contains(&p.prop_type))
                     && Self::should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property)
                 {
-                    Self::process_property(ctx, &p.property, parent_computed);
+                    Self::process_property(
+                        ctx,
+                        self.css_wide_value_of(node_index, &p.property)
+                            .unwrap_or(&p.property),
+                        parent_computed,
+                    );
                 }
+            }
+        }
+
+        // Step 2b: the global `*` rules, which rank above the UA sheet and below every rule
+        // matched node by node. An element's children inherit what they give it, as a text
+        // node (which `*` does not select) inherits its parent's colour.
+        if star_selects(&node_data[node_index]) {
+            for p in &self.global_css_props {
+                Self::process_property(
+                    ctx,
+                    self.css_wide_value_of(node_index, p).unwrap_or(p),
+                    parent_computed,
+                );
             }
         }
 
@@ -5162,7 +6889,12 @@ impl CssPropertyCache {
             let css_slice = self.css_props.get_slice(node_id.index());
             for p in css_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal {
-                    Self::process_property(ctx, &p.property, parent_computed);
+                    Self::process_property(
+                        ctx,
+                        self.css_wide_value_of(node_index, &p.property)
+                            .unwrap_or(&p.property),
+                        parent_computed,
+                    );
                 }
             }
         }
@@ -5176,25 +6908,40 @@ impl CssPropertyCache {
         // inherited default). Skipping every conditional declaration, as this
         // did, made a container's `dark_theme(color: ..)` twin invisible to
         // its children: the label under a dark-mode button inherited the light
-        // value and painted dark-on-dark. Source order, last match wins, like
-        // the node's own resolution.
+        // value and painted dark-on-dark. In cascade order (theme rank, then
+        // source order), last match wins, like the node's own resolution.
         let dyn_ctx = self.dynamic_context.as_deref();
-        for (prop, conds) in node_data[node_index].style.iter_inline_properties() {
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
+        let mut in_order = Vec::new();
+        azul_css::css::inline_in_cascade_order(
+            self.inline_properties(&node_data[node_index], node_index),
+            |conds| rank_of(dyn_ctx, no_context_theme.as_ref(), conds),
+            &mut in_order,
+        );
+        for (prop, conds) in in_order {
             let applies = conds.as_slice().iter().all(|c| match c {
                 azul_css::dynamic_selector::DynamicSelector::PseudoState(s) => {
                     *s == azul_css::dynamic_selector::PseudoStateType::Normal
                 }
-                other => dyn_ctx.is_some_and(|ctx| other.matches(ctx)),
+                other => condition_holds(dyn_ctx, no_context_theme.as_ref(), other),
             });
             if applies {
-                Self::process_property(ctx, prop, parent_computed);
+                Self::process_property(
+                    ctx,
+                    self.css_wide_value_of(node_index, prop).unwrap_or(prop),
+                    parent_computed,
+                );
             }
         }
 
         // Step 5: User-overridden properties
         if let Some(user_props) = self.user_overridden_properties.get(node_id.index()) {
             for (_, prop) in user_props {
-                Self::process_property(ctx, prop, parent_computed);
+                Self::process_property(
+                    ctx,
+                    self.css_wide_value_of(node_index, prop).unwrap_or(prop),
+                    parent_computed,
+                );
             }
         }
     }
@@ -5233,6 +6980,8 @@ impl CssPropertyCache {
 
         let resolved = if prop_type == CssPropertyType::FontSize {
             Self::resolve_font_size_property(prop, parent_computed)
+        } else if prop_type == CssPropertyType::FontWeight {
+            Self::resolve_font_weight_property(prop, parent_computed)
         } else {
             Self::resolve_other_property(prop, &ctx.computed_values)
         };
@@ -5251,6 +7000,76 @@ impl CssPropertyCache {
             Ok(idx) => ctx.computed_values[idx] = entry,
             Err(idx) => ctx.computed_values.insert(idx, entry),
         }
+    }
+
+    /// A `line-height` in `em` / `%` computes to an absolute length against
+    /// the node's OWN font size (CSS 2.2 s10.8.1) - known only once every
+    /// cascade tier has run, so a `font-size` declared after it counts - and
+    /// that length is what the descendants inherit from here (the raw value
+    /// is kept out of their `cascaded_props`, see
+    /// `inherits_its_computed_length`).
+    fn compute_font_relative_line_height(ctx: &mut InheritanceContext) {
+        use azul_css::{css::CssPropertyValue, props::basic::length::SizeMetric};
+
+        let Ok(lh_idx) = ctx
+            .computed_values
+            .binary_search_by_key(&CssPropertyType::LineHeight, |(k, _)| *k)
+        else {
+            return;
+        };
+        let line_height = match &ctx.computed_values[lh_idx].1.property {
+            CssProperty::LineHeight(CssPropertyValue::Exact(lh))
+                if lh.is_font_relative_length() =>
+            {
+                *lh
+            }
+            _ => return,
+        };
+        let font_size_px = ctx
+            .computed_values
+            .binary_search_by_key(&CssPropertyType::FontSize, |(k, _)| *k)
+            .ok()
+            .and_then(|idx| match &ctx.computed_values[idx].1.property {
+                CssProperty::FontSize(v) => v
+                    .get_property()
+                    .filter(|fs| fs.inner.metric == SizeMetric::Px)
+                    .map(|fs| fs.inner.number.get()),
+                _ => None,
+            })
+            .unwrap_or(azul_css::props::basic::pixel::DEFAULT_FONT_SIZE);
+        ctx.computed_values[lh_idx].1.property = CssProperty::LineHeight(
+            CssPropertyValue::Exact(line_height.computed(font_size_px)),
+        );
+    }
+
+    /// `font-weight: bolder` / `lighter` compute against the PARENT's
+    /// computed weight (CSS Fonts 4 s2.2, `StyleFontWeight::computed`); the
+    /// descendants inherit the resulting number. Any other weight is its own
+    /// computed value.
+    fn resolve_font_weight_property(
+        prop: &CssProperty,
+        parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
+    ) -> CssProperty {
+        use azul_css::{css::CssPropertyValue, props::basic::font::StyleFontWeight};
+
+        let CssProperty::FontWeight(CssPropertyValue::Exact(weight)) = prop else {
+            return prop.clone();
+        };
+        if !weight.is_relative() {
+            return prop.clone();
+        }
+        let parent_weight = parent_computed
+            .and_then(|p| {
+                p.binary_search_by_key(&CssPropertyType::FontWeight, |(k, _)| *k)
+                    .ok()
+                    .map(|idx| &p[idx].1.property)
+            })
+            .and_then(|p| match p {
+                CssProperty::FontWeight(v) => v.get_property().copied(),
+                _ => None,
+            })
+            .unwrap_or(StyleFontWeight::Normal);
+        CssProperty::FontWeight(CssPropertyValue::Exact(weight.computed(parent_weight)))
     }
 
     /// Resolve font-size property (uses parent's font-size as reference)
@@ -5310,11 +7129,14 @@ impl CssPropertyCache {
         };
 
         let resolved_px = match font_size.inner.metric {
-            SizeMetric::Px => font_size.inner.number.get(),
-            SizeMetric::Pt => font_size.inner.number.get() * PT_TO_PX,
-            SizeMetric::In => font_size.inner.number.get() * IN_TO_PX,
-            SizeMetric::Cm => font_size.inner.number.get() * CM_TO_PX,
-            SizeMetric::Mm => font_size.inner.number.get() * MM_TO_PX,
+            // The absolute units, by the one conversion the compact cache
+            // uses too (`PixelValue::absolute_px`): `1in` is 96 px in both.
+            SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+                let Some(px) = font_size.inner.absolute_px() else {
+                    return prop.clone();
+                };
+                px
+            }
             SizeMetric::Em => font_size.inner.number.get() * reference_px,
             SizeMetric::Rem => {
                 font_size.inner.number.get() * azul_css::props::basic::pixel::DEFAULT_FONT_SIZE
@@ -5366,7 +7188,17 @@ impl CssPropertyCache {
     /// `resolve_font_size_property`), which is itself inheritable. Non-inherited
     /// properties are still answered by `cascaded_props` / `css_props` / the
     /// compact cache, which is where the layout path reads them from anyway.
-    fn store_if_changed(&mut self, ctx: &InheritanceContext, previous: &InheritedValues) -> bool {
+    ///
+    /// `near` is the node's parent's stored values and their buckets, when
+    /// the caller has them ([`InheritedValues::set_node_near`]). Answers
+    /// whether the values differ from `previous`'s, the values stored
+    /// (ascending by type) and the bucket each went to.
+    fn store_if_changed(
+        &mut self,
+        ctx: &InheritanceContext,
+        previous: &InheritedValues,
+        near: Option<(&[(CssPropertyType, CssPropertyWithOrigin)], &[u32])>,
+    ) -> (bool, Vec<(CssPropertyType, CssPropertyWithOrigin)>, Vec<u32>) {
         let inheritable: Vec<(CssPropertyType, CssPropertyWithOrigin)> = ctx
             .computed_values
             .iter()
@@ -5374,9 +7206,10 @@ impl CssPropertyCache {
             .cloned()
             .collect();
         let changed = previous.values_for(ctx.node_id.index()) != inheritable;
-        self.computed_values
-            .set_node(ctx.node_id.index(), &inheritable);
-        changed
+        let buckets = self
+            .computed_values
+            .set_node_near(ctx.node_id.index(), &inheritable, near);
+        (changed, inheritable, buckets)
     }
 }
 
@@ -5387,13 +7220,1330 @@ struct InheritanceContext {
     computed_values: Vec<(CssPropertyType, CssPropertyWithOrigin)>,
 }
 
+/// Whether `computed` (a node's values, ascending by type) holds `ty` as an INHERITED
+/// value: the node took it from its parent and declares nothing for it.
+fn holds_inherited(
+    computed: &[(CssPropertyType, CssPropertyWithOrigin)],
+    ty: CssPropertyType,
+) -> bool {
+    computed
+        .binary_search_by_key(&ty, |(k, _)| *k)
+        .is_ok_and(|at| computed[at].1.origin == CssPropertyOrigin::Inherited)
+}
+
 impl CssPropertyCache {
     /// Clear the entire compact cache. Call after major DOM changes.
     pub(crate) fn invalidate_resolved_cache(&mut self) {
         self.compact_cache = None;
     }
+
+    /// The inheritable types node `node` shows its children FROM A STATE, read from what
+    /// the cache holds for it and its ancestors (a node whose rows and values a cascade
+    /// over other nodes keeps, [`Self::recascade_nodes`]): what it holds for a state it is
+    /// in itself ([`Self::state_inherited_values`]), and what an ancestor in a state hands
+    /// down to it through nodes that declare nothing against it - each of them, `node`
+    /// included, holds the type as an inherited value. What the inheritance pass keeps per
+    /// node while it walks a whole DOM (`compute_inherited_values`), found again for one
+    /// node: a walk up its ancestors, which asks a node at rest nothing.
+    fn types_shown_from_a_state(
+        &self,
+        node_data: &[NodeData],
+        node_hierarchy: &[NodeHierarchyItem],
+        node_states: &[StyledNodeState],
+        node: usize,
+    ) -> Vec<CssPropertyType> {
+        let mut found: Vec<CssPropertyType> = Vec::new();
+        // The nodes from `node` up to, not including, the one asked: each has to hand a
+        // type on for it to reach the children of `node`.
+        let mut below: Vec<usize> = Vec::new();
+        let mut at = Some(node);
+        while let Some(index) = at {
+            let (Some(data), Some(state)) = (node_data.get(index), node_states.get(index)) else {
+                break;
+            };
+            for held in self.state_inherited_values(data, index, state) {
+                let ty = held.get_type();
+                if found.contains(&ty) {
+                    continue;
+                }
+                let handed_on = below.iter().all(|passed| {
+                    self.computed_values
+                        .get(*passed, ty)
+                        .is_some_and(|value| value.origin == CssPropertyOrigin::Inherited)
+                });
+                if handed_on {
+                    found.push(ty);
+                }
+            }
+            below.push(index);
+            // Document order: a parent stands before its child (and a malformed arena
+            // ends the walk instead of going round).
+            at = node_hierarchy
+                .get(index)
+                .and_then(NodeHierarchyItem::parent_id)
+                .map(|parent| parent.index())
+                .filter(|parent| *parent < index);
+        }
+        found
+    }
+}
+
+impl CssPropertyCache {
+    /// Runs the cascade for the nodes `dirty` names (`dirty[node]`) and leaves every other
+    /// node's rows as they are: its matched rules, what it inherited, its computed inherited
+    /// values and its compact entries. What a rebuild that changed a few nodes of a DOM where
+    /// they stand runs instead of [`Self::restyle_cascade`] and the passes that follow it
+    /// (`StyledDom::restyle_changed_nodes`).
+    ///
+    /// SOUND when `dirty` holds every node whose cascade inputs moved since the rows were
+    /// made, the tree, the sheets, the window's context and the nodes' states being what they
+    /// were (`StyledDom::nodes_reached_by_changes` for a change of nodes' own data). Then, for
+    /// a node that is not named, every stage below reads what it read before:
+    /// - its matched rules (`css_props`) are a function of the rules in cascade order, the
+    ///   node, its ancestors and the element siblings before it and before them, and the
+    ///   states of those nodes (`crate::style::matches_html_element_remembering`);
+    /// - what it inherited (`cascaded_props`) is a function of its parent's own style,
+    ///   matched rules and inherited row, of its own type (the UA defaults) and of the rows
+    ///   of its ancestors (the stale copies the UA pass removes);
+    /// - its computed inherited values and its compact entries are functions of its own rows
+    ///   and of its parent's values and entries.
+    /// By induction from the root a node whose every ancestor is unnamed keeps every row.
+    ///
+    /// The named nodes' rows are made as the whole-DOM passes make them, pass by pass, from
+    /// copies of those passes' per-node steps. One thing has to be made again for nodes that
+    /// are NOT named: the inherited row of each ancestor of a named node as it stood BEFORE
+    /// the prune (`prune_compact_normal_props` drops the resting compact values from the kept
+    /// rows, and a child copies them from its parent's row). They are rebuilt from the root
+    /// down along those chains, used, and dropped: the ancestors keep the rows they have.
+    ///
+    /// `moved_in_place` (empty: none) names nodes that are NOT cascaded and whose own style
+    /// moved in a way no row but their compact entries holds - the values of their insets,
+    /// of an exact `transform` / `opacity` (`StyledDom::own_style_moved_in_place`): these
+    /// properties do not inherit, a node's own declarations are read from its node data and
+    /// not from the matched or inherited rows, and no selector reads a style. Their compact
+    /// entries are built again with the named nodes'; their children copy only inheritable
+    /// slots from them, which did not move, and keep their entries.
+    ///
+    /// Answers `false`, having changed nothing, where the whole cascade has to run instead:
+    /// a cache that is not complete (no compact cache, rows in their build phase, a composed
+    /// DOM), a custom property or `var()` anywhere (the variable pass resolves them DOM-wide),
+    /// a generated node among the named ones, `*` rules that are no longer the ones the rows
+    /// were made with, or more than half of the nodes named.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // the passes of a cascade, in order
+    pub fn recascade_nodes(
+        &mut self,
+        css: &mut Css,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
+        node_hierarchy: &NodeHierarchyItemVec,
+        non_leaf_nodes: &ParentWithNodeDepthVec,
+        html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+        node_states: &[StyledNodeState],
+        dirty: &[bool],
+        moved_in_place: &[bool],
+    ) -> bool {
+        use azul_css::{
+            css::{
+                CssDeclaration,
+                CssPathPseudoSelector::{
+                    self, Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, FocusWithin,
+                    Hover, Placeholder, SeatFocus,
+                },
+                CssPathSelector, CssRuleBlock,
+            },
+            dynamic_selector::{DynamicSelector, PseudoStateType},
+        };
+
+        let node_count = node_data.len();
+        let hierarchy = node_hierarchy.as_container();
+        let items = hierarchy.internal;
+        let named = dirty.iter().filter(|d| **d).count();
+        let any_moved = moved_in_place.iter().any(|moved| *moved);
+        if dirty.len() != node_count
+            || (!moved_in_place.is_empty() && moved_in_place.len() != node_count)
+            || items.len() != node_count
+            || self.node_count != node_count
+            || self.css_props.len() != node_count
+            || self.cascaded_props.len() != node_count
+            || !self.css_props.is_flattened()
+            || !self.cascaded_props.is_flattened()
+            || self
+                .compact_cache
+                .as_ref()
+                .is_none_or(|compact| compact.node_count() != node_count)
+            || !self.ua_applied
+            || self.composed_since_recompute
+            || !self.resolved_inline.is_empty()
+            || self.variables_depend_on_context
+            || self.custom_property_envs
+                != crate::custom_property_cascade::CustomPropertyEnvs::default()
+            || crate::custom_property_cascade::needs_variable_pass(css, node_data.internal)
+            || named * 2 > node_count
+            || node_data
+                .internal
+                .iter()
+                .zip(dirty)
+                .any(|(node, named)| *named && node.is_generated_content())
+        {
+            return false;
+        }
+
+        let css_is_empty = css.is_empty();
+        let dyn_ctx = self.dynamic_context.clone();
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
+        let rule_applies = |conds: &azul_css::dynamic_selector::DynamicSelectorVec| -> bool {
+            let cs = conds.as_slice();
+            cs.is_empty()
+                || cs.iter().all(|sel| {
+                    condition_holds(dyn_ctx.as_deref(), no_context_theme.as_ref(), sel)
+                })
+        };
+        let rank = |conds: &[DynamicSelector]| {
+            rank_of(dyn_ctx.as_deref(), no_context_theme.as_ref(), conds)
+        };
+        let ancestor_states = crate::style::AncestorStates {
+            nodes: node_states,
+            window_inactive: dyn_ctx.as_deref().is_some_and(|c| !c.window_focused),
+            every_state: false,
+        };
+
+        // ---- The matched rules of the named nodes (`restyle_cascade`, node by node) ----
+
+        let mut new_css: Vec<Vec<StatefulCssProperty>> = vec![Vec::new(); node_count];
+        let mut new_overruled: alloc::collections::BTreeMap<
+            usize,
+            Vec<(PseudoStateType, CssPropertyType)>,
+        > = alloc::collections::BTreeMap::new();
+        let mut new_env = EnvReaders::default();
+
+        // Presentational hints first, as the first of a node's stylesheet properties.
+        for (index, nd) in node_data.internal.iter().enumerate() {
+            if !dirty[index] {
+                continue;
+            }
+            for rule in nd.style.rules.as_ref() {
+                let stateful = rule
+                    .conditions
+                    .as_slice()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::PseudoState(_)));
+                if rule.priority >= azul_css::css::rule_priority::INLINE
+                    || stateful
+                    || !rule_applies(&rule.conditions)
+                {
+                    continue;
+                }
+                for declaration in rule.declarations.as_ref() {
+                    new_env.note(Some(index), declaration);
+                    if let Some(prop) = declaration.resolve_in_cascade(dyn_ctx.as_deref()) {
+                        new_css[index].push(StatefulCssProperty {
+                            state: PseudoStateType::Normal,
+                            prop_type: prop.get_type(),
+                            property: prop,
+                            ua_origin: false,
+                            priority: azul_css::css::rule_priority::PRESENTATIONAL,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Whether the inheritance walk carries a `:backdrop` tier, as the whole cascade asks.
+        let mut any_backdrop = node_data.internal.iter().any(|nd| {
+            nd.style.iter_inline_properties().any(|(_, conds)| {
+                conds.as_slice().iter().any(|c| {
+                    matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
+                })
+            })
+        });
+
+        let mut global_priorities: Vec<(CssPropertyType, u8)> = Vec::new();
+        // The states the sheet's live rules name left of their subject, as the whole cascade
+        // finds them (`left_state_mask`): the sheet of a spliced cache is another sheet than
+        // the one its mask came with (`Self::spliced`); for a kept DOM this is what it holds.
+        let mut new_left_mask: u32 = 0;
+        if !css_is_empty {
+            css.sort_by_specificity();
+
+            let is_global_only = |rule: &CssRuleBlock| {
+                let selectors = rule.path.selectors.as_ref();
+                selectors.len() == 1
+                    && matches!(selectors.first(), Some(CssPathSelector::Global))
+                    && rule.priority <= azul_css::css::rule_priority::INLINE
+                    && !rule
+                        .declarations
+                        .as_ref()
+                        .iter()
+                        .any(CssDeclaration::uses_custom_properties)
+            };
+            let mut all: Vec<&CssRuleBlock> = css.rules().collect();
+            Css::sort_rules_in_cascade_order(&mut all, rank);
+            let lowest_matched = all
+                .iter()
+                .filter(|rule| !is_global_only(rule))
+                .map(|rule| rule.priority)
+                .min();
+            let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
+            let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
+            for rule in all {
+                if is_global_only(rule) && lowest_matched.is_none_or(|p| rule.priority <= p) {
+                    global_only_rules.push(rule);
+                } else {
+                    specific_rules.push(rule);
+                }
+            }
+
+            // The `*` bucket every node shares: it has to be the one the kept rows were made
+            // with, or no row stands.
+            let mut global_props: Vec<CssProperty> = Vec::new();
+            for rule in &global_only_rules {
+                if !rule_applies(&rule.conditions) {
+                    continue;
+                }
+                if crate::style::rule_ends_with(&rule.path, None) {
+                    for d in &rule.declarations {
+                        if let Some(s) = d.resolve_in_cascade(dyn_ctx.as_deref()) {
+                            global_priorities.push((s.get_type(), rule.priority));
+                            global_props.push(s);
+                        }
+                    }
+                }
+            }
+            if global_props != self.global_css_props {
+                return false;
+            }
+
+            if !specific_rules.is_empty() {
+                let passes: [(Option<CssPathPseudoSelector>, PseudoStateType); 11] = [
+                    (None, PseudoStateType::Normal),
+                    (Some(Hover), PseudoStateType::Hover),
+                    (Some(Active), PseudoStateType::Active),
+                    (Some(Focus), PseudoStateType::Focus),
+                    (Some(SeatFocus), PseudoStateType::SeatFocus),
+                    (Some(FocusVisible), PseudoStateType::FocusVisible),
+                    (Some(FocusWithin), PseudoStateType::FocusWithin),
+                    (Some(Dragging), PseudoStateType::Dragging),
+                    (Some(DragOver), PseudoStateType::DragOver),
+                    (Some(Placeholder), PseudoStateType::Placeholder),
+                    (Some(Backdrop), PseudoStateType::Backdrop),
+                ];
+                let backdrop_pass: u16 = 1 << (passes.len() - 1);
+                let ends_in: Vec<u16> = specific_rules
+                    .iter()
+                    .map(|rule| {
+                        passes
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, (pseudo, _))| {
+                                crate::style::rule_ends_with(&rule.path, pseudo.clone())
+                            })
+                            .fold(0u16, |bits, (pass, _)| bits | (1 << pass))
+                    })
+                    .collect();
+                let takes_part: Vec<u16> = specific_rules
+                    .iter()
+                    .zip(&ends_in)
+                    .map(|(rule, &bits)| {
+                        if rule_applies(&rule.conditions) {
+                            bits
+                        } else {
+                            0
+                        }
+                    })
+                    .collect();
+                any_backdrop |= ends_in.iter().any(|bits| bits & backdrop_pass != 0);
+                let live_passes = takes_part.iter().fold(0u16, |all, bits| all | bits);
+                new_left_mask = specific_rules
+                    .iter()
+                    .zip(&takes_part)
+                    .filter(|(_, bits)| **bits != 0)
+                    .fold(0, |mask, (rule, _)| {
+                        mask | crate::style::left_state_bits(&rule.path)
+                    });
+
+                let mut index = crate::style::SubjectRuleIndex::new(
+                    specific_rules.iter().map(|rule| &rule.path),
+                    &hierarchy,
+                );
+                let mut candidates: Vec<usize> = Vec::new();
+                let mut sibling_memo = crate::style::GeneralSiblingMemo::default();
+                let node_total = if live_passes == 0 { 0 } else { node_count };
+                // Ascending, as the index asks; a node that is not named is not asked for.
+                for node_index in 0..node_total {
+                    if !dirty[node_index] {
+                        continue;
+                    }
+                    let node_id = NodeId::new(node_index);
+                    index.candidates_into(node_index, &node_data[node_id], &mut candidates);
+                    for (pass, (pseudo, state)) in passes.iter().enumerate() {
+                        let bit = 1u16 << pass;
+                        if live_passes & bit == 0 {
+                            continue;
+                        }
+                        let state = *state;
+                        for &rule_idx in &candidates {
+                            if takes_part[rule_idx] & bit == 0 {
+                                continue;
+                            }
+                            let rule_block: &CssRuleBlock = specific_rules[rule_idx];
+                            if !crate::style::matches_html_element_remembering(
+                                &rule_block.path,
+                                node_id,
+                                &hierarchy,
+                                node_data,
+                                html_tree,
+                                pseudo.clone(),
+                                Some(ancestor_states),
+                                Some((&mut sibling_memo, rule_idx)),
+                            ) {
+                                continue;
+                            }
+                            if rule_block.priority > azul_css::css::rule_priority::INLINE {
+                                let overruled = new_overruled.entry(node_index).or_default();
+                                for ty in rule_block
+                                    .declarations
+                                    .as_slice()
+                                    .iter()
+                                    .filter_map(CssDeclaration::get_type)
+                                {
+                                    if !overruled.contains(&(state, ty)) {
+                                        overruled.push((state, ty));
+                                    }
+                                }
+                            }
+                            // No custom property and no `var()` (checked above): every
+                            // declaration is a property or an `env()`.
+                            for decl in rule_block.declarations.as_slice() {
+                                if let Some(prop) = decl.resolve_in_cascade(dyn_ctx.as_deref()) {
+                                    new_env.note(Some(node_index), decl);
+                                    new_css[node_index].push(StatefulCssProperty {
+                                        state,
+                                        prop_type: prop.get_type(),
+                                        property: prop,
+                                        ua_origin: false,
+                                        priority: rule_block.priority,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if !self.global_css_props.is_empty() {
+            return false;
+        }
+
+        // ---- Nothing below can fail: the rows are written ----
+        self.left_state_mask = new_left_mask;
+        if named == 0 && !any_moved {
+            return true;
+        }
+        crate::styled_dom::count_nodes_cascaded(named);
+
+        // A value a rule outranks never shows (`drop_outranked_values`); then each row as
+        // `sort_each_and_flatten` leaves it: by (state, type), the last of a key kept.
+        let mut global: Vec<(CssPropertyType, u8)> = Vec::new();
+        for (ty, priority) in &global_priorities {
+            match global.iter_mut().find(|(t, _)| t == ty) {
+                Some(slot) => slot.1 = slot.1.max(*priority),
+                None => global.push((*ty, *priority)),
+            }
+        }
+        for (index, entries) in new_css.iter_mut().enumerate() {
+            if !dirty[index] {
+                continue;
+            }
+            let star = node_data.internal.get(index).is_some_and(star_selects);
+            drop_outranked_values(entries, if star { &global } else { &[] });
+            sort_row_keeping_the_last(entries);
+        }
+        self.inline_overruled
+            .retain(|node, _| !dirty.get(*node).copied().unwrap_or(false));
+        self.inline_overruled.extend(new_overruled);
+        self.env_readers
+            .nodes
+            .retain(|node, _| !dirty.get(*node).copied().unwrap_or(false));
+        self.env_readers.append(&mut new_env, 0);
+        self.css_props.replace_rows(
+            new_css
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| dirty[*index]),
+        );
+
+        // ---- What the named nodes inherited (`restyle_cascade`'s walk, then the UA pass) ----
+        //
+        // `rebuild`: the named nodes and their ancestors. A row is built for each; only the
+        // named nodes' rows are kept.
+        let mut rebuild = dirty.to_vec();
+        for index in 0..node_count {
+            if !dirty[index] {
+                continue;
+            }
+            let mut up = items[index].parent_id();
+            while let Some(parent) = up {
+                if parent.index() >= node_count || rebuild[parent.index()] {
+                    break;
+                }
+                rebuild[parent.index()] = true;
+                up = items[parent.index()].parent_id();
+            }
+        }
+        let rebuilt: Vec<usize> = (0..node_count).filter(|index| rebuild[*index]).collect();
+        let mut rows: Vec<Vec<StatefulCssProperty>> = vec![Vec::new(); node_count];
+
+        if rebuild[0] && !self.inherited_from_host.is_empty() {
+            let from_host: Vec<StatefulCssProperty> = self
+                .inherited_from_host
+                .iter()
+                .filter(|(prop_type, value)| {
+                    !is_resolved_parent_inherited(*prop_type)
+                        && !inherits_its_computed_length(&value.property)
+                })
+                .map(|(prop_type, value)| StatefulCssProperty {
+                    state: PseudoStateType::Normal,
+                    prop_type: *prop_type,
+                    property: clone_inheritable_property(&value.property),
+                    ua_origin: false,
+                    priority: 0,
+                })
+                .collect();
+            rows[0].extend(from_host);
+        }
+
+        for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes {
+            let Some(parent_id) = node_id.into_crate_internal() else {
+                continue;
+            };
+            if !rebuild.get(parent_id.index()).copied().unwrap_or(false) {
+                continue;
+            }
+
+            let all_states = [
+                PseudoStateType::Normal,
+                PseudoStateType::Hover,
+                PseudoStateType::Active,
+                PseudoStateType::Focus,
+                PseudoStateType::FocusVisible,
+                PseudoStateType::FocusWithin,
+                PseudoStateType::SeatFocus,
+                PseudoStateType::Dragging,
+                PseudoStateType::DragOver,
+                PseudoStateType::Placeholder,
+                PseudoStateType::Backdrop,
+            ];
+            let states = if any_backdrop {
+                &all_states[..]
+            } else {
+                &all_states[..all_states.len() - 1]
+            };
+
+            let mut inline_by_state: Vec<Vec<(CssPropertyType, CssProperty)>> = {
+                let mut parent_inline = Vec::new();
+                azul_css::css::inline_in_cascade_order(
+                    self.inline_properties(&node_data[parent_id], parent_id.index()),
+                    rank,
+                    &mut parent_inline,
+                );
+                states
+                    .iter()
+                    .map(|&state| {
+                        let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                        for &(prop, conds) in &parent_inline {
+                            let conditions = conds.as_slice();
+                            let decl_state = conditions
+                                .iter()
+                                .find_map(|c| match c {
+                                    DynamicSelector::PseudoState(s) => Some(*s),
+                                    _ => None,
+                                })
+                                .unwrap_or(PseudoStateType::Normal);
+                            let applies = decl_state == state
+                                && conditions.iter().all(|c| match c {
+                                    DynamicSelector::PseudoState(s) => *s == state,
+                                    other => condition_holds(
+                                        dyn_ctx.as_deref(),
+                                        no_context_theme.as_ref(),
+                                        other,
+                                    ),
+                                });
+                            let prop_type = prop.get_type();
+                            if !applies
+                                || !prop_type.is_inheritable()
+                                || is_resolved_parent_inherited(prop_type)
+                            {
+                                continue;
+                            }
+                            let value = clone_inheritable_property(prop);
+                            match picked.iter_mut().find(|(t, _)| *t == prop_type) {
+                                Some(slot) => slot.1 = value,
+                                None => picked.push((prop_type, value)),
+                            }
+                        }
+                        picked
+                    })
+                    .collect()
+            };
+
+            for (state_index, &state) in states.iter().enumerate() {
+                let parent_inheritable_inline = core::mem::take(&mut inline_by_state[state_index]);
+
+                // The parent's matched rules: its row in the flat store lists one entry per
+                // (state, type), the one that won - what the whole cascade picks out of the
+                // row in its build phase (the last of a type).
+                let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
+                    Vec::new()
+                } else {
+                    let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                    for p in self.css_props.get_slice(parent_id.index()).iter().filter(|p| {
+                        p.state == state
+                            && p.prop_type.is_inheritable()
+                            && !is_resolved_parent_inherited(p.prop_type)
+                    }) {
+                        let value = clone_inheritable_property(&p.property);
+                        match picked.iter_mut().find(|(t, _)| *t == p.prop_type) {
+                            Some(slot) => slot.1 = value,
+                            None => picked.push((p.prop_type, value)),
+                        }
+                    }
+                    picked
+                };
+
+                let parent_inheritable_cascaded: Vec<(CssPropertyType, CssProperty)> = rows
+                    [parent_id.index()]
+                .iter()
+                .filter(|p| {
+                    p.state == state
+                        && p.prop_type.is_inheritable()
+                        && !is_resolved_parent_inherited(p.prop_type)
+                })
+                .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
+                .collect();
+
+                if parent_inheritable_inline.is_empty()
+                    && parent_inheritable_css.is_empty()
+                    && parent_inheritable_cascaded.is_empty()
+                {
+                    continue;
+                }
+
+                let mut offered: Vec<&(CssPropertyType, CssProperty)> = Vec::new();
+                for entry in parent_inheritable_inline
+                    .iter()
+                    .chain(parent_inheritable_css.iter())
+                    .chain(parent_inheritable_cascaded.iter())
+                {
+                    if !offered.iter().any(|(t, _)| *t == entry.0) {
+                        offered.push(entry);
+                    }
+                }
+                offered.retain(|(_, v)| !inherits_its_computed_length(v));
+
+                for child_id in parent_id.az_children(&hierarchy) {
+                    if !rebuild.get(child_id.index()).copied().unwrap_or(false) {
+                        continue;
+                    }
+                    let child_vec = &mut rows[child_id.index()];
+                    for (prop_type, prop_value) in offered.iter().copied() {
+                        if !child_vec
+                            .iter()
+                            .any(|p| p.state == state && p.prop_type == *prop_type)
+                        {
+                            child_vec.push(StatefulCssProperty {
+                                state,
+                                prop_type: *prop_type,
+                                property: prop_value.clone(),
+                                ua_origin: false,
+                                priority: 0,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // The UA defaults (`apply_ua_css_inner`), for the same nodes.
+        let ctx = self.dynamic_context.as_deref();
+        let mut global_bits: PropTypeBits = [0u128; 2];
+        for p in &self.global_css_props {
+            prop_type_bit_set(&mut global_bits, p.get_type());
+        }
+        let mut declared: Vec<PropTypeBits> = vec![[0u128; 2]; node_count];
+        for &index in &rebuilt {
+            let node = &node_data.internal[index];
+            let bits = &mut declared[index];
+            for p in self
+                .css_props
+                .get_slice(index)
+                .iter()
+                .filter(|p| p.state == PseudoStateType::Normal)
+            {
+                prop_type_bit_set(bits, p.prop_type);
+            }
+            for (prop, conds) in self.inline_properties(node, index) {
+                if conds.as_slice().is_empty() {
+                    prop_type_bit_set(bits, prop.get_type());
+                }
+            }
+            if star_selects(node) {
+                bits[0] |= global_bits[0];
+                bits[1] |= global_bits[1];
+            }
+        }
+        for &index in &rebuilt {
+            let node = &node_data.internal[index];
+            // What beats the UA sheet: what the node declares, and on a text node what it
+            // inherited (`normal_props_present`).
+            let mut present = declared[index];
+            if node.is_text_node() {
+                for p in rows[index]
+                    .iter()
+                    .filter(|p| p.state == PseudoStateType::Normal)
+                {
+                    prop_type_bit_set(&mut present, p.prop_type);
+                }
+            }
+            for prop_type in crate::ua_css::UA_PROPERTY_TYPES {
+                if prop_type_bit_test(&present, *prop_type) {
+                    continue;
+                }
+                let is_root = takes_root_ua_default(index, *prop_type, &self.inherited_from_host);
+                let Some(ua_prop) = crate::ua_css::get_ua_default(node, is_root, *prop_type, ctx)
+                else {
+                    continue;
+                };
+                rows[index].push(StatefulCssProperty {
+                    state: PseudoStateType::Normal,
+                    prop_type: *prop_type,
+                    property: ua_prop.clone(),
+                    ua_origin: true,
+                    priority: 0,
+                });
+            }
+        }
+
+        // The copies a UA default made stale (`hand_ua_defaults_down`), along the same nodes:
+        // a node's parent is among them.
+        let types: Vec<CssPropertyType> = crate::ua_css::UA_PROPERTY_TYPES
+            .iter()
+            .copied()
+            .filter(|t| t.is_inheritable() && !is_resolved_parent_inherited(*t))
+            .collect();
+        let mut stale: Vec<Option<CssProperty>> = vec![None; node_count];
+        for &ty in &types {
+            for &index in &rebuilt {
+                stale[index] = None;
+            }
+            for &node_index in &rebuilt {
+                if prop_type_bit_test(&declared[node_index], ty) {
+                    continue;
+                }
+                let is_normal_of = |e: &StatefulCssProperty| {
+                    e.state == PseudoStateType::Normal && e.prop_type == ty
+                };
+                let copy = rows[node_index]
+                    .iter()
+                    .rev()
+                    .find(|e| is_normal_of(e) && !e.ua_origin)
+                    .map(|e| clone_inheritable_property(&e.property));
+                let ua = rows[node_index]
+                    .iter()
+                    .rev()
+                    .find(|e| is_normal_of(e) && e.ua_origin)
+                    .map(|e| clone_inheritable_property(&e.property));
+                let inherited_stale = items[node_index]
+                    .parent_id()
+                    .map(|p| p.index())
+                    .filter(|p| *p < node_index)
+                    .and_then(|p| stale[p].clone());
+                let Some(copy) = copy else {
+                    continue;
+                };
+                if inherited_stale.as_ref() == Some(&copy) {
+                    rows[node_index].retain(|e| !is_normal_of(e) || e.ua_origin);
+                    stale[node_index] = Some(copy);
+                } else if ua.is_some_and(|u| u != copy) {
+                    stale[node_index] = Some(copy);
+                }
+            }
+        }
+
+        // The named nodes' rows go into the store as `sort_cascaded_props` leaves a row, with
+        // every resting value still in them: the two passes below read them so.
+        let mut kept_rows: Vec<(usize, Vec<StatefulCssProperty>)> = Vec::with_capacity(named);
+        for (index, mut row) in rows.into_iter().enumerate() {
+            if dirty[index] {
+                sort_row_keeping_the_last(&mut row);
+                kept_rows.push((index, row));
+            }
+        }
+        self.cascaded_props.replace_rows(kept_rows.iter().cloned());
+
+        // ---- The computed inherited values of the named nodes (`compute_inherited_values`) ----
+        self.computed_values.grow_to(node_count);
+        self.computed_values.remove_nodes(dirty);
+        self.css_wide_values
+            .retain(|(node, _, _), _| !dirty.get(*node).copied().unwrap_or(false));
+        let mut state_overlays: Vec<(usize, Vec<CssProperty>)> = Vec::new();
+        // The inheritable types a node shows its children from a state, as the whole pass
+        // keeps them (`compute_inherited_values`): written for a named node where the walk
+        // finds any, and for the KEPT parent of a named node read once from what the cache
+        // holds (`types_shown_from_a_state`; its entry may be empty).
+        let mut from_a_state: alloc::collections::BTreeMap<usize, Vec<CssPropertyType>> =
+            alloc::collections::BTreeMap::new();
+        let mut ancestors: Vec<(usize, Vec<(CssPropertyType, CssPropertyWithOrigin)>, Vec<u32>)> =
+            Vec::new();
+        for node_index in 0..node_count {
+            if !dirty[node_index] {
+                continue;
+            }
+            let node_id = NodeId::new(node_index);
+            let parent_id = items[node_index].parent_id();
+            if let Some(pid) = parent_id {
+                if !dirty.get(pid.index()).copied().unwrap_or(false)
+                    && !from_a_state.contains_key(&pid.index())
+                {
+                    let shown = self.types_shown_from_a_state(
+                        node_data.internal,
+                        items,
+                        node_states,
+                        pid.index(),
+                    );
+                    from_a_state.insert(pid.index(), shown);
+                }
+            }
+            let held_above: Vec<CssPropertyType> =
+                match parent_id.and_then(|pid| from_a_state.get(&pid.index())) {
+                    Some(types) => types.clone(),
+                    None => Vec::new(),
+                };
+            // The parent's stored values are on top of `ancestors` when the parent is a named
+            // node (the walk stored them); a parent that keeps its values reads the store.
+            let mut parent_on_top = false;
+            if let Some(pid) = parent_id {
+                while ancestors
+                    .last()
+                    .is_some_and(|(node, _, _)| *node != pid.index())
+                {
+                    ancestors.pop();
+                }
+                parent_on_top = !ancestors.is_empty();
+            }
+            // What the parent hands down on top of its resting values in the state it is
+            // in: found by the walk for a named parent, asked of a kept one.
+            let overlay: Option<Vec<CssProperty>> = parent_id.and_then(|pid| {
+                if dirty.get(pid.index()).copied().unwrap_or(false) {
+                    state_overlays
+                        .iter()
+                        .find(|(i, _)| *i == pid.index())
+                        .map(|(_, held)| held.clone())
+                } else {
+                    let state = node_states.get(pid.index())?;
+                    let held = self.state_inherited_values(
+                        node_data.internal.get(pid.index())?,
+                        pid.index(),
+                        state,
+                    );
+                    (!held.is_empty()).then_some(held)
+                }
+            });
+            let parent_owned: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
+                match parent_id {
+                    Some(_) if parent_on_top && overlay.is_none() => None,
+                    Some(pid) => {
+                        let mut values = if parent_on_top {
+                            ancestors
+                                .last()
+                                .map(|(_, values, _)| values.clone())
+                                .unwrap_or_default()
+                        } else {
+                            self.computed_values.values_for(pid.index())
+                        };
+                        if let Some(held) = overlay.as_ref() {
+                            for property in held {
+                                let ty = property.get_type();
+                                let entry = (
+                                    ty,
+                                    CssPropertyWithOrigin {
+                                        property: property.clone(),
+                                        origin: CssPropertyOrigin::Own,
+                                    },
+                                );
+                                match values.binary_search_by_key(&ty, |(k, _)| *k) {
+                                    Ok(at) => values[at] = entry,
+                                    Err(at) => values.insert(at, entry),
+                                }
+                            }
+                        }
+                        Some(values)
+                    }
+                    None if !self.inherited_from_host.is_empty() => {
+                        Some(self.inherited_from_host.clone())
+                    }
+                    None => None,
+                };
+            let parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
+                match parent_owned.as_ref() {
+                    Some(owned) => Some(owned),
+                    None if parent_on_top => ancestors.last().map(|(_, values, _)| values),
+                    None => None,
+                };
+
+            let mut ctx_node = InheritanceContext {
+                node_id,
+                parent_id,
+                computed_values: Vec::new(),
+            };
+            let keyword_values =
+                self.css_wide_values_of_node(node_data.internal, node_index, parent_id);
+            self.css_wide_values.extend(keyword_values);
+            if let Some(parent_values) = parent_computed {
+                Self::inherit_from_parent(&mut ctx_node, parent_values);
+            }
+            self.apply_cascade_properties(
+                &mut ctx_node,
+                node_id,
+                parent_computed,
+                node_data.internal,
+                node_index,
+                &held_above,
+            );
+            let mut hands_on: Vec<CssPropertyType> = Vec::new();
+            if let Some(state) = node_states.get(node_index) {
+                let held =
+                    self.state_inherited_values(&node_data.internal[node_index], node_index, state);
+                if !held.is_empty() {
+                    hands_on.extend(held.iter().map(|p| p.get_type()));
+                    state_overlays.push((node_index, held));
+                }
+            }
+            for ty in &held_above {
+                if !hands_on.contains(ty) && holds_inherited(&ctx_node.computed_values, *ty) {
+                    hands_on.push(*ty);
+                }
+            }
+            if !hands_on.is_empty() && items[node_index].last_child_id().is_some() {
+                from_a_state.insert(node_index, hands_on);
+            }
+            Self::compute_font_relative_line_height(&mut ctx_node);
+
+            let inheritable: Vec<(CssPropertyType, CssPropertyWithOrigin)> = ctx_node
+                .computed_values
+                .iter()
+                .filter(|(pt, _)| pt.is_inheritable())
+                .cloned()
+                .collect();
+            let near = if parent_on_top {
+                ancestors
+                    .last()
+                    .map(|(_, values, buckets)| (values.as_slice(), buckets.as_slice()))
+            } else {
+                None
+            };
+            let buckets = self.computed_values.place_node(node_index, &inheritable, near);
+            if items[node_index].last_child_id().is_some() {
+                ancestors.push((node_index, inheritable, buckets));
+            }
+        }
+
+        // ---- The compact entries of the named nodes ----
+        let prev_font_hashes: Vec<u64> = self
+            .compact_cache
+            .as_ref()
+            .map(|c| c.prev_font_hashes.clone())
+            .unwrap_or_default();
+        // ... and of the nodes whose own style moved in place: their slots hold its values.
+        let with_the_moved: Vec<bool>;
+        let compact_rows: &[bool] = if any_moved {
+            with_the_moved = dirty
+                .iter()
+                .zip(moved_in_place)
+                .map(|(dirty, moved)| *dirty || *moved)
+                .collect();
+            &with_the_moved
+        } else {
+            dirty
+        };
+        let compact = self.rebuild_compact_rows(
+            node_data.internal,
+            items,
+            node_states,
+            &prev_font_hashes,
+            compact_rows,
+        );
+        self.compact_cache = Some(compact);
+
+        // ---- The prune of the named nodes' rows (`prune_compact_normal_props`) ----
+        self.cascaded_props
+            .replace_rows(kept_rows.into_iter().map(|(index, mut row)| {
+                row.retain(survives_the_prune);
+                (index, row)
+            }));
+
+        self.invalidate_resolved_font_sizes();
+        self.ua_applied = true;
+        self.cascade_epoch = self.cascade_epoch.wrapping_add(1);
+        true
+    }
+
+    /// This cascade re-indexed for ANOTHER ARENA: node `n` of it holds every per-node row
+    /// node `source[n]` holds here - its matched rules, what it inherited, its computed
+    /// inherited values, its compact entries, the properties a rule above the inline
+    /// priority overrules, the values its CSS-wide keywords stand for, its entry among the
+    /// readers of the environment - and a node with `source[n] == None` holds none. What a
+    /// rebuild that changed the TREE starts from (`StyledDom::cascade_reusing`): the nodes
+    /// that are what they were, under ancestors that are what they were, keep their rows
+    /// under their new numbers, and [`Self::recascade_nodes`] makes the rows of the others.
+    ///
+    /// The tables as they lie: the two flat stores share their runs ([`FlatVecVec::gathered`]:
+    /// the new nodes point at the runs the old ones pointed at), the inherited values are
+    /// transposed ([`InheritedValues::remapped`]: each value's node list is renumbered), the
+    /// compact cache is four vectors of rows and two side tables keyed by node, the rest are
+    /// maps keyed by node.
+    ///
+    /// What is NOT per node is carried as it is and may say more than a new cascade would,
+    /// never less: the flags the compact builder gathers DOM-wide (declared rare properties,
+    /// viewport thresholds, the font-family table: a reader takes a set flag as "ask the
+    /// cascade"), the environment flags, the `*` bucket (`recascade_nodes` compares it with
+    /// the new sheet's and refuses a difference) and the left-state mask (`recascade_nodes`
+    /// sets it for the new sheet). The retained sheet is left empty for the caller's; runtime
+    /// overrides are not carried (they follow a node's identity:
+    /// `StyledDom::migrate_user_overrides_from`); the lazily resolved font sizes start empty.
+    ///
+    /// `None` where this cascade is not one a node's rows can be taken from: it is not
+    /// complete (no compact cache, rows in their build phase, a composed DOM), it resolves
+    /// custom properties, or two new nodes name one old node.
+    #[must_use]
+    pub fn spliced(&self, source: &[Option<NodeId>]) -> Option<Self> {
+        let old_count = self.node_count;
+        let old_compact = self.compact_cache.as_ref()?;
+        if self.css_props.len() != old_count
+            || self.cascaded_props.len() != old_count
+            || old_compact.node_count() != old_count
+            || !self.ua_applied
+            || self.composed_since_recompute
+            || !self.resolved_inline.is_empty()
+            || self.variables_depend_on_context
+            || self.custom_property_envs
+                != crate::custom_property_cascade::CustomPropertyEnvs::default()
+        {
+            return None;
+        }
+        let new_count = source.len();
+        let mut new_of_old: Vec<Option<usize>> = vec![None; old_count];
+        for (new_index, from) in source.iter().enumerate() {
+            let Some(old) = *from else {
+                continue;
+            };
+            let slot = new_of_old.get_mut(old.index())?;
+            if slot.is_some() {
+                return None;
+            }
+            *slot = Some(new_index);
+        }
+        let renumbered = |old: usize| new_of_old.get(old).copied().flatten();
+
+        let mut compact = azul_css::compact_cache::CompactLayoutCache::with_capacity(new_count);
+        compact.uses_viewport_units = old_compact.uses_viewport_units;
+        compact.font_hash_to_families = old_compact.font_hash_to_families.clone();
+        compact.has_dynamic_conditions = old_compact.has_dynamic_conditions;
+        compact.dom_declared_flags = old_compact.dom_declared_flags;
+        compact.inline_viewport_w = old_compact.inline_viewport_w.clone();
+        compact.inline_viewport_h = old_compact.inline_viewport_h.clone();
+        compact.inline_viewport_shape = old_compact.inline_viewport_shape;
+        for (new_index, from) in source.iter().enumerate() {
+            let Some(old) = from.map(|old| old.index()) else {
+                continue;
+            };
+            let (Some(tier1), Some(dims), Some(cold), Some(text)) = (
+                old_compact.tier1_enums.get(old),
+                old_compact.tier2_dims.get(old),
+                old_compact.tier2_cold.get(old),
+                old_compact.tier2b_text.get(old),
+            ) else {
+                continue;
+            };
+            compact.tier1_enums[new_index] = *tier1;
+            compact.tier2_dims[new_index] = dims.clone();
+            compact.tier2_cold[new_index] = cold.clone();
+            compact.tier2b_text[new_index] = text.clone();
+            if let Some(hash) = old_compact.prev_font_hashes.get(old) {
+                compact.prev_font_hashes[new_index] = *hash;
+            }
+        }
+        for ((old, ty), value) in &old_compact.px_overflow {
+            if let Some(new) = renumbered(*old as usize).and_then(|new| u32::try_from(new).ok()) {
+                compact.px_overflow.insert((new, *ty), *value);
+            }
+        }
+
+        let mut env_readers = EnvReaders {
+            nodes: alloc::collections::BTreeMap::new(),
+            beyond_nodes: self.env_readers.beyond_nodes,
+            follows_viewport: self.env_readers.follows_viewport,
+        };
+        for (old, scope) in &self.env_readers.nodes {
+            if let Some(new) = renumbered(*old) {
+                env_readers.nodes.insert(new, *scope);
+            }
+        }
+
+        Some(Self {
+            node_count: new_count,
+            dynamic_context: self.dynamic_context.clone(),
+            ua_applied: true,
+            cascade_epoch: self.cascade_epoch.wrapping_add(1),
+            cascaded_props: self.cascaded_props.gathered(source)?,
+            css_props: self.css_props.gathered(source)?,
+            computed_values: self.computed_values.remapped(&new_of_old, new_count),
+            compact_cache: Some(compact),
+            global_css_props: self.global_css_props.clone(),
+            inherited_from_host: self.inherited_from_host.clone(),
+            left_state_mask: self.left_state_mask,
+            inline_overruled: self
+                .inline_overruled
+                .iter()
+                .filter_map(|(old, overruled)| Some((renumbered(*old)?, overruled.clone())))
+                .collect(),
+            css_wide_values: self
+                .css_wide_values
+                .iter()
+                .filter_map(|((old, ty, keyword), value)| {
+                    Some(((renumbered(*old)?, *ty, *keyword), value.clone()))
+                })
+                .collect(),
+            env_readers,
+            ..Self::empty(0)
+        })
+    }
+}
+
+/// One node's row as `FlatVecVec::sort_each_and_flatten` leaves it: sorted by (state,
+/// property type), entries of one key in the order they were pushed, the LAST of a key kept.
+fn sort_row_keeping_the_last(row: &mut Vec<StatefulCssProperty>) {
+    row.sort_by_key(|p| (p.state, p.prop_type));
+    let keys: Vec<(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)> =
+        row.iter().map(|p| (p.state, p.prop_type)).collect();
+    let mut index = 0;
+    row.retain(|_| {
+        let at = index;
+        index += 1;
+        keys.get(at + 1) != Some(&keys[at])
+    });
 }
 
 #[cfg(test)]
 #[path = "prop_cache_test.rs"]
 mod prop_cache_test;
+
+/// The cascade rank of a declaration or rule with `conditions` for a
+/// `StyledDom`: under the window's theme chain, or - without a context - under
+/// the one-entry chain of the app theme the DOM is built for, the same rule
+/// [`condition_holds`] follows.
+#[inline]
+pub(crate) fn rank_of(
+    ctx: Option<&DynamicSelectorContext>,
+    no_context_theme: Option<&AzString>,
+    conditions: &[azul_css::dynamic_selector::DynamicSelector],
+) -> usize {
+    ctx.map_or_else(
+        || {
+            no_context_theme.map_or(azul_css::dynamic_selector::UNTHEMED_RANK, |t| {
+                azul_css::dynamic_selector::cascade_rank(&[t.as_str()], conditions)
+            })
+        },
+        |ctx| ctx.cascade_rank(conditions),
+    )
+}
+
+/// Whether a non-pseudo condition holds for a `StyledDom`: against the
+/// window's context, or - for a `StyledDom` no window has adopted yet -
+/// only the app theme the DOM is built for
+/// ([`DynamicSelector::matches_without_context`]). The ONE rule the property
+/// cache and the compact cache share, so the two paths cannot disagree.
+#[inline]
+pub(crate) fn condition_holds(
+    ctx: Option<&DynamicSelectorContext>,
+    no_context_theme: Option<&AzString>,
+    condition: &azul_css::dynamic_selector::DynamicSelector,
+) -> bool {
+    ctx.map_or_else(
+        || no_context_theme.is_some_and(|t| condition.matches_without_context(t.as_str())),
+        |ctx| condition.matches(ctx),
+    )
+}
+
+/// Whether the host a DOM is hosted at hands the DOM's root a value of
+/// `prop_type` ([`CssPropertyCache::inherited_from_host`], sorted by type).
+#[inline]
+pub(crate) fn host_supplies(
+    inherited_from_host: &[(CssPropertyType, CssPropertyWithOrigin)],
+    prop_type: CssPropertyType,
+) -> bool {
+    !inherited_from_host.is_empty()
+        && inherited_from_host
+            .binary_search_by_key(&prop_type, |(t, _)| *t)
+            .is_ok()
+}
+
+/// Does node `node_index` take the DOCUMENT ROOT's UA default for
+/// `prop_type` (`ua_css::get_ua_root_property_themed`, the `is_root` of
+/// `ua_css::get_ua_default`)? The root - node 0 - does, unless its DOM is
+/// hosted and the host supplies that type: the document-wide default stands
+/// in for what a document's root inherits from nothing, and a hosted root
+/// inherits its host's value instead. The ONE rule the UA pass, the compact
+/// builder and the slow path's fallback share.
+#[inline]
+/// The length of a property that is one length (a font size, a padding, a margin, a min / max
+/// size, a spacing): what a font-relative length is computed from.
+fn pixel_value_of(prop: &CssProperty) -> Option<azul_css::props::basic::pixel::PixelValue> {
+    match prop {
+        CssProperty::FontSize(val) => val.get_property().map(|v| v.inner),
+        CssProperty::LetterSpacing(val) => val.get_property().map(|v| v.inner),
+        CssProperty::WordSpacing(val) => val.get_property().map(|v| v.inner),
+        CssProperty::PaddingLeft(val) => val.get_property().map(|v| v.inner),
+        CssProperty::PaddingRight(val) => val.get_property().map(|v| v.inner),
+        CssProperty::PaddingTop(val) => val.get_property().map(|v| v.inner),
+        CssProperty::PaddingBottom(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MarginLeft(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MarginRight(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MarginTop(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MarginBottom(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MinWidth(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MinHeight(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MaxWidth(val) => val.get_property().map(|v| v.inner),
+        CssProperty::MaxHeight(val) => val.get_property().map(|v| v.inner),
+        CssProperty::SelectionRadius(val) => val.get_property().map(|v| v.inner),
+        _ => None,
+    }
+}
+
+/// The initial value of `ty` where it is not what the readers take an `initial` keyword for
+/// (what a node declaring nothing gets): an element without a user agent rule is a block here,
+/// while the initial `display` is `inline`; a font size the readers do not know is the
+/// parent's, while the initial one is `medium`.
+fn initial_value_unlike_the_default(ty: CssPropertyType) -> Option<CssProperty> {
+    match ty {
+        CssPropertyType::Display => Some(CssProperty::Display(
+            azul_css::css::CssPropertyValue::Exact(LayoutDisplay::Inline),
+        )),
+        CssPropertyType::FontSize => Some(CssProperty::FontSize(
+            azul_css::css::CssPropertyValue::Exact(StyleFontSize {
+                inner: azul_css::props::basic::pixel::PixelValue::px(
+                    azul_css::props::basic::pixel::DEFAULT_FONT_SIZE,
+                ),
+            }),
+        )),
+        _ => None,
+    }
+}
+
+pub(crate) fn takes_root_ua_default(
+    node_index: usize,
+    prop_type: CssPropertyType,
+    inherited_from_host: &[(CssPropertyType, CssPropertyWithOrigin)],
+) -> bool {
+    node_index == 0 && !host_supplies(inherited_from_host, prop_type)
+}
+
+impl CssPropertyCache {
+    /// What a DOM HOSTED at `node_id` - the content of a `VirtualView` - inherits
+    /// from it: the node's resting value of every inheritable property it has
+    /// one for, as a child inherits it (the computed value: CSS Cascade 4 s7),
+    /// ready for [`Self::inherited_from_host`].
+    ///
+    /// Read off `computed_values` - what the node's own children inherit:
+    /// its declarations (author rules, inline ones, runtime overrides), its
+    /// UA defaults and what it inherited itself, a `line-height` in `em` / `%`
+    /// already a length and a relative `font-weight` a number. The `*` rules
+    /// it matches are the one tier that store leaves out (the slow path and
+    /// the compact builder apply them on their own), so those types are
+    /// asked of the slow path. `font_size_px` is the node's computed font
+    /// size, resolved by the caller with the layout's own resolution. A type
+    /// the host has no value for is left out: the hosted root falls back to
+    /// the initial value then, as the host did.
+    ///
+    /// The host's RESTING style (its `:hover` or `:focus` do not reach into
+    /// the view: a restyle of the whole hosted DOM per pointer move is not
+    /// what a view is for). Cheap - a handful of bucket probes - because it
+    /// runs for every view on every layout pass (a kept view compares it
+    /// with what its DOM inherits).
+    #[must_use]
+    pub fn inherited_values_for_hosted_dom(
+        &self,
+        node_data: &NodeData,
+        node_id: &NodeId,
+        font_size_px: f32,
+    ) -> InheritedFromHost {
+        use azul_css::{css::CssPropertyValue, props::basic::pixel::PixelValue};
+
+        fn upsert(values: &mut InheritedFromHost, prop_type: CssPropertyType, property: CssProperty) {
+            let entry = CssPropertyWithOrigin {
+                property,
+                origin: CssPropertyOrigin::Inherited,
+            };
+            match values.binary_search_by_key(&prop_type, |(t, _)| *t) {
+                Ok(idx) => values[idx].1 = entry,
+                Err(idx) => values.insert(idx, (prop_type, entry)),
+            }
+        }
+
+        // Sorted by type, inheritable only (`store_if_changed`).
+        let mut values: InheritedFromHost = self
+            .computed_values
+            .values_for(node_id.index())
+            .into_iter()
+            .map(|(prop_type, value)| {
+                (
+                    prop_type,
+                    CssPropertyWithOrigin {
+                        property: value.property,
+                        origin: CssPropertyOrigin::Inherited,
+                    },
+                )
+            })
+            .collect();
+
+        // `*` matches elements only (as in the compact builder).
+        if star_selects(node_data) {
+            let resting = StyledNodeState::default();
+            let mut global_types: Vec<CssPropertyType> = self
+                .global_css_props
+                .iter()
+                .map(CssProperty::get_type)
+                .filter(|t| t.is_inheritable() && *t != CssPropertyType::FontSize)
+                .collect();
+            global_types.sort();
+            global_types.dedup();
+            for prop_type in global_types {
+                let Some(value) = self.get_property(node_data, node_id, &resting, &prop_type)
+                else {
+                    continue;
+                };
+                let property = match value {
+                    CssProperty::LineHeight(CssPropertyValue::Exact(lh))
+                        if lh.is_font_relative_length() =>
+                    {
+                        CssProperty::LineHeight(CssPropertyValue::Exact(lh.computed(font_size_px)))
+                    }
+                    // `bolder` / `lighter` from a `*` rule computes against
+                    // the host's parent, which only the cascade knows: the
+                    // weight `computed_values` holds stays.
+                    CssProperty::FontWeight(CssPropertyValue::Exact(w)) if w.is_relative() => {
+                        continue;
+                    }
+                    other => clone_inheritable_property(other),
+                };
+                upsert(&mut values, prop_type, property);
+            }
+        }
+
+        upsert(
+            &mut values,
+            CssPropertyType::FontSize,
+            CssProperty::FontSize(CssPropertyValue::Exact(StyleFontSize {
+                inner: PixelValue::px(font_size_px),
+            })),
+        );
+        values
+    }
+}

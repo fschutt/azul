@@ -1,0 +1,25 @@
+{
+  "name": "a photo edited in place with the same name, size and time is uploaded as a new version; the old one stays recoverable",
+  "description": "KOOFR-016 (Koofr Android before August 2025): an edit (crop, colour) of an already uploaded photo was never detected, so the backup kept only the old version. Rules A1, P12 and D2: change is detected by content (ctime and inode in the cache key), never by name or time alone; the drive keeps the old version. sync-chaos mobile-camera-upload.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": true },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "DCIM/IMG_0002.jpg", "mtime": 1700000000000000000, "text": "original photo bytes" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_overwrite_in_place", "device": "a", "path": "DCIM/IMG_0002.jpg", "text": "cropped photo bytes!" },
+    { "op": "drive_utime", "device": "a", "path": "DCIM/IMG_0002.jpg", "mtime": 1700000000000000000 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "assert_response", "path": "result.up", "equals": 1 },
+    { "op": "drive_check", "check": "remote_file", "key": "DCIM/IMG_0002.jpg", "text": "cropped photo bytes!" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0002.jpg", "text": "cropped photo bytes!" },
+    { "op": "drive_check", "check": "kept", "texts": ["original photo bytes", "cropped photo bytes!"] },
+    { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "DCIM/IMG_0002.jpg", "count": 0 },
+    { "op": "drive_cleanup" }
+  ]
+}

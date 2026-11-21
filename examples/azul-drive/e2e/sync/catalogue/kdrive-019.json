@@ -1,0 +1,52 @@
+[
+  {
+    "name": "big downloads that do not fit are not started, a download cut before its rename leaves no temp file, then all arrive whole",
+    "description": "KDRIVE-019 (kDrive): downloads spooled in a tmpfs /tmp were never removed when the move across filesystems failed; /tmp and then the disk filled. Rules A5, E3 and P8: a download is written into a temp file in the target's own folder (never the system temp dir), a download that cannot fit within the reserve is not started and is listed, a cut one leaves no temp file, and everything arrives once there is room.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "iso/one.img", "size": 20000000, "seed": 191 },
+      { "op": "drive_write", "device": "a", "path": "iso/two.img", "size": 20000000, "seed": 192 },
+      { "op": "drive_write", "device": "a", "path": "iso/three.img", "size": 20000000, "seed": 193 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_disk", "device": "b", "free_bytes": 10000000 },
+      { "op": "drive_sync", "device": "b", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["disk-reserve", "disk-full"], "key": "iso/*" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "iso/one.img", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_disk", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b", "crash_at": "before-rename", "expect": "crash", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "iso/one.img", "same_as": "{root:a}/iso/one.img" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "iso/two.img", "same_as": "{root:a}/iso/two.img" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "iso/three.img", "same_as": "{root:a}/iso/three.img" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "downloads leave nothing in the system temp folder (a tmpfs on another filesystem)",
+    "description": "KDRIVE-019 (kDrive), the catalogue's repro: the temp dir on another mount than the root. Rule A5 (F9 in today's code, TempBlob in the system temp dir): no byte of a download is spooled outside the target's own folder.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "iso/one.img", "size": 20000000, "seed": 191 },
+      { "op": "drive_write", "device": "a", "path": "iso/two.img", "size": 20000000, "seed": 192 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "system_temp_untouched" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "iso/two.img", "same_as": "{root:a}/iso/two.img" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

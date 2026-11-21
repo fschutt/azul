@@ -1,12 +1,12 @@
 //! Unified `VideoEncoder` / `VideoDecoder` handles. See [`crate::unified`].
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::video_codec::*;
 
 /// wasm fallback for the `VideoWidget::dom()` shim: no decode worker on wasm, so
 /// render the placeholder DOM directly (the desktop `video_widget_dom`, which
 /// wires the streaming worker, is glob-re-exported above on non-wasm targets).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 pub fn video_widget_dom(widget: azul_layout::widgets::video::VideoWidget) -> azul_core::dom::Dom {
     widget.dom()
 }
@@ -25,11 +25,11 @@ pub fn video_widget_dom(widget: azul_layout::widgets::video::VideoWidget) -> azu
 /// supplies the real `pipeline` only under `cabi_internal + !wasm + video-native`).
 #[cfg(all(
     feature = "cabi_internal",
-    any(target_arch = "wasm32", not(feature = "video-native"))
+    any(target_arch = "wasm32", az_engine_stubs, not(feature = "video-native"))
 ))]
 pub mod pipeline {
     use azul_core::video::VideoFrameVec;
-    use azul_css::{impl_option, impl_option_inner};
+    use azul_css::impl_option;
 
     /// A decoded clip: stream geometry plus the decoded frames. Layout MUST
     /// match `desktop::extra::video_codec::pipeline::DecodedVideo` (the C-ABI
@@ -106,23 +106,23 @@ pub mod pipeline {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use core::ffi::c_void;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_core::video::{OptionVideoFrame, VideoFrame};
-#[cfg(target_arch = "wasm32")]
-use azul_css::{impl_option_inner, AzString, U8Vec};
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+use azul_css::{AzString, U8Vec};
 
 /// wasm stub of the desktop `VideoEncoder` handle (no codec backend on wasm).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct VideoEncoder {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for VideoEncoder {
     fn clone(&self) -> Self {
         VideoEncoder {
@@ -131,7 +131,7 @@ impl Clone for VideoEncoder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for VideoEncoder {
     fn default() -> Self {
         VideoEncoder {
@@ -140,12 +140,12 @@ impl Default for VideoEncoder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for VideoEncoder {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl VideoEncoder {
     /// No codec backend on wasm: always returns an invalid handle.
     pub fn open(_width: u32, _height: u32, _h265: bool, _bitrate_kbps: u32) -> VideoEncoder {
@@ -160,8 +160,18 @@ impl VideoEncoder {
     pub fn encode(&self, _frame: VideoFrame, _force_keyframe: bool) -> bool {
         false
     }
+    pub fn encode_at(&self, _frame: VideoFrame, _timestamp_us: u64, _force_keyframe: bool) -> bool {
+        false
+    }
+    pub fn set_bitrate(&self, _kbps: u32) -> bool {
+        false
+    }
     pub fn recv_packet(&mut self) -> azul_css::corety::OptionU8Vec {
         azul_css::corety::OptionU8Vec::None
+    }
+    pub fn flush(&self) {}
+    pub fn is_hardware(&self) -> bool {
+        false
     }
     pub fn frames_encoded(&self) -> u64 {
         0
@@ -171,13 +181,13 @@ impl VideoEncoder {
 
 /// wasm stub of the desktop `ScreenRecorder` (no subprocess/gstreamer on wasm).
 /// `#[repr(C)]` layout MUST match `video_codec::ScreenRecorder`.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct ScreenRecorder {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for ScreenRecorder {
     fn clone(&self) -> Self {
         ScreenRecorder {
@@ -186,7 +196,7 @@ impl Clone for ScreenRecorder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for ScreenRecorder {
     fn default() -> Self {
         ScreenRecorder {
@@ -195,11 +205,11 @@ impl Default for ScreenRecorder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for ScreenRecorder {
     fn drop(&mut self) {}
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl ScreenRecorder {
     /// No gstreamer on wasm: always returns an invalid handle.
     pub fn start(_path: AzString, _width: u32, _height: u32, _fps: u32) -> ScreenRecorder {
@@ -233,7 +243,7 @@ impl ScreenRecorder {
 }
 
 /// wasm stub of `ScreenRecordingResult`; layout MUST match the desktop type.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenRecordingResult {
@@ -241,7 +251,7 @@ pub struct ScreenRecordingResult {
     pub error: azul_css::corety::OptionString,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 azul_css::impl_option!(
     ScreenRecordingResult,
     OptionScreenRecordingResult,
@@ -249,7 +259,7 @@ azul_css::impl_option!(
     [Debug, Clone, PartialEq, Eq]
 );
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl ScreenRecordingResult {
     pub fn downcast(mut result: azul_core::refany::RefAny) -> OptionScreenRecordingResult {
         result.downcast_ref::<Self>().map(|r| r.clone()).into()
@@ -257,14 +267,14 @@ impl ScreenRecordingResult {
 }
 
 /// wasm stub of the desktop `VideoDecoder` handle (no codec backend on wasm).
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 pub struct VideoDecoder {
     pub ptr: *mut c_void,
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for VideoDecoder {
     fn clone(&self) -> Self {
         VideoDecoder {
@@ -273,7 +283,7 @@ impl Clone for VideoDecoder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for VideoDecoder {
     fn default() -> Self {
         VideoDecoder {
@@ -282,12 +292,12 @@ impl Default for VideoDecoder {
         }
     }
 }
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for VideoDecoder {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl VideoDecoder {
     /// No codec backend on wasm: always returns an invalid handle.
     pub fn open(_h265: bool) -> VideoDecoder {
@@ -299,6 +309,16 @@ impl VideoDecoder {
     pub fn decode(&self, _data: U8Vec) -> bool {
         false
     }
+    pub fn set_output_format(&self, _format: azul_core::resources::RawImageFormat) {}
+    pub fn set_output_size(&self, _width: u32, _height: u32) {}
+    /// No decode engine on wasm: no frame waits.
+    pub fn next_frame(&self) -> OptionVideoFrame {
+        OptionVideoFrame::None
+    }
+    /// No decode engine on wasm: nothing is held back.
+    pub fn flush(&self) -> OptionVideoFrame {
+        OptionVideoFrame::None
+    }
     pub fn recv_frame(&mut self) -> OptionVideoFrame {
         OptionVideoFrame::None
     }
@@ -309,16 +329,16 @@ impl VideoDecoder {
 /// kernel provisioning on wasm). `#[repr(C)]` layout MUST match the desktop
 /// `video_codec::provision::{VideoStartupCheck, VideoProvisionOutcome}` because
 /// the C-ABI bindings `transmute` between these and the `Az*` structs.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 pub mod provision {
     use azul_css::AzString;
 
-    // The `#[cfg(target_arch = "wasm32")]` on each item (redundant with the
+    // The `#[cfg(any(target_arch = "wasm32", az_engine_stubs))]` on each item (redundant with the
     // module cfg above) is what the autofix type-indexer's `is_wasm32_only`
     // check looks for — it inspects per-item attrs, so without this it would
     // index these stubs as real types and clobber the canonical desktop
     // `video_codec::provision::*` definitions (which DO have the From impl).
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct VideoProvisionOutcome {
@@ -327,7 +347,7 @@ pub mod provision {
         pub message: AzString,
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct VideoStartupCheck {
@@ -362,7 +382,7 @@ pub mod provision {
 
     /// wasm stub of the desktop `VideoEncodeCheck`. `#[repr(C)]` layout MUST match
     /// `video_codec::provision::VideoEncodeCheck` (the C-ABI bindings `transmute`).
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
     #[repr(C)]
     #[derive(Debug, Clone)]
     pub struct VideoEncodeCheck {
@@ -373,7 +393,7 @@ pub mod provision {
         pub detail: AzString,
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", az_engine_stubs))]
     impl VideoEncodeCheck {
         /// No codec backend on wasm: reports "no encoder available".
         pub fn run() -> VideoEncodeCheck {
@@ -386,4 +406,136 @@ pub mod provision {
             }
         }
     }
+}
+
+// ==== MP4 container handles (wasm stubs) ====
+//
+// The desktop `video_codec::container::{Mp4Demuxer, Mp4Muxer}` over the `mp4`
+// crate; on wasm there is no container engine, so the demuxer never opens
+// (and says why) and the muxer does not open. `#[repr(C)]` layout MUST match
+// the desktop handles (the C-ABI bindings `transmute`).
+
+/// wasm stub of the desktop `Mp4Demuxer` handle.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+pub struct Mp4Demuxer {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Clone for Mp4Demuxer {
+    fn clone(&self) -> Self {
+        Mp4Demuxer {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Default for Mp4Demuxer {
+    fn default() -> Self {
+        Mp4Demuxer {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Drop for Mp4Demuxer {
+    fn drop(&mut self) {}
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Mp4Demuxer {
+    /// No container engine on wasm: always a handle that did not open.
+    pub fn create(_bytes: U8Vec) -> Mp4Demuxer {
+        Mp4Demuxer::default()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn open_error(&self) -> AzString {
+        AzString::from_const_str("MP4 demux has no wasm backend")
+    }
+    pub fn width(&self) -> u32 {
+        0
+    }
+    pub fn height(&self) -> u32 {
+        0
+    }
+    pub fn fps(&self) -> f32 {
+        0.0
+    }
+    pub fn duration_ms(&self) -> f64 {
+        0.0
+    }
+    pub fn chunk_count(&self) -> usize {
+        0
+    }
+    pub fn chunk(&self, _index: usize) -> azul_core::video::OptionVideoChunk {
+        azul_core::video::OptionVideoChunk::None
+    }
+    pub fn frame_at(&self, _time_ms: f64) -> usize {
+        0
+    }
+    pub fn keyframe_before(&self, _index: usize) -> usize {
+        0
+    }
+    pub fn close(&mut self) {}
+}
+
+/// wasm stub of the desktop `Mp4Muxer` handle.
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+#[repr(C)]
+pub struct Mp4Muxer {
+    pub ptr: *mut c_void,
+    pub run_destructor: bool,
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Clone for Mp4Muxer {
+    fn clone(&self) -> Self {
+        Mp4Muxer {
+            ptr: self.ptr,
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Default for Mp4Muxer {
+    fn default() -> Self {
+        Mp4Muxer {
+            ptr: core::ptr::null_mut(),
+            run_destructor: false,
+        }
+    }
+}
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Drop for Mp4Muxer {
+    fn drop(&mut self) {}
+}
+
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
+impl Mp4Muxer {
+    /// No container engine on wasm: always an invalid handle.
+    pub fn create(_width: u32, _height: u32, _fps: f32) -> Mp4Muxer {
+        Mp4Muxer::default()
+    }
+    pub fn is_open(&self) -> bool {
+        false
+    }
+    pub fn write_annexb(&mut self, _data: U8Vec) -> bool {
+        false
+    }
+    pub fn samples_written(&self) -> u64 {
+        0
+    }
+    pub fn finish(&mut self) -> U8Vec {
+        U8Vec::from_vec(Vec::new())
+    }
+    pub fn last_error(&self) -> AzString {
+        AzString::from_const_str("MP4 mux has no wasm backend")
+    }
+    pub fn close(&mut self) {}
 }

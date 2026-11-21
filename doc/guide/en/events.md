@@ -161,7 +161,7 @@ ComponentEventFilter::NodeResized    // layout bounds of this node changed
 ComponentEventFilter::Updated        // a keyed node's content changed
 ```
 
-Reconciliation matches nodes across frames by stable key (`Dom::with_id("id")`) first, then by content hash. Keyed nodes track identity across reorders, so `Updated` only fires when keyed content actually changes.
+Reconciliation matches nodes across frames by stable key (`Dom::with_key(..)`) first, then by content hash. Keyed nodes track identity across reorders, so `Updated` only fires when keyed content actually changes.
 
 ### ApplicationEventFilter
 

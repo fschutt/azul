@@ -1,0 +1,13 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>&lt;!-- and --&gt; around a stylesheet's rules do not hide the rules</title>
+<meta name="assert" content="CSS Syntax 3: CDO and CDC tokens at the top level of a stylesheet are ignored (Outlook wraps every stylesheet in them)."/>
+<style>
+&lt;!--
+.box { width: 100px; height: 100px; background: green; }
+--&gt;
+</style>
+</head>
+<body><div class="box"></div>
+</body>
+</html>

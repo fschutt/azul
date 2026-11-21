@@ -13,7 +13,7 @@ and `macos/system_style.rs:929` that must not ship. Every claim below is `file:l
 | Type | Lives in | Written by | Default |
 |---|---|---|---|
 | `css::system::Theme` (`css/src/system.rs:161`) | `SystemStyle.theme` (`system.rs:192`) | shell probes: macOS `macos/system_style.rs:276-287`, Windows `windows/system_style.rs:271`, Linux `linux/system_style.rs:1456,1840`; Android/iOS/headless never write it | `Light` (`system.rs:252`) |
-| `WindowTheme` (`core/src/window.rs:1277`) | `FullWindowState.theme` (`layout/src/window_state.rs:135`) | `adopt_probed_theme` (`macos/system_style.rs:928`), `linux/system_style.rs:2883`, `windows/mod.rs:6733-6736`, `android/mod.rs:1093`, `ios/mod.rs:1145`, `headless/mod.rs:1986`; app via `ModifyWindowState` (`event.rs:4701-4707`) | `LightMode` (`window_state.rs:371`) |
+| `DarkLightMode` (`core/src/window.rs:1277`) | `FullWindowState.theme` (`layout/src/window_state.rs:135`) | `adopt_probed_theme` (`macos/system_style.rs:928`), `linux/system_style.rs:2883`, `windows/mod.rs:6733-6736`, `android/mod.rs:1093`, `ios/mod.rs:1145`, `headless/mod.rs:1986`; app via `ModifyWindowState` (`event.rs:4701-4707`) | `LightMode` (`window_state.rs:371`) |
 | `ThemeCondition` (`css/src/dynamic_selector.rs:813`) | `DynamicSelectorContext.theme` (`dynamic_selector.rs:991`) | the builders in 1.3 | `Light` (`dynamic_selector.rs:1078`) |
 
 `AZ_THEME` is read once (`dynamic_selector.rs:846-857`) but applied twice: inside
@@ -233,7 +233,11 @@ twins treat R1's surface; fix 3 exposes R6; symptom (a) is R3; the startup-on-da
   `paint_defaults_fingerprint` and the `last_dynamic_context` equality. Test: the uncommitted
   `a_theme_switch_recolours_the_retained_dom` plus a variant through
   `regenerate_display_list_for_dom`.
-- **I6 — The theme is paint-only.** Node rects are identical under both themes and across a
+- **I6 — The colour scheme is paint-only.** (Corrected 2026-09-29: "theme" in this document
+  means light/dark. A *theme-chain* switch, `flat` → `flora` → `abc-base`, is NOT paint-only: it
+  recreates the DOM and may change layout, see
+  `scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` §7.1.) Node rects are
+  identical under both colour schemes and across a
   switch: the uncommitted `the_theme_does_not_change_layout` and
   `a_theme_switch_in_one_window_does_not_change_layout` (window.rs diff) — commit them; add a
   debug assertion that a compact *rebuild* equals a fresh build tier by tier.

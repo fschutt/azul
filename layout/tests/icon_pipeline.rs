@@ -303,6 +303,32 @@ fn an_icon_view_reports_the_icons_measured_size() {
     );
 }
 
+/// `Dom::create_icon_view_with_css` styles the icon INSIDE the view, so an
+/// icon that can be swapped in place is drawn at the size its page asks for
+/// (AzMaps' banner arrow at the banner's size): the view reports the styled
+/// icon's size. A view's own `with_css` sizes only the view's box.
+#[test]
+fn an_icon_view_with_css_draws_its_icon_as_the_css_says() {
+    let mut lw = window();
+    lay_out(
+        &mut lw,
+        Dom::create_body().with_child(
+            Dom::create_icon_view_with_css("home", "padding: 8px;").with_css("display: block;"),
+        ),
+    );
+    let reported = lw
+        .virtual_view_manager
+        .materialized_sizes()
+        .get(&(DomId::ROOT_ID, NodeId::new(1)))
+        .copied()
+        .expect("the view reported a materialized size");
+    let styled = ICON_PX + 16.0;
+    assert!(
+        (reported.width - styled).abs() < 1.0 && (reported.height - styled).abs() < 1.0,
+        "expected the icon with its padding, {styled}px, got {reported:?}"
+    );
+}
+
 /// Runs `f` with a `CallbackInfo` over `lw` - the same construction the
 /// engine does before invoking a callback - and returns the changes it queued
 /// alongside `f`'s value. The window is borrowed immutably for the duration,

@@ -1055,9 +1055,42 @@ impl NodeGraph {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    /// The graph as DOM: every node and every connection, whatever the size of
+    /// the box it is shown in. A graph of a few hundred nodes should use
+    /// [`Self::dom_in_view`]: each node is a hundred DOM nodes and more, and
+    /// all of them are laid out and painted whether they are on screen or not.
     #[must_use]
     pub fn dom(self) -> Dom {
+        self.dom_in_view(LogicalSize::zero())
+    }
+
+    /// The graph as DOM, for a box of `view_size` (logical px, the size of the
+    /// area the graph is shown in): only the nodes and connections that touch
+    /// the box, or lie within half its width and height of it, become DOM -
+    /// a graph of 270 nodes in a 1230 x 700 window is the 16 to 31 nodes it
+    /// shows plus a margin, not 41 000 DOM nodes (2.5 s of layout, and a 38 000-item
+    /// display list translated again after every frame). A node that has no DOM
+    /// stays in the graph (`NodeGraph::nodes` is untouched, and the callbacks
+    /// get all of them); it gets its DOM when the graph is built again with an
+    /// `offset` that brings it near the box - so the widget asks the app to
+    /// build the graph again when a pan ends that brought a node or connection
+    /// without DOM near the box (`on_node_graph_dragged` only tells the app the
+    /// amount; a pan among the nodes that have their DOM asks for nothing), and
+    /// a pan within the margin shows the nodes that were just off screen
+    /// without waiting for that.
+    ///
+    /// A `view_size` that is not positive and finite (`0 x 0`) shows
+    /// everything, as [`Self::dom`] does.
+    #[must_use]
+    pub fn dom_in_view(self, view_size: LogicalSize) -> Dom {
+        self.dom_in_view_as(view_size, pan_mode())
+    }
+
+    /// [`Self::dom_in_view`] with the graph's offset carried as `pan` says
+    /// ([`PanMode`]); the dataset records it for the callbacks.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    fn dom_in_view_as(self, view_size: LogicalSize, pan: PanMode) -> Dom {
+        let view = ViewWindow::new(view_size);
         static NODEGRAPH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("nodegraph"))];
 
         static NODEGRAPH_BACKGROUND: &[StyleBackgroundContent] = &[StyleBackgroundContent::Image(
@@ -1101,18 +1134,37 @@ impl NodeGraph {
         let marker_prefix = next_marker_prefix();
         let connections_marker: AzString = format!("{}-connections", marker_prefix.as_str()).into();
 
+        let index = GraphIndex::of(&self);
+        let callbacks = self.callbacks.clone();
+        let culled = view.map(|view| CulledDom::of(&self, &index, view));
+        // The graph MOVES into the dataset - a render makes no copy of it -
+        // and the build reads it back from there (`graph`, below).
         let node_graph_local_dataset = RefAny::new(NodeGraphLocalDataset {
-            node_graph: self.clone(), // TODO: expensive
+            node_graph: self,
+            index,
             last_input_or_output_clicked: None,
             active_node_being_dragged: None,
             marker_prefix: marker_prefix.clone(),
-            callbacks: self.callbacks.clone(),
+            callbacks,
+            culled,
+            graph_dragged: false,
+            pan,
         });
+        // A second handle on the dataset, borrowed shared until the DOM is
+        // built: the nodes' datasets take clones of the first handle, and
+        // `render_node` reads the port types through them, shared too.
+        let mut graph_handle = node_graph_local_dataset.clone();
+        let Some(dataset) = graph_handle.downcast_ref::<NodeGraphLocalDataset>() else {
+            // Not reached: the dataset was made just above, nothing borrows it.
+            return Dom::create_div();
+        };
+        let graph = &dataset.node_graph;
+        let index = &dataset.index;
 
         let context_menu = Menu::create(
             vec![MenuItem::String(
-                StringMenuItem::create(self.add_node_str.clone()).with_children(
-                    self.node_types
+                StringMenuItem::create(graph.add_node_str.clone()).with_children(
+                    graph.node_types
                         .iter()
                         .map(
                             |NodeTypeIdInfoMap {
@@ -1142,7 +1194,7 @@ impl NodeGraph {
             .into(),
         );
 
-        Dom::create_div()
+        let dom = Dom::create_div()
             .with_css_props(nodegraph_wrapper_props.into())
             .with_context_menu(context_menu)
             .with_children(
@@ -1173,15 +1225,30 @@ impl NodeGraph {
                     .with_children({
                         vec![
                             // connections
-                            render_connections(&self, connections_marker),
+                            render_connections(
+                                graph,
+                                index,
+                                connections_marker,
+                                view.as_ref(),
+                                pan,
+                            ),
                             // nodes
-                            self.nodes
+                            graph.nodes
                                 .iter()
                                 .filter_map(|NodeIdNodeMap { node_id, node }| {
-                                    let node_type_info = self
-                                        .node_types
-                                        .iter()
-                                        .find(|i| i.node_type_id == node.node_type)?;
+                                    let node_type_info =
+                                        index.node_type(graph, node.node_type)?;
+                                    // A node nowhere near the box gets no DOM.
+                                    if let Some(view) = view.as_ref() {
+                                        if !node_in_view(
+                                            graph,
+                                            &node_type_info.node_type_info,
+                                            node,
+                                            view,
+                                        ) {
+                                            return None;
+                                        }
+                                    }
                                     let node_local_dataset = NodeLocalDataset {
                                         node_id: *node_id,
                                         backref: node_graph_local_dataset.clone(),
@@ -1189,10 +1256,10 @@ impl NodeGraph {
 
                                     Some(render_node(
                                         node,
-                                        (self.offset.x, self.offset.y),
+                                        offset_in_boxes(graph, pan),
                                         &node_type_info.node_type_info,
                                         node_local_dataset,
-                                        self.scale_factor,
+                                        graph.scale_factor,
                                         node_marker(&marker_prefix, *node_id),
                                     ))
                                 })
@@ -1200,8 +1267,10 @@ impl NodeGraph {
                                 .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                     NODEGRAPH_NODES_CONTAINER_CLASS,
                                 ))
-                                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                                .with_css_props(container_props(
                                     NODEGRAPH_NODES_CONTAINER_PROPS,
+                                    graph,
+                                    pan,
                                 )),
                         ]
                         .into()
@@ -1211,7 +1280,10 @@ impl NodeGraph {
             .with_dataset(Some(node_graph_local_dataset).into())
             // The wrapper's marker: what the context-menu callback resolves
             // to place a new node relative to this graph's on-screen box.
-            .with_marker(Some(marker_prefix).into())
+            .with_marker(Some(marker_prefix).into());
+        // The DOM is built: the dataset is the callbacks' to borrow.
+        drop(dataset);
+        dom
     }
 }
 
@@ -1234,6 +1306,10 @@ fn node_marker(prefix: &AzString, node_id: NodeGraphNodeId) -> AzString {
 // containing all the state of the node graph
 struct NodeGraphLocalDataset {
     node_graph: NodeGraph,
+    /// Where the ids of `node_graph` stand in its lists, made once with the
+    /// dataset: the callbacks move nodes and wire ports, they never add,
+    /// remove or reorder a node or a type.
+    index: GraphIndex,
     last_input_or_output_clicked: Option<(NodeGraphNodeId, InputOrOutput)>,
     /// The graph node currently being dragged. Its VISUAL node is resolved
     /// via `node_marker(&marker_prefix, id)` — no dataset handle needed.
@@ -1246,6 +1322,17 @@ struct NodeGraphLocalDataset {
     /// datasets of one type existed.
     marker_prefix: AzString,
     callbacks: NodeGraphCallbacks,
+    /// What this render gave DOM to when it culled the graph to the box it is
+    /// shown in ([`NodeGraph::dom_in_view`]), `None` for a graph rendered
+    /// whole: a node or connection that a pan brings near the box and that is
+    /// not in here has no DOM until the graph is built again at the offset the
+    /// pan ended at ([`pan_needs_rebuild`]).
+    culled: Option<CulledDom>,
+    /// The graph itself (not a node) was dragged since the button went down.
+    graph_dragged: bool,
+    /// How this render carries the graph's offset ([`PanMode`]): what a pan
+    /// and a node drag write, and what the end of a gesture hands back.
+    pan: PanMode,
 }
 
 struct ContextMenuEntryLocalDataset {
@@ -1382,6 +1469,7 @@ fn render_node(
         &[StyleFontFamily::System(STRING_9416190750059025162)];
     const LINEAR_COLOR_STOP_4373556077110009258_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(20),
             color: ColorOrSystem::color(ColorU {
                 r: 0,
@@ -1391,6 +1479,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 0,
@@ -1402,6 +1491,7 @@ fn render_node(
     ];
     const LINEAR_COLOR_STOP_7397113864565941600_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(0),
             color: ColorOrSystem::color(ColorU {
                 r: 229,
@@ -1411,6 +1501,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 227,
@@ -1422,6 +1513,7 @@ fn render_node(
     ];
     const LINEAR_COLOR_STOP_15596411095679453272_ITEMS: &[NormalizedLinearColorStop] = &[
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(0),
             color: ColorOrSystem::color(ColorU {
                 r: 47,
@@ -1431,6 +1523,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(50),
             color: ColorOrSystem::color(ColorU {
                 r: 47,
@@ -1440,6 +1533,7 @@ fn render_node(
             }),
         },
         NormalizedLinearColorStop {
+            offset_px: FloatValue::const_new(0),
             offset: PercentageValue::const_new(100),
             color: ColorOrSystem::color(ColorU {
                 r: 32,
@@ -2248,6 +2342,222 @@ fn render_node(
     const CSS_MATCH_9863994880298313101: CssPropertyWithConditionsVec =
         CssPropertyWithConditionsVec::from_const_slice(CSS_MATCH_9863994880298313101_PROPERTIES);
 
+    // `.node_graph_node`, the box of a node: what it declares before its
+    // `transform` - the same for every node of every render, so it is a
+    // constant the node's list starts from (its four shadows by reference:
+    // boxed, each was an allocation per node and one more for every copy of
+    // the property the cascade makes).
+    const NODE_BOX_PROPERTIES: &[CssPropertyWithConditions] = &[
+        CssPropertyWithConditions::simple(CssProperty::OverflowX(
+            LayoutOverflowValue::Exact(LayoutOverflow::Visible)
+        )),
+        CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
+            LayoutPosition::Relative,
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::OverflowY(
+            LayoutOverflowValue::Exact(LayoutOverflow::Visible)
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
+            StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
+                STYLE_BACKGROUND_CONTENT_11535310356736632656_ITEMS,
+            )),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
+            StyleBorderTopColorValue::Exact(StyleBorderTopColor {
+                inner: ColorU {
+                    r: 0,
+                    g: 180,
+                    b: 219,
+                    a: 255,
+                },
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
+            StyleBorderRightColorValue::Exact(StyleBorderRightColor {
+                inner: ColorU {
+                    r: 0,
+                    g: 180,
+                    b: 219,
+                    a: 255,
+                },
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
+            StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
+                inner: ColorU {
+                    r: 0,
+                    g: 180,
+                    b: 219,
+                    a: 255,
+                },
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
+            StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
+                inner: ColorU {
+                    r: 0,
+                    g: 180,
+                    b: 219,
+                    a: 255,
+                },
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
+            StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
+                inner: BorderStyle::Solid,
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
+            StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
+                inner: BorderStyle::Solid,
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
+            StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
+                inner: BorderStyle::Solid,
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
+            StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
+                inner: BorderStyle::Solid,
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
+            LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
+                inner: PixelValue::const_px(1),
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
+            LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
+                inner: PixelValue::const_px(1),
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
+            LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
+                inner: PixelValue::const_px(1),
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
+            LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
+                inner: PixelValue::const_px(1),
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+            StyleBoxShadow {
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                color: ColorU {
+                    r: 0,
+                    g: 131,
+                    b: 176,
+                    a: 119,
+                },
+                blur_radius: PixelValueNoPercent {
+                    inner: PixelValue::const_px(3),
+                },
+                spread_radius: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                clip_mode: BoxShadowClipMode::Outset,
+            },
+        )))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+            StyleBoxShadow {
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                color: ColorU {
+                    r: 0,
+                    g: 131,
+                    b: 176,
+                    a: 119,
+                },
+                blur_radius: PixelValueNoPercent {
+                    inner: PixelValue::const_px(3),
+                },
+                spread_radius: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                clip_mode: BoxShadowClipMode::Outset,
+            },
+        )))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::Static(&
+            StyleBoxShadow {
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                color: ColorU {
+                    r: 0,
+                    g: 131,
+                    b: 176,
+                    a: 119,
+                },
+                blur_radius: PixelValueNoPercent {
+                    inner: PixelValue::const_px(3),
+                },
+                spread_radius: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                clip_mode: BoxShadowClipMode::Outset,
+            },
+        )))),
+        CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
+            StyleBoxShadowValue::Exact(BoxOrStatic::Static(&StyleBoxShadow {
+                offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
+                color: ColorU {
+                    r: 0,
+                    g: 131,
+                    b: 176,
+                    a: 119,
+                },
+                blur_radius: PixelValueNoPercent {
+                    inner: PixelValue::const_px(3),
+                },
+                spread_radius: PixelValueNoPercent {
+                    inner: PixelValue::const_px(0),
+                },
+                clip_mode: BoxShadowClipMode::Outset,
+            })),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::TextColor(StyleTextColorValue::Exact(
+            StyleTextColor {
+                inner: ColorU {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    a: 255,
+                },
+            },
+        ))),
+
+        CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
+            LayoutDisplay::Block
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
+            StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
+            LayoutPaddingTop {
+                inner: PixelValue::const_px(10),
+            },
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::PaddingBottom(
+            LayoutPaddingBottomValue::Exact(LayoutPaddingBottom {
+                inner: PixelValue::const_px(10),
+            }),
+        )),
+        CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
+            LayoutPaddingLeft {
+                inner: PixelValue::const_px(10),
+            },
+        ))),
+        CssPropertyWithConditions::simple(CssProperty::PaddingRight(
+            LayoutPaddingRightValue::Exact(LayoutPaddingRight {
+                inner: PixelValue::const_px(10),
+            }),
+        )),
+    ];
+    // ...and what it declares after it.
+    const NODE_BOX_WIDTH: CssPropertyWithConditions =
+        CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
+            LayoutWidth::Px(PixelValue::const_px(250)),
+        )));
+
     // NODE RENDER FUNCTION BEGIN
 
     let node_transform = StyleTransformTranslate2D {
@@ -2264,10 +2574,8 @@ fn render_node(
                 .backref
                 .downcast_ref::<NodeGraphLocalDataset>()?;
             let io_info = node_graph_ref
-                .node_graph
-                .input_output_types
-                .iter()
-                .find(|i| i.io_type_id == *io_id)?;
+                .index
+                .io_type(&node_graph_ref.node_graph, *io_id)?;
             Some((io_info.io_info.data_type.clone(), io_info.io_info.color))
         })
         .collect::<Vec<_>>();
@@ -2280,14 +2588,13 @@ fn render_node(
                 .backref
                 .downcast_ref::<NodeGraphLocalDataset>()?;
             let io_info = node_graph_ref
-                .node_graph
-                .input_output_types
-                .iter()
-                .find(|i| i.io_type_id == *io_id)?;
+                .index
+                .io_type(&node_graph_ref.node_graph, *io_id)?;
             Some((io_info.io_info.data_type.clone(), io_info.io_info.color))
         })
         .collect::<Vec<_>>();
 
+    let node_id = node_local_dataset.node_id;
     let node_local_dataset = RefAny::new(node_local_dataset);
 
     Dom::create_div()
@@ -2305,212 +2612,12 @@ fn render_node(
                callback: CoreCallback { cb: nodegraph_set_active_node as usize, ctx: OptionRefAny::None },
            },
         ].into())
-        .with_css_props(vec![
-           // .node_graph_node
-           CssPropertyWithConditions::simple(CssProperty::OverflowX(
-               LayoutOverflowValue::Exact(LayoutOverflow::Visible)
-           )),
-           CssPropertyWithConditions::simple(CssProperty::Position(LayoutPositionValue::Exact(
-               LayoutPosition::Relative,
-           ))),
-           CssPropertyWithConditions::simple(CssProperty::OverflowY(
-               LayoutOverflowValue::Exact(LayoutOverflow::Visible)
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BackgroundContent(
-               StyleBackgroundContentVecValue::Exact(StyleBackgroundContentVec::from_const_slice(
-                   STYLE_BACKGROUND_CONTENT_11535310356736632656_ITEMS,
-               )),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderTopColor(
-               StyleBorderTopColorValue::Exact(StyleBorderTopColor {
-                   inner: ColorU {
-                       r: 0,
-                       g: 180,
-                       b: 219,
-                       a: 255,
-                   },
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderRightColor(
-               StyleBorderRightColorValue::Exact(StyleBorderRightColor {
-                   inner: ColorU {
-                       r: 0,
-                       g: 180,
-                       b: 219,
-                       a: 255,
-                   },
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderLeftColor(
-               StyleBorderLeftColorValue::Exact(StyleBorderLeftColor {
-                   inner: ColorU {
-                       r: 0,
-                       g: 180,
-                       b: 219,
-                       a: 255,
-                   },
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderBottomColor(
-               StyleBorderBottomColorValue::Exact(StyleBorderBottomColor {
-                   inner: ColorU {
-                       r: 0,
-                       g: 180,
-                       b: 219,
-                       a: 255,
-                   },
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderTopStyle(
-               StyleBorderTopStyleValue::Exact(StyleBorderTopStyle {
-                   inner: BorderStyle::Solid,
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderRightStyle(
-               StyleBorderRightStyleValue::Exact(StyleBorderRightStyle {
-                   inner: BorderStyle::Solid,
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderLeftStyle(
-               StyleBorderLeftStyleValue::Exact(StyleBorderLeftStyle {
-                   inner: BorderStyle::Solid,
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderBottomStyle(
-               StyleBorderBottomStyleValue::Exact(StyleBorderBottomStyle {
-                   inner: BorderStyle::Solid,
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderTopWidth(
-               LayoutBorderTopWidthValue::Exact(LayoutBorderTopWidth {
-                   inner: PixelValue::const_px(1),
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderRightWidth(
-               LayoutBorderRightWidthValue::Exact(LayoutBorderRightWidth {
-                   inner: PixelValue::const_px(1),
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderLeftWidth(
-               LayoutBorderLeftWidthValue::Exact(LayoutBorderLeftWidth {
-                   inner: PixelValue::const_px(1),
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BorderBottomWidth(
-               LayoutBorderBottomWidthValue::Exact(LayoutBorderBottomWidth {
-                   inner: PixelValue::const_px(1),
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::heap(
-               StyleBoxShadow {
-                   offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
-                   color: ColorU {
-                       r: 0,
-                       g: 131,
-                       b: 176,
-                       a: 119,
-                   },
-                   blur_radius: PixelValueNoPercent {
-                       inner: PixelValue::const_px(3),
-                   },
-                   spread_radius: PixelValueNoPercent {
-                       inner: PixelValue::const_px(0),
-                   },
-                   clip_mode: BoxShadowClipMode::Outset,
-               },
-           )))),
-           CssPropertyWithConditions::simple(CssProperty::BoxShadowRight(StyleBoxShadowValue::Exact(BoxOrStatic::heap(
-               StyleBoxShadow {
-                   offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
-                   color: ColorU {
-                       r: 0,
-                       g: 131,
-                       b: 176,
-                       a: 119,
-                   },
-                   blur_radius: PixelValueNoPercent {
-                       inner: PixelValue::const_px(3),
-                   },
-                   spread_radius: PixelValueNoPercent {
-                       inner: PixelValue::const_px(0),
-                   },
-                   clip_mode: BoxShadowClipMode::Outset,
-               },
-           )))),
-           CssPropertyWithConditions::simple(CssProperty::BoxShadowTop(StyleBoxShadowValue::Exact(BoxOrStatic::heap(
-               StyleBoxShadow {
-                   offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
-                   color: ColorU {
-                       r: 0,
-                       g: 131,
-                       b: 176,
-                       a: 119,
-                   },
-                   blur_radius: PixelValueNoPercent {
-                       inner: PixelValue::const_px(3),
-                   },
-                   spread_radius: PixelValueNoPercent {
-                       inner: PixelValue::const_px(0),
-                   },
-                   clip_mode: BoxShadowClipMode::Outset,
-               },
-           )))),
-           CssPropertyWithConditions::simple(CssProperty::BoxShadowBottom(
-               StyleBoxShadowValue::Exact(BoxOrStatic::heap(StyleBoxShadow {
-                   offset_x: PixelValueNoPercent { inner: PixelValue::const_px(0) }, offset_y: PixelValueNoPercent { inner: PixelValue::const_px(0) },
-                   color: ColorU {
-                       r: 0,
-                       g: 131,
-                       b: 176,
-                       a: 119,
-                   },
-                   blur_radius: PixelValueNoPercent {
-                       inner: PixelValue::const_px(3),
-                   },
-                   spread_radius: PixelValueNoPercent {
-                       inner: PixelValue::const_px(0),
-                   },
-                   clip_mode: BoxShadowClipMode::Outset,
-               })),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::TextColor(StyleTextColorValue::Exact(
-               StyleTextColor {
-                   inner: ColorU {
-                       r: 255,
-                       g: 255,
-                       b: 255,
-                       a: 255,
-                   },
-               },
-           ))),
-
-           CssPropertyWithConditions::simple(CssProperty::Display(LayoutDisplayValue::Exact(
-               LayoutDisplay::Block
-           ))),
-           CssPropertyWithConditions::simple(CssProperty::FontFamily(StyleFontFamilyVecValue::Exact(
-               StyleFontFamilyVec::from_const_slice(STYLE_FONT_FAMILY_8122988506401935406_ITEMS),
-           ))),
-           CssPropertyWithConditions::simple(CssProperty::PaddingTop(LayoutPaddingTopValue::Exact(
-               LayoutPaddingTop {
-                   inner: PixelValue::const_px(10),
-               },
-           ))),
-           CssPropertyWithConditions::simple(CssProperty::PaddingBottom(
-               LayoutPaddingBottomValue::Exact(LayoutPaddingBottom {
-                   inner: PixelValue::const_px(10),
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::PaddingLeft(LayoutPaddingLeftValue::Exact(
-               LayoutPaddingLeft {
-                   inner: PixelValue::const_px(10),
-               },
-           ))),
-           CssPropertyWithConditions::simple(CssProperty::PaddingRight(
-               LayoutPaddingRightValue::Exact(LayoutPaddingRight {
-                   inner: PixelValue::const_px(10),
-               }),
-           )),
-           CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
+        .with_css_props({
+           // .node_graph_node: the constants, this node's transform, the width -
+           // in the order the box has always declared them in
+           let mut props = Vec::with_capacity(NODE_BOX_PROPERTIES.len() + 2);
+           props.extend_from_slice(NODE_BOX_PROPERTIES);
+           props.push(CssPropertyWithConditions::simple(CssProperty::Transform(StyleTransformVecValue::Exact(
                if scale_factor == 1.0 {
                     vec![
                          StyleTransform::Translate(node_transform)
@@ -2522,11 +2629,10 @@ fn render_node(
                          StyleTransform::ScaleY(PercentageValue::new(scale_factor * 100.0)),
                     ]
                }.into()
-           ))),
-           CssPropertyWithConditions::simple(CssProperty::Width(LayoutWidthValue::Exact(
-               LayoutWidth::Px(PixelValue::const_px(250),),
-           ))),
-        ].into())
+           ))));
+           props.push(NODE_BOX_WIDTH);
+           props.into()
+        })
         .with_ids_and_classes({
            const IDS_AND_CLASSES_4480169002427296613: &[IdOrClass] =
                &[Class(AzString::from_const_str("node_graph_node"))];
@@ -2722,6 +2828,7 @@ fn render_node(
                                        NodeTypeFieldValue::TextInput(initial_text) => {
                                            let cb: TextInputOnFocusLostCallbackType = nodegraph_on_textinput_focus_lost;
                                            TextInput::create()
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_text(initial_text.clone())
                                            .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
@@ -2729,24 +2836,28 @@ fn render_node(
                                        NodeTypeFieldValue::NumberInput(initial_value) => {
                                            let cb: NumberInputOnFocusLostCallbackType = nodegraph_on_numberinput_focus_lost;
                                            NumberInput::create(*initial_value)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_focus_lost(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::CheckBox(initial_checked) => {
                                            let cb: CheckBoxOnToggleCallbackType = nodegraph_on_checkbox_value_changed;
                                            CheckBox::create(*initial_checked)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_toggle(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::ColorInput(initial_color) => {
                                            let cb: ColorInputOnValueChangeCallbackType = nodegraph_on_colorinput_value_changed;
                                            ColorInput::create(*initial_color)
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_value_change(field_local_dataset, cb)
                                            .dom()
                                        },
                                        NodeTypeFieldValue::FileInput(file_path) => {
                                            let cb: FileInputOnPathChangeCallbackType = nodegraph_on_fileinput_button_clicked;
                                            FileInput::create(file_path.clone())
+                                           .with_theme(crate::widgets::themes::UiTheme::SINGLE_LOOK)
                                            .with_on_path_change(field_local_dataset, cb)
                                            .dom()
                                        },
@@ -2879,11 +2990,117 @@ fn render_node(
         // the fast-path jump that positions this node without a relayout.
         .with_marker(Some(visual_marker).into())
     ].into())
+    // The same node of the graph is the same node of the DOM in every render,
+    // wherever it stands among the nodes that have DOM.
+    .with_key(node_key(node_id))
+}
+
+/// The reconciliation key of the DOM of the graph node `node_id` (its
+/// wrapper; everything below it is known by its place under the wrapper).
+///
+/// Without a key a node of the DOM is known by its place among its siblings
+/// (`azul_core::diff`), and the nodes that have DOM change with every culled
+/// render: after a pan the wrapper at place 0 belonged to another graph node
+/// than before, and took over what the old one carried - the focus and text
+/// of its fields, and the `transform` the drag had written on its box, which
+/// outranks the one the new box was built with (a written property is carried
+/// over to the matched node of every rebuild). With the key a node is matched
+/// to itself or, new to the DOM, to nothing.
+///
+/// A key is known DOM-wide: two graphs in one DOM whose node ids overlap
+/// share keys and are matched in document order.
+fn node_key(node_id: NodeGraphNodeId) -> (&'static str, u64) {
+    ("azul-nodegraph-node", node_id.inner)
+}
+
+/// As [`node_key`], for the DOM of a connection: its two ports.
+fn connection_key(connection: &ConnectionLocalDataset) -> (&'static str, u64, usize, u64, usize) {
+    (
+        "azul-nodegraph-connection",
+        connection.out_node_id.inner,
+        connection.out_idx,
+        connection.in_node_id.inner,
+        connection.in_idx,
+    )
+}
+
+/// Every connection of `node_graph` that is drawn - its output port has a type
+/// with a colour, both its ends are nodes of the graph - with the rect it is
+/// drawn in ([`connection_rect`], whose swap flags the dataset carries), in the
+/// order of the nodes and their outputs: the one walk of [`render_connections`]
+/// and of what a culled render records it gave DOM to ([`CulledDom::of`]).
+/// `index`: the graph's ([`GraphIndex::of`]); every type and both nodes of a
+/// connection are looked up through it, not by a search of the lists.
+fn drawn_connections(
+    node_graph: &NodeGraph,
+    index: &GraphIndex,
+) -> Vec<(ConnectionLocalDataset, LogicalRect)> {
+    let mut drawn = Vec::new();
+
+    for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref() {
+        let out_node_id = node_id;
+        let node_type_info = match index.node_type(node_graph, node.node_type) {
+            Some(s) => &s.node_type_info,
+            None => continue,
+        };
+
+        for OutputConnection {
+            output_index,
+            connects_to,
+        } in node.connect_out.as_ref()
+        {
+            let Some(output_type_id) = node_type_info.outputs.get(*output_index) else {
+                continue;
+            };
+
+            let output_color = match index.io_type(node_graph, *output_type_id) {
+                Some(s) => s.io_info.color,
+                None => continue,
+            };
+
+            for InputNodeAndIndex {
+                node_id,
+                input_index,
+            } in connects_to.as_ref()
+            {
+                let in_node_id = node_id;
+
+                let mut cld = ConnectionLocalDataset {
+                    out_node_id: *out_node_id,
+                    out_idx: *output_index,
+                    in_node_id: *in_node_id,
+                    in_idx: *input_index,
+                    swap_vert: false,
+                    swap_horz: false,
+                    color: output_color,
+                };
+
+                let Some((rect, swap_vert, swap_horz)) =
+                    connection_rect(node_graph, index, cld)
+                else {
+                    continue;
+                };
+
+                cld.swap_vert = swap_vert;
+                cld.swap_horz = swap_horz;
+
+                drawn.push((cld, rect));
+            }
+        }
+    }
+
+    drawn
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
-fn render_connections(node_graph: &NodeGraph, connections_marker: AzString) -> Dom {
+fn render_connections(
+    node_graph: &NodeGraph,
+    index: &GraphIndex,
+    connections_marker: AzString,
+    view: Option<&ViewWindow>,
+    pan: PanMode,
+) -> Dom {
     static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
         AzString::from_const_str("nodegraph-connections-container"),
     )];
@@ -2897,116 +3114,70 @@ fn render_connections(node_graph: &NodeGraph, connections_marker: AzString) -> D
         .with_ids_and_classes(IdOrClassVec::from_const_slice(
             NODEGRAPH_CONNECTIONS_CONTAINER_CLASS,
         ))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+        .with_css_props(container_props(
             NODEGRAPH_CONNECTIONS_CONTAINER_PROPS,
+            node_graph,
+            pan,
         ))
         .with_marker(Some(connections_marker).into())
         .with_children({
             let mut children = Vec::new();
+            let offset = offset_in_boxes(node_graph, pan);
 
-            for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref() {
-                let out_node_id = node_id;
-                let node_type_info = match node_graph
-                    .node_types
-                    .iter()
-                    .find(|i| i.node_type_id == node.node_type)
-                {
-                    Some(s) => &s.node_type_info,
-                    None => continue,
-                };
-
-                for OutputConnection {
-                    output_index,
-                    connects_to,
-                } in node.connect_out.as_ref()
-                {
-                    let Some(output_type_id) = node_type_info.outputs.get(*output_index) else {
+            for (cld, rect) in drawn_connections(node_graph, index) {
+                // A connection nowhere near the box gets no DOM: its rect
+                // is what `connection_rect` says, whether its nodes have DOM or not.
+                if let Some(view) = view {
+                    if !connection_in_view(node_graph, &rect, view) {
                         continue;
-                    };
-
-                    let output_color = match node_graph
-                        .input_output_types
-                        .iter()
-                        .find(|o| o.io_type_id == *output_type_id)
-                    {
-                        Some(s) => s.io_info.color,
-                        None => continue,
-                    };
-
-                    for InputNodeAndIndex {
-                        node_id,
-                        input_index,
-                    } in connects_to.as_ref()
-                    {
-                        let in_node_id = node_id;
-
-                        let mut cld = ConnectionLocalDataset {
-                            out_node_id: *out_node_id,
-                            out_idx: *output_index,
-                            in_node_id: *in_node_id,
-                            in_idx: *input_index,
-                            swap_vert: false,
-                            swap_horz: false,
-                            color: output_color,
-                        };
-
-                        let Some((rect, swap_vert, swap_horz)) = get_rect(node_graph, cld) else {
-                            continue;
-                        };
-
-                        cld.swap_vert = swap_vert;
-                        cld.swap_horz = swap_horz;
-
-                        let cld_refany = RefAny::new(cld);
-                        let connection_div = Dom::create_image(ImageRef::callback(
-                            draw_connection as usize,
-                            cld_refany.clone(),
-                        ))
-                        .with_dataset(Some(cld_refany).into())
-                        .with_css_props(
-                            vec![
-                                CssPropertyWithConditions::simple(CssProperty::Transform(
-                                    StyleTransformVecValue::Exact(
-                                        vec![
-                                            StyleTransform::Translate(StyleTransformTranslate2D {
-                                                x: PixelValue::px(
-                                                    node_graph.offset.x + rect.origin.x,
-                                                ),
-                                                y: PixelValue::px(
-                                                    node_graph.offset.y + rect.origin.y,
-                                                ),
-                                            }),
-                                            StyleTransform::ScaleX(PercentageValue::new(
-                                                node_graph.scale_factor * 100.0,
-                                            )),
-                                            StyleTransform::ScaleY(PercentageValue::new(
-                                                node_graph.scale_factor * 100.0,
-                                            )),
-                                        ]
-                                        .into(),
-                                    ),
-                                )),
-                                CssPropertyWithConditions::simple(CssProperty::Width(
-                                    LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px(
-                                        rect.size.width,
-                                    ))),
-                                )),
-                                CssPropertyWithConditions::simple(CssProperty::Height(
-                                    LayoutHeightValue::Exact(LayoutHeight::Px(PixelValue::px(
-                                        rect.size.height,
-                                    ))),
-                                )),
-                            ]
-                            .into(),
-                        );
-
-                        children.push(
-                            Dom::create_div()
-                                .with_css("flex-grow: 1; position: absolute; overflow: hidden;")
-                                .with_children(vec![connection_div].into()),
-                        );
                     }
                 }
+
+                let cld_refany = RefAny::new(cld);
+                let connection_div = Dom::create_image(ImageRef::callback(
+                    draw_connection as usize,
+                    cld_refany.clone(),
+                ))
+                .with_dataset(Some(cld_refany).into())
+                .with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::Transform(
+                            StyleTransformVecValue::Exact(
+                                vec![
+                                    StyleTransform::Translate(StyleTransformTranslate2D {
+                                        x: PixelValue::px(offset.0 + rect.origin.x),
+                                        y: PixelValue::px(offset.1 + rect.origin.y),
+                                    }),
+                                    StyleTransform::ScaleX(PercentageValue::new(
+                                        node_graph.scale_factor * 100.0,
+                                    )),
+                                    StyleTransform::ScaleY(PercentageValue::new(
+                                        node_graph.scale_factor * 100.0,
+                                    )),
+                                ]
+                                .into(),
+                            ),
+                        )),
+                        CssPropertyWithConditions::simple(CssProperty::Width(
+                            LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px(
+                                rect.size.width,
+                            ))),
+                        )),
+                        CssPropertyWithConditions::simple(CssProperty::Height(
+                            LayoutHeightValue::Exact(LayoutHeight::Px(PixelValue::px(
+                                rect.size.height,
+                            ))),
+                        )),
+                    ]
+                    .into(),
+                );
+
+                children.push(
+                    Dom::create_div()
+                        .with_css("flex-grow: 1; position: absolute; overflow: hidden;")
+                        .with_children(vec![connection_div].into())
+                        .with_key(connection_key(&cld)),
+                );
             }
 
             children.into()
@@ -3036,10 +3207,323 @@ const NODE_WIDTH: f32 = 250.0;
 const V_OFFSET: f32 = 71.0;
 const DIST_BETWEEN_NODES: f32 = 10.0;
 const CONNECTION_DOT_HEIGHT: f32 = 15.0;
+/// The most a field's row can be tall, px (a text input, a colour input with its
+/// label and padding): the bound [`node_height_bound`] counts per field.
+const FIELD_HEIGHT_BOUND: f32 = 60.0;
+/// What a node's box has on top of its header (`V_OFFSET`), its ports and its
+/// fields: its padding and the shadow around it.
+const NODE_PADDING_BOUND: f32 = 40.0;
+/// How far from the shown box a node or connection still gets DOM, as a
+/// fraction of the box's width and height: the nodes a short drag brings in.
+const CULL_MARGIN: f32 = 0.5;
 
-// calculates the rect on which the connection is drawn in the UI
+/// An upper bound of the height of `node`'s box, px: its header, the port column
+/// that is longer, and the rows of its fields. A node taller than this would
+/// lose its DOM while its lower part is still on screen, so it is generous.
+#[allow(clippy::cast_precision_loss)] // port and field counts are tiny
+fn node_height_bound(info: &NodeTypeInfo, node: &NodeGraphNode) -> f32 {
+    let ports = info.inputs.len().max(info.outputs.len()) as f32;
+    V_OFFSET
+        + (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT) * ports
+        + FIELD_HEIGHT_BOUND * node.fields.len() as f32
+        + NODE_PADDING_BOUND
+}
+
+/// The area of the graph box in which a node or connection gets DOM: the box
+/// at `(0, 0)` of the graph's coordinate space, grown by [`CULL_MARGIN`] of its
+/// size on every side.
+#[derive(Debug, Copy, Clone)]
+struct ViewWindow {
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+}
+
+impl ViewWindow {
+    /// `None` for a size that is not positive and finite: no culling.
+    fn new(view_size: LogicalSize) -> Option<Self> {
+        let (w, h) = (view_size.width, view_size.height);
+        if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
+            return None;
+        }
+        Some(Self {
+            x0: -w * CULL_MARGIN,
+            y0: -h * CULL_MARGIN,
+            x1: w * (1.0 + CULL_MARGIN),
+            y1: h * (1.0 + CULL_MARGIN),
+        })
+    }
+
+    /// Whether a box of `w` x `h` whose `translate()` is `(x, y)` - the value
+    /// the node's `transform` carries, graph offset included - can touch the
+    /// window. The transform scales the box about its centre, so the box
+    /// reaches as far as it does at scale 1 or at `scale`, whichever is more.
+    fn shows(&self, x: f32, y: f32, w: f32, h: f32, scale: f32) -> bool {
+        let grow = if scale.is_finite() { scale.max(1.0) } else { 1.0 };
+        let (cx, cy) = (x + w * 0.5, y + h * 0.5);
+        let (half_w, half_h) = (w * 0.5 * grow, h * 0.5 * grow);
+        // A coordinate that is not a number is shown: never lose a node to NaN.
+        if !(cx.is_finite() && cy.is_finite()) {
+            return true;
+        }
+        cx + half_w >= self.x0 && cx - half_w <= self.x1 && cy + half_h >= self.y0 && cy - half_h <= self.y1
+    }
+}
+
+/// Whether `node` gets DOM in a render of `graph` culled to `view`: the one
+/// test of the builder ([`NodeGraph::dom_in_view`]) and of the record a pan's
+/// end is decided with ([`CulledDom`]).
+fn node_in_view(
+    graph: &NodeGraph,
+    info: &NodeTypeInfo,
+    node: &NodeGraphNode,
+    view: &ViewWindow,
+) -> bool {
+    view.shows(
+        graph.offset.x + node.position.x,
+        graph.offset.y + node.position.y,
+        NODE_WIDTH,
+        node_height_bound(info, node),
+        graph.scale_factor,
+    )
+}
+
+/// As [`node_in_view`], for a connection drawn in `rect` ([`connection_rect`]).
+fn connection_in_view(graph: &NodeGraph, rect: &LogicalRect, view: &ViewWindow) -> bool {
+    view.shows(
+        graph.offset.x + rect.origin.x,
+        graph.offset.y + rect.origin.y,
+        rect.size.width,
+        rect.size.height,
+        graph.scale_factor,
+    )
+}
+
+/// A connection as the record of a culled render names it: its output node
+/// and port, its input node and port.
+type ConnectionKey = (u64, usize, u64, usize);
+
+/// What a render culled to a box ([`NodeGraph::dom_in_view`]) gave DOM to.
+#[derive(Debug)]
+struct CulledDom {
+    /// The box the render was culled to.
+    view: ViewWindow,
+    /// `nodes[i]`: the i-th node of the graph has DOM.
+    nodes: Vec<bool>,
+    /// The connections that have DOM, sorted.
+    connections: Vec<ConnectionKey>,
+}
+
+impl CulledDom {
+    /// What a render of `graph` culled to `view` gives DOM to, by the tests
+    /// the builder makes: [`node_in_view`] for each node of a registered type,
+    /// [`connection_in_view`] for each connection that is drawn
+    /// ([`drawn_connections`]).
+    fn of(graph: &NodeGraph, index: &GraphIndex, view: ViewWindow) -> Self {
+        let nodes: Vec<bool> = graph
+            .nodes
+            .iter()
+            .map(|NodeIdNodeMap { node, .. }| {
+                index
+                    .node_type(graph, node.node_type)
+                    .is_some_and(|i| node_in_view(graph, &i.node_type_info, node, &view))
+            })
+            .collect();
+        let mut connections: Vec<ConnectionKey> = drawn_connections(graph, index)
+            .iter()
+            .filter(|c| connection_in_view(graph, &c.1, &view))
+            .map(|c| (c.0.out_node_id.inner, c.0.out_idx, c.0.in_node_id.inner, c.0.in_idx))
+            .collect();
+        connections.sort_unstable();
+        Self {
+            view,
+            nodes,
+            connections,
+        }
+    }
+}
+
+/// Whether the end of a pan has to build the graph's DOM again: `graph` - the
+/// graph at the offset the pan left it at - has a node or a connection in the
+/// box that the render `built` gave no DOM. What the pan took out of the box
+/// keeps its DOM until the next rebuild (nothing reads "has DOM" as "is in
+/// the box"), so a pan among the nodes that have their DOM needs none: it
+/// moved them with `transform`.
+fn pan_needs_rebuild(built: &CulledDom, graph: &NodeGraph, index: &GraphIndex) -> bool {
+    let now = CulledDom::of(graph, index, built.view);
+    now.nodes
+        .iter()
+        .enumerate()
+        .any(|(i, in_view)| *in_view && !built.nodes.get(i).copied().unwrap_or(false))
+        || now
+            .connections
+            .iter()
+            .any(|c| built.connections.binary_search(c).is_err())
+}
+
+/// How many entries of a graph's lists the lookups by id compared on this
+/// thread ([`place_of`]): what the size sweeps of the tests read to say that
+/// a render and a pan step find a node by bisection, not by a search of the
+/// node list per connection or per box.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static GRAPH_LOOKUP_STEPS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The place of each of `ids` in its list, sorted by id; of equal ids the
+/// first place only - what `iter().find(..)` finds.
+fn first_places(ids: impl Iterator<Item = u64>) -> Vec<(u64, usize)> {
+    let mut places: Vec<(u64, usize)> = ids.enumerate().map(|(place, id)| (id, place)).collect();
+    // by id, then by place: of equal ids the first place leads its run
+    places.sort_unstable();
+    places.dedup_by_key(|entry| entry.0);
+    places
+}
+
+/// The place of `id` in the list `places` was made from ([`first_places`]).
+fn place_of(places: &[(u64, usize)], id: u64) -> Option<usize> {
+    places
+        .binary_search_by(|probe| {
+            #[cfg(test)]
+            GRAPH_LOOKUP_STEPS.with(|n| n.set(n.get() + 1));
+            probe.0.cmp(&id)
+        })
+        .ok()
+        .map(|at| places[at].1)
+}
+
+/// Where the node ids, node type ids and port type ids of a graph stand in
+/// its three lists: made once per render (and kept in the render's dataset
+/// for its callbacks), so that a connection finds its two nodes, a node its
+/// type and a port its colour by bisection. The graph's own lists were
+/// searched from the front for each: a render of n wired nodes compared
+/// n * n ids, and so did every mouse move of a pan.
+///
+/// An index answers for the graph it was made of, and for that graph with
+/// its nodes moved or wired - not after a node or a type was added, removed
+/// or moved in its list (each answer is checked against the id it was asked
+/// for, so a stale index finds nothing instead of another entry).
+#[derive(Debug, Default)]
+struct GraphIndex {
+    nodes: Vec<(u64, usize)>,
+    node_types: Vec<(u64, usize)>,
+    io_types: Vec<(u64, usize)>,
+}
+
+impl GraphIndex {
+    fn of(graph: &NodeGraph) -> Self {
+        Self {
+            nodes: first_places(graph.nodes.iter().map(|n| n.node_id.inner)),
+            node_types: first_places(graph.node_types.iter().map(|t| t.node_type_id.inner)),
+            io_types: first_places(
+                graph
+                    .input_output_types
+                    .iter()
+                    .map(|t| t.io_type_id.inner),
+            ),
+        }
+    }
+
+    /// What `graph.nodes.iter().find(|n| n.node_id == id)` finds.
+    fn node<'a>(&self, graph: &'a NodeGraph, id: NodeGraphNodeId) -> Option<&'a NodeIdNodeMap> {
+        graph
+            .nodes
+            .as_ref()
+            .get(place_of(&self.nodes, id.inner)?)
+            .filter(|n| n.node_id == id)
+    }
+
+    /// What `graph.node_types.iter().find(|t| t.node_type_id == id)` finds.
+    fn node_type<'a>(
+        &self,
+        graph: &'a NodeGraph,
+        id: NodeTypeId,
+    ) -> Option<&'a NodeTypeIdInfoMap> {
+        graph
+            .node_types
+            .as_ref()
+            .get(place_of(&self.node_types, id.inner)?)
+            .filter(|t| t.node_type_id == id)
+    }
+
+    /// What `graph.input_output_types.iter().find(|t| t.io_type_id == id)` finds.
+    fn io_type<'a>(
+        &self,
+        graph: &'a NodeGraph,
+        id: InputOutputTypeId,
+    ) -> Option<&'a InputOutputTypeIdInfoMap> {
+        graph
+            .input_output_types
+            .as_ref()
+            .get(place_of(&self.io_types, id.inner)?)
+            .filter(|t| t.io_type_id == id)
+    }
+}
+
+/// The rect a connection from output `out_idx` of `out_node` to input
+/// `in_idx` of `in_node` is drawn in, and whether it runs upwards / leftwards
+/// in it (the swap flags).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
+fn rect_between(
+    out_node: &NodeGraphNode,
+    out_idx: usize,
+    in_node: &NodeGraphNode,
+    in_idx: usize,
+) -> (LogicalRect, bool, bool) {
+    let x_out = out_node.position.x + NODE_WIDTH;
+    let y_out = out_node.position.y
+        + V_OFFSET
+        + (out_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
+
+    let x_in = in_node.position.x;
+    let y_in = in_node.position.y
+        + V_OFFSET
+        + (in_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
+
+    let should_swap_vertical = y_in > y_out;
+    let should_swap_horizontal = x_in < x_out;
+
+    let width = (x_in - x_out).abs();
+    let height = (y_in - y_out).abs() + CONNECTION_DOT_HEIGHT;
+
+    let x = x_in.min(x_out);
+    let y = y_in.min(y_out);
+
+    (
+        LogicalRect {
+            size: LogicalSize { width, height },
+            origin: LogicalPosition { x, y },
+        },
+        should_swap_vertical,
+        should_swap_horizontal,
+    )
+}
+
+/// The rect `connection` is drawn in ([`rect_between`] its two nodes, found
+/// through the graph's `index`); `None` when one of them is no node of the
+/// graph.
+fn connection_rect(
+    node_graph: &NodeGraph,
+    index: &GraphIndex,
+    connection: ConnectionLocalDataset,
+) -> Option<(LogicalRect, bool, bool)> {
+    let out_node = index.node(node_graph, connection.out_node_id)?;
+    let in_node = index.node(node_graph, connection.in_node_id)?;
+    Some(rect_between(
+        &out_node.node,
+        connection.out_idx,
+        &in_node.node,
+        connection.in_idx,
+    ))
+}
+
+// calculates the rect on which the connection is drawn in the UI
+/// [`connection_rect`] by a search of the node list for the two nodes: what
+/// the tests of the rect's geometry call, and what the indexed lookup must
+/// agree with.
+#[cfg(test)]
 fn get_rect(
     node_graph: &NodeGraph,
     connection: ConnectionLocalDataset,
@@ -3053,34 +3537,180 @@ fn get_rect(
     } = connection;
     let out_node = node_graph.nodes.iter().find(|i| i.node_id == out_node_id)?;
     let in_node = node_graph.nodes.iter().find(|i| i.node_id == in_node_id)?;
+    Some(rect_between(&out_node.node, out_idx, &in_node.node, in_idx))
+}
 
-    let x_out = out_node.node.position.x + NODE_WIDTH;
-    let y_out = out_node.node.position.y
-        + V_OFFSET
-        + (out_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
+/// How a render of the graph carries the graph's offset (A3-solver-35b).
+///
+/// The offset moves every node and every wire by the same amount. Carried by
+/// each node box and wire in its own `transform`, a step of a pan is one write
+/// per box and wire that has DOM, and the end of the pan one clear each.
+/// Carried by the two containers - the wires' and the nodes' - it is two
+/// writes and two clears, whatever the graph holds: a node box then stands at
+/// `translate(position)`, a wire at `translate(rect.origin)`, in the graph's
+/// own coordinates, and its container moves them all by
+/// `translate(offset)`. The picture is the same: a translation around a
+/// box's own transform adds to its translation, and the scale of a box acts
+/// about the box's centre under either.
+///
+/// Example, offset (7, 9), a node at (300, 40): `Nodes` gives its box
+/// `translate(307px, 49px)` in an untransformed container; `Containers` gives
+/// the box `translate(300px, 40px)` and its container `translate(7px, 9px)`,
+/// which paints it at (300 + 7, 40 + 9) = (307, 49).
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum PanMode {
+    /// On the two containers: the default.
+    Containers,
+    /// On every node box and wire, as before A3-solver-35b: the environment
+    /// variable `AZ_NODEGRAPH_PAN=nodes`.
+    Nodes,
+}
 
-    let x_in = in_node.node.position.x;
-    let y_in = in_node.node.position.y
-        + V_OFFSET
-        + (in_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
+/// The [`PanMode`] of this process: `Containers`, unless the environment
+/// says `AZ_NODEGRAPH_PAN=nodes` (read once).
+fn pan_mode() -> PanMode {
+    #[cfg(feature = "std")]
+    {
+        if env_flag!("AZ_NODEGRAPH_PAN" == "nodes") {
+            return PanMode::Nodes;
+        }
+    }
+    PanMode::Containers
+}
 
-    let should_swap_vertical = y_in > y_out;
-    let should_swap_horizontal = x_in < x_out;
+/// The part of the graph's offset a node box or a wire carries in its own
+/// `transform`: all of it, or none when the containers carry it.
+fn offset_in_boxes(graph: &NodeGraph, pan: PanMode) -> (f32, f32) {
+    match pan {
+        PanMode::Nodes => (graph.offset.x, graph.offset.y),
+        PanMode::Containers => (0.0, 0.0),
+    }
+}
 
-    let width = (x_in - x_out).abs();
-    let height = (y_in - y_out).abs() + CONNECTION_DOT_HEIGHT;
+/// `transform: translate(offset)`: what each of the two containers declares
+/// when the containers carry the graph's offset, and what a step of a pan
+/// writes on each of them. A write of nothing but `transform` moves the
+/// container by the value its reference frame binds: no restyle, no layout,
+/// no display list.
+fn container_transform(graph: &NodeGraph) -> CssProperty {
+    CssProperty::transform(
+        vec![StyleTransform::Translate(StyleTransformTranslate2D {
+            x: PixelValue::px(graph.offset.x),
+            y: PixelValue::px(graph.offset.y),
+        })]
+        .into(),
+    )
+}
 
-    let x = x_in.min(x_out);
-    let y = y_in.min(y_out);
+/// What a container of the graph declares: its `constants` and, when the
+/// containers carry the graph's offset, [`container_transform`] - at the
+/// offset (0, 0) too, so that the container has its reference frame, and the
+/// frame its key, before the first pan writes a value under it.
+fn container_props(
+    constants: &'static [CssPropertyWithConditions],
+    graph: &NodeGraph,
+    pan: PanMode,
+) -> CssPropertyWithConditionsVec {
+    match pan {
+        PanMode::Nodes => CssPropertyWithConditionsVec::from_const_slice(constants),
+        PanMode::Containers => {
+            let mut props = Vec::with_capacity(constants.len() + 1);
+            props.extend_from_slice(constants);
+            props.push(CssPropertyWithConditions::simple(container_transform(graph)));
+            props.into()
+        }
+    }
+}
 
-    Some((
-        LogicalRect {
-            size: LogicalSize { width, height },
-            origin: LogicalPosition { x, y },
-        },
-        should_swap_vertical,
-        should_swap_horizontal,
-    ))
+/// What a step of a node drag writes on the box of a connection of the
+/// dragged node, `rect` being where [`connection_rect`] puts it now: its `transform`
+/// (the scale included, and the graph's offset when the boxes carry it,
+/// [`offset_in_boxes`]) and nothing else. A write of
+/// nothing but `transform` moves the box by the value its reference frame
+/// binds: no restyle, no layout, no display list.
+///
+/// Not the box's `width` and `height`: two layout properties per connection
+/// per mouse move, each a relayout of the window. The box keeps the size it
+/// was built with until the graph is built again, and nothing reads that size
+/// as long as [`draw_connection`] draws nothing: a connection's nodes carry
+/// no callback (nothing is hit-tested on them), and [`connection_rect`], the cull
+/// test and the builder read the graph, not the DOM. Once connections are
+/// drawn their size has to follow a drag - when the drag ends, not per move.
+#[allow(clippy::float_cmp)] // intentional exact compare: at scale 1 the transform carries no scale
+fn connection_drag_writes(
+    graph: &NodeGraph,
+    rect: &LogicalRect,
+    pan: PanMode,
+) -> Vec<CssProperty> {
+    let offset = offset_in_boxes(graph, pan);
+    let translate = StyleTransformTranslate2D {
+        x: PixelValue::px(offset.0 + rect.origin.x),
+        y: PixelValue::px(offset.1 + rect.origin.y),
+    };
+    vec![CssProperty::transform(
+        if graph.scale_factor == 1.0 {
+            vec![StyleTransform::Translate(translate)]
+        } else {
+            vec![
+                StyleTransform::Translate(translate),
+                StyleTransform::ScaleX(PercentageValue::new(graph.scale_factor * 100.0)),
+                StyleTransform::ScaleY(PercentageValue::new(graph.scale_factor * 100.0)),
+            ]
+        }
+        .into(),
+    )]
+}
+
+/// What a pan of the graph writes on its node boxes when the boxes carry the
+/// graph's offset ([`PanMode::Nodes`]; with [`PanMode::Containers`] a pan
+/// writes [`container_transform`] on the two containers and no box): for
+/// each of `boxes` - a
+/// node box and the dataset it carries - whose dataset names a node of
+/// `graph`, the `transform` that puts the box where the node stands under the
+/// graph's offset. A box without a dataset, with a dataset of another type or
+/// of a node the graph does not have is passed over; the boxes after it are
+/// written like the ones before it.
+#[allow(clippy::float_cmp)] // intentional exact compare: at scale 1 the transform carries no scale
+fn pan_node_writes<N>(
+    graph: &NodeGraph,
+    index: &GraphIndex,
+    boxes: Vec<(N, Option<RefAny>)>,
+) -> Vec<(N, CssProperty)> {
+    let mut writes = Vec::with_capacity(boxes.len());
+    for (node_box, dataset) in boxes {
+        let Some(mut dataset) = dataset else {
+            continue;
+        };
+        let Some(node_id) = dataset
+            .downcast_ref::<NodeLocalDataset>()
+            .map(|node| node.node_id)
+        else {
+            continue;
+        };
+        let Some(position) = index.node(graph, node_id).map(|i| i.node.position) else {
+            continue;
+        };
+        let translate = StyleTransformTranslate2D {
+            x: PixelValue::px(position.x + graph.offset.x),
+            y: PixelValue::px(position.y + graph.offset.y),
+        };
+        writes.push((
+            node_box,
+            CssProperty::transform(
+                if graph.scale_factor == 1.0 {
+                    vec![StyleTransform::Translate(translate)]
+                } else {
+                    vec![
+                        StyleTransform::Translate(translate),
+                        StyleTransform::ScaleX(PercentageValue::new(graph.scale_factor * 100.0)),
+                        StyleTransform::ScaleY(PercentageValue::new(graph.scale_factor * 100.0)),
+                    ]
+                }
+                .into(),
+            ),
+        ));
+    }
+    writes
 }
 
 extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
@@ -3093,9 +3723,82 @@ extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo)
     Update::DoNothing
 }
 
-extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
+/// A3-solver-55 (the widget half): the gesture is over, its transforms go back to the model.
+///
+/// A drag or a pan writes `set_css_property(box, transform)` per mouse move, which pins the
+/// value as an override (and keeps the box's own style equal to it). An override is carried
+/// onto the matched node of every rebuild and outranks the rebuilt style, so a rebuild from
+/// a model that says otherwise - an undo of the move, a programmatic move, a zoom - showed
+/// the gesture's transform. The override of every node box and wire is cleared here: the
+/// own styles are in sync, so the picture stays (the engine takes the entry out and nothing
+/// else, `LayoutWindow::apply_node_css_change`), and the next rebuild is the model's.
+///
+/// `graph_box` is the graph's box (the node the drag and the release are heard on): its
+/// first child holds the wires, the next one the nodes, each in a holder of its own
+/// (`dom_in_view`).
+///
+/// A3-solver-35b: what is cleared is what the gesture wrote on. A pan (`panned`) wrote on
+/// the two containers when they carry the offset (`pan`), two clears; a node drag
+/// (`node_dragged`) wrote on node boxes and wires, and so did a pan that moved every box
+/// itself ([`PanMode::Nodes`]): one clear per node box and wire.
+fn release_gesture_transforms(
+    info: &mut CallbackInfo,
+    graph_box: azul_core::dom::DomNodeId,
+    pan: PanMode,
+    panned: bool,
+    node_dragged: bool,
+) {
+    let Some(connections) = info.get_first_child(graph_box) else {
+        return;
+    };
+    let nodes = info.get_next_sibling(connections);
+    let mut written = Vec::new();
+    if panned && pan == PanMode::Containers {
+        written.push(connections);
+        written.extend(nodes);
+    }
+    if node_dragged || (panned && pan == PanMode::Nodes) {
+        let mut next = info.get_first_child(connections);
+        while let Some(holder) = next {
+            next = info.get_next_sibling(holder);
+            written.extend(info.get_first_child(holder));
+        }
+        if let Some(nodes) = nodes {
+            let mut next = info.get_first_child(nodes);
+            while let Some(holder) = next {
+                next = info.get_next_sibling(holder);
+                written.extend(info.get_first_child(holder));
+            }
+        }
+    }
+    for node in written {
+        info.override_css_property(node, CssProperty::initial(CssPropertyType::Transform));
+    }
+}
+
+extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() {
+        let (node_dragged, panned) =
+            (refany.active_node_being_dragged.is_some(), refany.graph_dragged);
+        if node_dragged || panned {
+            let graph_box = info.get_hit_node();
+            release_gesture_transforms(&mut info, graph_box, refany.pan, panned, node_dragged);
+        }
         refany.active_node_being_dragged = None;
+        // A graph dragged while its DOM is culled to the box shows the nodes the
+        // drag brought near the box only once its DOM is built again at the
+        // offset the drag ended at (the drag moved the DOM nodes it has): ask
+        // the app for one rebuild when the button goes up - if the drag brought
+        // one near that has no DOM (`pan_needs_rebuild`); a drag among the
+        // nodes that have theirs is done. The app keeps the offset current in
+        // `on_node_graph_dragged`.
+        if core::mem::take(&mut refany.graph_dragged) {
+            if let Some(built) = refany.culled.as_ref() {
+                if pan_needs_rebuild(built, &refany.node_graph, &refany.index) {
+                    return Update::RefreshDom;
+                }
+            }
+        }
     }
     Update::DoNothing
 }
@@ -3118,6 +3821,28 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
     let cur = info.get_current_mouse_state();
     if !(cur.left_down && prev.left_down) {
         // event is not a drag event
+        //
+        // A3-solver-55b: a move with the button UP while a gesture is still on
+        // record: the button went up outside the graph's box, where
+        // `nodegraph_unset_active_node` (heard on the box only) did not hear
+        // it. The gesture ends here as it ends there: its transforms go back
+        // to the model, and a pan that brought a node without DOM near the box
+        // asks for its one rebuild. (Not on the move that carries the press -
+        // the button is down then - so a node just made active stays active.)
+        let (node_dragged, panned) =
+            (refany.active_node_being_dragged.is_some(), refany.graph_dragged);
+        if !cur.left_down && (node_dragged || panned) {
+            let graph_box = info.get_hit_node();
+            release_gesture_transforms(&mut info, graph_box, refany.pan, panned, node_dragged);
+            refany.active_node_being_dragged = None;
+            if core::mem::take(&mut refany.graph_dragged) {
+                if let Some(built) = refany.culled.as_ref() {
+                    if pan_needs_rebuild(built, &refany.node_graph, &refany.index) {
+                        return Update::RefreshDom;
+                    }
+                }
+            }
+        }
         return Update::DoNothing;
     }
 
@@ -3135,10 +3860,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         // drag node
         Some(node_graph_node_id) => {
             let dragged_node_marker = node_marker(&refany.marker_prefix, node_graph_node_id);
-            let connections_marker: AzString =
-                format!("{}-connections", refany.marker_prefix.as_str()).into();
 
-            let _nodegraph_node = info.get_hit_node();
             let result = match refany.callbacks.on_node_dragged.as_ref() {
                 Some(OnNodeDragged { callback, refany }) => callback.invoke(
                     refany.clone(),
@@ -3168,9 +3890,11 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 return Update::DoNothing;
             };
 
+            // (with the graph's offset when the boxes carry it, A3-solver-35b)
+            let offset = offset_in_boxes(&refany.node_graph, refany.pan);
             let node_transform = StyleTransformTranslate2D {
-                x: PixelValue::px(node_position.x + refany.node_graph.offset.x),
-                y: PixelValue::px(node_position.y + refany.node_graph.offset.y),
+                x: PixelValue::px(node_position.x + offset.0),
+                y: PixelValue::px(node_position.y + offset.1),
             };
 
             info.set_css_property(
@@ -3193,9 +3917,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 ),
             );
 
-            // get the NodeId of the node containing all the connection lines
-            let Some(connection_container_nodeid) = info.get_node_id_by_marker(connections_marker)
-            else {
+            // the node containing all the connection lines: the first child
+            // of the graph's box, as `dom_in_view` builds it
+            let Some(connection_container_nodeid) = info.get_first_child(nodegraph_node) else {
                 return result;
             };
 
@@ -3222,7 +3946,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     continue; // connection does not need to be modified
                 }
 
-                let Some((new_rect, swap_vert, swap_horz)) = get_rect(&refany.node_graph, *cld)
+                let Some((new_rect, swap_vert, swap_horz)) =
+                    connection_rect(&refany.node_graph, &refany.index, *cld)
                 else {
                     continue;
                 };
@@ -3230,43 +3955,11 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 cld.swap_vert = swap_vert;
                 cld.swap_horz = swap_horz;
 
-                let node_transform = StyleTransformTranslate2D {
-                    x: PixelValue::px(refany.node_graph.offset.x + new_rect.origin.x),
-                    y: PixelValue::px(refany.node_graph.offset.y + new_rect.origin.y),
-                };
-
-                info.set_css_property(
-                    first_child,
-                    CssProperty::transform(
-                        if refany.node_graph.scale_factor == 1.0 {
-                            vec![StyleTransform::Translate(node_transform)]
-                        } else {
-                            vec![
-                                StyleTransform::Translate(node_transform),
-                                StyleTransform::ScaleX(PercentageValue::new(
-                                    refany.node_graph.scale_factor * 100.0,
-                                )),
-                                StyleTransform::ScaleY(PercentageValue::new(
-                                    refany.node_graph.scale_factor * 100.0,
-                                )),
-                            ]
-                        }
-                        .into(),
-                    ),
-                );
-
-                info.set_css_property(
-                    first_child,
-                    CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px(
-                        new_rect.size.width,
-                    )))),
-                );
-                info.set_css_property(
-                    first_child,
-                    CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight::Px(
-                        PixelValue::px(new_rect.size.height),
-                    ))),
-                );
+                for property in
+                    connection_drag_writes(&refany.node_graph, &new_rect, refany.pan)
+                {
+                    info.set_css_property(first_child, property);
+                }
             }
 
             result
@@ -3282,88 +3975,58 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
 
             refany.node_graph.offset.x += dx;
             refany.node_graph.offset.y += dy;
+            refany.graph_dragged = true;
 
-            // Update the visual node positions
-            let Some(node_container) = info.get_first_child(nodegraph_node) else {
+            // Update the visual node positions: the graph's box holds the
+            // connections container, then the nodes container
+            let Some(connection_container_nodeid) = info.get_first_child(nodegraph_node) else {
                 return Update::DoNothing;
             };
 
-            let Some(node_container) = info.get_next_sibling(node_container) else {
+            let Some(node_container) = info.get_next_sibling(connection_container_nodeid) else {
                 return Update::DoNothing;
             };
 
-            let Some(mut node) = info.get_first_child(node_container) else {
-                return Update::DoNothing;
-            };
-
-            loop {
-                let Some(node_first_child) = info.get_first_child(node) else {
-                    return Update::DoNothing;
-                };
-
-                let Some(mut node_local_dataset) = info.get_dataset(node_first_child) else {
-                    return Update::DoNothing;
-                };
-
-                let Some(node_graph_node_id) =
-                    node_local_dataset.downcast_ref::<NodeLocalDataset>()
-                else {
-                    continue;
-                };
-
-                let node_graph_node_id = node_graph_node_id.node_id;
-
-                let node_position = match refany
-                    .node_graph
-                    .nodes
-                    .iter()
-                    .find(|i| i.node_id == node_graph_node_id)
-                {
-                    Some(s) => s.node.position,
-                    None => continue,
-                };
-
-                let node_transform = StyleTransformTranslate2D {
-                    x: PixelValue::px(node_position.x + refany.node_graph.offset.x),
-                    y: PixelValue::px(node_position.y + refany.node_graph.offset.y),
-                };
-
-                info.set_css_property(
-                    node_first_child,
-                    CssProperty::transform(
-                        if refany.node_graph.scale_factor == 1.0 {
-                            vec![StyleTransform::Translate(node_transform)]
-                        } else {
-                            vec![
-                                StyleTransform::Translate(node_transform),
-                                StyleTransform::ScaleX(PercentageValue::new(
-                                    refany.node_graph.scale_factor * 100.0,
-                                )),
-                                StyleTransform::ScaleY(PercentageValue::new(
-                                    refany.node_graph.scale_factor * 100.0,
-                                )),
-                            ]
-                        }
-                        .into(),
-                    ),
-                );
-
-                node = match info.get_next_sibling(node) {
-                    Some(s) => s,
-                    None => break,
-                };
+            // A3-solver-35b: the two containers carry the offset - a step of
+            // the pan is these two writes, and no node box or wire is walked
+            // (the walks below start at nothing). With the offset on every
+            // box (`PanMode::Nodes`) each box and wire is written, as before.
+            let per_box = refany.pan == PanMode::Nodes;
+            if !per_box {
+                let offset = container_transform(&refany.node_graph);
+                info.set_css_property(connection_container_nodeid, offset.clone());
+                info.set_css_property(node_container, offset);
             }
 
-            let connections_marker: AzString =
-                format!("{}-connections", refany.marker_prefix.as_str()).into();
+            // The node boxes - the first child of each child of the container -
+            // with their datasets. A step takes the next sibling before it
+            // looks at the node it stands on, so the walk ends with the
+            // siblings whatever a node turns out to be.
+            let mut node_boxes = Vec::new();
+            let mut next_node = if per_box {
+                info.get_first_child(node_container)
+            } else {
+                None
+            };
+            while let Some(node) = next_node {
+                next_node = info.get_next_sibling(node);
+                if let Some(node_box) = info.get_first_child(node) {
+                    node_boxes.push((node_box, info.get_dataset(node_box)));
+                }
+            }
+
+            for (node_box, transform) in
+                pan_node_writes(&refany.node_graph, &refany.index, node_boxes)
+            {
+                info.set_css_property(node_box, transform);
+            }
 
             // Update the connection positions
-            let Some(connection_container_nodeid) = info.get_node_id_by_marker(connections_marker)
-            else {
-                return result;
+            let mut first_connection_child = if per_box {
+                info.get_first_child(connection_container_nodeid)
+            } else {
+                None
             };
-
-            let mut first_connection_child = info.get_first_child(connection_container_nodeid);
 
             while let Some(connection_nodeid) = first_connection_child {
                 first_connection_child = info.get_next_sibling(connection_nodeid);
@@ -3380,7 +4043,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     continue;
                 };
 
-                let Some((new_rect, _, _)) = get_rect(&refany.node_graph, *cld) else {
+                let Some((new_rect, _, _)) =
+                    connection_rect(&refany.node_graph, &refany.index, *cld)
+                else {
                     continue;
                 };
 
@@ -4108,12 +4773,21 @@ mod autotest_generated {
     /// A `RefAny<NodeGraphLocalDataset>` wrapping a snapshot of `g` — the payload every
     /// node-graph callback expects to find at the end of its `backref` chain.
     fn graph_dataset(g: &NodeGraph) -> RefAny {
+        graph_dataset_as(g, PanMode::Containers)
+    }
+
+    /// [`graph_dataset`] of a render that carries the graph's offset as `pan` says.
+    fn graph_dataset_as(g: &NodeGraph, pan: PanMode) -> RefAny {
         RefAny::new(NodeGraphLocalDataset {
             node_graph: g.clone(),
+            index: GraphIndex::of(g),
             last_input_or_output_clicked: None,
             active_node_being_dragged: None,
             marker_prefix: "azul-nodegraph-test".into(),
             callbacks: g.callbacks.clone(),
+            culled: None,
+            graph_dragged: false,
+            pan,
         })
     }
 
@@ -4163,11 +4837,11 @@ mod autotest_generated {
                 warm: Vec::new(),
                 cold: Vec::new(),
                 root: 0,
-                dom_to_layout: BTreeMap::new(),
+                dom_to_layout: Default::default(),
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
-            },
+            }.into(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: Arc::new(DisplayList::default()),
@@ -4184,6 +4858,18 @@ mod autotest_generated {
         hit: DomNodeId,
         f: impl FnOnce(&mut CallbackInfo) -> R,
     ) -> (R, Vec<CallbackChange>) {
+        with_info_between(styled_dom, hit, None, FullWindowState::default(), f)
+    }
+
+    /// As [`with_info`], between two window states: the previous one (the mouse
+    /// before the event; `None` for the very first event) and the current one.
+    fn with_info_between<R>(
+        styled_dom: StyledDom,
+        hit: DomNodeId,
+        previous_window_state: Option<FullWindowState>,
+        current_window_state: FullWindowState,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
         let mut layout_window =
             LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
         layout_window
@@ -4191,8 +4877,6 @@ mod autotest_generated {
             .insert(DomId::ROOT_ID, layout_result(styled_dom));
 
         let renderer_resources = RendererResources::default();
-        let previous_window_state: Option<FullWindowState> = None;
-        let current_window_state = FullWindowState::default();
         let gl_context = OptionGlContextPtr::None;
         let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
             BTreeMap::new();
@@ -5414,6 +6098,189 @@ mod autotest_generated {
     }
 
     // ==================================================================
+    // 9b. dom_in_view: only what is near the box gets DOM
+    // ==================================================================
+    //
+    // A graph of 270 nodes (the Tuebingen style of the map editor) was 41 000
+    // DOM nodes: 2.5 s of layout, a 38 000-item display list translated again
+    // after every frame. Nodes and connections nowhere near the box the graph is
+    // shown in get no DOM.
+
+    /// A tall, narrow graph like the map editor's: `count` nodes of `TYPE_A` in
+    /// a column at `x`, `step` px apart, each wired to the one before it.
+    fn column(count: u64, x: f32, step: f32) -> NodeGraph {
+        let mut g = NodeGraph {
+            node_types: node_types(),
+            input_output_types: io_types(),
+            ..NodeGraph::default()
+        };
+        for i in 0..count {
+            g.nodes.push(NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: i + 1 },
+                node: mk_node(TYPE_A, x, 200.0 + i as f32 * step),
+            });
+        }
+        for i in 1..count {
+            g.connect_input_output(
+                NodeGraphNodeId { inner: i + 1 },
+                0,
+                NodeGraphNodeId { inner: i },
+                0,
+            )
+            .expect("a node feeds the next");
+        }
+        g
+    }
+
+    /// The graph nodes that have DOM, in order: the `nodegraph` box holds the
+    /// connections container, then the nodes container whose children are the
+    /// nodes (each an absolute box around the node's own box, which carries the
+    /// node's dataset).
+    fn nodes_with_dom(dom: &Dom) -> Vec<u64> {
+        dom.children.as_ref()[0].children.as_ref()[1]
+            .children
+            .iter()
+            .filter_map(|holder| {
+                let mut data = holder.children.as_ref().first()?.root.get_dataset()?.clone();
+                let node = data.downcast_ref::<NodeLocalDataset>()?;
+                Some(node.node_id.inner)
+            })
+            .collect()
+    }
+
+    fn connections_with_dom(dom: &Dom) -> usize {
+        dom.children.as_ref()[0].children.as_ref()[0].children.len()
+    }
+
+    const VIEW: LogicalSize = LogicalSize {
+        width: 1230.0,
+        height: 700.0,
+    };
+
+    #[test]
+    fn a_node_nowhere_near_the_box_gets_no_dom() {
+        let g = column(270, 100.0, 45.0);
+        let all = g.clone().dom();
+        let culled = g.dom_in_view(VIEW);
+        let shown = nodes_with_dom(&culled);
+        assert_eq!(nodes_with_dom(&all).len(), 270, "harness: dom() shows every node");
+        assert!(!shown.is_empty(), "the nodes in the box have DOM");
+        assert!(
+            shown.len() <= 60,
+            "a 1230 x 700 box of a column of nodes 45 px apart: the box (16 nodes) plus half a \
+             box above and below, got {}",
+            shown.len()
+        );
+        assert_eq!(shown.first(), Some(&1), "the nodes at the top of the box are there");
+        assert!(!shown.contains(&270), "the node 12 000 px down is not");
+        assert!(
+            count_nodes(&culled) * 3 < count_nodes(&all),
+            "the DOM is a fraction of the whole graph's: {} of {}",
+            count_nodes(&culled),
+            count_nodes(&all)
+        );
+    }
+
+    /// The map editor's Tuebingen graph: 270 nodes, 41 356 DOM nodes. A fixed
+    /// budget for the box of a 1230 x 700 window.
+    #[test]
+    fn the_dom_of_a_270_node_graph_in_a_window_has_a_budget() {
+        let g = column(270, 100.0, 45.0);
+        let per_node = count_nodes(&render_one(&g, N1, (0.0, 0.0), 1.0));
+        let whole = count_nodes(&g.clone().dom());
+        let culled = count_nodes(&g.dom_in_view(VIEW));
+        // `--nocapture` prints the figures the budget below is read against.
+        eprintln!(
+            "270-node graph in a 1230 x 700 window: {whole} DOM nodes whole, {culled} in view \
+             ({per_node} a node)"
+        );
+        assert!(per_node > 20, "a node is a good many DOM nodes ({per_node})");
+        assert!(whole > 270 * per_node, "harness: the whole graph is {whole} DOM nodes");
+        assert!(
+            culled <= 60 * per_node,
+            "the budget is 60 nodes of {per_node} DOM nodes each, got {culled}"
+        );
+    }
+
+    /// Panning: the app builds the graph again with another `offset` and the
+    /// nodes that came near the box have DOM, the ones that left do not.
+    #[test]
+    fn panning_brings_other_nodes_in() {
+        let mut g = column(270, 100.0, 45.0);
+        let at_top = nodes_with_dom(&g.clone().dom_in_view(VIEW));
+        assert!(at_top.contains(&1) && !at_top.contains(&200));
+
+        // node 200 is 8 955 px down: pan the graph up by 8 900 px
+        g.offset = LogicalPosition { x: 0.0, y: -8900.0 };
+        let panned = nodes_with_dom(&g.clone().dom_in_view(VIEW));
+        assert!(panned.contains(&200), "the node that came into the box has DOM");
+        assert!(!panned.contains(&1), "the node that left it has none");
+        assert!(panned.len() <= 60);
+
+        // and back
+        g.offset = LogicalPosition { x: 0.0, y: 0.0 };
+        assert_eq!(nodes_with_dom(&g.dom_in_view(VIEW)), at_top);
+    }
+
+    #[test]
+    fn a_graph_shown_in_an_unknown_box_shows_every_node() {
+        let g = column(40, 100.0, 45.0);
+        for view in [
+            LogicalSize::zero(),
+            LogicalSize { width: -5.0, height: 700.0 },
+            LogicalSize { width: f32::NAN, height: 700.0 },
+            LogicalSize { width: 1230.0, height: f32::INFINITY },
+        ] {
+            assert_eq!(nodes_with_dom(&g.clone().dom_in_view(view)).len(), 40, "{view:?}");
+        }
+        assert_eq!(
+            count_nodes(&g.clone().dom()),
+            count_nodes(&g.dom_in_view(LogicalSize::zero())),
+            "dom() is dom_in_view of no box"
+        );
+    }
+
+    /// A node a scaled graph still shows (zoom is a scale about each node's
+    /// centre) keeps its DOM, as one that is panned out of the box loses it.
+    #[test]
+    fn a_zoomed_graph_keeps_the_nodes_its_scale_still_shows() {
+        let mut g = column(10, 100.0, 300.0);
+        g.scale_factor = 2.0;
+        let shown = nodes_with_dom(&g.dom_in_view(VIEW));
+        assert!(shown.contains(&1) && shown.contains(&2));
+        let none = nodes_with_dom(
+            &NodeGraph {
+                offset: LogicalPosition { x: 50_000.0, y: 0.0 },
+                ..column(10, 100.0, 300.0)
+            }
+            .dom_in_view(VIEW),
+        );
+        assert!(none.is_empty(), "a graph panned 50 000 px away shows nothing: {none:?}");
+    }
+
+    /// A connection whose rect is near the box keeps its DOM even when both its
+    /// nodes are off it; one far from the box has none.
+    #[test]
+    fn a_connection_far_from_the_box_gets_no_dom() {
+        let g = column(270, 100.0, 45.0);
+        let all = connections_with_dom(&g.clone().dom());
+        let culled = connections_with_dom(&g.dom_in_view(VIEW));
+        assert_eq!(all, 269, "harness: dom() draws every wire");
+        assert!(culled > 0 && culled <= 60, "the wires near the box only, got {culled}");
+    }
+
+    /// Culling changes what has DOM, not what the graph is: the callbacks'
+    /// dataset keeps every node.
+    #[test]
+    fn the_callbacks_still_know_every_node() {
+        let g = column(270, 100.0, 45.0);
+        let dom = g.dom_in_view(VIEW);
+        let mut data = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+        let local = data.downcast_ref::<NodeGraphLocalDataset>().expect("the graph's dataset");
+        assert_eq!(local.node_graph.nodes.len(), 270);
+    }
+
+    // ==================================================================
     // 10. render_connections
     // ==================================================================
 
@@ -5423,7 +6290,8 @@ mod autotest_generated {
 
     #[test]
     fn render_connections_of_an_unwired_graph_has_no_children() {
-        let dom = render_connections(&graph(), marker());
+        let g = graph();
+        let dom = render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers);
         assert_eq!(dom.children.len(), 0);
         assert!(
             dom.root.get_marker().is_some(),
@@ -5435,20 +6303,20 @@ mod autotest_generated {
     fn render_connections_emits_exactly_one_child_per_wire() {
         let mut g = graph();
         g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
-        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 1);
 
         g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
-        assert_eq!(render_connections(&g, marker()).children.len(), 2);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 2);
 
         g.connect_input_output(N4, 0, N3, 0).expect("N3 -> N4");
-        assert_eq!(render_connections(&g, marker()).children.len(), 3);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 3);
     }
 
     #[test]
     fn render_connections_skips_a_wire_to_a_node_that_no_longer_exists() {
         // `get_rect` returns `None`; the renderer must drop the wire, not unwrap it.
         let g = force_out_connection(graph(), N1, 0, MISSING, 0);
-        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 0);
     }
 
     #[test]
@@ -5456,7 +6324,7 @@ mod autotest_generated {
         for out_idx in [1_usize, 99, usize::MAX] {
             let g = force_out_connection(graph(), N1, out_idx, N3, 0);
             assert_eq!(
-                render_connections(&g, marker()).children.len(),
+                render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(),
                 0,
                 "output index {out_idx} must be skipped",
             );
@@ -5471,7 +6339,7 @@ mod autotest_generated {
             node: mk_node(TYPE_UNREGISTERED, 0.0, 0.0),
         });
         let g = force_out_connection(g, NodeGraphNodeId { inner: 50 }, 0, N3, 0);
-        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 0);
     }
 
     #[test]
@@ -5479,7 +6347,7 @@ mod autotest_generated {
         let mut g = graph();
         g.node_types.as_mut()[0].node_type_info.outputs = vec![IO_COLORLESS].into();
         let g = force_out_connection(g, N1, 0, N3, 0);
-        assert_eq!(render_connections(&g, marker()).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 0);
     }
 
     #[test]
@@ -5495,14 +6363,14 @@ mod autotest_generated {
             y: f32::NAN,
         };
         g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
-        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 1);
     }
 
     #[test]
     fn render_connections_renders_a_self_loop() {
         let mut g = graph();
         g.connect_input_output(N1, 0, N1, 0).expect("self loop");
-        assert_eq!(render_connections(&g, marker()).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 1);
     }
 
     // ==================================================================
@@ -5713,6 +6581,396 @@ mod autotest_generated {
         }
     }
 
+    /// A3-solver-55 (the widget half): the release after a pan or a node drag clears the
+    /// transform override of everything the gesture wrote on - one
+    /// `override_css_property(initial transform)` each and nothing else - so the next
+    /// rebuild shows the model (an undo, a programmatic move), not the gesture; a release
+    /// without a gesture writes nothing.
+    /// Mutation: `release_gesture_transforms` not called (no change is pushed: the
+    /// overrides stay and migrate onto every rebuild).
+    ///
+    /// A3-solver-35b: what a gesture wrote on depends on where the render carries the
+    /// graph's offset. On the containers, a pan wrote on the two containers (2 clears,
+    /// whatever the graph holds) and a node drag on node boxes and wires (one clear
+    /// each); on the boxes, both wrote on node boxes and wires.
+    /// Mutation: the clears of a pan not told apart by `pan` (`panned` taken for
+    /// `node_dragged` in `release_gesture_transforms`) clears 7 for 2.
+    #[test]
+    fn the_release_after_a_gesture_hands_every_transform_back() {
+        let g = column(4, 0.0, 300.0);
+        let dom = g.clone().dom();
+        let boxes = dom.children.as_ref()[0].children.as_ref()[1].children.len();
+        let wires = connections_with_dom(&dom);
+        assert!(boxes > 0 && wires > 0, "harness: the graph has nodes and wires");
+        assert!(boxes + wires != 2, "harness: not as many boxes and wires as containers");
+        // The graph's box: the first child of the widget's wrapper.
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let release = |gd: &RefAny| {
+            with_info(StyledDom::create_from_dom(g.clone().dom()), graph_box, |info| {
+                nodegraph_unset_active_node(gd.clone(), *info)
+            })
+            .1
+        };
+
+        // The two children of the graph's box: the wires' container, the nodes' container.
+        let containers: Vec<usize> =
+            with_info(StyledDom::create_from_dom(g.clone().dom()), graph_box, |info| {
+                let of_wires = info.get_first_child(graph_box).expect("the wires' container");
+                let of_nodes = info.get_next_sibling(of_wires).expect("the nodes' container");
+                [of_wires, of_nodes]
+                    .iter()
+                    .filter_map(|n| n.node.into_crate_internal())
+                    .map(|n| n.index())
+                    .collect()
+            })
+            .0;
+        assert_eq!(containers.len(), 2);
+
+        let untouched = graph_dataset(&g);
+        assert!(release(&untouched).is_empty(), "no gesture: nothing to hand back");
+
+        for (mode, pan, cleared) in [
+            (PanMode::Containers, true, 2),
+            (PanMode::Containers, false, boxes + wires),
+            (PanMode::Nodes, true, boxes + wires),
+            (PanMode::Nodes, false, boxes + wires),
+        ] {
+            let gd = graph_dataset_as(&g, mode);
+            {
+                let mut probe = gd.clone();
+                let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
+                if pan {
+                    d.graph_dragged = true;
+                } else {
+                    d.active_node_being_dragged = Some(N2);
+                }
+            }
+            let changes = release(&gd);
+            assert_eq!(changes.len(), cleared, "{mode:?}, pan {pan}: one clear per written box");
+            for change in &changes {
+                let clears = matches!(
+                    change,
+                    CallbackChange::OverrideNodeCssProperties { properties, .. }
+                        if properties.as_ref().len() == 1
+                            && properties.as_ref()[0]
+                                == CssProperty::initial(CssPropertyType::Transform)
+                );
+                assert!(clears, "{mode:?}, pan {pan}: every change clears a transform override");
+            }
+            if mode == PanMode::Containers && pan {
+                // the wires' container and the nodes' container - not a node box, not a wire
+                let cleared_nodes: Vec<usize> = changes
+                    .iter()
+                    .filter_map(|change| match change {
+                        CallbackChange::OverrideNodeCssProperties { node_id, .. } => {
+                            Some(node_id.index())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(cleared_nodes, containers, "the two containers");
+            }
+        }
+    }
+
+    /// A3-solver-55b: a button released OUTSIDE the graph's box is not heard by
+    /// `nodegraph_unset_active_node` (the release is heard on the box only). The next
+    /// mouse move over the graph with the button up ends the gesture instead: the same
+    /// clears, the flags down, the one rebuild of a culled pan. A move without a
+    /// gesture on record, and the move that carries the press, write nothing.
+    /// Mutation: the `!cur.left_down && ..` block of `nodegraph_drag_graph_or_nodes`
+    /// removed (no change is pushed, the flags stay up, no rebuild is asked for).
+    #[test]
+    fn a_move_with_the_button_up_ends_a_gesture_released_outside_the_box() {
+        let g = column(3, 0.0, 300.0);
+        let dom = g.clone().dom();
+        let boxes = dom.children.as_ref()[0].children.as_ref()[1].children.len();
+        let wires = connections_with_dom(&dom);
+        assert!(boxes > 0 && wires > 0, "harness: the graph has nodes and wires");
+        // The graph's box: the first child of the widget's wrapper.
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let mouse = |left_down: bool| {
+            let mut state = FullWindowState::default();
+            state.mouse_state.left_down = left_down;
+            state
+        };
+        // One mouse move over the graph's box: the button before it and with it.
+        let moved = |gd: &RefAny, was_down: bool, is_down: bool| {
+            with_info_between(
+                StyledDom::create_from_dom(g.clone().dom()),
+                graph_box,
+                Some(mouse(was_down)),
+                mouse(is_down),
+                |info| nodegraph_drag_graph_or_nodes(gd.clone(), *info),
+            )
+        };
+        let gesture = |gd: &RefAny| {
+            let mut probe = gd.clone();
+            let d = probe.downcast_ref::<NodeGraphLocalDataset>().expect("gd");
+            (d.active_node_being_dragged.map(|n| n.inner), d.graph_dragged)
+        };
+        let with_gesture = |pan: bool| {
+            // the boxes carry the offset: a pan wrote on every box and wire, as a drag did
+            let gd = graph_dataset_as(&g, PanMode::Nodes);
+            {
+                let mut probe = gd.clone();
+                let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
+                if pan {
+                    d.graph_dragged = true;
+                } else {
+                    d.active_node_being_dragged = Some(N2);
+                }
+            }
+            gd
+        };
+
+        let untouched = graph_dataset_as(&g, PanMode::Nodes);
+        let (update, changes) = moved(&untouched, false, false);
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "no gesture on record: a move writes nothing");
+
+        for pan in [true, false] {
+            // the button was up before the move too: it went up outside the box
+            for was_down in [false, true] {
+                let gd = with_gesture(pan);
+                let (update, changes) = moved(&gd, was_down, false);
+                assert_eq!(update, Update::DoNothing, "pan {pan}: a graph shown whole needs no rebuild");
+                assert_eq!(
+                    changes.len(),
+                    boxes + wires,
+                    "pan {pan}, button down before {was_down}: one clear per box and wire"
+                );
+                for change in &changes {
+                    let clears = matches!(
+                        change,
+                        CallbackChange::OverrideNodeCssProperties { properties, .. }
+                            if properties.as_ref().len() == 1
+                                && properties.as_ref()[0]
+                                    == CssProperty::initial(CssPropertyType::Transform)
+                    );
+                    assert!(clears, "pan {pan}: every change clears a transform override");
+                }
+                assert_eq!(gesture(&gd), (None, false), "pan {pan}: the gesture is over");
+                // once: the next move finds no gesture
+                assert!(moved(&gd, false, false).1.is_empty());
+            }
+        }
+
+        // The move that carries the press (down now, up before): the node just made
+        // active stays active, nothing is handed back.
+        let pressed = with_gesture(false);
+        let (update, changes) = moved(&pressed, false, true);
+        assert_eq!(update, Update::DoNothing);
+        assert!(changes.is_empty(), "a press is not a release");
+        assert_eq!(gesture(&pressed), (Some(N2.inner), false));
+
+        // A culled graph panned onto nodes without DOM (built 50 000 px to the right
+        // of the box, standing on it now), released outside: its one rebuild.
+        let view = ViewWindow::new(VIEW).expect("a box to cull to");
+        let away = NodeGraph {
+            offset: LogicalPosition { x: 50_000.0, y: 0.0 },
+            ..g.clone()
+        };
+        let culled = RefAny::new(NodeGraphLocalDataset {
+            node_graph: g.clone(),
+            index: GraphIndex::of(&g),
+            last_input_or_output_clicked: None,
+            active_node_being_dragged: None,
+            marker_prefix: "azul-nodegraph-test".into(),
+            callbacks: g.callbacks.clone(),
+            culled: Some(CulledDom::of(&away, &GraphIndex::of(&g), view)),
+            graph_dragged: true,
+            pan: PanMode::Containers,
+        });
+        let (update, changes) = moved(&culled, false, false);
+        assert_eq!(update, Update::RefreshDom);
+        assert_eq!(changes.len(), 2, "the containers carry the offset: a pan hands back two");
+        assert_eq!(moved(&culled, false, false).0, Update::DoNothing, "once: the flag is spent");
+    }
+
+    /// The window before and after one mouse move with the left button held, from
+    /// (100, 100) to (110, 95): a drag step of (10, -5).
+    fn drag_step() -> (Option<FullWindowState>, FullWindowState) {
+        let mouse = |x: f32, y: f32| {
+            let mut state = FullWindowState::default();
+            state.mouse_state.left_down = true;
+            state.mouse_state.cursor_position = InWindow(LogicalPosition { x, y });
+            state
+        };
+        (Some(mouse(100.0, 100.0)), mouse(110.0, 95.0))
+    }
+
+    /// The `transform` writes among `changes`: the node each is written on, and the
+    /// properties written.
+    fn transform_writes(changes: Vec<CallbackChange>) -> Vec<(usize, Vec<CssProperty>)> {
+        changes
+            .into_iter()
+            .filter_map(|change| match change {
+                CallbackChange::ChangeNodeCssProperties {
+                    node_id, properties, ..
+                } => Some((node_id.index(), properties.as_ref().to_vec())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `transform: translate(x, y)`, as a pan and a drag at scale 1 write it.
+    fn translate(x: f32, y: f32) -> CssProperty {
+        CssProperty::transform(
+            vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                x: PixelValue::px(x),
+                y: PixelValue::px(y),
+            })]
+            .into(),
+        )
+    }
+
+    /// A3-solver-35b, the pan: a step of a pan writes `translate(offset)` on the two
+    /// containers and on nothing else, whatever the graph holds - 2 writes for 5 nodes
+    /// and for 20. With the offset on the boxes (`AZ_NODEGRAPH_PAN=nodes`, the way of
+    /// before) it writes every node box and wire: 9 and 39.
+    ///
+    /// Example: the graph at the offset (0, 0), the mouse from (100, 100) to (110, 95)
+    /// with the button down. The offset becomes (10, -5), each container is written
+    /// `translate(10px, -5px)`; on the boxes, node 1 at (0, 200) is written
+    /// `translate(10px, 195px)`.
+    /// Mutation: the walks over the boxes not skipped when the containers carry the
+    /// offset (`per_box` always true) writes 2 + 9; the step subtracted writes (-10, 5).
+    #[test]
+    fn a_step_of_a_pan_writes_the_two_containers_whatever_the_graph_holds() {
+        // The graph's box: the first child of the widget's wrapper.
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let step = |nodes: u64, mode: PanMode| {
+            let g = column(nodes, 0.0, 300.0);
+            let gd = graph_dataset_as(&g, mode);
+            let (before, after) = drag_step();
+            let ((update, containers), changes) = with_info_between(
+                StyledDom::create_from_dom(g.clone().dom_in_view_as(LogicalSize::zero(), mode)),
+                graph_box,
+                before,
+                after,
+                |info| {
+                    let of_wires = info.get_first_child(graph_box).expect("the wires' container");
+                    let of_nodes = info.get_next_sibling(of_wires).expect("the nodes' container");
+                    let containers: Vec<usize> = [of_wires, of_nodes]
+                        .iter()
+                        .filter_map(|n| n.node.into_crate_internal())
+                        .map(|n| n.index())
+                        .collect();
+                    (nodegraph_drag_graph_or_nodes(gd.clone(), *info), containers)
+                },
+            );
+            assert_eq!(update, Update::DoNothing);
+            let panned = dataset_graph(&gd);
+            assert_eq!((panned.offset.x, panned.offset.y), (10.0, -5.0), "the step is added");
+            (transform_writes(changes), containers)
+        };
+
+        for nodes in [5_u64, 20] {
+            let (writes, containers) = step(nodes, PanMode::Containers);
+            assert_eq!(containers.len(), 2);
+            assert_eq!(
+                writes,
+                vec![
+                    (containers[0], vec![translate(10.0, -5.0)]),
+                    (containers[1], vec![translate(10.0, -5.0)]),
+                ],
+                "{nodes} nodes: the offset on the wires' container and on the nodes' container"
+            );
+        }
+        for nodes in [5_u64, 20] {
+            let (writes, containers) = step(nodes, PanMode::Nodes);
+            assert_eq!(
+                writes.len() as u64,
+                nodes + (nodes - 1),
+                "{nodes} nodes, the offset on the boxes: every node box and wire is written"
+            );
+            assert!(
+                writes.iter().all(|w| !containers.contains(&w.0)),
+                "the offset on the boxes: no container is written"
+            );
+            // the node boxes first, in order: node 1 at (0, 200) under the offset (10, -5)
+            assert_eq!(writes[0].1, vec![translate(10.0, 195.0)]);
+        }
+    }
+
+    /// A3-solver-35b, the node drag: with the offset on the containers a dragged node
+    /// and its wires are written in the graph's own coordinates; with the offset on the
+    /// boxes, under the offset.
+    ///
+    /// Example: the column 1 (0, 200), 2 (0, 500), 3 (0, 800), wired 1 -> 2 -> 3, at the
+    /// offset (7, 9); node 2 dragged by (10, -5) stands at (10, 495). Its wires
+    /// (`rect_between`: x = min(x in, x out + 250), y = 71 + min(y in, y out)):
+    /// 1 -> 2 at (min(10, 250), 71 + min(495, 200)) = (10, 271), 2 -> 3 at
+    /// (min(0, 260), 71 + min(800, 495)) = (0, 566). On the containers these are the
+    /// values written; on the boxes each is (7, 9) more: (17, 504), (17, 280), (7, 575).
+    /// Mutation: `offset_in_boxes` answering the offset for `Containers` writes the second
+    /// list for the first (the picture: the node jumps by the offset when it is grabbed).
+    #[test]
+    fn a_step_of_a_node_drag_writes_the_offset_only_where_the_boxes_carry_it() {
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let dragged = |mode: PanMode| {
+            let g = NodeGraph {
+                offset: LogicalPosition { x: 7.0, y: 9.0 },
+                ..column(3, 0.0, 300.0)
+            };
+            // The render's own dataset: the drag finds the node's box by the marker the
+            // render gave it.
+            let dom = g.dom_in_view_as(LogicalSize::zero(), mode);
+            let gd = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+            {
+                let mut probe = gd.clone();
+                let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
+                d.active_node_being_dragged = Some(N2);
+            }
+            let (before, after) = drag_step();
+            let (_, changes) = with_info_between(
+                StyledDom::create_from_dom(dom),
+                graph_box,
+                before,
+                after,
+                |info| nodegraph_drag_graph_or_nodes(gd.clone(), *info),
+            );
+            let moved = dataset_graph(&gd);
+            let node = moved.nodes.as_ref()[1].node.position;
+            assert_eq!((node.x, node.y), (10.0, 495.0), "{mode:?}: the model takes the step");
+            transform_writes(changes)
+                .into_iter()
+                .map(|write| write.1)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            dragged(PanMode::Containers),
+            vec![
+                vec![translate(10.0, 495.0)],
+                vec![translate(10.0, 271.0)],
+                vec![translate(0.0, 566.0)],
+            ],
+            "the offset on the containers: the box of node 2, the wires 1 -> 2 and 2 -> 3"
+        );
+        assert_eq!(
+            dragged(PanMode::Nodes),
+            vec![
+                vec![translate(17.0, 504.0)],
+                vec![translate(17.0, 280.0)],
+                vec![translate(7.0, 575.0)],
+            ],
+            "the offset on the boxes"
+        );
+    }
+
     #[test]
     fn set_active_node_ignores_a_payload_of_the_wrong_type() {
         assert_eq!(
@@ -5749,6 +7007,69 @@ mod autotest_generated {
             fire(|info| nodegraph_unset_active_node(RefAny::new(0_i8), info)),
             Update::DoNothing,
         );
+    }
+
+    /// With culling on, a pan that ended and brought a node without DOM near
+    /// the box asks the app for one rebuild, so that node gets its DOM; a pan
+    /// among the nodes that have theirs, a graph shown whole, a node drag, or
+    /// a release that dragged nothing asks for none.
+    ///
+    /// A3-solver-35a: every pan of a culled graph asked for the rebuild, the
+    /// pan among the nodes that have their DOM too. Mutation: `RefreshDom` for
+    /// any culled graph that was panned (`refany.culled.is_some()` for
+    /// `pan_needs_rebuild`) fails the `among` case.
+    #[test]
+    fn the_end_of_a_pan_rebuilds_a_culled_graph_once() {
+        let g = graph();
+        let view = ViewWindow::new(VIEW).expect("a box to cull to");
+        let at = |x: f32| NodeGraph {
+            offset: LogicalPosition { x, y: 0.0 },
+            ..g.clone()
+        };
+        // A graph whose DOM was built at the offset `built_at` (`None`: built
+        // whole) and that stands at `now_at`.
+        let dataset = |built_at: Option<f32>, now_at: f32, graph_dragged: bool| {
+            RefAny::new(NodeGraphLocalDataset {
+                node_graph: at(now_at),
+                index: GraphIndex::of(&g),
+                last_input_or_output_clicked: None,
+                active_node_being_dragged: None,
+                marker_prefix: "azul-nodegraph-test".into(),
+                callbacks: g.callbacks.clone(),
+                culled: built_at.map(|x| CulledDom::of(&at(x), &GraphIndex::of(&g), view)),
+                graph_dragged,
+                pan: PanMode::Containers,
+            })
+        };
+        // Built 50 000 px to the right of the box (no node has DOM), panned
+        // back onto it.
+        let panned = dataset(Some(50_000.0), 0.0, true);
+        assert_eq!(
+            fire(|info| nodegraph_unset_active_node(panned.clone(), info)),
+            Update::RefreshDom,
+            "a culled graph panned onto nodes without DOM: build the DOM again at the new offset"
+        );
+        assert_eq!(
+            fire(|info| nodegraph_unset_active_node(panned.clone(), info)),
+            Update::DoNothing,
+            "once: the flag is spent"
+        );
+        // Built at the box (the four nodes have DOM), panned by 30 px: the
+        // box shows those four and nothing else.
+        let among = dataset(Some(0.0), 30.0, true);
+        assert_eq!(
+            fire(|info| nodegraph_unset_active_node(among.clone(), info)),
+            Update::DoNothing,
+            "a culled graph panned among the nodes that have DOM: nothing to build"
+        );
+        for (built_at, dragged) in [(Some(50_000.0), false), (None, true), (None, false)] {
+            let d = dataset(built_at, 0.0, dragged);
+            assert_eq!(
+                fire(|info| nodegraph_unset_active_node(d.clone(), info)),
+                Update::DoNothing,
+                "culled at {built_at:?}, graph dragged {dragged}"
+            );
+        }
     }
 
     // ==================================================================
@@ -6451,18 +7772,16 @@ mod autotest_generated {
             nodegraph_on_fileinput_button_clicked(
                 fd.clone(),
                 info,
-                FileInputState {
-                    path: OptionString::None,
-                },
+                FileInputState::default(),
             )
         });
         let _ = fire(|info| {
             nodegraph_on_fileinput_button_clicked(
                 fd.clone(),
                 info,
-                FileInputState {
-                    path: OptionString::Some(AzString::from_const_str("/tmp/日本語/🎉.txt")),
-                },
+                FileInputState::create_with_paths(azul_css::StringVec::from_vec(vec![
+                    AzString::from_const_str("/tmp/日本語/🎉.txt"),
+                ])),
             )
         });
 
@@ -6620,6 +7939,1156 @@ mod autotest_generated {
                 FileInputState::default()
             )),
             Update::DoNothing,
+        );
+    }
+
+    /// The node graph has one look and no theme option: the fields it builds
+    /// wear that look (`UiTheme::SINGLE_LOOK`), so a node renders the same
+    /// under every app theme - the fields' classes (their theme markers) and
+    /// styles included, and no app-theme block anywhere.
+    #[test]
+    fn a_nodes_fields_render_the_same_under_every_app_theme() {
+        use crate::widgets::themes::{
+            theme_blocks::checks::{theme_names, under},
+            theme_checks::nodes,
+            UiTheme,
+        };
+        fn outline(dom: &Dom) -> Vec<String> {
+            nodes(dom)
+                .into_iter()
+                .map(|(path, n)| {
+                    format!(
+                        "{path} {:?} {:?} {:?}",
+                        n.root.get_ids_and_classes(),
+                        n.root.style,
+                        n.css
+                    )
+                })
+                .collect()
+        }
+        let mut g = graph();
+        g.nodes.as_mut()[0].node.fields = vec![
+            NodeTypeField {
+                key: AzString::from_const_str("text"),
+                value: NodeTypeFieldValue::TextInput(AzString::from_const_str("hello")),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("number"),
+                value: NodeTypeFieldValue::NumberInput(1.5),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("check"),
+                value: NodeTypeFieldValue::CheckBox(true),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("color"),
+                value: NodeTypeFieldValue::ColorInput(ColorU {
+                    r: 9,
+                    g: 8,
+                    b: 7,
+                    a: 6,
+                }),
+            },
+            NodeTypeField {
+                key: AzString::from_const_str("file"),
+                value: NodeTypeFieldValue::FileInput(OptionString::None),
+            },
+        ]
+        .into();
+        let flat = under(UiTheme::Flat, || render_one(&g, N1, (0.0, 0.0), 1.0));
+        let flora = under(UiTheme::Flora, || render_one(&g, N1, (0.0, 0.0), 1.0));
+        assert!(
+            theme_names(&flat).is_empty(),
+            "a field follows the app theme: {:?}",
+            theme_names(&flat)
+        );
+        assert_eq!(outline(&flat), outline(&flora));
+    }
+}
+
+/// A3-solver-35a: the end of a pan of a culled graph asks for a rebuild of its
+/// DOM only when the pan brought a node or a connection without DOM near the
+/// box. Counted: the pans that ask for one (`pan_needs_rebuild`, which is what
+/// `nodegraph_unset_active_node` returns `RefreshDom` for).
+#[cfg(all(test, feature = "std"))]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    const KIND: NodeTypeId = NodeTypeId { inner: 1 };
+    const PORT: InputOutputTypeId = InputOutputTypeId { inner: 10 };
+
+    /// The box the graphs are culled to: nodes and connections get DOM from
+    /// -615 to 1845 px across and from -350 to 1050 px down (`ViewWindow`).
+    const VIEW: LogicalSize = LogicalSize {
+        width: 1230.0,
+        height: 700.0,
+    };
+
+    /// A graph of one node type (one input and one output of one port type,
+    /// no field: a node's box is bound by 250 x 136 px) with a node at each
+    /// of `at`, ids from 1.
+    fn graph_of(at: &[(f32, f32)]) -> NodeGraph {
+        let mut g = NodeGraph {
+            node_types: vec![NodeTypeIdInfoMap {
+                node_type_id: KIND,
+                node_type_info: NodeTypeInfo {
+                    is_root: true,
+                    node_type_name: AzString::from_const_str("kind"),
+                    inputs: vec![PORT].into(),
+                    outputs: vec![PORT].into(),
+                },
+            }]
+            .into(),
+            input_output_types: vec![InputOutputTypeIdInfoMap {
+                io_type_id: PORT,
+                io_info: InputOutputInfo {
+                    data_type: AzString::from_const_str("port"),
+                    color: ColorU {
+                        r: 1,
+                        g: 2,
+                        b: 3,
+                        a: 255,
+                    },
+                },
+            }]
+            .into(),
+            ..NodeGraph::default()
+        };
+        for (id, (x, y)) in (1_u64..).zip(at.iter()) {
+            g.nodes.push(NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: id },
+                node: NodeGraphNode {
+                    node_type: KIND,
+                    position: NodeGraphNodePosition { x: *x, y: *y },
+                    fields: NodeTypeFieldVec::new(),
+                    connect_in: InputConnectionVec::new(),
+                    connect_out: OutputConnectionVec::new(),
+                },
+            });
+        }
+        g
+    }
+
+    /// Wires output 0 of node `from` to input 0 of node `to`.
+    fn wire(g: &mut NodeGraph, from: u64, to: u64) {
+        g.connect_input_output(
+            NodeGraphNodeId { inner: to },
+            0,
+            NodeGraphNodeId { inner: from },
+            0,
+        )
+        .expect("a node feeds another");
+    }
+
+    /// The map editor's graph in small: `count` nodes in a column at x = 100,
+    /// 45 px apart from y = 200, each wired to the next. Node `i` (from 0)
+    /// stands at y = 200 + 45 i, the connection from it at y = 271 + 45 i
+    /// (250 x 60 px).
+    fn column(count: u64) -> NodeGraph {
+        let mut at = Vec::new();
+        let mut y = 200.0_f32;
+        for _ in 0..count {
+            at.push((100.0_f32, y));
+            y += 45.0;
+        }
+        let mut g = graph_of(&at);
+        for id in 1..count {
+            wire(&mut g, id, id + 1);
+        }
+        g
+    }
+
+    /// `g` as a pan leaves it at the offset `(x, y)`.
+    fn panned(g: &NodeGraph, x: f32, y: f32) -> NodeGraph {
+        NodeGraph {
+            offset: LogicalPosition { x, y },
+            ..g.clone()
+        }
+    }
+
+    /// The nodes and the connections that have DOM in a render of the graph.
+    fn with_dom(dom: &Dom) -> (usize, usize) {
+        let graph_box = &dom.children.as_ref()[0];
+        (
+            graph_box.children.as_ref()[1].children.len(),
+            graph_box.children.as_ref()[0].children.len(),
+        )
+    }
+
+    /// How many of the pans of `g` to the offsets `ends` ask for a rebuild,
+    /// when the DOM `g` has was built culled to `VIEW` where `g` stands.
+    fn rebuilds(g: &NodeGraph, ends: &[(f32, f32)]) -> usize {
+        let dom = g.clone().dom_in_view(VIEW);
+        let mut data = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+        let local = data
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("the graph's dataset");
+        let built = local
+            .culled
+            .as_ref()
+            .expect("a culled render records what it gave DOM to");
+        ends.iter()
+            .filter(|end| pan_needs_rebuild(built, &panned(g, end.0, end.1), &local.index))
+            .count()
+    }
+
+    /// The first 19 nodes of the column have DOM (node 19, from 0, stands at
+    /// y = 1055, 5 px below the cull box). A pan that brings none of the
+    /// others in - no move, down, sideways, right out of the box, 3 px up -
+    /// asks for no rebuild; 100 px up brings node 19 in and asks for one.
+    ///
+    /// Mutation: a rebuild for every pan of a culled graph (`pan_needs_rebuild`
+    /// answering `true`, the `graph_dragged && view_culling` of before) counts
+    /// 7 for the first list.
+    #[test]
+    fn a_pan_asks_for_a_rebuild_only_when_it_brings_in_a_node_without_dom() {
+        let g = column(60);
+        let (nodes, connections) = with_dom(&g.clone().dom_in_view(VIEW));
+        assert!(
+            nodes > 0 && nodes < 60 && connections > 0 && connections < 59,
+            "harness: the box shows a part of the column ({nodes} nodes, {connections} \
+             connections of 60 and 59)"
+        );
+        let among: [(f32, f32); 7] = [
+            (0.0, 0.0),
+            (0.0, 3.0),
+            (40.0, 0.0),
+            (-40.0, 0.0),
+            (0.0, 300.0),
+            (0.0, 2000.0),
+            (0.0, -3.0),
+        ];
+        assert_eq!(
+            rebuilds(&g, &among),
+            0,
+            "pans among the nodes that have DOM asked for a rebuild"
+        );
+        let (nodes_up, _) = with_dom(&panned(&g, 0.0, -100.0).dom_in_view(VIEW));
+        assert!(
+            nodes_up > nodes,
+            "harness: 100 px up the box shows more of the column ({nodes_up} for {nodes})"
+        );
+        assert_eq!(
+            rebuilds(&g, &[(0.0, -100.0)]),
+            1,
+            "a pan that brought a node without DOM into the box asks for one rebuild"
+        );
+    }
+
+    /// A connection between two nodes far left and far right of the box,
+    /// 2071 px down: neither node ever has DOM, the connection has none
+    /// where the graph is built. 500 px up it is still below the cull box;
+    /// 1500 px up it is in it, and the pan asks for the rebuild that draws it.
+    ///
+    /// Mutation: `pan_needs_rebuild` looking at the nodes only counts 0.
+    #[test]
+    fn a_pan_that_brings_in_a_connection_without_dom_asks_for_a_rebuild() {
+        let mut g = graph_of(&[(-3000.0, 2000.0), (4000.0, 2000.0)]);
+        wire(&mut g, 1, 2);
+        assert_eq!(
+            with_dom(&g.clone().dom_in_view(VIEW)),
+            (0, 0),
+            "harness: built where it stands, the graph has no DOM"
+        );
+        assert_eq!(
+            with_dom(&panned(&g, 0.0, -1500.0).dom_in_view(VIEW)),
+            (0, 1),
+            "harness: 1500 px up the box shows the connection and no node"
+        );
+        assert_eq!(rebuilds(&g, &[(0.0, -500.0)]), 0, "the connection is not in the box yet");
+        assert_eq!(rebuilds(&g, &[(0.0, -1500.0)]), 1, "the connection came into the box");
+    }
+
+    /// What a culled render records it gave DOM to is what it gave DOM to:
+    /// the builder and the record make the same tests (`node_in_view`,
+    /// `connection_in_view` over `drawn_connections`).
+    ///
+    /// Mutation: the builder culling by another test than the record's (the
+    /// cull box without its margin, say) differs at one of the offsets.
+    #[test]
+    fn a_culled_render_records_the_nodes_and_connections_it_gave_dom_to() {
+        let g = column(60);
+        for (x, y) in [(0.0, 0.0), (0.0, -700.0), (300.0, 100.0), (0.0, -2500.0), (5000.0, 0.0)] {
+            let dom = panned(&g, x, y).dom_in_view(VIEW);
+            let mut data = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+            let local = data
+                .downcast_ref::<NodeGraphLocalDataset>()
+                .expect("the graph's dataset");
+            let built = local
+                .culled
+                .as_ref()
+                .expect("a culled render records what it gave DOM to");
+            assert_eq!(
+                (
+                    built.nodes.iter().filter(|has_dom| **has_dom).count(),
+                    built.connections.len()
+                ),
+                with_dom(&dom),
+                "at ({x}, {y})"
+            );
+        }
+        let whole = g.dom();
+        let mut data = whole.root.get_dataset().expect("the wrapper's dataset").clone();
+        let local = data
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("the graph's dataset");
+        assert!(local.culled.is_none(), "a graph rendered whole culled nothing");
+    }
+
+    /// A3-solver-35c. A step of a node drag wrote three properties on every
+    /// connection of the dragged node, `width` and `height` among them: two
+    /// relayouts of the window per connection per mouse move, for a box
+    /// nothing is drawn in. It writes the `transform` alone.
+    ///
+    /// Mutation: the `width` / `height` of the box pushed onto the list again
+    /// makes it 3 writes, 2 of them layout properties.
+    #[test]
+    fn a_step_of_a_node_drag_writes_no_layout_property_on_a_connection() {
+        let mut g = graph_of(&[(0.0, 0.0), (600.0, 300.0)]);
+        wire(&mut g, 1, 2);
+        g.offset = LogicalPosition { x: 7.0, y: 9.0 };
+        for scale in [1.0_f32, 2.0] {
+            g.scale_factor = scale;
+            let drawn = drawn_connections(&g, &GraphIndex::of(&g));
+            assert_eq!(drawn.len(), 1, "harness: the wire is drawn");
+            let writes = connection_drag_writes(&g, &drawn[0].1, PanMode::Containers);
+            assert_eq!(writes.len(), 1, "scale {scale}: one write a connection a step");
+            let batch: CssPropertyVec = writes.clone().into();
+            assert!(
+                !crate::callbacks::css_properties_need_relayout(&batch),
+                "scale {scale}: a drag step wrote a layout property: {writes:?}"
+            );
+            assert!(
+                writes
+                    .iter()
+                    .all(|p| p.get_type().is_gpu_only_property()),
+                "scale {scale}: a write that leaves the value path: {writes:?}"
+            );
+        }
+        // The box goes where the builder would put it: the output port of node 1
+        // (250, 71) - in the graph's own coordinates when the containers carry the
+        // offset (A3-solver-35b), under the offset (7, 9) when the boxes do.
+        g.scale_factor = 1.0;
+        let rect = drawn_connections(&g, &GraphIndex::of(&g))[0].1;
+        for (mode, x, y) in [(PanMode::Containers, 250.0, 71.0), (PanMode::Nodes, 257.0, 80.0)] {
+            assert_eq!(
+                connection_drag_writes(&g, &rect, mode),
+                vec![CssProperty::transform(
+                    vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                        x: PixelValue::px(x),
+                        y: PixelValue::px(y),
+                    })]
+                    .into()
+                )],
+                "{mode:?}"
+            );
+        }
+    }
+
+    /// The dataset a node box carries for the graph node `id`.
+    fn box_of(id: u64) -> Option<RefAny> {
+        Some(RefAny::new(NodeLocalDataset {
+            node_id: NodeGraphNodeId { inner: id },
+            backref: RefAny::new(0_u8),
+        }))
+    }
+
+    /// A3-solver-35d. The pan's walk over the node boxes was a `loop` that
+    /// took the next sibling at its end and `continue`d from two places
+    /// before it - a box whose dataset is no node's, a node the graph does
+    /// not have: the walk stood on that box for good, in the callback of
+    /// every mouse move. The boxes are listed (each step takes the next
+    /// sibling first) and `pan_node_writes` passes over what it cannot place.
+    ///
+    /// Five boxes: node 1, a dataset of another type, no dataset, a node the
+    /// graph does not have, node 2. Two are written, the first and the last.
+    ///
+    /// Mutation: a walk that ends at the first box it cannot place (`break`
+    /// for `continue` in `pan_node_writes`) writes 1.
+    #[test]
+    fn a_pan_passes_over_the_boxes_it_cannot_place_and_writes_the_rest() {
+        let g = panned(&graph_of(&[(10.0, 20.0), (300.0, 40.0)]), 5.0, 7.0);
+        let boxes = vec![
+            (0_usize, box_of(1)),
+            (1, Some(RefAny::new(0_u32))),
+            (2, None),
+            (3, box_of(99)),
+            (4, box_of(2)),
+        ];
+        let writes = pan_node_writes(&g, &GraphIndex::of(&g), boxes);
+        assert_eq!(
+            writes.iter().map(|w| w.0).collect::<Vec<_>>(),
+            vec![0, 4],
+            "the boxes of the graph's two nodes, and no other"
+        );
+        // node 2 at (300, 40) under the offset (5, 7)
+        assert_eq!(
+            writes[1].1,
+            CssProperty::transform(
+                vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                    x: PixelValue::px(305.0),
+                    y: PixelValue::px(47.0),
+                })]
+                .into()
+            )
+        );
+    }
+
+    /// How many nodes of `dom` carry the class `name`.
+    fn with_class(dom: &Dom, name: &str) -> usize {
+        let own = dom
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name));
+        usize::from(own)
+            + dom
+                .children
+                .as_ref()
+                .iter()
+                .map(|child| with_class(child, name))
+                .sum::<usize>()
+    }
+
+    /// A3-solver-35e. A render cloned the whole graph into its dataset (every
+    /// node with its fields and connections, every type) and built the DOM
+    /// from the original. The graph moves into the dataset and the DOM is
+    /// built from it there. Counted: of the graph's three lists, how many the
+    /// dataset holds in the allocation the caller made - 3, where a copy of
+    /// the graph has none of them.
+    ///
+    /// The DOM is the same: the nodes still read their port types through the
+    /// dataset while the builder borrows it (8 nodes, an input and an output
+    /// port each).
+    ///
+    /// Mutation: `node_graph: self.clone()` in `dom_in_view` counts 0.
+    #[test]
+    fn a_render_moves_the_graph_into_its_dataset_and_copies_none_of_it() {
+        let g = column(8);
+        let made = [
+            g.nodes.as_ref().as_ptr() as usize,
+            g.node_types.as_ref().as_ptr() as usize,
+            g.input_output_types.as_ref().as_ptr() as usize,
+        ];
+        let dom = g.dom_in_view(VIEW);
+        let mut data = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+        let local = data
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("the graph's dataset");
+        let held = [
+            local.node_graph.nodes.as_ref().as_ptr() as usize,
+            local.node_graph.node_types.as_ref().as_ptr() as usize,
+            local.node_graph.input_output_types.as_ref().as_ptr() as usize,
+        ];
+        let moved = made.iter().zip(held.iter()).filter(|(a, b)| a == b).count();
+        assert_eq!(moved, 3, "the render copied {} of the graph's three lists", 3 - moved);
+        assert_eq!(local.node_graph.nodes.len(), 8);
+        assert_eq!(with_dom(&dom), (8, 7), "every node and wire of the column has DOM");
+        assert_eq!(
+            (with_class(&dom, "node_input"), with_class(&dom, "node_output")),
+            (8, 8),
+            "the ports a node renders from the dataset's port types"
+        );
+    }
+
+    /// The ids `f`'s lookups in a graph's lists compared (`GRAPH_LOOKUP_STEPS`).
+    fn lookup_steps(f: impl FnOnce()) -> usize {
+        GRAPH_LOOKUP_STEPS.with(|n| n.set(0));
+        f();
+        GRAPH_LOOKUP_STEPS.with(core::cell::Cell::get)
+    }
+
+    /// A3-solver-35f. Every wire of a render looked its two nodes up by a
+    /// search of the node list from the front (`get_rect`), every node its
+    /// type, every output its port type: a column of n wired nodes compared
+    /// n * n / 2 ids per render, and again for the record of a culled render
+    /// and at the end of every pan. They are looked up in the graph's index.
+    ///
+    /// Mutation: `GraphIndex::node` as a search of `graph.nodes` from the
+    /// front (counting each id it passes) grows 16x.
+    #[test]
+    fn the_wires_of_a_render_find_their_nodes_by_bisection() {
+        let steps = |nodes: u64, wires: usize| {
+            let g = column(nodes);
+            let index = GraphIndex::of(&g);
+            lookup_steps(|| assert_eq!(drawn_connections(&g, &index).len(), wires))
+        };
+        let (small, large) = (steps(500, 499), steps(2_000, 1_999));
+        assert!(
+            small >= 998,
+            "harness: each of the 499 wires looked its two nodes up ({small})"
+        );
+        assert!(
+            large < small * 6,
+            "four times the wires took {large} comparisons for {small}: more than n log n"
+        );
+    }
+
+    /// A3-solver-35f, the pan: every mouse move of a pan searched the node
+    /// list from the front for the node of each box it moves.
+    ///
+    /// Mutation: as above, 16x.
+    #[test]
+    fn a_step_of_a_pan_finds_the_node_of_each_box_by_bisection() {
+        let steps = |nodes: u64, count: usize| {
+            let g = column(nodes);
+            let index = GraphIndex::of(&g);
+            let boxes: Vec<(u64, Option<RefAny>)> =
+                (1..=nodes).map(|id| (id, box_of(id))).collect();
+            lookup_steps(|| assert_eq!(pan_node_writes(&g, &index, boxes).len(), count))
+        };
+        let (small, large) = (steps(500, 500), steps(2_000, 2_000));
+        assert!(small >= 500, "harness: each of the 500 boxes looked its node up ({small})");
+        assert!(
+            large < small * 6,
+            "four times the boxes took {large} comparisons for {small}: more than n log n"
+        );
+    }
+
+    /// A3-solver-35f, the result: the index finds what a search from the
+    /// front finds - of two nodes with one id the first - and a wire's rect
+    /// is the same by either way, for nodes that exist, for one that is the
+    /// second of its id and for ones that do not exist.
+    #[test]
+    fn the_index_finds_what_a_search_from_the_front_finds() {
+        // The ids 1, 1, 3: the node made as 2 is a second node 1.
+        let mut g = graph_of(&[(0.0, 0.0), (500.0, 500.0), (900.0, 100.0)]);
+        g.nodes.as_mut()[1].node_id = NodeGraphNodeId { inner: 1 };
+        let index = GraphIndex::of(&g);
+        let first = index
+            .node(&g, NodeGraphNodeId { inner: 1 })
+            .expect("a node 1");
+        assert!(
+            first.node.position.x == 0.0 && first.node.position.y == 0.0,
+            "of two nodes with the id 1 the first is found"
+        );
+        assert!(index.node(&g, NodeGraphNodeId { inner: 2 }).is_none());
+        assert!(index.node_type(&g, KIND).is_some());
+        assert!(index.node_type(&g, NodeTypeId { inner: 9 }).is_none());
+        assert!(index.io_type(&g, PORT).is_some());
+        assert!(index.io_type(&g, InputOutputTypeId { inner: 9 }).is_none());
+        let between = |out: u64, inn: u64| ConnectionLocalDataset {
+            out_node_id: NodeGraphNodeId { inner: out },
+            out_idx: 0,
+            in_node_id: NodeGraphNodeId { inner: inn },
+            in_idx: 1,
+            swap_vert: false,
+            swap_horz: false,
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+        };
+        for (out, inn) in [(1, 3), (3, 1), (1, 1), (1, 2), (7, 3)] {
+            assert_eq!(
+                connection_rect(&g, &index, between(out, inn)),
+                get_rect(&g, between(out, inn)),
+                "the wire {out} -> {inn}"
+            );
+        }
+        assert!(connection_rect(&g, &index, between(1, 3)).is_some());
+        // An index asked about another graph finds nothing where a search
+        // would find nothing: the one-node graph has no node 3.
+        let other = graph_of(&[(1.0, 1.0)]);
+        assert!(index.node(&other, NodeGraphNodeId { inner: 3 }).is_none());
+    }
+
+    /// The graph nodes that have DOM in a render, in order, each with the
+    /// reconciliation key of its wrapper.
+    fn node_keys(dom: &Dom) -> Vec<(u64, Option<u64>)> {
+        dom.children.as_ref()[0].children.as_ref()[1]
+            .children
+            .as_ref()
+            .iter()
+            .filter_map(|wrapper| {
+                let mut data = wrapper.children.as_ref().first()?.root.get_dataset()?.clone();
+                let id = data.downcast_ref::<NodeLocalDataset>()?.node_id.inner;
+                Some((id, wrapper.root.get_key()))
+            })
+            .collect()
+    }
+
+    /// As [`node_keys`] for the connections: the node a wire leaves, and the
+    /// key of the wire's wrapper.
+    fn connection_keys(dom: &Dom) -> Vec<(u64, Option<u64>)> {
+        dom.children.as_ref()[0].children.as_ref()[0]
+            .children
+            .as_ref()
+            .iter()
+            .filter_map(|wrapper| {
+                let mut data = wrapper.children.as_ref().first()?.root.get_dataset()?.clone();
+                let out = data
+                    .downcast_ref::<ConnectionLocalDataset>()?
+                    .out_node_id
+                    .inner;
+                Some((out, wrapper.root.get_key()))
+            })
+            .collect()
+    }
+
+    /// How many of `keys` are set and unlike every other.
+    fn distinct(keys: &[(u64, Option<u64>)]) -> usize {
+        keys.iter()
+            .filter_map(|k| k.1)
+            .collect::<std::collections::BTreeSet<u64>>()
+            .len()
+    }
+
+    /// A3-solver-35g. Nothing of a graph's DOM had a key, so a node was known
+    /// by its place among the nodes that have DOM - and after a pan another
+    /// graph node stands at that place: it took over the old one's state and
+    /// the `transform` the pan had written on it. The wrapper of a node (and
+    /// of a connection) carries a key made of the node's id (the wire's two
+    /// ports).
+    ///
+    /// The column at the offset 0 has DOM for its nodes 1..=19, 1000 px up
+    /// for the nodes 8..=42: node 8 is the first there and the eighth here.
+    /// Twelve nodes are in both renders, each with one key in both; no two
+    /// nodes of a render share a key; the same for the wires.
+    ///
+    /// Mutation: no `with_key` on the wrapper (every key `None`), or a key
+    /// that takes the node's place or the graph's offset in, fails.
+    #[test]
+    fn a_node_and_a_wire_keep_their_key_from_render_to_render() {
+        let g = column(60);
+        let here = g.clone().dom_in_view(VIEW);
+        let there = panned(&g, 0.0, -1000.0).dom_in_view(VIEW);
+        for (what, a, b) in [
+            ("node", node_keys(&here), node_keys(&there)),
+            ("wire", connection_keys(&here), connection_keys(&there)),
+        ] {
+            assert!(
+                a.len() > 5 && b.len() > 5 && a[0].0 != b[0].0,
+                "harness ({what}s): the two renders show other parts of the column: {} and {}",
+                a.len(),
+                b.len()
+            );
+            assert_eq!(distinct(&a), a.len(), "every {what} of a render has a key of its own");
+            assert_eq!(distinct(&b), b.len(), "every {what} of a render has a key of its own");
+            let in_both: Vec<(Option<u64>, Option<u64>)> = a
+                .iter()
+                .filter_map(|(id, key)| {
+                    let other = b.iter().find(|(other_id, _)| other_id == id)?;
+                    Some((*key, other.1))
+                })
+                .collect();
+            assert!(
+                in_both.len() > 5,
+                "harness ({what}s): {} are in both renders",
+                in_both.len()
+            );
+            assert!(
+                in_both.iter().all(|(one, other)| one == other),
+                "a {what} has another key in another render: {in_both:?}"
+            );
+        }
+        // A node's key is not a wire's.
+        let nodes = node_keys(&here);
+        let wires = connection_keys(&here);
+        assert!(nodes.iter().all(|n| wires.iter().all(|w| w.1 != n.1)));
+    }
+
+    /// The properties a node of the DOM declares itself, in the order it
+    /// declares them in.
+    fn declared(node: &Dom) -> Vec<&CssProperty> {
+        node.root
+            .get_style()
+            .rules
+            .as_ref()
+            .iter()
+            .flat_map(|rule| rule.declarations.as_ref().iter())
+            .filter_map(|declaration| match declaration {
+                azul_css::css::CssDeclaration::Static(property) => Some(property),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// How many box shadows the nodes of `dom` declare by a heap box.
+    fn boxed_shadows(dom: &Dom) -> usize {
+        let own = declared(dom)
+            .into_iter()
+            .filter(|property| match property {
+                CssProperty::BoxShadowLeft(shadow)
+                | CssProperty::BoxShadowRight(shadow)
+                | CssProperty::BoxShadowTop(shadow)
+                | CssProperty::BoxShadowBottom(shadow) => {
+                    matches!(shadow.get_property(), Some(BoxOrStatic::Boxed(_)))
+                }
+                _ => false,
+            })
+            .count();
+        own + dom
+            .children
+            .as_ref()
+            .iter()
+            .map(boxed_shadows)
+            .sum::<usize>()
+    }
+
+    /// A3-solver-35h. The box of every node listed its 27 constant
+    /// properties one by one per render, four of them shadows in a heap box
+    /// each (an allocation per shadow per node, and again for every copy of
+    /// the property the cascade makes). The constants are one `const` slice,
+    /// the shadows references into it.
+    ///
+    /// Counted: the box shadows a render declares by a heap box - none, for
+    /// 8 nodes (32 before). And the box declares what it declared, in the
+    /// order it declared it in: the 27 constants, its transform, its width.
+    ///
+    /// Mutation: `BoxOrStatic::heap(..)` for a shadow of
+    /// `NODE_BOX_PROPERTIES` cannot be written in a `const`; a shadow boxed
+    /// where the list is made counts 1 per node. The transform pushed after
+    /// the width, or a constant moved, fails the order.
+    #[test]
+    fn the_box_of_a_node_declares_its_constants_from_one_slice_and_boxes_no_shadow() {
+        type T = CssPropertyType;
+        let dom = column(8).dom_in_view(VIEW);
+        assert_eq!(with_dom(&dom), (8, 7), "harness: the whole column has DOM");
+        assert_eq!(boxed_shadows(&dom), 0, "box shadows of a render in a heap box each");
+        // graph box > nodes container > the first node's wrapper > its box
+        let node_box = &dom.children.as_ref()[0].children.as_ref()[1].children.as_ref()[0]
+            .children
+            .as_ref()[0];
+        let order: Vec<CssPropertyType> =
+            declared(node_box).iter().map(|p| p.get_type()).collect();
+        assert_eq!(
+            order,
+            vec![
+                T::OverflowX,
+                T::Position,
+                T::OverflowY,
+                T::BackgroundContent,
+                T::BorderTopColor,
+                T::BorderRightColor,
+                T::BorderLeftColor,
+                T::BorderBottomColor,
+                T::BorderTopStyle,
+                T::BorderRightStyle,
+                T::BorderLeftStyle,
+                T::BorderBottomStyle,
+                T::BorderTopWidth,
+                T::BorderRightWidth,
+                T::BorderLeftWidth,
+                T::BorderBottomWidth,
+                T::BoxShadowLeft,
+                T::BoxShadowRight,
+                T::BoxShadowTop,
+                T::BoxShadowBottom,
+                T::TextColor,
+                T::Display,
+                T::FontFamily,
+                T::PaddingTop,
+                T::PaddingBottom,
+                T::PaddingLeft,
+                T::PaddingRight,
+                T::Transform,
+                T::Width,
+            ],
+            "the properties of a node's box, in the order of the cascade"
+        );
+        // The values: the first node of the column stands at (100, 200), and
+        // its shadows are what they were (a shadow equals by value).
+        let properties = declared(node_box);
+        assert_eq!(
+            *properties[27],
+            CssProperty::Transform(StyleTransformVecValue::Exact(
+                vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                    x: PixelValue::px(100.0),
+                    y: PixelValue::px(200.0),
+                })]
+                .into()
+            ))
+        );
+        assert_eq!(
+            *properties[16],
+            CssProperty::BoxShadowLeft(StyleBoxShadowValue::Exact(BoxOrStatic::heap(
+                StyleBoxShadow {
+                    offset_x: PixelValueNoPercent {
+                        inner: PixelValue::const_px(0)
+                    },
+                    offset_y: PixelValueNoPercent {
+                        inner: PixelValue::const_px(0)
+                    },
+                    color: ColorU {
+                        r: 0,
+                        g: 131,
+                        b: 176,
+                        a: 119,
+                    },
+                    blur_radius: PixelValueNoPercent {
+                        inner: PixelValue::const_px(3),
+                    },
+                    spread_radius: PixelValueNoPercent {
+                        inner: PixelValue::const_px(0),
+                    },
+                    clip_mode: BoxShadowClipMode::Outset,
+                }
+            )))
+        );
+    }
+
+    /// The `transform` a node of the DOM declares itself, as a list.
+    fn transform_of(node: &Dom) -> Option<Vec<StyleTransform>> {
+        declared(node).into_iter().find_map(|property| match property {
+            CssProperty::Transform(StyleTransformVecValue::Exact(list)) => {
+                Some(list.as_ref().to_vec())
+            }
+            _ => None,
+        })
+    }
+
+    /// `translate(x, y)` as one function of a transform list.
+    fn shift(x: f32, y: f32) -> StyleTransform {
+        StyleTransform::Translate(StyleTransformTranslate2D {
+            x: PixelValue::px(x),
+            y: PixelValue::px(y),
+        })
+    }
+
+    /// A3-solver-35b, the builder. The graph's offset is declared once per container -
+    /// the wires' and the nodes' - and a node box and a wire stand in the graph's own
+    /// coordinates; with the offset on the boxes (`AZ_NODEGRAPH_PAN=nodes`) every box and
+    /// wire declares it and the containers declare no transform.
+    ///
+    /// Example, offset (7, 9): node 1 at (300, 40), node 2 at (900, 400), the wire from
+    /// node 1's output at (300 + 250, 40 + 71) = (550, 111). On the containers: both
+    /// containers `translate(7px, 9px)`, node 1 `translate(300px, 40px)`, the wire
+    /// `translate(550px, 111px)`. On the boxes: node 1 `translate(307px, 49px)`, the wire
+    /// `translate(557px, 120px)`. And a graph at the offset (0, 0) declares
+    /// `translate(0px, 0px)` on its containers: the frame a pan writes under is there
+    /// before the first pan.
+    /// Mutation: the offset left in the boxes as well (`offset_in_boxes` answering it for
+    /// `Containers`) gives node 1 (307, 49) under a container at (7, 9): the offset twice.
+    #[test]
+    fn a_render_declares_the_offset_on_the_containers_and_the_model_on_the_boxes() {
+        let mut g = graph_of(&[(300.0, 40.0), (900.0, 400.0)]);
+        wire(&mut g, 1, 2);
+        let g = panned(&g, 7.0, 9.0);
+        // (the wires' container, the nodes' container, the box of node 1, the wire)
+        let parts = |dom: &Dom| {
+            let graph_box = &dom.children.as_ref()[0];
+            let of_wires = &graph_box.children.as_ref()[0];
+            let of_nodes = &graph_box.children.as_ref()[1];
+            assert_eq!(with_dom(dom), (2, 1), "harness: two nodes and their wire have DOM");
+            (
+                transform_of(of_wires),
+                transform_of(of_nodes),
+                transform_of(&of_nodes.children.as_ref()[0].children.as_ref()[0]),
+                transform_of(&of_wires.children.as_ref()[0].children.as_ref()[0])
+                    .map(|list| list[0].clone()),
+            )
+        };
+        assert_eq!(
+            parts(&g.clone().dom_in_view_as(LogicalSize::zero(), PanMode::Containers)),
+            (
+                Some(vec![shift(7.0, 9.0)]),
+                Some(vec![shift(7.0, 9.0)]),
+                Some(vec![shift(300.0, 40.0)]),
+                Some(shift(550.0, 111.0)),
+            ),
+            "the offset on the containers"
+        );
+        assert_eq!(
+            parts(&g.clone().dom_in_view_as(LogicalSize::zero(), PanMode::Nodes)),
+            (
+                None,
+                None,
+                Some(vec![shift(307.0, 49.0)]),
+                Some(shift(557.0, 120.0)),
+            ),
+            "the offset on the boxes"
+        );
+        let at_rest = panned(&g, 0.0, 0.0).dom_in_view_as(LogicalSize::zero(), PanMode::Containers);
+        let (of_wires, of_nodes, _, _) = parts(&at_rest);
+        assert_eq!(
+            (of_wires, of_nodes),
+            (Some(vec![shift(0.0, 0.0)]), Some(vec![shift(0.0, 0.0)])),
+            "a graph at rest: its containers have their frame"
+        );
+        // The culling reads the graph, not the DOM: the same nodes and wires have DOM
+        // under either.
+        let far = panned(&column(60), 0.0, -1000.0);
+        assert_eq!(
+            with_dom(&far.clone().dom_in_view_as(VIEW, PanMode::Containers)),
+            with_dom(&far.dom_in_view_as(VIEW, PanMode::Nodes)),
+        );
+    }
+
+    /// The window of the engine tests below: `g` built with its offset carried as `mode`
+    /// says, in a graph box of 600 x 440 px at the window's corner, laid out at 640 x 480.
+    #[cfg(feature = "cpurender")]
+    fn window_of(g: &NodeGraph, mode: PanMode) -> crate::window::LayoutWindow {
+        let mut page = Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(g.clone().dom_in_view_as(LogicalSize::zero(), mode));
+        let (css, _warnings) =
+            azul_css::parser2::new_from_str(".nodegraph { width: 600px; height: 440px; }");
+        let styled = azul_core::styled_dom::StyledDom::create(&mut page, css);
+        let mut lw = crate::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+            .expect("a layout window");
+        let mut ws = crate::window_state::FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(640.0, 480.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &azul_core::resources::RendererResources::default(),
+            &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        lw
+    }
+
+    /// The nodes of the laid-out page that carry the class `class`, in document order.
+    #[cfg(feature = "cpurender")]
+    fn nodes_of_class(lw: &crate::window::LayoutWindow, class: &str) -> Vec<azul_core::dom::NodeId> {
+        let nodes = lw.layout_results[&azul_core::dom::DomId::ROOT_ID]
+            .styled_dom
+            .node_data
+            .as_container();
+        (0..nodes.len())
+            .map(azul_core::dom::NodeId::new)
+            .filter(|n| nodes[*n].has_class(class))
+            .collect()
+    }
+
+    /// The frame a backend that holds none paints of the window.
+    #[cfg(feature = "cpurender")]
+    fn frame_of(lw: &crate::window::LayoutWindow) -> crate::cpurender::AzulPixmap {
+        let mut backend = crate::cpu_backend::CpuBackend::new();
+        next_frame_of(&mut backend, lw)
+    }
+
+    /// The next frame of `backend`: the damage path after its first.
+    #[cfg(feature = "cpurender")]
+    fn next_frame_of(
+        backend: &mut crate::cpu_backend::CpuBackend,
+        lw: &crate::window::LayoutWindow,
+    ) -> crate::cpurender::AzulPixmap {
+        let _ = backend.render_frame(
+            lw,
+            &azul_core::resources::RendererResources::default(),
+            640.0,
+            480.0,
+            1.0,
+        );
+        backend
+            .last_frame
+            .as_ref()
+            .expect("harness: a frame")
+            .clone_pixmap()
+    }
+
+    /// How many pixels of two frames of the window differ.
+    #[cfg(feature = "cpurender")]
+    fn differing(a: &crate::cpurender::AzulPixmap, b: &crate::cpurender::AzulPixmap) -> usize {
+        assert_eq!((a.width, a.height), (b.width, b.height), "harness: two frames of one window");
+        a.data()
+            .chunks_exact(4)
+            .zip(b.data().chunks_exact(4))
+            .filter(|(one, other)| one != other)
+            .count()
+    }
+
+    /// The node boxes (their places in `boxes`) the window is hit in at `(x, y)`, front
+    /// to back, with the matrices its frames are painted with now.
+    #[cfg(feature = "cpurender")]
+    fn boxes_hit(
+        lw: &crate::window::LayoutWindow,
+        tester: &crate::headless::CpuHitTester,
+        boxes: &[azul_core::dom::NodeId],
+        x: f32,
+        y: f32,
+    ) -> Vec<usize> {
+        let gpu = &lw.gpu_state_manager;
+        let mut hit: Vec<usize> = tester
+            .hit_test_scrolled(LogicalPosition::new(x, y), &|_, _| None, &|dom, node| {
+                gpu.painted_transform_of(dom, node)
+            })
+            .iter()
+            .filter_map(|(_, node, _)| boxes.iter().position(|b| b == node))
+            .collect();
+        // (a box listed for more than one of its areas counts once)
+        hit.dedup();
+        hit
+    }
+
+    /// The hit tester of the window as it was laid out.
+    #[cfg(feature = "cpurender")]
+    fn tester_of(lw: &crate::window::LayoutWindow) -> crate::headless::CpuHitTester {
+        let mut tester = crate::headless::CpuHitTester::new();
+        tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+        tester
+    }
+
+    /// Three nodes of 250 px width in a 600 x 440 graph box: (20, 30), (320, 60),
+    /// (120, 260), node 1 wired to node 2.
+    #[cfg(feature = "cpurender")]
+    fn three_nodes() -> NodeGraph {
+        let mut g = graph_of(&[(20.0, 30.0), (320.0, 60.0), (120.0, 260.0)]);
+        wire(&mut g, 1, 2);
+        g
+    }
+
+    /// A3-solver-35b, the picture and the hits (the CPU renderer and the hit tester, the
+    /// product path: a laid-out window, its backend, its tester).
+    ///
+    /// The offset on the two containers is a reference frame around the frames of the
+    /// node boxes. The window must be painted, pixel for pixel, and hit, node box for
+    /// node box, as the window whose boxes carry the offset themselves - the way of
+    /// before, which is what the eye knows.
+    ///
+    /// Example, offset (37, -21), the graph box at the window's corner (0, 0): node 2,
+    /// at (320, 60) in the graph, is painted from (357, 39). The point (367, 49) is
+    /// 10 px inside it: node 2 is hit there. The point (330, 100) is inside the place
+    /// node 2 has without the offset and left of where it is painted (330 < 357), right
+    /// of node 1 (57 + 250 = 307 < 330) and above node 3 (260 - 21 = 239 > 100): no
+    /// node is hit there.
+    /// Mutations: the containers built without their transform (the offset lost: node 2
+    /// from (320, 60), the point (367, 49) above it) and the offset left in the boxes as
+    /// well (twice: node 2 from (394, 18), the point left of it) each miss the first
+    /// hit and paint another frame.
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_graph_with_its_offset_on_the_containers_is_painted_and_hit_as_before() {
+        let g = panned(&three_nodes(), 37.0, -21.0);
+        let on_containers = window_of(&g, PanMode::Containers);
+        let on_boxes = window_of(&g, PanMode::Nodes);
+        let at_rest = window_of(&three_nodes(), PanMode::Containers);
+
+        // The picture.
+        let (painted, before, rest) =
+            (frame_of(&on_containers), frame_of(&on_boxes), frame_of(&at_rest));
+        assert!(
+            differing(&painted, &rest) > 1000,
+            "harness: the nodes are painted, and the offset moves them"
+        );
+        assert_eq!(
+            differing(&painted, &before),
+            0,
+            "the offset on the containers paints another frame than the offset on the boxes"
+        );
+
+        // The hits.
+        let boxes = nodes_of_class(&on_containers, "node_graph_node");
+        assert_eq!(boxes.len(), 3, "harness: the three node boxes");
+        assert_eq!(
+            boxes,
+            nodes_of_class(&on_boxes, "node_graph_node"),
+            "harness: one DOM under either"
+        );
+        let graph_box = nodes_of_class(&on_containers, "nodegraph");
+        assert_eq!(graph_box.len(), 1);
+        let corner = {
+            let lr = &on_containers.layout_results[&azul_core::dom::DomId::ROOT_ID];
+            let index = *lr
+                .layout_tree
+                .dom_to_layout
+                .get(&graph_box[0])
+                .and_then(|v| v.first())
+                .expect("the graph box is laid out");
+            *lr.calculated_positions
+                .get(index.index())
+                .expect("the graph box has a position")
+        };
+        assert_eq!((corner.x, corner.y), (0.0, 0.0), "harness: the graph box at the corner");
+        let (tester, tester_before) = (tester_of(&on_containers), tester_of(&on_boxes));
+        assert_eq!(
+            boxes_hit(&on_containers, &tester, &boxes, 367.0, 49.0),
+            vec![1],
+            "node 2 is hit 10 px inside where it is painted"
+        );
+        assert!(
+            boxes_hit(&on_containers, &tester, &boxes, 330.0, 100.0).is_empty(),
+            "no node is hit where node 2 stands without the offset"
+        );
+        let mut hit_somewhere = 0;
+        for y in (4..480).step_by(12) {
+            for x in (4..640).step_by(12) {
+                let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+                let here = boxes_hit(&on_containers, &tester, &boxes, x, y);
+                assert_eq!(
+                    here,
+                    boxes_hit(&on_boxes, &tester_before, &boxes, x, y),
+                    "the node boxes hit at ({x}, {y})"
+                );
+                hit_somewhere += usize::from(!here.is_empty());
+            }
+        }
+        assert!(hit_somewhere > 100, "harness: the lattice crosses the nodes ({hit_somewhere})");
+    }
+
+    /// A3-solver-35b, a pan without a rebuild. The graph is built and laid out at rest;
+    /// the pan writes `translate(37px, -21px)` on its two containers (what
+    /// `set_css_property` does after the callback: a value under each container's key,
+    /// no restyle, no layout, no display list). The frame the window's backend paints
+    /// next - its damage path - and the frame of a backend that holds none are the frame
+    /// of the graph BUILT at that offset, and the tester made at rest hits node 2 where
+    /// it is painted now.
+    ///
+    /// Mutation: a pan that writes one container only (the nodes') leaves the wires
+    /// behind - nothing to see while wires are not drawn, so the tier and the picture
+    /// are checked per write: each of the two writes must be a paint, not a layout.
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_pan_written_on_the_two_containers_paints_the_graph_built_at_that_offset() {
+        use crate::overlay::{ContentChange, ContentDirtyTier};
+        let g = three_nodes();
+        let there = panned(&g, 37.0, -21.0);
+        let built_there = frame_of(&window_of(&there, PanMode::Containers));
+
+        let mut lw = window_of(&g, PanMode::Containers);
+        let mut backend = crate::cpu_backend::CpuBackend::new();
+        let at_rest = next_frame_of(&mut backend, &lw);
+        assert!(differing(&at_rest, &built_there) > 1000, "harness: the pan moves the nodes");
+        let boxes = nodes_of_class(&lw, "node_graph_node");
+        let tester = tester_of(&lw);
+        assert_eq!(boxes_hit(&lw, &tester, &boxes, 330.0, 100.0), vec![1], "at rest: node 2");
+
+        let containers = [
+            nodes_of_class(&lw, "nodegraph-connections-container"),
+            nodes_of_class(&lw, "nodegraph-nodes-container"),
+        ];
+        for container in &containers {
+            assert_eq!(container.len(), 1, "harness: one container of each kind");
+            let tier = lw
+                .apply_content_change(ContentChange::NodeCss {
+                    dom_id: azul_core::dom::DomId::ROOT_ID,
+                    node_id: container[0],
+                    props: vec![container_transform(&there)],
+                    override_only: false,
+                })
+                .tier;
+            assert_eq!(
+                tier,
+                ContentDirtyTier::Paint,
+                "a pan step is a value under the container's key, not a rebuild"
+            );
+        }
+
+        assert_eq!(
+            differing(&next_frame_of(&mut backend, &lw), &built_there),
+            0,
+            "the frame after the pan (the damage path) is not the graph built at the offset"
+        );
+        assert_eq!(
+            differing(&frame_of(&lw), &built_there),
+            0,
+            "the panned window, painted from nothing, is not the graph built at the offset"
+        );
+        assert_eq!(
+            boxes_hit(&lw, &tester, &boxes, 367.0, 49.0),
+            vec![1],
+            "after the pan node 2 is hit where it is painted"
+        );
+        assert!(
+            boxes_hit(&lw, &tester, &boxes, 330.0, 100.0).is_empty(),
+            "after the pan no node is hit where node 2 stood"
         );
     }
 }

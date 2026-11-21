@@ -79,7 +79,7 @@ The callback runs during reconciliation. The conditions are strict.
 
 If any of those fails, nothing happens. The new dataset stays as `layout()` built it. The old one drops normally.
 
-The matching rules belong to the diff. A node survives a reorder when it carries a stable identity - set an `AttributeType::Id` on it, e.g. with `with_id(...)`. Without one the diff matches structurally, by logical position, which only holds while the sibling order does. See [Reconciliation](reconciliation.md) for how that works.
+The matching rules belong to the diff. A node survives a reorder when it carries a stable identity - give it a key with `with_key(...)`. Without one the diff matches structurally, by logical position, which only holds while the sibling order does. See [Reconciliation](reconciliation.md) for how that works.
 
 ## Worked example: a video encoder
 
@@ -170,9 +170,9 @@ pub fn video_pane(config: VideoConfig) -> Dom {
         .with_class("video-pane".into())
         .with_dataset(OptionRefAny::Some(state))
         .with_merge_callback(reconcile_video)
-        // The reconciler matches nodes by identity, and an explicit id is the
+        // The reconciler matches nodes by identity, and an explicit key is the
         // stable half of it - give the node one when its position can move.
-        .with_id(key)
+        .with_key(key)
 }
 # fn stable_key_for(_: &str) -> u64 { 0 }
 ```

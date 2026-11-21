@@ -1,0 +1,14 @@
+{
+  "version": "https://jsonfeed.org/version/1",
+  "title": "Old JSON",
+  "home_page_url": "https://old.example.org",
+  "author": {"name": "Karl Braun"},
+  "items": [
+    {
+      "id": "1",
+      "title": "First <post>",
+      "content_text": "Line one & two.\n\nSecond paragraph.",
+      "date_published": "2026-09-28T12:00:00-07:00"
+    }
+  ]
+}

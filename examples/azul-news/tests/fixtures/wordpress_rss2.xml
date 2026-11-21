@@ -1,0 +1,67 @@
+
+
+<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"
+	xmlns:content="http://purl.org/rss/1.0/modules/content/"
+	xmlns:wfw="http://wellformedweb.org/CommentAPI/"
+	xmlns:dc="http://purl.org/dc/elements/1.1/"
+	xmlns:atom="http://www.w3.org/2005/Atom"
+	xmlns:sy="http://purl.org/rss/1.0/modules/syndication/"
+	xmlns:slash="http://purl.org/rss/1.0/modules/slash/"
+	>
+
+<channel>
+	<title>Example Weekly</title>
+	<atom:link href="https://example.org/feed/" rel="self" type="application/rss+xml" />
+	<link>https://example.org</link>
+	<description>Notes on the open web &amp; its plumbing</description>
+	<lastBuildDate>Wed, 30 Sep 2026 08:42:00 +0000</lastBuildDate>
+	<language>en-US</language>
+	<sy:updatePeriod>
+	hourly	</sy:updatePeriod>
+	<sy:updateFrequency>
+	1	</sy:updateFrequency>
+	<generator>https://wordpress.org/?v=6.6</generator>
+<image>
+	<url>https://example.org/wp-content/uploads/icon-32x32.png</url>
+	<title>Example Weekly</title>
+	<link>https://example.org</link>
+	<width>32</width>
+	<height>32</height>
+</image>
+	<item>
+		<title>The quiet return of RSS</title>
+		<link>https://example.org/2026/09/30/the-quiet-return-of-rss/</link>
+		<comments>https://example.org/2026/09/30/the-quiet-return-of-rss/#respond</comments>
+		<dc:creator><![CDATA[Mara Schulz]]></dc:creator>
+		<pubDate>Wed, 30 Sep 2026 08:42:00 +0000</pubDate>
+		<category><![CDATA[Essays]]></category>
+		<category><![CDATA[Web]]></category>
+		<guid isPermaLink="false">https://example.org/?p=123</guid>
+		<description><![CDATA[<p>For a decade the obituaries were written weekly.</p>
+<p>The post <a href="https://example.org/2026/09/30/the-quiet-return-of-rss/">The quiet return of RSS</a> appeared first on <a href="https://example.org">Example Weekly</a>.</p>
+]]></description>
+		<content:encoded><![CDATA[<p>For a decade the obituaries were written weekly. Yet the humble feed kept working.</p>
+<figure class="wp-block-image"><img src="/wp-content/uploads/2026/09/hero.jpg" alt="A feed icon" width="1200" height="600" /><figcaption>The orange icon</figcaption></figure>
+<blockquote><p>Feeds are the plumbing of the open web.</p></blockquote>
+<p><img src="https://pixel.example.net/t.gif?u=1" width="1" height="1" /></p>
+]]></content:encoded>
+		<wfw:commentRss>https://example.org/2026/09/30/the-quiet-return-of-rss/feed/</wfw:commentRss>
+		<slash:comments>4</slash:comments>
+	</item>
+	<item>
+		<title>Tom &amp; Jerry&#8217;s guide to feeds</title>
+		<link>https://example.org/?p=122&lang=en</link>
+		<dc:creator><![CDATA[Ben Krüger]]></dc:creator>
+		<pubDate>Tue, 29 Sep 2026 17:05:00 +0000</pubDate>
+		<guid isPermaLink="false">https://example.org/?p=122</guid>
+		<description>Short &amp; sweet:&nbsp;a guide.</description>
+	</item>
+	<item>
+		<title>Untitled draft</title>
+		<link>https://example.org/2026/09/28/draft/</link>
+		<pubDate>Mon, 28 Sep 2026 09:00:00 GMT</pubDate>
+		<guid>https://example.org/2026/09/28/draft/</guid>
+		<description></description>
+	</item>
+	</channel>
+</rss>

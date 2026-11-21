@@ -1,0 +1,56 @@
+[
+  {
+    "name": "a pass killed while downloading big files leaves no orphan temp file, and the next pass completes",
+    "description": "KDRIVE-023 (kDrive): crashes while hydrating left many large orphan files in %TEMP% while the client said 'completed'. Rules A5, A4 and E8: a download's temp file lives beside its target and is removed or finished by the next pass; nothing is left behind, every file arrives whole.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "media/a.mov", "size": 8000000, "seed": 231 },
+      { "op": "drive_write", "device": "a", "path": "media/b.mov", "size": 8000000, "seed": 232 },
+      { "op": "drive_write", "device": "a", "path": "media/c.mov", "size": 8000000, "seed": 233 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "b", "crash_at": "download-start", "expect": "crash", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_sync", "device": "b", "crash_at": "before-rename", "expect": "crash", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_sync", "device": "b", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "media/a.mov", "same_as": "{root:a}/media/a.mov" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "media/c.mov", "same_as": "{root:a}/media/c.mov" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_status", "device": "b" },
+      { "op": "assert_response", "path": "result.crashes", "equals": 2 },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file is not made cloud-only before the drive acknowledged its upload; a cloud-only file moved out of the root is whole or refused",
+    "description": "KDRIVE-023 (kDrive): a file was dehydrated before its upload finished; a dehydrated placeholder moved out of the folder became an empty file. Rules P13 and D2: eviction waits for the drive's acknowledgement with a matching hash; moving a cloud-only file out of the root hydrates it first or is refused, never a 0-byte file. sync-chaos placeholder-evict-only-uploaded.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "draft.docx", "size": 30000, "seed": 234 },
+      { "op": "drive_sync", "device": "a", "pause_at": "after-blob" },
+      { "op": "drive_evict", "device": "a", "path": "draft.docx" },
+      { "op": "assert_response", "path": "result.refused", "len": 1 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "draft.docx", "size": 30000 },
+      { "op": "drive_cont", "device": "a" },
+      { "op": "drive_wait", "device": "a" },
+      { "op": "drive_evict", "device": "a", "path": "draft.docx" },
+      { "op": "assert_response", "path": "result.evicted", "len": 1 },
+      { "op": "drive_rename", "device": "a", "from": "draft.docx", "to": "{run}/elsewhere/draft.docx" },
+      { "op": "drive_read", "path": "{run}/elsewhere/draft.docx" },
+      { "op": "assert_response", "path": "result.size", "not_equals": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "draft.docx", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

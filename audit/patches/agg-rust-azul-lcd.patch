@@ -1,0 +1,535 @@
+--- a/src/pixfmt_lcd.rs	2026-11-21 03:37:30
++++ b/src/pixfmt_lcd.rs	2026-11-21 03:41:33
+@@ -142,6 +142,36 @@
+ /// them. Pre-sizing to a comfortable span length means the buffer is
+ /// allocated once per pixfmt rather than once per span.
+ const SPAN_SCRATCH: usize = 256;
++
++std::thread_local! {
++    /// The span buffer the last pixfmt of this thread handed back when it was
++    /// dropped. A pixfmt is made per text RUN (a map draws thousands a
++    /// frame), so a buffer allocated per pixfmt was an allocation and a free
++    /// per run; threads drawing text in parallel each keep their own.
++    static SPAN_POOL: core::cell::Cell<Vec<u8>> = const { core::cell::Cell::new(Vec::new()) };
++}
++
++/// A span buffer for a new pixfmt: this thread's pooled one, or a fresh one.
++fn take_span_buffer() -> Vec<u8> {
++    let pooled = SPAN_POOL.try_with(core::cell::Cell::take).unwrap_or_default();
++    if pooled.capacity() >= SPAN_SCRATCH {
++        pooled
++    } else {
++        Vec::with_capacity(SPAN_SCRATCH)
++    }
++}
++
++/// Hands a dropped pixfmt's span buffer back to this thread's pool (the larger
++/// of it and what the pool holds stays).
++fn give_span_buffer(buffer: Vec<u8>) {
++    if buffer.capacity() == 0 {
++        return;
++    }
++    let _ = SPAN_POOL.try_with(move |pool| {
++        let held = pool.take();
++        pool.set(if held.capacity() >= buffer.capacity() { held } else { buffer });
++    });
++}
+ 
+ pub struct PixfmtRgba32Lcd<'a> {
+     rbuf: &'a mut RowAccessor,
+@@ -164,7 +194,7 @@
+         Self {
+             rbuf,
+             lut,
+-            c3: Vec::with_capacity(SPAN_SCRATCH),
++            c3: take_span_buffer(),
+             stripe_clip: None,
+             order: LcdSubpixelOrder::Rgb,
+         }
+@@ -204,6 +234,12 @@
+     }
+ }
+ 
++impl Drop for PixfmtRgba32Lcd<'_> {
++    fn drop(&mut self) {
++        give_span_buffer(core::mem::take(&mut self.c3));
++    }
++}
++
+ impl<'a> PixelFormat for PixfmtRgba32Lcd<'a> {
+     type ColorType = Rgba8;
+ 
+@@ -619,8 +655,8 @@
+         for g in [1u8, 50, 100, 180, 220, 255] {
+             let want = reference(g);
+             // Twice: first fills the cache, second is served from it.
+-            assert_eq!(coverage_tone_lut(g), want, "gamma {g} first call");
+-            assert_eq!(coverage_tone_lut(g), want, "gamma {g} cached call");
++            assert_eq!(*coverage_tone_lut(g), want, "gamma {g} first call");
++            assert_eq!(*coverage_tone_lut(g), want, "gamma {g} cached call");
+         }
+     }
+ 
+@@ -639,57 +675,66 @@
+         );
+         // And neither is the identity, or the comparison above proves little.
+         let identity: [u8; 256] = core::array::from_fn(|i| i as u8);
+-        assert_ne!(a, identity, "gamma 60 must bend the curve");
++        assert_ne!(*a, identity, "gamma 60 must bend the curve");
+     }
+ }
+ 
+ /// Coverage tone LUT for a given `coverage_gamma`, built once per distinct
+-/// gamma instead of once per pixfmt.
++/// gamma for the process instead of once per pixfmt.
+ ///
+ /// It is 256 `powf` calls and depends on NOTHING but the gamma. A pixfmt is
+ /// constructed per text run, so a page of text rebuilt this identical table
+ /// dozens of times a frame — measured at 304 us/frame on a 37-run page,
+ /// pure waste.
+ ///
+-/// Cached in a small fixed table rather than a HashMap: `coverage_gamma` is
+-/// a `u16` that in practice takes one or two values for the life of a
+-/// process (it comes from an env knob), so a linear scan of a handful of
+-/// entries beats hashing, and the whole thing stays lock-free after the
+-/// first miss.
+-fn coverage_tone_lut(coverage_gamma: u8) -> [u8; 256] {
+-    use std::sync::{Mutex, OnceLock};
+-    static CACHE: OnceLock<Mutex<Vec<(u8, [u8; 256])>>> = OnceLock::new();
+-    let cache = CACHE.get_or_init(|| Mutex::new(Vec::new()));
+-    if let Ok(c) = cache.lock() {
+-        if let Some((_, lut)) = c.iter().find(|(g, _)| *g == coverage_gamma) {
+-            return *lut;
++/// One `OnceLock` per gamma value (a `u8`: 256 cells, 66 KB of zeroed
++/// statics): after a table is built, fetching it is an atomic load, with no
++/// lock and no copy. It used to sit behind a process-wide `Mutex` taken (and
++/// the table copied out) by every pixfmt construction, i.e. once per text run
++/// by every thread drawing text.
++fn coverage_tone_lut(coverage_gamma: u8) -> &'static [u8; 256] {
++    use std::sync::OnceLock;
++    #[allow(clippy::declare_interior_mutable_const)] // only the repeat operand below
++    const UNBUILT: OnceLock<[u8; 256]> = OnceLock::new();
++    static TABLES: [OnceLock<[u8; 256]>; 256] = [UNBUILT; 256];
++    TABLES[usize::from(coverage_gamma)].get_or_init(|| {
++        let g = f64::from(coverage_gamma.max(1)) / 100.0;
++        let inv = 1.0 / g;
++        let mut lut = [0u8; 256];
++        for (i, e) in lut.iter_mut().enumerate() {
++            let c = (i as f64 / 255.0).powf(inv);
++            *e = (c * 255.0).round() as u8;
+         }
+-    }
+-    let g = f64::from(coverage_gamma.max(1)) / 100.0;
+-    let inv = 1.0 / g;
+-    let mut lut = [0u8; 256];
+-    for (i, e) in lut.iter_mut().enumerate() {
+-        let c = (i as f64 / 255.0).powf(inv);
+-        *e = (c * 255.0).round() as u8;
+-    }
+-    if let Ok(mut c) = cache.lock() {
+-        // Bounded: a runaway producer of distinct gammas must not grow this
+-        // without limit. 16 is far beyond the one or two seen in practice.
+-        if c.len() < 16 {
+-            c.push((coverage_gamma, lut));
+-        }
+-    }
+-    lut
++        lut
++    })
+ }
+ 
++std::thread_local! {
++    /// The per-run coverage table ([`PixfmtRgba32LcdLinear::scaled`]) this
++    /// thread built last, with what it depends on: (coverage gamma, contrast,
++    /// run alpha). Text is drawn in one or two colours and one setting, so a
++    /// run's table is almost always the previous run's.
++    static LAST_SCALED: core::cell::Cell<Option<(u8, u8, u32, [u8; 256])>> =
++        const { core::cell::Cell::new(None) };
++}
++
+ pub struct PixfmtRgba32LcdLinear<'a> {
+     rbuf: &'a mut RowAccessor,
+     lut: &'a LcdDistributionLut,
+     params: LcdBlendParams,
+     luts: &'static SrgbLuts,
+     /// Coverage tone LUT for `params.coverage_gamma` (identity at 100).
+-    cover_lut: [u8; 256],
+-    /// Reusable 5-tap distribution buffer, see [`SPAN_SCRATCH`].
++    cover_lut: &'static [u8; 256],
++    /// Per stripe coverage `v`, what `composite_pixel` blends with:
++    /// `boost(v) * a_fg / 255` for the run alpha `scaled_alpha` (at most 255,
++    /// a `u8`). Built at the first span ([`Self::prepare_scaled`]) so the
++    /// per-pixel loop of `blend_solid_hspan` does a table load per stripe
++    /// where it did the tone LUT, the contrast term and the alpha scale.
++    scaled: [u8; 256],
++    /// The run alpha `scaled` is for; `None` before the first span.
++    scaled_alpha: Option<u32>,
++    /// Reusable 5-tap distribution buffer, see [`SPAN_SCRATCH`]; from the
++    /// thread's pool and back to it on drop.
+     c3: Vec<u8>,
+     /// Stripe-space horizontal write window `[x0, x1)`, see
+     /// [`PixfmtRgba32Lcd::set_stripe_clip`].
+@@ -711,12 +756,40 @@
+             params,
+             luts: SrgbLuts::get(),
+             cover_lut,
+-            c3: Vec::with_capacity(SPAN_SCRATCH),
++            scaled: [0; 256],
++            scaled_alpha: None,
++            c3: take_span_buffer(),
+             stripe_clip: None,
+             order: LcdSubpixelOrder::Rgb,
+         }
+     }
+ 
++    /// Makes [`Self::scaled`] the table for the run alpha `a_fg`: the
++    /// thread's last table when it was built for the same gamma, contrast and
++    /// alpha, else built (256 entries) and kept as the thread's last.
++    fn prepare_scaled(&mut self, a_fg: u32) {
++        if self.scaled_alpha == Some(a_fg) {
++            return;
++        }
++        let (gamma, contrast) = (self.params.coverage_gamma, self.params.contrast);
++        let last = LAST_SCALED.try_with(core::cell::Cell::get).ok().flatten();
++        match last {
++            Some((g, k, a, table)) if (g, k, a) == (gamma, contrast, a_fg) => {
++                self.scaled = table;
++            }
++            _ => {
++                let mut table = [0u8; 256];
++                for (v, entry) in table.iter_mut().enumerate() {
++                    *entry = (self.boost(v as u32) * a_fg / 255) as u8;
++                }
++                self.scaled = table;
++                let kept = (gamma, contrast, a_fg, table);
++                let _ = LAST_SCALED.try_with(|cell| cell.set(Some(kept)));
++            }
++        }
++        self.scaled_alpha = Some(a_fg);
++    }
++
+     /// Render for a panel with the given stripe order; see
+     /// [`PixfmtRgba32Lcd::set_subpixel_order`].
+     pub fn set_subpixel_order(&mut self, order: LcdSubpixelOrder) {
+@@ -776,6 +849,16 @@
+             luts.lin(fg.g),
+             luts.lin(fg.b),
+         ];
++        self.composite_scaled(row, off, &fg_lin, c);
++    }
++
++    /// The blend of [`Self::composite_pixel`] once the stripes' coverages `c`
++    /// are toned, boosted and scaled by the run alpha (none of them 0 at
++    /// once): per-stripe linear src-over of `fg_lin` (the run colour in linear
++    /// light) at byte `off` of `row`, the chroma budget, the sRGB write.
++    #[inline]
++    fn composite_scaled(&self, row: &mut [u8], off: usize, fg_lin: &[u32; 3], c: [u32; 3]) {
++        let luts = self.luts;
+         let bg_lin = [
+             luts.lin(row[off]),
+             luts.lin(row[off + 1]),
+@@ -806,6 +889,12 @@
+         row[off + 1] = luts.srgb(out[1]);
+         row[off + 2] = luts.srgb(out[2]);
+         row[off + 3] = 255;
++    }
++}
++
++impl Drop for PixfmtRgba32LcdLinear<'_> {
++    fn drop(&mut self) {
++        give_span_buffer(core::mem::take(&mut self.c3));
+     }
+ }
+ 
+@@ -973,6 +1062,14 @@
+         let first_pixel = (sp_vis_first / 3) as usize;
+         let last_pixel = ((sp_vis_last - 1) / 3) as usize;
+         let a_fg = u32::from(c.a);
++        // Per run, not per pixel: the coverage table for this alpha and the
++        // colour in linear light (`composite_pixel` computed both for every
++        // pixel). A stripe's entry is 0 exactly where `composite_pixel`'s `c`
++        // is (an uncovered stripe: boost(0) = 0), so `any` below is its early
++        // out.
++        self.prepare_scaled(a_fg);
++        let luts = self.luts;
++        let fg_lin = [luts.lin(c.r), luts.lin(c.g), luts.lin(c.b)];
+ 
+         for pixel in first_pixel..=last_pixel {
+             if pixel >= actual_w {
+@@ -983,13 +1080,13 @@
+             for stripe in 0..3 {
+                 let sp = (pixel * 3 + stripe) as i64;
+                 if sp >= sp_vis_first && sp < sp_vis_last {
+-                    let v = c3[(sp - sp_first) as usize];
++                    let v = self.scaled[usize::from(c3[(sp - sp_first) as usize])];
+                     cov[self.order.channel(stripe)] = u32::from(v);
+                     any |= v != 0;
+                 }
+             }
+             if any {
+-                self.composite_pixel(row, pixel, c, a_fg, cov);
++                self.composite_scaled(row, pixel * BPP, &fg_lin, cov);
+             }
+         }
+         self.c3 = c3;
+@@ -1297,5 +1394,260 @@
+         // R stripe composite with mean coverage vs B stripe: both driven to
+         // the same mean, so R and B (equal bg, equal fg) must match.
+         assert_eq!(p.r, p.b, "full chroma clamp must equalize stripes over equal fg/bg channels");
++    }
++}
++
++#[cfg(test)]
++mod per_run_state_tests {
++    //! The per-run state of the linear LCD pixfmt (the tone LUT without a
++    //! lock, the span buffer from the thread's pool, the coverage table built
++    //! once per run) blends exactly the bytes it blended before.
++    use super::*;
++
++    /// The tone LUT as `coverage_tone_lut` computed it, uncached.
++    fn old_tone_lut(coverage_gamma: u8) -> [u8; 256] {
++        let g = f64::from(coverage_gamma.max(1)) / 100.0;
++        let inv = 1.0 / g;
++        let mut lut = [0u8; 256];
++        for (i, e) in lut.iter_mut().enumerate() {
++            let c = (i as f64 / 255.0).powf(inv);
++            *e = (c * 255.0).round() as u8;
++        }
++        lut
++    }
++
++    /// `PixfmtRgba32LcdLinear::composite_pixel` (with `boost`) before the
++    /// per-run state, over one RGBA row: the reference.
++    fn old_composite_pixel(
++        row: &mut [u8],
++        pixel: usize,
++        params: LcdBlendParams,
++        fg: &Rgba8,
++        a_fg: u32,
++        cov: [u32; 3],
++    ) {
++        let luts = SrgbLuts::get();
++        let cover_lut = old_tone_lut(params.coverage_gamma);
++        let boost = |c: u32| {
++            let c = u32::from(cover_lut[c as usize]);
++            let k = u32::from(params.contrast);
++            (c + (k * c * (255 - c)) / (255 * 255)).min(255)
++        };
++        let off = pixel * BPP;
++        let mut c = [0u32; 3];
++        let mut any = false;
++        for i in 0..3 {
++            let boosted = boost(cov[i]);
++            c[i] = boosted * a_fg / 255;
++            any |= c[i] != 0;
++        }
++        if !any {
++            return;
++        }
++        let fg_lin = [luts.lin(fg.r), luts.lin(fg.g), luts.lin(fg.b)];
++        let bg_lin = [luts.lin(row[off]), luts.lin(row[off + 1]), luts.lin(row[off + 2])];
++        let mut out = [0u32; 3];
++        for i in 0..3 {
++            out[i] = (fg_lin[i] * c[i] + bg_lin[i] * (255 - c[i])) / 255;
++        }
++        let clamp = u32::from(params.chroma_limit);
++        if clamp > 0 {
++            let c_mean = (c[0] + c[1] + c[2]) / 3;
++            for i in 0..3 {
++                let gray = (fg_lin[i] * c_mean + bg_lin[i] * (255 - c_mean)) / 255;
++                let o = i64::from(out[i]);
++                let g = i64::from(gray);
++                out[i] = (o + (i64::from(clamp) * (g - o)) / 255) as u32;
++            }
++        }
++        row[off] = luts.srgb(out[0]);
++        row[off + 1] = luts.srgb(out[1]);
++        row[off + 2] = luts.srgb(out[2]);
++        row[off + 3] = 255;
+     }
++
++    /// `PixfmtRgba32LcdLinear::blend_solid_hspan` before the per-run state,
++    /// over one RGBA row of `width` pixels: the reference.
++    #[allow(clippy::too_many_arguments)]
++    fn old_blend_solid_hspan(
++        row: &mut [u8],
++        width: usize,
++        lut: &LcdDistributionLut,
++        params: LcdBlendParams,
++        order: LcdSubpixelOrder,
++        stripe_clip: Option<(i32, i32)>,
++        x: i32,
++        covers: &[CoverType],
++        c: &Rgba8,
++    ) {
++        let len = covers.len();
++        let dist_len = len + 4;
++        let mut c3 = vec![0u8; dist_len];
++        for i in 0..len {
++            let cv = covers[i];
++            c3[i] = c3[i].wrapping_add(lut.tertiary(cv));
++            c3[i + 1] = c3[i + 1].wrapping_add(lut.secondary(cv));
++            c3[i + 2] = c3[i + 2].wrapping_add(lut.primary(cv));
++            c3[i + 3] = c3[i + 3].wrapping_add(lut.secondary(cv));
++            c3[i + 4] = c3[i + 4].wrapping_add(lut.tertiary(cv));
++        }
++        let sp_first = x as i64 - 2;
++        let sp_last = sp_first + dist_len as i64;
++        let (clip_lo, clip_hi) = stripe_clip.unwrap_or((0, i32::MAX));
++        let sp_vis_first = sp_first.max(i64::from(clip_lo)).max(0);
++        let sp_vis_last = if clip_hi == i32::MAX {
++            sp_last
++        } else {
++            sp_last.min(i64::from(clip_hi))
++        };
++        if sp_vis_last <= sp_vis_first {
++            return;
++        }
++        let first_pixel = (sp_vis_first / 3) as usize;
++        let last_pixel = ((sp_vis_last - 1) / 3) as usize;
++        let a_fg = u32::from(c.a);
++        for pixel in first_pixel..=last_pixel {
++            if pixel >= width {
++                break;
++            }
++            let mut cov = [0u32; 3];
++            let mut any = false;
++            for stripe in 0..3 {
++                let sp = (pixel * 3 + stripe) as i64;
++                if sp >= sp_vis_first && sp < sp_vis_last {
++                    let v = c3[(sp - sp_first) as usize];
++                    cov[order.channel(stripe)] = u32::from(v);
++                    any |= v != 0;
++                }
++            }
++            if any {
++                old_composite_pixel(row, pixel, params, c, a_fg, cov);
++            }
++        }
++    }
++
++    /// A fixed-seed xorshift stream.
++    struct Rng(u64);
++
++    impl Rng {
++        fn below(&mut self, n: u64) -> u64 {
++            self.0 ^= self.0 << 13;
++            self.0 ^= self.0 >> 7;
++            self.0 ^= self.0 << 17;
++            self.0 % n.max(1)
++        }
++
++        fn pick<T: Copy>(&mut self, of: &[T]) -> T {
++            of[self.below(of.len() as u64) as usize]
++        }
++    }
++
++    /// Random rows, colours (alpha 255, 0 and in between), coverages (runs of
++    /// 0 and 255 and anything), distribution LUTs, blend parameters (tone
++    /// gammas, contrast, chroma budget), stripe clips and both stripe orders;
++    /// several spans per pixfmt, their alphas changing between spans. The
++    /// per-run blend writes the bytes the old blend wrote, and `blend_pixel`
++    /// (which keeps `composite_pixel`) too.
++    /// Mutation: build the table with `boost(v)` alone (without `* a_fg /
++    /// 255`), or skip `prepare_scaled` when the alpha changes, and it fails.
++    #[test]
++    fn the_per_run_blend_is_the_blend_it_replaced() {
++        let luts = [
++            LcdDistributionLut::new(f64::from(0x56u32), f64::from(0x4Du32), f64::from(0x08u32)),
++            LcdDistributionLut::new(1.0, 0.0, 0.0),
++            LcdDistributionLut::new(1.0 / 3.0, 2.0 / 9.0, 1.0 / 9.0),
++        ];
++        let mut rng = Rng(0x9e37_79b9_7f4a_7c15);
++        for case in 0..3_000 {
++            let width = 1 + rng.below(24) as usize;
++            let lut = &luts[case % luts.len()];
++            let params = LcdBlendParams {
++                contrast: rng.pick(&[0, 0, 40, 255]),
++                chroma_limit: rng.pick(&[0, 0, 90, 255]),
++                coverage_gamma: rng.pick(&[100, 220, 220, 1, 50, 180, 255]),
++            };
++            let order = rng.pick(&[LcdSubpixelOrder::Rgb, LcdSubpixelOrder::Bgr]);
++            let clip = if rng.below(3) == 0 {
++                let x0 = rng.below(3 * width as u64 + 6) as i32 - 3;
++                Some((x0, x0 + rng.below(3 * width as u64 + 6) as i32))
++            } else {
++                None
++            };
++            let mut row: Vec<u8> = (0..width * BPP)
++                .map(|i| if i % 4 == 3 && rng.below(2) == 0 { 255 } else { rng.below(256) as u8 })
++                .collect();
++            let mut want = row.clone();
++            let mut ra =
++                unsafe { RowAccessor::new_with_buf(row.as_mut_ptr(), width as u32, 1, (width * BPP) as i32) };
++            {
++                let mut pf = PixfmtRgba32LcdLinear::new(&mut ra, lut, params);
++                pf.set_subpixel_order(order);
++                if let Some((x0, x1)) = clip {
++                    pf.set_stripe_clip(x0, x1);
++                }
++                for _ in 0..1 + rng.below(4) {
++                    let a = rng.pick(&[255, 255, 0, 1, 128, 200]);
++                    let color = Rgba8::new(
++                        rng.below(256) as u32,
++                        rng.below(256) as u32,
++                        rng.below(256) as u32,
++                        if a == 128 { rng.below(256) as u32 } else { a },
++                    );
++                    let len = 1 + rng.below(3 * width as u64 + 4) as usize;
++                    let x = rng.below(3 * width as u64) as i32;
++                    let covers: Vec<CoverType> = (0..len)
++                        .map(|_| match rng.below(4) {
++                            0 => 0,
++                            1 => 255,
++                            _ => rng.below(256) as u8,
++                        })
++                        .collect();
++                    pf.blend_solid_hspan(x, 0, len as u32, &color, &covers);
++                    old_blend_solid_hspan(&mut want, width, lut, params, order, clip, x, &covers, &color);
++                    // One stripe through `blend_pixel` (the kept `composite_pixel`).
++                    let sp = rng.below(3 * width as u64) as i32;
++                    let cover = rng.below(256) as u8;
++                    pf.blend_pixel(sp, 0, &color, cover);
++                    let mut cov = [0u32; 3];
++                    cov[order.channel(sp as usize % 3)] = u32::from(cover);
++                    old_composite_pixel(&mut want, sp as usize / 3, params, &color, u32::from(color.a), cov);
++                }
++            }
++            assert_eq!(row, want, "case {case}: width {width}, {params:?}, {order:?}, clip {clip:?}");
++        }
++    }
++
++    /// The tone LUT of a gamma is built once and shared: two pixfmts made one
++    /// after the other read the same table (no copy, no lock).
++    #[test]
++    fn a_gammas_tone_lut_is_shared_by_every_pixfmt() {
++        assert!(core::ptr::eq(coverage_tone_lut(220), coverage_tone_lut(220)));
++        assert!(!core::ptr::eq(coverage_tone_lut(220), coverage_tone_lut(100)));
++        assert_eq!(*coverage_tone_lut(77), old_tone_lut(77));
++    }
++
++    /// A pixfmt takes the span buffer the thread's last pixfmt handed back:
++    /// a run allocates no buffer of its own.
++    /// Mutation: allocate in `new` again (`Vec::with_capacity`) and the
++    /// second pixfmt's buffer is another allocation.
++    #[test]
++    fn a_run_takes_the_threads_span_buffer() {
++        let lut = LcdDistributionLut::new(1.0, 0.0, 0.0);
++        let mut row = vec![255u8; 8 * BPP];
++        let mut ra = unsafe { RowAccessor::new_with_buf(row.as_mut_ptr(), 8, 1, (8 * BPP) as i32) };
++        let first = {
++            let pf = PixfmtRgba32LcdLinear::new(&mut ra, &lut, LcdBlendParams::default());
++            pf.c3.as_ptr()
++        };
++        let second = {
++            let pf = PixfmtRgba32LcdLinear::new(&mut ra, &lut, LcdBlendParams::default());
++            pf.c3.as_ptr()
++        };
++        assert_eq!(first, second, "the second run took the first run's buffer");
++        let legacy = {
++            let pf = PixfmtRgba32Lcd::new(&mut ra, &lut);
++            pf.c3.as_ptr()
++        };
++        assert_eq!(legacy, first, "the legacy pixfmt shares the pool");
++    }
+ }

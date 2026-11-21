@@ -356,7 +356,7 @@ impl Harness {
     /// Where the caret sits after a click, if the click placed one.
     fn caret(&self) -> Option<(NodeId, u32)> {
         let mc = self.lw.text_edit_manager.multi_cursor.as_ref()?;
-        let node = mc.node_id.node.into_crate_internal()?;
+        let node = mc.block.element()?;
         let cursor = match &mc.get_primary()?.selection {
             Selection::Cursor(c) => *c,
             Selection::Range(r) => r.end,

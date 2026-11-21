@@ -41,7 +41,7 @@ WORKDIR /src
 # / llc / wasm-ld subprocesses, hence the final image needs no toolchain.
 # (Building remill+LLVM is slow ~45 min; CI should cache this layer.)
 RUN cargo build --profile prod-release -p azul-dll \
-        --features "build-dll,web-transpiler-static" \
+        --features "dist,web-transpiler-static" \
     && cp target/prod-release/libazul.so /libazulwithremill.so
 
 # ---- base runtime: distroless + the in-process lifter -----------------------

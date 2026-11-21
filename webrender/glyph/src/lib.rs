@@ -46,6 +46,22 @@ pub use types::*;
 /// Debug flag for glyph flashing (compatibility stub)
 pub static GLYPH_FLASHING: AtomicBool = AtomicBool::new(false);
 
+/// How many glyphs this process has rasterised, on every worker of every
+/// rasteriser: what a host reads per frame ([`glyphs_rasterized`]).
+static GLYPHS_RASTERIZED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The glyphs rasterised so far (a sum since the process started). A glyph
+/// found in the cache is not rasterised and not counted: a zoom that draws
+/// every glyph again at every step shows here, per frame.
+pub fn glyphs_rasterized() -> u64 {
+    GLYPHS_RASTERIZED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// One more glyph was rasterised.
+pub(crate) fn count_rasterized_glyph() {
+    GLYPHS_RASTERIZED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Maximum font size that can be rasterized
 pub const FONT_SIZE_LIMIT: f32 = 320.0;
 

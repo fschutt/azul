@@ -1,0 +1,23 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Background and Borders Test: background-clip: content-box with background-color</title>
+<meta name="assert" content="When 'background-clip' is set to 'content-box', then the background-color shines only through the content area; it does not shine through the padding area nor the border area."/>
+<style>
+          div
+          {
+              background-clip: content-box;
+              background-color: red;
+              height: auto;
+              padding: 50px;
+              width: auto;
+          }
+        
+</style>
+</head>
+<body>
+        <p>Test passes if there is <strong>no red</strong>.</p>
+        <div></div>
+    
+
+</body>
+</html>

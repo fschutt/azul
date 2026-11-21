@@ -8,10 +8,14 @@
 //! - `caption-side`: Specifies the placement of a table caption
 //! - `empty-cells`: Specifies whether or not to display borders on empty cells in a table
 
-use alloc::string::{String, ToString};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode,
     props::{
         basic::pixel::{CssPixelValueParseError, PixelValue},
         formatter::PrintAsCssValue,
@@ -48,6 +52,7 @@ impl PrintAsCssValue for LayoutTableLayout {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutTableLayout {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -86,6 +91,7 @@ impl PrintAsCssValue for StyleBorderCollapse {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleBorderCollapse {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -156,6 +162,7 @@ impl PrintAsCssValue for LayoutBorderSpacing {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for LayoutBorderSpacing {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         use crate::codegen::format::format_pixel_value;
@@ -192,6 +199,7 @@ impl PrintAsCssValue for StyleCaptionSide {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleCaptionSide {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -227,6 +235,7 @@ impl PrintAsCssValue for StyleEmptyCells {
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleEmptyCells {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -1031,17 +1040,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn border_spacing_truncates_below_milli_precision() {
-        // FloatValue is fixed-point with 3 decimals and truncates (does not round)
-        // toward zero, so sub-millipixel input silently becomes 0.
-        assert_eq!(raw(parse_border_spacing("0.0005px").unwrap().horizontal), 0);
+    fn border_spacing_rounds_to_milli_precision() {
+        // FloatValue is fixed-point with 3 decimals, rounded to the nearest
+        // (A2-cpu-24; this test pinned the cut-off values 0, 999 and 1999).
+        assert_eq!(raw(parse_border_spacing("0.0004px").unwrap().horizontal), 0);
+        assert_eq!(raw(parse_border_spacing("0.0005px").unwrap().horizontal), 1);
         assert_eq!(
             raw(parse_border_spacing("0.9999px").unwrap().horizontal),
-            999
+            1000
         );
         assert_eq!(
             raw(parse_border_spacing("1.9999px").unwrap().horizontal),
-            1999
+            2000
         );
         // Denormal input must not panic or produce a non-finite stored value.
         let denormal = parse_border_spacing("1.17549435e-38px").unwrap();
@@ -1241,6 +1251,7 @@ mod autotest_generated {
     // FormatAsRustCode
     // ------------------------------------------------------------------------
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_emits_the_variant_paths() {
         assert_eq!(
@@ -1267,6 +1278,7 @@ mod autotest_generated {
         );
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn format_as_rust_code_for_border_spacing_is_total() {
         assert_eq!(

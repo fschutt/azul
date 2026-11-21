@@ -408,14 +408,14 @@ fn clicking_a_paragraph_on_a_materialised_page_places_the_caret_in_it() {
         h.lw.text_edit_manager
             .multi_cursor
             .as_ref()
-            .map(|mc| mc.node_id);
+            .map(|mc| mc.block);
     assert!(
         session.is_some(),
         "clicking the text of a page sheet placed no caret at all (click {target:?}, paragraph \
          {origin:?} {size:?})"
     );
     assert_eq!(
-        session.unwrap().dom,
+        session.unwrap().dom(),
         nested,
         "the caret session must live in the VirtualView's nested dom"
     );
@@ -931,4 +931,75 @@ fn a_jump_past_the_materialized_pages_rematerializes_around_the_new_offset() {
     // Sitting there is quiet.
     assert!(!h.scroll_tick(target));
     assert_eq!(h.probe.lock().unwrap().invocations.len(), baseline + 1);
+}
+
+impl Harness {
+    /// The scroll box a wheel notch at `position` drives: the shells' CPU
+    /// hit test into the hover manager, then the platform wheel ingress
+    /// (`ScrollManager::record_scroll_from_hit_test`).
+    fn wheel_target_at(&mut self, position: LogicalPosition) -> Option<(DomId, NodeId)> {
+        use azul_layout::managers::scroll_state::{ScrollInputDevice, ScrollInputSource};
+
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout_with_gpu(
+            &self.lw.layout_results,
+            Some(&self.lw.gpu_state_manager),
+        );
+        let hit = {
+            let scroll_manager = &self.lw.scroll_manager;
+            let gpu = &self.lw.gpu_state_manager;
+            let resolve = |d: DomId, n: NodeId| scroll_manager.get_current_offset(d, n);
+            let resolve_tf = |d: DomId, n: NodeId| gpu.painted_transform_of(d, n);
+            let hits = tester.hit_test_scrolled(position, &resolve, &resolve_tf);
+            azul_layout::headless::convert_cpu_hit_test_to_full(
+                &tester,
+                &hits,
+                None,
+                &self.lw.layout_results,
+                position,
+                &resolve,
+                &resolve_tf,
+            )
+        };
+        self.lw
+            .hover_manager
+            .push_hit_test(InputPointId::Mouse, hit);
+        let now = (ExternalSystemCallbacks::rust_internal().get_system_time_fn.cb)();
+        self.lw
+            .scroll_manager
+            .record_scroll_from_hit_test(
+                0.0,
+                -40.0,
+                ScrollInputSource::WheelDiscrete,
+                ScrollInputDevice::MouseWheel,
+                &self.lw.hover_manager,
+                &InputPointId::Mouse,
+                now,
+            )
+            .map(|(dom, node, _)| (dom, node))
+    }
+}
+
+/// A wheel over a materialised page scrolls the pages' `VirtualView`.
+///
+/// The wheel drives the scroll chain of the box under the pointer
+/// (`convert_cpu_hit_test_to_full`), and a `VirtualView` scrolls its nested
+/// dom without a scroll frame in the chain of any box it shows - so the page
+/// under the pointer names the view through the view that composites its dom
+/// (SCROLLHIT17). The guard that keeps a virtualized document wheel-scrollable.
+#[test]
+fn a_wheel_over_a_materialised_page_scrolls_its_virtual_view() {
+    let mut h = Harness::new(Doc::Paragraphs);
+    let (nested, host) = h.virtual_view();
+    let (bounds, _) = h.host_item();
+    let at = LogicalPosition::new(
+        bounds.origin.x + bounds.size.width / 2.0,
+        bounds.origin.y + 200.0,
+    );
+    let target = h.wheel_target_at(at);
+    assert_eq!(
+        target,
+        Some((DomId::ROOT_ID, host)),
+        "a wheel at {at:?} over a page of the nested dom {nested:?} scrolls the view {host:?}"
+    );
 }

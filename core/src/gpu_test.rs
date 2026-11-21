@@ -741,3 +741,139 @@ mod autotest_generated {
         assert!(cache.opacity_keys.keys().all(|n| n.index() < node_count));
     }
 }
+
+/// The one "current animated values by key" source
+/// (`GpuValueCache::for_each_bound_value`) must hand out EVERY bound
+/// channel: WebRender's dynamic properties used to carry the scrollbar
+/// channels only, so an animation tick that skipped the display-list
+/// rebuild moved nothing on the GPU path.
+#[cfg(test)]
+mod bound_values {
+    use super::*;
+
+    fn translate(x: f32) -> ComputedTransform3D {
+        ComputedTransform3D::new_translation(x, 0.0, 0.0)
+    }
+
+    #[test]
+    fn every_bound_channel_is_visited_once_by_key() {
+        let dom = DomId::ROOT_ID;
+        let (a, b, c) = (NodeId::new(1), NodeId::new(2), NodeId::new(3));
+        let mut cache = GpuValueCache::default();
+
+        let thumb = TransformKey::unique();
+        cache.transform_keys.insert(a, thumb);
+        cache.current_transform_values.insert(a, translate(1.0));
+        let css = TransformKey::unique();
+        cache.css_transform_keys.insert(b, css);
+        cache.css_current_transform_values.insert(b, translate(2.0));
+        let anim = TransformKey::unique();
+        cache.anim_transform_keys.insert(c, anim);
+        cache.anim_current_transform_values.insert(c, translate(3.0));
+        // A key without a value binds nothing.
+        cache.anim_transform_keys.insert(a, TransformKey::unique());
+
+        let fade = OpacityKey::unique();
+        cache.scrollbar_v_opacity_keys.insert((dom, a), fade);
+        cache.scrollbar_v_opacity_values.insert((dom, a), 0.5);
+        let css_o = OpacityKey::unique();
+        cache.opacity_keys.insert(b, css_o);
+        cache.current_opacity_values.insert(b, 0.25);
+        let anim_o = OpacityKey::unique();
+        cache.anim_opacity_keys.insert(c, anim_o);
+        cache.anim_current_opacity_values.insert(c, 0.75);
+        // Another DOM's scrollbar fade is not this DOM's.
+        cache
+            .scrollbar_h_opacity_keys
+            .insert((DomId { inner: 7 }, a), OpacityKey::unique());
+        cache
+            .scrollbar_h_opacity_values
+            .insert((DomId { inner: 7 }, a), 0.1);
+
+        let mut transforms = Vec::new();
+        let mut opacities = Vec::new();
+        cache.for_each_bound_value(
+            dom,
+            |k, v| transforms.push((k, v.m[3][0])),
+            |k, v| opacities.push((k, v)),
+        );
+        transforms.sort_by_key(|(k, _)| *k);
+        opacities.sort_by_key(|(k, _)| *k);
+
+        let mut want_t = vec![(thumb.id, 1.0), (css.id, 2.0), (anim.id, 3.0)];
+        want_t.sort_by_key(|(k, _)| *k);
+        let mut want_o = vec![(fade.id, 0.5), (css_o.id, 0.25), (anim_o.id, 0.75)];
+        want_o.sort_by_key(|(k, _)| *k);
+        assert_eq!(transforms, want_t, "every transform channel, by key");
+        assert_eq!(opacities, want_o, "every opacity channel of this DOM, by key");
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A3-core (`audit/A3-core.md`).
+#[cfg(test)]
+mod audit_a3_core_tests {
+    use super::*;
+
+    /// A3-core-08 (A9's H4, H6, H7): the write generation moves when a
+    /// bound value or a key changes, and stays when an event writes the
+    /// value the cache already holds - however many events there are.
+    #[test]
+    fn the_value_generation_moves_with_a_value_and_not_with_an_event() {
+        let node = NodeId::new(3);
+        let key = TransformKey::unique();
+        let identity = ComputedTransform3D::IDENTITY;
+        let moved = ComputedTransform3D::new(
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 12.0, 34.0, 0.0, 1.0,
+        );
+        assert_ne!(identity, moved, "harness: two matrices");
+
+        let mut cache = GpuValueCache::empty();
+        let start = cache.value_generation();
+        cache.apply_transform_events(&[GpuTransformKeyEvent::Added(node, key, identity)]);
+        let added = cache.value_generation();
+        assert_ne!(added, start, "a key and its value are new");
+
+        // The event every synchronize reports for a transformed node whose
+        // value did not move: the generation stays.
+        for _ in 0..3 {
+            cache.apply_transform_events(&[GpuTransformKeyEvent::Changed(
+                node, key, identity, identity,
+            )]);
+        }
+        assert_eq!(cache.value_generation(), added, "the same value, written again");
+
+        cache.apply_transform_events(&[GpuTransformKeyEvent::Changed(node, key, identity, moved)]);
+        let changed = cache.value_generation();
+        assert_ne!(changed, added, "the value moved");
+        assert_eq!(cache.css_current_transform_values.get(&node), Some(&moved));
+
+        cache.apply_transform_events(&[GpuTransformKeyEvent::Removed(node, key)]);
+        let removed = cache.value_generation();
+        assert_ne!(removed, changed, "the key is gone");
+        cache.apply_transform_events(&[GpuTransformKeyEvent::Removed(node, key)]);
+        assert_eq!(cache.value_generation(), removed, "nothing was left to remove");
+
+        // Opacities alike.
+        let opacity_key = OpacityKey::unique();
+        cache.apply_opacity_events(&[GpuOpacityKeyEvent::Added(node, opacity_key, 0.5)]);
+        let faded = cache.value_generation();
+        assert_ne!(faded, removed);
+        cache.apply_opacity_events(&[GpuOpacityKeyEvent::Changed(node, opacity_key, 0.5, 0.5)]);
+        assert_eq!(cache.value_generation(), faded, "the same opacity");
+        cache.apply_opacity_events(&[GpuOpacityKeyEvent::Changed(node, opacity_key, 0.5, 0.25)]);
+        assert_ne!(cache.value_generation(), faded, "another opacity");
+
+        // A writer outside this type has nothing to say: the map stamps
+        // itself (A6-22; before, it was `note_value_write()` or a write no
+        // reader of the generation saw).
+        let before = cache.value_generation();
+        cache.anim_current_opacity_values.insert(node, 0.75);
+        let direct = cache.value_generation();
+        assert_ne!(direct, before, "an opacity map written directly");
+        cache.anim_current_opacity_values.insert(node, 0.75);
+        assert_eq!(cache.value_generation(), direct, "the same opacity, written directly");
+        // A note is another generation: for what is no value (a rekeying).
+        cache.note_value_write();
+        assert_ne!(cache.value_generation(), direct);
+    }
+}

@@ -19,7 +19,7 @@ use azul_css::AzString;
 
 use crate::{
     callbacks::{CoreCallback, CoreCallbackType},
-    refany::RefAny,
+    refany::{RefAny, RefAnyHolder},
     resources::ImageRef,
     window::{
         ContextMenuMouseButton, KeyboardState, OptionVirtualKeyCodeCombo, VirtualKeyCode,
@@ -75,7 +75,9 @@ pub fn accelerator_matches(
     if want_shift != keyboard.shift_down() || want_alt != keyboard.alt_down() {
         return false;
     }
-    if cfg!(target_os = "macos") {
+    // The Mac rule where the Mac's keys arrive; an X11 window on a Mac gets
+    // the Linux one (see `window::mac_shortcut_conventions`).
+    if crate::window::mac_shortcut_conventions() {
         want_ctrl == keyboard.ctrl_down() && want_primary == keyboard.super_down()
     } else {
         // Ctrl IS the primary modifier here; the Super/Windows key never
@@ -176,6 +178,96 @@ impl Menu {
         let mut hasher = crate::hash::DefaultHasher::new();
         self.hash(&mut hasher);
         hasher.finish()
+    }
+
+    /// A hash of what a platform menu SHOWS: labels, shortcuts, states,
+    /// icons and the shape of the tree - not the data the callbacks carry.
+    ///
+    /// An app builds its menu bar again in every layout pass, usually with a
+    /// fresh `RefAny` per item, and that data's identity is part of
+    /// [`Self::get_hash`]. A shell that reinstalled its native menu whenever
+    /// that hash moved did so on every DOM rebuild, and the menu bar
+    /// flickered while a slider was dragged. Equal here means only the
+    /// callbacks changed: hand them over in place ([`Self::leaf_callbacks`]).
+    #[must_use]
+    pub fn get_structure_hash(&self) -> u64 {
+        use core::hash::Hasher;
+        let mut hasher = crate::hash::DefaultHasher::new();
+        self.position.hash(&mut hasher);
+        self.context_mouse_btn.hash(&mut hasher);
+        hash_menu_structure(self.items.as_ref(), &mut hasher);
+        hasher.finish()
+    }
+
+    /// The callback of every leaf item (an item without children), depth
+    /// first: the order the native menus number their items in. `None` for
+    /// a leaf without a callback; separators are not leaves.
+    #[must_use]
+    pub fn leaf_callbacks(&self) -> Vec<Option<&CoreMenuCallback>> {
+        let mut leaves = Vec::new();
+        collect_leaf_callbacks(self.items.as_ref(), &mut leaves);
+        leaves
+    }
+
+    /// This menu's callbacks bound to the commands a native bar built from a
+    /// menu of the same structure already has: `ids` holds each leaf's
+    /// native id in [`Self::leaf_callbacks`] order, `None` for a leaf the bar
+    /// gave no command (Win32 numbers only the leaves with a callback).
+    ///
+    /// `None` when the bar cannot take them in place and must be built
+    /// again: another number of leaves, or a leaf that gained a callback but
+    /// has no command to run it. Compare [`Self::get_structure_hash`] first:
+    /// equal leaves can still carry other labels.
+    #[must_use]
+    pub fn rebind_leaf_callbacks<K: Copy>(
+        &self,
+        ids: &[Option<K>],
+    ) -> Option<Vec<(K, CoreMenuCallback)>> {
+        let leaves = self.leaf_callbacks();
+        if leaves.len() != ids.len() {
+            return None;
+        }
+        let mut bound = Vec::with_capacity(leaves.len());
+        for (id, callback) in ids.iter().zip(leaves) {
+            match (id, callback) {
+                (Some(id), Some(cb)) => bound.push((*id, cb.clone())),
+                (None, Some(_)) => return None,
+                (_, None) => {}
+            }
+        }
+        Some(bound)
+    }
+}
+
+/// [`Menu::get_structure_hash`] over `items` and their children.
+fn hash_menu_structure<H: core::hash::Hasher>(items: &[MenuItem], state: &mut H) {
+    items.len().hash(state);
+    for item in items {
+        match item {
+            MenuItem::String(s) => {
+                0_u8.hash(state);
+                s.label.hash(state);
+                s.accelerator.hash(state);
+                s.menu_item_state.hash(state);
+                s.icon.hash(state);
+                hash_menu_structure(s.children.as_ref(), state);
+            }
+            MenuItem::Separator => 1_u8.hash(state),
+            MenuItem::BreakLine => 2_u8.hash(state),
+        }
+    }
+}
+
+/// [`Menu::leaf_callbacks`] over `items` and their children.
+fn collect_leaf_callbacks<'a>(items: &'a [MenuItem], out: &mut Vec<Option<&'a CoreMenuCallback>>) {
+    for item in items {
+        if let MenuItem::String(s) = item {
+            if s.children.as_ref().is_empty() {
+                out.push(s.callback.as_option());
+            } else {
+                collect_leaf_callbacks(s.children.as_ref(), out);
+            }
+        }
     }
 }
 
@@ -401,6 +493,51 @@ impl_option!(
     copy = false,
     [Debug, Clone, PartialEq, PartialOrd, Hash, Eq, Ord]
 );
+
+impl RefAnyHolder for CoreMenuCallback {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        visit(&mut self.refany);
+    }
+}
+
+impl RefAnyHolder for StringMenuItem {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        if let OptionCoreMenuCallback::Some(callback) = &mut self.callback {
+            callback.for_each_refany(visit);
+        }
+        for_each_item_refany(&mut self.children, visit);
+    }
+}
+
+impl RefAnyHolder for MenuItem {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        match self {
+            Self::String(item) => item.for_each_refany(visit),
+            Self::Separator | Self::BreakLine => {}
+        }
+    }
+}
+
+impl RefAnyHolder for Menu {
+    fn for_each_refany(&mut self, visit: &mut dyn FnMut(&mut RefAny)) {
+        for_each_item_refany(&mut self.items, visit);
+    }
+}
+
+/// Hands the `RefAny`s of every item of `items` to `visit`. The items are
+/// taken out and put back (moved when the menu owns them, copied when they
+/// are a static list), so nothing static is written.
+fn for_each_item_refany(items: &mut MenuItemVec, visit: &mut dyn FnMut(&mut RefAny)) {
+    if items.as_ref().is_empty() {
+        return;
+    }
+    let mut owned = core::mem::replace(items, MenuItemVec::from_const_slice(&[]))
+        .into_library_owned_vec();
+    for item in &mut owned {
+        item.for_each_refany(visit);
+    }
+    *items = owned.into();
+}
 
 #[cfg(test)]
 #[path = "menu_test.rs"]

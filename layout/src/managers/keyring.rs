@@ -21,7 +21,7 @@ use alloc::vec::Vec;
 // `KeyringRequest` / `KeyringResult` live in `azul-core` so they cross the
 // FFI without a cyclic dep on `azul-layout`. Re-exported for the existing
 // `azul_layout::managers::keyring::*` import paths.
-pub use azul_core::keyring::{KeyringRequest, KeyringResult};
+pub use azul_core::keyring::{KeyringNamespace, KeyringRequest, KeyringResult};
 use azul_core::{
     dom::DomNodeId,
     events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
@@ -61,7 +61,15 @@ impl KeyringManager {
     /// Apply the outcome the backend delivered. Returns `true` if it
     /// differs from the previous one (so the window can be marked dirty to
     /// re-render the revealed / stored state).
+    ///
+    /// A retrieved secret is marked as one (`AzString::set_secret`): the
+    /// result kept here, and every copy a callback reads, is zeroed when it
+    /// is freed - the one before it as soon as this replaces it.
     pub fn set_last_result(&mut self, result: KeyringResult) -> bool {
+        let mut result = result;
+        if let KeyringResult::Retrieved(secret) = &mut result {
+            secret.set_secret(true);
+        }
         let changed = self.last_result.as_ref() != Some(&result);
         self.last_result = Some(result);
         // MWA-A1b: every completion fires an event and retires one
@@ -112,24 +120,41 @@ impl EventProvider for KeyringManager {
 
 // ────────── Request channel (callback → platform backend) ─────────────
 
-static PENDING_REQUESTS: std::sync::Mutex<Vec<KeyringRequest>> = std::sync::Mutex::new(Vec::new());
+/// Each queued op with the namespace its callback named.
+static PENDING_REQUESTS: std::sync::Mutex<Vec<(KeyringNamespace, KeyringRequest)>> =
+    std::sync::Mutex::new(Vec::new());
 
-/// Queue a keyring op from a callback. Drained by the dll layout pass and
-/// dispatched to the native keyring. Thread-safe; poison-recovering.
+/// Queue a keyring op from a callback, in the app's own namespace. Drained by
+/// the dll layout pass and dispatched to the native keyring. Thread-safe;
+/// poison-recovering.
 pub fn push_keyring_request(request: KeyringRequest) {
+    push_keyring_request_in(KeyringNamespace::app(), request);
+}
+
+/// Queue a keyring op from a callback, in `namespace`.
+pub fn push_keyring_request_in(namespace: KeyringNamespace, request: KeyringRequest) {
     let mut q = PENDING_REQUESTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(request);
+    q.push((namespace, request));
 }
 
-/// Drain every queued keyring op, in arrival order. Called once per
-/// layout pass; the dll dispatches each to the platform backend.
-pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
+/// Drain every queued keyring op with its namespace, in arrival order. Called
+/// once per layout pass; the dll dispatches each to the platform backend.
+pub fn drain_keyring_requests_in() -> Vec<(KeyringNamespace, KeyringRequest)> {
     let mut q = PENDING_REQUESTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
+}
+
+/// [`drain_keyring_requests_in`] without the namespaces.
+#[must_use]
+pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
+    drain_keyring_requests_in()
+        .into_iter()
+        .map(|(_, request)| request)
+        .collect()
 }
 
 /// MWA-C-biometric/keyring: see `biometric::has_queued_requests` — pump
@@ -154,13 +179,25 @@ pub fn push_keyring_result(result: KeyringResult) {
     q.push(result);
 }
 
-/// Drain every parked keyring result, in arrival order. Called once per
-/// layout pass; the caller applies them via [`KeyringManager::set_last_result`].
+/// Drain every parked keyring result, in arrival order (a test clears the channel with it). A
+/// window's pass takes only its own: [`drain_keyring_results_up_to`].
 pub fn drain_keyring_results() -> Vec<KeyringResult> {
     let mut q = PENDING_RESULTS
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     core::mem::take(&mut *q)
+}
+
+/// Drain the oldest `max` parked keyring results. A window passes the number of its ops in
+/// flight, so it takes only answers it waits for: the answers are not tagged with the window that
+/// asked, and with several windows open another window's pass would otherwise take one, fire the
+/// `KeyringResult` event there, and leave the asking window's callback waiting forever.
+pub fn drain_keyring_results_up_to(max: usize) -> Vec<KeyringResult> {
+    let mut q = PENDING_RESULTS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let take = max.min(q.len());
+    q.drain(..take).collect()
 }
 
 #[cfg(test)]
@@ -249,6 +286,28 @@ mod tests {
             Some("s"),
             "the last applied result wins"
         );
+        assert!(drain_keyring_results().is_empty());
+    }
+
+    /// A window takes only the answers to the ops it sent out: with two windows open, the other
+    /// one's pass leaves them in the channel for the window whose callback waits for them.
+    #[test]
+    fn a_window_takes_at_most_as_many_keyring_results_as_it_has_ops_in_flight() {
+        let _guard = autotest_generated::lock_channels();
+        drop(drain_keyring_results());
+
+        push_keyring_result(KeyringResult::NotFound);
+        push_keyring_result(KeyringResult::Stored);
+        assert!(
+            drain_keyring_results_up_to(0).is_empty(),
+            "a window that asked nothing takes nothing"
+        );
+        assert_eq!(
+            drain_keyring_results_up_to(1),
+            alloc::vec![KeyringResult::NotFound],
+            "the oldest answer first"
+        );
+        assert_eq!(drain_keyring_results_up_to(5), alloc::vec![KeyringResult::Stored]);
         assert!(drain_keyring_results().is_empty());
     }
 }
@@ -711,6 +770,43 @@ mod autotest_generated {
 
     // ── channels: push / drain / has_queued_requests ───────────────────
 
+    /// A callback that names a namespace (the Azlin apps' shared one) has its request run
+    /// there; one that names none runs in the app's own (an empty service).
+    #[test]
+    fn a_queued_request_keeps_the_namespace_its_callback_named() {
+        let _guard = lock_channels();
+        drop(drain_keyring_requests_in());
+
+        push_keyring_request_in(
+            KeyringNamespace::create(AzString::from("io.azlin.shared")),
+            KeyringRequest::Get {
+                key: AzString::from("azul-storage/s3/d_1"),
+            },
+        );
+        push_keyring_request(KeyringRequest::Delete {
+            key: AzString::from("note"),
+        });
+        let drained = drain_keyring_requests_in();
+        assert_eq!(
+            drained,
+            vec![
+                (
+                    KeyringNamespace::create(AzString::from("io.azlin.shared")),
+                    KeyringRequest::Get {
+                        key: AzString::from("azul-storage/s3/d_1")
+                    }
+                ),
+                (
+                    KeyringNamespace::app(),
+                    KeyringRequest::Delete {
+                        key: AzString::from("note")
+                    }
+                ),
+            ]
+        );
+        assert!(drain_keyring_requests_in().is_empty());
+    }
+
     #[test]
     fn request_channel_is_fifo_across_every_variant() {
         let _guard = lock_channels();
@@ -943,3 +1039,28 @@ mod autotest_generated {
         assert!(drain_keyring_results().is_empty());
     }
 }
+
+/// A secret the keyring hands back is marked as one, so the manager's copy
+/// and every copy a callback reads are zeroed when freed (KEYS9).
+#[cfg(test)]
+mod secret_tests {
+    use azul_css::AzString;
+
+    use super::{KeyringManager, KeyringResult};
+
+    #[test]
+    fn a_retrieved_secret_is_marked_secret() {
+        let mut mgr = KeyringManager::new();
+        let _ = mgr.set_last_result(KeyringResult::Retrieved(AzString::from(
+            alloc::string::String::from("s3cret"),
+        )));
+        let Some(KeyringResult::Retrieved(secret)) = mgr.last_result() else {
+            panic!("a retrieved result");
+        };
+        assert!(secret.is_secret());
+        assert_eq!(secret.as_str(), "s3cret");
+        let read = mgr.last_result().cloned();
+        assert!(matches!(read, Some(KeyringResult::Retrieved(s)) if s.is_secret()));
+    }
+}
+

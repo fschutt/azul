@@ -1,0 +1,24 @@
+{
+  "name": "a local copy whose bytes rotted under the same size and times is found by a verify pass and restored, never uploaded",
+  "description": "PCLOUD-005 (pCloud): the same file was 'synced' on two Macs with equal timestamps but different MD5s; one played distorted; pause/resume did not re-fetch. Rules A1/S15 (sync-chaos port-local-bitrot): the damage is listed and the drive's version replaces it (the damaged copy to the trash); it is never sent as an edit.",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "loop.wav", "size": 300000, "seed": 31 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_bitrot", "device": "b", "path": "loop.wav", "offset": 1000, "hex": "ff00ff" },
+    { "op": "drive_sync", "device": "b", "verify": true, "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["hash-mismatch", "other"], "key": "loop.wav" },
+    { "op": "drive_check", "check": "remote_file", "key": "loop.wav", "same_as": "{root:a}/loop.wav" },
+    { "op": "drive_check", "check": "remote_puts", "device": "b", "max": 0 },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "loop.wav", "same_as": "{root:a}/loop.wav" },
+    { "op": "drive_cleanup" }
+  ]
+}

@@ -519,6 +519,21 @@ pub struct TextureCacheConfig {
     pub alpha8_texture_size: i32,
     pub alpha8_glyph_texture_size: i32,
     pub alpha16_texture_size: i32,
+    /// azul: bytes of images (every budget that is not a glyph atlas) under
+    /// which nothing is evicted, however long ago it was drawn. 0: the rule of
+    /// the atlas sizes alone (a third of ONE atlas, see
+    /// `TextureCache::get_eviction_threshold`).
+    ///
+    /// That rule fits a browser, whose pages come and go. A host that deletes
+    /// the images its display lists no longer name holds in this cache what it
+    /// shows, and "evict what the last frame did not draw" then means: every
+    /// frame that redraws a part of the window (a picture cache tile, a
+    /// scrolled-in strip) throws out the images of the part it did not redraw,
+    /// and the next frame that draws all of it uploads them again.
+    pub image_budget_bytes: usize,
+    /// azul: the same for the two glyph atlases. A glyph that is evicted is
+    /// rasterised again when it is next drawn.
+    pub glyph_budget_bytes: usize,
 }
 
 impl TextureCacheConfig {
@@ -529,6 +544,8 @@ impl TextureCacheConfig {
         alpha8_texture_size: 1024,
         alpha8_glyph_texture_size: 2048,
         alpha16_texture_size: 512,
+        image_budget_bytes: 0,
+        glyph_budget_bytes: 0,
     };
 }
 
@@ -589,6 +606,11 @@ pub struct TextureCache {
     /// Memory usage of allocated entries in all of the shared or standalone
     /// textures. Includes both manually and automatically evicted entries.
     bytes_allocated: [usize; BudgetType::COUNT],
+
+    /// azul: the bytes under which nothing of a budget is evicted
+    /// (`TextureCacheConfig::image_budget_bytes`, `glyph_budget_bytes`).
+    image_budget_bytes: usize,
+    glyph_budget_bytes: usize,
 }
 
 impl TextureCache {
@@ -630,6 +652,19 @@ impl TextureCache {
             manual_entries: FreeList::new(),
             manual_handles: Vec::new(),
             bytes_allocated: [0; BudgetType::COUNT],
+            image_budget_bytes: config.image_budget_bytes,
+            glyph_budget_bytes: config.glyph_budget_bytes,
+        }
+    }
+
+    /// azul: the bytes of `budget_type` the host wants kept whatever their age
+    /// (0: none asked for).
+    fn budget_floor(&self, budget_type: BudgetType) -> usize {
+        match budget_type {
+            BudgetType::SharedAlpha8Glyphs | BudgetType::SharedColor8Glyphs => {
+                self.glyph_budget_bytes
+            }
+            _ => self.image_budget_bytes,
         }
     }
 
@@ -1170,7 +1205,7 @@ impl TextureCache {
             // to save GPU memory. Batching / draw call concerns do not apply
             // to standalone textures, because unused textures don't cause
             // extra draw calls.
-            return 8 * 1024 * 1024;
+            return (8 * 1024 * 1024).max(self.budget_floor(budget_type));
         }
 
         // For shared textures, evicting an entry only frees up GPU memory if it
@@ -1214,7 +1249,8 @@ impl TextureCache {
             }
         };
 
-        ideal_utilization
+        // azul: never less than the host asked to keep.
+        ideal_utilization.max(self.budget_floor(budget_type))
     }
 
     /// Returns whether to continue eviction and how cold an item need to be to be evicted.
@@ -1231,6 +1267,14 @@ impl TextureCache {
         let bytes_allocated = self.bytes_allocated[budget_type as usize];
 
         let uses_multiple_atlases = self.shared_textures.has_multiple_textures(budget_type);
+
+        // azul: under the bytes the host asked to keep nothing goes, more than
+        // one atlas or not. (The rule below evicts for as long as a second atlas
+        // exists, to get back to one; with a budget of many atlases a second one
+        // is the normal state, not fragmentation.)
+        if bytes_allocated < self.budget_floor(budget_type) {
+            return None;
+        }
 
         // If current memory usage is below selected threshold, we can stop evicting items
         // except when using shared texture atlases and more than one texture is in use.
@@ -1430,6 +1474,17 @@ impl TextureCache {
         descriptor: &ImageDescriptor,
     ) -> bool {
         let mut allowed_in_shared_cache = true;
+
+        // The shared atlases hold R8, R16, RGBA8 and BGRA8 (`SharedTextures::
+        // select`, which panics on anything else). Every other format - the
+        // RG8 CbCr plane of an NV12 video frame - gets a standalone texture;
+        // the YUV shader samples it just the same.
+        if !matches!(
+            descriptor.format,
+            ImageFormat::R8 | ImageFormat::R16 | ImageFormat::RGBA8 | ImageFormat::BGRA8
+        ) {
+            allowed_in_shared_cache = false;
+        }
 
         if matches!(descriptor.format, ImageFormat::RGBA8 | ImageFormat::BGRA8)
             && filter == TextureFilter::Linear
@@ -1710,6 +1765,118 @@ impl TextureCacheUpdate {
 
 #[cfg(test)]
 mod test_texture_cache {
+    /// An NV12 video frame is two planes: Y as R8 and CbCr as RG8. The
+    /// shared atlases hold R8, R16, RGBA8 and BGRA8 (`SharedTextures::select`);
+    /// a small RG8 plane was routed into them and `select` panicked with
+    /// "Unexpected format RG8", taking AzMeet and AzWidgets down with the
+    /// first NV12 frame (2026-09-30). Any other format gets a standalone
+    /// texture - the YUV shader samples it just the same - and the Y plane
+    /// keeps its atlas.
+    #[test]
+    fn an_rg8_chroma_plane_is_never_placed_in_the_shared_cache() {
+        use api::{ImageDescriptor, ImageDescriptorFlags, ImageFormat};
+
+        use crate::{device::TextureFilter, texture_cache::TextureCache};
+        let texture_cache = TextureCache::new_for_testing(2048, ImageFormat::BGRA8);
+        let uv = ImageDescriptor::new(320, 180, ImageFormat::RG8, ImageDescriptorFlags::IS_OPAQUE);
+        let y = ImageDescriptor::new(320, 180, ImageFormat::R8, ImageDescriptorFlags::IS_OPAQUE);
+        assert!(
+            !texture_cache.is_allowed_in_shared_cache(TextureFilter::Linear, &uv),
+            "RG8 has no shared atlas: it must get a standalone texture"
+        );
+        assert!(
+            texture_cache.is_allowed_in_shared_cache(TextureFilter::Linear, &y),
+            "the Y plane keeps its alpha8 atlas"
+        );
+    }
+
+    /// azul (audit A4-30). 160 images of 256 x 256 px (42 MB) in atlases of
+    /// 1024 px, as azul sizes them: a third of one atlas is 1.4 MB, the cache
+    /// is at 30 times that. By WebRender's rule an image no frame drew for two
+    /// frames is evicted while the cache is at 7 times the threshold or more -
+    /// without a limit per frame above 4 times - so two frames that draw none
+    /// of them leave 37 (9.7 MB), and a frame that draws all of them again
+    /// uploads the other 32 MB. With a budget of 64 MB they stay.
+    ///
+    /// Mutation: `budget_floor` returning 0 (or the early `return None` in
+    /// `should_continue_evicting` removed) evicts 123 in the second case.
+    #[test]
+    fn images_under_the_hosts_budget_are_kept_whatever_frame_drew_them_last() {
+        use api::{DirtyRect, ImageDescriptor, ImageDescriptorFlags};
+        use euclid::size2;
+
+        use super::*;
+
+        let kept_after_three_idle_frames = |image_budget_bytes: usize| -> usize {
+            let config = TextureCacheConfig {
+                color8_linear_texture_size: 1024,
+                image_budget_bytes,
+                ..TextureCacheConfig::DEFAULT
+            };
+            let mut cache = TextureCache::new(
+                2048,
+                2048,
+                TextureFormatPair::from(ImageFormat::BGRA8),
+                None,
+                &config,
+            );
+            let mut gpu_cache = GpuCache::new_for_testing();
+            let mut profile = TransactionProfile::new();
+            let mut now = FrameStamp::first(DocumentId::new(IdNamespace(1), 1));
+            now.advance();
+            cache.begin_frame(now, &mut profile);
+            let handles: Vec<TextureCacheHandle> = (0..160)
+                .map(|_| {
+                    let mut handle = TextureCacheHandle::invalid();
+                    cache.request(&handle, &mut gpu_cache);
+                    cache.update(
+                        &mut handle,
+                        ImageDescriptor {
+                            size: size2(256, 256),
+                            stride: None,
+                            format: ImageFormat::BGRA8,
+                            flags: ImageDescriptorFlags::empty(),
+                            offset: 0,
+                        },
+                        TextureFilter::Linear,
+                        None,
+                        [0.0; 4],
+                        DirtyRect::All,
+                        &mut gpu_cache,
+                        None,
+                        UvRectKind::Rect,
+                        Eviction::Auto,
+                        TargetShader::Default,
+                    );
+                    handle
+                })
+                .collect();
+            assert!(
+                cache.total_allocated_bytes_for_testing() >= 160 * 256 * 256 * 4,
+                "premise: 42 MB of images"
+            );
+            cache.end_frame(&mut profile);
+            // Three frames that draw none of them.
+            for _ in 0..3 {
+                now.advance();
+                cache.begin_frame(now, &mut profile);
+                cache.end_frame(&mut profile);
+            }
+            handles.iter().filter(|handle| cache.is_allocated(handle)).count()
+        };
+
+        let by_the_rule = kept_after_three_idle_frames(0);
+        assert!(
+            by_the_rule <= 40,
+            "WebRender's rule keeps what fits 7 thresholds (37 images): {by_the_rule}"
+        );
+        assert_eq!(
+            kept_after_three_idle_frames(64 * 1024 * 1024),
+            160,
+            "under the host's budget: kept"
+        );
+    }
+
     #[test]
     fn check_allocation_size_balance() {
         // Allocate some glyphs, observe the total allocation size, and free

@@ -1,0 +1,29 @@
+{
+  "name": "a pass crashed after its commit and before its base is saved: the next pass converges, no temp file",
+  "description": "sync-chaos res-crash-points (the after-commit and before-base-save cuts) on AzDrive's own sync jobs.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "f2.txt", "text": "two" },
+    { "op": "drive_sync", "device": "a", "crash_at": "after-commit", "expect": "crash" },
+    { "op": "assert_response", "path": "result.point", "equals": "after-commit" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "assert_response", "path": "result.up", "equals": 0 },
+    { "op": "drive_write", "device": "b", "path": "f3.txt", "text": "three" },
+    { "op": "drive_sync", "device": "b", "crash_at": "before-base-save", "expect": "crash" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_status", "device": "a" },
+    { "op": "assert_response", "path": "result.crashes", "equals": 1 },
+    { "op": "drive_check", "check": "no_temp_files", "device": "a" },
+    { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+    { "op": "drive_check", "check": "kept_live", "texts": ["two", "three"] },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_check", "check": "remote_consistent" },
+    { "op": "drive_cleanup" }
+  ]
+}

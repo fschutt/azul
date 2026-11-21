@@ -1,0 +1,42 @@
+Message-ID: <newsletter-40@news.example.org>
+Date: Tue, 29 Sep 2026 07:00:00 +0000
+From: Garden Weekly <news@news.example.org>
+To: ada@example.org
+Subject: Garden Weekly: bulbs, frost and a sale
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt-40"
+
+--alt-40
+Content-Type: text/plain; charset=utf-8
+
+GARDEN WEEKLY
+
+Plant bulbs before the first frost. Tulips need six weeks of cold.
+
+Sale: 20% off all bulbs until Sunday.
+--alt-40
+Content-Type: text/html; charset=utf-8
+
+<!DOCTYPE html>
+<html><head><title>Garden Weekly</title>
+<style>@media (prefers-color-scheme: dark) { body { background: #000; } } .x { color: red }</style>
+<script>document.write('tracking')</script>
+</head>
+<body bgcolor="#f6f7f2">
+<!--[if mso]><table><tr><td><![endif]-->
+<center>
+<table width=600 cellpadding=0 cellspacing=0>
+<tr><td bgcolor="#2e7d32" align=center><font color="#ffffff" size=5><b>Garden Weekly</b></font>
+<tr><td style="padding: 16px; color: #1d2330; position: fixed; background: url(https://news.example.org/bg.png)">
+<p>Plant bulbs <i>before</i> the first frost&nbsp;&mdash; tulips need six weeks of cold.
+<p><img src="https://news.example.org/tulips.jpg" alt="Tulips in a row" width=560 height=300>
+<ul><li>Tulips<li>Daffodils<li>Crocuses</ul>
+<p style="margin-top: -30px">Sale: <strong>20% off</strong> all bulbs until Sunday &amp; free delivery.
+<p><a href="https://news.example.org/sale?utm=mail&amp;id=40">See the sale</a> |
+<a href="javascript:alert('x')">Unsubscribe</a>
+<form action="https://news.example.org/login"><input name=email value="ada@example.org"><button>Sign in</button></form>
+</table>
+</center>
+<img src="https://news.example.org/open.gif?id=40" width="1" height="1">
+</body></html>
+--alt-40--

@@ -28,6 +28,10 @@ pub enum PageBreak {
     Verso,
     Column,
     AvoidColumn,
+    /// A forced region break (CSS Regions 1).
+    Region,
+    /// No region break here, where avoidable (CSS Regions 1).
+    AvoidRegion,
 }
 
 impl PrintAsCssValue for PageBreak {
@@ -45,6 +49,8 @@ impl PrintAsCssValue for PageBreak {
             Self::Verso => "verso",
             Self::Column => "column",
             Self::AvoidColumn => "avoid-column",
+            Self::Region => "region",
+            Self::AvoidRegion => "avoid-region",
         })
     }
 }
@@ -61,6 +67,8 @@ pub enum BreakInside {
     Avoid,
     AvoidPage,
     AvoidColumn,
+    /// No region break inside the box, where avoidable (CSS Regions 1).
+    AvoidRegion,
 }
 
 impl PrintAsCssValue for BreakInside {
@@ -70,6 +78,7 @@ impl PrintAsCssValue for BreakInside {
             Self::Avoid => "avoid",
             Self::AvoidPage => "avoid-page",
             Self::AvoidColumn => "avoid-column",
+            Self::AvoidRegion => "avoid-region",
         })
     }
 }
@@ -138,6 +147,7 @@ impl PrintAsCssValue for BoxDecorationBreak {
 }
 
 // Formatting to Rust code
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for PageBreak {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -153,10 +163,13 @@ impl crate::codegen::format::FormatAsRustCode for PageBreak {
             Self::Verso => String::from("PageBreak::Verso"),
             Self::Column => String::from("PageBreak::Column"),
             Self::AvoidColumn => String::from("PageBreak::AvoidColumn"),
+            Self::Region => String::from("PageBreak::Region"),
+            Self::AvoidRegion => String::from("PageBreak::AvoidRegion"),
         }
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for BreakInside {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -164,22 +177,26 @@ impl crate::codegen::format::FormatAsRustCode for BreakInside {
             Self::Avoid => String::from("BreakInside::Avoid"),
             Self::AvoidPage => String::from("BreakInside::AvoidPage"),
             Self::AvoidColumn => String::from("BreakInside::AvoidColumn"),
+            Self::AvoidRegion => String::from("BreakInside::AvoidRegion"),
         }
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for Widows {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("Widows {{ inner: {} }}", self.inner)
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for Orphans {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!("Orphans {{ inner: {} }}", self.inner)
     }
 }
 
+#[cfg(feature = "codegen")]
 impl crate::codegen::format::FormatAsRustCode for BoxDecorationBreak {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         match self {
@@ -257,6 +274,8 @@ pub mod parser {
             "verso" => Ok(PageBreak::Verso),
             "column" => Ok(PageBreak::Column),
             "avoid-column" => Ok(PageBreak::AvoidColumn),
+            "region" => Ok(PageBreak::Region),
+            "avoid-region" => Ok(PageBreak::AvoidRegion),
             _ => Err(PageBreakParseError::InvalidValue(input)),
         }
     }
@@ -310,6 +329,7 @@ pub mod parser {
             "avoid" => Ok(BreakInside::Avoid),
             "avoid-page" => Ok(BreakInside::AvoidPage),
             "avoid-column" => Ok(BreakInside::AvoidColumn),
+            "avoid-region" => Ok(BreakInside::AvoidRegion),
             _ => Err(BreakInsideParseError::InvalidValue(input)),
         }
     }
@@ -497,7 +517,7 @@ mod autotest_generated {
 
     /// Every `PageBreak` variant, so the round-trip tests stay exhaustive if a
     /// variant is added.
-    const ALL_PAGE_BREAKS: [PageBreak; 12] = [
+    const ALL_PAGE_BREAKS: [PageBreak; 14] = [
         PageBreak::Auto,
         PageBreak::Avoid,
         PageBreak::Always,
@@ -510,13 +530,16 @@ mod autotest_generated {
         PageBreak::Verso,
         PageBreak::Column,
         PageBreak::AvoidColumn,
+        PageBreak::Region,
+        PageBreak::AvoidRegion,
     ];
 
-    const ALL_BREAK_INSIDES: [BreakInside; 4] = [
+    const ALL_BREAK_INSIDES: [BreakInside; 5] = [
         BreakInside::Auto,
         BreakInside::Avoid,
         BreakInside::AvoidPage,
         BreakInside::AvoidColumn,
+        BreakInside::AvoidRegion,
     ];
 
     const ALL_BOX_DECORATION_BREAKS: [BoxDecorationBreak; 2] =
@@ -1132,6 +1155,21 @@ mod autotest_generated {
         assert_eq!(bi, ALL_BREAK_INSIDES);
 
         assert!(BoxDecorationBreak::Slice < BoxDecorationBreak::Clone);
+    }
+
+    #[test]
+    fn the_region_breaks_parse_and_print() {
+        for value in ["region", "avoid-region"] {
+            assert_eq!(
+                parse_page_break(value).map(|b| b.print_as_css_value()),
+                Ok(value.to_string()),
+                "break-before: {value}"
+            );
+        }
+        assert_eq!(
+            parse_break_inside("avoid-region").map(|b| b.print_as_css_value()),
+            Ok("avoid-region".to_string())
+        );
     }
 
     #[test]

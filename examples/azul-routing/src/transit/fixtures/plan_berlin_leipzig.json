@@ -1,0 +1,366 @@
+{
+ "from": {
+  "name": "START",
+  "lat": 52.52498,
+  "lon": 13.369114,
+  "vertexType": "NORMAL"
+ },
+ "to": {
+  "name": "END",
+  "lat": 51.3455,
+  "lon": 12.3821,
+  "vertexType": "NORMAL"
+ },
+ "direct": [],
+ "itineraries": [
+  {
+   "duration": 6120,
+   "startTime": "2026-10-15T07:14:00Z",
+   "endTime": "2026-10-15T08:56:00Z",
+   "transfers": 1,
+   "legs": [
+    {
+     "mode": "WALK",
+     "from": {
+      "name": "START",
+      "lat": 52.5219,
+      "lon": 13.4132,
+      "tz": "Europe/Berlin",
+      "departure": "2026-10-15T07:14:00Z",
+      "scheduledDeparture": "2026-10-15T07:14:00Z",
+      "vertexType": "NORMAL"
+     },
+     "to": {
+      "name": "S+U Alexanderplatz Bhf (Berlin)",
+      "stopId": "de-VBB_de:11000:900100003:2:53",
+      "lat": 52.521587,
+      "lon": 13.411356999999999,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T07:18:00Z",
+      "scheduledArrival": "2026-10-15T07:18:00Z",
+      "vertexType": "TRANSIT"
+     },
+     "duration": 240,
+     "startTime": "2026-10-15T07:14:00Z",
+     "endTime": "2026-10-15T07:18:00Z",
+     "scheduledStartTime": "2026-10-15T07:14:00Z",
+     "scheduledEndTime": "2026-10-15T07:18:00Z",
+     "realTime": false,
+     "scheduled": false,
+     "distance": 260.0,
+     "legGeometry": {
+      "points": "qqtdcBs_uqXlEdK??vKlU??z@qA`I_M??vF`O|@zJ??z@~JD|A??qE~I??eJtQ??jAbC??~BpF??Ub@??}CpF??a@r@??u@_B??_JhP??IP",
+      "precision": 6,
+      "length": 33
+     }
+    },
+    {
+     "mode": "SUBURBAN",
+     "from": {
+      "name": "S+U Alexanderplatz Bhf (Berlin)",
+      "stopId": "de-VBB_de:11000:900100003:2:53",
+      "lat": 52.521587,
+      "lon": 13.411356999999999,
+      "tz": "Europe/Berlin",
+      "departure": "2026-10-15T07:18:00Z",
+      "scheduledDeparture": "2026-10-15T07:18:00Z",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "to": {
+      "name": "S+U Berlin Hauptbahnhof",
+      "stopId": "de-VBB_de:11000:900003201:3:55",
+      "lat": 52.52526,
+      "lon": 13.369313,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T07:24:00Z",
+      "scheduledArrival": "2026-10-15T07:24:00Z",
+      "scheduledTrack": "16",
+      "track": "16",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "duration": 360,
+     "startTime": "2026-10-15T07:18:00Z",
+     "endTime": "2026-10-15T07:24:00Z",
+     "scheduledStartTime": "2026-10-15T07:18:00Z",
+     "scheduledEndTime": "2026-10-15T07:24:00Z",
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "S Westkreuz (Berlin)",
+     "routeShortName": "S5",
+     "tripShortName": "5542",
+     "displayName": "S5",
+     "routeColor": "eb7405",
+     "routeTextColor": "ffffff",
+     "agencyName": "S-Bahn Berlin GmbH",
+     "cancelled": false,
+     "legGeometry": {
+      "points": "eftdcBy`qqXmJ~_@_Xxg@_JdT_Yl{@_Lp^cJt`@_Fx\\eCjYaAhWg@n_@LhPjAt]hDt_@rE~YtOxx@tJfk@pCtR|Fph@jCtb@n@~Zr@hy@bBvnAjHj|@jWxeAvcAziCtF~QlOt`AtDv|@xCrmAr@l\\l@bz@kAp\\iI`aA{J~}@{w@d~KshDtgG{gAbmK",
+      "precision": 6,
+      "length": 38
+     }
+    },
+    {
+     "mode": "WALK",
+     "from": {
+      "name": "S+U Berlin Hauptbahnhof",
+      "stopId": "de-VBB_de:11000:900003201:3:55",
+      "lat": 52.52526,
+      "lon": 13.369313,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T07:24:00Z",
+      "departure": "2026-10-15T07:24:00Z",
+      "scheduledArrival": "2026-10-15T07:24:00Z",
+      "scheduledDeparture": "2026-10-15T07:24:00Z",
+      "scheduledTrack": "16",
+      "track": "16",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "to": {
+      "name": "S+U Berlin Hauptbahnhof",
+      "stopId": "de-DELFI_de:11000:900003200:2:53",
+      "lat": 52.525097,
+      "lon": 13.369321,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T07:26:00Z",
+      "scheduledArrival": "2026-10-15T07:26:00Z",
+      "scheduledTrack": "4",
+      "track": "4",
+      "vertexType": "TRANSIT"
+     },
+     "duration": 120,
+     "startTime": "2026-10-15T07:24:00Z",
+     "endTime": "2026-10-15T07:26:00Z",
+     "scheduledStartTime": "2026-10-15T07:24:00Z",
+     "scheduledEndTime": "2026-10-15T07:26:00Z",
+     "realTime": false,
+     "scheduled": false,
+     "distance": 59.0,
+     "legGeometry": {
+      "points": "ul{dcB{|~nXBz@n@dK??hDu@??QaD??mAz@??]_C??dGsD",
+      "precision": 6,
+      "length": 13
+     }
+    },
+    {
+     "mode": "HIGHSPEED_RAIL",
+     "from": {
+      "name": "S+U Berlin Hauptbahnhof",
+      "stopId": "de-DELFI_de:11000:900003200:2:53",
+      "lat": 52.525097,
+      "lon": 13.369321,
+      "tz": "Europe/Berlin",
+      "departure": "2026-10-15T07:27:00Z",
+      "scheduledDeparture": "2026-10-15T07:27:00Z",
+      "scheduledTrack": "4",
+      "track": "4",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "to": {
+      "name": "Leipzig Hbf",
+      "stopId": "de-DELFI_de:14713:8010205",
+      "lat": 51.34547,
+      "lon": 12.382064000000002,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T08:42:00Z",
+      "scheduledArrival": "2026-10-15T08:42:00Z",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "duration": 4500,
+     "startTime": "2026-10-15T07:27:00Z",
+     "endTime": "2026-10-15T08:42:00Z",
+     "scheduledStartTime": "2026-10-15T07:27:00Z",
+     "scheduledEndTime": "2026-10-15T08:42:00Z",
+     "realTime": false,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "München Hbf",
+     "routeShortName": "11",
+     "tripShortName": "ICE 597",
+     "displayName": "ICE 597",
+     "agencyName": "DB Fernverkehr AG",
+     "cancelled": false,
+     "legGeometry": {
+      "points": "{a{dcBw~~nXh~iAi|C|fdArv]vbv@pxgApovAr}k@hplChvr@xokBj{JhmrAbekAxslCvsM|kuAz|lBl~qAvwiC~wmArah@th}@f{yArne@zilFh}_Ad{~ErhoAfyoB`pNnxrBdrl@hie@pqgBrf`DbtvEvo|HleQzqmAj_h@hbb@pxk@ltr@p_cApnc@pvn@`f^hca@{pg@nuq@mgfA~~yAsvd@jwqBe`^~ezA_~c@hfs@nsMbfKvhL",
+      "precision": 6,
+      "length": 32
+     }
+    },
+    {
+     "mode": "WALK",
+     "from": {
+      "name": "Leipzig Hbf",
+      "stopId": "de-DELFI_de:14713:8010205",
+      "lat": 51.34547,
+      "lon": 12.382064000000002,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T08:42:00Z",
+      "departure": "2026-10-15T08:42:00Z",
+      "scheduledArrival": "2026-10-15T08:42:00Z",
+      "scheduledDeparture": "2026-10-15T08:42:00Z",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "to": {
+      "name": "END",
+      "lat": 51.3398,
+      "lon": 12.381,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T08:56:00Z",
+      "scheduledArrival": "2026-10-15T08:56:00Z",
+      "vertexType": "NORMAL"
+     },
+     "duration": 840,
+     "startTime": "2026-10-15T08:42:00Z",
+     "endTime": "2026-10-15T08:56:00Z",
+     "scheduledStartTime": "2026-10-15T08:42:00Z",
+     "scheduledEndTime": "2026-10-15T08:56:00Z",
+     "realTime": false,
+     "scheduled": false,
+     "distance": 1004.0,
+     "legGeometry": {
+      "points": "gc{|`BauvrV|b@h_@fDqKtAoEhEeNvGhHzEkB`IvIlHhInKjLpDpD~DdEtAzAbCfCxB~BzAbBlChCbFgHb@aGhCw@pIXzJrCbHz@`i@nNdq@nQ`iAbYzKtCvNfElMp@fKeIvRtDPiCqIeGwCoIom@wNwDmFbDsM",
+      "precision": 6,
+      "length": 37
+     }
+    }
+   ]
+  },
+  {
+   "duration": 4800,
+   "startTime": "2026-10-15T07:53:00Z",
+   "endTime": "2026-10-15T09:13:00Z",
+   "transfers": 0,
+   "legs": [
+    {
+     "mode": "WALK",
+     "from": {
+      "name": "START",
+      "lat": 52.52498,
+      "lon": 13.369114,
+      "tz": "Europe/Berlin",
+      "departure": "2026-10-15T07:53:00Z",
+      "scheduledDeparture": "2026-10-15T07:53:00Z",
+      "vertexType": "NORMAL"
+     },
+     "to": {
+      "name": "S+U Berlin Hauptbahnhof",
+      "stopId": "de-DELFI_de:11000:900003200:2:52",
+      "lat": 52.52506,
+      "lon": 13.369167000000001,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T07:55:00Z",
+      "scheduledArrival": "2026-10-15T07:55:00Z",
+      "scheduledTrack": "3",
+      "track": "3",
+      "vertexType": "TRANSIT"
+     },
+     "duration": 120,
+     "startTime": "2026-10-15T07:53:00Z",
+     "endTime": "2026-10-15T07:55:00Z",
+     "scheduledStartTime": "2026-10-15T07:53:00Z",
+     "scheduledEndTime": "2026-10-15T07:55:00Z",
+     "realTime": false,
+     "scheduled": false,
+     "distance": 29.0,
+     "legGeometry": {
+      "points": "izzdcBsp~nXMkA??i@wH??s@d@??p@tD??aBdA",
+      "precision": 6,
+      "length": 10
+     }
+    },
+    {
+     "mode": "HIGHSPEED_RAIL",
+     "from": {
+      "name": "S+U Berlin Hauptbahnhof",
+      "stopId": "de-DELFI_de:11000:900003200:2:52",
+      "lat": 52.52506,
+      "lon": 13.369167000000001,
+      "tz": "Europe/Berlin",
+      "departure": "2026-10-15T07:58:00Z",
+      "scheduledDeparture": "2026-10-15T07:55:00Z",
+      "scheduledTrack": "3",
+      "track": "5",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "to": {
+      "name": "Leipzig Hbf",
+      "stopId": "de-DELFI_de:14713:8010205",
+      "lat": 51.34547,
+      "lon": 12.382064000000002,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T09:12:00Z",
+      "scheduledArrival": "2026-10-15T09:12:00Z",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "duration": 4620,
+     "startTime": "2026-10-15T07:58:00Z",
+     "endTime": "2026-10-15T09:12:00Z",
+     "scheduledStartTime": "2026-10-15T07:55:00Z",
+     "scheduledEndTime": "2026-10-15T09:12:00Z",
+     "realTime": true,
+     "scheduled": true,
+     "interlineWithPreviousLeg": false,
+     "headsign": "Nürnberg Hbf",
+     "routeShortName": "91",
+     "tripShortName": "ICE 91",
+     "displayName": "ICE 91",
+     "agencyName": "DB Fernverkehr AG",
+     "cancelled": false,
+     "legGeometry": {
+      "points": "u}zdcB{m~nXzefAujEzhdAzc]t`x@v`gAxzqAjbl@vtgC|zq@xltBh|KtgqA`skAt_lClkMdutArdiBj}sAd`lCtwmApqh@l|}@`jxAlf[fuiDrgiAhe`HdzpAhwoB~rN~{uBx~k@lif@xswAp~fCv|aFflmId|UpvrA~sg@~fc@t{h@||t@f{dAbra@rpn@tea@xnc@m{a@hfl@{ogAhzrAsrc@pj|Burb@jvvAi_b@|ov@ffGvtNhaP",
+      "precision": 6,
+      "length": 32
+     }
+    },
+    {
+     "mode": "WALK",
+     "from": {
+      "name": "Leipzig Hbf",
+      "stopId": "de-DELFI_de:14713:8010205",
+      "lat": 51.34547,
+      "lon": 12.382064000000002,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T09:12:00Z",
+      "departure": "2026-10-15T09:12:00Z",
+      "scheduledArrival": "2026-10-15T09:12:00Z",
+      "scheduledDeparture": "2026-10-15T09:12:00Z",
+      "vertexType": "TRANSIT",
+      "cancelled": false
+     },
+     "to": {
+      "name": "END",
+      "lat": 51.3455,
+      "lon": 12.3821,
+      "tz": "Europe/Berlin",
+      "arrival": "2026-10-15T09:13:00Z",
+      "scheduledArrival": "2026-10-15T09:13:00Z",
+      "vertexType": "NORMAL"
+     },
+     "duration": 60,
+     "startTime": "2026-10-15T09:12:00Z",
+     "endTime": "2026-10-15T09:13:00Z",
+     "scheduledStartTime": "2026-10-15T09:12:00Z",
+     "scheduledEndTime": "2026-10-15T09:13:00Z",
+     "realTime": false,
+     "scheduled": false,
+     "distance": 4.0,
+     "legGeometry": {
+      "points": "{b{|`B_vvrV{@gA",
+      "precision": 6,
+      "length": 2
+     }
+    }
+   ]
+  }
+ ],
+ "previousPageCursor": "EARLIER|1792047600",
+ "nextPageCursor": "LATER|1792056360"
+}

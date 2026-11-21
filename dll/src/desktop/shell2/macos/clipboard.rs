@@ -129,39 +129,15 @@ pub fn write_payload(payload: &ClipboardPayload) -> bool {
     if payload.is_empty() {
         return false;
     }
-
-    // Group the representations by pasteboard item, preserving the order
-    // within each — `encode` emits best-flavor-first and a pasteboard reader
-    // is entitled to take the first type it recognises.
-    let mut items: Vec<Vec<&ClipboardItem>> = Vec::new();
-    for entry in payload.items() {
-        if items.len() <= entry.item {
-            items.resize_with(entry.item + 1, Vec::new);
-        }
-        items[entry.item].push(entry);
-    }
-
     // Build every item first, then publish them in ONE `writeObjects:`. That
     // is the documented usage and it does not depend on whether repeated
     // calls append to or replace the pasteboard's items — a distinction the
     // bindings do not state and which decides whether a three-file copy ends
     // up as three files or as one.
-    let mut objects = Vec::with_capacity(items.len());
-    for group in &items {
-        let item = NSPasteboardItem::new();
-        let mut any = false;
-        for entry in group {
-            let ty = NSString::from_str(&entry.native);
-            let data = NSData::with_bytes(&entry.bytes);
-            if item.setData_forType(&data, &ty) {
-                any = true;
-            }
-        }
-        // An item nothing could be set on would advertise no types at all.
-        if any {
-            objects.push(ProtocolObject::from_retained(item));
-        }
-    }
+    let objects: Vec<_> = pasteboard_items(payload)
+        .into_iter()
+        .map(ProtocolObject::from_retained)
+        .collect();
     if objects.is_empty() {
         log_warn!(
             LogCategory::Resources,
@@ -184,6 +160,40 @@ pub fn write_payload(payload: &ClipboardPayload) -> bool {
         );
     }
     written
+}
+
+/// The pasteboard items of `payload`: one per [`ClipboardItem::item`] index,
+/// its representations in the payload's order (`encode` emits the best
+/// flavour first, and a reader may take the first type it recognises). What
+/// a copy writes to the general pasteboard and what a drag out of the window
+/// carries (`os_drag`). An item nothing could be set on is left out: it
+/// would advertise no types at all.
+pub(super) fn pasteboard_items(
+    payload: &ClipboardPayload,
+) -> Vec<objc2::rc::Retained<NSPasteboardItem>> {
+    let mut groups: Vec<Vec<&ClipboardItem>> = Vec::new();
+    for entry in payload.items() {
+        if groups.len() <= entry.item {
+            groups.resize_with(entry.item + 1, Vec::new);
+        }
+        groups[entry.item].push(entry);
+    }
+    let mut items = Vec::with_capacity(groups.len());
+    for group in &groups {
+        let item = NSPasteboardItem::new();
+        let mut any = false;
+        for entry in group {
+            let ty = NSString::from_str(&entry.native);
+            let data = NSData::with_bytes(&entry.bytes);
+            if item.setData_forType(&data, &ty) {
+                any = true;
+            }
+        }
+        if any {
+            items.push(item);
+        }
+    }
+    items
 }
 
 /// Read the pasteboard as plain text.

@@ -32,7 +32,7 @@ extern "C" fn layout(mut data: RefAny, _: LayoutCallbackInfo) -> Dom {
     button.set_on_click(data.clone(), toggle_padding);
     let button_dom = button.dom().with_css(margin);
 
-    let mut checkbox = CheckBox::create(enable_padding);
+    let mut checkbox = CheckBox::create(enable_padding).with_accessibility_name("Enable padding");
     checkbox.set_on_toggle(data.clone(), toggle_padding_checkbox);
     let checkbox_dom = checkbox.dom().with_css("margin-bottom: 10px;");
 

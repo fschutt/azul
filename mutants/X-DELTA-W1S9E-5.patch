@@ -1,0 +1,20 @@
+# row: X-DELTA-W1S9E-5
+# why: `verify_entitlement_with` refuses (`Revoked`, an alarm) an entitlement whose payments key has a window with `revoked_from` at or before the entitlement's issue day; the patch ignores the revocation, so a stolen key that was retired (its window ended) back-dates an entitlement into its old window and the retirement rule accepts it
+# killers: azlin-creds:a_stolen_payments_key_cannot_back_date_an_entitlement
+# replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-W1S9E-5.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
+# mutant: revoked_from_ignored
+# guard: the revocation of a payments key is read from `KeyWindow::revoked_from` and compared with the DAY the entitlement was issued (`issued >= revoked_from`, any window of the key, after the signature verified). The killer is the lib test of src/entitlement.rs: the same retired key verifies a back-dated day while no revocation is marked, and the day at or after the revocation is `Revoked`; the day before it still verifies, long after.
+#   The other three hand mutants of the commit (compared at the moment of verification, `>` for `>=`, the group comparison of row -3) are `mutant!` guards killed in the one-hold round; the replay runs lib tests only.
+--- a/examples/azlin-creds/src/entitlement.rs
++++ b/examples/azlin-creds/src/entitlement.rs
+@@ -640,9 +640,7 @@
+     }
+     // After the signature: an alarm is a fact about an authentic signature, never about a forgery that
+     // merely names a revoked key's public key.
+-    if revoked && !azlin_seams::mutant!("creds_revoked_from_ignored") {
+-        return Err(EntitlementError::Revoked);
+-    }
++    let _ = revoked;
+     Ok(VerifiedEntitlement::new(claims, e.key))
+ }
+ 

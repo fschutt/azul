@@ -181,8 +181,7 @@ fn edit_page_one_scroll_far_undo_reverts_without_corruption() {
     let (para, text) = find_para(&lw, nested, "page 0 content").expect("page 0 mounted");
     lw.focus_manager
         .set_focused_node(Some(dom_node(nested, para)));
-    lw.text_edit_manager
-        .initialize_editing(cursor(7), nested, text, 0);
+    lw.start_editing_at(cursor(7), nested, text, 0);
 
     let split_id = lw
         .record_structural_default_action(&azul_core::events::DefaultAction::SplitBlockAtCursor {
@@ -460,8 +459,7 @@ fn enter_on_a_nested_contenteditable_determines_a_structural_split() {
     let (para, text) = find_para(&lw, nested, "page 0 content").expect("page 0 mounted");
     lw.focus_manager
         .set_focused_node(Some(dom_node(nested, para)));
-    lw.text_edit_manager
-        .initialize_editing(cursor(7), nested, text, 0);
+    lw.start_editing_at(cursor(7), nested, text, 0);
 
     let focused = lw.focus_manager.get_focused_node().copied();
     let editing = lw.build_editing_query_state(focused);
@@ -627,7 +625,7 @@ fn the_ime_caret_rect_is_lifted_out_of_the_nested_dom() {
     );
     let host_origin = lw
         .get_layout_result(&DomId::ROOT_ID)
-        .and_then(|lr| lr.layout_tree.dom_to_layout.get(&NodeId::new(1)).cloned())
+        .and_then(|lr| lr.layout_tree.dom_to_layout.get(&NodeId::new(1)).map(<[_]>::to_vec))
         .and_then(|ix| ix.first().copied())
         .and_then(|ix| {
             lw.get_layout_result(&DomId::ROOT_ID)

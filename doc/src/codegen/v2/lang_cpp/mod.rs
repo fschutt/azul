@@ -261,3 +261,170 @@ pub fn generate_all_cpp_headers(
 
     Ok(results)
 }
+
+// ============================================================================
+// Field accessors (the field-access wave, 2026-10-05)
+// ============================================================================
+
+#[cfg(test)]
+mod field_access_tests {
+    use super::super::config::CppStandard;
+
+    /// The real header for `standard`, CR-LF folded to LF so the expected
+    /// snippets below read naturally.
+    fn header(standard: CppStandard) -> String {
+        let api = crate::api::ApiData::from_str(include_str!("../../../../../api.json"))
+            .expect("api.json parses");
+        super::super::generate_cpp_header(&api, standard)
+            .expect("header generates")
+            .replace("\r\n", "\n")
+    }
+
+    /// The text of `class <name> { ... };`.
+    fn class_body<'a>(h: &'a str, name: &str) -> &'a str {
+        let start = h
+            .find(&format!("\nclass {} {{\n", name))
+            .unwrap_or_else(|| panic!("no class {name}"));
+        let end = start + h[start..].find("\n};\n").expect("unterminated class");
+        &h[start..end]
+    }
+
+    #[test]
+    fn a_cpp11_getter_deep_copies_and_a_setter_frees_the_old_value_then_takes_the_new_one() {
+        let h = header(CppStandard::Cpp11);
+
+        let fws = class_body(&h, "FullWindowState");
+        assert!(fws.contains("    std::string get_title() const;\n"), "{fws}");
+        assert!(fws.contains("    void set_title(String value) &;\n"), "{fws}");
+        assert!(fws.contains("    WindowSize get_size() const;\n"), "{fws}");
+        assert!(fws.contains("    void set_size(WindowSize value) &;\n"), "{fws}");
+
+        // String field: decoded into a std::string, the field is not consumed.
+        assert!(h.contains(
+            "inline std::string FullWindowState::get_title() const {\n    return \
+             inner_.title.vec.len ? std::string(reinterpret_cast<const \
+             char*>(inner_.title.vec.ptr), inner_.title.vec.len) : std::string();\n}\n"
+        ));
+        // Setter: the old AzString is freed, the new one is moved in.
+        assert!(h.contains(
+            "inline void FullWindowState::set_title(String value) & {\n    \
+             AzString_delete(&inner_.title);\n    inner_.title = value.release();\n}\n"
+        ));
+        // A Copy field: a plain copy, no _delete.
+        assert!(h.contains(
+            "inline WindowSize FullWindowState::get_size() const {\n    return \
+             WindowSize(inner_.size);\n}\n"
+        ));
+        assert!(h.contains(
+            "inline void FullWindowState::set_size(WindowSize value) & {\n    inner_.size = \
+             value.release();\n}\n"
+        ));
+
+        // A heap-owning wrapper field: deep copy through _clone, delete-then-move.
+        assert!(h.contains(
+            "inline FullWindowState WindowCreateOptions::get_window_state() const {\n    return \
+             FullWindowState(AzFullWindowState_clone(&inner_.window_state));\n}\n"
+        ));
+        assert!(h.contains(
+            "inline void WindowCreateOptions::set_window_state(FullWindowState value) & {\n    \
+             AzFullWindowState_delete(&inner_.window_state);\n    inner_.window_state = \
+             value.release();\n}\n"
+        ));
+
+        // bool.
+        assert!(h.contains(
+            "inline bool CheckBoxState::get_checked() const {\n    return inner_.checked;\n}\n"
+        ));
+        assert!(h.contains(
+            "inline void CheckBoxState::set_checked(bool value) & {\n    inner_.checked = \
+             value;\n}\n"
+        ));
+    }
+
+    /// `TextInputState::get_text()` is an api.json method: it keeps the name,
+    /// but the `text` field must still be writable.
+    #[test]
+    fn an_api_method_wins_the_getter_name_but_the_field_keeps_its_setter() {
+        let h = header(CppStandard::Cpp11);
+        let tis = class_body(&h, "TextInputState");
+        assert_eq!(tis.matches(" get_text() const;\n").count(), 1, "{tis}");
+        assert!(!h.contains("inline U32Vec TextInputState::get_text() const"));
+        assert!(h.contains(
+            "inline void TextInputState::set_text(U32Vec value) & {\n    \
+             AzU32Vec_delete(&inner_.text);\n    inner_.text = value.release();\n}\n"
+        ));
+    }
+
+    /// Callback, callback-wrapper and RefAny fields are wired up by the
+    /// callback plumbing, never by a field setter.
+    #[test]
+    fn callback_and_refany_fields_get_no_accessors() {
+        let h = header(CppStandard::Cpp11);
+        let fws = class_body(&h, "FullWindowState");
+        assert!(!fws.contains("set_layout_callback("), "{fws}");
+        let wco = class_body(&h, "WindowCreateOptions");
+        assert!(!wco.contains("set_create_callback("), "{wco}");
+    }
+
+    #[test]
+    fn cpp17_and_later_getters_are_nodiscard_and_setters_are_lvalue_only() {
+        for standard in [CppStandard::Cpp17, CppStandard::Cpp20, CppStandard::Cpp23] {
+            let h = header(standard);
+            let fws = class_body(&h, "FullWindowState");
+            assert!(
+                fws.contains("    [[nodiscard]] std::string get_title() const;\n"),
+                "{standard:?}"
+            );
+            assert!(fws.contains("    void set_title(String value) &;\n"), "{standard:?}");
+            assert!(
+                h.contains(
+                    "inline void WindowCreateOptions::set_window_state(FullWindowState value) & \
+                     {\n    AzFullWindowState_delete(&inner_.window_state);\n    \
+                     inner_.window_state = value.release();\n}\n"
+                ),
+                "{standard:?}"
+            );
+        }
+    }
+
+    /// C++03 has no `std::string` include, no ref-qualifiers and no moves:
+    /// getters return a `const` copy (so `get_x().set_y(..)` does not
+    /// compile instead of silently writing a temporary), strings stay
+    /// `String`, and a `const char*` overload stands in for the implicit
+    /// conversion C++03's `explicit String(const char*)` does not offer.
+    #[test]
+    fn cpp03_getters_return_const_copies_and_string_setters_take_a_c_string() {
+        let h = header(CppStandard::Cpp03);
+        let fws = class_body(&h, "FullWindowState");
+        assert!(fws.contains("    const String get_title() const;\n"), "{fws}");
+        assert!(fws.contains("    void set_title(String value);\n"), "{fws}");
+        assert!(fws.contains("    void set_title(const char* value);\n"), "{fws}");
+        assert!(h.contains(
+            "inline const String FullWindowState::get_title() const {\n    String::Proxy \
+             _p(AzString_clone(&inner_.title));\n    return _p;\n}\n"
+        ));
+        assert!(h.contains(
+            "inline void FullWindowState::set_title(String value) {\n    \
+             AzString_delete(&inner_.title);\n    inner_.title = value.release();\n}\n"
+        ));
+        assert!(h.contains(
+            "inline void FullWindowState::set_title(const char* value) {\n    \
+             set_title(String(value));\n}\n"
+        ));
+        assert!(h.contains(
+            "inline const FullWindowState WindowCreateOptions::get_window_state() const {\n    \
+             FullWindowState::Proxy _p(AzFullWindowState_clone(&inner_.window_state));\n    \
+             return _p;\n}\n"
+        ));
+    }
+
+    /// Getters return copies, so a nested write is read-modify-write; the
+    /// header says so where every reader starts.
+    #[test]
+    fn the_header_documents_read_modify_write_for_nested_fields() {
+        let h = header(CppStandard::Cpp20);
+        assert!(h.contains("// FIELDS\n"));
+        assert!(h.contains("ws.set_title(\"My App\");"));
+        assert!(h.contains("opts.set_window_state(std::move(ws));"));
+    }
+}

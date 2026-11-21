@@ -51,6 +51,7 @@ pub mod functions;
 pub mod managed;
 pub mod pom;
 pub mod types;
+pub mod options;
 pub mod wrappers;
 
 use anyhow::Result;
@@ -335,6 +336,8 @@ pub fn sanitize_identifier(name: &str) -> String {
 /// Check if a name collides with a Java reserved word, contextual
 /// keyword, or built-in literal.
 pub fn is_java_reserved(name: &str) -> bool {
+    // allow-api-name: the language's keyword table - a word is escaped because the
+    // LANGUAGE reserves it, whichever API item happens to share it.
     matches!(
         name,
         "abstract"

@@ -1,0 +1,18 @@
+{
+ "name": "a_block_moves_with_its_own_margin",
+ "description": "LAYOUTPERF8 latent bug B, fixed by FIX9 1.6. A stylesheet change of a block child's own margin-left (0 -> 40px) must move it to x=40 (a fresh layout of the same page puts it there). On the wave-7 build it stayed at x=0: a clean node is a CLONE that carries the box props (margins, padding, border) resolved from the OLD cascade, and the css-dirty channel only marked it dirty - it was re-solved with the stale margins, from its old slot. Now the reconcile builds a css-dirty node fresh and a Full-scope change is laid out by the parent. Run: target/release/azul-doc e2e scripts/layoutperf8_e2e",
+ "expect": "pass",
+ "setup": {"window_width": 400, "window_height": 300, "dpi": 96},
+ "steps": [
+  {"op": "mount",
+   "html": ["<div id=\"root\">", "  <div id=\"mover\">m</div>", "  <div id=\"after\">after</div>", "</div>"],
+   "css": ["html, body { margin: 0; padding: 0; width: 100%; height: 100%; }", "#root { width: 100%; }", "#mover { width: 50px; height: 20px; margin-left: 0px; }"]},
+  {"op": "wait_frame"},
+  {"op": "mount",
+   "html": ["<div id=\"root\">", "  <div id=\"mover\">m</div>", "  <div id=\"after\">after</div>", "</div>"],
+   "css": ["html, body { margin: 0; padding: 0; width: 100%; height: 100%; }", "#root { width: 100%; }", "#mover { width: 50px; height: 20px; margin-left: 40px; }"]},
+  {"op": "wait_frame"},
+  {"op": "get_node_layout", "selector": "#mover"},
+  {"op": "assert_response", "type": "node_layout", "contains": "\"x\":40.0"}
+ ]
+}

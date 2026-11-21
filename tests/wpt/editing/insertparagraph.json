@@ -1,0 +1,1258 @@
+{
+ "source": "editing/data/insertparagraph.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 512,
+ "eligible_cases": 221,
+ "left_out": {
+  "attribute class": 18,
+  "attribute id": 4,
+  "markup outside the mail subset": 160,
+  "over the cap of 60": 161,
+  "setup command insertparagraph": 7,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 32,
+  "tag <address>": 16,
+  "tag <dl>": 40,
+  "tag <listing>": 1,
+  "tag <output>": 1,
+  "tag <pre>": 9,
+  "tag <script>": 2,
+  "tag <xmp>": 1
+ },
+ "cases": [
+  {
+   "id": "insertparagraph-bb3c7255",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}baz</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}baz</div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-5b01c5d4",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}baz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}baz</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-f48db1cb",
+   "initial": "<ol><li>[foo]<li>bar</ol>",
+   "initial_xhtml": "<ol><li>[foo]</li><li>bar</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>{}<br></div><ol><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>{}<br/></div><ol><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-148548b3",
+   "initial": "<ol><li>[foo]<li>bar</ol>",
+   "initial_xhtml": "<ol><li>[foo]</li><li>bar</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>{}<br></p><ol><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>{}<br/></p><ol><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-61d966d3",
+   "initial": "<ol><li>f[o]o<li>bar</ol>",
+   "initial_xhtml": "<ol><li>f[o]o</li><li>bar</li></ol>",
+   "commands": [
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>f</li><li>{}o</li><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>f</li><li>{}o</li><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-d41228b4",
+   "initial": "[]foo",
+   "initial_xhtml": "[]foo",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><br></div><div>{}foo</div>"
+   ],
+   "expected_canonical": [
+    "<div><br/></div><div>{}foo</div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-89c9c83d",
+   "initial": "[]foo",
+   "initial_xhtml": "[]foo",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><br></p><p>{}foo</p>"
+   ],
+   "expected_canonical": [
+    "<p><br/></p><p>{}foo</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-71e4176a",
+   "initial": "foo[]",
+   "initial_xhtml": "foo[]",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-cdfc1ab3",
+   "initial": "foo[]",
+   "initial_xhtml": "foo[]",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-b65c9cd3",
+   "initial": "<span>foo[]</span>",
+   "initial_xhtml": "<span>foo[]</span>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><span>foo</span></div><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div><span>foo</span></div><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-a36b132c",
+   "initial": "<span>foo[]</span>",
+   "initial_xhtml": "<span>foo[]</span>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><span>foo</span></p><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p><span>foo</span></p><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-9fb12ddc",
+   "initial": "foo[]<br>",
+   "initial_xhtml": "foo[]<br/>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-ce8b3722",
+   "initial": "foo[]<br>",
+   "initial_xhtml": "foo[]<br/>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-c19e6a44",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}bar</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}bar</div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-05d5a0c6",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}bar</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-a0e17afc",
+   "initial": "<div>[]foo</div>",
+   "initial_xhtml": "<div>[]foo</div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><br></div><div>{}foo</div>"
+   ],
+   "expected_canonical": [
+    "<div><br/></div><div>{}foo</div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-ae8e4ec1",
+   "initial": "<div>[]foo</div>",
+   "initial_xhtml": "<div>[]foo</div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><br></div><div>{}foo</div>"
+   ],
+   "expected_canonical": [
+    "<div><br/></div><div>{}foo</div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-20ba2292",
+   "initial": "<div>foo[]</div>",
+   "initial_xhtml": "<div>foo[]</div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-c31e6ee9",
+   "initial": "<div>foo[]</div>",
+   "initial_xhtml": "<div>foo[]</div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-8817c21a",
+   "initial": "<div>foo[]<br></div>",
+   "initial_xhtml": "<div>foo[]<br/></div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-db3012f1",
+   "initial": "<div>foo[]<br></div>",
+   "initial_xhtml": "<div>foo[]<br/></div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-5c8049fb",
+   "initial": "<div>foo[]bar</div>",
+   "initial_xhtml": "<div>foo[]bar</div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}bar</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}bar</div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-e88f028d",
+   "initial": "<div>foo[]bar</div>",
+   "initial_xhtml": "<div>foo[]bar</div>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}bar</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}bar</div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-77f28360",
+   "initial": "<h1>[]foo</h1>",
+   "initial_xhtml": "<h1>[]foo</h1>",
+   "commands": [
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1><br></h1><h1>{}foo</h1>"
+   ],
+   "expected_canonical": [
+    "<h1><br/></h1><h1>{}foo</h1>"
+   ]
+  },
+  {
+   "id": "insertparagraph-b5c19d4b",
+   "initial": "<h1>foo[]</h1>",
+   "initial_xhtml": "<h1>foo[]</h1>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-45b44d9d",
+   "initial": "<h1>foo[]</h1>",
+   "initial_xhtml": "<h1>foo[]</h1>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-10f4ff7e",
+   "initial": "<h1>foo[]<br></h1>",
+   "initial_xhtml": "<h1>foo[]<br/></h1>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><div><br></div>",
+    "<h1>foo<br></h1><div><br></div>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><div><br/></div>",
+    "<h1>foo<br/></h1><div><br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-14f17314",
+   "initial": "<h1>foo[]<br></h1>",
+   "initial_xhtml": "<h1>foo[]<br/></h1>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><p><br></p>",
+    "<h1>foo<br></h1><p><br></p>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><p><br/></p>",
+    "<h1>foo<br/></h1><p><br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-5125f208",
+   "initial": "<h1>foo[]bar</h1>",
+   "initial_xhtml": "<h1>foo[]bar</h1>",
+   "commands": [
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><h1>{}bar</h1>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><h1>{}bar</h1>"
+   ]
+  },
+  {
+   "id": "insertparagraph-b21a62d1",
+   "initial": "<ol><li>[]foo</ol>",
+   "initial_xhtml": "<ol><li>[]foo</li></ol>",
+   "commands": [
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li><br></li><li>{}foo</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li><br/></li><li>{}foo</li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-4369cba9",
+   "initial": "<ol><li>foo[]</ol>",
+   "initial_xhtml": "<ol><li>foo[]</li></ol>",
+   "commands": [
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>{}<br></li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>{}<br/></li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-1adc0902",
+   "initial": "<ol><li>foo[]<br></ol>",
+   "initial_xhtml": "<ol><li>foo[]<br/></li></ol>",
+   "commands": [
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>{}<br></li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>{}<br/></li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-af39b4b6",
+   "initial": "<ol><li>foo[]bar</ol>",
+   "initial_xhtml": "<ol><li>foo[]bar</li></ol>",
+   "commands": [
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>{}bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>{}bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-7410980c",
+   "initial": "<p>[]foo</p>",
+   "initial_xhtml": "<p>[]foo</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><br></p><p>{}foo</p>"
+   ],
+   "expected_canonical": [
+    "<p><br/></p><p>{}foo</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-d7158958",
+   "initial": "<p>[]foo</p>",
+   "initial_xhtml": "<p>[]foo</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><br></p><p>{}foo</p>"
+   ],
+   "expected_canonical": [
+    "<p><br/></p><p>{}foo</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-54b46bb2",
+   "initial": "<p>foo[]</p>",
+   "initial_xhtml": "<p>foo[]</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-0b330723",
+   "initial": "<p>foo[]</p>",
+   "initial_xhtml": "<p>foo[]</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-0e073f7e",
+   "initial": "<p>foo[]<br></p>",
+   "initial_xhtml": "<p>foo[]<br/></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-366d8afc",
+   "initial": "<p>foo[]<br></p>",
+   "initial_xhtml": "<p>foo[]<br/></p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-847c1152",
+   "initial": "<p>foo[]bar</p>",
+   "initial_xhtml": "<p>foo[]bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}bar</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-8d5846cb",
+   "initial": "<p>foo[]bar</p>",
+   "initial_xhtml": "<p>foo[]bar</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}bar</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-bbf476d2",
+   "initial": "<ol><li>{}<br></li></ol>",
+   "initial_xhtml": "<ol><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-7b7e4df2",
+   "initial": "<ol><li>{}<br></li></ol>",
+   "initial_xhtml": "<ol><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-78eebbe4",
+   "initial": "foo<ol><li>{}<br></li></ol>",
+   "initial_xhtml": "foo<ol><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "foo<div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-ccc36e7e",
+   "initial": "foo<ol><li>{}<br></li></ol>",
+   "initial_xhtml": "foo<ol><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "foo<p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-88d9909b",
+   "initial": "<ol><li>{}<br></li></ol>foo",
+   "initial_xhtml": "<ol><li>{}<br/></li></ol>foo",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>{}<br></div>foo"
+   ],
+   "expected_canonical": [
+    "<div>{}<br/></div>foo"
+   ]
+  },
+  {
+   "id": "insertparagraph-1714b8c3",
+   "initial": "<ol><li>{}<br></li></ol>foo",
+   "initial_xhtml": "<ol><li>{}<br/></li></ol>foo",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>{}<br></p>foo"
+   ],
+   "expected_canonical": [
+    "<p>{}<br/></p>foo"
+   ]
+  },
+  {
+   "id": "insertparagraph-30a8ab32",
+   "initial": "<ol><li>foo<li>{}<br></ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-890c4022",
+   "initial": "<ol><li>foo<li>{}<br></ol>",
+   "initial_xhtml": "<ol><li>foo</li><li>{}<br/></li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li></ol><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li></ol><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-63d6ffff",
+   "initial": "<ol><li>{}<br><li>bar</ol>",
+   "initial_xhtml": "<ol><li>{}<br/></li><li>bar</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div>{}<br></div><ol><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<div>{}<br/></div><ol><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-efbe2f19",
+   "initial": "<ol><li>{}<br><li>bar</ol>",
+   "initial_xhtml": "<ol><li>{}<br/></li><li>bar</li></ol>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>{}<br></p><ol><li>bar</li></ol>"
+   ],
+   "expected_canonical": [
+    "<p>{}<br/></p><ol><li>bar</li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-29c9985e",
+   "initial": "<ol><li>foo</li><ul><li>{}<br></ul></ol>",
+   "initial_xhtml": "<ol><li>foo</li><ul><li>{}<br/></li></ul></ol>",
+   "commands": [
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<ol><li>foo</li><li>{}<br></li></ol>"
+   ],
+   "expected_canonical": [
+    "<ol><li>foo</li><li>{}<br/></li></ol>"
+   ]
+  },
+  {
+   "id": "insertparagraph-1da09d37",
+   "initial": "<h1>foo[bar</h1><p>baz]quz</p>",
+   "initial_xhtml": "<h1>foo[bar</h1><p>baz]quz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><h1>{}quz</h1>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><h1>{}quz</h1>"
+   ]
+  },
+  {
+   "id": "insertparagraph-1b80b929",
+   "initial": "<h1>foo[bar</h1><p>baz]quz</p>",
+   "initial_xhtml": "<h1>foo[bar</h1><p>baz]quz</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<h1>foo</h1><h1>{}quz</h1>"
+   ],
+   "expected_canonical": [
+    "<h1>foo</h1><h1>{}quz</h1>"
+   ]
+  },
+  {
+   "id": "insertparagraph-b923a19b",
+   "initial": "<p>foo[bar</p><h1>baz]quz</h1>",
+   "initial_xhtml": "<p>foo[bar</p><h1>baz]quz</h1>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}quz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}quz</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-563d73c8",
+   "initial": "<p>foo[bar</p><h1>baz]quz</h1>",
+   "initial_xhtml": "<p>foo[bar</p><h1>baz]quz</h1>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}quz</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}quz</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-952ec45f",
+   "initial": "<p>foo</p>{}<br>",
+   "initial_xhtml": "<p>foo</p>{}<br/>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><div><br></div><div>{}<br></div>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><div><br/></div><div>{}<br/></div>"
+   ]
+  },
+  {
+   "id": "insertparagraph-2faeac75",
+   "initial": "<p>foo</p>{}<br>",
+   "initial_xhtml": "<p>foo</p>{}<br/>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p><br></p><p>{}<br></p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p><br/></p><p>{}<br/></p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-48d226bb",
+   "initial": "{}<br><p>foo</p>",
+   "initial_xhtml": "{}<br/><p>foo</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<div><br></div><div>{}<br></div><p>foo</p>"
+   ],
+   "expected_canonical": [
+    "<div><br/></div><div>{}<br/></div><p>foo</p>"
+   ]
+  },
+  {
+   "id": "insertparagraph-63fa31a2",
+   "initial": "{}<br><p>foo</p>",
+   "initial_xhtml": "{}<br/><p>foo</p>",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "insertparagraph",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><br></p><p>{}<br></p><p>foo</p>"
+   ],
+   "expected_canonical": [
+    "<p><br/></p><p>{}<br/></p><p>foo</p>"
+   ]
+  }
+ ]
+}

@@ -11,6 +11,46 @@ use crate::{
     log_debug, log_warn,
 };
 
+/// The EGL binding of the calling thread, taken before a window's teardown
+/// makes its own context current and given back afterwards (shared by the
+/// X11 and Wayland GL contexts). Windows share the thread: the one that drew
+/// last expects its context still bound, and a window's teardown - its
+/// GL deletions in its own context, then the context's destruction, which
+/// unbinds whatever is current - must not take that away.
+#[derive(Clone, Copy)]
+pub struct EglBinding {
+    display: EGLDisplay,
+    draw: EGLSurface,
+    read: EGLSurface,
+    context: EGLContext,
+}
+
+impl EglBinding {
+    /// What is bound on this thread now (all null when nothing is).
+    #[must_use]
+    pub fn current(egl: &Egl) -> Self {
+        unsafe {
+            Self {
+                display: (egl.eglGetCurrentDisplay)(),
+                draw: (egl.eglGetCurrentSurface)(EGL_DRAW),
+                read: (egl.eglGetCurrentSurface)(EGL_READ),
+                context: (egl.eglGetCurrentContext)(),
+            }
+        }
+    }
+
+    /// Bind it again, unless it is `closing` (the context of the window that
+    /// tore down, gone now) or nothing was bound.
+    pub fn restore_unless(self, egl: &Egl, closing: EGLContext) {
+        if self.context.is_null() || self.display.is_null() || self.context == closing {
+            return;
+        }
+        unsafe {
+            (egl.eglMakeCurrent)(self.display, self.draw, self.read, self.context);
+        }
+    }
+}
+
 /// Detected EGL partial-present capabilities for a display (shared by the
 /// X11 and Wayland GL contexts — both load EGL through [`Egl`]).
 ///

@@ -1,0 +1,108 @@
+# The fuzz targets of the formats azul-storage reads from a bucket, a header, an index or an
+# answer (ARCH28 RF50 / AR5b-5): bytes that other devices, other people and the storage wrote.
+# `panic = "abort"` is the shipped profile, so every panic these find is an abort of the app.
+#
+# cargo-fuzz project of its own (its own workspace, like doc/aztest): `cargo install cargo-fuzz`,
+# then from this folder
+#
+#     cargo +nightly fuzz build                   # what CI does; it never runs them
+#     cargo +nightly fuzz run azl1_object         # an hour on a quiet machine
+#
+# The entry points are the same the unit tests run on a few thousand fixed inputs
+# (`src/tests/fuzz_entry.rs`), so a target here is a few lines: take the bytes, call the parser.
+# The AZL1 target takes `file key (32) || object id (16) || object`: it reaches the header and the
+# commitment check; the info block and the segments are authenticated, so bytes that were not
+# sealed with the key stop there (X-DELTA-AZDRIVE-KEYS-42) - what a member who holds the key can
+# write is reached through `pack_index` (which seals its input), `records_inverse` and
+# `container_decode` (the decoders, which authentication does not guard), `tree_decode`,
+# `list_xml` and `preflate_deflate` (the deflate analysis and rebuild, directly). `azl1_object`
+# also writes its input as a file and asserts that it reads back as written. `corpus/` is not
+# committed.
+[package]
+name = "azul-storage-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+azul-storage = { path = "..", features = ["encryption"] }
+azlin-compress = { path = "../../azlin-compress" }
+azlin-preflate = { path = "../../azlin-preflate" }
+
+# Not a member of azul's workspace: it needs nightly and libfuzzer, and keeps both out of the
+# lockfile of the apps.
+[workspace]
+
+[[bin]]
+name = "azl1_object"
+path = "fuzz_targets/azl1_object.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "key_files"
+path = "fuzz_targets/key_files.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http1_answer"
+path = "fuzz_targets/http1_answer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pointer_blob"
+path = "fuzz_targets/pointer_blob.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pack_index"
+path = "fuzz_targets/pack_index.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "records_inverse"
+path = "fuzz_targets/records_inverse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "container_decode"
+path = "fuzz_targets/container_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tree_decode"
+path = "fuzz_targets/tree_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "list_xml"
+path = "fuzz_targets/list_xml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "preflate_deflate"
+path = "fuzz_targets/preflate_deflate.rs"
+test = false
+doc = false
+bench = false

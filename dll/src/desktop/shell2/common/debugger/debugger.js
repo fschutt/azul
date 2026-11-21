@@ -3,6 +3,7 @@
  *
  * Architecture:
  *   app.config   — connection, mock mode
+ *   app.mode     — the page's light / dark mode (Auto / Light / Dark toggle)
  *   app.state    — all runtime state (selection, tests, overrides, etc.)
  *   app.schema   — command definitions with params, desc, example
  *   app.api      — HTTP communication (+ mock fallbacks)
@@ -107,6 +108,10 @@ const app = {
             'blur':           { desc: 'Blur (unfocus) the window',                 examples: ['/blur'],                                     params: [] },
             'close':          { desc: 'Close the window',                          examples: ['/close'],                                    params: [] },
             'dpi_changed':    { desc: 'Simulate DPI change',                       examples: ['/dpi_changed dpi 2'],                        params: [{ name: 'dpi', type: 'number', value: 1 }] },
+            'get_mode':       { desc: 'The app\'s light / dark mode (choice + shown)', examples: ['/get_mode'],                             params: [] },
+            'set_mode':       { desc: 'Switch the app\'s mode: light, dark or system', examples: ['/set_mode mode dark', '/set_mode mode system'], params: [{ name: 'mode', type: 'text', placeholder: 'dark' }] },
+            'get_theme':      { desc: 'The app theme (flat, flora, ...)',          examples: ['/get_theme'],                                params: [] },
+            'set_theme':      { desc: 'Switch the app theme (rebuilds every window)', examples: ['/set_theme theme flora'],                 params: [{ name: 'theme', type: 'text', placeholder: 'flora' }] },
 
             // ── DOM Inspection ──
             'get_node_css_properties': { desc: 'Get computed CSS for a node',      examples: ['/get_node_css_properties node_id 3', '/get_node_css_properties selector .item'], params: [{ name: 'node_id', type: 'number', placeholder: '0' }, { name: 'selector', type: 'text', placeholder: '.item' }], variants: ['node_id', 'selector'] },
@@ -169,7 +174,6 @@ const app = {
             'get_component_render_tree': { desc: 'Get component render output tree', examples: ['/get_component_render_tree library mylib name mycomp'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }] },
             'get_component_source':      { desc: 'Get component source code',       examples: ['/get_component_source library mylib name mycomp source_type render_fn', '/get_component_source library mylib name mycomp source_type compile_fn language rust'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source_type', type: 'text', placeholder: 'render_fn' }, { name: 'language', type: 'text', placeholder: 'rust', optional: true }] },
             'update_component_render_fn': { desc: 'Update component render_fn',     examples: ['/update_component_render_fn library mylib name mycomp source "fn render..."'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source', type: 'text', placeholder: '...' }] },
-            'update_component_compile_fn': { desc: 'Update component compile_fn',   examples: ['/update_component_compile_fn library mylib name mycomp language rust source "fn compile..."'], params: [{ name: 'library', type: 'text', placeholder: 'mylib' }, { name: 'name', type: 'text', placeholder: 'mycomp' }, { name: 'source', type: 'text', placeholder: '...' }, { name: 'language', type: 'text', placeholder: 'rust' }] },
 
             // ── File ──
             'open_file':      { desc: 'Open source file in editor',             examples: ['/open_file file /path/to/file.rs', '/open_file file /path/to/file.rs line 42'], params: [{ name: 'file', type: 'text', placeholder: '/path/to/file.rs' }, { name: 'line', type: 'number', placeholder: '0', optional: true }] },
@@ -188,6 +192,186 @@ const app = {
             'assert_layout':     { desc: 'Assert layout property value',           examples: ['/assert_layout selector .box property width expected 100 tolerance 1'], params: [{ name: 'selector', type: 'text', placeholder: '.box' }, { name: 'property', type: 'text', placeholder: 'width' }, { name: 'expected', type: 'number', value: 100 }, { name: 'tolerance', type: 'number', value: 1 }] },
             'assert_app_state':  { desc: 'Assert app state path value',            examples: ['/assert_app_state path counter expected 42'],   params: [{ name: 'path', type: 'text', placeholder: 'counter' }, { name: 'expected', type: 'text', placeholder: '42' }] },
         }
+    },
+
+    /* ================================================================
+     * MODE — the page's light / dark mode
+     * ================================================================
+     * Auto follows the desktop (`prefers-color-scheme`); Light and Dark pin
+     * the page. The palette is CSS tokens on :root (debugger.css): light by
+     * default, dark under ONE `@media (prefers-color-scheme: dark)` block.
+     * Pinning rewrites that block's media condition ("all" / "not all"),
+     * Auto puts the query back - so there is no second copy of the dark
+     * palette. The choice is remembered in localStorage.
+     *
+     * The page and the APP are ONE setting. Connected to a debug server that
+     * knows `get_mode` / `set_mode`, the page shows the app's mode: it reads
+     * `get_mode` on load and on a poll (the app may switch itself: its own
+     * toggle, `CallbackInfo::set_mode`), and its toggle calls `set_mode`
+     * ("system" for Auto). On Auto it then shows what the app window shows
+     * (`resolved`), not the browser's desktop. A server without the ops (or
+     * the mock) leaves the page to its own remembered choice.
+     */
+    mode: {
+        KEY: 'azul_debugger_mode',
+        QUERY: '(prefers-color-scheme: dark)',
+        CHOICES: ['auto', 'light', 'dark'],
+        POLL_MS: 1500,
+        choice: 'auto',
+        _blocks: null,      // the dark palette's @media rules, found once
+        _dark: null,        // the mode last applied: true = dark
+        _listeners: [],
+        // The app's mode as the server last reported it: { mode: 'system' |
+        // 'light' | 'dark', resolved: 'light' | 'dark' }; null = not known.
+        reported: null,
+        _poll: null,
+        _pulling: false,
+        _gen: 0,            // bumped by every choice made HERE: an answer to
+                            // a read that started earlier is stale
+
+        /** Restore the remembered choice and apply it; follow the desktop while on Auto. */
+        init: function() {
+            var saved = null;
+            try { saved = localStorage.getItem(this.KEY); } catch (e) { /* private mode */ }
+            this.choice = this.CHOICES.indexOf(saved) >= 0 ? saved : 'auto';
+            var self = this;
+            if (window.matchMedia) {
+                var desktop = window.matchMedia(this.QUERY);
+                var follow = function() {
+                    if (self.choice !== 'auto') return;
+                    self.apply();
+                    self.pull();
+                };
+                if (desktop.addEventListener) desktop.addEventListener('change', follow);
+                else if (desktop.addListener) desktop.addListener(follow);
+            }
+            this.apply();
+        },
+
+        /** Pin 'light' or 'dark', or follow the desktop ('auto'); remembered, and sent to the app. */
+        set: function(choice) {
+            if (this.CHOICES.indexOf(choice) < 0) return;
+            this._gen++;
+            this.choice = choice;
+            try { localStorage.setItem(this.KEY, choice); } catch (e) { /* private mode */ }
+            if (this.reported && choice !== 'auto') this.reported = { mode: choice, resolved: choice };
+            this.apply();
+            this.push(choice);
+        },
+
+        /** Whether the page shows its dark palette. */
+        isDark: function() {
+            if (this.choice !== 'auto') return this.choice === 'dark';
+            if (this.reported && this.reported.resolved) return this.reported.resolved === 'dark';
+            return !!(window.matchMedia && window.matchMedia(this.QUERY).matches);
+        },
+
+        /** Take the app's mode `{ mode, resolved }` (a `get_mode` answer) as the page's. */
+        adopt: function(reported) {
+            if (!reported || ['system', 'light', 'dark'].indexOf(reported.mode) < 0) return;
+            this.reported = {
+                mode: reported.mode,
+                resolved: reported.resolved === 'dark' ? 'dark' : (reported.resolved === 'light' ? 'light' : null),
+            };
+            var choice = reported.mode === 'system' ? 'auto' : reported.mode;
+            this.choice = choice;
+            try { localStorage.setItem(this.KEY, choice); } catch (e) { /* private mode */ }
+            this.apply();
+        },
+
+        /** POST `msg` to the debug server WITHOUT the request log (the poll runs forever). */
+        _quiet: async function(msg) {
+            var res = await fetch(app.config.apiUrl, { method: 'POST', body: JSON.stringify(msg) });
+            return res.json();
+        },
+
+        /** Read the app's mode (`get_mode`) and show it. */
+        pull: async function() {
+            if (this._pulling || typeof app === 'undefined' || app.config.isMock) return;
+            this._pulling = true;
+            var gen = this._gen;
+            try {
+                var json = await this._quiet({ op: 'get_mode' });
+                if (gen === this._gen && json && json.status === 'ok' && json.data && json.data.value) {
+                    this.adopt(json.data.value);
+                }
+            } catch (e) {
+                // The app went away: keep what the page shows.
+            } finally {
+                this._pulling = false;
+            }
+        },
+
+        /** Switch the app to the page's `choice` (`set_mode`), then read back what it shows. */
+        push: async function(choice) {
+            if (typeof app === 'undefined' || app.config.isMock) return;
+            var gen = this._gen;
+            try {
+                await this._quiet({ op: 'set_mode', mode: choice === 'auto' ? 'system' : choice });
+            } catch (e) {
+                return;
+            }
+            // The switch lands on the app's next frame.
+            var self = this;
+            setTimeout(function() { if (gen === self._gen) self.pull(); }, 150);
+        },
+
+        /** Follow the app's mode from now on: read it now and on every poll while the page is visible. */
+        follow: function() {
+            var self = this;
+            this.pull();
+            if (this._poll) return;
+            this._poll = setInterval(function() {
+                if (document.visibilityState === 'hidden') return;
+                self.pull();
+            }, this.POLL_MS);
+        },
+
+        /** `fn(dark)` after every change of the mode the page shows. */
+        onChange: function(fn) { this._listeners.push(fn); },
+
+        /** The `@media (prefers-color-scheme: dark)` rules of the page's sheets. */
+        _darkBlocks: function() {
+            if (this._blocks) return this._blocks;
+            var want = this.QUERY.replace(/\s+/g, '').toLowerCase();
+            var found = [];
+            Array.prototype.forEach.call(document.styleSheets, function(sheet) {
+                var rules;
+                try { rules = sheet.cssRules; } catch (e) { return; } // another origin: not ours
+                Array.prototype.forEach.call(rules || [], function(rule) {
+                    if (rule.media && rule.media.mediaText.replace(/\s+/g, '').toLowerCase() === want) {
+                        found.push(rule);
+                    }
+                });
+            });
+            // Found once: pinned, their text no longer names the query.
+            this._blocks = found;
+            return found;
+        },
+
+        apply: function() {
+            // Auto shows the app's mode once the app reported one, else the desktop's.
+            var condition = this.choice !== 'auto' ? (this.choice === 'dark' ? 'all' : 'not all')
+                : (this.reported && this.reported.resolved)
+                    ? (this.reported.resolved === 'dark' ? 'all' : 'not all')
+                    : this.QUERY;
+            this._darkBlocks().forEach(function(rule) {
+                if (rule.media.mediaText !== condition) rule.media.mediaText = condition;
+            });
+            document.documentElement.setAttribute('data-mode', this.choice);
+            var choice = this.choice;
+            document.querySelectorAll('[data-mode-choice]').forEach(function(b) {
+                b.setAttribute('aria-checked', b.getAttribute('data-mode-choice') === choice ? 'true' : 'false');
+            });
+            var dark = this.isDark();
+            if (dark === this._dark) return;
+            var first = this._dark === null;
+            this._dark = dark;
+            if (first) return;
+            this._listeners.forEach(function(fn) {
+                try { fn(dark); } catch (e) { console.error('[dbg] mode listener failed:', e); }
+            });
+        },
     },
 
     /* ================================================================
@@ -217,7 +401,13 @@ const app = {
                 if (s.previewLang !== undefined) this.state.previewLang = s.previewLang;
             } catch(e) { console.warn('[dbg] bad localStorage:', e); }
         }
-        if (!this.state.tests.length) this.handlers.newTest();
+        if (!this.state.tests.length) {
+            this.handlers.newTest();
+            // B1 fix: `newTest` switches to the Testing view (right for the
+            // "+ New Test" button); the default test of a FIRST launch must not
+            // hide the DOM explorer and palette from a new AzBuilder user.
+            this.ui.switchView('inspector');
+        }
 
         this._initMenubar();
         this.resizer.init();
@@ -233,6 +423,8 @@ const app = {
             document.getElementById('connection-status').innerText = 'Connected';
             document.getElementById('connection-status').style.color = 'var(--success)';
             this.log('Connected to ' + this.config.apiUrl, 'info');
+            // The page's light / dark mode is the app's from here on.
+            this.mode.follow();
         } catch(e) {
             this.config.isMock = true;
             document.getElementById('connection-status').innerText = 'Mock';
@@ -905,8 +1097,17 @@ const app = {
                 var div = document.createElement('div');
                 div.className = 'list-item' + (app.state.activeTestId === test.id ? ' selected' : '');
                 div.onclick = function() { app.handlers.selectTest(test.id); };
-                var icon = test._result ? (test._result.status === 'pass' ? 'check_circle' : 'cancel') : 'description';
-                var iconColor = test._result ? (test._result.status === 'pass' ? 'var(--success)' : 'var(--error)') : 'inherit';
+                // 'skip': the test's `only_on` gate excludes this host - it ran
+                // nothing, so it is neither a pass nor a failure.
+                var status = test._result ? test._result.status : null;
+                var icon = status === null ? 'description'
+                    : status === 'pass' ? 'check_circle'
+                    : status === 'skip' ? 'block'
+                    : 'cancel';
+                var iconColor = status === null ? 'inherit'
+                    : status === 'pass' ? 'var(--success)'
+                    : status === 'skip' ? 'var(--warning)'
+                    : 'var(--error)';
 
                 var iconSpan = document.createElement('span');
                 iconSpan.className = 'material-icons';
@@ -1177,6 +1378,10 @@ const app = {
     _loadNodeScreenshot: async function() {
         var section = document.getElementById('node-screenshot');
         if (!section) return;
+        // A page nobody sees asks the app for no native capture (an OS grab
+        // plus a PNG encode on its UI thread); selecting the node again once
+        // the page is shown loads it.
+        if (document.visibilityState === 'hidden') return;
         try {
             var res = await this.api.post({ op: 'take_native_screenshot' });
             if (res.status === 'ok' && res.data) {
@@ -1565,8 +1770,9 @@ const app = {
             input.value = '';
         },
 
-        exportComponentLibrary: async function() {
-            var libName = app.state.selectedLibrary;
+        /** `library`: which one (Export > Components…); else the one selected in the Components view. */
+        exportComponentLibrary: async function(library) {
+            var libName = library || app.state.selectedLibrary;
             if (!libName) {
                 app.log('No library selected. Select a library first in the Components panel.', 'warn');
                 return;
@@ -2019,9 +2225,11 @@ const app = {
                 });
                 if (res.status === 'ok') {
                     app.log('Component "' + tagName + '" created in library "' + targetLibrary + '"', 'info');
-                    // Switch to components view and select it
-                    app.state.currentView = 'components';
-                    app.ui.showView('components');
+                    // Switch to components view and select it.
+                    // B1 fix: `app.ui.showView` never existed — the TypeError
+                    // turned every successful create into "Create component failed".
+                    app.state.selectedLibrary = targetLibrary;
+                    app.ui.switchView('components');
                     app.handlers.selectLibrary(targetLibrary);
                 } else {
                     app.log('Failed to create component: ' + (res.message || ''), 'error');
@@ -2409,19 +2617,17 @@ const app = {
                 });
                 srcDetails.appendChild(renderBtn);
 
-                // E2: Edit compile_fn dropdown
+                // The component as code in any language: Export > "Components…"
+                // (debugger-export.js; the code generator derives it from the
+                // component, there is no per-language source to edit).
                 var compileBtn = document.createElement('button');
                 compileBtn.className = 'azd-btn-small';
                 compileBtn.style.marginRight = '8px';
-                compileBtn.textContent = 'Edit compile_fn \u25BE';
+                compileBtn.textContent = 'As code\u2026';
                 compileBtn.addEventListener('click', function() {
-                    var rect = compileBtn.getBoundingClientRect();
-                    app.widgets.ContextMenu.show(rect.left, rect.bottom + 2, [
-                        { label: 'Rust', action: function() { app.handlers._openCompileFnEditor(component, 'rust'); } },
-                        { label: 'C', action: function() { app.handlers._openCompileFnEditor(component, 'c'); } },
-                        { label: 'C++', action: function() { app.handlers._openCompileFnEditor(component, 'cpp'); } },
-                        { label: 'Python', action: function() { app.handlers._openCompileFnEditor(component, 'python'); } },
-                    ]);
+                    if (window.azExport) {
+                        window.azExport.openComponentDialog(compileBtn, { library: app.state.selectedLibrary, name: component.tag });
+                    }
                 });
                 srcDetails.appendChild(compileBtn);
 
@@ -2946,61 +3152,6 @@ const app = {
                         } catch(e) {
                             app.log('Save error: ' + e.message, 'error');
                         }
-                    },
-                    onClose: function() {}
-                }
-            );
-        },
-
-        _openCompileFnEditor: async function(component, language) {
-            // E2: Load compile_fn source for given language and open popup editor
-            var code = '';
-            try {
-                var res = await app.api.post({
-                    op: 'get_component_source',
-                    library: app.state.selectedLibrary,
-                    name: component.tag,
-                    source_type: 'compile_fn',
-                    language: language,
-                });
-                if (res.status === 'ok' && res.data && res.data.value) {
-                    code = res.data.value.source || '';
-                }
-            } catch(e) {
-                app.log('Failed to load compile_fn source: ' + e.message, 'error');
-            }
-
-            var languages = ['rust', 'c', 'cpp', 'python'];
-            app.widgets.SourceEditor.open(
-                {
-                    title: 'Edit compile_fn — ' + (component.display_name || component.tag),
-                    language: language,
-                    languages: languages
-                },
-                { code: code },
-                {
-                    onSave: async function(newCode) {
-                        try {
-                            var res = await app.api.post({
-                                op: 'update_component_compile_fn',
-                                library: app.state.selectedLibrary,
-                                name: component.tag,
-                                source: newCode,
-                                language: language,
-                            });
-                            if (res.status === 'ok') {
-                                app.log('compile_fn (' + language + ') saved for ' + component.tag, 'info');
-                                app.widgets.SourceEditor.close();
-                            } else {
-                                app.log('Save failed: ' + (res.message || ''), 'error');
-                            }
-                        } catch(e) {
-                            app.log('Save error: ' + e.message, 'error');
-                        }
-                    },
-                    onLanguageChange: function(newLang) {
-                        app.widgets.SourceEditor.close();
-                        app.handlers._openCompileFnEditor(component, newLang);
                     },
                     onClose: function() {}
                 }
@@ -4825,4 +4976,7 @@ function _parseSlashCommand(input) {
     return payload;
 }
 
+// The mode first, before the page is shown: a pinned mode must not flash
+// the desktop's.
+app.mode.init();
 window.onload = function() { app.init(); };

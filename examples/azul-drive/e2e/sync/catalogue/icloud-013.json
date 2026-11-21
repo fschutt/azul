@@ -1,0 +1,74 @@
+[
+  {
+    "name": "a folder swapped for a link to outside between the scan and the write: the write fails, never redirected",
+    "description": "ICLOUD-013 (sync-chaos sec-toctou-dir-swap): CVE-2024-44131, fileproviderd wrote into an attacker's directory after a parent was swapped for a symlink mid-copy. Rules S3 and S2: the descriptor walk fails at the link, nothing is written outside, the problem is listed (through-link), the drive keeps both files.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "sub/one.txt", "text": "one" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_write", "device": "a", "path": "sub/two.txt", "text": "two" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "pause_at": "download-start" },
+      { "op": "drive_rename", "device": "b", "from": "sub", "to": "sub.moved" },
+      { "op": "drive_symlink", "device": "b", "path": "sub", "target": "{outside}/victim" },
+      { "op": "drive_cont", "device": "b" },
+      { "op": "drive_wait", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "through-link", "key": "sub/two.txt" },
+      { "op": "drive_check", "check": "remote_file", "key": "sub/one.txt", "text": "one" },
+      { "op": "drive_check", "check": "remote_file", "key": "sub/two.txt", "text": "two" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a file swapped for a link to a secret between the scan and the upload: the secret never reaches the drive",
+    "description": "ICLOUD-013 (sync-chaos sec-toctou-file-swap-upload): rules S3, A6 and S1: the upload opens without following links and checks the file is the one scanned; the swap is listed as changed-during-sync.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "draft.txt", "text": "a draft" },
+      { "op": "drive_sync", "device": "c", "pause_at": "before-upload" },
+      { "op": "drive_rm", "device": "c", "path": "draft.txt" },
+      { "op": "drive_symlink", "device": "c", "path": "draft.txt", "target": "{outside}/secret.txt" },
+      { "op": "drive_cont", "device": "c" },
+      { "op": "drive_wait", "device": "c", "expect": "any" },
+      { "op": "drive_sync", "device": "c", "expect": "any" },
+      { "op": "drive_check", "check": "remote_never_has" },
+      { "op": "drive_check", "check": "problem", "device": "c", "code": "changed-during-sync", "key": "draft.txt" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a process flips a folder between a real folder and a link to outside while 200 files come down into it",
+    "description": "ICLOUD-013 (sync-chaos sec-toctou-racer): the same protection under a real race (rules S3, S2): nothing is written outside, no temp file is left.",
+    "steps": [
+      { "op": "drive_create", "remote": "r3", "encrypted": false },
+      { "op": "drive_open", "device": "d", "remote": "r3" },
+      { "op": "drive_open", "device": "e", "remote": "r3" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_pair", "device": "e" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "d", "dir": "sub", "count": 200, "text_prefix": "file" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_mkdir", "device": "e", "path": "sub/d000" },
+      { "op": "drive_racer", "device": "e", "path": "sub", "target": "{outside}/victim" },
+      { "op": "drive_sync", "device": "e", "expect": "any" },
+      { "op": "drive_sync", "device": "e", "expect": "any" },
+      { "op": "drive_racer_stop", "device": "e" },
+      { "op": "drive_sync", "device": "e", "expect": "any" },
+      { "op": "drive_check", "check": "outside_untouched" },
+      { "op": "drive_check", "check": "no_temp_files", "device": "e" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

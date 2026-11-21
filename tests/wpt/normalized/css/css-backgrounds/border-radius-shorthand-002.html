@@ -1,0 +1,34 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Borders Radius Shorthand.</title>
+<meta name="assert" content="The shorthand border radius property can be used to specify all four eliptical corners of a box."/>
+<style>
+        /* &lt;![CDATA[ */
+        	div
+            {
+				border-radius: 29px  43px 19px 13px / 5px 11px 23px 17px;
+
+        		background:	#dddddd;
+        		width:		200px;
+        		height: 	100px;
+        	}
+        /* ]]&gt; */
+        
+</style>
+</head>
+<body>
+    	<p>
+			There should be one box, with four rounded corners, each corner a different radius.
+		</p>
+		<ul>
+			<li>PASS if the box below has four rounded corners.</li>
+			<li>FAIL if the corners are not rounded.</li>
+		</ul>
+
+    	<div></div>
+
+    
+
+
+</body>
+</html>

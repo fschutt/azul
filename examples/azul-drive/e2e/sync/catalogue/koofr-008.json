@@ -1,0 +1,55 @@
+[
+  {
+    "name": "names ending with a dot or a space are kept and flagged on macOS and Linux, never renamed on the drive",
+    "description": "KOOFR-008 (Koofr desktop on Windows before November 2019): a name ending with a dot, made on macOS or Linux, came down as a file Windows could neither open nor delete. Rules P3 and P5: a name valid here and not elsewhere is synced here and flagged (portability); on the system that cannot hold it, it stays on the drive and is listed (invalid-here); it is never renamed or deleted on the drive. sync-chaos port-windows-names.",
+    "only_on": ["macos", "linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "report.", "text": "dot" },
+      { "op": "drive_write", "device": "a", "path": "notes ", "text": "space" },
+      { "op": "drive_write", "device": "a", "path": "fine.txt", "text": "fine" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "report.", "text": "dot" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "notes ", "text": "space" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "portability", "key": "report." },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "portability", "key": "report." },
+      { "op": "drive_check", "check": "remote_file", "key": "report.", "text": "dot" },
+      { "op": "drive_check", "check": "remote_file", "key": "notes ", "text": "space" },
+      { "op": "drive_check", "check": "remote_count", "count": 3 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "on Windows, names ending with a dot or a space stay on the drive and are listed, never created, renamed or deleted",
+    "description": "KOOFR-008 (Koofr desktop on Windows before November 2019): a name ending with a dot, made on macOS or Linux, came down as a file Windows could neither open nor delete. Rules P3 and P5: a name valid here and not elsewhere is synced here and flagged (portability); on the system that cannot hold it, it stays on the drive and is listed (invalid-here); it is never renamed or deleted on the drive. sync-chaos port-windows-names.",
+    "only_on": ["windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "report.", "text": "dot" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "notes ", "text": "space" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "fine.txt", "text": "fine" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "fine.txt", "text": "fine" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "invalid-here", "key": "report." },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "invalid-here", "key": "notes " },
+      { "op": "drive_check", "check": "remote_file", "key": "report.", "text": "dot" },
+      { "op": "drive_check", "check": "remote_file", "key": "notes ", "text": "space" },
+      { "op": "drive_check", "check": "remote_count", "count": 3 },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

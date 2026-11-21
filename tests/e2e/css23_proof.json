@@ -1,0 +1,91 @@
+[
+  {
+    "name": "a frame takes its focus-within style while a field inside it has the focus",
+    "description": "`.frame:focus-within` grows the frame's padding when Tab focuses the field inside it; a click outside takes the focus away again.",
+    "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+    "steps": [
+      {
+        "op": "mount",
+        "html": [
+          "<div class=\"frame\" id=\"frame\">",
+          "  <div class=\"field\" id=\"field\" tabindex=\"0\"></div>",
+          "</div>"
+        ],
+        "css": [
+          "body { margin: 0; }",
+          ".frame { width: 100px; padding: 2px; }",
+          ".field { height: 10px; }",
+          ".frame:focus-within { padding: 8px; }"
+        ]
+      },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#frame", "property": "height", "expected": 14, "tolerance": 0.5 },
+      { "op": "key_down", "key": "Tab" },
+      { "op": "key_up", "key": "Tab" },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#frame", "property": "height", "expected": 26, "tolerance": 0.5 },
+      { "op": "take_screenshot" },
+      { "op": "mouse_down", "x": 300, "y": 250, "button": "left" },
+      { "op": "mouse_up", "x": 300, "y": 250, "button": "left" },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#frame", "property": "height", "expected": 14, "tolerance": 0.5 }
+    ]
+  },
+  {
+    "name": "a window control swaps its glyph on hover in plain CSS",
+    "description": "`.ctl:hover > .rest { display: none }` / `.ctl:hover > .lit { display: block }`: the pointer over the control's padding hovers the control, not a glyph, and the glyphs swap (the lit one is taller, so the control grows).",
+    "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+    "steps": [
+      {
+        "op": "mount",
+        "html": [
+          "<div class=\"ctl\" id=\"ctl\">",
+          "  <div class=\"rest\" id=\"rest\"></div>",
+          "  <div class=\"lit\" id=\"lit\"></div>",
+          "</div>"
+        ],
+        "css": [
+          "body { margin: 0; }",
+          ".ctl { width: 40px; padding: 10px; }",
+          ".rest { height: 8px; background: #808080; }",
+          ".lit { height: 20px; background: #c42b1c; display: none; }",
+          ".ctl:hover > .rest { display: none; }",
+          ".ctl:hover > .lit { display: block; }"
+        ]
+      },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#ctl", "property": "height", "expected": 28, "tolerance": 0.5 },
+      { "op": "mouse_move", "x": 3, "y": 3 },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#ctl", "property": "height", "expected": 40, "tolerance": 0.5 },
+      { "op": "take_screenshot" },
+      { "op": "mouse_move", "x": 300, "y": 250 },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#ctl", "property": "height", "expected": 28, "tolerance": 0.5 }
+    ]
+  },
+  {
+    "name": "before and after generate boxes and counted text",
+    "description": "A `::before` with `content: \"\"` and a width sizes its empty host; the list's `::before` writes `1. ` and `2. ` (see the screenshot).",
+    "setup": { "window_width": 400, "window_height": 300, "dpi": 96 },
+    "steps": [
+      {
+        "op": "mount",
+        "html": [
+          "<div><span class=\"tag\" id=\"tag\"></span></div>",
+          "<ol id=\"list\"><li>apples</li><li>pears</li></ol>"
+        ],
+        "css": [
+          "body { margin: 0; }",
+          ".tag { display: inline-block; height: 10px; }",
+          ".tag::before { content: \"\"; display: inline-block; width: 30px; height: 10px; background: #c42b1c; }",
+          "ol { list-style: none; padding: 0; margin: 0; }",
+          "li::before { content: counter(list-item) \". \"; color: #c42b1c; }"
+        ]
+      },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#tag", "property": "width", "expected": 30, "tolerance": 0.5 },
+      { "op": "take_screenshot" }
+    ]
+  }
+]

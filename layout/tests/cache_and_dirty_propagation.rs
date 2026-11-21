@@ -211,12 +211,14 @@ fn test_node_cache_slot_index_deterministic() {
         ),
         1
     );
+    // A measure's slot follows the UNKNOWN axis's own constraint (Taffy's
+    // `compute_cache_slot`): here the height's.
     assert_eq!(
         NodeCache::slot_index(
             true,
             false,
-            AvailableWidthType::MinContent,
-            AvailableWidthType::Definite
+            AvailableWidthType::Definite,
+            AvailableWidthType::MinContent
         ),
         2
     );
@@ -229,12 +231,13 @@ fn test_node_cache_slot_index_deterministic() {
         ),
         3
     );
+    // ...and here the width's.
     assert_eq!(
         NodeCache::slot_index(
             false,
             true,
-            AvailableWidthType::Definite,
-            AvailableWidthType::MinContent
+            AvailableWidthType::MinContent,
+            AvailableWidthType::Definite
         ),
         4
     );
@@ -353,6 +356,7 @@ fn test_node_cache_layout_store_and_retrieve() {
 
     let entry = LayoutCacheEntry {
         available_size: LogicalSize::new(1024.0, 768.0),
+        size_slot: 0,
         result_size: LogicalSize::new(1024.0, 500.0),
         content_size: LogicalSize::new(1024.0, 1200.0),
         child_positions: vec![
@@ -368,18 +372,20 @@ fn test_node_cache_layout_store_and_retrieve() {
     assert!(!cache.is_empty);
 
     // Exact match
-    let hit = cache.get_layout(LogicalSize::new(1024.0, 768.0));
+    let hit = cache.get_layout(0, LogicalSize::new(1024.0, 768.0));
     assert!(hit.is_some());
     assert_eq!(hit.unwrap().child_positions.len(), 2);
 
     // Result-matches-request
-    let hit2 = cache.get_layout(LogicalSize::new(1024.0, 500.0));
+    let hit2 = cache.get_layout(0, LogicalSize::new(1024.0, 500.0));
     assert!(hit2.is_some());
 
     // Clear
     cache.clear();
     assert!(cache.is_empty);
-    assert!(cache.get_layout(LogicalSize::new(1024.0, 768.0)).is_none());
+    assert!(cache
+        .get_layout(0, LogicalSize::new(1024.0, 768.0))
+        .is_none());
 }
 
 #[test]

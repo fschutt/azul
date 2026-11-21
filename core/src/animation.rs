@@ -27,7 +27,9 @@ use azul_css::props::basic::animation::AnimationInterpolationFunction;
 pub use azul_css::props::basic::animation::SpringCurve as Spring;
 
 use crate::{
-    diff::{calculate_reconciliation_key, NodeMove},
+    diff::{
+        calculate_reconciliation_key, precompute_reconciliation_keys, NodeIdentityConfig, NodeMove,
+    },
     dom::NodeData,
     geom::LogicalRect,
     id::NodeId,
@@ -586,15 +588,37 @@ impl AnimationManager {
     pub fn cancel(&mut self, key: AnimKey) -> Option<ActiveAnim> {
         self.active.remove(&key)
     }
+
+    /// Drop every move and enter whose node is not in the current tree
+    /// (`placed(key)` is false). Returns the dropped keys.
+    ///
+    /// Such an animation has nothing to composite against - nothing writes
+    /// its transform anywhere - and it only kept the window asking for
+    /// frames. Exits are kept: a departing node is retained by its zombie
+    /// under the old identity, and a remount may still catch it.
+    pub fn drop_unplaced<F: Fn(AnimKey) -> bool>(&mut self, placed: F) -> Vec<AnimKey> {
+        let gone: Vec<AnimKey> = self
+            .active
+            .iter()
+            .filter(|(key, anim)| anim.class != AnimClass::Exit && !placed(**key))
+            .map(|(key, _)| *key)
+            .collect();
+        for key in &gone {
+            self.active.remove(key);
+        }
+        gone
+    }
 }
 
-/// Turn the diff's correspondence map into `(key, First, Last)` triples.
+/// Turn the diff's correspondence map into `(key, First, Last)` triples,
+/// keyed by the identity the diff matched with (`identity`).
 ///
 /// Pairs missing either rect are dropped.
 pub fn correspondences_from_moves<F, L>(
     node_moves: &[NodeMove],
     new_node_data: &[NodeData],
     new_hierarchy: &[NodeHierarchyItem],
+    identity: NodeIdentityConfig,
     first_rect: F,
     last_rect: L,
 ) -> Vec<(AnimKey, LogicalRect, LogicalRect)>
@@ -615,6 +639,7 @@ where
             new_node_data,
             new_hierarchy,
             m.new_node_id,
+            identity,
         ));
         out.push((key, first, last));
     }
@@ -623,26 +648,27 @@ where
 
 /// The `AnimKey` -> current `NodeId` mapping for this frame's correspondences.
 ///
-/// Bridges the reconciliation identity and per-frame `NodeId`.
+/// Bridges the reconciliation identity (by the rules in `identity`) and
+/// per-frame `NodeId`.
 #[must_use]
 pub fn anim_keys_for_moves(
     node_moves: &[NodeMove],
     new_node_data: &[NodeData],
     new_hierarchy: &[NodeHierarchyItem],
+    identity: NodeIdentityConfig,
 ) -> Vec<(AnimKey, NodeId)> {
+    if node_moves.is_empty() {
+        return Vec::new();
+    }
+    // The keys of the whole tree in one pass. One `calculate_reconciliation_key` per move walks
+    // every earlier sibling of the node at each level of its chain: over all the moves of a
+    // rebuild that is quadratic in the children of one parent (12,470 children: 78 million
+    // steps), on every rebuild of the root.
+    let keys = precompute_reconciliation_keys(new_node_data, new_hierarchy, identity);
     node_moves
         .iter()
-        .filter(|m| m.new_node_id.index() < new_node_data.len())
-        .map(|m| {
-            (
-                AnimKey(calculate_reconciliation_key(
-                    new_node_data,
-                    new_hierarchy,
-                    m.new_node_id,
-                )),
-                m.new_node_id,
-            )
-        })
+        .filter(|m| m.new_node_id.index() < keys.len())
+        .map(|m| (AnimKey(keys[m.new_node_id.index()]), m.new_node_id))
         .collect()
 }
 

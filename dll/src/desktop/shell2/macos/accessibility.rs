@@ -25,6 +25,11 @@ use crate::desktop::shell2::common::accessibility::A11yTreeFeed;
 /// Activation handler that provides the initial accessibility tree on demand
 struct TreeActivationHandler {
     feed: Arc<A11yTreeFeed>,
+    /// The `MacOSWindow` (its address, the token of `after_turn::a11y_delivery`)
+    /// that builds its tree on demand, or 0 for a window that builds it
+    /// eagerly: an activation then asks for a delivery, so that the tree is
+    /// handed over although no layout ran (A10-19).
+    window: usize,
 }
 
 #[cfg(feature = "a11y")]
@@ -37,6 +42,11 @@ impl accesskit::ActivationHandler for TreeActivationHandler {
         // Returning Some here would skip Placeholder and go directly Inactive → Active,
         // which does NOT generate focus events.
         self.feed.placeholder_requested();
+        if self.window != 0 {
+            // On the main thread, inside the client's query: only queued, the
+            // tree is built at the start of the next run-loop turn.
+            super::after_turn::a11y_delivery().request(self.window);
+        }
         None
     }
 }
@@ -75,12 +85,18 @@ impl MacOSAccessibilityAdapter {
     /// # Returns
     /// A new adapter instance that will handle bidirectional communication
     /// between the app and screen readers
-    pub fn new(view: *mut std::ffi::c_void) -> Self {
+    ///
+    /// `window` is the owning `MacOSWindow`'s address when it builds its tree
+    /// on demand (an activation then schedules a delivery), 0 otherwise.
+    pub fn new(view: *mut std::ffi::c_void, window: usize) -> Self {
         let (action_sender, action_receiver) = channel();
         let feed = A11yTreeFeed::new();
 
         // Create handlers
-        let activation_handler = TreeActivationHandler { feed: feed.clone() };
+        let activation_handler = TreeActivationHandler {
+            feed: feed.clone(),
+            window,
+        };
         let action_handler = ChannelActionHandler {
             sender: action_sender,
         };
@@ -114,6 +130,18 @@ impl MacOSAccessibilityAdapter {
             tree_update.tree.is_some()
         );
 
+        // The window root names the app's language (every element inherits
+        // it); VoiceOver asks each element for it as `AXLanguage`.
+        if let Some(language) = tree_update
+            .nodes
+            .iter()
+            .find(|(id, _)| id.0 == 0)
+            .map(|(_, root)| root.language().unwrap_or_default().to_string())
+        {
+            ax_language::set(&language);
+        }
+        ax_language::install();
+
         let Some(tree_update) = self.feed.next_update(tree_update) else {
             return;
         };
@@ -143,6 +171,9 @@ impl MacOSAccessibilityAdapter {
                 );
             }
             Err(e) => {
+                // The adapter did not take it: the next update must be the
+                // complete tree, not a patch against what it missed.
+                self.feed.missed();
                 let msg = e
                     .downcast_ref::<String>()
                     .cloned()
@@ -151,6 +182,67 @@ impl MacOSAccessibilityAdapter {
                 crate::log_warn!(
                     crate::desktop::shell2::common::debug_server::LogCategory::Platform,
                     "[a11y] ERROR: update_if_active panicked: {}",
+                    msg
+                );
+            }
+        }
+    }
+
+    /// Built on demand (A10-19): the adapter was activated by a client and
+    /// waits for its first tree.
+    pub fn awaiting_tree(&self) -> bool {
+        self.feed.awaiting_tree()
+    }
+
+    /// Hand the adapter an update that is built only if it wants one.
+    ///
+    /// `build(full)` runs INSIDE accesskit's `update_if_active`, which calls
+    /// it only while an assistive technology is active: with none, no node is
+    /// visited, the layout side's retained tree does not advance, and this is
+    /// one call that returns at once. `full` is true while the adapter holds
+    /// no tree (just activated, or it missed an update): the first update
+    /// after an activation is the whole tree.
+    pub fn update_tree_on_demand(&mut self, build: impl FnOnce(bool) -> TreeUpdate) {
+        ax_language::install();
+        let full = self.feed.wants_full_tree();
+        let mut ran = false;
+        let result = crate::desktop::recoverable_panic::catch(|| {
+            self.adapter.update_if_active(|| {
+                ran = true;
+                let update = build(full);
+                // The window root names the app's language (see `update_tree`).
+                if let Some(language) = update
+                    .nodes
+                    .iter()
+                    .find(|(id, _)| id.0 == 0)
+                    .map(|(_, root)| root.language().unwrap_or_default().to_string())
+                {
+                    ax_language::set(&language);
+                }
+                update
+            })
+        });
+        match result {
+            Ok(events) => {
+                if ran {
+                    self.feed.built_and_taken();
+                }
+                if let Some(events) = events {
+                    events.raise();
+                }
+            }
+            Err(e) => {
+                // The closure may have run (the retained tree advanced) and
+                // the adapter did not take it: the next one is the whole tree.
+                self.feed.missed();
+                let msg = e
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_else(|| format!("{:?}", e));
+                crate::log_warn!(
+                    crate::desktop::shell2::common::debug_server::LogCategory::Platform,
+                    "[a11y] ERROR: update_if_active panicked (on demand): {}",
                     msg
                 );
             }
@@ -191,6 +283,109 @@ impl MacOSAccessibilityAdapter {
     }
 }
 
+/// `AXLanguage` on every accessibility element: the language VoiceOver picks
+/// its voice by.
+///
+/// accesskit sets the language of a node only inside the attributed strings
+/// of text ranges, which labels and buttons do not have; an element itself
+/// answers `AXLanguage` with nothing, and VoiceOver reads German labels with
+/// the default voice. accesskit's element class (`AccessKitNode`) answers
+/// unknown attributes in `accessibilityAttributeValue:`; this wraps that
+/// method once the class exists and answers `AXLanguage` with the app's
+/// language (one per process: every window speaks the app's language), and
+/// every other attribute with accesskit's own answer.
+#[cfg(feature = "a11y")]
+mod ax_language {
+    use std::{
+        ffi::c_void,
+        sync::{
+            atomic::{AtomicBool, AtomicPtr, Ordering},
+            Mutex,
+        },
+    };
+
+    use objc2::runtime::{AnyClass, AnyObject, Sel};
+    use objc2_foundation::NSString;
+
+    /// The app's language as a BCP 47 tag, from the window root of the last
+    /// tree update; empty when unknown (`AXLanguage` then falls through).
+    static LANGUAGE: Mutex<String> = Mutex::new(String::new());
+    /// accesskit's own `accessibilityAttributeValue:`, which answers every
+    /// attribute but `AXLanguage`. Null until [`install`] succeeded.
+    static ORIGINAL: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
+    /// Whether the wrapper is installed: the class only exists once accesskit
+    /// made its first element, so [`install`] retries until then.
+    static INSTALLED: AtomicBool = AtomicBool::new(false);
+
+    extern "C" {
+        fn class_getInstanceMethod(cls: *const c_void, name: *const c_void) -> *mut c_void;
+        fn method_getImplementation(method: *mut c_void) -> *mut c_void;
+        fn method_setImplementation(method: *mut c_void, imp: *const c_void) -> *mut c_void;
+    }
+
+    pub(super) fn set(language: &str) {
+        if let Ok(mut current) = LANGUAGE.lock() {
+            if current.as_str() != language {
+                *current = language.to_string();
+            }
+        }
+    }
+
+    pub(super) fn install() {
+        if INSTALLED.load(Ordering::Acquire) {
+            return;
+        }
+        let Some(class) = AnyClass::get(c"AccessKitNode") else {
+            return;
+        };
+        let selector = objc2::sel!(accessibilityAttributeValue:);
+        // SAFETY: the runtime functions take a live class and a selector;
+        // the method is accesskit's own, defined on this very class, so
+        // replacing its implementation changes no other class.
+        unsafe {
+            let method = class_getInstanceMethod(
+                (class as *const AnyClass).cast(),
+                std::mem::transmute::<Sel, *const c_void>(selector),
+            );
+            if method.is_null() {
+                return;
+            }
+            ORIGINAL.store(method_getImplementation(method), Ordering::Release);
+            method_setImplementation(method, attribute_value as *const c_void);
+        }
+        INSTALLED.store(true, Ordering::Release);
+    }
+
+    extern "C" fn attribute_value(
+        this: *mut AnyObject,
+        cmd: Sel,
+        attribute: *mut AnyObject,
+    ) -> *mut AnyObject {
+        if !attribute.is_null() {
+            let language = LANGUAGE.lock().map(|l| l.clone()).unwrap_or_default();
+            if !language.is_empty() {
+                let key = NSString::from_str("AXLanguage");
+                // SAFETY: `attribute` is the NSString AppKit asks about.
+                let asks_language: bool =
+                    unsafe { objc2::msg_send![&*attribute, isEqualToString: &*key] };
+                if asks_language {
+                    return objc2::rc::Retained::autorelease_return(NSString::from_str(&language))
+                        .cast();
+                }
+            }
+        }
+        let original = ORIGINAL.load(Ordering::Acquire);
+        if original.is_null() {
+            return std::ptr::null_mut();
+        }
+        // SAFETY: `original` is the implementation this method had, with
+        // this signature (`- (id)accessibilityAttributeValue:(NSString *)`).
+        let original: extern "C" fn(*mut AnyObject, Sel, *mut AnyObject) -> *mut AnyObject =
+            unsafe { std::mem::transmute(original) };
+        original(this, cmd, attribute)
+    }
+}
+
 /// No-op stub used when the `a11y` feature is disabled.
 #[cfg(not(feature = "a11y"))]
 #[derive(Clone, Copy)]
@@ -199,7 +394,7 @@ pub struct MacOSAccessibilityAdapter;
 #[cfg(not(feature = "a11y"))]
 impl MacOSAccessibilityAdapter {
     /// Create a no-op accessibility adapter (a11y feature disabled).
-    pub fn new(_view: *mut std::ffi::c_void) -> Self {
+    pub fn new(_view: *mut std::ffi::c_void, _window: usize) -> Self {
         Self
     }
 

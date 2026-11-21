@@ -54,7 +54,8 @@ Repository = "https://github.com/maps4print/azul"
 # so the path resolves against the workspace.
 manifest-path = "dll/Cargo.toml"
 # `python-extension` pulls in pyo3 (abi3 + extension-module), use_pyo3_logger,
-# link-static and build-dll — the full functional surface as a CPython module.
+# link-static and `dist` (the libazul that ships: the full functional surface as a CPython
+# module, without the debug server and the E2E engines).
 features = ["python-extension"]
 # Build a single abi3 wheel (forward-compatible across CPython 3.x) instead of
 # one wheel per interpreter version.

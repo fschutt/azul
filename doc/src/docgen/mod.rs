@@ -1462,6 +1462,9 @@ mod stylesheet_contract {
 
     const LANDING_REQUIRED: &[&str] = &[
         ".ui-hero {",
+        // AzBuilder, front and center under the hero (index.template.html #azbuilder).
+        ".ui-builder {",
+        ".ui-builder-grid {",
         ".feature-section {",
         ".lang-grid button,",
         ".code-panel {",

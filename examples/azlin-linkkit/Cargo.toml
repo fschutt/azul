@@ -1,0 +1,20 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2): the FINAL manifest. Lanes never edit it: a missing dependency is a drift row.
+# The url crate is forbidden (exact grammar).
+
+[package]
+name = "azlin-linkkit"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Azlin linkkit: the client side of links: URLs, keys and 'Only this person can open it'"
+publish = false
+
+[dependencies]
+azlin-seams = { path = "../azlin-seams" }
+azlin-links = { path = "../azlin-links" }
+blake3 = "1.8"
+base64 = "0.22"
+zeroize = "1.8"
+thiserror = "2"

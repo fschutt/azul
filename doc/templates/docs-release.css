@@ -89,6 +89,27 @@ a.docs-card.is-missing .docs-card-file::after {
     opacity: 0.8;
 }
 
+/* ---- Demos: AzBuilder, the visual GUI builder, above the downloads ---- */
+.docs-content .release-builder {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px 28px;
+    align-items: center;
+    margin: 8px 0 24px;
+}
+.docs-content .release-builder img {
+    width: 100%;
+    height: auto;
+    display: block;
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+}
+.docs-content .release-builder h3 { margin-top: 0; }
+.docs-content .release-builder p { font-size: 15px; max-width: 560px; }
+@media (max-width: 800px) {
+    .docs-content .release-builder { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* ---- Demos: nested OS-group lists ---- */
 .docs-content .release-demos {
     list-style: none;

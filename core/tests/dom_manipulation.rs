@@ -193,12 +193,37 @@ fn test_dom_very_long_text() {
 
 #[test]
 fn test_dom_whitespace_text() {
-    let text = "   \n\t\r\n   ";
+    // Whitespace is content: a text node of nothing but spaces, a tab and line feeds keeps
+    // every one of them - the DOM neither trims nor collapses it (that is the white-space
+    // property's job at layout).
+    let text = "   \n\t\n   ";
     let dom = Dom::create_text_do_not_use_without_block_level_wrapper(text);
     if let NodeType::Text(content) = &dom.root.node_type {
         assert_eq!(content.as_str(), text);
     } else {
         panic!("Expected Text node");
+    }
+}
+
+#[test]
+fn test_dom_text_input_rule_turns_carriage_returns_into_line_feeds() {
+    // The one input rule for the characters of every text that comes in
+    // (azul_css::input_chars, 0b1f4dcaf) follows HTML 13.2.3.5 "normalize newlines" and XML
+    // 1.0 2.11: CR LF is one line feed and a lone CR is a line feed. A text node never holds
+    // a CR, so what reads text after it (shaping, line breaking, the accessibility tree)
+    // need not guard against one. This test used to expect the CR of "\r\n" to survive.
+    for (given, kept) in [
+        ("   \n\t\r\n   ", "   \n\t\n   "),
+        ("a\r\nb", "a\nb"),
+        ("a\rb", "a\nb"),
+        ("a\r\r\nb\n\rc", "a\n\nb\n\nc"),
+        ("\r\n", "\n"),
+    ] {
+        let dom = Dom::create_text_do_not_use_without_block_level_wrapper(given);
+        let NodeType::Text(content) = &dom.root.node_type else {
+            panic!("Expected Text node");
+        };
+        assert_eq!(content.as_str(), kept, "text {given:?}");
     }
 }
 

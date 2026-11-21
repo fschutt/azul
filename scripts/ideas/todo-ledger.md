@@ -14,9 +14,7 @@ Revised the same day after Felix's answers: F1 (font fix is deployed), E10 (auto
 **Priority.** P1 = a user hits it on the documented happy path · P2 = feature users ask for · P3 = hygiene. Effort S/M/L is a guess.
 
 **Existing docs this ledger deliberately does not restate** (cross-link only):
-`scripts/ideas/SCRIPTS_AUDIT_2026_08_01.md` (the "4.1 functional gaps" list lives at its line 103),
 `scripts/ideas/mobile/PLATFORM_INTEGRATION_AUDIT.md` (per-platform stub matrix),
-`scripts/ideas/SITE_AND_EXAMPLES_PLAN_2026_08_20.md` (site/examples backlog, incl. the macOS font post-mortem R1),
 `scripts/ideas/SPEC_CONFORMANCE_REVIEW.md` (CSS spec verdicts), `scripts/audits/QUICK_PASS_HACKS_2026_07_28.md` (vacuous gates).
 There is no CHANGELOG / ROADMAP / TODO file anywhere in the repo; this is the first cross-cutting one. Conventional home would be `scripts/ideas/`.
 
@@ -96,6 +94,16 @@ There is no CHANGELOG / ROADMAP / TODO file anywhere in the repo; this is the fi
 - Rich clipboard `styled_runs`: wired end to end (`layout/src/managers/selection.rs:6-14`); X11/XWayland still plain-text only by design.
 
 ---
+
+### E15. Image-icon tint pushes a bare `Flood` filter — `NEEDS-VERIFICATION` P2 S (logged 2026-09-29, from source reading only)
+
+`layout/src/icon.rs:341-342`: `tint_color` on an image icon becomes `StyleFilter::Flood(tint)`
+with no `Composite(In)` step. By flood semantics that paints the whole box in the tint instead of
+tinting the icon's alpha. Not verified on screen. **Test first:** a reftest with one PNG icon
+(monochrome on alpha) rendered at two tints; expected = the glyph shape in each tint on a
+transparent box. If RED, the fix is `Flood(tint)` followed by `Composite(In)` against the source
+(`css/src/props/style/filter.rs:55,62`). Context and the icon API extension it belongs to:
+`scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md` §8.1-8.2.
 
 ## 2. Widgets — tree view, list view, table (lobste.rs)
 
@@ -181,7 +189,7 @@ The engine has the primitives (VirtualView with a 1M-row proof, keyed reconcilia
 ## 3. Fonts (survey verdict "😭 cannot read fonts" + Linux first-run warnings)
 
 ### F1. macOS "no text renders at all" — `FIXED` and deployed; survey predates the fix
-- Root cause recorded in `scripts/ideas/SITE_AND_EXAMPLES_PLAN_2026_08_20.md:260-296` (R1) and fixed 2026-08-29 (`3042d9474`/`edfeb9e64`): the first-layout guard `cache_empty || build_complete` was false on both sides on macOS (2 cached patterns, scan of ~370 fonts still running), so `request_fonts()` never ran and every UI family missed. Fix: `dll/src/desktop/shell2/common/layout.rs:216-233` `should_request_fonts`; regression test `dll/tests/font_cache_regression.rs:1-86`.
+- Root cause found on 2026-08-20 and fixed 2026-08-29 (`3042d9474`/`edfeb9e64`): the first-layout guard `cache_empty || build_complete` was false on both sides on macOS (2 cached patterns, scan of ~370 fonts still running), so `request_fonts()` never ran and every UI family missed. Fix: `dll/src/desktop/shell2/common/layout.rs:216-233` `should_request_fonts`; regression test `dll/tests/font_cache_regression.rs:1-86`.
 - **Verified shipped (2026-09-14):** the live `https://azul.rs/ui/release/0.2.0/libazul.dylib` (Last-Modified 2026-09-08 15:38 GMT, sha in the tap formula commit `666f897`) contains the log string `[regenerate_layout] Font cache in sync with the completed build`, which only exists since `edfeb9e64`. The gist's Linux log from 2026-09-08 prints the same line. The survey ran on 2026-08-22, one week before the fix. "0.2.0" is a moving version; nothing to release, but the survey row will only change if the author re-tests.
 - Not a scan-path bug: rust-fontconfig 5.0 scans `~/Library/Fonts`, `/System/Library/Fonts`, `/Library/Fonts`, `/System/Library/AssetsV2` recursively, `.ttc` accepted; CoreText is used only on iOS.
 - **Todo:** none for the bug itself. Consider asking the survey author (blog.wybxc.cc) to re-test, and consider a visible build date/commit in the dylib (`strings` finds no git sha today) so "which 0.2.0 do you have" is answerable.
@@ -284,7 +292,7 @@ The engine has the primitives (VirtualView with a 1M-row proof, keyed reconcilia
 - 12 Java files in `scripts/android/` (`AzulActivity`, `NativeTextBridge`, `NativeGestureBridge`, `AzulAccessibilityBridge`, `AzulGamepad`, `AzulFilePicker`, `AzulMediaSession`, `AzulBiometric`, `AzulKeyring`, `AzulGeolocation`, `AzulSensors`, `AzulPermissions`), compiled by `scripts/build-android.sh:110-122` (javac + d8 → `classes.dex`). Each exists because the corresponding Android API (`InputMethodManager`/`InputConnection`, TalkBack node provider, `onRequestPermissionsResult`, SAF picker, …) has no NDK entry point; you can *call* framework Java from Rust via JNI, but you cannot *implement* the callback classes without bytecode.
 - `.so`-only already works: `AZ_ANDROID_NO_JAVA=1` skips the dex and keeps `android:hasCode="false"`, but the script does not swap `com.azul.app.AzulActivity` back to `android.app.NativeActivity` in the manifest (`build-android.sh:145-198, 235-237`), and you lose IME/a11y/permissions/pickers/sensors/biometric/keyring/geolocation/media session.
 - Options: (a) prebuild `classes.dex` once in CI and ship it as a binary asset next to the `.so` (no javac on the user's machine, still no `.java` in the SDK); (b) generate DEX at codegen time; (c) NativeActivity-only tier. (a) is the cheap one.
-- Stale: `dll/Cargo.toml:394` and `SCRIPTS_AUDIT_2026_08_01.md:106` still talk about `NativeInputConnection`.
+- Stale: `dll/Cargo.toml:394` still talks about `NativeInputConnection`.
 
 ### M2. Platform stubs (from `PLATFORM_INTEGRATION_AUDIT.md`) — record only
 - Windows geolocation/sensors/biometric stubs, mic/audio still a 440 Hz test tone on macOS/Windows/mobile, no desktop pen/tablet path. See that file, lines 18-81.
@@ -327,7 +335,7 @@ The engine has the primitives (VirtualView with a 1M-row proof, keyed reconcilia
 | H3 | `scripts/audits/QUICK_PASS_HACKS_2026_07_28.md` | mostly fixed | 6/8 spot-checks fixed. Still live: D3 `tests/src/layout.rs` has no `mod` entry in `tests/src/lib.rs`; E3 `focus.pending_focus_request` has no production caller (`layout/src/managers/focus_cursor.rs:237-242`); D2 `DISABLED_hint_vs_freetype` feature still in `layout/Cargo.toml:415`. Fix those three and archive the doc to `scripts/ideas/`. |
 | H4 | `scripts/e2e-web` "mini puppeteer" | undocumented outside its folder | Real and shipped: bundled into every dll by `dll/build.rs:107,737-794`, run via `AZ_BACKEND=<url> AZ_E2E=<dir>` (`dll/src/e2e_web_runner.rs:3-11`, `desktop/app.rs:319`). Documented only in `scripts/e2e-web/README.md`; not in `doc/guide/en/debugging/e2e-testing.md`; not in any workflow. Add a guide section and a CI job. |
 | H5 | Telemetry demo → `examples/` | decided 2026-09-14 | Move `layout/examples/telemetry_grafana.rs` + `layout/examples/telemetry-grafana/` (compose stack: otel-collector → VictoriaMetrics + Loki → Grafana) to `examples/telemetry-grafana/` as a workspace member (add to the root `Cargo.toml` `members`) depending on `azul-layout` with feature `telemetry`; drop the `[[example]]` block at `layout/Cargo.toml:417-428`; keep the README's run line (`AZ_TELEMETRY=metrics AZ_TELEMETRY_ENDPOINT=… cargo run -p <new crate> --features telemetry,probe`). Add a guide page, since none covers telemetry. |
-| H6 | Stale references | STALE | `examples/php/README.md` (api.json ×3), `examples/smalltalk/README.md` (e2e script ×2), `ENGINE-ISSUES.md` (azul-writer ×3), `dll/azul.h` (E12), `doc/guide/en/widgets/structural.md:35,140-147` (W2), `SCRIPTS_AUDIT_2026_08_01.md:106` + `dll/Cargo.toml:394` (`NativeInputConnection`). |
+| H6 | Stale references | STALE | `examples/php/README.md` (api.json ×3), `examples/smalltalk/README.md` (e2e script ×2), `ENGINE-ISSUES.md` (azul-writer ×3), `dll/azul.h` (E12), `doc/guide/en/widgets/structural.md:35,140-147` (W2), `dll/Cargo.toml:394` (`NativeInputConnection`). |
 | H7 | Windows GUI | manual verification (Felix) | 16-file Win32 shell (`dll/src/desktop/shell2/windows/`, `mod.rs` 7.9k lines), 0 `todo!`, 2 TODOs (`mod.rs:656` menu bar from window state, `:660` `size_to_content`). CI builds and unit-tests it on `windows-2022` with an anti-vacuity gate (`rust.yml:785`); no workflow on any OS runs `AZ_BACKEND=native`, so the manual check is the only GUI evidence. Checklist for the manual pass: window opens, CSD titlebar drag (`WM_NCLBUTTONDOWN` path), IME composition (IMM32 path at `mod.rs:5744-5897`), text input relayout, menu bar, DPI change, and the three documented Windows install routes (all failing in CI, B12). |
 | H8 | `.claude/worktrees/*` | noise | ~10 stale full-tree copies; several notes in this ledger were true only there. Consider gitignoring or pruning. |
 
@@ -358,5 +366,6 @@ The engine has the primitives (VirtualView with a 1M-row proof, keyed reconcilia
 - ListView v2: `on_sort` replaces `on_column_click`; widget owns virtualization, row measurement and estimation, lazy row fetching; plus filter bar, expandable rows, drag-reorderable headers, mobile key/value layout, `on_edit` with per-column editability and an optional pen icon; demo = CRUD over the `Db` key/value API with a filter bar in `examples/azul-widgets` (W2, W1 mirrors it for TreeView, W3 for the table).
 - TextInput selects its whole value when focus arrives via Tab, default on and disable-able, so data entry is tab → type → tab → type (W7; needs a focus-cause signal the engine does not have yet).
 - Android keeps its Java classes for now (M1).
+- Theming and ricing model decided 2026-09-29 (`scripts/ideas/RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md`, plus `THEME_ARCH_VS_QT_BREEZE_2026_09_29.md`): every widget carries every theme it knows as contained `@theme` blocks; the active theme is a chain (`xyz:pink → xyz → app default`, header `fallback:` when `:` is not enough); rank sorts before selector specificity; rice files carry a `//` header with `theme:`, `priority:` (default `base`, cannot break the app), `fallback:` and `app:`; light/dark are nested blocks holding variables; `var()` moves to cascade level first; `AZ_THEME` is refactored from the light/dark pin to the chain; icons get capability metadata (`currentColor` / mask / palette / variants) and a remap table per theme directory.
 
 Nothing is waiting on an answer. One constraint worth knowing before the ListView demo starts: azul's `Db` API is key/value + index by design and never exposes SQL (`api.json:9238`), so the "SQL CRUD" demo is `iterate` / `query_index` / `set` / `remove` over a store, not `SELECT … ORDER BY`.

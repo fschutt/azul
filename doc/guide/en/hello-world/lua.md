@@ -138,6 +138,36 @@ and return `self`, whereas `with_*` consume `self` and return the new value. Pla
 strings flow through the auto-string conversion, so `'Increase counter'` and `tostring(data.counter)` 
 can be passed directly.
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is `nil` or the value: a parameter takes `nil` for 
+"none", a field getter or a return value gives `nil` when there is nothing. A failed 
+call (an `Err`) raises an error; an error raised inside a callback is logged and the 
+callback does nothing.
+
+A folder picker. Before, the start folder had to be an `AzOptionString` cdata and 
+`FileOpenResult.downcast` returned the raw option cdata. Now:
+
+```lua
+local function on_pick_folder(model, _info, result)
+    local picked = azul.FileOpenResult.downcast(result)
+    local path = picked and picked:get_path()
+    if path == nil then return azul.Update.DoNothing end -- not a folder pick, or cancelled
+    model.folder = path:get_inner()
+    return azul.Update.RefreshDom
+end
+
+local function on_choose_folder(model, _info)
+    azul.FileDialog.open_directory('Choose a folder', nil, model, on_pick_folder)
+    return azul.Update.DoNothing
+end
+
+local function on_open_link(model, _info)
+    azul.Url.parse(model.link) -- an Err raises: logged, the callback does nothing
+    return azul.Update.RefreshDom
+end
+```
+
 ## Build and run
 ```sh
 # macOS LuaJIT, with libazul.dylib next to the script

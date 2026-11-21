@@ -1,0 +1,33 @@
+{
+  "name": "modification times arrive as written (the past, DST boundaries, sub-second, 2038, 2100); a touch alone sends no content",
+  "description": "PCLOUD-018 (pCloud): modification dates not kept on upload ('Retention of dates on file uploads', 'Fixed files modify date issue'). Rules P6/P12 (sync-chaos port-mtime-roundtrip): times travel and are set on downloads; time is never the decision.",
+  "pending": "an encrypted drive keeps no file's modification time: a drive synced by name has no way to send one (Drive::put takes none) and lists only the upload's second (ObjectInfo.modified), so the named sync sets mtime_ns 0 and a download gets the download time. It needs a time in the put calls, the pointer and the listing (P6/P12 on encrypted drives)",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "epoch.txt", "text": "one second after the epoch", "mtime": 1000000000 },
+    { "op": "drive_write", "device": "a", "path": "photo-2003.jpg", "text": "an old photo, nanoseconds", "mtime": 1049760000123456789 },
+    { "op": "drive_write", "device": "a", "path": "dst-start-eu.txt", "text": "the hour the clocks went forward", "mtime": 1774746000500000000 },
+    { "op": "drive_write", "device": "a", "path": "dst-end-eu.txt", "text": "the hour that happened twice", "mtime": 1761440400250000000 },
+    { "op": "drive_write", "device": "a", "path": "y2038.txt", "text": "past 32-bit time", "mtime": 2147483648000000000 },
+    { "op": "drive_write", "device": "a", "path": "far.txt", "text": "the year 2100", "mtime": 4102444800000000000 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "mtime", "device": "b", "path": "epoch.txt", "ns": 1000000000, "tolerance_ns": 1000 },
+    { "op": "drive_check", "check": "mtime", "device": "b", "path": "photo-2003.jpg", "ns": 1049760000123456789, "tolerance_ns": 1000 },
+    { "op": "drive_check", "check": "mtime", "device": "b", "path": "dst-start-eu.txt", "ns": 1774746000500000000, "tolerance_ns": 1000 },
+    { "op": "drive_check", "check": "mtime", "device": "b", "path": "dst-end-eu.txt", "ns": 1761440400250000000, "tolerance_ns": 1000 },
+    { "op": "drive_check", "check": "mtime", "device": "b", "path": "y2038.txt", "ns": 2147483648000000000, "tolerance_ns": 1000 },
+    { "op": "drive_check", "check": "mtime", "device": "b", "path": "far.txt", "ns": 4102444800000000000, "tolerance_ns": 1000 },
+    { "op": "drive_utime", "device": "a", "path": "photo-2003.jpg", "mtime": 1049760001000000000 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+    { "op": "drive_check", "check": "remote_file", "key": "photo-2003.jpg", "text": "an old photo, nanoseconds" },
+    { "op": "drive_cleanup" }
+  ]
+}

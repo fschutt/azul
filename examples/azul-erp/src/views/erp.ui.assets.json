@@ -1,0 +1,206 @@
+{
+  "views": {
+    "assets_fixed_asset_list": {
+      "id": "assets_fixed_asset_list",
+      "path": "/accounting/assets",
+      "type": "table",
+      "title_key": "view.fixed_assets.title",
+      "api": {
+        "get": "/api/assets/fixed-assets"
+      },
+      "actions": [
+        {
+          "type": "link",
+          "label_key": "actions.add_asset",
+          "path": "/accounting/assets/new",
+          "variant": "primary"
+        }
+      ],
+      "columns": [
+        {
+          "data_field": "asset_number",
+          "header_key": "fields.asset_number.label"
+        },
+        {
+          "data_field": "name",
+          "header_key": "fields.asset_name.label"
+        },
+        {
+          "data_field": "category",
+          "header_key": "fields.category.label"
+        },
+        {
+          "data_field": "acquisition_date",
+          "header_key": "fields.acquisition_date.label",
+          "type": "date"
+        },
+        {
+          "data_field": "acquisition_cost",
+          "header_key": "fields.acquisition_cost.label",
+          "type": "currency"
+        },
+        {
+          "data_field": "book_value",
+          "header_key": "fields.book_value.label",
+          "type": "currency"
+        },
+        {
+          "data_field": "status",
+          "header_key": "fields.status.label",
+          "type": "status_pill"
+        }
+      ],
+      "row_actions": [
+        {
+          "type": "link",
+          "label_key": "actions.view",
+          "path": "/accounting/assets/:id",
+          "icon": "ViewIcon"
+        }
+      ]
+    },
+    "assets_fixed_asset_form": {
+      "id": "assets_fixed_asset_form",
+      "path": [
+        "/accounting/assets/new",
+        "/accounting/assets/:id/edit"
+      ],
+      "type": "form",
+      "title_key": {
+        "new": "view.asset_new.title",
+        "edit": "view.asset_edit.title"
+      },
+      "api": {
+        "get": "/api/assets/fixed-assets/:id",
+        "post": "/api/assets/fixed-assets",
+        "put": "/api/assets/fixed-assets/:id"
+      },
+      "fields": [
+        {
+          "name": "name",
+          "type": "text",
+          "label_key": "fields.asset_name.label",
+          "required": true
+        },
+        {
+          "name": "asset_number",
+          "type": "text",
+          "label_key": "fields.asset_number.label",
+          "required": true
+        },
+        {
+          "name": "category",
+          "type": "text",
+          "label_key": "fields.category.label"
+        },
+        {
+          "name": "acquisition_date",
+          "type": "date",
+          "label_key": "fields.acquisition_date.label",
+          "required": true
+        },
+        {
+          "name": "acquisition_cost",
+          "type": "decimal",
+          "label_key": "fields.acquisition_cost.label",
+          "required": true
+        },
+        {
+          "name": "useful_life_years",
+          "type": "integer",
+          "label_key": "fields.useful_life_years.label",
+          "required": true
+        },
+        {
+          "name": "depreciation_method",
+          "type": "select",
+          "label_key": "fields.depreciation_method.label",
+          "options": [
+            {
+              "value": "STRAIGHT_LINE",
+              "label_key": "depreciation.straight_line"
+            }
+          ],
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "type": "submit",
+          "label_key": "actions.save",
+          "variant": "primary"
+        }
+      ]
+    },
+    "assets_fixed_asset_detail": {
+      "id": "assets_fixed_asset_detail",
+      "path": "/accounting/assets/:id",
+      "type": "detail",
+      "api": {
+        "get": "/api/assets/fixed-assets/:id"
+      },
+      "header": {
+        "title_field": "name",
+        "subtitle_field": "asset_number",
+        "status_field": "status",
+        "actions": [
+          {
+            "type": "link",
+            "label_key": "actions.edit",
+            "path": "/accounting/assets/:id/edit",
+            "variant": "secondary"
+          }
+        ]
+      },
+      "tabs": [
+        {
+          "key": "tab.overview",
+          "component": "FixedAssetOverviewPanel"
+        },
+        {
+          "key": "tab.depreciation_schedule",
+          "component": "DepreciationSchedulePanel",
+          "api": {
+            "get": "/api/assets/fixed-assets/:id"
+          }
+        }
+      ]
+    },
+    "assets_depreciation_run_wizard": {
+      "id": "assets_depreciation_run_wizard",
+      "path": "/assets/depreciation-runs/new",
+      "type": "wizard",
+      "title_key": "view.depreciation_run_new.title",
+      "api": {
+        "post": "/api/assets/depreciation-runs"
+      },
+      "steps": [
+        {
+          "key": "parameters",
+          "title_key": "steps.parameters",
+          "fields": [
+            {
+              "name": "run_date",
+              "type": "date",
+              "label_key": "fields.run_date.label",
+              "required": true,
+              "default": "today"
+            }
+          ]
+        },
+        {
+          "key": "preview",
+          "title_key": "steps.preview",
+          "component": "DepreciationRunPreview"
+        }
+      ],
+      "actions": [
+        {
+          "type": "submit",
+          "label_key": "actions.run_and_post",
+          "variant": "primary"
+        }
+      ]
+    }
+  }
+}

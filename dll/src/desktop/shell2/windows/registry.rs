@@ -124,6 +124,21 @@ pub fn drain_closed_windows() {
         // (run.rs) and was removed from the registry exactly once before being
         // queued, so this is its sole owner and the box is freed exactly once.
         unsafe {
+            // The app's threads and keyring ops go on in a window that stays open (a compose
+            // window whose main window closed), not stopped with this one.
+            for hwnd in get_all_window_handles() {
+                let Some(heir) = get_window(hwnd) else {
+                    continue;
+                };
+                if heir != window_ptr
+                    && crate::desktop::shell2::common::thread_handover::hand_over_background_work(
+                        &mut *window_ptr,
+                        &mut *heir,
+                    )
+                {
+                    break;
+                }
+            }
             drop(Box::from_raw(window_ptr));
         }
     }

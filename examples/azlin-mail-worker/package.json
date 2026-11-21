@@ -1,0 +1,15 @@
+{
+  "name": "azlin-mail-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A Cloudflare Email Worker that files a domain's incoming mail into an Azlin drive (sealed to the drive's drop key when the drive is encrypted).",
+  "type": "module",
+  "main": "src/worker.js",
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

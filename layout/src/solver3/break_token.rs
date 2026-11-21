@@ -126,6 +126,9 @@ impl InlineBreakToken {
             items,
             next_item_index: self.next_item_index,
             partial_remainder: self.partial_remainder.clone(),
+            // The token keeps no hyphenation breaks of the remainder: the rest
+            // of a word is hyphenated anew where the fragment resumes.
+            partial_remainder_breaks: None,
             word_break,
             hyphens,
             line_break,

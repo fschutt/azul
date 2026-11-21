@@ -469,6 +469,9 @@ macro_rules! css_property_from_type {
             CssPropertyType::SpatialNavigationContain => {
                 CssProperty::SpatialNavigationContain(CssPropertyValue::$content_type)
             }
+            CssPropertyType::SpatialNavigationFunction => {
+                CssProperty::SpatialNavigationFunction(CssPropertyValue::$content_type)
+            }
             CssPropertyType::BackfaceVisibility => {
                 CssProperty::BackfaceVisibility(CssPropertyValue::$content_type)
             }
@@ -546,6 +549,13 @@ macro_rules! css_property_from_type {
             }
             CssPropertyType::FlowInto => CssProperty::FlowInto(CssPropertyValue::$content_type),
             CssPropertyType::FlowFrom => CssProperty::FlowFrom(CssPropertyValue::$content_type),
+            CssPropertyType::WrapThrough => {
+                CssProperty::WrapThrough(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::WrapFlow => CssProperty::WrapFlow(CssPropertyValue::$content_type),
+            CssPropertyType::RegionFragment => {
+                CssProperty::RegionFragment(CssPropertyValue::$content_type)
+            }
             CssPropertyType::ShapeOutside => {
                 CssProperty::ShapeOutside(CssPropertyValue::$content_type)
             }
@@ -573,6 +583,29 @@ macro_rules! css_property_from_type {
                 CssProperty::ListStylePosition(CssPropertyValue::$content_type)
             }
             CssPropertyType::StringSet => CssProperty::StringSet(CssPropertyValue::$content_type),
+            CssPropertyType::Zoom => CssProperty::Zoom(CssPropertyValue::$content_type),
+            CssPropertyType::BackgroundClip => {
+                CssProperty::BackgroundClip(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontVariantNumeric => {
+                CssProperty::FontVariantNumeric(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontVariantCaps => {
+                CssProperty::FontVariantCaps(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::FontFeatureSettings => {
+                CssProperty::FontFeatureSettings(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::CounterSet => {
+                CssProperty::CounterSet(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::Quotes => CssProperty::Quotes(CssPropertyValue::$content_type),
+            CssPropertyType::BackgroundOrigin => {
+                CssProperty::BackgroundOrigin(CssPropertyValue::$content_type)
+            }
+            CssPropertyType::BackgroundColor => {
+                CssProperty::BackgroundColor(CssPropertyValue::$content_type)
+            }
             CssPropertyType::TableLayout => {
                 CssProperty::TableLayout(CssPropertyValue::$content_type)
             }

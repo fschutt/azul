@@ -1,0 +1,7 @@
+Calmet UI (CalmetUI-Regular.ttf, CalmetUI-Italic.ttf)
+
+Traced from the azul author's own digitisation of a public-domain print,
+Augustin Calmet's "Commentaire litteral sur tous les livres de l'Ancien et
+du Nouveau Testament" (1732), and made fit for a user interface by the same
+author. The fonts are part of this crate and distributed under its licence
+(MIT, see the repository's LICENSE).

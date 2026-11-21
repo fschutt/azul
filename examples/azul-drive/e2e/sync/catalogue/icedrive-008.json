@@ -1,0 +1,26 @@
+{
+  "name": "a pair removed while its uploads are queued sends nothing more; its files stay here",
+  "description": "ICEDRIVE-008 (Icedrive): after removing a sync pair the transfers window kept filling with uploads from the removed pair's folder. Rules D5/A4 (sync-chaos delete-unpair-keeps-files): unpairing purges the pair's queue with the pair, deletes nothing, and no later request names its paths.",
+  "steps": [
+    { "op": "drive_harness" },
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "queued", "count": 50, "text_prefix": "queued" },
+    { "op": "drive_sync", "device": "a", "pause_at": "before-upload" },
+    { "op": "drive_unpair", "device": "a" },
+    { "op": "drive_cont", "device": "a" },
+    { "op": "drive_wait", "device": "a", "expect": "any" },
+    { "op": "drive_wait_idle", "timeout_ms": 10000 },
+    { "op": "wait", "ms": 1000, "real": true },
+    { "op": "drive_check", "check": "remote_count", "glob": "queued/*", "count": 0 },
+    { "op": "drive_check", "check": "files_count", "device": "a", "glob": "queued/*", "count": 50 },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "remote_count", "glob": "queued/*", "count": 50 },
+    { "op": "drive_check", "check": "files_count", "device": "a", "glob": "*conflict*", "count": 0 },
+    { "op": "drive_cleanup" }
+  ]
+}

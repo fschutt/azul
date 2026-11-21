@@ -73,7 +73,7 @@ fn test_bug3_rtl_glyph_reversal() {
     let text = "\u{05e9}\u{05dc}\u{05d5}\u{05dd}";
     let style = default_style();
     // Manually create visual items as if BIDI pass has run
-    let visual_items = vec![VisualItem {
+    let bidi_runs = vec![BidiRun {
         logical_source: LogicalItem::Text {
             source: ContentIndex {
                 run_index: 0,
@@ -91,7 +91,7 @@ fn test_bug3_rtl_glyph_reversal() {
     }];
 
     // Manually run shaping
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
 
     // Assert that we have 4 clusters for 4 characters
     assert_eq!(shaped_items.len(), 4);
@@ -154,9 +154,9 @@ fn test_simple_line_break() {
 
     // Using layout_flow is complex for mocks, so we'll test stages
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = super::perform_fragment_layout_compat(
@@ -198,9 +198,9 @@ fn test_justification_inter_word() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
 
     let (positioned, _) = super::position_one_line_compat(
         &shaped_items,
@@ -249,8 +249,8 @@ fn test_hyphenation_break() {
         logical_start_byte: 0,
         source_node_id: None,
     })];
-    let shaped_items = super::shape_visual_items_compat(
-        &super::reorder_logical_items_compat(
+    let shaped_items = super::shape_bidi_runs_compat(
+        &super::split_into_bidi_runs_compat(
             &super::create_logical_items_compat(&content, &[]),
             BidiDirection::Ltr,
         )
@@ -311,8 +311,8 @@ fn test_hyphenation_break_2() {
         logical_start_byte: 0,
         source_node_id: None,
     })];
-    let shaped_items = super::shape_visual_items_compat(
-        &super::reorder_logical_items_compat(
+    let shaped_items = super::shape_bidi_runs_compat(
+        &super::split_into_bidi_runs_compat(
             &super::create_logical_items_compat(&content, &[]),
             BidiDirection::Ltr,
         )

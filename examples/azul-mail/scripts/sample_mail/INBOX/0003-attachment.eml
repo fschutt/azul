@@ -1,0 +1,25 @@
+Message-ID: <invoice-114@example.org>
+Date: Tue, 29 Sep 2026 16:30:00 +0200
+From: Cleo Martin <cleo@example.org>
+To: Ada Lovelace <ada@example.org>
+Cc: Ben Okafor <ben@example.org>
+Subject: Seed invoice 2026-114
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-114"
+
+--mixed-114
+Content-Type: text/plain; charset=utf-8
+
+Hello Ada,
+
+the invoice for the seeds is attached.
+
+Cleo
+--mixed-114
+Content-Type: text/csv; name="invoice-2026-114.csv"
+Content-Disposition: attachment; filename="invoice-2026-114.csv"
+Content-Transfer-Encoding: base64
+
+aXRlbSxxdWFudGl0eSxwcmljZQp0dWxpcCBidWxicywyMCw4LjAwCmRhZmZvZGlscywxMCw1LjUw
+Cg==
+--mixed-114--

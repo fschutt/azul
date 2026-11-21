@@ -174,9 +174,19 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     unsafe {
         crate::az_mark(0x607B0_u32, (tree.nodes.len() as u32));
     }
+    #[cfg(test)]
+    INTRINSIC_PASS_CALLS.with(|n| n.set(n.get() + 1));
+    // The borders tables and their boxes are laid out with (no border on
+    // rows, row groups and columns; in the collapsing model half of each
+    // collapsed grid edge and no table padding, CSS 2.2 17.6) - before
+    // anything below or in the layout measures them. Idempotent; a pass over
+    // a reused tree finds them already in place.
+    super::fc::apply_table_border_model(&*ctx, tree);
     if dirty_nodes.is_empty() {
         return Ok(());
     }
+    #[cfg(test)]
+    IFC_MEASURES_PER_PASS.with(|passes| passes.borrow_mut().push(0));
 
     debug_log!(ctx, "Starting intrinsic size calculation");
     // Pre-compute the "ancestor closure" of dirty_nodes: every dirty
@@ -186,7 +196,10 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     // Before this, `calculate_intrinsic_recursive` walked the full
     // tree from root regardless, costing ~2 ms per warm render on
     // excel.html even when only 3 nodes were actually dirty.
-    let dirty_closure = compute_dirty_ancestor_closure(tree, dirty_nodes);
+    // As one flag per node (`DirtyAncestors`), not the hash set of
+    // `compute_dirty_ancestor_closure`: the walk asks for every node it
+    // visits.
+    let dirty_closure = DirtyAncestors::of(tree, dirty_nodes);
     // [az-diag g59 REVERT] 0x407B4 = nodes.len AFTER compute_dirty_ancestor_closure (its HashSet
     // sret).
     unsafe {
@@ -231,10 +244,96 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     Ok(())
 }
 
+/// How many entries [`intrinsic_of_child`] compared on this thread
+/// (`audit_tests::a3_solver`: one per child of a box, not one per child per
+/// child).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INTRINSIC_CHILD_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The intrinsic sizes of the child `child_index` among `child_intrinsics`,
+/// the `(child, sizes)` pairs the recursion collected for a box's children in
+/// child order (a child the tree does not hold has none).
+///
+/// A box that asks for its children in that order - every caller's loop over
+/// `tree.children(..)` - finds each entry where the one before it ended:
+/// `next_entry` is that place. It was found by a scan of the pairs from the
+/// first one for every child (`child_intrinsics.iter().find(..)`), n * n / 2
+/// comparisons for a box of n children: 72 million for a block of 12,000
+/// absolutely positioned labels, on every pass that sizes one of them anew.
+/// An entry that is not at its place (a child without one came before) is
+/// still found by that scan, so the answer is the scan's: the first pair of
+/// the child (a child is listed once among its parent's children).
+fn intrinsic_of_child<'a>(
+    child_intrinsics: &'a [(usize, IntrinsicSizes)],
+    next_entry: &mut usize,
+    child_index: usize,
+) -> Option<&'a IntrinsicSizes> {
+    #[cfg(test)]
+    INTRINSIC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+    if let Some((child, sizes)) = child_intrinsics.get(*next_entry) {
+        if *child == child_index {
+            *next_entry += 1;
+            return Some(sizes);
+        }
+    }
+    let found = child_intrinsics.iter().position(|(child, _)| {
+        #[cfg(test)]
+        INTRINSIC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+        *child == child_index
+    })?;
+    *next_entry = found + 1;
+    Some(&child_intrinsics[found].1)
+}
+
+/// How many inline formatting contexts each intrinsic pass on this thread
+/// collected and measured, one entry per [`calculate_intrinsic_sizes`] that
+/// had something dirty (`audit_tests::a3_solver`: one per label of a layer
+/// of labels, not one for the label's text and one more for the label).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_MEASURES_PER_PASS: core::cell::RefCell<Vec<usize>> = const { core::cell::RefCell::new(Vec::new()) };
+}
+
+/// What the ROOT of an inline formatting context puts into the measure of
+/// its intrinsic sizes beside the content: the fields
+/// [`ifc_measure_constraints`] sets from the root's style, compared bit for
+/// bit (`UnifiedConstraints`' own `==` rounds its lengths). Two roots with
+/// the same content and the same key are measured alike.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct IfcMeasureKey {
+    white_space_mode: crate::text3::cache::WhiteSpaceMode,
+    text_indent_bits: u32,
+    text_indent_each_line: bool,
+    text_indent_hanging: bool,
+}
+
+impl IfcMeasureKey {
+    fn of(constraints: &UnifiedConstraints) -> Self {
+        Self {
+            white_space_mode: constraints.white_space_mode,
+            text_indent_bits: constraints.text_indent.to_bits(),
+            text_indent_each_line: constraints.text_indent_each_line,
+            text_indent_hanging: constraints.text_indent_hanging,
+        }
+    }
+}
+
+/// How many times [`compute_dirty_ancestor_closure`] built its hash set for
+/// a dirty set that was not empty, on this thread (`audit_tests::a3_solver`:
+/// the intrinsic pass builds none, it asks [`DirtyAncestors`]).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static DIRTY_CLOSURE_HASH_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 pub(crate) fn compute_dirty_ancestor_closure(
     tree: &LayoutTree,
     dirty_nodes: &BTreeSet<usize>,
 ) -> std::collections::HashSet<usize> {
+    #[cfg(test)]
+    DIRTY_CLOSURE_HASH_BUILDS.with(|n| n.set(n.get() + usize::from(!dirty_nodes.is_empty())));
     let mut closure: std::collections::HashSet<usize> = std::collections::HashSet::new();
     for &dirty in dirty_nodes {
         let mut cur = Some(dirty);
@@ -246,6 +345,169 @@ pub(crate) fn compute_dirty_ancestor_closure(
         }
     }
     closure
+}
+
+/// The set [`compute_dirty_ancestor_closure`] returns - every dirty node and
+/// each of its ancestors - as one flag per layout node.
+///
+/// The intrinsic pass asks for every node it visits whether it is in the
+/// set, and the set was a `HashSet<usize>`: a SipHash per member to build it
+/// and one per visited node to ask it, on every pass. A flag is an index.
+/// The members are the same: [`Self::walk`] is that function's walk, and
+/// [`Self::insert`] answers as `HashSet::insert` does.
+#[derive(Default)]
+struct DirtyAncestors {
+    /// `in_tree[i]`: the layout node `i` is dirty or has a dirty descendant.
+    in_tree: Vec<bool>,
+    /// The members that are no node of the tree (a stale dirty index, a
+    /// parent link out of range): the hash set holds those too.
+    beyond: BTreeSet<usize>,
+}
+
+impl DirtyAncestors {
+    fn of(tree: &LayoutTree, dirty_nodes: &BTreeSet<usize>) -> Self {
+        Self::walk(tree.nodes.len(), dirty_nodes, |idx| {
+            tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+        })
+    }
+
+    /// From every dirty node up its parents (`parent_of`) until a member is
+    /// met, in a tree of `node_count` nodes.
+    fn walk(
+        node_count: usize,
+        dirty_nodes: &BTreeSet<usize>,
+        parent_of: impl Fn(usize) -> Option<usize>,
+    ) -> Self {
+        let mut closure = Self {
+            in_tree: vec![false; node_count],
+            beyond: BTreeSet::new(),
+        };
+        for &dirty in dirty_nodes {
+            let mut cur = Some(dirty);
+            while let Some(idx) = cur {
+                if !closure.insert(idx) {
+                    break;
+                }
+                cur = parent_of(idx);
+            }
+        }
+        closure
+    }
+
+    /// Adds `idx`; `false` when it was a member already.
+    fn insert(&mut self, idx: usize) -> bool {
+        match self.in_tree.get_mut(idx) {
+            Some(member) => !core::mem::replace(member, true),
+            None => self.beyond.insert(idx),
+        }
+    }
+
+    fn contains(&self, idx: usize) -> bool {
+        match self.in_tree.get(idx) {
+            Some(member) => *member,
+            None => self.beyond.contains(&idx),
+        }
+    }
+}
+
+/// How often [`calculate_intrinsic_sizes`] was called on this thread, the
+/// calls with nothing dirty included (`audit_tests::a3_solver`: the turns of
+/// `layout_document`'s loop).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INTRINSIC_PASS_CALLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The dirty set for the intrinsic pass of a LATER turn of
+/// `layout_document`'s loop: of the nodes the first turn measured
+/// (`dirty_nodes` and their ancestors), the ones whose sizes can differ now.
+///
+/// A node's intrinsic sizes are a function of the cascade and the DOM, the
+/// tree's structure, the pass's fonts, images and viewport - none of which a
+/// turn changes - and of the BOX PROPS of the node and of boxes below it:
+/// its children's in the folds, its atomic inline descendants' in an inline
+/// formatting context, its cells' in a table. The layout of a turn changes
+/// those (`fc::layout_bfc` resolves its children's percentages against the
+/// containing block it found) and notes each box it changed: `changed`.
+///
+/// So a node with no changed box in its subtree would be measured to the
+/// sizes it holds, and so would everything below it: the walk can take it
+/// from the node (`calculate_intrinsic_recursive`'s fast path). What is
+/// left: for every changed box the nearest node at or above it that the
+/// first turn measured, and that node's ancestors (which the pass adds). The
+/// loop measured the whole of `dirty_nodes` again in every turn.
+///
+/// The tables' border model, applied at the start of every pass
+/// (`fc::apply_table_border_model`), sets a box's border from the cascade
+/// alone: it changes a box only where the layout changed it first, and that
+/// box is in `changed`.
+pub(crate) fn dirty_nodes_to_measure_again(
+    tree: &LayoutTree,
+    dirty_nodes: &BTreeSet<usize>,
+    changed: &[usize],
+) -> BTreeSet<usize> {
+    measure_again_by(tree.nodes.len(), dirty_nodes, changed, |idx| {
+        tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+    })
+}
+
+/// [`dirty_nodes_to_measure_again`] over a tree of `node_count` nodes given
+/// by its parent links.
+fn measure_again_by(
+    node_count: usize,
+    dirty_nodes: &BTreeSet<usize>,
+    changed: &[usize],
+    parent_of: impl Fn(usize) -> Option<usize>,
+) -> BTreeSet<usize> {
+    let mut again = BTreeSet::new();
+    if changed.is_empty() || dirty_nodes.is_empty() {
+        return again;
+    }
+    let measured = DirtyAncestors::walk(node_count, dirty_nodes, &parent_of);
+    for &node in changed {
+        // Up from the changed box to the nearest measured node. A chain of
+        // parents is at most as long as the tree: the bound keeps a cyclic
+        // one from hanging the pass.
+        let mut cur = Some(node);
+        for _ in 0..=node_count {
+            let Some(idx) = cur else {
+                break;
+            };
+            if measured.contains(idx) {
+                again.insert(idx);
+                break;
+            }
+            cur = parent_of(idx);
+        }
+    }
+    again
+}
+
+/// Whether the box `node_index` (of the DOM node `dom_node_id`, if it has
+/// one) adds NOTHING to the intrinsic sizes of the box it is a child of: it
+/// is out of the flow (`position: absolute` / `fixed`: CSS 2.2 10.3.5 and
+/// 10.3.7 measure a shrink-to-fit width from the content in flow,
+/// css-sizing-3 5.1), or it is a list item's `::marker` riding the item's
+/// first line, laid out with that line and not as a block of the item
+/// (`fc::is_marker_on_a_line`).
+///
+/// The one test of the walk (`calculate_intrinsic_recursive`: such a box
+/// keeps its own sizes and its parent is handed zeros for it) and of the
+/// parent's folds (`calculate_block_intrinsic_sizes`,
+/// `calculate_flex_intrinsic_sizes`), which pass the box by. The zeros alone
+/// did not: the folds added the box's own margin, border and padding to
+/// them, and in a block the box took a place in the chain of collapsing
+/// margins (the "first child", the margin between its neighbours).
+fn adds_nothing_to_its_parent(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+    dom_node_id: Option<NodeId>,
+) -> bool {
+    matches!(
+        get_position_type(styled_dom, dom_node_id),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) || crate::solver3::fc::is_marker_on_a_line(tree, styled_dom, node_index)
 }
 
 struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
@@ -262,7 +524,20 @@ struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     /// dirty nodes) need recomputation. A clean node whose
     /// `warm.intrinsic_sizes` is already populated reuses the
     /// cached value and skips its entire subtree descent.
-    dirty_closure: Option<std::collections::HashSet<usize>>,
+    dirty_closure: Option<DirtyAncestors>,
+    /// The inline formatting context measured last
+    /// (`calculate_ifc_root_intrinsic_sizes`): its root, what the root's
+    /// style put into the measure, the loaded faces it was shaped with, and
+    /// the sizes the measure gave, before the root's own `width` /
+    /// `min-width` / `max-width` were applied. Forgotten when the walk
+    /// enters another node, so it is there only for the box right around
+    /// that root (`reuse_last_ifc_measure`).
+    last_ifc_measure: Option<(
+        usize,
+        IfcMeasureKey,
+        Arc<crate::text3::cache::LoadedFonts<T>>,
+        IntrinsicSizes,
+    )>,
 }
 
 impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
@@ -271,6 +546,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             ctx,
             text_cache,
             dirty_closure: None,
+            last_ifc_measure: None,
         }
     }
 
@@ -287,13 +563,16 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         unsafe {
             crate::az_mark(0x60720_u32, (node_index as u32));
         }
+        // A measure kept for the box around its root is of use to the box
+        // this walk comes back to right after it, and to no other.
+        self.last_ifc_measure = None;
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
         // and skip the whole descent. Caller is the ancestor-closure
         // computation in `calculate_intrinsic_sizes` — anything not
         // in that set is guaranteed clean through every descendant.
         if let Some(closure) = self.dirty_closure.as_ref() {
-            if !closure.contains(&node_index) {
+            if !closure.contains(node_index) {
                 if let Some(cached) = tree
                     .warm(LayoutNodeId::new(node_index))
                     .and_then(|w| w.intrinsic_sizes)
@@ -347,10 +626,11 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // store the real intrinsic size below, then return zero to the caller so
         // the parent ignores it. (Previously this early-returned zero AND stored
         // zero on the node, collapsing every auto-width abs-pos box to width 0.)
-        let is_out_of_flow = matches!(
-            get_position_type(self.ctx.styled_dom, dom_node_id),
-            LayoutPosition::Absolute | LayoutPosition::Fixed
-        );
+        // A list item's `::marker` that rides the item's first line is laid
+        // out with that line, not as a block of the item: it adds nothing
+        // either (`fc::is_marker_on_a_line`).
+        let is_out_of_flow =
+            adds_nothing_to_its_parent(self.ctx.styled_dom, tree, node_index, dom_node_id);
 
         // Copy child indices before recursive calls (which need &mut tree).
         // Stack buffer for the common case (≤32 children); heap only for huge nodes.
@@ -438,10 +718,28 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     .get(LayoutNodeId::new(node_index))
                     .map(|n| n.box_props.unpack())
                     .unwrap_or_default();
+                // Two exceptions (CSS 2.1 17.5.2.2 / CSS Tables 3 3.8): a
+                // TABLE CELL's width is read by its table's column algorithm
+                // (`table_width::specified_width`), which needs the content's
+                // own min- and max-content beside it - a `width` does not lower
+                // a column's minimum below its content. And a TABLE is never
+                // narrower than its columns' minimum: its contribution is
+                // `max(width, MIN)`.
+                let formatting_context = tree
+                    .get(LayoutNodeId::new(node_index))
+                    .map(|n| n.formatting_context);
+                let is_table_cell =
+                    matches!(formatting_context, Some(FormattingContext::TableCell));
+                let is_table = matches!(formatting_context, Some(FormattingContext::Table));
                 if let MultiValue::Exact(LayoutWidth::Px(px)) =
                     get_css_width(self.ctx.styled_dom, dom_id, node_state)
                 {
-                    if let Some(mut w) = super::calc::resolve_pixel_value_no_percent(&px, em, rem) {
+                    if let Some(mut w) = super::calc::resolve_pixel_value_no_percent(&px, em, rem)
+                        .map(|v| {
+                            super::getters::zoomed_length(self.ctx.styled_dom, dom_id, px.metric, v)
+                        })
+                        .filter(|_| !is_table_cell)
+                    {
                         if box_sizing == LayoutBoxSizing::BorderBox {
                             w = (w
                                 - bp.border.left
@@ -450,6 +748,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                                 - bp.padding.right)
                                 .max(0.0);
                         }
+                        if is_table {
+                            w = w.max(intrinsic.min_content_width);
+                        }
                         intrinsic.min_content_width = w;
                         intrinsic.max_content_width = w;
                     }
@@ -457,7 +758,11 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 if let MultiValue::Exact(LayoutHeight::Px(px)) =
                     get_css_height(self.ctx.styled_dom, dom_id, node_state)
                 {
-                    if let Some(mut h) = super::calc::resolve_pixel_value_no_percent(&px, em, rem) {
+                    if let Some(mut h) = super::calc::resolve_pixel_value_no_percent(&px, em, rem)
+                        .map(|v| {
+                            super::getters::zoomed_length(self.ctx.styled_dom, dom_id, px.metric, v)
+                        })
+                    {
                         if box_sizing == LayoutBoxSizing::BorderBox {
                             h = (h
                                 - bp.border.top
@@ -470,13 +775,80 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                         intrinsic.max_content_height = h;
                     }
                 }
+                // `max-width` caps the box's min- and max-content contribution
+                // (css-sizing-3 5.2; the `min-width` floor below wins), as the
+                // `width` above sets it: the stored sizes are what the box
+                // offers its parent - a block's, an inline formatting
+                // context's (`atomic_inline_width_contributions`), a table
+                // cell's. A `max-width: 330px` column of long text offered its
+                // whole line, and the cerberus newsletter's table grew to it.
+                // Not a table's or a cell's: their widths are the column
+                // algorithm's (a table is never narrower than its columns).
+                if !is_table_cell && !is_table {
+                    if let MultiValue::Exact(mw) = crate::solver3::getters::get_css_max_width(
+                        self.ctx.styled_dom,
+                        dom_id,
+                        node_state,
+                    ) {
+                        if let Some(mut cap) =
+                            super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem)
+                                .map(|v| {
+                                    super::getters::zoomed_length(
+                                        self.ctx.styled_dom,
+                                        dom_id,
+                                        mw.inner.metric,
+                                        v,
+                                    )
+                                })
+                                .filter(|v| v.is_finite() && *v < f32::MAX / 2.0)
+                        {
+                            if box_sizing == LayoutBoxSizing::BorderBox {
+                                cap = (cap
+                                    - bp.border.left
+                                    - bp.border.right
+                                    - bp.padding.left
+                                    - bp.padding.right)
+                                    .max(0.0);
+                            }
+                            intrinsic.min_content_width = intrinsic.min_content_width.min(cap);
+                            intrinsic.max_content_width = intrinsic.max_content_width.min(cap);
+                        }
+                    }
+                }
             }
 
             if let MultiValue::Exact(mw) =
                 get_css_min_width(self.ctx.styled_dom, dom_id, node_state)
             {
-                if let Some(min_w) = super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem)
+                if let Some(mut min_w) =
+                    super::calc::resolve_pixel_value_no_percent(&mw.inner, em, rem).map(|v| {
+                        super::getters::zoomed_length(
+                            self.ctx.styled_dom,
+                            dom_id,
+                            mw.inner.metric,
+                            v,
+                        )
+                    })
                 {
+                    // Intrinsics are CONTENT sizes: a border-box min-width
+                    // sheds its border and padding, as `width` and
+                    // `max-width` do above (a `min-width: 300px` border box
+                    // with 12px padding offered 300px of content: 324).
+                    if matches!(
+                        get_css_box_sizing(self.ctx.styled_dom, dom_id, node_state),
+                        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+                    ) {
+                        let bp = tree
+                            .get(LayoutNodeId::new(node_index))
+                            .map(|n| n.box_props.unpack())
+                            .unwrap_or_default();
+                        min_w = (min_w
+                            - bp.border.left
+                            - bp.border.right
+                            - bp.padding.left
+                            - bp.padding.right)
+                            .max(0.0);
+                    }
                     intrinsic.min_content_width = intrinsic.min_content_width.max(min_w);
                     intrinsic.max_content_width = intrinsic.max_content_width.max(min_w);
                 }
@@ -486,6 +858,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 get_css_min_height(self.ctx.styled_dom, dom_id, node_state)
             {
                 if let Some(min_h) = super::calc::resolve_pixel_value_no_percent(&mh.inner, em, rem)
+                    .map(|v| {
+                        super::getters::zoomed_length(
+                            self.ctx.styled_dom,
+                            dom_id,
+                            mh.inner.metric,
+                            v,
+                        )
+                    })
                 {
                     intrinsic.min_content_height = intrinsic.min_content_height.max(min_h);
                     intrinsic.max_content_height = intrinsic.max_content_height.max(min_h);
@@ -559,6 +939,22 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 });
             }
 
+            // A `<webview>` has no natural size at all - its page lays itself
+            // out in whatever box it gets - so it is the 300x150 of every
+            // replaced element without one, sized from the outside. Its
+            // children (the "no web view here" fallback) never size it.
+            if matches!(node_data.get_node_type(), NodeType::WebView(_)) {
+                return Ok(IntrinsicSizes {
+                    min_content_width: 300.0,
+                    max_content_width: 300.0,
+                    preferred_width: None,
+                    min_content_height: 150.0,
+                    max_content_height: 150.0,
+                    preferred_height: None,
+                    preferred_aspect_ratio: None,
+                });
+            }
+
             // +spec:containing-block:bb5a12 - replaced element intrinsic sizes using initial
             // containing block +spec:display-property:7127f9 - intrinsic sizes of
             // replaced elements without natural sizes (300x150 fallback, aspect ratio)
@@ -572,11 +968,22 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // consulted — `image_for_layout` keeps the DOM's declared
                 // (sizeless) callback so a per-frame producer cannot resize
                 // the box it draws into.
-                let size = self
-                    .ctx
-                    .resolved_content()
-                    .image_for_layout(dom_id)
-                    .map_or_else(|| image_ref.get_size(), |img| img.get_size());
+                let layout_image = self.ctx.resolved_content().image_for_layout(dom_id);
+                let size = layout_image
+                    .as_ref()
+                    .map_or_else(|| image_ref.get_size(), azul_core::resources::ImageRef::get_size);
+                // An `<img src>` from markup whose picture nobody supplied
+                // (yet): the loaders' placeholder carrying its src, which
+                // `image_for_layout` hands back when the image cache has no
+                // picture under that src. A browser lays a not-yet-available
+                // image out with no size unless its `width` / `height`
+                // attributes give it one (HTML rendering 15.4.3; those land
+                // in the placeholder's size): no 300x150 hole for a pending
+                // or failed download (DEDUP_EDITORS A3.8).
+                let pending_markup_picture = layout_image
+                    .as_ref()
+                    .map_or_else(|| image_ref.source_tag(), |img| img.source_tag())
+                    .is_some();
                 // +spec:containing-block:1da6dc - use initial CB inline size for replaced elements
                 // with aspect ratio but no intrinsic size Per css-sizing-3 §5.1:
                 // "use an inline size matching the corresponding dimension
@@ -590,6 +997,8 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 } else if size.height > 0.0 {
                     // Has intrinsic height but no width — use initial CB inline dimension
                     (self.ctx.viewport_size.width, size.height)
+                } else if pending_markup_picture {
+                    (0.0, 0.0)
                 } else {
                     // +spec:replaced-elements:43376b - 300px fallback with 2:1 ratio for replaced
                     // elements No intrinsic dimensions — cap at 300x150 per CSS
@@ -599,6 +1008,10 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     let w = self.ctx.viewport_size.width.min(300.0);
                     (w, w / 2.0)
                 };
+                // CSS `zoom` scales a picture's natural size like any
+                // absolute length (LAYOUT7).
+                let zoom = super::getters::get_effective_zoom(self.ctx.styled_dom, dom_id);
+                let (width, height) = (width * zoom, height * zoom);
                 // A replaced element with NO intrinsic size (e.g. a RenderImageCallback
                 // <img> like the AzulPaint canvas) must behave like a VirtualView: keep
                 // the 300×150 fallback as the min/max-content (so it has a sensible
@@ -626,7 +1039,15 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
 
         match node.formatting_context {
-            FormattingContext::Block { .. } => {
+            // A table cell is a block container (CSS 2.2 17.5.3): its content
+            // is measured like a block's - as an IFC root when it holds text,
+            // by its block children otherwise. Sent down the catch-all it
+            // measured its LAYOUT children only, and text is not one: a
+            // text-only `<td>` was (0, 0), the table's min-content pass laid
+            // the cell out 0 px wide and reported its max-content width as
+            // its minimum, and no column of prose ever shrank below its
+            // longest line - a 220px table ran its cells 360px wide.
+            FormattingContext::Block { .. } | FormattingContext::TableCell => {
                 // Check if this block establishes an Inline Formatting Context (IFC).
                 // Per CSS 2.2 §9.2.1.1: A block container with mixed block-level and
                 // inline-level children creates anonymous block boxes to wrap the inline
@@ -636,39 +1057,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 // because a display:block element with only inline children gets
                 // FormattingContext::Inline (meaning "establishes IFC for its children"),
                 // which is different from being an inline element itself.
-                let has_block_child = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(LayoutNodeId::new(child_idx))
-                        .and_then(|c| c.dom_node_id)
-                        .is_some_and(|dom_id| {
-                            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-                            // Text nodes are inline-level
-                            if matches!(node_data.get_node_type(), NodeType::Text(_)) {
-                                return false;
-                            }
-                            let display = get_display_type(self.ctx.styled_dom, dom_id);
-                            display.creates_block_context()
-                        })
-                });
-
-                let has_inline_child = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(LayoutNodeId::new(child_idx))
-                        .and_then(|c| c.dom_node_id)
-                        .is_some_and(|dom_id| {
-                            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
-                            if matches!(node_data.get_node_type(), NodeType::Text(_)) {
-                                return true;
-                            }
-                            let display = get_display_type(self.ctx.styled_dom, dom_id);
-                            matches!(
-                                display,
-                                LayoutDisplay::Inline
-                                    | LayoutDisplay::InlineBlock
-                                    | LayoutDisplay::InlineFlex
-                                    | LayoutDisplay::InlineGrid
-                                    | LayoutDisplay::InlineTable
-                            )
-                        })
-                });
+                let (has_block_child, has_inline_child) = self.child_levels(tree, node_index);
 
                 // IFC root only if there are inline children and NO block children.
                 // If there are block children, text nodes get anonymous block wrappers.
@@ -728,8 +1117,32 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                     false
                 };
 
-                if is_text_node || has_text_in_subtree {
-                    // Case 1 or 2: Text node or IFC root - measure inline content
+                // Case 4: an ANONYMOUS inline wrapper (no DOM node): the
+                // run of inline content a block container with block
+                // children puts in an anonymous box (`<td><i>..</i><table>`,
+                // `<td>Label<div>..</div></td>`). It is the IFC root of that
+                // run, so it measures it - it has no DOM node for the two
+                // checks above to look at, and it came out (0, 0): the cell's
+                // intrinsic width lost its inline content, and so did the
+                // anonymous box's own used width in the cell's min/max-content
+                // layout (`calculate_used_size_for_node` sizes a DOM-less box
+                // by these intrinsics under a measurement constraint).
+                let is_anonymous_wrapper = node.dom_node_id.is_none();
+                // Case 3 is an inline BOX (`display: inline` after
+                // blockification, e.g. a `<span>`), never a block container
+                // that establishes this IFC: a `<div style="width:
+                // max-content">` holding nothing but an inline-block has no
+                // text anywhere and was measured 0 wide (Chrome: the
+                // inline-block's width).
+                let is_inline_box = !is_text_node
+                    && !is_anonymous_wrapper
+                    && tree
+                        .warm(LayoutNodeId::new(node_index))
+                        .is_some_and(|w| {
+                            super::getters::is_inline_box_display(w.computed_style.display)
+                        });
+                if is_text_node || has_text_in_subtree || is_anonymous_wrapper || !is_inline_box {
+                    // Case 1, 2 or 4: measure the inline content
                     self.calculate_ifc_root_intrinsic_sizes(tree, node_index)
                 } else {
                     // Case 3: True inline element - measured by parent IFC root
@@ -739,13 +1152,17 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             FormattingContext::InlineBlock => {
                 // Inline-block IS an atomic inline - it needs its own intrinsic size.
                 // Check layout tree children AND direct DOM text children (text nodes
-                // are not in the layout tree, only in the DOM).
-                let has_inline_children = tree.children(node_index).iter().any(|&child_idx| {
-                    tree.get(LayoutNodeId::new(child_idx))
-                        .is_some_and(|c| matches!(c.formatting_context, FormattingContext::Inline))
-                });
+                // are not in the layout tree, only in the DOM). A child's LEVEL is
+                // its `display` (`child_levels`): a block holding only text
+                // establishes an inline formatting context of its own, yet it
+                // stacks in the inline-block's flow - read by its formatting
+                // context, `<div>a</div><div>b</div>` measured as the line "ab".
+                let (has_block_child, has_inline_child) = self.child_levels(tree, node_index);
+                let has_inline_children = has_inline_child && !has_block_child;
 
-                let has_direct_text = if let Some(dom_id) = node.dom_node_id {
+                let has_direct_text = if has_block_child {
+                    false
+                } else if let Some(dom_id) = node.dom_node_id {
                     let node_hierarchy = &self.ctx.styled_dom.node_hierarchy.as_container();
                     dom_id.az_children(node_hierarchy).any(|child_id| {
                         let child_node_data =
@@ -779,6 +1196,46 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
     }
 
+    /// Whether the layout children of `node_index` include a block-level box
+    /// and an inline-level one (`(block, inline)`), read by their `display`,
+    /// not their formatting context: a block holding only text establishes
+    /// an inline formatting context, yet it is a block in its parent's flow.
+    /// A text node is inline-level; an anonymous box (no DOM node) counts as
+    /// neither.
+    fn child_levels(&self, tree: &LayoutTree, node_index: usize) -> (bool, bool) {
+        let mut block = false;
+        let mut inline = false;
+        for &child_idx in tree.children(node_index) {
+            let Some(dom_id) = tree
+                .get(LayoutNodeId::new(child_idx))
+                .and_then(|c| c.dom_node_id)
+            else {
+                continue;
+            };
+            let node_data = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            if matches!(node_data.get_node_type(), NodeType::Text(_)) {
+                inline = true;
+                continue;
+            }
+            let display = get_display_type(self.ctx.styled_dom, dom_id);
+            if display.creates_block_context() {
+                block = true;
+            }
+            if matches!(
+                display,
+                LayoutDisplay::Inline
+                    | LayoutDisplay::InlineBlock
+                    | LayoutDisplay::InlineBlockListItem
+                    | LayoutDisplay::InlineFlex
+                    | LayoutDisplay::InlineGrid
+                    | LayoutDisplay::InlineTable
+            ) {
+                inline = true;
+            }
+        }
+        (block, inline)
+    }
+
     // +spec:intrinsic-sizing:ea2c2c - §5.1 min-content size = size as float with auto; max-content
     // = no wrapping
     /// Calculate intrinsic sizes for an IFC root (a block containing inline content).
@@ -800,6 +1257,19 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             crate::az_mark(0x6075C_u32, (node_index as u32));
         }
         let _p_ifc = crate::probe::Probe::span("intrinsic_ifc_root");
+        // The content of a box around ONE inline box (a label around its
+        // text, a block around one span) is that box's content, which was
+        // measured a moment ago: under the same constraints the measure is
+        // the same, so it is not made again.
+        if let Some(sizes) = self.reuse_last_ifc_measure(tree, node_index) {
+            return Ok(sizes);
+        }
+        #[cfg(test)]
+        IFC_MEASURES_PER_PASS.with(|passes| {
+            if let Some(measured) = passes.borrow_mut().last_mut() {
+                *measured += 1;
+            }
+        });
         // Collect all inline content from this IFC root and its inline descendants
         // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching
         // its completion marker B8 (Ok at the source level) yet the IFC sizer never
@@ -819,9 +1289,42 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // out-param and returning `Result<()>` (register-returned, NO sret-of-Vec) lifts
         // cleanly — the established M12.7 "a pointer arg lifts cleanly" pattern. 0x60760 should now
         // =1.
+        // Every atomic inline goes in at its max-content contribution; the
+        // ones whose min-content contribution differs are listed in
+        // `shape_min_widths` for the min-content measurement below.
+        let mut inline_content: Vec<InlineContent> = Vec::new();
+        let mut shape_min_widths: Vec<(usize, f32)> = Vec::new();
+        // The `::marker` of every list item whose first line this context
+        // holds opens its content, as in the layout's own collection
+        // (`fc::collect_and_measure_inline_content`): an INSIDE marker is an
+        // inline box at the start of the line and takes its width, an
+        // outside one hangs in the gutter (the measure gives it no width,
+        // `is_hanging_marker`). The measure never held a marker, so a
+        // shrink-to-fit list item with `list-style-position: inside` was as
+        // wide as its text alone and the line broke, or ran out of the box.
+        // Not for a marker box measured as a context of its own: it keeps
+        // the sizes it had (none).
+        if !crate::solver3::fc::is_marker_box(tree, node_index) {
+            for marker in
+                crate::solver3::fc::markers_on_first_line(tree, self.ctx.styled_dom, node_index)
+            {
+                crate::solver3::fc::push_marker_content(
+                    self.ctx,
+                    tree,
+                    marker,
+                    &mut inline_content,
+                );
+            }
+        }
         let collect_result = {
             let _p = crate::probe::Probe::span("intrinsic_collect_inline");
-            collect_inline_content(self.ctx, tree, node_index)
+            collect_inline_content_for_sizing(
+                self.ctx,
+                tree,
+                node_index,
+                &mut inline_content,
+                &mut shape_min_widths,
+            )
         };
         #[cfg(feature = "web_lift")]
         unsafe {
@@ -834,14 +1337,14 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 }) as u32,
             );
         }
-        let inline_content: Vec<InlineContent> = collect_result?;
+        collect_result?;
 
         if inline_content.is_empty() {
             return Ok(IntrinsicSizes::default());
         }
 
         // Get pre-loaded fonts from font manager
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.ctx.loaded_fonts();
 
         // +spec:intrinsic-sizing:ae8beb - min-content = zero-width CB, max-content = infinite-width
         // CB +spec:intrinsic-sizing:8c94e2 - min-content/max-content intrinsic size
@@ -858,29 +1361,12 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // treats every space as a break opportunity, so a white-space:nowrap / pre
         // element reports a min-content SMALLER than its true unbreakable width and
         // the flex/shrink-to-fit algorithm clips it.
-        let mut constraints = UnifiedConstraints::default();
-        if let Some(dom_id) = tree
-            .get(LayoutNodeId::new(node_index))
-            .and_then(|n| n.dom_node_id)
-        {
-            use azul_css::props::style::text::StyleWhiteSpace;
-
-            use crate::solver3::getters::{get_white_space_property, MultiValue};
-            let node_state =
-                &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-            let ws = match get_white_space_property(self.ctx.styled_dom, dom_id, node_state) {
-                MultiValue::Exact(v) => v,
-                _ => StyleWhiteSpace::Normal,
-            };
-            constraints.white_space_mode = match ws {
-                StyleWhiteSpace::Normal => crate::text3::cache::WhiteSpaceMode::Normal,
-                StyleWhiteSpace::Nowrap => crate::text3::cache::WhiteSpaceMode::Nowrap,
-                StyleWhiteSpace::Pre => crate::text3::cache::WhiteSpaceMode::Pre,
-                StyleWhiteSpace::PreWrap => crate::text3::cache::WhiteSpaceMode::PreWrap,
-                StyleWhiteSpace::PreLine => crate::text3::cache::WhiteSpaceMode::PreLine,
-                StyleWhiteSpace::BreakSpaces => crate::text3::cache::WhiteSpaceMode::BreakSpaces,
-            };
-        }
+        let constraints = ifc_measure_constraints(
+            self.ctx.styled_dom,
+            tree,
+            node_index,
+            self.ctx.viewport_size,
+        );
         // [g79 DIAG] Probe the font state at shaping time, then convert the downstream shape_text
         // HANG (g47 hashbrown empty-map loop) → trap so the harness RETURNS and these markers are
         // readable (can't read markers from a hung wasm call). Tests the #4→#3 coupling: if
@@ -911,50 +1397,87 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // contained EMPTY_GROUP → systemic fix found.
             let _ = (cl, loaded_fonts.len());
         }
-        let _p_measure = crate::probe::Probe::span("intrinsic_measure_widths");
-        let Ok(intrinsic_text) = self.text_cache.measure_intrinsic_widths(
+        let (sizes, shaped) = measure_ifc_intrinsic_sizes_keeping(
+            self.text_cache,
             &inline_content,
-            &[],
+            &shape_min_widths,
             &constraints,
             &self.ctx.font_manager.font_chain_cache,
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
             self.ctx.debug_messages,
-        ) else {
-            return Ok(IntrinsicSizes {
-                min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
-                max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
-                preferred_width: None,
-                min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
-                max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
-                preferred_height: None,
-                preferred_aspect_ratio: None,
-            });
-        };
+        );
+        // For the layout of this root, later in the pass
+        // ([`MeasuredParagraphs`]). Not with debug messages on: shaping
+        // writes them, and the layout's would be missing.
+        match shaped {
+            Some(shaped) if self.ctx.debug_messages.is_none() => {
+                self.ctx
+                    .pass_memo
+                    .measured
+                    .keep(node_index, inline_content, &constraints, shaped);
+            }
+            _ => {
+                self.ctx.pass_memo.measured.forget(node_index);
+            }
+        }
+        self.last_ifc_measure = Some((
+            node_index,
+            IfcMeasureKey::of(&constraints),
+            loaded_fonts,
+            sizes,
+        ));
+        Ok(sizes)
+    }
 
-        let min_width = intrinsic_text.min_content_width;
-        let max_width = intrinsic_text.max_content_width;
-
-        // +spec:display-property:c587fd - min-content block size equals max-content block size for
-        // block containers, tables, inline boxes +spec:intrinsic-sizing:02eedc -
-        // min-content block size equals max-content block size for block containers
-        // For a single-line max-content layout the height is one line box;
-        // `measure_intrinsic_widths` returns exactly that.
-        let max_content_height = intrinsic_text.max_content_height;
-
-        // NOTE(writing-modes): min_content_width / max_content_width are named for
-        // the physical axis. In vertical writing modes the "inline" axis is vertical,
-        // so these are swapped by calculate_block_intrinsic_sizes when computing
-        // the parent's intrinsic sizes. The physical naming is intentional here.
-        Ok(IntrinsicSizes {
-            min_content_width: min_width,
-            max_content_width: max_width,
-            preferred_width: None,
-            min_content_height: max_content_height,
-            max_content_height,
-            preferred_height: None,
-            preferred_aspect_ratio: None,
-        })
+    /// The intrinsic sizes of the inline formatting context rooted at
+    /// `node_index`, when they are the ones measured last: the root's inline
+    /// content is that of its one layout child and nothing else
+    /// ([`sole_inline_content_child`]), that child's context was the last one
+    /// measured (`last_ifc_measure`, so nothing the collection reads has
+    /// changed since), this root's style puts the same constraints into the
+    /// measure ([`IfcMeasureKey`]) and the loaded faces are the ones it was
+    /// shaped with. `measure_ifc_intrinsic_sizes` takes the content, the
+    /// constraints and the fonts and nothing of the root, so it would return
+    /// these sizes again.
+    ///
+    /// A text has a layout node of its own and so has the box around it; in
+    /// a shrink-to-fit subtree both were collected, split into runs and
+    /// measured - every label of a layer of absolutely positioned labels
+    /// twice per pass, a `<div><span>text</span></div>` three times.
+    ///
+    /// Not with debug messages on: collecting writes one per node.
+    fn reuse_last_ifc_measure(
+        &mut self,
+        tree: &LayoutTree,
+        node_index: usize,
+    ) -> Option<IntrinsicSizes> {
+        // Taken: a measure that does not serve this root serves no later one
+        // (the root measures itself, and the box around it asks for ITS).
+        let (measured_root, key, fonts, sizes) = self.last_ifc_measure.take()?;
+        if self.ctx.debug_messages.is_some() {
+            return None;
+        }
+        if sole_inline_content_child(&*self.ctx, tree, node_index) != Some(measured_root) {
+            return None;
+        }
+        let constraints = ifc_measure_constraints(
+            self.ctx.styled_dom,
+            tree,
+            node_index,
+            self.ctx.viewport_size,
+        );
+        if IfcMeasureKey::of(&constraints) != key {
+            return None;
+        }
+        if !Arc::ptr_eq(&fonts, &self.ctx.loaded_fonts()) {
+            return None;
+        }
+        // The box around this one may hold nothing else either.
+        self.last_ifc_measure = Some((node_index, key, fonts, sizes));
+        // What the measure shaped is this root's now: its layout shapes it.
+        self.ctx.pass_memo.measured.hand_up(measured_root, node_index);
+        Some(sizes)
     }
 
     // +spec:containing-block:bb0658 - percentage block-sizes behave as auto during intrinsic
@@ -995,16 +1518,30 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // parent-child margins can escape (first/last child).
         let mut last_margin_main_end = 0.0f32;
         let mut is_first_child = true;
+        let mut marker_main_size = 0.0f32;
 
+        // Where the next child's entry is expected in `child_intrinsics`
+        // (`intrinsic_of_child`).
+        let mut next_entry = 0usize;
         for &child_index in tree.children(node_index) {
-            if let Some(child_intrinsic) = child_intrinsics
-                .iter()
-                .find(|(k, _)| k == &child_index)
-                .map(|(_, v)| v)
+            if let Some(child_intrinsic) =
+                intrinsic_of_child(child_intrinsics, &mut next_entry, child_index)
             {
                 // +spec:intrinsic-sizing:ed72bb - intrinsic contributions based on outer size, auto
                 // margins as zero
                 let child_node = tree.get(LayoutNodeId::new(child_index));
+                // A child out of the flow adds nothing: not its margin,
+                // border and padding around the zero sizes the walk handed
+                // over for it, and no place among the collapsing margins of
+                // the children in flow (`adds_nothing_to_its_parent`).
+                if adds_nothing_to_its_parent(
+                    self.ctx.styled_dom,
+                    tree,
+                    child_index,
+                    child_node.and_then(|n| n.dom_node_id),
+                ) {
+                    continue;
+                }
                 let (cross_extras, main_border_padding, main_margin_start, main_margin_end) =
                     child_node.map_or((0.0, 0.0, 0.0, 0.0), |cn| {
                         let bp = cn.box_props.unpack();
@@ -1040,6 +1577,18 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
                 max_child_min_cross = max_child_min_cross.max(child_min_cross);
                 max_child_max_cross = max_child_max_cross.max(child_max_cross);
 
+                // A `::marker` with no line box to ride is laid out at the
+                // item's content start, out of the flow (`fc::layout_bfc`):
+                // the item is as tall as the taller of it and the blocks,
+                // never their sum. (One on a line contributes nothing at
+                // all: `calculate_intrinsic_recursive` zeroes it.) An
+                // OUTSIDE marker only: an inside one is a line of the flow
+                // and adds up like a block.
+                if crate::solver3::fc::is_outside_marker(tree, self.ctx.styled_dom, child_index) {
+                    marker_main_size = marker_main_size.max(child_border_box_main);
+                    continue;
+                }
+
                 // CSS 2.2 §8.3.1 margin collapsing for intrinsic sizing:
                 // - First child's margin-start can escape (don't add to total)
                 // - Between siblings: collapsed gap = max(prev_end, curr_start)
@@ -1061,6 +1610,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             }
         }
         // Last child's margin-end may escape — don't add it to total_main_size
+        let total_main_size = f32::max(total_main_size, marker_main_size);
 
         let (min_width, max_width, min_height, max_height) = match writing_mode {
             LayoutWritingMode::HorizontalTb => (
@@ -1121,25 +1671,66 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let mut max_cross_min: f32 = 0.0;
         let mut max_cross_max: f32 = 0.0;
 
+        // Where the next child's entry is expected in `child_intrinsics`
+        // (`intrinsic_of_child`).
+        let mut next_entry = 0usize;
         for &child_index in tree.children(node_index) {
-            if let Some(child_intrinsic) = child_intrinsics
-                .iter()
-                .find(|(k, _)| k == &child_index)
-                .map(|(_, v)| v)
+            if let Some(child_intrinsic) =
+                intrinsic_of_child(child_intrinsics, &mut next_entry, child_index)
             {
+                // An absolutely positioned child of a flex container is no
+                // flex item (CSS Flexbox 4.1): it adds nothing, its margin,
+                // border and padding included (`adds_nothing_to_its_parent`).
+                if adds_nothing_to_its_parent(
+                    self.ctx.styled_dom,
+                    tree,
+                    child_index,
+                    tree.get(LayoutNodeId::new(child_index))
+                        .and_then(|n| n.dom_node_id),
+                ) {
+                    continue;
+                }
+                // A flex item contributes its OUTER size (CSS Flexbox 9.9.1,
+                // the min / max-content contributions): its content plus its
+                // padding, border and margins - as the block aggregation
+                // adds them. Summing bare content sizes made a flex
+                // container too small for children with a box: a text field
+                // (1px border, 1px padding) in a body column came out 4px
+                // short, the body's height was fixed from it and the flex
+                // algorithm squeezed the field back to its min-height - an
+                // app's 24px font never reached the field's height.
+                let (extra_w, extra_h) = tree
+                    .get(LayoutNodeId::new(child_index))
+                    .map_or((0.0, 0.0), |cn| {
+                        let bp = cn.box_props.unpack();
+                        (
+                            bp.margin.left
+                                + bp.margin.right
+                                + bp.border.left
+                                + bp.border.right
+                                + bp.padding.left
+                                + bp.padding.right,
+                            bp.margin.top
+                                + bp.margin.bottom
+                                + bp.border.top
+                                + bp.border.bottom
+                                + bp.padding.top
+                                + bp.padding.bottom,
+                        )
+                    });
                 let (child_main_min, child_main_max, child_cross_min, child_cross_max) = if is_row {
                     (
-                        child_intrinsic.min_content_width,
-                        child_intrinsic.max_content_width,
-                        child_intrinsic.min_content_height,
-                        child_intrinsic.max_content_height,
+                        child_intrinsic.min_content_width + extra_w,
+                        child_intrinsic.max_content_width + extra_w,
+                        child_intrinsic.min_content_height + extra_h,
+                        child_intrinsic.max_content_height + extra_h,
                     )
                 } else {
                     (
-                        child_intrinsic.min_content_height,
-                        child_intrinsic.max_content_height,
-                        child_intrinsic.min_content_width,
-                        child_intrinsic.max_content_width,
+                        child_intrinsic.min_content_height + extra_h,
+                        child_intrinsic.max_content_height + extra_h,
+                        child_intrinsic.min_content_width + extra_w,
+                        child_intrinsic.max_content_width + extra_w,
                     )
                 };
 
@@ -1159,17 +1750,15 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let is_single_line = node.dom_node_id.is_none_or(|dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-            let wrap_prop = crate::solver3::getters::get_flex_wrap_prop(
-                self.ctx.styled_dom,
-                dom_id,
-                node_state,
-            );
-            wrap_prop.is_none_or(|val| {
-                matches!(
-                    val.get_property_or_default().unwrap_or_default(),
-                    LayoutFlexWrap::NoWrap
+            // The compact slot at rest - what the layout itself reads for
+            // the container (`taffy_bridge`) - and the cascade in any other
+            // state; it was a cascade lookup per flex container.
+            !matches!(
+                crate::solver3::getters::get_wrap(self.ctx.styled_dom, dom_id, node_state),
+                crate::solver3::getters::MultiValue::Exact(
+                    LayoutFlexWrap::Wrap | LayoutFlexWrap::WrapReverse
                 )
-            })
+            )
         });
 
         let min_main = if is_single_line {
@@ -1202,88 +1791,200 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         }
     }
 
-    /// Calculate intrinsic sizes for a table element by aggregating cell content
-    /// widths per column and row heights.
+    /// Calculate intrinsic sizes for a table element: its columns' min- and
+    /// max-content (the cells', a constrained column's fixed width, the
+    /// percentage-aware max of CSS Tables 3 3.9.1 - `table_width`), the cell
+    /// spacing, and at least its caption's min-content (CAPMIN, CSS 2.1
+    /// 17.5.2.2). Content-box sizes, like every intrinsic size here.
     /// +spec:table-layout:93b13c - shrink-to-fit for tables uses intrinsic sizing
+    #[allow(clippy::cast_precision_loss)] // column / span counts
     fn calculate_table_intrinsic_sizes(
         &mut self,
         tree: &LayoutTree,
         node_index: usize,
         child_intrinsics: &[(usize, IntrinsicSizes)],
     ) -> IntrinsicSizes {
-        // Collect per-column min/max widths and total row heights.
-        // Table structure: table > row-group? > row > cell
-        let mut col_min: Vec<f32> = Vec::new();
-        let mut col_max: Vec<f32> = Vec::new();
-        let mut total_height = 0.0f32;
+        use super::table_width::{
+            clamp_percentages, column_element_widths, specified_width, table_min_max,
+            ColumnAccumulator, SpecifiedWidth,
+        };
 
-        // Iterate rows — children may be row groups (thead/tbody/tfoot) or direct rows
-        let mut rows: Vec<usize> = Vec::new();
+        // A child's intrinsic sizes: the ones the caller passed, else the
+        // ones the bottom-up pass stored on it. A cell's stored sizes are its
+        // content's whatever kind it is - a nested table, a paragraph, an
+        // image - where measuring every cell as an inline formatting context
+        // (as this did) saw nothing of a table in a cell, so an outer table
+        // came out narrower than the table it holds.
+        let stored = |idx: usize| -> Option<IntrinsicSizes> {
+            child_intrinsics
+                .iter()
+                .find(|(k, _)| *k == idx)
+                .map(|(_, v)| *v)
+                .or_else(|| tree.warm(LayoutNodeId::new(idx)).and_then(|w| w.intrinsic_sizes))
+        };
+
+        // The captions beside the grid: the table is never narrower than
+        // the widest caption's min-content (CAPMIN).
+        let mut caption_min = 0.0f32;
         for &child_idx in tree.children(node_index) {
             let Some(child) = tree.get(LayoutNodeId::new(child_idx)) else {
                 continue;
             };
-            match child.formatting_context {
-                FormattingContext::TableRow => rows.push(child_idx),
-                FormattingContext::TableRowGroup => {
-                    // Row group contains rows
-                    for &row_idx in tree.children(child_idx) {
-                        if let Some(row) = tree.get(LayoutNodeId::new(row_idx)) {
-                            if matches!(row.formatting_context, FormattingContext::TableRow) {
-                                rows.push(row_idx);
-                            }
-                        }
-                    }
-                }
-                _ => {}
+            if matches!(child.formatting_context, FormattingContext::TableCaption) {
+                let bp = child.box_props.unpack();
+                let extras = bp.margin.left
+                    + bp.margin.right
+                    + bp.border.left
+                    + bp.border.right
+                    + bp.padding.left
+                    + bp.padding.right;
+                let cap = stored(child_idx).unwrap_or_default();
+                caption_min = caption_min.max(cap.min_content_width + extras);
             }
         }
 
-        for &row_idx in &rows {
-            let mut row_height = 0.0f32;
-            for (col, &cell_idx) in tree.children(row_idx).iter().enumerate() {
-                let cell_intrinsic = child_intrinsics
-                    .iter()
-                    .find(|(k, _)| k == &cell_idx)
-                    .map(|(_, v)| *v)
-                    .unwrap_or_default();
-                // Also check if cell has IFC content we can measure
-                let cell_is = if cell_intrinsic.max_content_width > 0.0 {
-                    cell_intrinsic
-                } else {
-                    // Try to measure cell content via IFC
-                    self.calculate_ifc_root_intrinsic_sizes(tree, cell_idx)
-                        .unwrap_or_default()
-                };
+        // The grid exactly as the table's layout places it
+        // (`fc::analyze_table_structure`: visual row order, a cell under a
+        // rowspan in the next free column - counting `col += span` per row put
+        // it on top of the rowspan cell).
+        let Ok(mut grid) = super::fc::analyze_table_structure(tree, node_index, &*self.ctx) else {
+            return IntrinsicSizes::default();
+        };
+        let (h_spacing, v_spacing) =
+            super::fc::resolve_table_border_spacing(&*self.ctx, tree, node_index);
+        grid.h_spacing = h_spacing;
+        grid.v_spacing = v_spacing;
 
-                // Add cell box-model extras
-                let cell_node = tree.get(LayoutNodeId::new(cell_idx));
-                let (h_extras, v_extras) = cell_node.map_or((0.0, 0.0), |cn| {
+        // A one-column cell goes to its column with its `width`; a spanning
+        // cell is spread over its columns once every one-column cell is in,
+        // by increasing span (the layout's rule,
+        // `table_width::distribute_spanning_cell`).
+        let mut columns = vec![ColumnAccumulator::default(); grid.columns.len()];
+        let mut spanning: Vec<(super::fc::TableCellInfo, f32, f32)> = Vec::new();
+        let mut row_heights = vec![0.0f32; grid.num_rows];
+        let mut tall: Vec<(usize, usize, f32)> = Vec::new();
+        for cell in &grid.cells {
+            let cell_intrinsic = stored(cell.node_index).unwrap_or_default();
+            // A cell nothing measured yet: measure its inline content.
+            let cell_is = if cell_intrinsic.max_content_width > 0.0 {
+                cell_intrinsic
+            } else {
+                self.calculate_ifc_root_intrinsic_sizes(tree, cell.node_index)
+                    .unwrap_or_default()
+            };
+
+            // Add cell box-model extras (in the collapsing model the cell's
+            // border is already its half of each collapsed edge)
+            let cell_node = tree.get(LayoutNodeId::new(cell.node_index));
+            let (h_extras, v_extras) = cell_node.map_or((0.0, 0.0), |cn| {
+                let bp = cn.box_props.unpack();
+                (
+                    bp.padding.left + bp.padding.right + bp.border.left + bp.border.right,
+                    bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom,
+                )
+            });
+
+            let cell_min = cell_is.min_content_width + h_extras;
+            let cell_max = cell_is.max_content_width + h_extras;
+            let cell_h = cell_is.max_content_height + v_extras;
+
+            if cell.colspan == 1 {
+                if let Some(column) = columns.get_mut(cell.column) {
+                    let width = cell_node.and_then(|cn| cn.dom_node_id).map_or(
+                        SpecifiedWidth::Auto,
+                        |dom| specified_width(self.ctx.styled_dom, dom, h_extras),
+                    );
+                    column.add_cell(cell_min, cell_max, width);
+                }
+            } else {
+                spanning.push((*cell, cell_min, cell_max));
+            }
+            if cell.rowspan == 1 {
+                if let Some(h) = row_heights.get_mut(cell.row) {
+                    *h = h.max(cell_h);
+                }
+            } else {
+                tall.push((cell.row, cell.rowspan, cell_h));
+            }
+        }
+
+        // The `<col>` / `<colgroup>` widths of the columns the cells made.
+        for (accumulator, width) in columns
+            .iter_mut()
+            .zip(column_element_widths(
+                self.ctx.styled_dom,
+                tree,
+                &grid.column_boxes,
+                grid.columns.len(),
+            ))
+        {
+            accumulator.add_width(width);
+        }
+
+        let mut cons: Vec<_> = columns.into_iter().map(ColumnAccumulator::finish).collect();
+        // Each spanning cell widens the columns it spans by what they lack
+        // together, inside the spacing between them, its own `width`
+        // included, the auto columns first - the layout's own rule.
+        spanning.sort_by_key(|(cell, _, _)| cell.colspan);
+        for (cell, cell_min, cell_max) in spanning {
+            let width = tree
+                .get(LayoutNodeId::new(cell.node_index))
+                .and_then(|cn| {
+                    let dom_id = cn.dom_node_id?;
                     let bp = cn.box_props.unpack();
-                    (
-                        bp.padding.left + bp.padding.right + bp.border.left + bp.border.right,
-                        bp.padding.top + bp.padding.bottom + bp.border.top + bp.border.bottom,
-                    )
-                });
-
-                let cell_min = cell_is.min_content_width + h_extras;
-                let cell_max = cell_is.max_content_width + h_extras;
-                let cell_h = cell_is.max_content_height + v_extras;
-
-                if col >= col_min.len() {
-                    col_min.push(cell_min);
-                    col_max.push(cell_max);
-                } else {
-                    col_min[col] = col_min[col].max(cell_min);
-                    col_max[col] = col_max[col].max(cell_max);
-                }
-                row_height = row_height.max(cell_h);
-            }
-            total_height += row_height;
+                    let h_extras =
+                        bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+                    Some(specified_width(self.ctx.styled_dom, dom_id, h_extras))
+                })
+                .unwrap_or(SpecifiedWidth::Auto);
+            super::table_width::distribute_spanning_cell(
+                &mut cons,
+                cell.column,
+                cell.colspan,
+                cell_min,
+                cell_max,
+                width,
+                h_spacing,
+                &grid.collapsed_columns,
+            );
         }
+        clamp_percentages(&mut cons);
 
-        let min_width: f32 = col_min.iter().sum();
-        let max_width: f32 = col_max.iter().sum();
+        let (columns_min, columns_max) = table_min_max(&cons);
+        // The cell spacing: one per gutter, the outer two included (0 in
+        // the collapsing model).
+        let spacing = if cons.is_empty() {
+            0.0
+        } else {
+            h_spacing * (cons.len() + 1) as f32
+        };
+        // A FIXED table's minimum is its own width or its columns' (CSS 2.2
+        // 17.5.2.1), never its content's: the fixed layout does not read the
+        // cells, so their padding or a long word does not widen it.
+        let min_width = super::fc::fixed_table_content_width(&*self.ctx, tree, node_index, &grid)
+            .unwrap_or(columns_min + spacing)
+            .max(caption_min);
+        let max_width = (columns_max + spacing).max(caption_min).max(min_width);
+
+        // A cell spanning rows that are shorter than it grows the last one;
+        // the rows are `rows + 1` vertical spacings apart.
+        for (row, span, cell_h) in tall {
+            let end = (row + span).min(row_heights.len());
+            if end <= row {
+                continue;
+            }
+            let have: f32 = row_heights[row..end].iter().sum::<f32>()
+                + v_spacing * (end - row - 1) as f32;
+            if cell_h > have {
+                row_heights[end - 1] += cell_h - have;
+            }
+        }
+        let total_height = row_heights.iter().sum::<f32>()
+            + if row_heights.is_empty() {
+                0.0
+            } else {
+                v_spacing * (row_heights.len() + 1) as f32
+            };
 
         IntrinsicSizes {
             min_content_width: min_width,
@@ -1317,6 +2018,7 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
     tree: &LayoutTree,
     ifc_root_index: usize,
     out: &mut Vec<InlineContent>,
+    min_widths: &mut Vec<(usize, f32)>,
 ) -> Result<()> {
     debug_log!(
         ctx,
@@ -1326,7 +2028,7 @@ fn collect_inline_content_for_sizing<T: ParsedFontTrait>(
 
     // [g78] fill the caller's out-param (was a local Vec returned by value → Ok→Err mis-lift).
     // Recursively collect inline content from this node and its inline descendants
-    collect_inline_content_recursive(ctx, tree, ifc_root_index, out)?;
+    collect_inline_content_recursive(ctx, tree, ifc_root_index, out, min_widths)?;
     // [g73] B8 = top-level recursion returned Ok (collect_inline_content complete).
     unsafe {
         crate::az_mark(0x6071C_u32, (0xB8u32));
@@ -1358,6 +2060,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     tree: &LayoutTree,
     node_index: usize,
     content: &mut Vec<InlineContent>,
+    min_widths: &mut Vec<(usize, f32)>,
 ) -> Result<()> {
     // [g75] capture node_index of EVERY recursion entry (0x60754) and mark the entry-tree.get
     // FAILURE distinctly (inline-phase=0xBAD) so a node_index that fails HERE (before B1) is
@@ -1377,21 +2080,12 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
     // We need to check the DOM children for text content.
     let Some(dom_id) = node.dom_node_id else {
         // No DOM ID means this is a synthetic node, skip text extraction
-        return process_layout_children(ctx, tree, node_index, content);
+        return process_layout_children(ctx, tree, node_index, content, min_widths);
     };
 
     // First check if THIS node is a text node
     if let Some(text) = extract_text_from_node(ctx.styled_dom, dom_id) {
-        let style_props = crate::solver3::getters::get_style_properties_cached(
-            &mut ctx.style_cache,
-            ctx.styled_dom,
-            dom_id,
-            ctx.system_style.as_ref(),
-            azul_css::props::basic::PhysicalSize::new(
-                ctx.viewport_size.width,
-                ctx.viewport_size.height,
-            ),
-        );
+        let style_props = text_run_style(ctx, tree, dom_id);
         debug_log!(ctx, "Found text in node {}: '{}'", node_index, text);
         // Use split_text_for_whitespace to correctly handle white-space: pre with \n
         let text_items = split_text_for_whitespace(ctx.styled_dom, dom_id, &text, &style_props);
@@ -1415,16 +2109,7 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         let child_dom_node = &ctx.styled_dom.node_data.as_container()[child_id];
         if let NodeType::Text(text_data) = child_dom_node.get_node_type() {
             let text = text_data.as_str().to_string();
-            let style_props = crate::solver3::getters::get_style_properties_cached(
-                &mut ctx.style_cache,
-                ctx.styled_dom,
-                child_id,
-                ctx.system_style.as_ref(),
-                azul_css::props::basic::PhysicalSize::new(
-                    ctx.viewport_size.width,
-                    ctx.viewport_size.height,
-                ),
-            );
+            let style_props = text_run_style(ctx, tree, child_id);
             debug_log!(
                 ctx,
                 "Found text in DOM child of node {}: '{}'",
@@ -1442,10 +2127,123 @@ fn collect_inline_content_recursive<T: ParsedFontTrait>(
         crate::az_mark(0x6071C_u32, (0xB6u32));
     }
 
-    process_layout_children(ctx, tree, node_index, content)
+    process_layout_children(ctx, tree, node_index, content, min_widths)
 }
 
-/// Helper to process layout tree children for inline content collection
+/// The style the runs of the text node `text_id` carry in its line, the
+/// same one the line layout gives them
+/// (`fc::collect_inline_span_recursive`): the text of an inline box takes
+/// the BOX's style - its border, padding and horizontal margins are not
+/// inherited, yet they belong to its runs and widen the line - any other
+/// text its own (memoised) style. The box's style carries the chain of
+/// inline boxes around the text ([`inline_box_chain`]), by which the line
+/// tells the boxes apart (`inline_offsets` in text3's `position_one_line`).
+///
+/// A parent the layout blockified (a `<span>` that is a flex item, a float,
+/// an absolutely positioned box) is no inline box although its `display`
+/// says `inline`: it is the block holding the text, its padding and border
+/// are its box's and count once, there.
+fn text_run_style<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    text_id: NodeId,
+) -> Arc<StyleProperties> {
+    let viewport = azul_css::props::basic::PhysicalSize::new(
+        ctx.viewport_size.width,
+        ctx.viewport_size.height,
+    );
+    let inline_box = ctx.styled_dom.node_hierarchy.as_container()[text_id]
+        .parent_id()
+        .filter(|&parent| {
+            super::getters::is_inline_box_display(
+                get_display_property(ctx.styled_dom, Some(parent)).unwrap_or_default(),
+            ) && !laid_out_as_block(tree, parent)
+        });
+    match inline_box {
+        Some(parent) => {
+            let mut style =
+                get_style_properties(ctx.styled_dom, parent, ctx.system_style.as_ref(), viewport);
+            style.inline_boxes = inline_box_chain(ctx, tree, parent, text_id);
+            Arc::new(style)
+        }
+        None => crate::solver3::getters::get_style_properties_cached(
+            &mut ctx.style_cache,
+            ctx.styled_dom,
+            text_id,
+            ctx.system_style.as_ref(),
+            viewport,
+        ),
+    }
+}
+
+/// The inline boxes around `content` (a text node or a span), starting at
+/// the inline box `innermost`, that move the pen, the outermost first: the
+/// same chain the line layout gives its runs
+/// (`fc::collect_inline_span_recursive`), walked up from the box to the
+/// first ancestor that is no inline box. A box broken around a block it
+/// holds has its start edge only on its first part and its end edge only on
+/// its last (`layout_tree::inline_box_split_around`, relative to `content`).
+pub(crate) fn inline_box_chain<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    innermost: NodeId,
+    content: NodeId,
+) -> Arc<[crate::text3::cache::InlineBoxEdge]> {
+    let viewport = azul_css::props::basic::PhysicalSize::new(
+        ctx.viewport_size.width,
+        ctx.viewport_size.height,
+    );
+    let mut boxes = Vec::new();
+    let mut node = Some(innermost);
+    while let Some(id) = node {
+        let is_inline_box = super::getters::is_inline_box_display(
+            get_display_property(ctx.styled_dom, Some(id)).unwrap_or_default(),
+        ) && !laid_out_as_block(tree, id);
+        if !is_inline_box {
+            break;
+        }
+        let style = crate::solver3::getters::get_style_properties_cached(
+            &mut ctx.style_cache,
+            ctx.styled_dom,
+            id,
+            ctx.system_style.as_ref(),
+            viewport,
+        );
+        if let Some(mut edge) = crate::text3::cache::InlineBoxEdge::of(id, &style) {
+            let (goes_on_before, goes_on_after) =
+                crate::solver3::layout_tree::inline_box_split_around(ctx.styled_dom, id, content);
+            if goes_on_before {
+                edge.left = 0.0;
+            }
+            if goes_on_after {
+                edge.right = 0.0;
+            }
+            boxes.push(edge);
+        }
+        node = ctx.styled_dom.node_hierarchy.as_container()[id].parent_id();
+    }
+    boxes.reverse();
+    boxes.into()
+}
+
+/// Whether the layout made `dom_id` a block-level box although its
+/// `display` is `inline` (CSS Display 3, 2.7: a flex or grid item, a float,
+/// an absolutely positioned box): its layout node holds the display it got.
+fn laid_out_as_block(tree: &LayoutTree, dom_id: NodeId) -> bool {
+    tree.dom_to_layout
+        .get(&dom_id)
+        .and_then(|nodes| nodes.first())
+        .and_then(|&node| tree.warm(node))
+        .is_some_and(|w| !super::getters::is_inline_box_display(w.computed_style.display))
+}
+
+/// Helper to process layout tree children for inline content collection.
+///
+/// An atomic inline child goes in as a rectangle of its MAX-content
+/// contribution; when its MIN-content contribution differs, that one is
+/// recorded in `min_widths` as `(index into content, width)`, for the
+/// min-content measurement of the IFC
+/// ([`atomic_inline_width_contributions`]).
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::match_same_arms)] // enum/value mapping/dispatch table: one arm per input variant
                                   // (or cross-type bindings that can't merge)
@@ -1454,9 +2252,8 @@ fn process_layout_children<T: ParsedFontTrait>(
     tree: &LayoutTree,
     node_index: usize,
     content: &mut Vec<InlineContent>,
+    min_widths: &mut Vec<(usize, f32)>,
 ) -> Result<()> {
-    use azul_css::props::layout::{LayoutHeight, LayoutWidth};
-
     // [g73] PLC entry: 0x60708 = 0xC0<<24 | node_index (which node's children we process).
     unsafe {
         crate::az_mark(
@@ -1483,14 +2280,46 @@ fn process_layout_children<T: ParsedFontTrait>(
             continue;
         };
 
+        // A `<br>` is a forced line break (CSS Sizing 3 5.1: it still ends
+        // a line of the max-content), as the layout's own inline collection
+        // emits it (`fc::collect_and_measure_inline_content`). Entered as an
+        // empty inline it emitted nothing, and the lines on either side were
+        // measured as one: a table column of "item<br/>note" took both.
+        if matches!(
+            ctx.styled_dom.node_data.as_container()[child_dom_id].get_node_type(),
+            NodeType::Br
+        ) {
+            content.push(InlineContent::LineBreak(crate::text3::cache::InlineBreak {
+                break_type: crate::text3::cache::BreakType::Hard,
+                clear: crate::text3::cache::ClearType::None,
+                content_index: content.len(),
+            }));
+            continue;
+        }
+
+        // An out-of-flow child (position: absolute / fixed) takes no room in
+        // the lines and contributes nothing to the IFC's min- or max-content
+        // width (CSS 2.2 10.3.7, CSS Sizing 3 section 5) - the same skip as
+        // the line layout's own collection (`fc::collect_and_measure_inline_
+        // content`). Its OWN intrinsic sizes are stored on its node (for its
+        // shrink-to-fit width), and entered here as an atomic inline they
+        // widened the line: a flora tab grew by its hung curves and run-outs
+        // (18 + 18 + 34 + 34 px).
+        if matches!(
+            get_position_type(ctx.styled_dom, Some(child_dom_id)),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) {
+            continue;
+        }
+
         let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
 
         // CSS Sizing Level 3: Inline-level boxes participate in the IFC
-        if display.unwrap_or_default() == LayoutDisplay::Inline {
+        if super::getters::is_inline_box_display(display.unwrap_or_default()) {
             // Recursively collect content from inline children
             // This is CRITICAL for proper intrinsic width calculation!
             debug_log!(ctx, "Recursing into inline child at node {}", child_index);
-            collect_inline_content_recursive(ctx, tree, child_index, content)?;
+            collect_inline_content_recursive(ctx, tree, child_index, content, min_widths)?;
         } else {
             // Non-inline children are treated as atomic inline-level boxes
             // (e.g., inline-block, images, floats)
@@ -1507,36 +2336,31 @@ fn process_layout_children<T: ParsedFontTrait>(
             let css_width = get_css_width(ctx.styled_dom, child_dom_id, node_state);
             let css_height = get_css_height(ctx.styled_dom, child_dom_id, node_state);
 
-            // Resolve CSS width - use explicit value if set, otherwise fall back to intrinsic
-            let used_width = match css_width {
-                MultiValue::Exact(LayoutWidth::Px(px)) => {
-                    // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to
-                    // intrinsic contribution (css-sizing-3 §5.2.1)
-                    // +spec:containing-block:5246c0 - cyclic percentage: when containing block size
-                    // depends on this box's intrinsic contribution, percentages fall back to
-                    // intrinsic size +spec:containing-block:598124 - cyclic
-                    // percentage contributions use intrinsic size
-                    // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size
-                    // as contribution during intrinsic sizing
-                    // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto
-                    // for intrinsic contributions (cyclic percentage)
-                    // Resolve em/rem against the element's OWN font-size and the root
-                    // font-size, NOT a hard-coded 16px — otherwise `width: 5em` on a
-                    // font-size:24px inline-block sizes to 80px instead of 120px.
-                    let em = get_element_font_size(ctx.styled_dom, child_dom_id, node_state);
-                    let rem = super::getters::get_root_font_size(ctx.styled_dom, node_state);
-                    super::calc::resolve_pixel_value_no_percent(&px, em, rem)
-                        .unwrap_or(intrinsic_sizes.max_content_width)
-                }
-                MultiValue::Exact(LayoutWidth::MinContent) => intrinsic_sizes.min_content_width,
-                MultiValue::Exact(LayoutWidth::MaxContent) => intrinsic_sizes.max_content_width,
-                MultiValue::Exact(LayoutWidth::FitContent(_)) => {
-                    // During intrinsic sizing, fit-content resolves to max-content
-                    intrinsic_sizes.max_content_width
-                }
-                // For Auto or other values, use intrinsic size
-                _ => intrinsic_sizes.max_content_width,
-            };
+            // +spec:containing-block:495930 - percentages in intrinsic sizing fall back to
+            // intrinsic contribution (css-sizing-3 §5.2.1)
+            // +spec:containing-block:5246c0 - cyclic percentage: when containing block size
+            // depends on this box's intrinsic contribution, percentages fall back to
+            // intrinsic size +spec:containing-block:598124 - cyclic
+            // percentage contributions use intrinsic size
+            // +spec:height-calculation:ca9f19 - percentage-sized boxes use intrinsic size
+            // as contribution during intrinsic sizing
+            // +spec:width-calculation:7a384a - percentage-sized boxes behave as width:auto
+            // for intrinsic contributions (cyclic percentage)
+            // Its min- and max-content contributions: the margin box under
+            // each constraint (the stored intrinsic sizes already carry a
+            // definite `width` - em/rem resolved against the element's own
+            // and the root font-size - and the `min-width` / `max-width`
+            // clamp; a percentage width behaves as auto here).
+            // The shape is the max-content one; the min-content one, when
+            // it differs, is kept for the IFC's min-content measurement.
+            let (min_contribution, used_width) = atomic_inline_width_contributions(
+                &css_width,
+                &intrinsic_sizes,
+                &child_node.box_props.unpack(),
+            );
+            if (used_width - min_contribution).abs() > 0.01 {
+                min_widths.push((content.len(), min_contribution));
+            }
 
             // +spec:containing-block:5145c5 - percentage block-size ignored in content-sized
             // containing blocks during intrinsic sizing Resolve CSS height - use
@@ -1551,7 +2375,14 @@ fn process_layout_children<T: ParsedFontTrait>(
                     let em = get_element_font_size(ctx.styled_dom, child_dom_id, node_state);
                     let rem = super::getters::get_root_font_size(ctx.styled_dom, node_state);
                     super::calc::resolve_pixel_value_no_percent(&px, em, rem)
-                        .unwrap_or(intrinsic_sizes.max_content_height)
+                        .map_or(intrinsic_sizes.max_content_height, |v| {
+                            super::getters::zoomed_length(
+                                ctx.styled_dom,
+                                child_dom_id,
+                                px.metric,
+                                v,
+                            )
+                        })
                 }
                 // is equivalent to automatic size
                 MultiValue::Exact(LayoutHeight::MinContent) => intrinsic_sizes.max_content_height,
@@ -1589,6 +2420,10 @@ fn process_layout_children<T: ParsedFontTrait>(
                 alignment: crate::solver3::getters::get_vertical_align_for_node(
                     ctx.styled_dom,
                     child_dom_id,
+                    azul_css::props::basic::PhysicalSize::new(
+                        ctx.viewport_size.width,
+                        ctx.viewport_size.height,
+                    ),
                 ),
                 source_node_id: Some(child_dom_id),
             }));
@@ -1596,6 +2431,61 @@ fn process_layout_children<T: ParsedFontTrait>(
     }
 
     Ok(())
+}
+
+/// The layout child of `node_index` whose inline content is ALL the inline
+/// content [`collect_inline_content_recursive`] collects for `node_index` -
+/// the same items in the same order, the same `min_widths` - or `None` when
+/// that cannot be told without collecting.
+///
+/// It can be told when the node adds nothing of its own (it is no text node,
+/// and none of its DOM children without a layout node is one: the two things
+/// that function adds before it walks the layout children) and
+/// [`process_layout_children`] does one thing with the node's one layout
+/// child: recurse into it (the box of a DOM node, no `<br>`, in flow, an
+/// inline box by its `display`). Each test here is a test made there.
+fn sole_inline_content_child<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> Option<usize> {
+    let node = tree.get(LayoutNodeId::new(node_index))?;
+    let &[child_index] = tree.children(node_index) else {
+        return None;
+    };
+    // A marker on this context's first line is content the child's does not
+    // hold (`calculate_ifc_root_intrinsic_sizes`).
+    if !crate::solver3::fc::is_marker_box(tree, node_index)
+        && !crate::solver3::fc::markers_on_first_line(tree, ctx.styled_dom, node_index).is_empty()
+    {
+        return None;
+    }
+    let node_data = ctx.styled_dom.node_data.as_container();
+    if let Some(dom_id) = node.dom_node_id {
+        if matches!(node_data[dom_id].get_node_type(), NodeType::Text(_)) {
+            return None;
+        }
+        let node_hierarchy = ctx.styled_dom.node_hierarchy.as_container();
+        for child_id in dom_id.az_children(&node_hierarchy) {
+            if !tree.dom_to_layout.contains_key(&child_id)
+                && matches!(node_data[child_id].get_node_type(), NodeType::Text(_))
+            {
+                return None;
+            }
+        }
+    }
+    let child_dom_id = tree.get(LayoutNodeId::new(child_index))?.dom_node_id?;
+    if matches!(node_data[child_dom_id].get_node_type(), NodeType::Br) {
+        return None;
+    }
+    if matches!(
+        get_position_type(ctx.styled_dom, Some(child_dom_id)),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) {
+        return None;
+    }
+    let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
+    super::getters::is_inline_box_display(display.unwrap_or_default()).then_some(child_index)
 }
 
 // Keep old name as an alias for backward compatibility
@@ -1608,8 +2498,53 @@ pub fn collect_inline_content<T: ParsedFontTrait>(
     ifc_root_index: usize,
 ) -> Result<Vec<InlineContent>> {
     let mut out = Vec::new();
-    collect_inline_content_for_sizing(ctx, tree, ifc_root_index, &mut out)?;
+    let mut min_widths = Vec::new();
+    collect_inline_content_for_sizing(ctx, tree, ifc_root_index, &mut out, &mut min_widths)?;
     Ok(out)
+}
+
+/// An atomic inline-level box's (inline-block, inline-table, image, ...)
+/// OUTER inline-size contributions `(min, max)` to the inline formatting
+/// context it sits in (css-sizing-3 5.1 / 5.2, CSS 2.2 10.3.9): its
+/// min-content contribution under the min-content constraint, its
+/// max-content one under the max-content constraint, both as margin boxes.
+///
+/// `intrinsic` are the box's stored CONTENT-box intrinsic sizes, which
+/// already carry a definite `width` (as `min = max = width`), the
+/// `max-width` clamp and the `min-width` floor
+/// (`IntrinsicSizeCalculator::calculate_intrinsic_recursive`); `width:
+/// min-content` / `max-content` pick one of the two. Before, the box went
+/// into the IFC's measurement at its content max-content alone - no
+/// padding, border or margin, no `max-width`, and its max-content under
+/// the min-content constraint too: a cell of an inline-block never shrank
+/// below the inline-block's longest line.
+fn atomic_inline_width_contributions(
+    css_width: &MultiValue<LayoutWidth>,
+    intrinsic: &IntrinsicSizes,
+    bp: &BoxProps,
+) -> (f32, f32) {
+    let min = if intrinsic.min_content_width.is_finite() {
+        intrinsic.min_content_width.max(0.0)
+    } else {
+        0.0
+    };
+    let max = if intrinsic.max_content_width.is_finite() {
+        intrinsic.max_content_width.max(min)
+    } else {
+        min
+    };
+    let (min, max) = match css_width {
+        MultiValue::Exact(LayoutWidth::MinContent) => (min, min),
+        MultiValue::Exact(LayoutWidth::MaxContent) => (max, max),
+        _ => (min, max),
+    };
+    let outer = bp.margin.left
+        + bp.margin.right
+        + bp.border.left
+        + bp.border.right
+        + bp.padding.left
+        + bp.padding.right;
+    ((min + outer).max(0.0), (max + outer).max(0.0))
 }
 
 // +spec:height-calculation:1c899b - width and height properties specify the preferred size of the
@@ -1720,6 +2655,480 @@ fn auto_inline_size_for(
     }
 }
 
+/// Whether `height` is a percentage that computes to `auto` because the
+/// containing block's height is not definite - it depends on the content
+/// (CSS 2.2 10.5). THE one test for it: the used size
+/// (`calculate_used_size_for_node`), the content-based height after layout
+/// and the height a box's children resolve against (`cache`), the block
+/// container's children (`fc::layout_bfc`) and the atomic-inline measurement
+/// (`fc::measure_atomic_inline`) all ask it, so a box never is `auto` to one
+/// of them and a definite length to another.
+pub(crate) fn percentage_height_computes_to_auto(
+    height: Option<&LayoutHeight>,
+    containing_block_height_is_definite: bool,
+) -> bool {
+    !containing_block_height_is_definite
+        && matches!(
+            height,
+            Some(LayoutHeight::Px(px)) if px.metric == azul_css::props::basic::SizeMetric::Percent
+        )
+}
+
+/// Whether a box's `height` (`None` = auto) gives its children NO height to
+/// resolve their percentages against - `auto`, or a percentage that computes
+/// to auto ([`percentage_height_computes_to_auto`]) - so its used height
+/// before layout is only a placeholder. A table box keeps its used height
+/// for its children: the table algorithm decides the heights of a table, its
+/// rows and its cells (CSS 2.2 17.5.3), and a cell's percentage child
+/// resolves against the cell. Asked by `cache::prepare_layout_context` and
+/// `fc::layout_bfc`, the two places that hand a box's height to its children.
+pub(crate) fn height_is_auto_for_children(
+    formatting_context: FormattingContext,
+    height: Option<&LayoutHeight>,
+    containing_block_height_is_definite: bool,
+) -> bool {
+    let table_box = matches!(
+        formatting_context,
+        FormattingContext::Table
+            | FormattingContext::TableRowGroup
+            | FormattingContext::TableRow
+            | FormattingContext::TableCell
+            | FormattingContext::TableColumnGroup
+            | FormattingContext::TableCaption
+    );
+    height.is_none()
+        || (!table_box
+            && percentage_height_computes_to_auto(height, containing_block_height_is_definite))
+}
+
+/// The constraints an inline formatting context's content is measured in
+/// for its intrinsic sizes: its root's `white-space` and `text-indent`. The
+/// intrinsic pass and a relayout after an edit measure it in these.
+pub(crate) fn ifc_measure_constraints(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+    viewport_size: LogicalSize,
+) -> UnifiedConstraints {
+    let mut constraints = UnifiedConstraints::default();
+    // An anonymous block has no DOM node: it inherits white-space and
+    // text-indent from its enclosing box, as `fc::layout_ifc` lays it
+    // out. Reading only the root's own node measured it as
+    // white-space: normal with no indent.
+    let ifc_root_is_anonymous = tree
+        .get(LayoutNodeId::new(node_index))
+        .is_some_and(|n| n.dom_node_id.is_none());
+    if let Some(dom_id) = crate::solver3::fc::ifc_root_style_dom_id(tree, node_index) {
+        use azul_css::props::style::text::StyleWhiteSpace;
+
+        use crate::solver3::getters::{get_white_space_property, MultiValue};
+        let node_state =
+            &styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
+        let ws = match get_white_space_property(styled_dom, dom_id, node_state) {
+            MultiValue::Exact(v) => v,
+            _ => StyleWhiteSpace::Normal,
+        };
+        constraints.white_space_mode = match ws {
+            StyleWhiteSpace::Normal => crate::text3::cache::WhiteSpaceMode::Normal,
+            StyleWhiteSpace::Nowrap => crate::text3::cache::WhiteSpaceMode::Nowrap,
+            StyleWhiteSpace::Pre => crate::text3::cache::WhiteSpaceMode::Pre,
+            StyleWhiteSpace::PreWrap => crate::text3::cache::WhiteSpaceMode::PreWrap,
+            StyleWhiteSpace::PreLine => crate::text3::cache::WhiteSpaceMode::PreLine,
+            StyleWhiteSpace::BreakSpaces => crate::text3::cache::WhiteSpaceMode::BreakSpaces,
+        };
+        // `text-indent` narrows its line box, so it counts in the intrinsic
+        // widths too (a percentage as 0, CSS Text 3 8.1) - or a box sized
+        // from them wraps its first line's last word.
+        let (indent, each_line, hanging) = crate::solver3::getters::resolve_text_indent(
+            styled_dom,
+            dom_id,
+            node_state,
+            0.0,
+            viewport_size,
+            true,
+        );
+        // An anonymous block indents only when it holds the container's
+        // first formatted line - the gate `fc::layout_ifc` uses, or the
+        // box is sized for an indent its layout never applies.
+        constraints.text_indent = if ifc_root_is_anonymous
+            && !each_line
+            && !crate::solver3::fc::anonymous_block_holds_the_first_line(
+                tree,
+                styled_dom,
+                node_index,
+            ) {
+            0.0
+        } else {
+            indent
+        };
+        constraints.text_indent_each_line = each_line;
+        constraints.text_indent_hanging = hanging;
+    }
+    constraints
+}
+
+/// The intrinsic sizes of an inline formatting context's `inline_content`,
+/// measured in `constraints` ([`ifc_measure_constraints`]): its min-content
+/// and max-content widths and the height of its one max-content line. The
+/// atomic inlines listed in `shape_min_widths` (content index, width) count
+/// with that width toward the min-content width.
+///
+/// The intrinsic pass measures every IFC here, and a relayout after an edit
+/// measures the edited content here to size a shrink-to-fit box
+/// ([`shrink_to_fit_containing_block`]).
+#[allow(clippy::too_many_arguments)] // the shaping inputs `measure_intrinsic_widths` takes
+pub(crate) fn measure_ifc_intrinsic_sizes<T: ParsedFontTrait>(
+    text_cache: &mut LayoutCache,
+    inline_content: &[InlineContent],
+    shape_min_widths: &[(usize, f32)],
+    constraints: &UnifiedConstraints,
+    font_chain_cache: &std::collections::HashMap<
+        crate::text3::cache::FontChainKey,
+        rust_fontconfig::FontFallbackChain,
+    >,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &crate::text3::cache::LoadedFonts<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> IntrinsicSizes {
+    measure_ifc_intrinsic_sizes_keeping(
+        text_cache,
+        inline_content,
+        shape_min_widths,
+        constraints,
+        font_chain_cache,
+        fc_cache,
+        loaded_fonts,
+        debug_messages,
+    )
+    .0
+}
+
+/// The logical and the shaped items of a paragraph, as
+/// `TextShapingCache::shape_content` hands them out.
+pub(crate) type ShapedParagraph = (
+    Arc<Vec<crate::text3::cache::LogicalItem>>,
+    Arc<Vec<crate::text3::cache::ShapedItem>>,
+);
+
+/// [`measure_ifc_intrinsic_sizes`], and what it shaped `inline_content`
+/// into (none when the shaping failed): the measure is the shaping
+/// (`shape_content`) and a scan of the shaped items
+/// (`intrinsic_widths_of_shaped`), which is all
+/// `TextShapingCache::measure_intrinsic_widths` is.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn measure_ifc_intrinsic_sizes_keeping<T: ParsedFontTrait>(
+    text_cache: &mut LayoutCache,
+    inline_content: &[InlineContent],
+    shape_min_widths: &[(usize, f32)],
+    constraints: &UnifiedConstraints,
+    font_chain_cache: &std::collections::HashMap<
+        crate::text3::cache::FontChainKey,
+        rust_fontconfig::FontFallbackChain,
+    >,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &crate::text3::cache::LoadedFonts<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> (IntrinsicSizes, Option<ShapedParagraph>) {
+    let _p_measure = crate::probe::Probe::span("intrinsic_measure_widths");
+    let Ok(shaped) = text_cache.shape_content(
+        inline_content,
+        &[],
+        constraints,
+        font_chain_cache,
+        fc_cache,
+        loaded_fonts,
+        debug_messages,
+    ) else {
+        return (
+            IntrinsicSizes {
+                min_content_width: FALLBACK_MIN_CONTENT_WIDTH,
+                max_content_width: FALLBACK_MAX_CONTENT_WIDTH,
+                preferred_width: None,
+                min_content_height: FALLBACK_MIN_CONTENT_HEIGHT,
+                max_content_height: FALLBACK_MAX_CONTENT_HEIGHT,
+                preferred_height: None,
+                preferred_aspect_ratio: None,
+            },
+            None,
+        );
+    };
+    let intrinsic_text =
+        LayoutCache::intrinsic_widths_of_shaped(shaped.1.clone(), constraints, loaded_fonts);
+
+    let mut min_width = intrinsic_text.min_content_width;
+    let max_width = intrinsic_text.max_content_width;
+
+    // The min-content constraint asks every atomic inline for its
+    // min-content contribution (css-sizing-3 5.1): measure the same
+    // content again with those widths. The max-content scan above saw
+    // each inline-block at its max-content, so a cell holding one never
+    // came out narrower than the inline-block's longest line. Text
+    // items are shared and their shaping is cached: the second scan
+    // costs the scan.
+    if !shape_min_widths.is_empty() {
+        let mut min_content = inline_content.to_vec();
+        for &(index, width) in shape_min_widths {
+            if let Some(InlineContent::Shape(shape)) = min_content.get_mut(index) {
+                if let ShapeDefinition::Rectangle { size, .. } = &mut shape.shape_def {
+                    size.width = width;
+                }
+            }
+        }
+        if let Ok(min_text) = text_cache.measure_intrinsic_widths(
+            &min_content,
+            &[],
+            constraints,
+            font_chain_cache,
+            fc_cache,
+            loaded_fonts,
+            debug_messages,
+        ) {
+            min_width = min_text.min_content_width.min(max_width);
+        }
+    }
+
+    // +spec:display-property:c587fd - min-content block size equals max-content block size for
+    // block containers, tables, inline boxes +spec:intrinsic-sizing:02eedc -
+    // min-content block size equals max-content block size for block containers
+    // For a single-line max-content layout the height is one line box;
+    // `measure_intrinsic_widths` returns exactly that.
+    let max_content_height = intrinsic_text.max_content_height;
+
+    // NOTE(writing-modes): min_content_width / max_content_width are named for
+    // the physical axis. In vertical writing modes the "inline" axis is vertical,
+    // so these are swapped by calculate_block_intrinsic_sizes when computing
+    // the parent's intrinsic sizes. The physical naming is intentional here.
+    (
+        IntrinsicSizes {
+            min_content_width: min_width,
+            max_content_width: max_width,
+            preferred_width: None,
+            min_content_height: max_content_height,
+            max_content_height,
+            preferred_height: None,
+            preferred_aspect_ratio: None,
+        },
+        Some(shaped),
+    )
+}
+
+/// How many shaped paragraphs the layout took from the intrinsic measure of
+/// the same pass ([`MeasuredParagraphs::take`]) on this thread, and how many
+/// the measure kept for it: what the tests count (`audit_tests::a3_solver`).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MEASURED_PARAGRAPHS_KEPT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static MEASURED_PARAGRAPHS_TAKEN: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// Why [`MeasuredParagraphs::take`] refused what was kept for a root, counted by the
+    /// first input that differed: the base direction, `unicode-bidi`, the registered
+    /// faces, the content. What a failing count test prints.
+    pub(crate) static MEASURED_PARAGRAPHS_REFUSED: core::cell::Cell<[usize; 4]> =
+        const { core::cell::Cell::new([0; 4]) };
+}
+
+/// The most shaped items [`MeasuredParagraphs`] holds at a time. A kept
+/// paragraph is one more reference to items the layout builds anyway, but it
+/// is held from the intrinsic pass to the paragraph's layout - on a first
+/// pass every paragraph of the document at once. Past this bound a measure
+/// keeps nothing and the layout shapes again (cache hits), as before.
+pub(crate) const MEASURED_ITEMS_KEPT_AT_MOST: usize = 65_536;
+
+/// One paragraph the intrinsic pass shaped: its content, what of the
+/// constraints the shaping read, and the result.
+struct MeasuredParagraph {
+    /// The inline content that was shaped.
+    content: Vec<InlineContent>,
+    /// The base direction and `unicode_bidi` of the measure: all
+    /// `shape_content` reads of its constraints (`paragraph_bidi`). The
+    /// direction is the one `paragraph_bidi` reads ([`base_direction_of`]):
+    /// the intrinsic measure leaves `UnifiedConstraints::direction` unset
+    /// (`ifc_measure_constraints`), the layout sets the box's `ltr`, and both
+    /// shape left to right. Compared as declared, `None` against
+    /// `Some(Ltr)`, no layout ever took what its measure had shaped.
+    direction: crate::text3::cache::BidiDirection,
+    unicode_bidi: crate::text3::cache::UnicodeBidi,
+    /// `text3::fontreg::generation()` at the shaping: a face registered
+    /// since changes what a family resolves to.
+    fonts_generation: u64,
+    shaped: ShapedParagraph,
+}
+
+/// The base direction `shape_content` shapes a paragraph in under
+/// `constraints`, as `text3::cache::paragraph_bidi` reads it: the declared
+/// one, left to right when none is set.
+fn base_direction_of(constraints: &UnifiedConstraints) -> crate::text3::cache::BidiDirection {
+    constraints
+        .direction
+        .unwrap_or(crate::text3::cache::BidiDirection::Ltr)
+}
+
+/// The intrinsic pass's slot of the pass (`PassMemo::measured`): the
+/// paragraphs it shaped, by the layout node of their inline formatting
+/// context, for the layout of the same paragraphs later in the pass.
+///
+/// The intrinsic measure of an inline formatting context and its layout
+/// each shaped its content (`TextShapingCache::shape_content`): the second
+/// time a hit in every cache, which still hashes the content, looks its
+/// stages up, expands every cached cluster into a new vector and stamps it.
+/// The layout of a root takes what the measure of that root made when it
+/// would be handed the same: the same content (compared, not hashed), the
+/// same paragraph direction, the same registered faces - within one pass,
+/// so the same loaded fonts and font chains (`LayoutContext::loaded_fonts`).
+#[derive(Default)]
+pub struct MeasuredParagraphs {
+    by_root: std::collections::HashMap<usize, MeasuredParagraph>,
+    items_kept: usize,
+}
+
+impl core::fmt::Debug for MeasuredParagraphs {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MeasuredParagraphs")
+            .field("paragraphs", &self.by_root.len())
+            .field("items_kept", &self.items_kept)
+            .finish()
+    }
+}
+
+impl MeasuredParagraphs {
+    /// Keeps what the measure of the inline formatting context `root` shaped
+    /// `content` into under `constraints`, while there is room
+    /// ([`MEASURED_ITEMS_KEPT_AT_MOST`]).
+    fn keep(
+        &mut self,
+        root: usize,
+        content: Vec<InlineContent>,
+        constraints: &UnifiedConstraints,
+        shaped: ShapedParagraph,
+    ) {
+        self.forget(root);
+        let items = shaped.1.len();
+        if self.items_kept + items > MEASURED_ITEMS_KEPT_AT_MOST {
+            return;
+        }
+        self.items_kept += items;
+        #[cfg(test)]
+        MEASURED_PARAGRAPHS_KEPT.with(|n| n.set(n.get() + 1));
+        self.by_root.insert(
+            root,
+            MeasuredParagraph {
+                content,
+                direction: base_direction_of(constraints),
+                unicode_bidi: constraints.unicode_bidi,
+                fonts_generation: crate::text3::fontreg::generation(),
+                shaped,
+            },
+        );
+    }
+
+    /// Drops what is kept for `root`.
+    fn forget(&mut self, root: usize) -> Option<MeasuredParagraph> {
+        let kept = self.by_root.remove(&root)?;
+        self.items_kept = self.items_kept.saturating_sub(kept.shaped.1.len());
+        Some(kept)
+    }
+
+    /// The measure of `child` served for `root` too (the box around one
+    /// inline box, `reuse_last_ifc_measure`): what is kept for the child is
+    /// the root's, whose layout is the one that shapes this content.
+    fn hand_up(&mut self, child: usize, root: usize) {
+        if let Some(kept) = self.by_root.remove(&child) {
+            if let Some(replaced) = self.by_root.insert(root, kept) {
+                self.items_kept = self.items_kept.saturating_sub(replaced.shaped.1.len());
+            }
+        }
+    }
+
+    /// What the measure of `root` shaped, if `shape_content` would hand the
+    /// layout the same for `content` under `constraints`. Whatever is kept
+    /// for the root is dropped: its layout is the one use.
+    pub(crate) fn take(
+        &mut self,
+        root: usize,
+        content: &[InlineContent],
+        constraints: &UnifiedConstraints,
+    ) -> Option<ShapedParagraph> {
+        let kept = self.forget(root)?;
+        let differs = [
+            kept.direction != base_direction_of(constraints),
+            kept.unicode_bidi != constraints.unicode_bidi,
+            kept.fonts_generation != crate::text3::fontreg::generation(),
+        ];
+        // The content last: the one comparison that walks the paragraph.
+        let refused_by = differs
+            .iter()
+            .position(|d| *d)
+            .or_else(|| (kept.content.as_slice() != content).then_some(3));
+        if let Some(_cause) = refused_by {
+            #[cfg(test)]
+            MEASURED_PARAGRAPHS_REFUSED.with(|n| {
+                let mut by_cause = n.get();
+                by_cause[_cause] += 1;
+                n.set(by_cause);
+            });
+            return None;
+        }
+        #[cfg(test)]
+        MEASURED_PARAGRAPHS_TAKEN.with(|n| n.set(n.get() + 1));
+        Some(kept.shaped)
+    }
+}
+
+/// The containing block a fresh layout sizes the box at `node_index` from
+/// its content in, when its formatting context does (shrink-to-fit): an
+/// atomic inline (an inline-block) in the one its inline formatting context
+/// measured its atomic inlines against
+/// (`CachedInlineContent::atomics_measured_against`), an absolutely or a
+/// fixed positioned box (an SVG text among them) in its own
+/// (`find_absolute_containing_block_rect`, the viewport). Its border-box
+/// size is then [`calculate_used_size_for_node`] of its intrinsic sizes.
+///
+/// `None` for every other box: its width is its formatting context's (a
+/// block's is its containing block's, a flex item's the flex layout's).
+pub(crate) fn shrink_to_fit_containing_block(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    node_index: usize,
+    calculated_positions: &super::PositionVec,
+    viewport: azul_core::geom::LogicalRect,
+) -> Option<super::geometry::ContainingBlock> {
+    use super::geometry::ContainingBlock;
+
+    let node = tree.get(LayoutNodeId::new(node_index))?;
+    let dom_id = node.dom_node_id?;
+    match get_position_type(styled_dom, Some(dom_id)) {
+        LayoutPosition::Fixed => return Some(ContainingBlock::definite(viewport.size)),
+        LayoutPosition::Absolute => {
+            let rect = super::positioning::find_absolute_containing_block_rect(
+                tree,
+                node_index,
+                styled_dom,
+                calculated_positions,
+                viewport,
+            )
+            .ok()?;
+            return Some(ContainingBlock::definite(rect.size));
+        }
+        _ => {}
+    }
+    if !matches!(node.formatting_context, FormattingContext::InlineBlock) {
+        return None;
+    }
+    let mut ancestor = node.parent;
+    while let Some(index) = ancestor {
+        if let Some(collected) = tree
+            .warm(LayoutNodeId::new(index))
+            .and_then(|warm| warm.inline_content_cache.as_deref())
+        {
+            let (size, width_type) = collected.atomics_measured_against?;
+            return Some(ContainingBlock::from_flattened_with_width_type(
+                size, width_type,
+            ));
+        }
+        ancestor = tree.get(LayoutNodeId::new(index))?.parent;
+    }
+    None
+}
+
 #[allow(clippy::match_same_arms)]
 // enum/value mapping/dispatch table: one arm per input variant (or cross-type bindings that can't
 // merge)
@@ -1789,6 +3198,30 @@ pub fn calculate_used_size_for_node(
     let writing_mode = get_writing_mode(styled_dom, id, node_state);
     let display = get_display_property(styled_dom, Some(id));
     let position = get_position_type(styled_dom, dom_id);
+    // CSS 2.1 9.7 ("Relationships between 'display', 'position', and
+    // 'float'"): for an absolutely positioned box "display is set according
+    // to the table below" - an inline box becomes a block. Its `width` and
+    // `height` apply (10.3.7, 10.6.4); read as the inline box it was
+    // specified as, an absolutely positioned `<span>` lost both to "the
+    // width property does not apply to inline non-replaced elements" below
+    // and came out 0px tall whatever its `height` said.
+    let display = match display {
+        MultiValue::Exact(d)
+            if matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed) =>
+        {
+            MultiValue::Exact(super::getters::blockify_display(d))
+        }
+        other => other,
+    };
+    // A footnote of paged media is out of the flow like an absolute box,
+    // but it is laid out as a block of the footnote area (CSS Generated
+    // Content for Paged Media, "Footnotes"): as wide as its containing
+    // block leaves it (10.3.3), not shrunk to fit, and not by its insets.
+    let position = if super::getters::is_footnote(styled_dom, id) {
+        LayoutPosition::Static
+    } else {
+        position
+    };
 
     // Construct the full WritingModeContext from resolved styles.
     // This determines how logical dimensions (inline/block) map to physical (width/height).
@@ -1800,16 +3233,17 @@ pub fn calculate_used_size_for_node(
     let is_vertical = !wm_ctx.is_horizontal();
 
     // +spec:display-property:06e0b1 - form controls (non-image) treated as non-replaced
-    // Determine if this element is a replaced element (images, virtual views)
+    // Determine if this element is a replaced element (images, virtual views, web views)
     let node_data = &styled_dom.node_data.as_container()[id];
-    let is_replaced =
-        matches!(node_data.get_node_type(), NodeType::Image(_)) || node_data.is_virtual_view_node();
+    let is_replaced = node_data.is_sized_replaced_node();
 
     // +spec:width-calculation:79cdf8 - inline non-replaced: width property does not apply
     // +spec:width-calculation:972e86 - §10.3.1: width property does not apply to inline
     // non-replaced elements For inline non-replaced elements, override any explicit width to
     // Auto.
-    let css_width = if display.unwrap_or_default() == LayoutDisplay::Inline && !is_replaced {
+    let css_width = if super::getters::is_inline_box_display(display.unwrap_or_default())
+        && !is_replaced
+    {
         MultiValue::Exact(LayoutWidth::Auto)
     } else {
         css_width
@@ -1820,11 +3254,29 @@ pub fn calculate_used_size_for_node(
     // +spec:height-calculation:c03717 - height does not apply to inline non-replaced elements
     // CSS 2.2 §10.6.1 / CSS Inline 3 §6.4: height property does not apply to
     // inline, non-replaced elements. Override any explicit height to Auto.
-    let css_height = if display.unwrap_or_default() == LayoutDisplay::Inline && !is_replaced {
+    let css_height = if super::getters::is_inline_box_display(display.unwrap_or_default())
+        && !is_replaced
+    {
         MultiValue::Exact(LayoutHeight::Auto)
     } else {
         css_height
     };
+
+    // CSS 2.2 10.5: a percentage height against a containing block whose
+    // height is not definite COMPUTES to `auto` - in every arm below, not
+    // only as a value: a block-level box then starts from the 0 placeholder
+    // an `auto` block gets, and `apply_content_based_height` (cache.rs) makes
+    // it exactly as tall as its content. Resolved to the sizing estimate
+    // (`intrinsic.max_content_height`) instead, the estimate became the floor
+    // of that content height - too tall where it counted a clipped
+    // preheader's text - and, for an inline-block, the height its own
+    // percentage children resolved against (AzMail's paper, MAILREF8).
+    let css_height =
+        if percentage_height_computes_to_auto(css_height.as_exact(), cb_h.definite().is_some()) {
+            MultiValue::Exact(LayoutHeight::Auto)
+        } else {
+            css_height
+        };
 
     // Remember if width/height were auto before consuming them
     let width_is_auto =
@@ -1834,15 +3286,16 @@ pub fn calculate_used_size_for_node(
 
     // +spec:intrinsic-sizing:9e1c9d - non-quantitative values (auto, min-content, max-content) are
     // not influenced by box-sizing
+    // `fit-content` is one of them: its size is a CONTENT size (the
+    // min/max-content clamp below), the padding and border go outside it
+    // whatever `box-sizing` says.
     let width_is_quantitative = matches!(
         &css_width,
-        MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::FitContent(_) | LayoutWidth::Calc(_))
+        MultiValue::Exact(LayoutWidth::Px(_) | LayoutWidth::Calc(_))
     );
     let height_is_quantitative = matches!(
         &css_height,
-        MultiValue::Exact(
-            LayoutHeight::Px(_) | LayoutHeight::FitContent(_) | LayoutHeight::Calc(_)
-        )
+        MultiValue::Exact(LayoutHeight::Px(_) | LayoutHeight::Calc(_))
     );
 
     // +spec:width-calculation:50d67a - automatic sizing concepts (width/height auto resolution)
@@ -1960,6 +3413,7 @@ pub fn calculate_used_size_for_node(
                         )
                     }
                     LayoutDisplay::InlineBlock
+                    | LayoutDisplay::InlineBlockListItem
                     | LayoutDisplay::InlineGrid
                     | LayoutDisplay::InlineFlex => {
                         // +spec:width-calculation:c01de8 - inline-block auto width uses
@@ -1973,19 +3427,41 @@ pub fn calculate_used_size_for_node(
                             .min(preferred)
                             .max(0.0)
                     }
-                    LayoutDisplay::Inline => {
+                    LayoutDisplay::Inline | LayoutDisplay::InlineListItem => {
                         // For inline elements, 'auto' width is the intrinsic/max-content width
                         intrinsic.max_content_width
                     }
+                    // CSS 2.1 17.5.2.2: an auto-width table is as wide as
+                    // its columns want, within its containing block:
+                    // max(MIN, min(MAX, available)). Its MAX-content alone, as
+                    // this was, ran a 600px newsletter table 2886px wide at a
+                    // 760px viewport. (The intrinsic sizes carry the cell
+                    // spacing and the caption; a `width` is floored at MIN
+                    // below, after the box-sizing conversion.)
                     LayoutDisplay::Table | LayoutDisplay::InlineTable => {
-                        intrinsic.max_content_width
+                        let available_width = shrink_to_fit_available_width(cb_w, box_props);
+                        intrinsic
+                            .max_content_width
+                            .min(available_width)
+                            .max(intrinsic.min_content_width)
+                            .max(0.0)
                     }
                     // Table cells: during intrinsic measurement, intrinsic sizes
                     // aren't known yet (0). Use containing block width so content
                     // can expand and be measured. The table layout algorithm sets
                     // the final cell width from computed column widths.
                     LayoutDisplay::TableCell => {
-                        if intrinsic.max_content_width > 0.0 {
+                        if matches!(cb_w, Text3AvailableSpace::MinContent) {
+                            // The table's MIN-content measurement of the cell
+                            // (`measure_cell_widths`, its min pass): the cell is
+                            // as narrow as its content can be, so the text in
+                            // it wraps at every opportunity and the column's
+                            // minimum is its longest word, not its longest
+                            // line (CSS 2.2 17.5.2.2). Sized at max-content
+                            // here, no column ever shrank below its longest
+                            // line and a narrow table ran past its width.
+                            intrinsic.min_content_width.max(0.0)
+                        } else if intrinsic.max_content_width > 0.0 {
                             intrinsic.max_content_width
                         } else {
                             // A definite containing block lets an unmeasured
@@ -2013,13 +3489,15 @@ pub fn calculate_used_size_for_node(
         LayoutWidth::Px(px) => {
             let em = get_element_font_size(styled_dom, id, node_state);
             let rem = super::getters::get_root_font_size(styled_dom, node_state);
+            // CSS `zoom` scales an absolute length (LAYOUT7).
             let pixels_opt = super::calc::resolve_pixel_value_no_percent_with_viewport(
                 &px,
                 em,
                 rem,
                 viewport_size.width,
                 viewport_size.height,
-            );
+            )
+            .map(|v| super::getters::zoomed_length(styled_dom, id, px.metric, v));
 
             pixels_opt.unwrap_or_else(|| {
                 px.to_percent().map_or(intrinsic.max_content_width, |p| {
@@ -2064,9 +3542,35 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width,
                 viewport_size.height,
             );
-            intrinsic
-                .max_content_width
-                .min(intrinsic.min_content_width.max(arg))
+            let arg = super::getters::zoomed_length(styled_dom, id, px.metric, arg);
+            // The argument takes the place of the AVAILABLE space (css-sizing-3
+            // 3.2): the content box gets its stretch-fit size, the argument
+            // less this box's margins, borders and padding. So the
+            // `fit-content` keyword, parsed as `fit-content(100%)`, is
+            // min(max-content, max(min-content, stretch-fit)) - a padded
+            // fit-content box of wrapping text fits its container. The result
+            // is a content size whatever `box-sizing` says
+            // (`width_is_quantitative`).
+            if arg.is_finite() {
+                let stretch_fit = (arg
+                    - box_props.margin.left
+                    - box_props.margin.right
+                    - box_props.border.left
+                    - box_props.border.right
+                    - box_props.padding.left
+                    - box_props.padding.right)
+                    .max(0.0);
+                intrinsic
+                    .max_content_width
+                    .min(intrinsic.min_content_width.max(stretch_fit))
+            } else {
+                // Against an indefinite basis it behaves as auto: the
+                // contribution of the pass's kind.
+                match cb_w {
+                    Text3AvailableSpace::MinContent => intrinsic.min_content_width,
+                    _ => intrinsic.max_content_width,
+                }
+            }
         }
         LayoutWidth::Calc(items) => {
             use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
@@ -2180,7 +3684,7 @@ pub fn calculate_used_size_for_node(
                     | LayoutDisplay::Grid => 0.0,
                     // Inline: height property does not apply (§10.6.1), handled earlier
                     // via css_height override, but be explicit anyway.
-                    LayoutDisplay::Inline => 0.0,
+                    LayoutDisplay::Inline | LayoutDisplay::InlineListItem => 0.0,
                     // Shrink-to-fit and intrinsically-sized: keep using intrinsic pre-layout.
                     _ => intrinsic.max_content_height,
                 },
@@ -2189,13 +3693,15 @@ pub fn calculate_used_size_for_node(
         LayoutHeight::Px(px) => {
             let em = get_element_font_size(styled_dom, id, node_state);
             let rem = super::getters::get_root_font_size(styled_dom, node_state);
+            // CSS `zoom` scales an absolute length (LAYOUT7).
             let pixels_opt = super::calc::resolve_pixel_value_no_percent_with_viewport(
                 &px,
                 em,
                 rem,
                 viewport_size.width,
                 viewport_size.height,
-            );
+            )
+            .map(|v| super::getters::zoomed_length(styled_dom, id, px.metric, v));
 
             // +spec:height-calculation:37bc8c - percentage heights resolve against definite
             // containing block height
@@ -2237,6 +3743,7 @@ pub fn calculate_used_size_for_node(
                 viewport_size.width,
                 viewport_size.height,
             );
+            let arg = super::getters::zoomed_length(styled_dom, id, px.metric, arg);
             let auto_height = intrinsic.max_content_height;
             auto_height.min(auto_height.max(arg))
         }
@@ -2260,6 +3767,55 @@ pub fn calculate_used_size_for_node(
         resolved_height.max(0.0)
     } else {
         intrinsic.max_content_height.max(0.0)
+    };
+
+    // A picture keeps its own proportions (CSS 2.2 10.3.2 and 10.6.2): with both sizes auto
+    // its tentative size is its natural size, and with one size given the other follows
+    // through the natural ratio, measured on the content box. The stored min- and max-content
+    // sizes cannot stand in for the natural size here: `max-width` narrows the width
+    // contribution but nothing narrows the height, so the min/max table below would read a
+    // far taller picture than the real one and squeeze a 256x192 photo under
+    // `max-width: 16px; max-height: 16px` into a 1x16 sliver (Chrome: 16x12).
+    let natural_size = match (intrinsic.preferred_width, intrinsic.preferred_height) {
+        (Some(w), Some(h)) if is_replaced && w > 0.0 && h > 0.0 => Some((w, h)),
+        _ => None,
+    };
+    let (resolved_width, resolved_height) = match natural_size {
+        Some((natural_w, natural_h)) => {
+            // A quantitative border-box size holds the padding and border; the ratio is the
+            // content's.
+            let border_box = matches!(
+                get_css_box_sizing(styled_dom, id, node_state),
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+            );
+            let content_w = if border_box && width_is_quantitative {
+                (resolved_width
+                    - box_props.padding.left
+                    - box_props.padding.right
+                    - box_props.border.left
+                    - box_props.border.right)
+                    .max(0.0)
+            } else {
+                resolved_width
+            };
+            let content_h = if border_box && height_is_quantitative {
+                (resolved_height
+                    - box_props.padding.top
+                    - box_props.padding.bottom
+                    - box_props.border.top
+                    - box_props.border.bottom)
+                    .max(0.0)
+            } else {
+                resolved_height
+            };
+            match (width_is_auto, height_is_auto) {
+                (true, true) => (natural_w, natural_h),
+                (false, true) => (resolved_width, content_w * natural_h / natural_w),
+                (true, false) => (content_h * natural_w / natural_h, resolved_height),
+                (false, false) => (resolved_width, resolved_height),
+            }
+        }
+        None => (resolved_width, resolved_height),
     };
 
     // +spec:replaced-elements:5a85ce - abs-pos replaced: derive auto width from height × intrinsic
@@ -2377,15 +3933,46 @@ pub fn calculate_used_size_for_node(
             box_props,
         )
     } else {
-        // Non-replaced element: apply width and height constraints independently
-        let cw = apply_width_constraints(
-            styled_dom,
-            id,
-            node_state,
-            resolved_width,
-            cbw_unresolvable_nan,
-            box_props,
-        );
+        // Non-replaced element: apply width and height constraints independently.
+        //
+        // The min/max widths and the tentative width must be in ONE box
+        // space. With `box-sizing: border-box` the min/max widths are
+        // border-box sizes (CSS Box Sizing 3 s3); a quantitative width is
+        // one too, but an auto / intrinsic-keyword width is a CONTENT size
+        // (`width_is_quantitative`). Clamping that content size with a
+        // border-box `min-width: 100%` and adding the padding afterwards made
+        // AzMail's inline-block paper 524px wide in a 500px pane (MAIL6,
+        // Chrome 500): the content width goes into border-box space for the
+        // clamp and back out of it.
+        let border_box_constraints_on_content = !width_is_quantitative
+            && matches!(
+                get_css_box_sizing(styled_dom, id, node_state),
+                MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+            );
+        let cw = if border_box_constraints_on_content {
+            let pb_w = box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right;
+            (apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                resolved_width + pb_w,
+                cbw_unresolvable_nan,
+                box_props,
+            ) - pb_w)
+                .max(0.0)
+        } else {
+            apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                resolved_width,
+                cbw_unresolvable_nan,
+                box_props,
+            )
+        };
 
         let ch = apply_height_constraints(
             styled_dom,
@@ -2476,6 +4063,29 @@ pub fn calculate_used_size_for_node(
         }
     };
 
+    // CSS 2.1 17.5.2.2: a table is never narrower than its columns' minimum
+    // (MIN, carried by its intrinsic min-content: the columns, the cell
+    // spacing, the caption) - not with a smaller `width`, not under a
+    // `max-width`. Its border box is at least MIN plus its padding and
+    // border, whatever its box-sizing.
+    let border_box_width = if !is_vertical
+        && matches!(
+            display.unwrap_or_default(),
+            LayoutDisplay::Table | LayoutDisplay::InlineTable
+        )
+        && intrinsic.min_content_width.is_finite()
+    {
+        border_box_width.max(
+            intrinsic.min_content_width
+                + box_props.padding.left
+                + box_props.padding.right
+                + box_props.border.left
+                + box_props.border.right,
+        )
+    } else {
+        border_box_width
+    };
+
     // +spec:block-formatting-context:c6fb58 - vertical writing modes swap layout dimensions
     // +spec:min-max-sizing:d97870 - width/height/min/max refer to physical dimensions; layout rules
     // are logical Step 5: Map the resolved physical dimensions to logical dimensions.
@@ -2541,7 +4151,7 @@ fn apply_constraint_violation_table(
     let min_w = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
             resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem)
-                .unwrap_or(0.0)
+                .map_or(0.0, |v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
         }
         _ => 0.0,
     };
@@ -2560,7 +4170,7 @@ fn apply_constraint_violation_table(
                     em,
                     rem,
                 )
-                .unwrap_or(f32::MAX)
+                .map_or(f32::MAX, |v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
             }
         }
         _ => f32::MAX,
@@ -2576,7 +4186,7 @@ fn apply_constraint_violation_table(
             em,
             rem,
         )
-        .unwrap_or(0.0),
+        .map_or(0.0, |v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v)),
         _ => 0.0,
     };
 
@@ -2594,7 +4204,7 @@ fn apply_constraint_violation_table(
                     em,
                     rem,
                 )
-                .unwrap_or(f32::MAX)
+                .map_or(f32::MAX, |v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
             }
         }
         _ => f32::MAX,
@@ -2691,7 +4301,7 @@ fn apply_width_constraints(
     let min_width = match get_css_min_width(styled_dom, id, node_state) {
         MultiValue::Exact(mw) => {
             resolve_px_with_box_model(&mw.inner, containing_block_width, box_props, true, em, rem)
-                .unwrap_or(0.0)
+                .map_or(0.0, |v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
         }
         _ => 0.0,
     };
@@ -2710,6 +4320,7 @@ fn apply_width_constraints(
                     em,
                     rem,
                 )
+                .map(|v| super::getters::zoomed_length(styled_dom, id, mw.inner.metric, v))
             }
         }
         _ => None,
@@ -2756,7 +4367,7 @@ fn apply_height_constraints(
             em,
             rem,
         )
-        .unwrap_or(0.0),
+        .map_or(0.0, |v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v)),
         _ => 0.0,
     };
 
@@ -2774,6 +4385,7 @@ fn apply_height_constraints(
                     em,
                     rem,
                 )
+                .map(|v| super::getters::zoomed_length(styled_dom, id, mh.inner.metric, v))
             }
         }
         _ => None,
@@ -2787,6 +4399,73 @@ fn apply_height_constraints(
         result = result.min(max);
     }
     result.max(min_height)
+}
+
+/// The used block size of a box whose block size is `auto`, from the
+/// content-based size the layout of its children produced (CSS 2.2 10.7):
+/// the content size clamped by `max-height`, then by `min-height`, which wins
+/// a conflict.
+///
+/// `border_box` is the box's block-axis border-box extent as the
+/// content-based sizing gave it, and the result is a border box too. The
+/// limits apply to the content box under `box-sizing: content-box` and to the
+/// border box under `border-box` (CSS Box Sizing 3), floored at the padding
+/// and border. `horizontal` picks the axis: in a horizontal writing mode the
+/// block axis is the physical height (`min-height` / `max-height`), in a
+/// vertical one the physical width (`min-width` / `max-width`).
+/// `containing_block_extent` is that axis of the containing block, NaN when
+/// it is indefinite (a percentage limit then does not apply).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn clamp_auto_block_size(
+    styled_dom: &StyledDom,
+    id: NodeId,
+    node_state: &StyledNodeState,
+    border_box: f32,
+    containing_block_extent: f32,
+    box_props: &BoxProps,
+    horizontal: bool,
+) -> f32 {
+    let extras = if horizontal {
+        box_props.padding.top
+            + box_props.padding.bottom
+            + box_props.border.top
+            + box_props.border.bottom
+    } else {
+        box_props.padding.left
+            + box_props.padding.right
+            + box_props.border.left
+            + box_props.border.right
+    };
+    let constrain = |tentative: f32| {
+        if horizontal {
+            apply_height_constraints(
+                styled_dom,
+                id,
+                node_state,
+                tentative,
+                containing_block_extent,
+                box_props,
+            )
+        } else {
+            apply_width_constraints(
+                styled_dom,
+                id,
+                node_state,
+                tentative,
+                containing_block_extent,
+                box_props,
+            )
+        }
+    };
+    let border_box_sizing = matches!(
+        get_css_box_sizing(styled_dom, id, node_state),
+        MultiValue::Exact(azul_css::props::layout::LayoutBoxSizing::BorderBox)
+    );
+    if border_box_sizing {
+        constrain(border_box).max(extras)
+    } else {
+        constrain((border_box - extras).max(0.0)) + extras
+    }
 }
 
 #[must_use]
@@ -2912,12 +4591,14 @@ mod autotest_generated {
                 style_cache: Default::default(),
                 virtual_view_sizes: None,
                 scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                pass_memo: Default::default(),
                 styled_dom: &self.styled_dom,
                 font_manager: &self.font_manager,
                 text_selections: &self.text_selections,
                 debug_messages: &mut self.debug_messages,
                 counters: &mut self.counters,
                 viewport_size: VIEWPORT,
+                canvas_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), VIEWPORT),
                 fragmentation_context: None,
                 cursor_is_visible: true,
                 cursor_locations: Vec::new(),
@@ -2963,7 +4644,7 @@ mod autotest_generated {
             warm: vec![LayoutNodeWarm::default(); n],
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena,
             children_offsets,
             subtree_needs_intrinsic: Vec::new(),
@@ -3472,7 +5153,7 @@ mod autotest_generated {
         let mut calc = IntrinsicSizeCalculator::new(&mut ctx, &mut text_cache);
         // An empty closure means "nothing is dirty" — the cached value wins
         // and the descent is skipped entirely.
-        calc.dirty_closure = Some(HashSet::new());
+        calc.dirty_closure = Some(DirtyAncestors::default());
 
         let sizes = calc
             .calculate_intrinsic_recursive(&mut tree, 0, false)
@@ -3580,12 +5261,15 @@ mod autotest_generated {
             .calculate_block_intrinsic_sizes(&tree, 0, &[(1usize, nan)])
             .expect("valid tree");
         // The cross axis goes through `f32::max`, which drops NaN — so a NaN
-        // child cannot poison the parent's width. The main axis is a plain
-        // sum, so it does carry the NaN through (unreachable in practice:
-        // every measured/fallback intrinsic is finite).
+        // child cannot poison the parent's width. The main axis is a sum, but
+        // it ends in `max(blocks, marker)` (a list item is as tall as the
+        // taller of its blocks and a marker riding no line, FIX9 1.4), and
+        // that `f32::max` drops the NaN as well: a NaN child poisons neither
+        // axis.
         assert!(!r.min_content_width.is_nan() && r.min_content_width == 0.0);
         assert!(!r.max_content_width.is_nan() && r.max_content_width == 0.0);
-        assert!(r.min_content_height.is_nan());
+        assert!(!r.min_content_height.is_nan() && r.min_content_height == 0.0);
+        assert!(!r.max_content_height.is_nan() && r.max_content_height == 0.0);
     }
 
     #[test]
@@ -4063,7 +5747,7 @@ mod autotest_generated {
     // ==================================================================
 
     #[test]
-    fn extract_text_from_node_round_trips_the_exact_string() {
+    fn extract_text_from_node_round_trips_the_string_as_the_input_rule_reads_it() {
         for needle in [
             "hello world",
             " \n\t",
@@ -4071,10 +5755,12 @@ mod autotest_generated {
             "line1\nline2\r\n\u{0}nul",
         ] {
             let dom = text_dom(needle);
+            // The DOM holds a text as the input rule reads it (CR LF as LF, NUL as
+            // U+FFFD); nothing else of it may change.
             assert_eq!(
                 extract_text_from_node(&dom, NodeId::new(2)).as_deref(),
-                Some(needle),
-                "text must survive the DOM round-trip byte for byte"
+                Some(&*azul_css::input_chars::normalize_input_text(needle)),
+                "text must survive the DOM round-trip as the input rule reads it"
             );
         }
     }
@@ -4587,5 +6273,300 @@ mod autotest_generated {
             let second = cvt(&dom, id, first.0, first.1);
             assert_eq!(first, second, "not a fixed point for {id:?}");
         }
+    }
+}
+
+/// The intrinsic sizes of an ANONYMOUS block that holds a container's inline
+/// content (CSS 2.2 s9.2.1.1): it has no DOM node of its own and inherits
+/// the container's style - its `text-indent` (only when it holds the
+/// container's first formatted line, CSS 2.1 s16.1 / CSS Text 3 s8.1) and
+/// its `white-space`. Font-free where a number is asserted (inline-blocks).
+#[cfg(test)]
+mod anonymous_ifc_intrinsic_tests {
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// `<body style="margin: 0">{child}</body>` laid out in an 800 x 600 window.
+    fn laid_out(child: Dom, fonts: FcFontCache) -> LayoutWindow {
+        let mut lw = LayoutWindow::new(fonts).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(800.0, 600.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(Dom::create_body().with_css("margin: 0;").with_child(child)),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the fixture lays out");
+        lw
+    }
+
+    /// The used border-box width of DOM node 1 (the body's child).
+    fn width_of_the_container(lw: &LayoutWindow) -> f32 {
+        let lr = &lw.layout_results[&DomId::ROOT_ID];
+        let index = *lr
+            .layout_tree
+            .dom_to_layout
+            .get(&NodeId::new(1))
+            .and_then(|v| v.first())
+            .expect("the container is laid out");
+        lr.layout_tree
+            .get(index)
+            .and_then(|n| n.used_size)
+            .expect("the container has a size")
+            .width
+    }
+
+    fn inline_block(width: u32) -> Dom {
+        Dom::create_div().with_css(&format!(
+            "display: inline-block; width: {width}px; height: 10px;"
+        ))
+    }
+
+    #[test]
+    fn an_anonymous_block_that_starts_its_container_adds_the_indent_to_its_max_content() {
+        // `<div float text-indent: 40px>[10px]<div text-indent: 0>[10px]</div></div>`:
+        // the anonymous block around the first inline-block holds the
+        // container's first line - indented by 40px, so the float's
+        // max-content is 40 + 10. It was 10: the intrinsic scan never looked
+        // at the anonymous box's (inherited) text-indent.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("float: left; text-indent: 40px;")
+                .with_child(inline_block(10))
+                .with_child(
+                    Dom::create_div()
+                        .with_css("text-indent: 0;")
+                        .with_child(inline_block(10)),
+                ),
+            FcFontCache::default(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(
+            (w - 50.0).abs() < 0.5,
+            "40px indent + 10px content (Chrome 50): {w}"
+        );
+    }
+
+    #[test]
+    fn an_anonymous_block_after_a_nested_block_adds_no_indent_to_its_max_content() {
+        // `<div float text-indent: 40px><div text-indent: 0>[10px]</div>[30px]</div>`:
+        // the first formatted line is the nested block's, so the anonymous
+        // block after it is not indented (fc::layout_ifc, 64d3cb633) and its
+        // max-content is its 30px alone - the float is 30 wide, not 70.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("float: left; text-indent: 40px;")
+                .with_child(
+                    Dom::create_div()
+                        .with_css("text-indent: 0;")
+                        .with_child(inline_block(10)),
+                )
+                .with_child(inline_block(30)),
+            FcFontCache::default(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(
+            (w - 30.0).abs() < 0.5,
+            "no indent after the nested block (Chrome 30): {w}"
+        );
+    }
+
+    #[test]
+    fn an_anonymous_block_measures_its_min_content_with_its_containers_white_space() {
+        // `<div width: min-content; white-space: nowrap>[10px] [10px]<div></div></div>`:
+        // nowrap leaves the space no soft wrap opportunity, so the anonymous
+        // block's min-content is the whole line (10 + space + 10). It was
+        // 10: the scan measured the anonymous box as white-space: normal.
+        let lw = laid_out(
+            Dom::create_div()
+                .with_css("width: min-content; white-space: nowrap;")
+                .with_child(inline_block(10))
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(" "))
+                .with_child(inline_block(10))
+                .with_child(Dom::create_div().with_css("height: 10px;")),
+            FcFontCache::build(),
+        );
+        let w = width_of_the_container(&lw);
+        assert!(w >= 19.5, "one unbreakable line of both inline-blocks: {w}");
+    }
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// `compute_dirty_ancestor_closure`'s walk over a table of parents: what
+    /// [`DirtyAncestors`] must hold.
+    fn hashed_closure(
+        parents: &[Option<usize>],
+        dirty: &BTreeSet<usize>,
+    ) -> std::collections::HashSet<usize> {
+        let mut closure = std::collections::HashSet::new();
+        for &node in dirty {
+            let mut cur = Some(node);
+            while let Some(idx) = cur {
+                if !closure.insert(idx) {
+                    break;
+                }
+                cur = parents.get(idx).copied().flatten();
+            }
+        }
+        closure
+    }
+
+    /// A3-solver-26. The intrinsic pass asks a flag per node where it asked
+    /// a hash set: the flags hold the hash set's members, in a tree, for
+    /// dirty indices that are no node, for a parent link out of range and on
+    /// a cycle of parents.
+    ///
+    /// Mutation: `DirtyAncestors::contains` without its `beyond` (`None =>
+    /// false`) loses the members that are no node; `walk` without the step
+    /// to the parent loses the ancestors.
+    #[test]
+    fn the_dirty_flags_hold_the_members_of_the_hashed_closure() {
+        let cases: Vec<(Vec<Option<usize>>, Vec<usize>)> = vec![
+            // 0 <- 1 <- 2, the leaf dirty.
+            (vec![None, Some(0), Some(1)], vec![2]),
+            // 0 <- {1, 2}, 1 <- 3, 2 <- 4: two leaves, then nothing.
+            (vec![None, Some(0), Some(0), Some(1), Some(2)], vec![3, 4]),
+            (vec![None, Some(0), Some(0), Some(1), Some(2)], vec![]),
+            // Dirty indices that are no node.
+            (vec![None, Some(0), Some(1)], vec![2, 999, usize::MAX]),
+            // A parent link out of range, a cycle of two, a node its own parent.
+            (vec![Some(7), Some(0)], vec![1]),
+            (vec![Some(1), Some(0)], vec![0]),
+            (vec![Some(0)], vec![0]),
+        ];
+        for (parents, dirty) in cases {
+            let dirty: BTreeSet<usize> = dirty.into_iter().collect();
+            let hashed = hashed_closure(&parents, &dirty);
+            let flags = DirtyAncestors::walk(parents.len(), &dirty, |idx| {
+                parents.get(idx).copied().flatten()
+            });
+            for node in (0..parents.len() + 9).chain([999, usize::MAX]) {
+                assert_eq!(
+                    flags.contains(node),
+                    hashed.contains(&node),
+                    "node {node} of {parents:?} with {dirty:?} dirty"
+                );
+            }
+        }
+        // And by hand: the leaf of a chain makes every node of it a member.
+        let dirty: BTreeSet<usize> = [2, 999].into_iter().collect();
+        let chain: [Option<usize>; 4] = [None, Some(0), Some(1), Some(2)];
+        let flags =
+            DirtyAncestors::walk(chain.len(), &dirty, |idx| chain.get(idx).copied().flatten());
+        assert!(flags.contains(0) && flags.contains(1) && flags.contains(2));
+        assert!(!flags.contains(3) && flags.contains(999) && !flags.contains(998));
+    }
+
+    /// A3-solver-19, the loop. A later turn of `layout_document`'s loop
+    /// measures again, of the nodes the first turn measured, the nearest one
+    /// at or above each box whose box props the layout changed (the pass
+    /// adds its ancestors) - and nothing where nothing changed.
+    ///
+    /// `0 <- {1, 4}`, `1 <- 2 <- 3`, `4 <- 5`; node 2 is dirty, so the first
+    /// turn measured 2, 1 and 0.
+    ///
+    /// Mutation: `measure_again_by` returning the empty set for every input
+    /// (a later turn measures nothing) fails the cases with a changed box.
+    #[test]
+    fn a_later_turn_measures_again_the_measured_nodes_above_a_changed_box() {
+        let parents: [Option<usize>; 6] = [None, Some(0), Some(1), Some(2), Some(0), Some(4)];
+        let dirty: BTreeSet<usize> = [2].into_iter().collect();
+        let again = |changed: &[usize]| -> Vec<usize> {
+            measure_again_by(parents.len(), &dirty, changed, |idx| {
+                parents.get(idx).copied().flatten()
+            })
+            .into_iter()
+            .collect()
+        };
+        assert!(again(&[]).is_empty(), "nothing changed: nothing is measured again");
+        assert_eq!(again(&[2]), vec![2], "the dirty node itself");
+        assert_eq!(again(&[1]), vec![1], "a measured ancestor of it");
+        assert_eq!(again(&[3]), vec![2], "a clean box below it: the node above is measured again");
+        assert_eq!(
+            again(&[5]),
+            vec![0],
+            "a clean box in another branch: the first measured node above it is the root"
+        );
+        assert_eq!(again(&[3, 5, 3]), vec![0, 2], "each once");
+        assert_eq!(again(&[999]), Vec::<usize>::new(), "an index that is no node");
+        // Nothing dirty: nothing was measured, nothing is measured again.
+        let nothing = BTreeSet::new();
+        let none = measure_again_by(parents.len(), &nothing, &[3], |idx| {
+            parents.get(idx).copied().flatten()
+        });
+        assert!(none.is_empty());
+    }
+    /// A3-solver-50. What a measure shaped is handed to the layout of the same
+    /// root once, and only for the content and the paragraph direction it was
+    /// shaped with; `hand_up` moves it to the box around the measured one.
+    ///
+    /// Mutations: `take` without the comparison of the content (the first
+    /// assertion fails) or of the direction (the third), `take` leaving the
+    /// entry in place (the second), `hand_up` as a no-op (the last two).
+    #[test]
+    fn a_measured_paragraph_is_taken_once_for_the_content_it_was_shaped_from() {
+        let text = |t: &str| {
+            InlineContent::Text(crate::text3::cache::StyledRun {
+                text: Arc::from(t),
+                style: Arc::new(StyleProperties::default()),
+                logical_start_byte: 0,
+                source_node_id: None,
+            })
+        };
+        let shaped = || -> ShapedParagraph { (Arc::new(Vec::new()), Arc::new(Vec::new())) };
+        let constraints = UnifiedConstraints::default();
+        let mut memo = MeasuredParagraphs::default();
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        assert!(memo.take(7, &[text("other")], &constraints).is_none(), "other content");
+        assert!(memo.take(7, &[text("label")], &constraints).is_none(), "gone after one try");
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        let turned = UnifiedConstraints {
+            direction: Some(match constraints.direction {
+                Some(crate::text3::cache::BidiDirection::Rtl) => {
+                    crate::text3::cache::BidiDirection::Ltr
+                }
+                _ => crate::text3::cache::BidiDirection::Rtl,
+            }),
+            ..UnifiedConstraints::default()
+        };
+        assert!(memo.take(7, &[text("label")], &turned).is_none(), "another direction");
+
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        memo.hand_up(7, 3);
+        assert!(memo.take(7, &[text("label")], &constraints).is_none(), "handed up");
+        assert!(memo.take(3, &[text("label")], &constraints).is_some(), "to the box around");
+        assert_eq!(memo.items_kept, 0);
+
+        // The intrinsic measure sets no direction (`ifc_measure_constraints`), the layout
+        // of the same box its `ltr`: `shape_content` shapes both left to right, so the
+        // layout takes the measure's. Mutation: the declared directions compared (`None`
+        // against `Some(Ltr)`) -> refused, and no label of a page is ever taken.
+        assert_eq!(constraints.direction, None, "harness: the measure's constraints set none");
+        let ltr = UnifiedConstraints {
+            direction: Some(crate::text3::cache::BidiDirection::Ltr),
+            ..UnifiedConstraints::default()
+        };
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        assert!(
+            memo.take(7, &[text("label")], &ltr).is_some(),
+            "a measure without a direction and a layout in `ltr` shape alike"
+        );
     }
 }

@@ -1,0 +1,54 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: inline list-item</title>
+<style>
+html,body {
+  color:black; background-color:white; font:14px/1 monospace; padding:0; margin:0;
+}
+ol,ul,li { margin:0; padding:0; }
+body { margin-left: 40px; }
+
+li { border: 1px solid; display: inline list-item; }
+.wrap { width: 22ch; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<li>A A A A A A A A A A A A A A A A A A A A </li>
+<li>B</li>
+
+<ol>
+<li>A A A A A A A A A A A A A A A A A A A A </li>
+<li>B</li>
+<li>C</li>
+</ol>
+
+<ol style="display:inline">
+<li>A A A A A A A A A A A A A A A A A A A A </li>
+<li>B</li>
+<li>C</li>
+</ol>
+
+<ol style="display:inline">
+<li>A A A A A A A A A A A A A A A A A A A A </li>
+<li>B<ol>
+<li>a a a a a a a a a a a a a a a a a a a a </li>
+<li>b</li>
+</ol></li>
+<li>C</li>
+</ol>
+
+<ul>
+<li>A A A A A A A A A A A A A A A A A A A A </li>
+<li>B<ol style="display:inline">
+<li>a a a a a a a a a a a a a a a a a a a a </li>
+<li>b</li>
+</ol></li>
+<li>C</li>
+</ul>
+</div>
+
+
+</body>
+</html>

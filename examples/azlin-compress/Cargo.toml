@@ -1,0 +1,35 @@
+[package]
+name = "azlin-compress"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "AzDrive's client-side lossless compression: file type detection, whole-file transforms (Lepton for JPEG, deflate reconstruction for PDF, Office, ZIP, PNG and gzip), per-segment zstd / brotli / shipped dictionaries, one self-describing container"
+
+[dependencies]
+# zstd per segment, with and without the shipped dictionaries. The C library (libzstd 1.5.7) is the
+# one AzDrive already links; no training code (`zdict_builder`), no legacy formats.
+zstd = { version = "=0.14.3", default-features = false }
+# brotli where it beats zstd (text, markup, source code). Pure Rust; already in Cargo.lock.
+brotli = "8"
+# Lossless JPEG recompression (Lepton), pure Rust, `forbid(unsafe_code)`. Pinned exactly: every
+# version we ever write with must stay decodable (see FORMAT.md).
+lepton_jpeg = "=0.5.8"
+# Deflate reconstruction (PDF, ZIP and Office, PNG, gzip): preflate-rs 0.7.6 vendored without its
+# LGPL dependency. Its output is stored bytes, so it lives in this repository and changes only
+# with a new transform version.
+azlin-preflate = { path = "../azlin-preflate" }
+# The CRC-32 of each PNG IDAT chunk the decoder writes back (already in Cargo.lock).
+crc32fast = "1"
+# The container's end-to-end check of the decoded file.
+blake3 = "1.8"
+# Plaintext and buffers derived from it are wiped when dropped (they are the user's file contents).
+zeroize = "1"
+
+[dev-dependencies]
+# Pins the shipped dictionaries by SHA-256 (already in Cargo.lock).
+sha2 = "0.10"
+# The tests' deflate streams (gzip, zlib, ZIP members, PNG IDAT) and their CRC-32s. Both are
+# already in Cargo.lock through lepton_jpeg.
+flate2 = "1"
+crc32fast = "1"

@@ -1,0 +1,2388 @@
+//! An app's pairing of a folder on this device with a drive's folder: AzDrive's sync. The kit's
+//! loop ([`super::sync_to`]) with an app's hooks, and what an app keeps around it:
+//!
+//! - **The setup** ([`SyncSetup`], kept in the app's settings): the drive and its folder, the
+//!   folder here, and the drive's settings - auto-download ("everything", "new files under N
+//!   MB" - 25 by default -, "only pinned folders", "nothing (on demand)"), the local copies
+//!   of an encrypted drive (decrypted, or encrypted and decrypted when opened), "keep local
+//!   copies at most N GB", paused.
+//! - **The states** ([`SyncStates`], `files.json` in the pairing's state folder - the app's
+//!   cache folder; they outlive the app): per file its size and date, whether its bytes are
+//!   here (cloud only, an encrypted copy), when it was last used, a conflict held for the
+//!   user, an error; the pinned files and folders ("always keep on this device"); the drive's
+//!   last error and whether it takes writes. [`SyncStates::state_of`] says §13.7's state.
+//! - **A pass** ([`SyncSession::pass`]): the run (new files by the auto-download policy, the
+//!   rest cloud only; conflicts held - D52), each file's move told as it happens, then the
+//!   pinned files kept in the cloud brought down, the folders of cloud-only files made here
+//!   (the folder browses as the drive does) and the size cap kept by freeing the least
+//!   recently used files - never a pinned one.
+//! - [`SyncSession::open`] brings a cloud-only file down first (an encrypted copy: decrypted
+//!   into a temporary file); [`SyncSession::pin`], [`SyncSession::free_up`] ("Free up
+//!   space"), [`SyncSession::resolve`] (keep mine / take theirs / keep both).
+//!
+//! The drive side is a plain drive's index and blobs ([`SyncSession::plain`]), an encrypted
+//! drive's files by name ([`SyncSession::named`]), or - with `encryption` - an encrypted drive
+//! whose local copies stay encrypted ([`SyncSession::encrypted_copies`]: AZL1 objects kept in
+//! an [`super::objects::ObjectCache`], no plaintext folder). Every call blocks: call it from
+//! an azul `Thread`.
+
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc, Arc, Mutex,
+    },
+    time::Duration,
+};
+
+use azul_storage::{
+    docs::{merge_values, Doc, DocError, DocRead, Document},
+    lock::LockDir,
+    Drive, DriveError, ListRequest,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+#[cfg(feature = "encryption")]
+use super::objects::ObjectCache;
+use super::{
+    consent::{Consent, ConsentKind},
+    fetch_file, guard,
+    local::{self, BaseEntry, LocalIndex},
+    lock, remote, sync_to, HeldConflict, LocalRoot, MassDelete, RunHooks, SyncEvent,
+    SyncOptions, SyncReport, Target,
+};
+use crate::{
+    error::{fail, CloudError, CloudResult, Context},
+    state::write_json,
+    store::RemoteStore,
+    user_errors::{Code, UserError},
+};
+
+/// The states of a pairing's files, in its state folder.
+pub const STATES_FILE: &str = "files.json";
+/// The pairing's local index (the sync's base), in its state folder.
+pub const INDEX_FILE: &str = "index.json";
+
+/// The files the drive deleted before the pairing whose state folder is `state_dir` knew them, kept
+/// here and not sent (`deleted-elsewhere-kept`): the base's own set, every one of them. "Send them
+/// again" takes its keys from here and not from the problem list: that list shows at most a thousand
+/// rows per kind and one "more" row, so a click sent the first thousand and left the rest on this
+/// device with no action to send them (X-DELTA-SYNC4-31). A pairing that has no base yet keeps none.
+///
+/// # Errors
+///
+/// When the base cannot be read: a failed read is not "nothing is kept".
+pub fn kept_files(state_dir: &Path) -> CloudResult<Vec<String>> {
+    let Some(index) = LocalIndex::load(&state_dir.join(INDEX_FILE))? else {
+        return Ok(Vec::new());
+    };
+    Ok(index.kept.into_iter().collect())
+}
+
+/// The lock a pass of the pairing holds, in the `locks` folder of its state folder (AZ-S16): the
+/// pass of another window or command waits for it, or is told.
+pub const PASS_LOCK: &str = "sync-pass";
+/// How long a pass waits for the pass that is running on the same pairing before it is told so.
+const PASS_LOCK_WAIT: Duration = Duration::from_secs(2);
+/// How long an edit of the pairing's base from the app - a delete, a rename, "Free up space", "Keep",
+/// "send it again", a conflict's answer - waits for the pass that is running. A pass saves the base
+/// it loaded when it began, so an edit made beside it is lost (AZ-S16, X-DELTA-AZDRIVE-SYNC-9); the
+/// edits run on the app's worker thread, so they wait for a good while before they say so.
+const EDIT_LOCK_WAIT: Duration = Duration::from_secs(60);
+
+const MB: u64 = 1024 * 1024;
+const GB: u64 = 1024 * MB;
+
+/// What comes down to this device without being opened.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoDownload {
+    /// Every file.
+    Everything,
+    /// New files up to this many MB.
+    NewUnder(u64),
+    /// Only pinned files and the files of pinned folders.
+    PinnedOnly,
+    /// Nothing: a file comes down when it is opened.
+    Nothing,
+}
+
+impl Default for AutoDownload {
+    fn default() -> Self {
+        AutoDownload::NewUnder(AutoDownload::DEFAULT_MB)
+    }
+}
+
+impl AutoDownload {
+    /// "New files under N MB"'s N by default.
+    pub const DEFAULT_MB: u64 = 25;
+
+    /// Whether a new file of `size` bytes comes down.
+    #[must_use]
+    pub fn wants(self, size: u64) -> bool {
+        match self {
+            AutoDownload::Everything => true,
+            AutoDownload::NewUnder(mb) => size <= mb.saturating_mul(MB),
+            AutoDownload::PinnedOnly | AutoDownload::Nothing => false,
+        }
+    }
+
+    /// The choice as the settings say it.
+    #[must_use]
+    pub fn label(self) -> String {
+        match self {
+            AutoDownload::Everything => String::from("Everything"),
+            AutoDownload::NewUnder(mb) => format!("New files under {mb} MB"),
+            AutoDownload::PinnedOnly => String::from("Only pinned folders"),
+            AutoDownload::Nothing => String::from("Nothing (on demand)"),
+        }
+    }
+}
+
+/// How an encrypted drive's files are kept on this device.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalCopies {
+    /// Plaintext in the folder: fast to open and search.
+    #[default]
+    Decrypted,
+    /// The AZL1 ciphertext only, decrypted into a temporary file when opened.
+    Encrypted,
+}
+
+impl LocalCopies {
+    /// The choice as the settings say it.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            LocalCopies::Decrypted => "Decrypted (fast to open and search)",
+            LocalCopies::Encrypted => "Encrypted, decrypted when opened",
+        }
+    }
+}
+
+/// A folder here paired with a drive's folder, and the drive's sync settings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncSetup {
+    /// The drive (its id in the drives file).
+    pub drive_id: String,
+    /// The drive's folder (`""`: the whole drive; else ending in `/`).
+    #[serde(default)]
+    pub prefix: String,
+    /// The folder on this device.
+    pub folder: PathBuf,
+    #[serde(default)]
+    pub auto_download: AutoDownload,
+    /// An encrypted drive's local copies (a plain drive's are its files).
+    #[serde(default)]
+    pub local_copies: LocalCopies,
+    /// Keep local copies at most this many GB: the least recently used files are freed first,
+    /// never a pinned one. `None`: no limit.
+    #[serde(default)]
+    pub keep_gb: Option<u64>,
+    /// No pass runs while it is paused.
+    #[serde(default)]
+    pub paused: bool,
+    /// The user's "Sync anyway on this network": an app that holds big transfers back on a
+    /// metered or low-data network ([`SyncSession::with_transfer_limit`]) does not for this
+    /// drive.
+    #[serde(default)]
+    pub sync_on_metered: bool,
+    /// A backup pairing: one way, from this folder to the drive ([`super::oneway`]). A delete
+    /// here keeps the drive's copy (cloud only here), and nothing the drive changes or deletes
+    /// touches this folder.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub backup: bool,
+    /// Selective sync: what this device leaves out, as `.azcloudignore` lines. A file left out
+    /// is neither sent, fetched nor deleted on either side; taking it in again changes nothing
+    /// that is the same on both.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<String>,
+}
+
+/// The hex digits of a pairing's hash a state folder's name ends with.
+const STATE_HASH_LEN: usize = 12;
+
+/// A drive id as the front of a state folder's name: letters, digits, `-` and `_` as they are,
+/// everything else `_`.
+fn state_dir_name(drive_id: &str) -> String {
+    drive_id
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+impl SyncSetup {
+    /// `folder` paired with `prefix` of the drive `drive_id`, with the default settings.
+    #[must_use]
+    pub fn new(drive_id: &str, prefix: &str, folder: &Path) -> SyncSetup {
+        SyncSetup {
+            drive_id: drive_id.to_string(),
+            prefix: prefix.to_string(),
+            folder: folder.to_path_buf(),
+            auto_download: AutoDownload::default(),
+            local_copies: LocalCopies::default(),
+            keep_gb: None,
+            paused: false,
+            sync_on_metered: false,
+            backup: false,
+            exclude: Vec::new(),
+        }
+    }
+
+    /// The pairing's state folder under `root` (an app's cache folder for its syncs): one per
+    /// drive, drive folder and folder here.
+    #[must_use]
+    pub fn state_dir(&self, root: &Path) -> PathBuf {
+        let id = blake3::hash(
+            format!(
+                "{}\n{}\n{}",
+                self.drive_id,
+                self.prefix,
+                self.folder.display()
+            )
+            .as_bytes(),
+        )
+        .to_hex();
+        root.join(format!(
+            "{}-{}",
+            state_dir_name(&self.drive_id),
+            &id.as_str()[..STATE_HASH_LEN]
+        ))
+    }
+
+    /// Every state folder under `root` that a pairing of `drive_id` has or had: the name of
+    /// [`SyncSetup::state_dir`] for any folder and any prefix of the drive. A removal sweeps these
+    /// and not only the folders of the pairings the settings still name: the first try of a
+    /// removal takes the pairing off the list, and a retry after a failed delete of its state
+    /// would find none (X-DELTA-AZDRIVE-KEYS-32).
+    #[must_use]
+    pub fn state_dirs_of(drive_id: &str, root: &Path) -> Vec<PathBuf> {
+        let name = state_dir_name(drive_id);
+        // An id with a character a folder name changes could be written as another drive's front.
+        if name != drive_id {
+            return Vec::new();
+        }
+        let Ok(entries) = std::fs::read_dir(root) else {
+            return Vec::new();
+        };
+        let mut found: Vec<PathBuf> = entries
+            .flatten()
+            .filter(|entry| {
+                // a folder, not a link to one: nothing outside the root is ever followed
+                if !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    return false;
+                }
+                let file = entry.file_name();
+                let Some(tail) = file
+                    .to_str()
+                    .and_then(|file| file.strip_prefix(name.as_str()))
+                    .and_then(|rest| rest.strip_prefix('-'))
+                else {
+                    return false;
+                };
+                tail.len() == STATE_HASH_LEN
+                    && tail
+                        .bytes()
+                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            })
+            .map(|entry| entry.path())
+            .collect();
+        found.sort();
+        found
+    }
+
+    /// The size cap in bytes.
+    #[must_use]
+    pub fn keep_bytes(&self) -> Option<u64> {
+        self.keep_gb.map(|gb| gb.saturating_mul(GB))
+    }
+}
+
+/// A file's state as AzDrive shows it (§13.7).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FileState {
+    /// Known from the drive, its bytes not on this device.
+    CloudOnly,
+    /// In transfer: bytes so far of all.
+    Downloading { done: u64, total: u64 },
+    Uploading { done: u64, total: u64 },
+    /// Plaintext on this device.
+    OnDevice,
+    /// The AZL1 ciphertext on this device, decrypted when opened.
+    OnDeviceEncrypted,
+    /// Always kept on this device, never freed.
+    Pinned,
+    /// Changed here and on the drive: waits for keep mine / take theirs / keep both.
+    Conflict,
+    /// A transfer failed, and why ("Retry" tries again).
+    Error(String),
+}
+
+impl FileState {
+    /// What the state says, in a sentence.
+    #[must_use]
+    pub fn label(&self) -> String {
+        match self {
+            FileState::CloudOnly => String::from("Cloud only: downloaded when opened"),
+            FileState::Downloading { .. } => String::from("Downloading"),
+            FileState::Uploading { .. } => String::from("Uploading"),
+            FileState::OnDevice => String::from("On this device"),
+            FileState::OnDeviceEncrypted => {
+                String::from("On this device (encrypted): decrypted when opened")
+            }
+            FileState::Pinned => String::from("Always kept on this device"),
+            FileState::Conflict => String::from("Changed here and on the drive"),
+            FileState::Error(why) => format!("Not synced: {why}"),
+        }
+    }
+}
+
+/// What a pairing keeps of one file of the drive.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FileRecord {
+    /// Bytes, and when it was last changed (seconds).
+    pub size: u64,
+    #[serde(default)]
+    pub modified: i64,
+    /// Its bytes are not on this device.
+    #[serde(default)]
+    pub cloud_only: bool,
+    /// Its AZL1 ciphertext is on this device (an encrypted drive's encrypted local copies),
+    /// as the object `object` of the bucket.
+    #[serde(default)]
+    pub encrypted_copy: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub object: Option<String>,
+    /// When it was last opened or moved (seconds): the size cap frees the oldest first.
+    #[serde(default)]
+    pub last_used: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<HeldConflict>,
+    /// Its transfer waited for a pass without the session's limit
+    /// ([`SyncSession::with_transfer_limit`]): a file new on the drive still counts as new.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub held: bool,
+}
+
+impl FileRecord {
+    /// Its bytes (or its ciphertext) are on this device.
+    fn here(&self) -> bool {
+        !self.cloud_only || self.encrypted_copy
+    }
+}
+
+/// A failed pass's error as the errors table names it ([`crate::user_errors`]), kept with the
+/// states so the app can say it in the window's language after a restart too.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncProblem {
+    /// The table's code (`network`, `credentials_revoked`, `quota_exceeded`, ...).
+    pub code: String,
+    /// The request ID: the error ID support traces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    /// What the service or the client said (the table's `{detail}`).
+    #[serde(default)]
+    pub detail: String,
+}
+
+impl SyncProblem {
+    /// The problem `e` is, when the errors table words it: a storage node's or the token
+    /// server's answer, no connection, a drive locked on this device. A refusal the drive words
+    /// itself (`Denied`: a read-only grant, a key that opens nothing) keeps its own words - the
+    /// table's "sign in again" would not be what the user must do.
+    #[must_use]
+    pub fn of(e: &CloudError) -> Option<SyncProblem> {
+        if matches!(e.root(), CloudError::Drive(azul_storage::DriveError::Denied { .. })) {
+            return None;
+        }
+        UserError::from_cloud_error(e).map(|user| SyncProblem {
+            code: user.code.as_str().to_string(),
+            request_id: user.request_id,
+            detail: user.detail,
+        })
+    }
+
+    /// It as the table's error, to word and to class.
+    #[must_use]
+    pub fn user_error(&self) -> UserError {
+        UserError {
+            code: Code::parse(&self.code).unwrap_or(Code::Other),
+            retry_after: None,
+            request_id: self.request_id.clone(),
+            detail: self.detail.clone(),
+        }
+    }
+}
+
+/// What a pairing knows of its files between passes and runs of the app.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SyncStates {
+    /// Every file of the drive's folder, by its key under it.
+    #[serde(default)]
+    pub files: BTreeMap<String, FileRecord>,
+    /// Always kept on this device: files, and folders (ending in `/`) with all they hold.
+    #[serde(default)]
+    pub pinned: BTreeSet<String>,
+    /// The files the user freed up ("Free up space"): a pairing that downloads everything
+    /// brings every other cloud-only file down, never these - until they are opened or pinned.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub freed: BTreeSet<String>,
+    /// Conflicts the user answered "keep both": the next pass makes the conflict copy.
+    #[serde(default)]
+    pub keep_both: BTreeSet<String>,
+    /// When the last pass ended (seconds), and why the last one failed.
+    #[serde(default)]
+    pub last_pass: Option<i64>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    /// The last pass's failure as the errors table names it ([`crate::user_errors`]): what an
+    /// app words for the user ("Offline - changes will upload ...") instead of the error's own
+    /// words in `last_error`. `None` for an error of the app's own (the folder, a local disk).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_problem: Option<SyncProblem>,
+    /// The files of the folder here the last pass could not take, and why (a symbolic link, no
+    /// read permission, a name that cannot be a key, too big): they never reach the drive while
+    /// that lasts, so the app names them instead of saying "Up to date".
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub skipped: BTreeMap<String, String>,
+    /// The drive refused a write (unpaid, locked down): it is read-only.
+    #[serde(default)]
+    pub read_only: bool,
+    /// The burst guard paused this device's uploads (azcloud-kit's `guard`: a burst of changes,
+    /// files turned random-looking) until the user answers; downloads go on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub burst: Option<guard::Pause>,
+    /// A pass that would delete most of the folder here or there, waiting for the user.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mass_delete: Option<MassDelete>,
+    /// What the drive's index uses that this version does not know (D43): nothing changes on
+    /// either side until the app is updated.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub newer_format: Vec<String>,
+    /// The user's answers to the guards' questions - "these changes are mine" (the burst guard),
+    /// "delete them too" (the mass delete) - each for the keys or the pause it was given for
+    /// ([`Consent`]). A pass that reaches its end uses them up, whether it needed them or not.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub consents: Vec<Consent>,
+}
+
+impl SyncStates {
+    /// The states kept in the state folder `dir` (none yet, or a file that is none of this
+    /// version's: empty - the next change renames a cut file aside and leaves a newer version's
+    /// alone, [`SyncSession`]'s changes go through [`Doc::update`]).
+    #[must_use]
+    pub fn load(dir: &Path) -> SyncStates {
+        match states_doc(dir).read() {
+            DocRead::Found(states) => states,
+            DocRead::Absent | DocRead::Damaged(_) | DocRead::Foreign(_) => SyncStates::default(),
+        }
+    }
+
+    /// Writes them whole in the state folder `dir`, over what is there. A pairing changes its
+    /// states through [`SyncSession`], which changes what is in the file NOW; this is for a state
+    /// that is made from nothing (a test, a first write).
+    ///
+    /// # Errors
+    ///
+    /// When the file cannot be written.
+    pub fn save(&self, dir: &Path) -> CloudResult<()> {
+        write_json(&dir.join(STATES_FILE), self, true)
+    }
+
+    /// Whether `key` (a file, or a folder ending in `/`) is always kept on this device: it is
+    /// pinned, or a folder it lies in is.
+    #[must_use]
+    pub fn is_pinned(&self, key: &str) -> bool {
+        self.pinned.contains(key)
+            || self
+                .pinned
+                .iter()
+                .any(|p| p.ends_with('/') && key.len() > p.len() && key.starts_with(p.as_str()))
+    }
+
+    /// How many files cannot sync now: the ones the last pass could not take here, and the
+    /// drive's files whose transfer failed (a conflict waits for an answer, it is no failure).
+    #[must_use]
+    pub fn cannot_sync(&self) -> usize {
+        self.skipped.len()
+            + self
+                .files
+                .values()
+                .filter(|r| r.error.is_some() && r.conflict.is_none())
+                .count()
+    }
+
+    /// Whether a file failed because this computer's disk is full.
+    #[must_use]
+    pub fn disk_full(&self) -> bool {
+        self.files
+            .values()
+            .filter_map(|r| r.error.as_deref())
+            .chain(self.last_error.as_deref())
+            .any(is_disk_full)
+    }
+
+    /// The state of the file `key`; `None` when the drive has no such file.
+    #[must_use]
+    pub fn state_of(&self, key: &str) -> Option<FileState> {
+        let Some(record) = self.files.get(key) else {
+            // A file here the drive does not have because the pass could not take it.
+            return self.skipped.get(key).map(|why| FileState::Error(why.clone()));
+        };
+        Some(if record.conflict.is_some() {
+            FileState::Conflict
+        } else if let Some(why) = &record.error {
+            FileState::Error(why.clone())
+        } else if record.encrypted_copy {
+            if self.is_pinned(key) {
+                FileState::Pinned
+            } else {
+                FileState::OnDeviceEncrypted
+            }
+        } else if record.cloud_only {
+            FileState::CloudOnly
+        } else if self.is_pinned(key) {
+            FileState::Pinned
+        } else {
+            FileState::OnDevice
+        })
+    }
+
+    /// The state of the folder `folder` (ending in `/`): a conflict or an error of a file in it
+    /// first, then pinned, then cloud only when none of its files is here, else on this
+    /// device. `None` when the drive has no file in it.
+    #[must_use]
+    pub fn folder_state(&self, folder: &str) -> Option<FileState> {
+        let mut any = false;
+        let mut all_in_cloud = true;
+        let mut error = None;
+        for (_, record) in self
+            .files
+            .range(folder.to_string()..)
+            .take_while(|(key, _)| key.starts_with(folder))
+        {
+            any = true;
+            if record.conflict.is_some() {
+                return Some(FileState::Conflict);
+            }
+            if error.is_none() {
+                error.clone_from(&record.error);
+            }
+            if record.here() {
+                all_in_cloud = false;
+            }
+        }
+        if !any {
+            return None;
+        }
+        if let Some(why) = error {
+            return Some(FileState::Error(why));
+        }
+        if self.is_pinned(folder) {
+            return Some(FileState::Pinned);
+        }
+        Some(if all_in_cloud {
+            FileState::CloudOnly
+        } else {
+            FileState::OnDevice
+        })
+    }
+
+    /// The bytes of the files on this device.
+    #[must_use]
+    pub fn local_bytes(&self) -> u64 {
+        self.files
+            .values()
+            .filter(|r| r.here())
+            .map(|r| r.size)
+            .sum()
+    }
+
+    /// The files to free to get under `cap` bytes: the least recently used first; never a
+    /// pinned file, one in conflict or one whose transfer failed.
+    #[must_use]
+    pub fn to_free(&self, cap: u64) -> Vec<String> {
+        let mut total = self.local_bytes();
+        if total <= cap {
+            return Vec::new();
+        }
+        let mut candidates: Vec<(&String, &FileRecord)> = self
+            .files
+            .iter()
+            .filter(|(key, r)| {
+                r.here() && r.conflict.is_none() && r.error.is_none() && !self.is_pinned(key)
+            })
+            .collect();
+        candidates.sort_by(|a, b| a.1.last_used.cmp(&b.1.last_used).then(a.0.cmp(b.0)));
+        let mut out = Vec::new();
+        for (key, record) in candidates {
+            if total <= cap {
+                break;
+            }
+            total = total.saturating_sub(record.size);
+            out.push(key.clone());
+        }
+        out
+    }
+
+    /// The conflicts waiting for the user.
+    #[must_use]
+    pub fn conflicts(&self) -> Vec<&HeldConflict> {
+        self.files
+            .values()
+            .filter_map(|r| r.conflict.as_ref())
+            .collect()
+    }
+
+    /// The files of `keys` (folders ending in `/` - `""` the whole drive - with every file in
+    /// them) that are on this device, in order.
+    fn here_under(&self, keys: &[String]) -> Vec<String> {
+        self.under(keys, true)
+    }
+
+    /// The files of `keys` (a folder: every file in it - only the ones on this device with
+    /// `only_here`), in order.
+    fn under(&self, keys: &[String], only_here: bool) -> Vec<String> {
+        let mut out = BTreeSet::new();
+        for key in keys {
+            if key.is_empty() || key.ends_with('/') {
+                out.extend(
+                    self.files
+                        .range(key.clone()..)
+                        .take_while(|(k, _)| k.starts_with(key.as_str()))
+                        .filter(|(_, r)| !only_here || r.here())
+                        .map(|(k, _)| k.clone()),
+                );
+            } else {
+                out.insert(key.clone());
+            }
+        }
+        out.into_iter().collect()
+    }
+}
+
+/// The states are a document several writers change - the app's threads, a second window, the
+/// command line, and a pass for as long as it runs ([`Doc`], AZ-S16, X-AR5a-22).
+impl Document for SyncStates {}
+
+/// The states document in the state folder `dir`.
+fn states_doc(dir: &Path) -> Doc<SyncStates> {
+    Doc::new(dir.join(STATES_FILE))
+}
+
+/// Takes the group's and everybody's access to `path` away when it has any (Unix): its owner keeps
+/// `mode`. Nothing where there is no such file or no such bits.
+fn keep_private(path: &Path, mode: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        match fs::metadata(path) {
+            Ok(meta) if meta.permissions().mode() & 0o077 != 0 => {
+                fs::set_permissions(path, fs::Permissions::from_mode(mode))
+            }
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, mode);
+        Ok(())
+    }
+}
+
+/// A states change that could not be kept.
+fn states_error(e: DocError) -> CloudError {
+    CloudError::failed(format!(
+        "the sync states of this folder cannot be kept: {e}"
+    ))
+}
+
+/// How the entries of the states' lists are told apart when a pass's results meet what the user
+/// answered meanwhile: a set of keys by the key, the consents by their kind and the keys' hash.
+fn state_key(path: &str, item: &Value) -> Option<String> {
+    // A question is one thing a pass asked: its lists are not merged with another question's.
+    if path.starts_with(".mass_delete") || path.starts_with(".burst") {
+        return None;
+    }
+    match item {
+        Value::String(key) => Some(key.clone()),
+        Value::Object(_) if path == ".consents" => Some(format!(
+            "{}/{}",
+            item.get("kind")?.as_str()?,
+            item.get("keys_hash")?.as_str()?
+        )),
+        _ => None,
+    }
+}
+
+/// What a pass did.
+#[derive(Clone, Debug)]
+pub struct Pass {
+    /// The run's report (`None`: an encrypted-copies pass, which runs no sync).
+    pub report: Option<SyncReport>,
+    /// The states after it (kept in the state folder).
+    pub states: SyncStates,
+    /// Cloud-only files brought down (pinned ones), and files freed for the size cap.
+    pub fetched: Vec<String>,
+    pub freed: Vec<String>,
+    /// The files whose transfer the session's limit held back, either way
+    /// ([`SyncSession::with_transfer_limit`]): they move with a pass without the limit.
+    pub held: Vec<String>,
+}
+
+/// A file opened ([`SyncSession::open_keeping_edits`]): where it is, and the user's own work that
+/// stood where its read-only copy goes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Opened {
+    /// The file to open.
+    pub path: PathBuf,
+    /// The file an editor saved over the copy (or rewrote, or shortened) put aside under this path
+    /// (`name (edited).ext`) and kept; the caller says so. A "Save As" beside the copy stays where
+    /// it is, and the sweep leaves the folder.
+    pub kept_edit: Option<PathBuf>,
+}
+
+/// What "Free up space" did: the files freed, the ones kept and why.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Freed {
+    pub freed: Vec<String>,
+    pub kept: Vec<(String, String)>,
+}
+
+/// The answer to a conflict (D52).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Resolution {
+    /// This device's version goes to the drive.
+    KeepMine,
+    /// The drive's version comes here.
+    TakeTheirs,
+    /// The drive's keeps the name, this device's becomes a conflict copy.
+    KeepBoth,
+}
+
+/// Whether `error` says the drive takes no writes (refused: unpaid past its grace period,
+/// locked down, a read-only key).
+#[must_use]
+pub fn is_read_only(error: &CloudError) -> bool {
+    match error.root() {
+        CloudError::Drive(DriveError::Denied { .. }) => true,
+        CloudError::Drive(DriveError::Service(e)) => e.status == 403 || e.status == 402,
+        _ => false,
+    }
+}
+
+/// This device's name in conflict copies: `$AZCLOUD_DEVICE`, the host's name, else "this
+/// device".
+#[must_use]
+pub fn device_name() -> String {
+    ["AZCLOUD_DEVICE", "HOSTNAME", "COMPUTERNAME"]
+        .iter()
+        .filter_map(|var| std::env::var(var).ok())
+        .map(|name| name.trim().to_string())
+        .find(|name| !name.is_empty())
+        .unwrap_or_else(|| String::from("this device"))
+}
+
+/// A pairing made now starts as a new one (AZ-S15): what an earlier pairing of the same folder and
+/// drive left in its state folder - the base (moved aside as `index.json.unreadable`), the cached
+/// index, the named drive's memo and the note of what a pass sent - is forgotten. The base would
+/// turn what was deleted while the pairing was off into deletes on the drive and on every other
+/// device (D5: unpairing never deletes), and it would keep a high generation that refuses every
+/// poll of a drive that was rolled back or replaced, for ever. A new base pairs the two sides by
+/// content: nothing is deleted, nothing is lost. The user's choices ([`SyncStates`]: pins, freed
+/// files) stay, and so do the operations log and the trash.
+///
+/// # Errors
+///
+/// When the old base cannot be moved aside or a file of it cannot be removed.
+pub fn forget_base(state_dir: &Path) -> CloudResult<()> {
+    let index_path = state_dir.join(INDEX_FILE);
+    LocalIndex::set_aside(&index_path).with_context(|| index_path.display().to_string())?;
+    for path in [
+        super::cache_path(&index_path),
+        super::sending_path(&index_path),
+        index_path.with_extension("named.json"),
+    ] {
+        match fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e).with_context(|| path.display().to_string()),
+        }
+    }
+    Ok(())
+}
+
+/// The drive side of a pairing.
+enum SessionRemote {
+    /// A plain drive: the plain index and blobs.
+    Index(Arc<dyn RemoteStore>),
+    /// An encrypted drive: its files by name.
+    Named(Arc<dyn Drive>),
+    /// An encrypted drive whose local copies stay encrypted.
+    #[cfg(feature = "encryption")]
+    Encrypted {
+        drive: Arc<dyn Drive>,
+        objects: Arc<ObjectCache>,
+    },
+}
+
+/// A folder here paired with a drive's folder.
+pub struct SyncSession {
+    setup: SyncSetup,
+    dir: PathBuf,
+    device: String,
+    remote: SessionRemote,
+    /// Files over this many bytes wait, both ways ([`SyncSession::with_transfer_limit`]).
+    transfer_limit: Option<u64>,
+    /// Small transfers in flight at once ([`SyncSession::with_parallel`]); `None`: the run's
+    /// default.
+    parallel: Option<usize>,
+    /// How long a pass waits for the folder to be quiet first ([`SyncSession::with_settle`]).
+    settle: Duration,
+    /// A file written within this long waits for a later pass ([`SyncSession::with_file_settle`]).
+    file_settle: Duration,
+    /// The drive's newest restore announcement ([`SyncSession::with_restore`]).
+    restore: Option<super::RestoreNotice>,
+    /// The user's own devices (this one and the account's others): a download written by any
+    /// other device - a share participant's - gets the system's quarantine mark.
+    own_devices: Vec<String>,
+    /// Hears every named point of a pass (`after-scan`, `before-trash`, ...): an app's test
+    /// commands stop or crash a pass there ([`super::engine::Observer::point`]).
+    points: Option<Arc<dyn Fn(&str) + Send + Sync>>,
+    /// The engine's clock is this many seconds off the system's ([`SyncSession::with_clock`]).
+    clock_offset: f64,
+    /// How long an edit of the base waits for a running pass ([`SyncSession::with_edit_wait`]).
+    edit_wait: Duration,
+    /// Whether this session has dealt with the folder an older version left decrypted copies in (`<state>/open`):
+    /// the look at it is made once per session, not at every open (X-DELTA-SYNC9-11).
+    #[cfg(feature = "encryption")]
+    legacy_open_dealt: std::sync::atomic::AtomicBool,
+}
+
+impl SyncSession {
+    /// A plain drive (`store`: its bucket, [`super::drive_store::DriveStore`] over the app's
+    /// drive), its pairing's state in `dir`, this device named `device` in conflict copies.
+    #[must_use]
+    pub fn plain(
+        setup: SyncSetup,
+        dir: PathBuf,
+        device: &str,
+        store: Arc<dyn RemoteStore>,
+    ) -> SyncSession {
+        Self::with(setup, dir, device, SessionRemote::Index(store))
+    }
+
+    /// An encrypted drive (`drive`: the drive the app reads, names from its index) whose
+    /// local copies are plaintext in the folder.
+    #[must_use]
+    pub fn named(setup: SyncSetup, dir: PathBuf, device: &str, drive: Arc<dyn Drive>) -> SyncSession {
+        Self::with(setup, dir, device, SessionRemote::Named(drive))
+    }
+
+    /// An encrypted drive whose local copies stay encrypted: `objects` is the cache below the
+    /// encryption of `drive`; nothing is written to the folder.
+    #[cfg(feature = "encryption")]
+    #[must_use]
+    pub fn encrypted_copies(
+        setup: SyncSetup,
+        dir: PathBuf,
+        device: &str,
+        drive: Arc<dyn Drive>,
+        objects: Arc<ObjectCache>,
+    ) -> SyncSession {
+        Self::with(setup, dir, device, SessionRemote::Encrypted { drive, objects })
+    }
+
+    fn with(setup: SyncSetup, dir: PathBuf, device: &str, remote: SessionRemote) -> SyncSession {
+        SyncSession {
+            setup,
+            dir,
+            device: device.to_string(),
+            remote,
+            transfer_limit: None,
+            parallel: None,
+            settle: Duration::ZERO,
+            file_settle: Duration::ZERO,
+            restore: None,
+            own_devices: vec![device.to_string()],
+            points: None,
+            clock_offset: 0.0,
+            edit_wait: EDIT_LOCK_WAIT,
+            #[cfg(feature = "encryption")]
+            legacy_open_dealt: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// An edit of the base from the app (a delete, a rename, "Free up space", "Keep", ...) waits
+    /// `wait` for a running pass, not a minute: tests and a command line that would rather be told.
+    #[must_use]
+    pub fn with_edit_wait(mut self, wait: Duration) -> SyncSession {
+        self.edit_wait = wait;
+        self
+    }
+
+    /// The session's passes call `points` at every named point (an app's end-to-end tests).
+    #[must_use]
+    pub fn with_points(mut self, points: Arc<dyn Fn(&str) + Send + Sync>) -> SyncSession {
+        self.points = Some(points);
+        self
+    }
+
+    /// Tells the harness's points hook ([`SyncSession::with_points`]) that the session stands at the
+    /// point `name` (a step outside a pass: "Free up space").
+    fn point(&self, name: &str) {
+        if let Some(points) = &self.points {
+            points(name);
+        }
+    }
+
+    /// The session's engine reads a clock `offset` seconds off the system's: a test harness's
+    /// device whose clock is wrong (the command line's `AZSYNC_CLOCK_OFFSET`).
+    #[must_use]
+    pub fn with_clock(mut self, offset: f64) -> SyncSession {
+        self.clock_offset = offset;
+        self
+    }
+
+    /// The session's passes leave a file written within the last `quiet` for a later pass
+    /// (listed as settling, never a delete meanwhile): a file still being written - an export,
+    /// a copy, a download - is never uploaded half ([`super::FILE_SETTLE`] for an app).
+    #[must_use]
+    pub fn with_file_settle(mut self, quiet: Duration) -> SyncSession {
+        self.file_settle = quiet;
+        self
+    }
+
+    /// The drive's newest restore announcement, as the token server answered it: a pass that
+    /// meets an index older than the last one seen takes it as that restore when the epoch is
+    /// new to this pairing, and refuses it as a rollback otherwise.
+    #[must_use]
+    pub fn with_restore(mut self, notice: Option<super::RestoreNotice>) -> SyncSession {
+        self.restore = notice;
+        self
+    }
+
+    /// The account's other devices, whose files need no quarantine mark (this one is always
+    /// among them).
+    #[must_use]
+    pub fn with_own_devices(mut self, devices: &[String]) -> SyncSession {
+        for device in devices {
+            if !self.own_devices.contains(device) {
+                self.own_devices.push(device.clone());
+            }
+        }
+        self
+    }
+
+    /// The pairing's problem list as the last pass left it: every file it skipped, refused,
+    /// held, froze or failed, with a code and a reason ([`super::problems`]).
+    #[must_use]
+    pub fn problems(&self) -> super::problems::ProblemList {
+        super::problems::ProblemList::load(&self.dir).unwrap_or_default()
+    }
+
+    /// The pairing's engine: its journal, operations log, loop memory and problem list live
+    /// in the pairing's state folder.
+    fn engine(&self) -> super::engine::Engine {
+        let engine = super::engine::Engine::new(
+            &self.dir,
+            &self.setup.folder,
+            Box::new(super::quarantine::OwnDevices(self.own_devices.clone())),
+        )
+        .with_clock(self.clock_offset);
+        match &self.points {
+            Some(points) => {
+                let points = Arc::clone(points);
+                engine.with_points(Box::new(move |name: &str| points(name)))
+            }
+            None => engine,
+        }
+    }
+
+    /// The session's passes first wait until nothing in the folder changed for `quiet`
+    /// ([`super::SyncOptions::settle`], at most [`super::SETTLE_MAX`]): a checkout, an unzip or
+    /// a build syncs as one batch, and the burst guard sees the whole burst.
+    #[must_use]
+    pub fn with_settle(mut self, quiet: Duration) -> SyncSession {
+        self.settle = quiet;
+        self
+    }
+
+    /// The session's passes leave the transfers of files over `bytes` for a pass without the
+    /// limit, either way - an app on a metered or low-data network: a change here waits here,
+    /// the drive's version waits on the drive (a file new there shows as cloud only), a pinned
+    /// file in the cloud stays there; smaller files and the index move as always. `None`: no
+    /// limit. What a pass held back is its [`Pass::held`].
+    #[must_use]
+    pub fn with_transfer_limit(mut self, bytes: Option<u64>) -> SyncSession {
+        self.transfer_limit = bytes;
+        self
+    }
+
+    /// The session's passes move at most `transfers` small files at once (at least one) - an
+    /// app on a weak computer (on battery, hot, in Low Power Mode: AzDrive's client health)
+    /// syncs gently. A big file goes alone either way.
+    #[must_use]
+    pub fn with_parallel(mut self, transfers: usize) -> SyncSession {
+        self.parallel = Some(transfers.max(1));
+        self
+    }
+
+    /// The small transfers a pass moves at once ([`SyncSession::with_parallel`]; the run's
+    /// default, [`super::SyncOptions::new`]'s, unless set).
+    #[must_use]
+    pub fn parallel(&self) -> usize {
+        self.options().map_or(4, |opts| opts.parallel)
+    }
+
+    /// Whether a transfer of `size` bytes waits for a pass without the limit.
+    fn over_limit(&self, size: u64) -> bool {
+        self.transfer_limit.is_some_and(|limit| size > limit)
+    }
+
+    #[must_use]
+    pub fn setup(&self) -> &SyncSetup {
+        &self.setup
+    }
+
+    /// The pairing's state folder.
+    #[must_use]
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// The states as the last pass (or call) left them.
+    #[must_use]
+    pub fn states(&self) -> SyncStates {
+        SyncStates::load(&self.dir)
+    }
+
+    fn index_path(&self) -> PathBuf {
+        self.dir.join(INDEX_FILE)
+    }
+
+    fn options(&self) -> CloudResult<SyncOptions> {
+        let mut opts = SyncOptions::new(&self.setup.prefix, &self.setup.drive_id, &self.device)?;
+        if let Some(parallel) = self.parallel {
+            opts.parallel = parallel;
+        }
+        opts.settle = self.settle;
+        opts.file_settle = self.file_settle;
+        // The harness's wrong clock reaches the expiries too.
+        opts.clock_offset = self.clock_offset as i64;
+        opts.restore.clone_from(&self.restore);
+        Ok(opts)
+    }
+
+    fn root(&self) -> LocalRoot {
+        let mut root = LocalRoot::folder(&self.setup.folder);
+        root.rules
+            .add("/.azdrive-trash/", "AzDrive's trash of a folder added as a drive");
+        for line in &self.setup.exclude {
+            root.rules.add(line, "left out on this device (selective sync)");
+        }
+        root
+    }
+
+    fn target(&self) -> Target<'_> {
+        match &self.remote {
+            SessionRemote::Index(store) => Target::Index(store.as_ref()),
+            SessionRemote::Named(drive) => Target::Named(drive.as_ref()),
+            #[cfg(feature = "encryption")]
+            SessionRemote::Encrypted { drive, .. } => Target::Named(drive.as_ref()),
+        }
+    }
+
+    /// Whether the drive answers a read (a refused write then means read-only).
+    fn readable(&self) -> bool {
+        match &self.remote {
+            SessionRemote::Index(store) => self
+                .options()
+                .and_then(|opts| store.get_unless(&remote::index_key(&opts.prefix), None))
+                .is_ok(),
+            SessionRemote::Named(drive) => listable(drive.as_ref(), &self.setup.prefix),
+            #[cfg(feature = "encryption")]
+            SessionRemote::Encrypted { drive, .. } => listable(drive.as_ref(), &self.setup.prefix),
+        }
+    }
+
+    /// One pass: the sync (or, for encrypted copies, the drive's listing and the copies), told
+    /// to `events` as it moves files, stopped by `cancel`.
+    ///
+    /// Only one pass runs on a pairing at a time, in this process and in every other (a second
+    /// window, the command line): the states, the base and the journal are one pass's (AZ-S16). A
+    /// pass that finds another one running waits two seconds and then says so, without touching
+    /// anything.
+    ///
+    /// # Errors
+    ///
+    /// When another pass is running, or the run fails (the states keep why, and whether the drive
+    /// is read-only).
+    pub fn pass(
+        &self,
+        cancel: &AtomicBool,
+        events: &mut dyn FnMut(SyncEvent),
+    ) -> CloudResult<Pass> {
+        let _single_flight = self.pass_lock("this pass waits for the next time")?;
+        // The quiet folder first, then the states and the base this pass works from: read
+        // after the wait, they hold every answer given during it. An answer given while the pass
+        // runs is merged into its results at its end ([`SyncSession::keep_results`]).
+        if !self.settle.is_zero() {
+            local::settle(
+                &self.setup.folder,
+                &self.root().rules,
+                self.settle,
+                super::SETTLE_MAX,
+                &|| cancel.load(Ordering::SeqCst),
+            );
+        }
+        let start = self.states();
+        let mut states = start.clone();
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { drive, objects } = &self.remote {
+                let result =
+                    self.cache_pass(drive.as_ref(), objects, &start, &mut states, cancel, events);
+                return self.after_failure(result);
+            }
+        }
+        let result = self.sync_pass(&start, &mut states, cancel, events);
+        self.after_failure(result)
+    }
+
+    /// The lock one pass of this pairing holds for as long as it runs - and the read-back, which
+    /// puts files into the folder and rewrites its base (X-DELTA-AZDRIVE-FILES-26). `waits`: what
+    /// the one that finds it held says it does instead.
+    fn pass_lock(&self, waits: &str) -> CloudResult<azul_storage::lock::HeldLock> {
+        LockDir::new(self.dir.join("locks"))
+            .lock(PASS_LOCK, PASS_LOCK_WAIT)
+            .map_err(|e| {
+                if e.is_busy() {
+                    CloudError::failed(format!(
+                        "another window or command is syncing this folder just now; {waits}"
+                    ))
+                } else {
+                    CloudError::from(e)
+                }
+            })
+    }
+
+    /// The pass's lock for an edit of the base from the app: the same lock, a longer wait
+    /// ([`SyncSession::with_edit_wait`]), and a word that says what to do - the edit changed
+    /// nothing, try again when the pass is over.
+    fn edit_lock(&self) -> CloudResult<azul_storage::lock::HeldLock> {
+        LockDir::new(self.dir.join("locks"))
+            .lock(PASS_LOCK, self.edit_wait)
+            .map_err(|e| {
+                if e.is_busy() {
+                    CloudError::failed(
+                        "a pass is syncing this folder just now, and the change would be lost in                          it: nothing was changed; try again when the pass is over",
+                    )
+                } else {
+                    CloudError::from(e)
+                }
+            })
+    }
+
+    /// A failed pass keeps why in the states.
+    fn after_failure(&self, result: CloudResult<Pass>) -> CloudResult<Pass> {
+        if let Err(e) = &result {
+            let last_error = e.to_string();
+            let last_problem = SyncProblem::of(e);
+            let read_only = is_read_only(e) && self.readable();
+            // A pass that failed is not failed twice: a states file that cannot be kept is the
+            // lesser of the two.
+            let _ = self.change(|states| {
+                states.last_error = Some(last_error);
+                states.last_problem = last_problem;
+                states.read_only = read_only;
+            });
+        }
+        result
+    }
+
+    /// Changes the states in the file as they are NOW: under the file's lock, read fresh, `change`
+    /// applied, put in place whole (X-AR5a-22). Every writer of the states - this session's calls
+    /// from the app's threads, a second window, the command line, a pass's results - changes them
+    /// so, and none writes a snapshot it read earlier over another's change.
+    ///
+    /// The states name every file of the pairing: the folder they are in is this user's alone and
+    /// so is the file ([`keep_private`]; the document writes with the default permissions).
+    fn change<R>(&self, change: impl FnOnce(&mut SyncStates) -> R) -> CloudResult<(SyncStates, R)> {
+        crate::state::create_private_dir(&self.dir)
+            .with_context(|| self.dir.display().to_string())?;
+        keep_private(&self.dir, 0o700).with_context(|| self.dir.display().to_string())?;
+        let doc = states_doc(&self.dir);
+        let done = doc.update(change).map_err(states_error)?;
+        keep_private(doc.path(), 0o600).with_context(|| doc.path().display().to_string())?;
+        Ok(done)
+    }
+
+    /// Puts a pass's results into the states (X-AR5a-22): `mine` is the pass's copy, `start` what it
+    /// read when it began. The file may have changed since - a pin, a "keep both", an answer to a
+    /// question, a file opened - and keeps what the pass did not change ([`merge_values`]: what
+    /// the pass changed is its, what only the file changed is the file's, a list keeps what either
+    /// added). The states as they are now.
+    fn keep_results(&self, start: &SyncStates, mine: &SyncStates) -> CloudResult<SyncStates> {
+        let encode = |e: serde_json::Error| {
+            CloudError::failed(format!("the sync states cannot be put into JSON: {e}"))
+        };
+        let given = start.consents.clone();
+        let start = serde_json::to_value(start).map_err(encode)?;
+        let mine = serde_json::to_value(mine).map_err(encode)?;
+        let (merged, outcome) = self.change(|fresh| -> CloudResult<()> {
+            let theirs = serde_json::to_value(&*fresh).map_err(encode)?;
+            let merged = merge_values(&start, &mine, &theirs, state_key);
+            *fresh = serde_json::from_value(merged).map_err(encode)?;
+            // A question the user answered while the pass ran, and the pass asked again, is
+            // answered: the answer (a consent the pass was not given) covers it.
+            let answered = |fresh: &SyncStates, kind: ConsentKind, shown: &[&str]| {
+                fresh
+                    .consents
+                    .iter()
+                    .any(|c| !given.contains(c) && c.covers(kind, shown))
+            };
+            if let Some(pause) = fresh.burst.clone() {
+                if answered(fresh, ConsentKind::Burst, &[pause.identity().as_str()]) {
+                    fresh.burst = None;
+                }
+            }
+            if let Some(asked) = fresh.mass_delete.clone() {
+                let keys: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
+                if answered(fresh, ConsentKind::MassDelete, &keys) {
+                    fresh.mass_delete = None;
+                }
+            }
+            Ok(())
+        })?;
+        outcome?;
+        Ok(merged)
+    }
+
+    fn sync_pass(
+        &self,
+        start: &SyncStates,
+        states: &mut SyncStates,
+        cancel: &AtomicBool,
+        events: &mut dyn FnMut(SyncEvent),
+    ) -> CloudResult<Pass> {
+        // The run checks the folder itself: a new pairing makes it, a paired one that is gone
+        // (an unplugged disk) is never made again here, so it is never synced as empty.
+        let root = self.root();
+        let mut opts = self.options()?;
+        // The user's answers, for this pass: each is for the question it was given to.
+        opts.consents.clone_from(&states.consents);
+        opts.own_devices.clone_from(&self.own_devices);
+        let index_path = self.index_path();
+        let policy = self.setup.auto_download;
+        let pins = states.clone();
+        let fetch = |key: &str, size: u64| pins.is_pinned(key) || policy.wants(size);
+        let keep_both = states.keep_both.clone();
+        let target = self.target();
+        let mut moved: BTreeSet<String> = BTreeSet::new();
+        let (sender, heard) = mpsc::channel::<SyncEvent>();
+        let engine = self.engine();
+        let (fetch, keep_both, root_ref, opts_ref, index_ref, engine_ref) =
+            (&fetch, &keep_both, &root, &opts, &index_path, &engine);
+        let outcome = std::thread::scope(|scope| {
+            let worker = scope.spawn(move || {
+                let sender = Mutex::new(sender);
+                let hear = |event: SyncEvent| {
+                    let _ = lock(&sender).send(event);
+                };
+                let hooks = RunHooks {
+                    fetch: Some(fetch),
+                    hold_conflicts: true,
+                    keep_both: Some(keep_both),
+                    progress: Some(&hear),
+                    cancel: Some(cancel),
+                    hold_mass_delete: true,
+                    transfer_limit: self.transfer_limit,
+                    observer: None,
+                    backup: self.setup.backup,
+                };
+                // The engine recovers the journal first and publishes the problem list after,
+                // failed pass or not; the run's own result is what the session goes on with.
+                let (result, _summary) = engine_ref.pass(hooks, |hooks| {
+                    sync_to(target, root_ref, index_ref, opts_ref, hooks)
+                });
+                result
+            });
+            for event in heard {
+                if let SyncEvent::Finished {
+                    key, error: None, ..
+                } = &event
+                {
+                    moved.insert(key.clone());
+                }
+                events(event);
+            }
+            worker.join()
+        });
+        let report = match outcome {
+            Ok(result) => result?,
+            Err(payload) => {
+                // A crash a harness armed ends the process there: it unwinds on, so nothing
+                // after it runs (no failure is noted, no state is saved), as after a real kill.
+                if let Some(point) = super::faults::crash_of(&self.setup.folder, payload.as_ref())
+                {
+                    std::panic::resume_unwind(Box::new(super::faults::Crashed { point }));
+                }
+                fail!("the sync of {} stopped unexpectedly", self.setup.folder.display())
+            }
+        };
+        // A run that changed nothing because the folder or the drive is not the one paired (a
+        // disk not mounted, a rolled-back index) is no pass: the app says why, and the last
+        // pass stays the last one that synced.
+        if let Some(why) = &report.refused {
+            fail!("{why}");
+        }
+        record(states, &report, &moved);
+        // Sources moved into the folder go once the drive holds their copies.
+        if let Some(remote) = &report.remote {
+            super::movein::settle(&self.dir, remote);
+        }
+        // The guards' questions as this pass found them. An answer given while it ran is in the
+        // file already: it is the next pass's, and a question it answered is not asked again
+        // ([`SyncSession::keep_results`] merges the two). The answers this pass was given are used
+        // up with it - needed or not (S8) - unless it was stopped.
+        states.burst = report.paused.clone();
+        states.mass_delete = report.mass_delete.clone();
+        states.newer_format.clone_from(&report.newer_format);
+        if !report.cancelled {
+            states.consents.retain(|c| !opts.consents.contains(c));
+        }
+        // Pinned files kept in the cloud come down now (within the limit; the rest wait) - and,
+        // when the pairing downloads everything (on-demand switched off), every cloud-only
+        // file the user did not free up.
+        let mut fetched = Vec::new();
+        let mut held = report.held_back.clone();
+        let mut pinned: Vec<(String, u64)> = Vec::new();
+        let everything = self.setup.auto_download == AutoDownload::Everything;
+        let in_the_cloud: Vec<String> = report
+            .cloud_only
+            .iter()
+            .filter(|key| states.is_pinned(key) || (everything && !states.freed.contains(*key)))
+            .cloned()
+            .collect();
+        for key in in_the_cloud {
+            let size = states.files.get(&key).map_or(0, |r| r.size);
+            if self.over_limit(size) {
+                if let Some(record) = states.files.get_mut(&key) {
+                    record.held = true;
+                }
+                held.push(key);
+            } else {
+                pinned.push((key, size));
+            }
+        }
+        for (key, size) in pinned {
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
+            events(SyncEvent::Started {
+                key: key.clone(),
+                up: false,
+                bytes: size,
+            });
+            let error = fetch_file(target, &root, &index_path, &opts, &key)
+                .err()
+                .map(|e| e.to_string());
+            if let Some(record) = states.files.get_mut(&key) {
+                match &error {
+                    None => {
+                        record.cloud_only = false;
+                        record.last_used = crate::now();
+                    }
+                    Some(why) => record.error = Some(why.clone()),
+                }
+            }
+            if error.is_none() {
+                fetched.push(key.clone());
+            }
+            events(SyncEvent::Finished {
+                key,
+                up: false,
+                bytes: size,
+                error,
+            });
+        }
+        // The folders of cloud-only files are here: the folder browses as the drive does. Made
+        // from the folder's root without following a link (never inside one, never another disk),
+        // and only for a name the rows of a synced name admit: the key is the drive's, and a folder
+        // of a protected name - in any spelling - is not made for it (ARCH29 C6c; X-DELTA-STRUCT-DRIVE-1).
+        // `Volume::default()` is the lenient side: the plan has refused what this disk refuses.
+        if let Ok(tree) = azul_storage::beneath::Root::open(&self.setup.folder) {
+            let policy = super::names::Policy::here(super::names::Volume::default());
+            for (key, _) in states.files.iter().filter(|(_, r)| r.cloud_only) {
+                let folder = azul_storage::beneath::split_key(key).0;
+                if folder.is_empty() {
+                    continue;
+                }
+                // collapse-ok: a folder that cannot be made (a name the rows refuse, a link, a full
+                // disk) is a folder that is not there: the file stays cloud-only, as it was.
+                if let Ok(admitted) = policy.admit(folder, super::names::Purpose::Sync) {
+                    let _ = tree.dir_new(&admitted);
+                }
+            }
+        }
+        let freed = self.keep_cap(states);
+        states.last_pass = Some(crate::now());
+        states.last_error = None;
+        states.last_problem = None;
+        states.read_only = false;
+        let merged = self.keep_results(start, states)?;
+        Ok(Pass {
+            report: Some(report),
+            states: merged,
+            fetched,
+            freed,
+            held,
+        })
+    }
+
+    /// Frees the least recently used files until the size cap holds.
+    fn keep_cap(&self, states: &mut SyncStates) -> Vec<String> {
+        let Some(cap) = self.setup.keep_bytes() else {
+            return Vec::new();
+        };
+        let mut freed = Vec::new();
+        for key in states.to_free(cap) {
+            if self.evict_one(&key, states).is_ok() {
+                // Freed for the cap: a pairing that downloads everything does not fetch it again.
+                states.freed.insert(key.clone());
+                freed.push(key);
+            }
+        }
+        freed
+    }
+
+    /// Frees `key`'s bytes on this device.
+    fn evict_one(&self, key: &str, states: &mut SyncStates) -> CloudResult<()> {
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { objects, .. } = &self.remote {
+                if let Some(record) = states.files.get_mut(key) {
+                    if let Some(object) = record.object.take() {
+                        objects.evict(&object)?;
+                    }
+                    record.encrypted_copy = false;
+                    record.cloud_only = true;
+                }
+                return Ok(());
+            }
+        }
+        // Only once the drive holds this version whole: its copy is read back and checked first.
+        super::evict::evict_checked(
+            self.target(),
+            &self.root(),
+            &self.index_path(),
+            &self.options()?,
+            key,
+            &|name| self.point(name),
+        )?;
+        if let Some(record) = states.files.get_mut(key) {
+            record.cloud_only = true;
+        }
+        Ok(())
+    }
+
+    /// The file `key` on this device to open: brought down first when it is in the cloud only
+    /// (an encrypted copy: decrypted into a temporary file); marked used.
+    ///
+    /// # Errors
+    ///
+    /// When it cannot be brought down or decrypted.
+    pub fn open(&self, key: &str) -> CloudResult<PathBuf> {
+        self.open_keeping_edits(key).map(|opened| opened.path)
+    }
+
+    /// [`SyncSession::open`] that also says where it put the user's own work aside: the read-only
+    /// copy of an encrypted drive's file stands in a folder of its own, and what an editor saved
+    /// over it or beside it is never swept or overwritten ([`Opened::kept_edit`], X-DELTA-AZDRIVE-
+    /// SYNC-2).
+    ///
+    /// # Errors
+    ///
+    /// As [`SyncSession::open`].
+    pub fn open_keeping_edits(&self, key: &str) -> CloudResult<Opened> {
+        let mut states = self.states();
+        let opened = self.open_path(key, &mut states)?;
+        // What opening did to the file's record (its bytes are here now), on the states as they
+        // are now.
+        let record = states.files.get(key).cloned();
+        let now = crate::now();
+        self.change(|states| {
+            states.freed.remove(key);
+            if let (Some(record), Some(was)) = (states.files.get_mut(key), record) {
+                record.cloud_only = was.cloud_only;
+                record.encrypted_copy = was.encrypted_copy;
+                record.object = was.object;
+                record.last_used = now;
+                record.error = None;
+            }
+        })?;
+        Ok(opened)
+    }
+
+    fn open_path(&self, key: &str, states: &mut SyncStates) -> CloudResult<Opened> {
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { drive, objects } = &self.remote {
+                return self.decrypt(drive.as_ref(), objects, key, states);
+            }
+        }
+        let path = fetch_file(
+            self.target(),
+            &self.root(),
+            &self.index_path(),
+            &self.options()?,
+            key,
+        )?;
+        if let Some(record) = states.files.get_mut(key) {
+            record.cloud_only = false;
+        }
+        // The file is in the pairing's folder, as the user's own: no read-only copy, nothing put
+        // aside.
+        Ok(Opened {
+            path,
+            kept_edit: None,
+        })
+    }
+
+    /// Pins (`on`) or unpins `keys` (files, and folders ending in `/`): a pinned file is never
+    /// freed, and the next pass brings it down when it is in the cloud only. The states.
+    ///
+    /// # Errors
+    ///
+    /// When the states cannot be kept.
+    pub fn pin(&self, keys: &[String], on: bool) -> CloudResult<SyncStates> {
+        let (states, ()) = self.change(|states| {
+            for key in keys {
+                if on {
+                    states.pinned.insert(key.clone());
+                    let under = states.under(std::slice::from_ref(key), false);
+                    for freed in under {
+                        states.freed.remove(&freed);
+                    }
+                } else {
+                    states.pinned.remove(key);
+                }
+            }
+        })?;
+        Ok(states)
+    }
+
+    /// "Free up space": the bytes of `keys` (files, folders ending in `/`) leave this device;
+    /// the drive keeps them. Freeing a pinned file or folder unpins it; a file in a folder
+    /// that stays pinned is kept, and so is one with changes not synced yet.
+    ///
+    /// # Errors
+    ///
+    /// When the states cannot be kept.
+    pub fn free_up(&self, keys: &[String]) -> CloudResult<Freed> {
+        // Beside a pass the base this edits (a freed file is a placeholder in it) is the one the
+        // pass saves over.
+        let _single_flight = self.edit_lock()?;
+        // Freeing a pinned file or folder unpins it: the choice is kept at once.
+        let (mut states, ()) = self.change(|states| {
+            for key in keys {
+                states.pinned.remove(key);
+            }
+        })?;
+        let mut out = Freed::default();
+        for key in states.here_under(keys) {
+            if states.is_pinned(&key) {
+                out.kept.push((
+                    key,
+                    String::from("it is in a folder that is always kept on this device"),
+                ));
+                continue;
+            }
+            match self.evict_one(&key, &mut states) {
+                Ok(()) => {
+                    states.freed.insert(key.clone());
+                    out.freed.push(key);
+                }
+                Err(e) => {
+                    // The drive's copy failed its check: the problem list names it.
+                    if super::problems::code_of_error(&e) == super::problems::Code::HashMismatch {
+                        super::evict::note_problem(
+                            &self.dir,
+                            super::problems::Problem::of_error(&key, &e),
+                        );
+                    }
+                    out.kept.push((key, e.to_string()));
+                }
+            }
+        }
+        // What freeing did, on the states as they are now.
+        self.change(|fresh| {
+            for key in &out.freed {
+                fresh.freed.insert(key.clone());
+                if let (Some(record), Some(done)) =
+                    (fresh.files.get_mut(key), states.files.get(key))
+                {
+                    record.cloud_only = done.cloud_only;
+                    record.encrypted_copy = done.encrypted_copy;
+                    record.object.clone_from(&done.object);
+                }
+            }
+        })?;
+        Ok(out)
+    }
+
+    /// The read-back ([`super::verify`]): the drive's copies checked against their hashes
+    /// (a damaged one sent again from a good copy here), and this device's copies against the
+    /// base (a damaged one put back from the drive, its bytes in the trash). The report is kept
+    /// in the state folder ([`super::verify::VERIFY_FILE`]) and its findings listed now.
+    ///
+    /// # Errors
+    ///
+    /// When the folder was never synced, the drive's index cannot be read, or the pairing keeps
+    /// encrypted local copies (its objects are checked as they are opened).
+    pub fn verify(&self) -> CloudResult<super::verify::VerifyReport> {
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { .. } = &self.remote {
+                fail!(
+                    "a pairing of encrypted local copies keeps no folder to read back: its \
+                     objects are checked as they are opened"
+                );
+            }
+        }
+        // The read-back replaces files and rewrites the base: beside a pass it could resurrect a
+        // delete or add conflict copies, so it takes the pass's turn.
+        let _single_flight = self.pass_lock("this check waits for the next time")?;
+        let report = super::verify::verify_with(
+            self.target(),
+            &self.root(),
+            &self.index_path(),
+            &self.options()?,
+            &|name| self.point(name),
+        )?;
+        write_json(&self.dir.join(super::verify::VERIFY_FILE), &report, true)?;
+        for problem in &report.problems {
+            super::evict::note_problem(&self.dir, problem.clone());
+        }
+        Ok(report)
+    }
+
+    /// Moves `from` (a file or folder outside the synced folder) in at `key`: copied at once,
+    /// each source removed only after a pass committed its copy ([`super::movein`]). The keys.
+    ///
+    /// # Errors
+    ///
+    /// With encrypted local copies (no folder to move into), when `from` is in the folder, the
+    /// key is taken, or a copy fails.
+    pub fn move_in(&self, from: &Path, key: &str) -> CloudResult<Vec<String>> {
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { .. } = &self.remote {
+                fail!("a pairing of encrypted local copies keeps no folder to move files into");
+            }
+        }
+        super::movein::move_in(&self.setup.folder, &self.dir, from, key)
+    }
+
+    /// Marks `key` used now (it was opened): the size cap frees it last. A file the drive does
+    /// not have changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// When the states cannot be kept.
+    pub fn touch(&self, key: &str) -> CloudResult<()> {
+        let now = crate::now();
+        self.change(|states| {
+            if let Some(record) = states.files.get_mut(key) {
+                record.last_used = now;
+            }
+        })?;
+        Ok(())
+    }
+
+    /// Deletes `keys` (files, and folders ending in `/` with every file in them) from the drive
+    /// with the next pass: a file kept in the cloud only is taken as deleted here (the next pass
+    /// deletes it there - unless it changed there meanwhile: an edit beats a delete), a file on
+    /// this device goes from here at once. With encrypted local copies the drive's file is
+    /// deleted at once (no pass syncs such a drive). The files it took.
+    ///
+    /// # Errors
+    ///
+    /// When a file here cannot be removed, the base or the states cannot be kept, or (encrypted
+    /// local copies) the drive refuses the delete.
+    pub fn delete(&self, keys: &[String]) -> CloudResult<Vec<String>> {
+        let states = self.states();
+        let targets = states.under(keys, false);
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { drive, objects } = &self.remote {
+                for key in &targets {
+                    drive.delete(&format!("{}{key}", self.setup.prefix))?;
+                    if let Some(object) = states.files.get(key).and_then(|r| r.object.clone()) {
+                        objects.evict(&object)?;
+                    }
+                }
+                self.forget_files(&targets)?;
+                return Ok(targets);
+            }
+        }
+        // The base below is edited: the pass's turn first.
+        let _single_flight = self.edit_lock()?;
+        let index_path = self.index_path();
+        let mut index = LocalIndex::load(&index_path)?;
+        // Each file is reached from the folder's root without a link: a delete never removes
+        // a file in a folder a link below the synced folder points at.
+        let here = self.root().drive().contained();
+        for key in &targets {
+            if let Some(entry) = index.as_mut().and_then(|i| i.files.get_mut(key)) {
+                // Not on this device, at the version the drive has: the next pass deletes it
+                // there.
+                if entry.cloud_only {
+                    entry.cloud_only = false;
+                    entry.mtime_ns = 0;
+                }
+            }
+            // A file that is not there is no error.
+            here.delete(key)?;
+        }
+        // A folder the user deleted goes as a folder. Left empty it stays a folder with every
+        // synced file taken out of it, which the next pass reads as an emptied folder (SYNC-F2)
+        // and holds with a question about a delete the user has just confirmed
+        // (X-DELTA-AZDRIVE-SYNC-16). Only a folder with nothing else in it goes (a file the user
+        // made meanwhile, or one this delete did not name, keeps it).
+        for folder in keys.iter().filter(|key| key.ends_with('/')) {
+            // collapse-ok: a folder that cannot be removed stays; the files the user chose are gone
+            // either way, and the next pass says what it finds.
+            let _ = here.remove_empty_folder(folder);
+        }
+        if let Some(index) = &index {
+            index.save(&index_path)?;
+        }
+        self.forget_files(&targets)?;
+        Ok(targets)
+    }
+
+    /// The files of `keys` are gone from the states.
+    fn forget_files(&self, keys: &[String]) -> CloudResult<()> {
+        self.change(|states| {
+            for key in keys {
+                states.files.remove(key);
+            }
+        })?;
+        Ok(())
+    }
+
+    /// "Send it again": files the drive deleted before this pairing knew them, kept here and
+    /// listed (`deleted-elsewhere-kept`), go up with the next pass. (To let them go, the user
+    /// deletes them here.)
+    ///
+    /// # Errors
+    ///
+    /// When the base cannot be read or kept.
+    pub fn send_kept(&self, keys: &[String]) -> CloudResult<()> {
+        let _single_flight = self.edit_lock()?;
+        let path = self.index_path();
+        let Some(mut index) = LocalIndex::load(&path)? else {
+            return Ok(());
+        };
+        for key in keys {
+            index.kept.remove(key);
+        }
+        index.save(&path)
+    }
+
+    /// "These changes are mine": the next pass sends what the burst guard held back.
+    ///
+    /// # Errors
+    ///
+    /// When the states cannot be kept.
+    pub fn answer_burst(&self) -> CloudResult<()> {
+        let now = crate::now();
+        self.change(|states| {
+            // The answer is to the pause the user was shown; with none waiting there is nothing to
+            // answer (a later pause is another question).
+            let Some(pause) = states.burst.take() else {
+                return;
+            };
+            states.consents.retain(|c| c.kind != ConsentKind::Burst);
+            states.consents.push(Consent::new(
+                ConsentKind::Burst,
+                &[pause.identity().as_str()],
+                now,
+            ));
+        })?;
+        Ok(())
+    }
+
+    /// Answers the mass delete waiting: `delete_too` deletes them with the next pass (on the
+    /// drive, or here); else they are kept - a file gone from here stays on the drive (in the
+    /// cloud only here), one the drive deleted goes back up from here. Answers whatever question
+    /// waits: an app that showed the user a question answers it by
+    /// [`SyncSession::answer_mass_delete_shown`].
+    ///
+    /// # Errors
+    ///
+    /// When the base or the states cannot be kept, or a pass is running and the base would be
+    /// saved over by it ("keep" edits the base: [`SyncSession::with_edit_wait`]).
+    pub fn answer_mass_delete(&self, delete_too: bool) -> CloudResult<()> {
+        self.answer_mass_delete_for(delete_too, None)
+    }
+
+    /// [`SyncSession::answer_mass_delete`] for the question a dialog showed: `shown` is its
+    /// [`super::MassDelete::identity`]. A pass that finished between the click and this call may
+    /// have replaced the question with a larger set; "delete them too" would then consent to files
+    /// the user never saw. The answer is refused then, and changes nothing (X-DELTA-AZDRIVE-SYNC-14).
+    ///
+    /// # Errors
+    ///
+    /// As [`SyncSession::answer_mass_delete`]; and when the question waiting is another one.
+    pub fn answer_mass_delete_shown(&self, delete_too: bool, shown: &str) -> CloudResult<()> {
+        self.answer_mass_delete_for(delete_too, Some(shown))
+    }
+
+    fn answer_mass_delete_for(&self, delete_too: bool, shown: Option<&str>) -> CloudResult<()> {
+        // "Keep" edits the base a running pass would save over; "delete them too" only the states
+        // (a document with its own lock), and does not wait for a pass.
+        let _single_flight = if delete_too {
+            None
+        } else {
+            Some(self.edit_lock()?)
+        };
+        let Some(asked) = self.states().mass_delete else {
+            return Ok(());
+        };
+        if shown.is_some_and(|shown| asked.identity() != shown) {
+            fail!(
+                "the question changed since it was shown: it names other files now; look at it \
+                 again"
+            );
+        }
+        if !delete_too {
+            let path = self.index_path();
+            if let Some(mut index) = LocalIndex::load(&path)? {
+                for key in &asked.keys {
+                    let Some(entry) = index.files.get_mut(key) else {
+                        continue;
+                    };
+                    // One question can hold both directions (S9): each file is kept the way it
+                    // is. A copy still here is what the drive deleted elsewhere - not what the
+                    // drive deleted: it is a change, and goes up; a file gone from here is kept
+                    // on the drive, in the cloud only here. A file that cannot be looked at (a
+                    // permission, a disk that does not answer) is neither: it is left as it is
+                    // (X-DELTA-AZDRIVE-SYNC-15) - the merge treats such a name as unknown, and the
+                    // base does not say it is gone.
+                    match local::stat_now(&self.setup.folder, key) {
+                        Ok(Some(_)) => {
+                            // A time no file has: the next scan reads the file again.
+                            entry.mtime_ns = 0;
+                            entry.hash = String::from("kept");
+                            entry.cloud_only = false;
+                        }
+                        Ok(None) => {
+                            entry.mtime_ns = 0;
+                            entry.cloud_only = true;
+                        }
+                        Err(_) => {}
+                    }
+                }
+                index.save(&path)?;
+            }
+        }
+        let now = crate::now();
+        self.change(|states| {
+            // The answer is to the question the user was shown; one a pass asked since is another.
+            if states.mass_delete.as_ref() != Some(&asked) {
+                return;
+            }
+            states.mass_delete = None;
+            if delete_too {
+                // For these files and no others: a later plan that deletes another set asks
+                // again.
+                let keys: Vec<&str> = asked.keys.iter().map(String::as_str).collect();
+                states
+                    .consents
+                    .retain(|c| c.kind != ConsentKind::MassDelete);
+                states
+                    .consents
+                    .push(Consent::new(ConsentKind::MassDelete, &keys, now));
+            }
+        })?;
+        Ok(())
+    }
+
+    /// Renames `from` to `to` (files, or folders ending in `/`) in the synced folder - a plain
+    /// drive's own listing shows its sync index's names: files of it in the cloud only come
+    /// down first - and the next pass moves them on the drive (their bytes are there already).
+    ///
+    /// # Errors
+    ///
+    /// With encrypted local copies (the drive is renamed by its own listing), when a file
+    /// cannot come down, the name is taken, or the rename fails.
+    pub fn rename(&self, from: &str, to: &str) -> CloudResult<()> {
+        #[cfg(feature = "encryption")]
+        {
+            if let SessionRemote::Encrypted { .. } = &self.remote {
+                fail!("an encrypted drive's files are renamed in its own listing");
+            }
+        }
+        // The files come down and the folder moves: a pass that began before would save the base
+        // with the old names over it.
+        let _single_flight = self.edit_lock()?;
+        let cloud: Vec<String> = {
+            let states = self.states();
+            states
+                .under(&[from.to_string()], false)
+                .into_iter()
+                .filter(|key| states.files.get(key).is_some_and(|r| r.cloud_only))
+                .collect()
+        };
+        for key in &cloud {
+            self.open(key)?;
+        }
+        if fs::symlink_metadata(local::path_of(&self.setup.folder, to)).is_ok() {
+            fail!("{} is there already", to.trim_end_matches('/'));
+        }
+        // One rename, both names reached from the folder's root without a link (the target's
+        // missing folders made the same way): nothing moves into or out of a folder a link
+        // below the synced folder points at.
+        self.root().drive().contained().rename(from, to)?;
+        // The states follow at once (the next pass makes it so on the drive).
+        self.change(|states| {
+            let moved: Vec<String> = states.under(&[from.to_string()], false);
+            for key in moved {
+                if let Some(record) = states.files.remove(&key) {
+                    let rest = &key[from.len().min(key.len())..];
+                    let new = if from.ends_with('/') {
+                        format!("{to}{rest}")
+                    } else {
+                        to.to_string()
+                    };
+                    states.files.insert(new, record);
+                }
+            }
+        })?;
+        Ok(())
+    }
+
+    /// Answers the conflict of `key` (D52); the next pass does it.
+    ///
+    /// # Errors
+    ///
+    /// When `key` has no conflict, or the base cannot be changed.
+    pub fn resolve(&self, key: &str, choice: Resolution) -> CloudResult<()> {
+        let _single_flight = self.edit_lock()?;
+        let Some(held) = self
+            .states()
+            .files
+            .get(key)
+            .and_then(|r| r.conflict.clone())
+        else {
+            fail!("{key} has no conflict to answer");
+        };
+        // The user chose what the file should be: the unattended bound on its copies and its loop
+        // are let go (an answer is never frozen out by what was done without one).
+        self.engine().release_loop(key)?;
+        match choice {
+            // Recorded with the answer below.
+            Resolution::KeepBoth => {}
+            // The base takes the drive's version: mine is the change, and goes up.
+            Resolution::KeepMine => self.set_base(
+                key,
+                BaseEntry {
+                    hash: held.there,
+                    size: held.there_size,
+                    exec: held.there_exec,
+                    ..BaseEntry::default()
+                },
+            )?,
+            // The base takes mine as it is now: the drive's is the change, and comes here.
+            Resolution::TakeTheirs => {
+                // This computer's version may exist nowhere else, and the next pass puts the
+                // drive's over it: it is kept in the folder's trash first (AZ-S23). A copy that
+                // cannot be kept refuses the answer, and nothing changes.
+                self.keep_in_trash(key)?;
+                let path = local::path_of(&self.setup.folder, key);
+                let meta = fs::metadata(&path).with_context(|| format!("{}", path.display()))?;
+                let hash = local::hash_file(&path).with_context(|| format!("{}", path.display()))?;
+                self.set_base(
+                    key,
+                    BaseEntry {
+                        hash,
+                        size: meta.len(),
+                        mtime_ns: local::mtime_ns(&meta),
+                        exec: local::is_executable(&meta),
+                        ..BaseEntry::default()
+                    },
+                )?;
+            }
+        }
+        self.change(|states| {
+            if choice == Resolution::KeepBoth {
+                states.keep_both.insert(key.to_string());
+            }
+            if let Some(record) = states.files.get_mut(key) {
+                record.conflict = None;
+            }
+        })?;
+        Ok(())
+    }
+
+    /// A copy of this computer's file `key` in the folder's trash (`.azlin/sync/trash/<pass>/<key>`,
+    /// where "Restore" finds it), with its bytes, permission bits and time; the file itself stays.
+    fn keep_in_trash(&self, key: &str) -> CloudResult<()> {
+        use azul_storage::{
+            beneath::{BeneathError, Root},
+            ctl::Quiet,
+            durable::{self, Expect, Mode, Publish},
+        };
+        let blame = |e: BeneathError| CloudError::from(e).context(key.to_string());
+        let tree = Root::open(&self.setup.folder)
+            .map_err(BeneathError::from)
+            .map_err(blame)?;
+        // The conflict's key is the engine's own record of a file here: walked to, never made.
+        let on_disk = super::names::OnDisk::of_record(key)
+            .map_err(BeneathError::from)
+            .map_err(blame)?;
+        let (dir, name) = tree.parent_of_existing(&on_disk).map_err(blame)?;
+        let (mut file, st) = dir.open_read(name).map_err(blame)?;
+        let (trash, target, rel) =
+            super::root::trash_target(&tree, key, &super::root::trash_stamp(crate::now()))
+                .map_err(blame)?;
+        let publish = Publish::new(Expect::Absent, Mode::FromSource(st.mode & 0o777), &Quiet)
+            .with_mtime(std::time::UNIX_EPOCH + Duration::from_nanos(st.mtime_ns));
+        durable::publish(&trash, &target, &mut file, publish)
+            .map_err(|e| blame(BeneathError::from(e)))?;
+        // The log only describes what the folders show ([`super::trash`]); a line that cannot be
+        // written costs the description, not the copy.
+        let _ = super::oplog::OpLog::new(&self.dir).record(&super::oplog::Op {
+            t: crate::now() as f64,
+            op: super::oplog::OpKind::Trash,
+            key: key.to_string(),
+            to: Some(rel),
+            hash: None,
+        });
+        Ok(())
+    }
+
+    fn set_base(&self, key: &str, entry: BaseEntry) -> CloudResult<()> {
+        let path = self.index_path();
+        let Some(mut index) = LocalIndex::load(&path)? else {
+            fail!("{} was never synced", self.setup.folder.display());
+        };
+        index.files.insert(key.to_string(), entry);
+        index.save(&path)
+    }
+
+    /// An encrypted-copies pass: the drive's files from its index, the ones the policy wants
+    /// (pinned, new and small enough) kept as ciphertext, the size cap kept.
+    #[cfg(feature = "encryption")]
+    fn cache_pass(
+        &self,
+        drive: &dyn Drive,
+        objects: &ObjectCache,
+        start: &SyncStates,
+        states: &mut SyncStates,
+        cancel: &AtomicBool,
+        events: &mut dyn FnMut(SyncEvent),
+    ) -> CloudResult<Pass> {
+        let listing = azul_storage::ops::list_all_fresh(drive, &self.setup.prefix)?;
+        let now = crate::now();
+        let mut files = BTreeMap::new();
+        let mut wanted: Vec<(String, String, u64)> = Vec::new();
+        let mut held = Vec::new();
+        for info in listing {
+            let Some(key) = info.key.strip_prefix(&self.setup.prefix) else {
+                continue;
+            };
+            if key.is_empty() || key.ends_with('/') || remote::check_key(key).is_err() {
+                continue;
+            }
+            let etag = info.etag.as_deref().unwrap_or("").trim_matches('"');
+            let object = object_key_of(drive, &info.key, etag);
+            let kept = object.as_deref().is_some_and(|o| objects.has(o));
+            let old = states.files.get(key);
+            let modified = info.modified.and_then(|m| i64::try_from(m).ok()).unwrap_or(0);
+            // A file whose download waited for the limit is still new.
+            let new = old.is_none_or(|r| r.held);
+            let wants = states.is_pinned(key)
+                || (new && self.setup.auto_download.wants(info.size));
+            let waits = wants && !kept && self.over_limit(info.size);
+            if waits {
+                held.push(key.to_string());
+            } else if wants && !kept {
+                if let Some(object) = &object {
+                    wanted.push((key.to_string(), object.clone(), info.size));
+                }
+            }
+            files.insert(
+                key.to_string(),
+                FileRecord {
+                    size: info.size,
+                    modified,
+                    cloud_only: !kept,
+                    encrypted_copy: kept,
+                    object: if kept { object } else { None },
+                    last_used: old.map_or(modified, |r| r.last_used),
+                    error: None,
+                    conflict: None,
+                    held: waits,
+                },
+            );
+        }
+        events(SyncEvent::Planned {
+            up_files: 0,
+            up_bytes: 0,
+            down_files: wanted.len(),
+            down_bytes: wanted.iter().map(|w| w.2).sum(),
+        });
+        let mut fetched = Vec::new();
+        for (key, object, size) in wanted {
+            if cancel.load(Ordering::SeqCst) {
+                break;
+            }
+            events(SyncEvent::Started {
+                key: key.clone(),
+                up: false,
+                bytes: size,
+            });
+            let error = objects.fill(&object).err().map(|e| e.to_string());
+            if let Some(record) = files.get_mut(&key) {
+                match &error {
+                    None => {
+                        record.cloud_only = false;
+                        record.encrypted_copy = true;
+                        record.object = Some(object.clone());
+                        record.last_used = now;
+                    }
+                    Some(why) => record.error = Some(why.clone()),
+                }
+            }
+            if error.is_none() {
+                fetched.push(key.clone());
+            }
+            events(SyncEvent::Finished {
+                key,
+                up: false,
+                bytes: size,
+                error,
+            });
+        }
+        states.files = files;
+        let freed = self.keep_cap(states);
+        states.last_pass = Some(now);
+        states.last_error = None;
+        states.last_problem = None;
+        states.read_only = false;
+        let merged = self.keep_results(start, states)?;
+        Ok(Pass {
+            report: None,
+            states: merged,
+            fetched,
+            freed,
+            held,
+        })
+    }
+
+    /// An encrypted copy opened: kept here first (when it is in the cloud only), then decrypted
+    /// into a private READ-ONLY copy in scratch ([`azul_storage::scratch`]: a folder only this user
+    /// enters, swept when it is old - the plaintext of an encrypted drive does not stay for good),
+    /// under the file's own name. The name is the drive's, so it passes the name policy before it
+    /// is a path (AZ-W1, X-AR5a-1); a name that does not is refused. The copy itself is
+    /// [`Scratch::open_copy`], the one procedure of every copy handed to an app (X-DELTA-AZDRIVE-
+    /// SYNC-2): an edit saved beside or over it is put aside and never swept, and the version
+    /// opened before is handed out again as it is.
+    #[cfg(feature = "encryption")]
+    fn decrypt(
+        &self,
+        drive: &dyn Drive,
+        objects: &ObjectCache,
+        key: &str,
+        states: &mut SyncStates,
+    ) -> CloudResult<Opened> {
+        use azul_storage::{
+            beneath::Dir,
+            ctl::Quiet,
+            durable::{self, Expect, Mode, Publish},
+            names::{Policy, Purpose, Volume},
+            scratch::{CopyOf, Scratch},
+        };
+        let policy = Policy::here(Volume::default());
+        let admitted = policy.admit(key, Purpose::Open).map_err(|e| {
+            CloudError::failed(format!(
+                "{key} cannot be opened here ({}); it stays on the drive",
+                e.why
+            ))
+        })?;
+        let full = format!("{}{key}", self.setup.prefix);
+        let kept = states.files.get(key).is_some_and(|r| r.encrypted_copy);
+        if !kept {
+            let etag = drive.head(&full)?.etag.unwrap_or_default();
+            if let Some(object) = object_key_of(drive, &full, etag.trim_matches('"')) {
+                objects.fill(&object)?;
+                if let Some(record) = states.files.get_mut(key) {
+                    record.cloud_only = false;
+                    record.encrypted_copy = true;
+                    record.object = Some(object);
+                }
+            }
+        }
+        let bytes = drive.get(&full)?;
+        // What an earlier version left in the state folder: the plaintext of files it opened. A folder that
+        // holds no file goes; one that holds files may hold what the user changed in them and never synced,
+        // and stays, closed to other users (X-DELTA-SYNC4-25: it was removed whole); AzDrive says so at
+        // its start.
+        if !self
+            .legacy_open_dealt
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            let _ = azul_storage::scratch::remove_legacy_copies_at(
+                &self.dir.join(azul_storage::scratch::LEGACY_STATE_OPEN),
+            );
+        }
+        // The copy's own name is the key's last name (the folders of the key add nothing: the
+        // copy's folder is one per drive, file and version), a name the policy admitted above.
+        let name = admitted
+            .as_str()
+            .rsplit('/')
+            .next()
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| CloudError::failed(format!("{key} has no file name to open it by")))?;
+        let version = local::hash_bytes(&bytes);
+        let mut write = |dest: &Path, expect: Expect| -> Result<(), DriveError> {
+            let (Some(folder), Some(file)) = (
+                dest.parent(),
+                dest.file_name().and_then(|name| name.to_str()),
+            ) else {
+                return Err(DriveError::InvalidKey {
+                    key: full.clone(),
+                    reason: "it has no usable file name",
+                });
+            };
+            let dir =
+                Dir::open_following(folder).map_err(|e| DriveError::Io(format!("{full}: {e}")))?;
+            durable::publish(
+                &dir,
+                file,
+                &mut &bytes[..],
+                Publish::new(expect, Mode::Private, &Quiet),
+            )
+            .map(|_| ())
+            .map_err(|e| e.into_drive(&full))
+        };
+        // The drive's own scratch of open copies, the one AzDrive's Open uses: "Remove drive" takes
+        // the plaintext of an encrypted drive's files with it.
+        let copy = Scratch::open_copies_of(&self.setup.drive_id).open_copy(
+            CopyOf {
+                key: &full,
+                name,
+                version: &version,
+                size: u64::try_from(bytes.len()).ok(),
+            },
+            &mut write,
+        )?;
+        Ok(Opened {
+            path: copy.path,
+            kept_edit: copy.kept_edit,
+        })
+    }
+}
+
+/// The bucket key of the AZL1 object an encrypted drive's entity tag names.
+#[cfg(feature = "encryption")]
+fn bucket_key_of(etag: &str) -> Option<String> {
+    azul_storage::crypto::ObjectId::from_hex(etag).map(|id| id.bucket_key())
+}
+
+/// The bucket key of the object the bytes of `full` (a drive key) are in, as the drive names it
+/// ([`azul_storage::OBJECT_KEY_METADATA`]: for a small file, the pack it shares with others),
+/// else the AZL1 object its entity tag `etag` names. A kept pack keeps every file in it.
+#[cfg(feature = "encryption")]
+fn object_key_of(drive: &dyn Drive, full: &str, etag: &str) -> Option<String> {
+    let named = drive.metadata(full).ok().and_then(|rows| {
+        rows.into_iter()
+            .find(|(name, _)| name == azul_storage::OBJECT_KEY_METADATA)
+            .map(|(_, value)| value)
+    });
+    named.or_else(|| bucket_key_of(etag))
+}
+
+/// Whether `drive` lists `prefix`.
+fn listable(drive: &dyn Drive, prefix: &str) -> bool {
+    drive
+        .list(&ListRequest::folder(prefix).with_max_keys(1))
+        .is_ok()
+}
+
+/// The states after a run: a record per file of the drive (its bytes here or not, used when it
+/// moved), the conflicts held, the files that failed; "keep both" answered for the conflicts
+/// the run copied.
+fn record(states: &mut SyncStates, report: &SyncReport, moved: &BTreeSet<String>) {
+    let now = crate::now();
+    let cloud_only: BTreeSet<&str> = report.cloud_only.iter().map(String::as_str).collect();
+    let held: BTreeSet<&str> = report.held_back.iter().map(String::as_str).collect();
+    let mut files: BTreeMap<String, FileRecord> = match &report.remote {
+        Some(remote) => remote
+            .files
+            .iter()
+            .map(|(key, file)| {
+                let old = states.files.get(key);
+                let last_used = if moved.contains(key) {
+                    now
+                } else {
+                    old.map_or(file.mtime, |r| r.last_used)
+                };
+                // A file new on the drive whose download waited is not here yet.
+                let waits = held.contains(key.as_str());
+                let record = FileRecord {
+                    size: file.size,
+                    modified: file.mtime,
+                    cloud_only: cloud_only.contains(key.as_str())
+                        || (waits && old.is_none_or(|r| r.cloud_only)),
+                    last_used,
+                    held: waits,
+                    ..FileRecord::default()
+                };
+                (key.clone(), record)
+            })
+            .collect(),
+        // A stopped run: the files are as they were.
+        None => states.files.clone(),
+    };
+    for held in &report.held {
+        files.entry(held.key.clone()).or_default().conflict = Some(held.clone());
+    }
+    for (key, why) in &report.file_errors {
+        files.entry(key.clone()).or_default().error = Some(why.clone());
+    }
+    states.files = files;
+    states.freed.retain(|key| states.files.contains_key(key));
+    states.skipped = report.skipped.iter().cloned().collect();
+    states
+        .keep_both
+        .retain(|key| report.held.iter().any(|h| h.key == *key));
+}
+
+/// Whether an error's words say the local disk is full (`ENOSPC` on Unix, `ERROR_DISK_FULL` on
+/// Windows, as std's I/O errors print them).
+fn is_disk_full(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("no space left on device")
+        || error.contains("os error 28)")
+        || error.contains("there is not enough space on the disk")
+        || error.contains("os error 112)")
+}
