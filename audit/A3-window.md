@@ -1085,15 +1085,20 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
     nothing to drop: the solver's positions (moved), `previous_positions` (memory report only), the patch-move
     books (cleared), `MeasuredParagraphs` (one pass), `float_cache` (per formatting context, in its own
     space; test `a_dragged_box_that_holds_a_float_stands_as_a_fresh_layout_puts_it`, `d68713628`).
-  - `5f48f8993`: **the move is NOT bit for bit what a layout gives and is OFF by default**
-    (`AZ_MOVE_IN_PLACE=1` turns it on; `window::move_in_place_enabled`). It writes `old + delta` into the
-    positions (`move_node_in_place` step 5), the frame's bounds and every item of the frame
-    (`node_patch::move_frame`, `translate_item`), where the solver computes `containing block + inset + margin`
-    and the painter `position + k`: an ulp apart for many sums, and the tests compared within 0.01 px. By
-    default a write of `left` / `top` is the pass of A3-window-44 again (exact; linear in the document with
-    small constants; then the window's pass and the hit-test index). A `transform` value alone stays a value.
-    Test: `a_label_written_to_places_that_do_not_add_exactly_stands_bit_for_bit`.
-  - **the EXACT move, design (complete; first row of the next round, it also ends A3-window-57 and -58):**
+  - `5f48f8993`, then `b92f04fa9`: **the move is not bit for bit what a layout gives, and that is accepted
+    for a drag** (the coordinator's decision; `5f48f8993` had switched it off, `b92f04fa9` on again). It
+    writes `old + delta` into the positions (`move_node_in_place` step 5), the frame's bounds and every item
+    of the frame (`node_patch::move_frame`, `translate_item`), where the solver computes `containing block +
+    inset + margin` and the painter `position + k`: up to 4 units in the last place per move. Why it may:
+    the drift is bounded by the gesture; it ends at the first pass of the document (the move drops the box's
+    `AbsPlacement`, so the pass solves the box, AND the solver's kept list, so the pass paints every item
+    from solved positions: with the list kept the pass copied the run of a box it found where the move left
+    it); every kept structure is moved by the same delta; nothing is carried to the next gesture. Cost of
+    the second drop: the first pass after a drag builds the document's list in full, once.
+    Test: `a_label_written_to_places_that_do_not_add_exactly_stands_bit_for_bit` ((a) the bound and the
+    self-agreement after each move, (b) bit for bit after the next pass).
+  - **the EXACT move, design (complete; first among the open rows; it also ends A3-window-57 and -58; not
+    urgent, for the bound above):**
     1. WHEN: as today, and: the node is `position: absolute` (not fixed), every box below it is `static`
        (no relative / absolute / fixed / sticky box: the pass shifts or solves those separately), and the
        solver's cache holds a placement for the box (`cache_map.entries[index].abs_interior.placement`:
@@ -1131,7 +1136,7 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
     Tests to write with it: the label test above with the switch gone (`Paint`, 0 passes) and `same_bits`;
     a box of 5,000 boxes moved (row B); the first move of a drag (row A).
 - severity: medium
-- status: open: the exact move (the design in this block) is not built; the inexact one is off by default (5f48f8993), so a label drag is a pass per move again
+- status: open: the exact move (the design in this block) is not built; the move in place as it is (`old + delta`, on by default, b92f04fa9) drifts by at most 4 ulps per move and ends at the next pass, so this is not urgent
 
 ### A3-window-50 a state colour painted into the list is a whole list to the renderers on every enter and leave (A4-23, the restyle side)
 - file:line: `window.rs` `patch_restyled_decorations`, `release_state_colors`, `settle_state_colors_in_the_kept_list`;
@@ -1295,10 +1300,9 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   is the diff-first owner's file: For area diff-first); (2) an API addition
   `CallbackInfo::set_node_css_props(node, CssPropertyWithConditionsVec)` beside `set_node_style` (follow its
   entry in `api.json` and `ContentChange::NodeStyle`; the generators run in the verification pass), which
-  also saves formatting and parsing a string per move. With the default of round 6 (a write of an inset is a
-  pass anyway) this row matters again when the exact move of A3-window-49 exists.
+  also saves formatting and parsing a string per move.
 - severity: medium
-- status: open: not built (after the exact move of A3-window-49; part (1) is an exact change For area diff-first)
+- status: open: not built (part (1) is an exact change For area diff-first; part (2) an api.json addition)
 
 ### A3-window-58 the size clause of the move in place (the editor's row B)
 - file:line: `window.rs` `move_node_in_place` (`MAX_BOXES` 1,024), `node_patch.rs` (`MAX_MOVED_ITEMS` 4,096)
@@ -1311,7 +1315,7 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   frame range and no clause; `MAX_BOXES` only bounds the walk that proves "every box below is static" and
   can go to the document's size.
 - severity: medium
-- status: open: not built (it goes with the exact move of A3-window-49)
+- status: open: not built (raise `MAX_BOXES` / `MAX_MOVED_ITEMS` to the document's size now, or let it go with the exact move of A3-window-49)
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
@@ -1619,16 +1623,20 @@ committed; the working tree is clean. Tip: on a merge of `audit/integration` `19
 **Done in round 6** (each [unverified]):
 - the verifier's failures: `4856559a5` (49: the move drops the solver's placement), `91ca03104` (15: the
   decoration patch of a write was dead), `022638f7e` (16: the fixture), `d68713628` (49: `float_cache` read,
-  a test), `5f48f8993` (49: the inexact move OFF by default), `80ddea192` (A4's GPU guard restated),
-  `25347d2ca` + its revert `8eca913a0` + `0edcbc5b6` (56: the diff-first owner fixes the patched pass; this
-  branch keeps the test).
+  a test), `5f48f8993` then `b92f04fa9` (49: the move in place off, then ON again by the coordinator's
+  decision, with the kept list dropped at a move and the test in two parts), `80ddea192` (A4's GPU guard
+  restated), `25347d2ca` + its revert `8eca913a0` + `0edcbc5b6` (56: the diff-first owner fixes the patched
+  pass; this branch keeps the test).
 - row 1 of the round, `621a98aaa` (A3-window-55): the eager hover binding, complete, with its tests and the
   restated guards (layout, dll, A4's GPU hover test). Switch `AZ_EAGER_STATE_COLORS=0`. No uncommitted state.
 
 **Rows left, in this order** (nothing of them is in code):
-1. **A3-window-49, the exact move** (with -57 = row A, -58 = row B, and the hit tester's part = the old row
-   2): the design is in block 49 (steps 1-5), the solver lines are read. Until it exists a label drag is a
-   pass per move (`AZ_MOVE_IN_PLACE=1` = the O(1) move that is an ulp off).
+1. **A3-window-49, the exact move** (status `open`; with -57 = row A, -58 = row B, and the hit tester's part
+   = the old row 2): the design is in block 49 (steps 1-5), the solver lines are read. NOT urgent: the move
+   in place is on (`AZ_MOVE_IN_PLACE=0` = a pass per move), its drift is at most 4 units in the last place
+   per move and ends at the first pass. What is worth building first of it, independent of exactness: the
+   hit tester following a move (step 5; today the shell rebuilds its index before the next query), row A
+   part (1) (the first move of a drag) and row B (the size clause).
 2. **A3-window-11, the selection drag highlight**: `patch_selection_runs`; the catch of round 5 holds (the
    block's caret lies in the content run: the splice must re-record `list.carets`).
 3. **A3-window-38**: `color` (`patch_paint_colors(.., PaintColorSlot::Text)` from the restyle's previous /
@@ -1757,8 +1765,17 @@ after a hover through the shell, or counts the rects / items of a node that has 
 - (round 6) Hover over labels or buttons it has not touched before (A3-window-55): the colour shows and goes as
   before; on the GPU path no list is sent for it. `AZ_EAGER_STATE_COLORS=0` is the binding before. A button
   whose hover FADES (the widgets' `animation: background`) fades as before and builds no list.
-- (round 6) Drag a label (A3-window-49): it follows the pointer by a pass of its document per move again
-  (the move in place is off: `AZ_MOVE_IN_PLACE=1` turns it on, an ulp off a layout).
+- (round 6) Drag a label (A3-window-49): it follows the pointer by the move in place (default), and after the
+  release it stays where it was dropped, also after any later change of the document (the first pass after a
+  drag solves the box and builds the list). `AZ_MOVE_IN_PLACE=0`: a pass per move, the same picture.
+
+## Switches of this area
+| variable | default | what it does | why the default |
+|---|---|---|---|
+| `AZ_NO_DL_PATCH=1` | unset: patches on | every restyle and write builds the DOM's list; no move in place | the patches are the fix of Z3 |
+| `AZ_DIFF_FIRST=0` | on | a rebuild that changed only texts takes the full path | gated to that case, falls back by itself |
+| `AZ_EAGER_STATE_COLORS=0` | on | a state colour is bound when a state first paints it (row 50), not at the build (row 55) | the first enter is a value; costs one item and key per state-coloured node |
+| `AZ_MOVE_IN_PLACE=0` | on | a write of `left` / `top` alone is a pass of its document, not a move where the box lies | the move is `old + delta`, up to 4 ulps per move off a layout's value, and that is accepted for a drag: bounded by the gesture; ended by the first pass (the move drops the box's `AbsPlacement` and the solver's kept list); every kept structure moved by the same delta; nothing carried to the next gesture. A run copied by a patched pass has none of that, which is why that one is exact |
 
 ## Questions for the coordinator
 - none open.
