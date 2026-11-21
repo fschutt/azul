@@ -4017,8 +4017,16 @@ impl Runner {
         // (shaping depends on font size and DPI, not on the viewport); DPI
         // changes never come through here (always a full regeneration).
         self.resize_pending = false;
-        if let Some(layout_result) = self.layout_window.layout_results.remove(&DomId::ROOT_ID) {
-            self.layout(layout_result.styled_dom, false);
+        // Only the styled DOM is kept: the rest of the old result (its `layout_tree`, the very
+        // `Arc` the solver's cache holds) goes before the pass. Held across it, the pass found the
+        // tree shared and copied it whole (`solver3::cache::unshare`) on every resize (A3-window-09).
+        let styled_dom = self
+            .layout_window
+            .layout_results
+            .remove(&DomId::ROOT_ID)
+            .map(|layout_result| layout_result.styled_dom);
+        if let Some(styled_dom) = styled_dom {
+            self.layout(styled_dom, false);
         }
         self.render_and_record();
     }
@@ -8151,3 +8159,53 @@ mod hover_text_cost_tests;
 #[cfg(test)]
 #[path = "frame_timings_tests.rs"]
 mod frame_timings_tests;
+
+// A11: a resize in the runner hands the layout tree over instead of copying it (A3-window's note on
+// `relayout_only`). Needs A3-window's `TREE_COPIES` (bdc770f51, `solver3::cache`) merged first.
+#[cfg(test)]
+mod audit_a11_tests {
+    use azul_core::dom::Dom;
+
+    use super::*;
+
+    /// Mutation: `relayout_only` keeping the whole old result alive across `self.layout(..)` (the
+    /// code before) -> each resize's pass finds the tree shared and copies it: the counter reads 3.
+    #[test]
+    fn a11_a_resize_in_the_runner_copies_no_layout_tree() {
+        let mut dom = Dom::create_body()
+            .with_child(Dom::create_div().with_child(Dom::create_div()))
+            .with_child(Dom::create_div());
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } div { width: 50%; height: 20px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let test: E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "a11_resize_copies_no_tree",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [ { "op": "wait_frame" } ]
+        }))
+        .expect("scenario json");
+        let (_result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+
+        crate::solver3::cache::TREE_COPIES.with(|copies| copies.set(0));
+        for width in [380.0_f32, 360.0, 420.0] {
+            let mut state = runner.window_state.clone();
+            state.size.dimensions = LogicalSize::new(width, 200.0);
+            let result = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+            runner.run_frame(result);
+        }
+        assert_eq!(
+            runner
+                .layout_window
+                .get_layout_result(&DomId::ROOT_ID)
+                .map(|lr| lr.viewport.size.width),
+            Some(420.0),
+            "the resizes were laid out"
+        );
+        assert_eq!(
+            crate::solver3::cache::TREE_COPIES.with(core::cell::Cell::get),
+            0,
+            "a resize copied the layout tree: something holds the old result across the pass"
+        );
+    }
+}
