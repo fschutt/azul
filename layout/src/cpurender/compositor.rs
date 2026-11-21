@@ -3297,7 +3297,24 @@ pub fn collect_scroll_shifts(
     if !scroll_offsets.iter().any(|(id, offset)| moved(id, offset).is_some()) {
         return out;
     }
-    let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
+    // The offsets this frame PAINTS at: a frame that shifts paints at its new offset, one
+    // whose delta is under half a device pixel keeps the offset it was last painted at
+    // (`render_frame`'s `next_scroll_baseline`, the same rule). The clip of a shifting frame
+    // inside such a frame is where THOSE offsets put it: placed with the real offsets it
+    // was up to half a device pixel off, and the pixel move took a row or column of the
+    // neighbour with it or left one of its own behind (A1-45).
+    let painted_at: ScrollOffsetMap = scroll_offsets
+        .iter()
+        .map(|(id, offset)| {
+            let at = if moved(id, offset).is_some() {
+                *offset
+            } else {
+                previous_scroll_offsets.get(id).copied().unwrap_or(*offset)
+            };
+            (*id, at)
+        })
+        .collect();
+    let mut stack = ScrollStack::with_transforms(&painted_at, transforms);
     for item in &display_list.items {
         if let DisplayListItem::PushScrollFrame {
             clip_bounds,
@@ -5443,7 +5460,14 @@ fn compute_display_list_damage_impl(
         match new_item {
             DisplayListItem::PushScrollFrame { scroll_id, .. } => {
                 let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
-                let o = old_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
+                // The OLD frame's own id for the old offsets: the pair is of one kind, not
+                // necessarily of one id (a frame rebuilt under another id kept the old one's
+                // place in the list).
+                let old_id = match old_item {
+                    DisplayListItem::PushScrollFrame { scroll_id: old_id, .. } => old_id,
+                    _ => scroll_id,
+                };
+                let o = old_offsets.get(old_id).copied().unwrap_or((0.0, 0.0));
                 let n = new_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
                 offset_stack.push((
                     (acc_old.0 + o.0, acc_old.1 + o.1),
@@ -12482,5 +12506,34 @@ mod audit_a1_tests {
         assert_eq!(once.over(&dl, &a), painted_over_mover(&dl, &a, &destinations));
         let nowhere = lr(500.0, 500.0, 10.0, 10.0);
         assert!(once.over(&dl, &nowhere).is_empty(), "no item of the list is inside it");
+    }
+
+    /// A1-45: the clip of a shifting scroll frame is where the frames around it PAINT. An
+    /// outer frame (id 1) whose offset went from 0 to 0.3 px - under half a device pixel, so
+    /// it is not shifted and stays painted at 0 - around an inner frame (id 2) with the clip
+    /// (10, 50) 100 x 40, scrolled from 0 to 12. The inner frame's pixels are at y = 50 on
+    /// screen (the outer one did not move), and that is the clip to move; with the real
+    /// offsets it came out at 49.7.
+    /// Mutation: the walk's stack on `scroll_offsets` gives 49.7.
+    #[test]
+    fn a_shifting_frames_clip_is_where_the_frames_around_it_paint() {
+        let frame = |id: LocalScrollId, clip: LogicalRect| DisplayListItem::PushScrollFrame {
+            clip_bounds: clip.into(),
+            content_size: LogicalSize { width: 200.0, height: 2000.0 },
+            scroll_id: id,
+        };
+        let host = listed(vec![
+            frame(1, lr(0.0, 0.0, 200.0, 200.0)),
+            frame(2, lr(10.0, 50.0, 100.0, 40.0)),
+            opaque(10.0, 50.0, 100.0, 500.0, [9, 9, 9]),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopScrollFrame,
+        ]);
+        let before: ScrollOffsetMap = [(1, (0.0, 0.0)), (2, (0.0, 0.0))].into_iter().collect();
+        let now: ScrollOffsetMap = [(1, (0.0, 0.3)), (2, (0.0, 12.0))].into_iter().collect();
+        let shifts = collect_scroll_shifts(&host, &now, &before, &HashMap::new(), 1.0);
+        assert_eq!(shifts.len(), 1, "the inner frame alone shifts: {shifts:?}");
+        assert_eq!((shifts[0].0, shifts[0].2), (2, (0.0, 12.0)));
+        assert_eq!((shifts[0].1.origin.x, shifts[0].1.origin.y), (10.0, 50.0), "where its pixels are");
     }
 }

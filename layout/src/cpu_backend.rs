@@ -1169,8 +1169,9 @@ impl CpuBackend {
                     *delta,
                     *offset,
                     dpi_factor,
-                    // The offsets and matrices the clip was projected with.
-                    &scroll_offsets,
+                    // The offsets and matrices the clip was projected with: the ones this
+                    // frame paints at (A1-45).
+                    &next_scroll_baseline,
                     &self.previous_gpu_values.transforms,
                 );
                 all_damage.extend(out.damage);
@@ -1186,7 +1187,9 @@ impl CpuBackend {
                     &vview_dls,
                     shift,
                     dpi_factor,
-                    &scroll_offsets,
+                    // The offsets the shift's clip was collected with and the frame paints
+                    // at (A1-45).
+                    &next_scroll_baseline,
                     // The matrices this frame paints with.
                     &self.previous_gpu_values.transforms,
                 );
