@@ -4016,27 +4016,45 @@ fn rect_covered_by(target: &LogicalRect, covers: &[LogicalRect]) -> bool {
     if covers.is_empty() {
         return false;
     }
+    // One fill over all of the target (a map's ground, a page's background): no sampling.
+    let (tx1, ty1) = (
+        target.origin.x + target.size.width,
+        target.origin.y + target.size.height,
+    );
+    if covers.iter().any(|r| {
+        r.origin.x <= target.origin.x
+            && r.origin.y <= target.origin.y
+            && r.origin.x + r.size.width >= tx1
+            && r.origin.y + r.size.height >= ty1
+    }) {
+        return true;
+    }
+    // Otherwise sampled, each row against the fills that cross it alone (every sample was
+    // tested against every fill: 220,000 samples of a 2510 x 1402 view times the fills).
     let step = 4.0_f32;
     let x0 = target.origin.x;
     let y0 = target.origin.y;
     let x1 = x0 + target.size.width;
     let y1 = y0 + target.size.height;
     let mut y = y0 + step * 0.5;
+    let mut on_row: Vec<(f32, f32)> = Vec::new();
     #[allow(clippy::while_float)]
     // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be
     // artificial
     while y < y1 {
+        on_row.clear();
+        on_row.extend(
+            covers
+                .iter()
+                .filter(|r| y >= r.origin.y && y < r.origin.y + r.size.height)
+                .map(|r| (r.origin.x, r.origin.x + r.size.width)),
+        );
         let mut x = x0 + step * 0.5;
         #[allow(clippy::while_float)]
         // intentional bounded float loop (angle-wrap / pixel-step); an integer counter would be
         // artificial
         while x < x1 {
-            let inside = covers.iter().any(|r| {
-                x >= r.origin.x
-                    && x < r.origin.x + r.size.width
-                    && y >= r.origin.y
-                    && y < r.origin.y + r.size.height
-            });
+            let inside = on_row.iter().any(|(left, right)| x >= *left && x < *right);
             if !inside {
                 return false;
             }
@@ -12034,5 +12052,22 @@ mod audit_a1_tests {
         let repainted = pan(&scaled);
         assert!(repainted.moves.is_empty(), "the ground is painted elsewhere: no move");
         assert_eq!(repainted.damage, vec![view], "the view is repainted");
+    }
+
+    /// A1-27: whether fills cover a rect is the answer the sampling gave, found with one test
+    /// per fill when one fill covers it and with a row's own fills otherwise: one ground over
+    /// the target; two halves that meet; two halves with a gap of 8 px (a sample falls in it);
+    /// a gap of 2 px between samples (not seen, as before); a strip missing at the bottom.
+    /// Mutation: the row's fills taken by x instead of by y calls the bottom strip covered.
+    #[test]
+    fn fills_cover_a_rect_as_the_samples_said() {
+        let target = lr(20.0, 10.0, 200.0, 100.0);
+        assert!(rect_covered_by(&target, &[lr(0.0, 0.0, 400.0, 300.0)]));
+        assert!(rect_covered_by(&target, &[lr(0.0, 0.0, 120.0, 300.0), lr(120.0, 0.0, 280.0, 300.0)]));
+        assert!(!rect_covered_by(&target, &[lr(0.0, 0.0, 120.0, 300.0), lr(128.0, 0.0, 280.0, 300.0)]));
+        // Samples are at x = 22, 26, ..: a gap of 123 .. 125 lies between 122 and 126.
+        assert!(rect_covered_by(&target, &[lr(0.0, 0.0, 123.0, 300.0), lr(125.0, 0.0, 280.0, 300.0)]));
+        assert!(!rect_covered_by(&target, &[lr(0.0, 0.0, 400.0, 90.0)]), "rows 90 .. 110 are bare");
+        assert!(!rect_covered_by(&target, &[]));
     }
 }
