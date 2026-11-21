@@ -165,13 +165,14 @@ pub struct GpuStateManager {
     /// a kept picture (its image key, rect and colour); a DOM without one is
     /// absent. Written by the host's scan only.
     pub text_halo_digests: BTreeMap<DomId, u64>,
-    /// The DOMs whose list the renderer holds translated against other halos
-    /// than the last scan found ([`Self::text_halo_digests`] changed since the
-    /// list was sent): owed to the renderer like a list that was built again.
-    /// A scan that only replaced pictures under the keys the lists name leaves
-    /// it empty. Set by the host's scan, cleared by the host for each DOM whose
-    /// list it sends.
-    pub text_halo_stale: alloc::collections::BTreeSet<DomId>,
+    /// The DOMs whose list the renderer holds translated against other
+    /// pictures than the host's last scan found - the halos of its shadows
+    /// ([`Self::text_halo_digests`] changed since the list was sent), a place
+    /// kept for a node's picture to come: owed to the renderer like a list
+    /// that was built again. A scan that only replaced pictures under the keys
+    /// the lists name leaves it empty. Set by the host's scan, cleared by the
+    /// host for each DOM whose list it sends.
+    pub stale_display_lists: alloc::collections::BTreeSet<DomId>,
     /// GPU events produced during layout (CSS transform / opacity synchronization,
     /// scrollbar transform / opacity updates) that have not yet been pushed to
     /// the renderer. Drained by the platform render path when a transaction is
@@ -351,7 +352,7 @@ impl GpuStateManager {
             submitted_display_lists: BTreeMap::new(),
             submitted_translation_env: 0,
             text_halo_digests: BTreeMap::new(),
-            text_halo_stale: alloc::collections::BTreeSet::new(),
+            stale_display_lists: alloc::collections::BTreeSet::new(),
             pending_changes: GpuEventChanges::empty(),
         }
     }
@@ -379,6 +380,31 @@ impl GpuStateManager {
     ) {
         self.submitted_display_lists
             .insert(dom, alloc::sync::Arc::downgrade(list));
+    }
+
+    /// The list of `dom` moved from the allocation `before` to `after` by a
+    /// patch that changes nothing of what the renderer's copy of it says: an
+    /// image the renderer shows through a key of the node's own was replaced
+    /// in place (`RendererResources::node_image_is_replaced_in_place`), so the
+    /// copy names the same key in the same rect, and the new pixels reach the
+    /// renderer as an update of the key. If the renderer held the list before
+    /// the patch it holds it after; a list it did not hold stays owed.
+    ///
+    /// `before`: the list's address taken before the patch
+    /// (`Arc::as_ptr`). Without this a tile that arrives in a map sent the
+    /// map's whole list again and had the scene built again - for new pixels
+    /// under a key the list already named (audit A4-09).
+    pub fn display_list_moved(
+        &mut self,
+        dom: DomId,
+        before: *const crate::solver3::display_list::DisplayList,
+        after: &alloc::sync::Arc<crate::solver3::display_list::DisplayList>,
+    ) {
+        if let Some(held) = self.submitted_display_lists.get_mut(&dom) {
+            if core::ptr::eq(held.as_ptr(), before) {
+                *held = alloc::sync::Arc::downgrade(after);
+            }
+        }
     }
 
     /// Does `WebRender` already hold exactly this list of `dom`, translated

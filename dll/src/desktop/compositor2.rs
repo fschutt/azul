@@ -1373,8 +1373,32 @@ pub fn translate_displaylist_to_wr(
                 // Get the ImageRefHash from the ImageRef
                 let image_ref_hash = image.get_hash();
 
-                if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
-                    let wr_image_key = translate_image_key(resolved_image.key);
+                // The picture's key and colour model - or, for a node that
+                // shows a null image, the key kept as the place of its picture
+                // to come (`wr_translate2::reserve_image_places`: one clear
+                // pixel until the picture arrives as an update of that key,
+                // with this list as it is).
+                let resolved = renderer_resources
+                    .get_image(&image_ref_hash)
+                    .map(|resolved| (resolved.key, resolved.descriptor.format))
+                    .or_else(|| {
+                        if !image.is_null_image() {
+                            return None;
+                        }
+                        let node = display_list.node_mapping.get(item_index).copied().flatten()?;
+                        let slot = azul_core::resources::ImageSlot::Node(
+                            DomId {
+                                inner: pipeline_id.0 as usize,
+                            },
+                            node,
+                        );
+                        let key = *renderer_resources.image_slots.get(&slot)?;
+                        (renderer_resources.image_key_map.get(&key)
+                            == Some(&azul_core::resources::ImageRefHash::PLACE))
+                        .then_some((key, azul_core::resources::RawImageFormat::RGBA8))
+                    });
+                if let Some((resolved_key, format)) = resolved {
+                    let wr_image_key = translate_image_key(resolved_key);
 
                     let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
@@ -1437,11 +1461,10 @@ pub fn translate_displaylist_to_wr(
                     // planes (R8 luma + RG8 chroma, see
                     // `wr_translate2::nv12_plane_descriptors`) are converted to
                     // RGB in the shader, in the frame's own matrix and range.
-                    let format = resolved_image.descriptor.format;
                     let chroma_key = if format.is_nv12() {
                         renderer_resources
                             .nv12_chroma_keys
-                            .get(&resolved_image.key)
+                            .get(&resolved_key)
                             .copied()
                     } else {
                         None

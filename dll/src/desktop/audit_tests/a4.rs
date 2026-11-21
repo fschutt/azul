@@ -2,18 +2,23 @@
 //!
 //! Counts, not times: what a transaction holds and what a translation emits.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{
     dom::{Dom, DomId, NodeId},
     geom::LogicalSize,
     gl::OptionGlContextPtr,
-    resources::{DpiScaleFactor, OpacityKey, RendererResources},
+    resources::{
+        DpiScaleFactor, ImageRef, OpacityKey, RawImage, RawImageData, RawImageFormat,
+        RendererResources,
+    },
     styled_dom::StyledDom,
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{text_halo_slots_in_this_thread, text_halos},
+    overlay::ContentChange,
+    solver3::display_list::DisplayListItem,
     window::LayoutWindow,
     window_state::FullWindowState,
 };
@@ -470,4 +475,160 @@ fn a4_without_slots_every_follow_up_after_a_settle_sends_the_list() {
     assert_eq!(seen.with_a_list, seen.follow_ups, "each follow-up drew pictures and sent the list");
     assert!(seen.items > 0);
     assert_eq!((seen.replaced, seen.added), (0, 8), "eight new images, none replaced");
+}
+
+// ==== A tile that arrives: the place kept for a node's picture (audit A4-09) ====
+
+/// A picture of `size` x `size` px, every byte `fill`.
+fn picture(size: usize, fill: u8) -> ImageRef {
+    ImageRef::new_rawimage(RawImage {
+        pixels: RawImageData::U8(vec![fill; size * size * 4].into()),
+        width: size,
+        height: size,
+        premultiplied_alpha: true,
+        data_format: RawImageFormat::RGBA8,
+        tag: Vec::new().into(),
+    })
+    .expect("a picture in memory")
+}
+
+/// The nodes the window's list paints an image for, with the image, in list
+/// order.
+fn image_nodes(view: &Recorder) -> Vec<(NodeId, ImageRef)> {
+    let list = &view.window.layout_results[&DomId::ROOT_ID].display_list;
+    list.items
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| match item {
+            DisplayListItem::Image { image, .. } => list
+                .node_mapping
+                .get(index)
+                .copied()
+                .flatten()
+                .map(|node| (node, image.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `image` becomes the picture of `node`, the way `CallbackInfo::change_node_image`
+/// applies it. Returns whether the renderer shows the node through a key of
+/// its own, so that its list need not go again.
+///
+/// The three lines around `apply_content_change` are what `apply_image_change`
+/// does itself once A3-window has them (`audit/A4.md`, For area A3-window);
+/// done twice they do nothing the second time (the list the renderer's record
+/// names is then the patched one already, and `before` is not it).
+fn arrives(view: &mut Recorder, node: NodeId, image: &ImageRef) -> bool {
+    let shown = image_nodes(view)
+        .into_iter()
+        .find(|(n, _)| *n == node)
+        .expect("the node paints an image")
+        .1;
+    let in_place = view.window.renderer_resources.node_image_is_replaced_in_place(
+        DomId::ROOT_ID,
+        node,
+        &shown,
+        image,
+    );
+    let before = Arc::as_ptr(&view.window.layout_results[&DomId::ROOT_ID].display_list);
+    let _ = view.window.apply_content_change(ContentChange::Image {
+        dom_id: DomId::ROOT_ID,
+        node_id: node,
+        image: image.clone(),
+        dirty_rect: None,
+    });
+    if in_place {
+        view.window.gpu_state_manager.display_list_moved(
+            DomId::ROOT_ID,
+            before,
+            &view.window.layout_results[&DomId::ROOT_ID].display_list,
+        );
+    }
+    in_place
+}
+
+/// A4-09. A map's tile that is being drawn is a node with a null image (a size,
+/// no pixels). The node is given the key of its slot at once, showing one clear
+/// pixel, and the list paints it from that key; the tile that arrives is new
+/// pixels under the key - `update_image` - and the list the renderer holds says
+/// the same as before: no item is translated, no scene built. Before, the
+/// arrival gave the slot its key, the list had to name it, and every list of
+/// the window was translated and sent again: per tile of a municipal map 17,495
+/// items and a scene build, up to 25 times a second while tiles came in.
+///
+/// A node that shows a picture of the DOM has no place: its first replacement
+/// sends the lists once (the slot's key is new), every later one is in place.
+///
+/// Mutation: `rr.image_key_map.insert(key, ImageRefHash::PLACE)` dropped from
+/// `reserve_image_places` (no place is kept) makes the arriving tile an added
+/// image and sends the list; `display_list_moved` not called (the lines of
+/// A3-window missing) translates the list for every arrival.
+#[test]
+fn a4_09_a_tile_that_arrives_is_new_pixels_under_the_key_its_place_has() {
+    let mut view = Recorder::new(1.0);
+    publish_gpu_frame(&view.window, 0, 0, 0);
+    let at = |x: usize| {
+        format!("position: absolute; left: {}px; top: 0px; width: 64px; height: 64px;", 64 * x)
+    };
+    let being_drawn = || ImageRef::null_image(64, 64, RawImageFormat::RGBA8, Vec::new());
+    view.lay_out(
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div()
+                .with_css("position: relative; width: 192px; height: 64px;")
+                .with_child(Dom::create_image(being_drawn()).with_css(at(0).as_str()))
+                .with_child(Dom::create_image(being_drawn()).with_css(at(1).as_str()))
+                .with_child(Dom::create_image(picture(64, 40)).with_css(at(2).as_str())),
+        ),
+    );
+    let first = full(&mut view);
+    assert_eq!(first.lists, 1);
+    assert_eq!(first.added.len(), 3, "the DOM's picture, and a place for each tile being drawn");
+    let nodes = image_nodes(&view);
+    assert_eq!(nodes.len(), 3);
+    let held = painted(&view);
+    assert_eq!(held.len(), 3, "a node that shows a null image is painted from its place");
+    for (key, _) in &held {
+        assert!(view.live.contains(key));
+    }
+    let (tile, _, plain) = (nodes[0].0, nodes[1].0, nodes[2].0);
+
+    // The first tile arrives.
+    assert!(arrives(&mut view, tile, &picture(64, 200)), "the node has its place");
+    let arrival = follow_up(&mut view);
+    assert!(arrival.frame, "new pixels are a frame");
+    assert_eq!(
+        (arrival.lists, arrival.items),
+        (0, 0),
+        "a tile that arrives in place translates no item"
+    );
+    assert_eq!(arrival.updated, vec![held[0].0], "its pixels go under the key the list names");
+    assert!(arrival.added.is_empty() && arrival.deleted.is_empty());
+    assert_eq!(painted(&view), held, "the list the renderer holds paints the tile");
+
+    // The tile is drawn again (its style changed): in place like any later frame.
+    assert!(arrives(&mut view, tile, &picture(64, 90)));
+    let again = follow_up(&mut view);
+    assert_eq!((again.lists, again.updated.len(), again.added.len()), (0, 1, 0));
+    assert_eq!(painted(&view), held);
+
+    // The DOM's own picture is replaced: no place was kept for it, so its slot
+    // gets its key now and the list goes once ...
+    assert!(!arrives(&mut view, plain, &picture(64, 7)), "no key of its own yet");
+    let keyed = follow_up(&mut view);
+    assert_eq!((keyed.lists, keyed.added.len()), (1, 1));
+    let held = painted(&view);
+    assert_eq!(held.len(), 3);
+    for (key, _) in &held {
+        assert!(view.live.contains(key));
+    }
+    // ... and never again.
+    assert!(arrives(&mut view, plain, &picture(64, 8)));
+    let later = follow_up(&mut view);
+    assert_eq!((later.lists, later.updated.len(), later.added.len()), (0, 1, 0));
+    assert_eq!(painted(&view), held);
+
+    // The second tile is still being drawn: its place is kept.
+    let idle = follow_up(&mut view);
+    assert!(!idle.frame && idle.deleted.is_empty());
 }

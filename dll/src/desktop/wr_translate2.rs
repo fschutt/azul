@@ -1595,6 +1595,9 @@ fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransa
     // for a picture the key no longer shows.
     register_text_halos(layout_window, txn, &halos);
 
+    // --- The places of pictures to come (nodes that show a null image) ---
+    reserve_image_places(layout_window, txn);
+
     // Update currently_registered_images + the reverse image_key_map lookup so
     // the display-list builder can resolve an ImageRefHash to its ImageKey.
     for (image_ref_hash, add_image_msg) in &image_updates {
@@ -1666,7 +1669,7 @@ fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransa
 /// Then what each DOM's list paints of halos - per shadow the key, the rect,
 /// the colour - is compared, as a digest, with what the scan before found
 /// (`GpuStateManager::text_halo_digests`), and a DOM for which it differs is
-/// marked: its list goes again (`text_halo_stale`, [`submit_display_lists`]).
+/// marked: its list goes again (`stale_display_lists`, [`submit_display_lists`]).
 /// So a list is sent again exactly when the translation of its halos would
 /// come out different. A scan that only replaced pictures under their keys
 /// marks nothing, every list stays where it is, and its transaction carries
@@ -1740,14 +1743,115 @@ fn register_text_halos(layout_window: &mut LayoutWindow, txn: &mut WrTransaction
     } = *layout_window;
     // (A DOM that is gone has no list to send.)
     state
-        .text_halo_stale
+        .stale_display_lists
         .retain(|dom_id| layout_results.contains_key(dom_id));
     for dom_id in layout_results.keys() {
         if state.text_halo_digests.get(dom_id) != found.get(dom_id) {
-            state.text_halo_stale.insert(*dom_id);
+            state.stale_display_lists.insert(*dom_id);
         }
     }
     state.text_halo_digests = found;
+}
+
+/// A node that shows a null image (`ImageRef::null_image`: a size and no
+/// pixels - the place of a picture to come, a map tile that is being drawn) is
+/// given the key of its slot NOW, showing one clear pixel
+/// (`ImageRefHash::PLACE`), and the translation paints the node from that key
+/// (`compositor2`, `Image`). The node's first picture (`change_node_image`) is
+/// then what every later one already was: `update_image` under the key the
+/// display list names (`plan_overlay_image_uploads` finds the slot keyed), with
+/// no list sent and no scene built. Before, the first picture gave the slot
+/// its key (`new_slot`), and every display list of the window was translated
+/// and sent again for it: per arriving tile of a map, its 17,495 items and a
+/// scene build (audit A4-09).
+///
+/// A place whose node shows no null image any more is deleted - unless the
+/// node's first picture took it, which makes it the node's slot like any
+/// other. A DOM in which a place is new is marked: its list is translated
+/// with the place from now on (`stale_display_lists`).
+fn reserve_image_places(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+    use azul_core::resources::{
+        DecodedImage, ImageRefHash, ImageSlot, RawImage, RawImageData, RawImageFormat,
+    };
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    // The nodes that show a null image now.
+    let mut shown: std::collections::BTreeSet<(DomId, NodeId)> = std::collections::BTreeSet::new();
+    for (dom_id, layout_result) in &layout_window.layout_results {
+        let list = &layout_result.display_list;
+        for (index, item) in list.items.iter().enumerate() {
+            let DisplayListItem::Image { image, .. } = item else {
+                continue;
+            };
+            if !image.is_null_image() {
+                continue;
+            }
+            if let Some(node) = list.node_mapping.get(index).copied().flatten() {
+                shown.insert((*dom_id, node));
+            }
+        }
+    }
+
+    let namespace = layout_window.id_namespace;
+    let LayoutWindow {
+        renderer_resources: ref mut rr,
+        gpu_state_manager: ref mut state,
+        ..
+    } = *layout_window;
+
+    let gone: Vec<(ImageSlot, ImageKey)> = rr
+        .image_slots
+        .iter()
+        .filter(|(slot, key)| {
+            rr.image_key_map.get(*key) == Some(&ImageRefHash::PLACE)
+                && !matches!(slot, ImageSlot::Node(dom, node) if shown.contains(&(*dom, *node)))
+        })
+        .map(|(slot, key)| (*slot, *key))
+        .collect();
+    for (slot, key) in gone {
+        rr.image_slots.remove(&slot);
+        rr.image_key_map.remove(&key);
+        txn.delete_image(translate_image_key(key));
+    }
+
+    // One clear pixel, made when the first place needs it.
+    let mut pixel: Option<ImageRef> = None;
+    for (dom_id, node) in shown {
+        let slot = ImageSlot::Node(dom_id, node);
+        let has_its_place = rr
+            .image_slots
+            .get(&slot)
+            .is_some_and(|key| rr.image_key_map.get(key) == Some(&ImageRefHash::PLACE));
+        if has_its_place {
+            continue;
+        }
+        if pixel.is_none() {
+            pixel = ImageRef::new_rawimage(RawImage {
+                pixels: RawImageData::U8(vec![0u8; 4].into()),
+                width: 1,
+                height: 1,
+                premultiplied_alpha: true,
+                data_format: RawImageFormat::RGBA8,
+                tag: Vec::new().into(),
+            });
+        }
+        let Some(DecodedImage::Raw((descriptor, data))) = pixel.as_ref().map(ImageRef::get_data)
+        else {
+            return;
+        };
+        // A slot the node had before (the picture of an earlier view, which
+        // the image GC lets go by its own clock) is not the place: a new key.
+        let key = ImageKey::unique_image_slot(namespace);
+        rr.image_slots.insert(slot, key);
+        rr.image_key_map.insert(key, ImageRefHash::PLACE);
+        txn.add_image(
+            translate_image_key(key),
+            wr_translate_image_descriptor(descriptor),
+            translate_image_data(data.clone()),
+            None,
+        );
+        state.stale_display_lists.insert(dom_id);
+    }
 }
 
 /// The image GC deleted these keys: a text halo's slot whose key went is
@@ -1807,6 +1911,10 @@ pub struct OverlayImageUpload {
     /// another pixel shape, else the region the app said it repainted
     /// (`CallbackInfo::change_node_image_rect`), clipped to the frame.
     pub dirty: ImageDirtyRect,
+    /// The key holds a frame of another colour model than this one (an NV12
+    /// frame of another matrix or range): the display list says how a YUV
+    /// image is converted, so the lists that name the key go again.
+    pub relist: bool,
 }
 
 /// Plan the uploads of this frame's in-place-replaced images.
@@ -1897,6 +2005,16 @@ where
         } else {
             ImageDirtyRect::All
         };
+        let relist = update
+            && descriptor.format.is_nv12()
+            && rr
+                .image_key_map
+                .get(&key)
+                .and_then(|previous| rr.currently_registered_images.get(previous))
+                .is_some_and(|previous| {
+                    previous.descriptor.format.is_nv12()
+                        && previous.descriptor.format != descriptor.format
+                });
         if let Some(old) = rr.image_key_map.get(&key).copied() {
             if old != hash {
                 rr.release_frame(key, old);
@@ -1918,6 +2036,7 @@ where
             chroma,
             drop_chroma,
             dirty,
+            relist,
         });
     }
     uploads
@@ -2058,7 +2177,7 @@ fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransacti
     let mut result = OverlayUploads::default();
     for upload in uploads {
         result.changed = true;
-        result.new_slot |= !upload.update;
+        result.new_slot |= !upload.update || upload.relist;
         let key = translate_image_key(upload.key);
         let data = translate_image_data(upload.data);
         match (upload.chroma, nv12_plane_descriptors(&upload.descriptor)) {
@@ -3228,7 +3347,7 @@ pub(crate) struct DisplayListSubmission {
 /// The text halos were part of it, as the NUMBER of halos drawn so far (a
 /// shadow is translated to its picture once it has one): every halo a frame
 /// drew sent every list of the window again. What a list paints of halos is
-/// now followed per DOM ([`register_text_halos`], `text_halo_stale`): a picture
+/// now followed per DOM ([`register_text_halos`], `stale_display_lists`): a picture
 /// that takes the place of its stand-in - the same key, the same rect - sends
 /// no list, and one that does not sends the list of its DOM.
 pub(crate) fn translation_env(layout_window: &LayoutWindow) -> u64 {
@@ -3256,7 +3375,7 @@ fn note_display_lists_submitted(layout_window: &mut LayoutWindow) {
     gpu_state_manager.note_display_lists_submitted(layout_results, env);
     // Every list the renderer holds is translated against the halos of the
     // last scan now.
-    gpu_state_manager.text_halo_stale.clear();
+    gpu_state_manager.stale_display_lists.clear();
 }
 
 /// Translate the DOMs' display lists and put them into `txn` at the current
@@ -3299,7 +3418,7 @@ fn submit_display_lists(
         if !force_all
             && !layout_window
                 .gpu_state_manager
-                .text_halo_stale
+                .stale_display_lists
                 .contains(dom_id)
             && layout_window.gpu_state_manager.display_list_is_held(
                 *dom_id,
@@ -3530,7 +3649,7 @@ pub(crate) fn build_lightweight_transaction(
     let env_changed = layout_window.gpu_state_manager.submitted_translation_env
         != translation_env(layout_window);
     let lists_unsubmitted = env_changed
-        || !layout_window.gpu_state_manager.text_halo_stale.is_empty()
+        || !layout_window.gpu_state_manager.stale_display_lists.is_empty()
         || layout_window
             .gpu_state_manager
             .display_lists_unsubmitted(&layout_window.layout_results);
@@ -3973,7 +4092,7 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
         layout_window
             .gpu_state_manager
             .note_one_display_list_submitted(dom_id, &list);
-        layout_window.gpu_state_manager.text_halo_stale.remove(&dom_id);
+        layout_window.gpu_state_manager.stale_display_lists.remove(&dom_id);
     }
 }
 
