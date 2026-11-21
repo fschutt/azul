@@ -769,15 +769,15 @@ n7 p1 d7 Inline @8,8 -x- ic=0/0
   dl8 PopStackingContext
 === wpt/normalized/css/CSS2/linebox/vertical-align-sub-001-ref.xht
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x136 ov=800x136 bl=124.796875 ic=64/225.60938
-n1 p0 d1 Block { establishes_new_context: false } @8,16 784x128 ov=784x128 mt=16 mb=8 bl=108.796875 ic=48/209.60938 rel=8,16
+n0 root d0 Block { establishes_new_context: true } @0,0 800x136 ov=800x136 bl=125 ic=217.60938/433.60938
+n1 p0 d1 Block { establishes_new_context: false } @8,16 784x128 ov=784x128 mt=16 mb=8 bl=109 ic=201.60938/417.60938 rel=8,16
 n2 p1 d3 Inline @8,16 784x16 ov=209.59375x16 bl=13 ic=48/209.60938 rel=0,0
 n3 p2 d4 Inline @8,16 -x- ic=48/158.40625
 n4 p2 d5 Inline @8,16 -x- ic=24/44
 n5 p4 d6 Inline @8,16 -x- ic=24/44
 n6 p2 d7 Inline @8,16 -x- ic=3.203125/3.203125
-n7 p1 d9 Inline @8,48 784x96 ov=4.34375x96 bl=76.796875 ic=2.109375/4.359375 rel=0,32
-n8 p7 d10 Inline @8,48 -x- ic=2.109375/4.359375
+n7 p1 d9 Inline @8,48 784x96 ov=417.59375x96 bl=77 ic=201.60938/417.60938 rel=0,32
+n8 p7 d10 Inline @8,48 -x- ic=201.60938/417.60938
   dl0 PushStackingContext 0,0 800x136
   dl1 HitTestArea 8,16 784x128
   dl2 HitTestArea 8,16 784x16
@@ -789,8 +789,8 @@ n8 p7 d10 Inline @8,48 -x- ic=2.109375/4.359375
   dl8 HitTestArea 214.40625,16.203125 3.203125x16
   dl9 HitTestArea 8,16 0x0
   dl10 HitTestArea 8,48 784x96
-  dl11 Text 7,48 786x96 glyphs=11 fs=1
-  dl12 HitTestArea 8,124 4.34375x1
+  dl11 Text -88,48 976x96 glyphs=11 fs=96
+  dl12 HitTestArea 8,48.203125 417.59375x96
   dl13 PopStackingContext
 === wpt/normalized/css/CSS2/linebox/vertical-align-sub-001.xht
 dom DomId { inner: 0 }
@@ -803,11 +803,11 @@ n5 p4 d6 Inline @8,16 -x- ic=24/44
 n6 p2 d7 Inline @8,16 -x- ic=3.203125/3.203125
 n7 p1 d9 Inline @8,48 784x0 ov=0x0 ic=0/0 rel=0,32
 n8 p7 d10 Inline @8,48 -x- ic=0/0
-n9 p7 d11 Inline @8,48 4.359375x96 ov=4.34375x96 bl=76.796875 ic=2.109375/4.359375
-n10 p9 d12 Inline @8,48 -x- ic=2.109375/4.359375
+n9 p7 d11 Inline @8,48 417.60938x96 ov=417.59375x96 bl=77 ic=201.60938/417.60938
+n10 p9 d12 Inline @8,48 -x- ic=201.60938/417.60938
 n11 p7 d13 Inline @8,48 -x- ic=0/0
-n12 p7 d14 Inline @8,48 4.359375x96 ov=4.34375x96 bl=76.796875 ic=2.109375/4.359375
-n13 p12 d15 Inline @8,48 -x- ic=2.109375/4.359375
+n12 p7 d14 Inline @8,48 417.60938x96 ov=417.59375x96 bl=77 ic=201.60938/417.60938
+n13 p12 d15 Inline @8,48 -x- ic=201.60938/417.60938
 n14 p7 d16 Inline @8,48 -x- ic=0/0
   dl0 PushStackingContext 0,0 800x40
   dl1 HitTestArea 8,16 784x32
@@ -820,12 +820,12 @@ n14 p7 d16 Inline @8,48 -x- ic=0/0
   dl8 HitTestArea 214.40625,16.203125 3.203125x16
   dl9 HitTestArea 8,16 0x0
   dl10 HitTestArea 8,48 0x0
-  dl11 HitTestArea 8,48 4.359375x96
-  dl12 Text 7,48 6.359375x96 glyphs=11 fs=1
-  dl13 HitTestArea 8,124 4.34375x1
-  dl14 HitTestArea 8,48 4.359375x96
-  dl15 Text 7,48 6.359375x96 glyphs=11 fs=1
-  dl16 HitTestArea 8,124 4.34375x1
+  dl11 HitTestArea 8,48 417.60938x96
+  dl12 Text -88,48 609.6094x96 glyphs=11 fs=96
+  dl13 HitTestArea 8,48.203125 417.59375x96
+  dl14 HitTestArea 8,48 417.60938x96
+  dl15 Text -88,48 609.6094x96 glyphs=11 fs=96
+  dl16 HitTestArea 8,48.203125 417.59375x96
   dl17 PopStackingContext
 === wpt/normalized/css/CSS2/linebox/vertical-align-super-001.xht
 dom DomId { inner: 0 }
@@ -838,11 +838,11 @@ n5 p4 d6 Inline @8,16 -x- ic=24/44
 n6 p2 d7 Inline @8,16 -x- ic=3.203125/3.203125
 n7 p1 d9 Inline @8,48 784x0 ov=0x0 ic=0/0 rel=0,32
 n8 p7 d10 Inline @8,48 -x- ic=0/0
-n9 p7 d11 Inline @8,48 4.359375x96 ov=4.34375x96 bl=76.796875 ic=2.109375/4.359375
-n10 p9 d12 Inline @8,48 -x- ic=2.109375/4.359375
+n9 p7 d11 Inline @8,48 417.60938x96 ov=417.59375x96 bl=77 ic=201.60938/417.60938
+n10 p9 d12 Inline @8,48 -x- ic=201.60938/417.60938
 n11 p7 d13 Inline @8,48 -x- ic=0/0
-n12 p7 d14 Inline @8,48 4.359375x96 ov=4.34375x96 bl=76.796875 ic=2.109375/4.359375
-n13 p12 d15 Inline @8,48 -x- ic=2.109375/4.359375
+n12 p7 d14 Inline @8,48 417.60938x96 ov=417.59375x96 bl=77 ic=201.60938/417.60938
+n13 p12 d15 Inline @8,48 -x- ic=201.60938/417.60938
 n14 p7 d16 Inline @8,48 -x- ic=0/0
   dl0 PushStackingContext 0,0 800x40
   dl1 HitTestArea 8,16 784x32
@@ -855,12 +855,12 @@ n14 p7 d16 Inline @8,48 -x- ic=0/0
   dl8 HitTestArea 214.40625,16.203125 3.203125x16
   dl9 HitTestArea 8,16 0x0
   dl10 HitTestArea 8,48 0x0
-  dl11 HitTestArea 8,48 4.359375x96
-  dl12 Text 7,48 6.359375x96 glyphs=11 fs=1
-  dl13 HitTestArea 8,124 4.34375x1
-  dl14 HitTestArea 8,48 4.359375x96
-  dl15 Text 7,48 6.359375x96 glyphs=11 fs=1
-  dl16 HitTestArea 8,124 4.34375x1
+  dl11 HitTestArea 8,48 417.60938x96
+  dl12 Text -88,48 609.6094x96 glyphs=11 fs=96
+  dl13 HitTestArea 8,48.203125 417.59375x96
+  dl14 HitTestArea 8,48 417.60938x96
+  dl15 Text -88,48 609.6094x96 glyphs=11 fs=96
+  dl16 HitTestArea 8,48.203125 417.59375x96
   dl17 PopStackingContext
 === wpt/normalized/css/CSS2/linebox/vertical-align-top-bottom-padding-ref.html
 dom DomId { inner: 0 }
