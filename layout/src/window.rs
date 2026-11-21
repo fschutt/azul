@@ -20775,6 +20775,22 @@ impl LayoutWindow {
         // this rect straight to the platform IME, which places the candidate
         // window in screen coordinates — without this the popup appears at the
         // top-left of the window instead of under the caret.
+        //
+        // Through the frames the dom's view is painted in, not by adding the
+        // dom's origin: a host that scales or turns the view (a view in a
+        // zoomed panel) scales and turns the rect about the view's place too
+        // (`headless::nested_dom_rect_to_window`, audit A6-07).
+        let in_window = crate::headless::nested_dom_rect_to_window(
+            &self.layout_results,
+            block.dom(),
+            on_screen,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        );
+        if in_window.is_some() {
+            return in_window;
+        }
+        // The window's own dom, or a corner that is not drawn: the offset.
         let host_offset = self.window_space_offset_of_dom(block.dom());
         Some(LogicalRect::new(
             LogicalPosition::new(

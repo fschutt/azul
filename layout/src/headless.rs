@@ -1595,6 +1595,66 @@ pub fn nested_dom_window_origin(
     chain_to_screen(&p.chain, p.rect.origin, &live).map(plane_point)
 }
 
+/// `rect`, in `dom_id`'s own 0-relative painted space (what
+/// [`node_rect_to_screen`] / [`content_rect_to_screen`] answer for a node of
+/// a nested dom), where the WINDOW shows it: through the frames the dom's
+/// `VirtualView` is painted in - the bounds of its four corners.
+///
+/// [`nested_dom_window_origin`] plus the rect is the same while those frames
+/// only move the view; a host that scales or turns it (a view in a zoomed
+/// panel) scales and turns the rect about the view's place, which a sum
+/// leaves out: a caret 400 px into a view under `scale(2)` was reported 400
+/// px from the view's corner where it is drawn 800 px from it.
+/// `None` for the window's own dom, a dom no host mounts, or a corner that
+/// is not drawn.
+#[must_use]
+pub fn nested_dom_rect_to_window(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    dom_id: DomId,
+    rect: LogicalRect,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> Option<LogicalRect> {
+    let placements = resolve_virtual_view_placements(layout_results);
+    let p = placements.get(&dom_id)?;
+    let live = LiveValues {
+        scroll: resolve_scroll,
+        transform: resolve_transform,
+        view_shift: &no_view_shift,
+    };
+    let placed = LogicalRect::new(
+        LogicalPosition::new(rect.origin.x + p.rect.origin.x, rect.origin.y + p.rect.origin.y),
+        rect.size,
+    );
+    chain_rect_to_screen(&p.chain, placed, &live)
+}
+
+/// The inverse of [`nested_dom_rect_to_window`] for a point: the window
+/// point `point` in `dom_id`'s own 0-relative painted space. `None` for the
+/// window's own dom, a dom no host mounts, or where nothing of the dom is
+/// drawn at the point (a host frame that cannot be inverted).
+#[must_use]
+pub fn window_point_to_nested_dom(
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    dom_id: DomId,
+    point: LogicalPosition,
+    resolve_scroll: &dyn Fn(DomId, NodeId) -> Option<LogicalPosition>,
+    resolve_transform: &dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+) -> Option<LogicalPosition> {
+    let placements = resolve_virtual_view_placements(layout_results);
+    let p = placements.get(&dom_id)?;
+    let live = LiveValues {
+        scroll: resolve_scroll,
+        transform: resolve_transform,
+        view_shift: &no_view_shift,
+    };
+    let (x, y) = chain_to_local(&p.chain, point, &live)?;
+    Some(plane_point((
+        x - f64::from(p.rect.origin.x),
+        y - f64::from(p.rect.origin.y),
+    )))
+}
+
 /// One viewport a nested dom shows through ([`nested_dom_viewports`]): an
 /// enclosing `VirtualView`'s box with its frames at rest, the host SCROLL
 /// frames that move it (kept symbolic, for live offsets), and the forward
@@ -5949,6 +6009,67 @@ mod audit_a6_tests {
         assert!(
             (links[1] as f32) < 6.0 * links[0] as f32,
             "4 n labels, under 6 times the links: {links:?}"
+        );
+    }
+
+    // A6-07: a rect of a nested dom, in the window.
+
+    /// A view box at (100, 50) inside a host box (node 1, at (20, 10)) that is
+    /// scaled by 2 about its corner; no content offset. The child's rect
+    /// (400, 30) 10 x 16 (a caret) sits at host point (500, 80), which the
+    /// frame paints at (20, 10) + 2 x (480, 70) = (980, 150), 20 x 32. The sum
+    /// "origin of the dom + rect" answers (180 + 400, 90 + 30) = (580, 120)
+    /// 10 x 16. And back: the window point (980, 150) is the child's (400, 30).
+    /// Mutation: the rect added to the mapped origin instead of mapped
+    /// (`nested_dom_window_origin` + rect) answers (580, 120) and fails.
+    #[test]
+    fn a_rect_of_a_nested_dom_is_scaled_with_the_view_it_is_shown_in() {
+        let mut results = BTreeMap::new();
+        results.insert(
+            dom(0),
+            layout(
+                styled(1),
+                vec![hot(0, (2000.0, 1000.0), None), hot(1, (1500.0, 800.0), Some(0))],
+                vec![p(0.0, 0.0), p(20.0, 10.0)],
+                vec![
+                    DisplayListItem::PushReferenceFrame {
+                        transform_key: TransformKey::unique(),
+                        initial_transform: scaled(2.0, 0.0, 0.0),
+                        bounds: WindowLogicalRect::new(p(20.0, 10.0), LogicalSize::new(1500.0, 800.0)),
+                    },
+                    view(1, r(100.0, 50.0, 900.0, 600.0), p(0.0, 0.0)),
+                    DisplayListItem::PopReferenceFrame,
+                ],
+            ),
+        );
+        results.insert(
+            dom(1),
+            layout(
+                styled(0),
+                vec![hot(0, (900.0, 600.0), None)],
+                vec![p(0.0, 0.0)],
+                Vec::new(),
+            ),
+        );
+        // The frame's item has no node mapping in this list, so the
+        // placement names node 0 as its owner: the matrix is filed there.
+        let mut gpu = GpuStateManager::default();
+        set_frame(&mut gpu, dom(0), 0, scaled(2.0, 0.0, 0.0));
+        let tf = |d: DomId, n: NodeId| gpu.painted_transform_of(d, n);
+
+        let origin = nested_dom_window_origin(&results, dom(1), &|_, _| None, &tf).expect("placed");
+        assert_eq!(origin, p(180.0, 90.0), "(20, 10) + 2 x (80, 40)");
+        let caret = r(400.0, 30.0, 10.0, 16.0);
+        let shown = nested_dom_rect_to_window(&results, dom(1), caret, &|_, _| None, &tf)
+            .expect("drawn");
+        assert_eq!(shown, r(980.0, 150.0, 20.0, 32.0));
+        let back = window_point_to_nested_dom(&results, dom(1), p(980.0, 150.0), &|_, _| None, &tf)
+            .expect("invertible");
+        assert_eq!(back, p(400.0, 30.0));
+        // The window's own dom is in the window already.
+        assert_eq!(
+            nested_dom_rect_to_window(&results, dom(0), caret, &|_, _| None, &tf),
+            None
         );
     }
 
