@@ -135,11 +135,13 @@ pub fn invoke_on_frame(
 /// `CallbackInfo::get_node_id_by_marker`. One fresh string per `dom()` build,
 /// so two widgets of the same type can never collide - the old lookup
 /// (`get_node_id_of_root_dataset`) matched by dataset TYPE and did.
+///
+/// The string comes from [`crate::uuid::Uuid::short`], the mint for marker
+/// strings, so the widgets that build a DOM without seeing each other keep no
+/// counter of their own.
 #[must_use]
 pub fn next_capture_marker(kind: &str) -> AzString {
-    use core::sync::atomic::AtomicU64;
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    format!("azul-{}-{:x}", kind, NEXT.fetch_add(1, Ordering::Relaxed)).into()
+    format!("azul-{}-{}", kind, crate::uuid::Uuid::short().as_str()).into()
 }
 
 /// Present `frame` for a video-ish widget.

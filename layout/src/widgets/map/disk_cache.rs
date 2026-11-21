@@ -25,10 +25,7 @@ use std::{
     collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Mutex,
-    },
+    sync::{Arc, Mutex},
     time::SystemTime,
 };
 
@@ -79,20 +76,42 @@ impl CachedTile {
     }
 }
 
-/// The tile folder of one map (cheap: a path and a cap; every worker opens
-/// its own).
+/// The bytes every tile folder in use holds, as booked by the stores that
+/// share this ledger: read from the disk once per folder, then kept up to
+/// date, so a store does not walk the folder. A map owns one and hands it to
+/// every worker that opens its folder ([`TileDiskCache::open`]), so the
+/// workers book into the same count.
+#[derive(Debug, Default)]
+pub struct FolderUsage {
+    books: Mutex<BTreeMap<PathBuf, u64>>,
+}
+
+/// Two ledgers are equal when they are the same ledger.
+impl PartialEq for FolderUsage {
+    fn eq(&self, other: &Self) -> bool {
+        core::ptr::eq(self, other)
+    }
+}
+
+impl Eq for FolderUsage {}
+
+/// The tile folder of one map (cheap: a path, a cap and the map's ledger;
+/// every worker opens its own).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TileDiskCache {
     dir: PathBuf,
     max_bytes: u64,
+    usage: Arc<FolderUsage>,
 }
 
 impl TileDiskCache {
-    /// The folder at `dir`, held under `max_bytes` (0: the default cap).
+    /// The folder at `dir`, held under `max_bytes` (0: the default cap),
+    /// booking what its stores write into `usage` (the ledger of the map that
+    /// owns the folder: every worker of that map passes the same one).
     /// `None` for an empty `dir`: the map keeps its tiles in memory only. The
     /// folder is created when the first tile is stored.
     #[must_use]
-    pub fn open(dir: &str, max_bytes: u64) -> Option<Self> {
+    pub fn open(dir: &str, max_bytes: u64, usage: &Arc<FolderUsage>) -> Option<Self> {
         if dir.trim().is_empty() {
             return None;
         }
@@ -103,6 +122,7 @@ impl TileDiskCache {
             } else {
                 max_bytes
             },
+            usage: Arc::clone(usage),
         })
     }
 
@@ -188,7 +208,7 @@ impl TileDiskCache {
     /// Books a file's change from `before` to `after` bytes, and evicts the
     /// least recently used tiles once the folder is over its cap.
     fn account(&self, before: u64, after: u64) {
-        let Ok(mut usage) = USAGE.lock() else {
+        let Ok(mut usage) = self.usage.books.lock() else {
             return;
         };
         let used = if let Some(used) = usage.get_mut(&self.dir) {
@@ -207,11 +227,6 @@ impl TileDiskCache {
         }
     }
 }
-
-/// The bytes every tile folder in use holds, as booked by its stores: read
-/// from the disk once per folder, then kept up to date, so a store does not
-/// walk the folder.
-static USAGE: Mutex<BTreeMap<PathBuf, u64>> = Mutex::new(BTreeMap::new());
 
 /// What a response's `headers` (any case, repeated ones combined) allow, at
 /// `now` (seconds since 1970). See the module intro for the rules.
@@ -381,14 +396,15 @@ fn split_file(data: &[u8]) -> Option<(FileHeader, &[u8])> {
 /// Writes `data` to `path` through a temporary file and a rename, so another
 /// worker never reads half a tile, and records the use at `used`.
 fn write_atomically(path: &Path, data: &[u8], used: SystemTime) -> std::io::Result<()> {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    // A name no other write of this process uses (workers of every map write
+    // here at once): the process's mint for unique strings.
     let tmp = path.with_extension(format!(
         "tmp-{}-{}",
         std::process::id(),
-        NEXT.fetch_add(1, Ordering::Relaxed)
+        crate::uuid::Uuid::short().as_str()
     ));
     fs::write(&tmp, data)?;
     touch(&tmp, used);

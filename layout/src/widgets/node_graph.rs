@@ -1290,11 +1290,10 @@ impl NodeGraph {
 /// Process-unique prefix for one `NodeGraph::dom()` render's marker strings.
 /// The prefix (and every marker derived from it) is rebuilt together with the
 /// dataset that stores it on each `layout()` pass, so lookups made through
-/// the live dataset always match the live DOM.
+/// the live dataset always match the live DOM. Minted by
+/// [`crate::uuid::Uuid::short`], the process's mint for marker strings.
 fn next_marker_prefix() -> AzString {
-    use core::sync::atomic::{AtomicU64, Ordering};
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    format!("azul-nodegraph-{:x}", NEXT.fetch_add(1, Ordering::Relaxed)).into()
+    format!("azul-nodegraph-{}", crate::uuid::Uuid::short().as_str()).into()
 }
 
 /// Marker string of one visual node: `{prefix}-node-{id}`.

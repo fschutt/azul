@@ -474,7 +474,7 @@ fn in_column(mut card: Dom) -> Dom {
 /// timer that closes the toast checks it, so a rebuild that put another
 /// node at the card's place is never hidden by an old timer.
 struct ToastMark {
-    token: usize,
+    token: AzString,
 }
 
 /// What an auto-dismissing card's mount hears: the toast's state (shared with
@@ -482,21 +482,20 @@ struct ToastMark {
 struct ToastClock {
     state: RefAny,
     ms: u32,
-    token: usize,
+    token: AzString,
 }
 
 /// What the timer that closes a toast carries.
 struct ToastTimeout {
     state: RefAny,
     card: azul_core::dom::DomNodeId,
-    token: usize,
+    token: AzString,
 }
 
-/// A token no other card of this process carries.
-fn next_toast_token() -> usize {
-    use core::sync::atomic::{AtomicUsize, Ordering};
-    static NEXT: AtomicUsize = AtomicUsize::new(1);
-    NEXT.fetch_add(1, Ordering::Relaxed)
+/// A token no other card of this process carries: the card's own mint of
+/// [`crate::uuid::Uuid::short`], the process's mint for marker strings.
+fn next_toast_token() -> AzString {
+    crate::uuid::Uuid::short()
 }
 
 /// An auto-dismissing card mounted: its clock starts. One timer, first run
@@ -509,7 +508,7 @@ extern "C" fn on_toast_mounted(mut data: RefAny, mut info: CallbackInfo) -> Upda
     let card = info.get_hit_node();
     let Some((state, ms, token)) = data
         .downcast_ref::<ToastClock>()
-        .map(|c| (c.state.clone(), c.ms, c.token))
+        .map(|c| (c.state.clone(), c.ms, c.token.clone()))
     else {
         return Update::DoNothing;
     };
@@ -536,7 +535,7 @@ extern "C" fn on_toast_timeout(
 
     let Some((mut state, card, token)) = data
         .downcast_ref::<ToastTimeout>()
-        .map(|t| (t.state.clone(), t.card, t.token))
+        .map(|t| (t.state.clone(), t.card, t.token.clone()))
     else {
         return TimerCallbackReturn::terminate_unchanged();
     };
@@ -1103,7 +1102,9 @@ impl Toast {
             return card;
         }
         let token = next_toast_token();
-        card.with_dataset(OptionRefAny::Some(RefAny::new(ToastMark { token })))
+        card.with_dataset(OptionRefAny::Some(RefAny::new(ToastMark {
+            token: token.clone(),
+        })))
             .with_callbacks(
                 alloc::vec![CoreCallbackData {
                     event: EventFilter::Component(azul_core::dom::ComponentEventFilter::AfterMount),

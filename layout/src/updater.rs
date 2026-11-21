@@ -3066,15 +3066,15 @@ pub fn download_and_verify(
 
 /// A name part no other call of this process used and no file planted before it ran can have.
 fn unique_suffix() -> String {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    // collapse-ok: only makes a name unique; the counter and the process id do the rest.
+    // collapse-ok: only makes a name unique; the process's mint ([`crate::uuid::Uuid::short`],
+    // one id per call) and the process id do the rest.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.subsec_nanos());
     format!(
         "{}-{nanos}-{}",
         std::process::id(),
-        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        crate::uuid::Uuid::short().as_str()
     )
 }
 
