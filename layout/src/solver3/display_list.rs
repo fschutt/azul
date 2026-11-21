@@ -5682,10 +5682,12 @@ where
     /// (`ScrollChain::of` with `AncestorsOnly`), outermost first: walked
     /// once per parent and kind of positioning, read from
     /// [`Self::box_chains`] after that.
-    fn box_chain_links(&mut self, node_index: usize) -> &[usize] {
-        let Some(key) = self.box_chain_key(node_index) else {
-            return &[];
-        };
+    ///
+    /// Returns the key the links are filed under in [`Self::box_chains`]
+    /// (`None`: no parent, no links), so that the caller can read them next
+    /// to another field of the generator.
+    fn box_chain_links(&mut self, node_index: usize) -> Option<(usize, u8)> {
+        let key = self.box_chain_key(node_index)?;
         if !self.box_chains.contains_key(&key) {
             #[cfg(test)]
             SCROLL_CHAIN_WALKS.with(|n| n.set(n.get() + 1));
@@ -5703,7 +5705,7 @@ where
                 .collect();
             self.box_chains.insert(key, links);
         }
-        self.box_chains.get(&key).map_or(&[][..], Vec::as_slice)
+        Some(key)
     }
 
     /// The hit-test tag of DOM node `id`, the answer of [`get_tag_id`]: the
@@ -7225,32 +7227,45 @@ where
             OpenClip::Owner(index) => Some(*index),
             OpenClip::Barrier => None,
         };
-        let fixed: Vec<usize> = self.open_clips[..movable_from]
-            .iter()
-            .filter_map(owner)
-            .collect();
-        let open: Vec<usize> = self.open_clips[movable_from..]
-            .iter()
-            .filter_map(owner)
-            .collect();
-        let wanted: Vec<usize> = self
-            .box_chain_links(node_index)
+        // The three lists this compares - the owners below the barrier,
+        // the owners above it, the links of the chain that are not below
+        // it - are read where they lie. They used to be copied into a
+        // `Vec` each, for every positioned box (a label layer inside one
+        // clipping box: an allocation or two per label), and a box that
+        // needs no detour, the usual case, now allocates nothing: the two
+        // lists below stay empty.
+        let chain = self.box_chain_links(node_index);
+        let links: &[usize] = chain
+            .and_then(|key| self.box_chains.get(&key))
+            .map_or(&[][..], Vec::as_slice);
+        let (fixed, movable) = self.open_clips.split_at(movable_from);
+        let mut open = movable.iter().filter_map(owner);
+        let mut wanted = links
             .iter()
             .copied()
-            .filter(|index| !fixed.contains(index))
-            .collect();
-        let keep = open
-            .iter()
-            .zip(wanted.iter())
-            .take_while(|(a, b)| a == b)
-            .count();
+            .filter(|index| !fixed.contains(&OpenClip::Owner(*index)));
+        // Past their common start, what is open is closed and what is
+        // wanted is opened.
+        let mut closed: Vec<usize> = Vec::new();
+        let mut to_open: Vec<usize> = Vec::new();
+        loop {
+            match (open.next(), wanted.next()) {
+                (Some(a), Some(b)) if a == b => {}
+                (a, b) => {
+                    closed.extend(a);
+                    closed.extend(open);
+                    to_open.extend(b);
+                    to_open.extend(wanted);
+                    break;
+                }
+            }
+        }
 
-        let closed: Vec<usize> = open[keep..].to_vec();
         for &index in closed.iter().rev() {
             self.close_owner(builder, index);
         }
         let mut opened = Vec::new();
-        for &index in &wanted[keep..] {
+        for &index in &to_open {
             if self.reopen_owner(builder, index) {
                 opened.push(index);
             }
