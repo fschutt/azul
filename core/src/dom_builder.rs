@@ -1681,6 +1681,41 @@ pub fn fingerprint_built_dom_against(
     out
 }
 
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// What [`set_flat_widgets_on_this_thread`] forced, if anything.
+    static FLAT_WIDGETS_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether a widget that has both builds makes its DOM through [`DomBuilder`]
+/// (`AZ_FLAT_WIDGETS=1`, read once per process) or as a tree of `Dom`s (the default, and
+/// the reference of the tests that compare the two).
+#[must_use]
+pub fn flat_widgets_enabled() -> bool {
+    #[cfg(feature = "std")]
+    {
+        static FROM_ENVIRONMENT: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
+        if let Some(forced) = FLAT_WIDGETS_ON_THIS_THREAD.with(core::cell::Cell::get) {
+            return forced;
+        }
+        *FROM_ENVIRONMENT.get_or_init(|| {
+            std::env::var("AZ_FLAT_WIDGETS").is_ok_and(|value| !value.is_empty() && value != "0")
+        })
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        false
+    }
+}
+
+/// Picks the build of [`flat_widgets_enabled`] for the calling thread (`None`: the
+/// environment's again). For a test that compares the two builds.
+#[cfg(feature = "std")]
+pub fn set_flat_widgets_on_this_thread(forced: Option<bool>) {
+    FLAT_WIDGETS_ON_THIS_THREAD.with(|cell| cell.set(forced));
+}
+
 #[cfg(test)]
 #[path = "dom_builder_test.rs"]
 mod dom_builder_test;

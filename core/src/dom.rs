@@ -8186,8 +8186,11 @@ impl fmt::Debug for Dom {
 /// used fields where they are.
 #[path = "dom_builder.rs"]
 pub mod builder;
+#[cfg(feature = "std")]
+pub use self::builder::set_flat_widgets_on_this_thread;
 pub use self::builder::{
-    fingerprint_built_dom, fingerprint_built_dom_against, DomBuilder, FlatDom,
+    fingerprint_built_dom, fingerprint_built_dom_against, flat_widgets_enabled, DomBuilder,
+    FlatDom,
 };
 
 #[cfg(test)]

@@ -277,6 +277,133 @@ pub(crate) static WAVEFORM_HEAD_BASE: &[azul_css::dynamic_selector::CssPropertyW
 /// callbacks and merge, so a press, a drag and the keys seek exactly as on a seek bar).
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn build(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom {
+    if azul_core::dom::flat_widgets_enabled() {
+        return build_flat(wave, look);
+    }
+    build_tree(wave, look)
+}
+
+/// [`build`] through `azul_core::dom::DomBuilder` (`AZ_FLAT_WIDGETS=1`): the same nodes in
+/// the same order - the root, a bar per peak, the playhead - appended to the builder's
+/// arenas instead of a `Dom`, a class list and a rule list per bar. The root is given
+/// whole (its handlers, dataset, merge callback and accessibility are what the tree build
+/// gives it); the result is a `Dom` that carries the bars flat.
+#[allow(clippy::cast_precision_loss)]
+fn build_flat(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom {
+    use azul_core::{
+        dom::{Dom, DomBuilder, IdOrClass, IdOrClass::Class, IdOrClassVec, NodeType, TabIndex},
+        refany::{OptionRefAny, RefAny},
+    };
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions as P, CssPropertyWithConditionsVec},
+        props::{layout::LayoutLeft, property::CssProperty},
+        AzString,
+    };
+
+    use crate::widgets::seek_bar::{
+        merge_seek_bar_state, seek_callbacks, seek_fraction, value_text, SeekBarState,
+        SeekBarWrapper, SeekSurface,
+    };
+
+    static ROOT: &[IdOrClass] = &[Class(AzString::from_const_str("__azul-native-waveform"))];
+    const BAR: &str = "__azul-native-waveform-bar";
+    const PLAYED: &str = "__azul-native-waveform-played";
+    const HEAD: &str = "__azul-native-waveform-head";
+
+    let Waveform {
+        position_s,
+        duration_s,
+        peaks,
+        on_seek,
+        accessibility_name,
+        theme: _,
+    } = wave;
+    let state = SeekBarState {
+        position_s,
+        duration_s,
+        dragging: false,
+    };
+    let fraction = seek_fraction(position_s, duration_s);
+    let part = |base: &[P], skin: &[P]| crate::widgets::themes::decl::on_base(base, skin);
+    let peaks = peaks.as_ref();
+    let n = peaks.len().max(1) as f32;
+    // The root is the first node of the builder and holds the bars' heights: they are
+    // made before it.
+    let heights: Vec<f32> = peaks
+        .iter()
+        .map(|peak| {
+            if peak.is_finite() {
+                (peak.clamp(0.0, 1.0) * 100.0).max(2.0)
+            } else {
+                2.0
+            }
+        })
+        .collect();
+
+    let data = RefAny::new(SeekBarWrapper {
+        on_seek,
+        inner: state,
+        surface: SeekSurface::Waveform,
+        hover: crate::widgets::seek_bar::SeekHover::default(),
+        paint: Some(crate::widgets::seek_bar::WaveformPaint {
+            bar: look.bar.clone(),
+            played: look.played.clone(),
+            heights: heights.clone(),
+        }),
+    });
+    let mut classes: Vec<IdOrClass> = ROOT.to_vec();
+    if let Some(marker) = look.marker {
+        classes.push(Class(AzString::from_const_str(marker)));
+    }
+    let root = Dom::create_div()
+        .with_ids_and_classes(IdOrClassVec::from_vec(classes))
+        .with_css_props(CssPropertyWithConditionsVec::from_vec(part(
+            WAVEFORM_BASE,
+            &look.root,
+        )))
+        .with_callbacks(seek_callbacks(&data).into())
+        .with_dataset(OptionRefAny::Some(data))
+        .with_merge_callback(azul_core::dom::DatasetMergeCallback::from_ptr(
+            merge_seek_bar_state,
+        ))
+        .with_tab_index(TabIndex::Auto)
+        .with_accessibility_info(azul_core::a11y::AccessibilityInfo {
+            role: azul_core::a11y::AccessibilityRole::Slider,
+            accessibility_name,
+            accessibility_value: Some(AzString::from(value_text(state))).into(),
+            ..Default::default()
+        });
+
+    let mut b = DomBuilder::with_capacity(peaks.len() + 2);
+    b.open_node(root.root);
+    for (i, height) in heights.iter().enumerate() {
+        let played = (i as f32 + 0.5) / n <= fraction;
+        b.open(NodeType::Div);
+        b.add_class_str(BAR);
+        if played {
+            b.add_class_str(PLAYED);
+        }
+        for prop in bar_style(if played { &look.played } else { &look.bar }, *height) {
+            b.add_css_property(prop);
+        }
+        b.close();
+    }
+    let mut head = part(WAVEFORM_HEAD_BASE, &look.head);
+    head.push(P::simple(CssProperty::const_left(LayoutLeft::percent(
+        fraction * 100.0,
+    ))));
+    b.open(NodeType::Div);
+    b.add_class_str(HEAD);
+    for prop in head {
+        b.add_css_property(prop);
+    }
+    b.close();
+    b.finish()
+}
+
+/// [`build`] as a tree of `Dom`s (the default).
+#[allow(clippy::cast_precision_loss)]
+fn build_tree(wave: Waveform, look: &WaveformLook) -> azul_core::dom::Dom {
     use azul_core::{
         dom::{Dom, DomVec, IdOrClass, IdOrClass::Class, IdOrClassVec, TabIndex},
         refany::{OptionRefAny, RefAny},
@@ -514,6 +641,80 @@ mod waveform_widget_tests {
                 tallest.contains("Px(100%)"),
                 "a full-scale peak is full height: {tallest}"
             );
+        }
+    }
+
+    /// The waveform built through `DomBuilder` is the waveform built as a tree: the same
+    /// fingerprints (a rebuild that switches builds is unchanged), node for node what a
+    /// rebuild compares (`NodeField::reads_alike`; the handlers' data and the dataset are
+    /// made anew by every build), and the same style for every node of the styled DOM.
+    ///
+    /// Mutations this fails on: `build_flat` leaving out the played class; the playhead
+    /// before the bars; a bar's height not in its style; the root given without its tab
+    /// stop.
+    #[test]
+    fn a_waveform_built_flat_is_the_waveform_built_as_a_tree() {
+        use azul_core::{
+            dom::{fingerprint_built_dom, set_flat_widgets_on_this_thread},
+            id::NodeId,
+            layout_inputs::NodeField,
+            styled_dom::StyledDom,
+        };
+        for theme in checks::BOTH {
+            set_flat_widgets_on_this_thread(Some(false));
+            let tree = wave().with_theme(theme).dom();
+            set_flat_widgets_on_this_thread(Some(true));
+            let flat = wave().with_theme(theme).dom();
+            set_flat_widgets_on_this_thread(None);
+            assert!(!tree.is_flat(), "{}: the default is a tree", theme.name());
+            assert!(flat.is_flat(), "{}: the switch builds flat", theme.name());
+            assert_eq!(flat.node_count(), tree.node_count(), "{}", theme.name());
+            assert_eq!(
+                fingerprint_built_dom(&flat).0,
+                azul_core::diff::fingerprint_dom(&tree).0,
+                "{}: the fingerprints",
+                theme.name()
+            );
+
+            let styled_tree = StyledDom::create_from_dom(tree);
+            let styled_flat = StyledDom::create_from_dom(flat);
+            assert!(
+                styled_flat.node_hierarchy.as_ref() == styled_tree.node_hierarchy.as_ref(),
+                "{}: the hierarchy",
+                theme.name()
+            );
+            assert_eq!(
+                styled_flat.node_data.as_ref().len(),
+                styled_tree.node_data.as_ref().len()
+            );
+            for (index, (a, b)) in styled_flat
+                .node_data
+                .as_ref()
+                .iter()
+                .zip(styled_tree.node_data.as_ref().iter())
+                .enumerate()
+            {
+                for field in NodeField::ALL {
+                    assert!(
+                        field.reads_alike(a, b),
+                        "{}: node {index} differs in its {}",
+                        theme.name(),
+                        field.name()
+                    );
+                }
+                let id = NodeId::new(index);
+                let state = &styled_tree.styled_nodes.as_ref()[index].styled_node_state;
+                assert_eq!(
+                    styled_flat
+                        .get_css_property_cache()
+                        .get_computed_css_style_string(a, &id, state),
+                    styled_tree
+                        .get_css_property_cache()
+                        .get_computed_css_style_string(b, &id, state),
+                    "{}: the style of node {index}",
+                    theme.name()
+                );
+            }
         }
     }
 
