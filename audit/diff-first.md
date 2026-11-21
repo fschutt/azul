@@ -348,8 +348,39 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   nodes, the content index of a run); (2) `adopt_node_from_old_renumbered(old, new_parent, new_dom_id, &diff)`
   maps them, and refuses (builds fresh) when one of them has no new id; (3) the display list's patch then
   needs 07. Until then the flag of 06 is not set for a renumbered node (it would gain nothing).
+- the inventory (third successor, by grep and the reconcile's clone arm; text3 itself still not read in full):
+  where a carried box holds DOM node ids that a renumbering makes stale -
+  1. `LayoutNodeHot::dom_node_id` (set by `adopt_node_from_old(.., Some(new_dom_id))` already);
+  2. the inline layout of an IFC root, `LayoutNodeWarm::inline_layout_result` and
+     `inline_measure_layouts`: `source_node_id: Option<NodeId>` on the shaped items
+     (`text3/glyphs.rs` 54, 193: the cluster and the glyph run; `text3/cache/inline_items.rs` 583;
+     `text3/cache/shaping.rs` 601; copied through `logical_items.rs` 283), read by the solver in 13 places
+     and by the list as a `Text` item's `source_node_index` and per-item `node_mapping`;
+  3. `LayoutNodeWarm::inline_content_cache` (the collected inline content of a root: its runs name their
+     source nodes; it re-validates itself by the subtree fingerprint, not by ids);
+  4. the per-node cache entry (`LayoutCacheMap::remapped` moves it along `carried_indices`; its
+     `abs_interior` / `layout_entry.child_positions` are keyed by LAYOUT index, which the reconcile re-points);
+  5. what the WINDOW keeps by DOM id is remapped by `remap_node_ids` already (the managers), and a hit-test
+     tag is `node index + 1`: the list items of a renumbered box are another matter - they are painted anew
+     as long as the box is fresh, and once it is carried the list's across-trees patch must refuse its run
+     (the tag and `node_mapping` inside it are the old id's): `build_across_trees` already re-emits a carried
+     box whose DOM id is not its old box's, so 06b can land without touching the list.
+- the steps, in order: (a) a function `renumber(&mut UnifiedLayout, &DomPairing)` in text3 that rewrites
+  every `source_node_id` (and refuses - `None` - when an id has no new one), with a test that a layout
+  renumbered by a shift equals the layout of the shifted DOM item for item; (b) in `reconcile_node`, where
+  `renumbered` forces `DirtyFlag::Layout` today: carry the node (`adopt_node_from_old`) and run (a) over its
+  inline layout, measure layouts and content cache, falling back to fresh when (a) refuses; a renumbered
+  TEXT node carries too (its `ifc_membership` is re-pointed through `carried_indices` as for any clone);
+  (c) `nodes_clean_for_layout` flags a renumbered node whose data reads alike (the flag is withheld today
+  because it gains nothing); (d) a step name of its own (`renumber`, bit 256) around (b) and (c), and the
+  equality walks `a_rebuild_that_changed_the_tree_*` / `a_view_rendered_again_*` as its guard, plus a count:
+  a row inserted at the top of 1,200 builds the boxes of that row and no other.
+- why not built in this session: (a) is a change inside text3's item types (A8's files) that has to be made
+  by someone who has read every variant of the shaped items and every place a layout is shared (`Arc`) between
+  the tree, the text cache and a window's result; done blind and partially, a stale id paints the wrong node's
+  selection or hits the wrong node, silently.
 - severity: high (it is what is left of "unchanged subtrees keep their boxes" when a node comes early)
-- status: blocked (a): the cached inline layouts name DOM nodes by id (text3, A8's and A3-solver's files); the design is this block; built short of it: the flags, and every node that keeps its id keeps its box
+- status: blocked (a): the cached inline layouts name DOM nodes by id (text3, A8's and A3-solver's files); the design and the inventory are this block; built short of it: the flags, every node that keeps its id keeps its box, and the list is patched across a changed tree (diff-first-07)
 
 ### diff-first-07 the display list is emitted for every node when one node comes or goes
 - file:line: `layout/src/solver3/display_list.rs` `PatchState` (5724; refused when
@@ -364,8 +395,39 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   and previous sizes through that map, with every fresh node in `reemit`; (3) the three gates accepting "mapped"
   beside "structure preserved". A reused node keeps its DOM id (06b), so the ids inside its spliced items stand.
   It does not help renumbered nodes until 06b exists.
+- as built (`dd0ef31d4`, step `tlist`): the map existed (`ReconciliationResult::carried_indices`, what the
+  cache map is remapped with); `PatchState::build_across_trees` keys runs, deltas and sizes through it; the
+  gate's fourth arm takes it when a producer named its cascaded nodes (`CascadedSince`: a changed tree is
+  always a cascade that ran); exit 1.47 hands the names. The list is recorded as a FULL emission (the patch
+  damage and the move summary pair boxes by one index; the renderers' item diff covers a changed tree as
+  before). Read for it: `PatchState`, `build`, `try_copy_cached_run` and the copy loop, the gate and its
+  bookkeeping, `reconcile_node`'s clone arm, `try_reuse_anon_wrapper`, `generate_tag_ids` (a tag is
+  `node index + 1`). Why the ids inside a copied run stand: a carried box has the DOM id it had (a
+  renumbered node is fresh), a box carried under another DOM node (paired by position) is re-emitted, and
+  the inline root of a fresh member is re-emitted.
+- tests: dll `rows_that_come_are_painted_and_the_rows_before_are_copied`,
+  `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had`,
+  `labels_that_enter_a_view_are_painted_and_the_others_copied`; the walks with every step.
+- what is left of it is 06b: every node after the first that came or went is renumbered, built fresh and
+  painted.
 - severity: high
-- status: blocked (a): the old-to-new layout index map through `PatchState::build` and the walk that consumes the runs (display_list.rs, 20k lines, A3-core's; not read in full by any session); the design is this block
+- status: fixed dd0ef31d4
+
+### diff-first-20 a rebuild that kept the window's DOM emitted the window's whole list
+- file:line: `dll/src/desktop/shell2/common/layout.rs` exit 1.46 (`restyle_rebuilt_nodes`), exit 1.47
+  (`style_reconciled_dom`); `layout/src/solver3/mod.rs` the patch gate
+- class: wasted-work (the predecessor's table: "nodes changed where they stand: exit 1.46: list emitted in
+  full"): the cascade over the reached nodes moves the epoch, the gate takes a reconciled tree only with no
+  css dirt and an unmoved epoch. Est. 1.0-2.0 ms per 1,000 nodes of the window's DOM per rebuild.
+- fix: the hand-over of diff-first-18 part 1 from the shell (`554d8ccd2`, step `wlist`): epoch before, epoch
+  after, the reached nodes, under the conditions of the clean flags and only where the cascade ran for the
+  reached nodes alone (`restyle_rebuilt_nodes` answers that too). Exit 1.47 hands its names under `tlist`
+  (`dd0ef31d4`). Every rebuild voids what an earlier one named and no pass took.
+- what it does not save: a change that moves the boxes after it (a taller row) paints them (diff-first-15).
+- tests: dll `one_changed_class_paints_its_row_and_copies_the_windows_list`,
+  `a_box_the_windows_cascade_reached_is_painted_though_it_is_clean`; the walks with every step.
+- severity: high
+- status: fixed 554d8ccd2
 
 ### diff-first-08 what is still O(n) on the kept-DOM exit for changed nodes
 - file:line: `layout/src/window.rs` `restyle_rebuilt_nodes`, `rebuild_can_keep_the_styled_dom`;
@@ -481,8 +543,22 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
 - fix (not made: the queue is A6's `focus_cursor.rs`, the dispatch the shell's): skip entries whose `dom` is not
   the reconciled one here, and resolve a view's entries in `reconcile_rematerialized_child`, where its old arena
   is at hand (it already resolves `BeforeUnmount` there).
+- the change, refined by the third successor (read: the shell's loop at "A FOCUSED node that the rebuild did
+  not carry over", `FocusManager::take_focus_lost_to_unmount`, `reconcile_rematerialized_child`); three
+  edits, none made (no context left to write its test, which needs a focused node inside a view that
+  unmounts on a re-render and a window node of the same index with a `FocusLost` handler that must stay
+  silent):
+  1. `layout/src/managers/focus_cursor.rs`: `pub fn take_focus_lost_to_unmount_of(&mut self, dom: DomId) ->
+     Vec<DomNodeId>` (the entries of one DOM leave the queue, the others stay);
+  2. the shell: take the entries of `DomId::ROOT_ID` only (its loop reads `pending.old_node_data`, the
+     window's old arena);
+  3. `reconcile_rematerialized_child`, right after `self.remap_node_ids(child_dom_id, &map)` (which records
+     the view's lost focus): take the entries of `child_dom_id` and queue each old node's `FocusLost`
+     handlers into `pending_unmount_invocations` with a `Blur` event, as the shell does - the old arena is
+     still at hand there (`layout_results` / `retired_child_results` hold the old result until the pass
+     replaces it, or the local `stashed`); `now` must be cloned before `reconcile_dom` takes it.
 - severity: low
-- status: open: the exact change is given; it touches A6's queue contract (which reconciliation drains which DOM's entries)
+- status: open: three edits and a test (above); it touches A6's queue (a method that drains one DOM's entries)
 
 ### diff-first-13 the kept exits told the solver "unchanged" for a node a callback had written
 - file:line: `layout.rs` exits 1.45, 1.46 and the GRANULAR DIFF block; `layout/src/window.rs` `DomGenerations`
@@ -691,8 +767,27 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   (the UA's link colour, which is not black: before the fix the link and its text answer the list's colour);
   dll the three walks `a_rebuild_that_changed_nodes_under_the_pointer_*`,
   `a_rebuild_that_changed_the_tree_under_the_pointer_*`, `a_rebuild_that_styled_its_changed_nodes_under_the_pointer_*`.
+- second defect, in the fix itself (found by the verifier once the test had a true premise: an `<a>` needs an
+  `href` to be `:link`): the cascade over named nodes runs its inheritance pass over rows BEFORE their prune. A
+  child's inherited row holds a COPY of what its parent holds AT REST, and `apply_cascade_properties` step 2
+  applied the copy over the hover value the child had just inherited (`should_apply_cascaded` lets a row entry
+  beat an `Inherited` one). `get_property` answered the resting colour for every node below a hovered one
+  (#222222 for #00aa00), the compact entries the hover colour: the two stores disagreed. The whole pass over
+  unpruned rows (`restyle` under a state) did the same; only a pass over PRUNED rows came out right, which is
+  why the old code did - and lost the UA rows with the copies.
+- fix of the second defect (`3afb0f554`): both inheritance passes keep, per node, the inheritable types it shows
+  its children from a state (its own, or handed on from above while it holds the type as an inherited value);
+  a non-UA resting copy of such a type is passed over, a UA default applies as ever; for the KEPT parent of a
+  named node the set is read from the cache (`types_shown_from_a_state`, a walk up, once per kept parent).
+  `get_declared_property_ranked` tier 3 answers the node's inherited value where such a copy is still in the
+  row (a property whose copy survives the prune: `cursor`, `text-decoration`, `user-select`; rows that were
+  not pruned). At rest the sets are empty: no value and no origin changes.
+- tests of the second defect: the block's test, extended (both stores for every node below the box; nodes
+  styled again below a kept parent; a heading with its own colour; a link; the state lowered: every node of the
+  page back at rest in both stores), and `a_state_hands_down_a_property_whose_copy_survives_the_prune`. The
+  mutant of each assertion is in the test's doc comment and in the commit message.
 - severity: medium
-- status: fixed (the commit after bf43a5e96; hash in the hand-over table)
+- status: fixed 3afb0f554
 
 ### diff-first-18 a view that renders again has its whole list emitted, although the step `view` kept most of it
 - file:line: `layout/src/solver3/mod.rs` the patch gate (`cascade_ctx_unchanged`: `cache.last_cascade_epoch ==`
@@ -773,7 +868,41 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
      frame that does not move with the pan (world or tile-anchored coordinates as `left` / `top`), and express
      the pan as the view's offset / one transform on the labels' parent, so that a settle changes the insets
      of no label that stays.
-- status: open: part 1 has the plan above and no code; part 2 waits for diff-first-06b and diff-first-07
+- part 1 as built (`aa929c920`, step `list`); where it differs from the plan above:
+  - not a bool latch but a statement with its proof: `solver3::cache::CascadedSince { from_epoch, to_epoch,
+    nodes }` in `LayoutCache::cascaded_since_list`. The pass keeps it only when its cached list was built at
+    `from_epoch` and the DOM stands at `to_epoch`: a hover restyle, a user override or a context offer between
+    the list and the render, or between the render and the pass, voids it (the whole list, as before). A bool
+    beside `dom_diff_clean` could go stale (a pass that never ran, another producer's flags).
+  - `nodes` is the complement of the clean flags (cascaded or moved in place), from both exits of the step
+    `view`; from the kept exit only when the cascade over named nodes ran (`restyle_kept_child` answers a
+    fourth value), not after the whole cascade in place.
+  - the re-emit set of the new arm: `css_dirty_reemit_set(tree, css_dirty, false)` plus the boxes of the named
+    nodes, each with the root of the inline context it is a member of (`boxes_painted_for`: a text's glyphs
+    are in its root's content run). It joins the damage set and the move summary's set with it.
+  - the early exit of a pass whose reconcile is clean (Step 1.5: paint-only css dirt) emitted in full too: it
+    patches now, with the cached tree and positions on both sides, and records a full emission as before.
+  - counters: `display_list::lists_patched_after_a_named_cascade_on_this_thread()`,
+    `runs_painted_by_patched_builds_on_this_thread()`, `cached_runs_copied_on_this_thread()`.
+  - tests (dll): `one_changed_label_of_a_view_paints_that_label_and_copies_the_rest`,
+    `a_view_that_restyled_5_percent_of_its_labels_paints_5_percent`,
+    `a_view_whose_labels_all_moved_paints_every_label`,
+    `a_node_the_cascade_reached_is_painted_though_its_box_is_clean` (the mutant), each against a window with
+    every step but `list`, the view's document and list compared line for line; the walk
+    `a_view_rendered_again_leaves_what_the_full_path_leaves` runs with `list` among its steps.
+  - not settled by reading: whether anything between the hand-over and `layout_document` moves the epoch of
+    the child's DOM in the common case (then no list would ever be patched: the tests' premise `patched == 1`
+    says so); whether an existing test pins a view's re-render as a FULL emission (`last_build_was_patched`,
+    a damage rect list).
+- what part 1 gains in the editor: nothing on a pan settle and nothing on a zoom settle, as the editor
+  places its labels today (see "For area A7-editor (m4p)": every label gets new insets at every settle). It
+  gains on a re-render that keeps the tree and most insets: a selection, a label moved or cut by hand, a key's
+  message, the hover (`refresh_view`): est. 12-25 ms of list emission down to 1.5-3 ms of copies.
+- part 2 (the tree changed): the list is patched across the trees since `dd0ef31d4` (diff-first-07): the
+  labels BEFORE the first one that came or went keep their node ids and are copied
+  (`labels_that_enter_a_view_are_painted_and_the_others_copied`). The labels after it are renumbered, built
+  fresh by the solver and painted: that is diff-first-06b, and nothing else of this row is open.
+- status: fixed dd0ef31d4
 
 ### diff-first-17 the first half's core tests took `Dom::with_css` for a node's own style (seven red tests)
 - file:line: `core/src/diff_test.rs` `audit_diff_first_tests` (`page`, the nested tree); `core/src/styled_dom_test.rs`
@@ -860,6 +989,16 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
     solver's flags whatever the count). Off: a rebuild that changed the tree takes the full path.
   - `view`: the same for a VirtualView's document that renders again (`reconcile_rematerialized_child`). Off:
     every re-render of a view is styled in full, then reconciled.
+  - `list`: a view that renders again under `view` hands the pass the nodes it cascaded
+    (`solver3::cache::CascadedSince`) and the pass patches the view's display list where the tree kept its
+    shape (diff-first-18 part 1). Off: the view's whole list is emitted whenever its cascade epoch moved.
+    `AZ_DIFF_FIRST=text,nodes,style,tree,view` = the state before it.
+  - `wlist`: the same for the window's own list on exit 1.46 (diff-first-20): the shell hands the pass the
+    nodes the changes reach. Off: exit 1.46 emits the window's whole list.
+  - `tlist`: the list across a changed tree (diff-first-07): the pass copies the runs of the boxes its
+    reconcile carried over (`PatchState::build_across_trees`), for the window and for a view; and exit 1.47
+    hands the pass the nodes it cascaded. Off: a pass whose tree changed its node count emits its whole
+    list, and exit 1.47 names no node.
   Examples: `AZ_DIFF_FIRST=text,nodes,style` = the state before the second half; `AZ_DIFF_FIRST=tree` = every
   changed rebuild of the window's DOM down exit 1.47; `AZ_DIFF_FIRST=text,nodes,style,tree` = everything but views.
 A test picks its steps per thread: `window::set_diff_first_steps_on_this_thread(Some(&[..]))`,
@@ -867,6 +1006,10 @@ A test picks its steps per thread: `window::set_diff_first_steps_on_this_thread(
 (exit 1.46), `window::tree_rebuilds_that_kept_rows_on_this_thread()` (exit 1.47 and a view's re-render, when rows
 were kept), `styled_dom::nodes_cascaded_on_this_thread()`, `styled_dom::compact_cache_rebuilds_on_this_thread()`
 (whole cascades). The pre-cascade exit for an identical rebuild is older than the switch and not under it.
+For the step `list`: `solver3::display_list::lists_patched_after_a_named_cascade_on_this_thread()` (the passes
+that took its arm), `runs_painted_by_patched_builds_on_this_thread()` and `cached_runs_copied_on_this_thread()`
+(what a patched build painted and what it copied), `lists_patched_across_trees_on_this_thread()` (the arm of
+`tlist`). The switch's bits are a `u16` since `list` (`diff_first_steps_of` answers one); eight steps.
 
 `AZ_DL_TRANSLATE_MOVED_RUNS` (read once per process, at the first patched build that copies a run;
 `layout/src/solver3/display_list.rs` `moved_run_policy`, `MovedRunPolicy`; diff-first-15):
@@ -1024,6 +1167,63 @@ differs.
 - severity: medium
 - status: fixed on this branch by the coordinator's decision: diff-first-15 (the four lines, with the switch `AZ_DL_TRANSLATE_MOVED_RUNS=1`, two counters and three tests). The window agent made the same change as A3-window-56 (`25347d2ca`) and reverted it (`8eca913a0`): one copy, this one
 
+## For area A7-editor (m4p)
+
+Read: `mapedit3/src/ui/main/map.rs` of the m4p integration worktree, `render_map_view`, `to_screen`,
+`to_picture`, `place_labels`, `place`, `boxed`, `tile_node`, `pan_view`, `ViewMotion`. Nothing was changed there.
+
+**The question: do the labels that STAY in view keep their typed `left` / `top` across a settle? No, neither
+across a pan settle nor across a zoom settle.**
+- a label piece is placed by `place(&mut span, class, x, y - b, angle)` with `(x, y) = to_picture(project,
+  p.position.x, p.position.y - baseline_mm)`, and `to_picture` is `to_screen` less `motion.shift`;
+  `to_screen(x_mm, y_mm) = ((x_mm + ui.pan.x) * s, (y_mm + ui.pan.y) * s)`. `render_map_view` sets
+  `motion.shift = (0, 0)` and `motion.offset = (0, 0)` at its start ("a fresh picture: no shift, no zoom"). So
+  every render places every node in VIEW coordinates of the pan it renders at: after a pan by (dx, dy) px
+  every label, symbol, block, grid number, tile and the paper get `left + dx`, `top + dy`.
+- a zoom settle changes `s`: every position scales, and the class of every text layer carries
+  `font-size: {layer.font_size * s}px`, `letter-spacing`, the halo width and `transform-origin` in px: the
+  render's sheet differs, every label is cascaded and shaped anew. Nothing of a zoom settle can be kept while
+  the labels are laid out in px of the zoom (that would need labels laid out once in map units and scaled by
+  the picture's transform, which changes how text is rasterised: not proposed here).
+- consequence for azul: on a pan settle every label is "moved in place" (its own `left` / `top` values and
+  nothing else): no label is cascaded (diff-first-11), the solver keeps its box and places it again, and the
+  list paints it anew (diff-first-15: a moved box is painted by any pass that is no tween frame). The step
+  `list` copies nothing there.
+
+**What the editor must change so that a pan settle keeps the insets of the labels that stay** (the picture
+is anchored, the view's offset carries the pan):
+1. keep an ANCHOR in `ViewMotion`: the scale and pan the picture's coordinates are relative to, e.g.
+   `anchor: Option<(f32, (f32, f32))>`. Every position the render writes is
+   `((x_mm + anchor.pan.x) * anchor.scale, (y_mm + anchor.pan.y) * anchor.scale)`: a function of the map
+   position and the anchor alone, so bit for bit the value of the render before for every node that stays.
+   (Not `to_screen(..) - shift`: `pan` accumulates `dx / s` per step and `shift` the unrounded sum of `dx`;
+   their difference is not bit-stable, and a value one ulp off is a moved label.)
+2. a settle render after a pan at the anchor's scale KEEPS the anchor and returns the view's content offset
+   instead of resetting it: `offset = ((pan - anchor.pan) * s)` rounded to whole device pixels (as `pan_view`
+   rounds its shift today), handed back as the origin of the render's `materialized` rect - what
+   `update_virtual_view` writes during the pan. The sub-pixel rest stays out until the next rebase: a picture
+   up to half a device pixel off the model, as it is during the pan today.
+3. REBASE (anchor = the model's scale and pan, offset = 0: every node moves once) when the scale changed (a
+   zoom settle), when the offset leaves a bound (say 8,192 px: positions stay exact to 1/1024 px in an
+   `f32`), and on the first render.
+4. what depends on the view's rectangle follows the offset: the ground box (`-o, -o, size + 2 o`) is placed
+   at `offset - o`; `near_view` and `visible_tiles` test screen positions as now (they pick WHICH labels and
+   tiles are rendered); the tiles' edges are rounded in picture coordinates (the offset is whole device
+   pixels, so their seams stay closed); the last key's message (`top: size.height - 34`) and the hover
+   highlight are placed at `offset + ...`; `write_picture_transform` and `zoom_state` already carry `offset`.
+5. `motion.rendered` (what a zoom's transform starts from) becomes the anchor plus the offset.
+What it saves on a pan settle, per label that stays (est., the 12,500-node view, 95 % staying):
+- the cascade's part is saved already (no label is cascaded when only its insets move);
+- the compact entries of each moved label, its fingerprint in the reconcile and its placement
+  (`position_out_of_flow_elements`): est. 1-3 us per label, 12-35 ms per settle today, down to the 5 % that
+  came;
+- the list: est. 12-25 ms down to 1.5-3 ms of copies plus 0.6-1.3 ms for the labels that came - but only
+  once the list is patched ACROSS A CHANGED TREE (diff-first-07) and the solver keeps renumbered boxes
+  (diff-first-06b): nearly every pan settle brings labels in and takes labels out, so its tree changes.
+  With the step `list` alone the gain is there only for a settle that changes no node of the tree.
+Until the editor is anchored, diff-first-07 and -06b cannot show a gain on a pan settle either: all labels
+move.
+
 ## For area dom-builder
 
 Checked against `regenerate_layout` at this branch's tip (after the steps `tree` and `view`), for the two lines
@@ -1074,6 +1274,22 @@ The note's (2), (3), (5) (`nodes_at` for a flat `Dom`, `fingerprint_dom` itself 
 rebuild reading `flat_node_data_at`) touch nothing these steps changed: exit 1.47 and the view's step read the
 ARENA after the flatten, never `nodes_at`.
 
+## The four rebuild cases after the steps `list`, `wlist`, `tlist` (estimates by reading, not measured)
+
+Per 1,000 nodes: cascade 2-6 ms, emitting a list 1.0-2.0 ms, copying it 0.1-0.25 ms, a box laid out anew
+0.3-1 ms where its text is in the shaping cache.
+
+| rebuild | before this session | now | what is left, and whose |
+|---|---|---|---|
+| identical (the window's DOM, about 4,000 nodes) | no cascade, no pass, the list kept | the same | the `Dom` build, its fingerprint walk and its drop (diff-first-09: 0.6-2.4 us a node) |
+| nodes changed where they stand (one class of 4,000 nodes; exit 1.46) | cascade for the reached nodes; list emitted in full: 4-8 ms | list patched: 0.4-1 ms of copies plus the reached boxes (`wlist`) | the O(n) walks of diff-first-08 (0.3-0.6 ms); a change that moves the boxes after it paints them |
+| 500 nodes come among 3,500 (exit 1.47) | cascade for the 500; every box after the first new node laid out anew; list in full: 4-8 ms | at the END of the page: the 3,500 before are copied, the 500 painted: about 1 ms of list (`tlist`). In the MIDDLE: the boxes before the first new node copied, every box after it fresh and painted | diff-first-06b (the solver across renumbering): until then a node that comes early costs every later box its layout and its paint; `reconcile_dom`'s hashes (diff-first-05: 2.4-4 ms) |
+| a view rendered again (the editor's settle, 12,500 nodes) | cascade for what entered; every label that moved placed again; list in full: 12-25 ms | the tree and the insets kept (a selection, a hand edit): 1.5-3 ms of copies (`list`). A pan or zoom settle: unchanged, because the editor gives every label new insets (all painted) | the editor's anchor ("For area A7-editor"), then diff-first-06b for labels entering in the middle of the list |
+
+The user's 1-2 ms for a full rebuild is reached for the identical rebuild and, by these estimates, for one
+changed class and for nodes appended; not for a node that comes early (06b) and not for the editor's settle
+(the anchor, then 06b).
+
 ## Hand-over (kept current at every commit)
 
 **Built (branch `audit/diff-first`, all `[unverified]`):**
@@ -1092,6 +1308,11 @@ ARENA after the flatten, never `nodes_at`.
 | diff-first-15 (a moved box is painted anew by a patched pass; `AZ_DL_TRANSLATE_MOVED_RUNS`) | 8447aa202 | layout `audit_tests::diff_first::*` (three), `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`; dll the five walks `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_the_tree_*`, `a_view_rendered_again_leaves_what_the_full_path_leaves` |
 | diff-first-15, second part (the frames of a layout tween translate and record; the last frame and every other pass paint) | bf43a5e96 | layout `audit_tests::diff_first::*` (seven); `cargo test -p azul-layout --test all a_growing_ribbon` and `a_height_tween` (the two guards, not edited); layout `a_layout_tween_frame_reuses_the_tree_and_patches_the_list` |
 | diff-first-19 (a state that hands a value down no longer costs the DOM its inherited UA values) | 8e9ead705 | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, the whole core suite (hover / focus restyles); dll the three `*_under_the_pointer_*` walks, `a_full_rebuild_keeps_the_hover_colour_the_hovered_row_hands_its_text` |
+| diff-first-19, second part (what a node hands down from a state beats its children's copy of the resting value; both stores agree) | 3afb0f554 | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, `a_state_hands_down_a_property_whose_copy_survives_the_prune`, the whole core lib and `--tests` (`css_inheritance.rs` calls the pass directly); dll the three `*_under_the_pointer_*` walks; layout `a3_window::a_hover_colour_patched_into_the_list_is_the_list_a_build_gives` |
+| diff-first-18 part 1, step `list` (a view's re-render hands the pass the nodes it cascaded; the list is patched) | aa929c920 | dll `one_changed_label_of_a_view_paints_that_label_and_copies_the_rest`, `a_view_that_restyled_5_percent_of_its_labels_paints_5_percent`, `a_view_whose_labels_all_moved_paints_every_label`, `a_node_the_cascade_reached_is_painted_though_its_box_is_clean`, `a_view_rendered_again_leaves_what_the_full_path_leaves`, `the_steps_of_the_switch_are_named_one_by_one`; the layout lib (views, damage: nothing of it was read for a pinned full emission) |
+| diff-first-20, step `wlist` (exit 1.46 hands the pass its cascaded nodes) | 554d8ccd2 | dll `one_changed_class_paints_its_row_and_copies_the_windows_list`, `a_box_the_windows_cascade_reached_is_painted_though_it_is_clean`, the `df` walks (`a_rebuild_that_styled_its_changed_nodes_*`, under the pointer too) |
+| diff-first-07, step `tlist` (the list patched across a changed tree; exit 1.47 hands its names) | dd0ef31d4 | dll `rows_that_come_are_painted_and_the_rows_before_are_copied`, `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had`, `labels_that_enter_a_view_are_painted_and_the_others_copied`, every `df` / `dfv` walk and count test (the helpers and both fixtures changed), `the_steps_of_the_switch_are_named_one_by_one` |
+| diff-first-15, the window area's test (its own mutant, its premises) | 55c008027 | layout `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` |
 | diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | 8420ec290 (`diff_test.rs`), 8e7a62d2c (`styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
 
 **The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
@@ -1127,24 +1348,35 @@ of `height` seeding a tween, as the tests of `layout/tests` do).
 the slider and the plain walks green, the tests of the steps `tree` and `view` green. Red: the ribbon guard (as
 expected on `8447aa202`: fixed by bf43a5e96) and the three walks under the pointer (diff-first-19).
 
-**In flight:** nothing. The working tree is clean at the commit that adds this line; the checkpoint takes
-`8e9ead705` (it holds bf43a5e96 and diff-first-19) or this notes-only commit after it.
+**In flight (third successor, 2026-11-21):** nothing uncommitted. The branch holds `audit/integration` up to
+`a10556742` (merged twice at the start). Done by this agent: diff-first-19 second part (`3afb0f554`),
+diff-first-18 part 1 = step `list` (`aa929c920`), the answer for the editor ("For area A7-editor (m4p)"),
+diff-first-20 = step `wlist` (`554d8ccd2`), diff-first-07 = step `tlist` (`dd0ef31d4`).
 
-**Stopped here (this agent's context ran short): diff-first-18 part 1** (the list of a view that renders again
-copies the runs of the nodes the step `view` did not cascade; a step name `list`), decided by the coordinator for
-the verifier's second round. No code exists. The plan, file by file, with the tests and the question about the
-editor's `render_map_view` that is still to be read, is in the block of diff-first-18 ("part 1, the exact plan").
+**By reading, not settled (the verifier's run decides; each is a premise assertion in its test):**
+- whether the epochs of a `CascadedSince` survive from the hand-over to `layout_document` in the common case
+  (`patched == 1` / `across == 1`); if not, look for what moves the DOM's `cascade_epoch` in between, or for a
+  list that was not built at the old DOM's epoch;
+- the run counts (`copied >= ..`, `painted in ..`): estimates of how many paint calls a row or a label makes;
+- `a_box_that_got_another_layout_index_is_copied_from_the_run_it_had`: that a `display: list-item` row keeps
+  its height (premise "the rows after the list item did not move");
+- whether a layout or dll test pins a view's re-render or a window rebuild as a FULL emission
+  (`last_build_was_patched == false`, a damage list): such a rebuild is a patched build now.
 
-**Left, in the order of the coordinator's priorities, each with its design in the block named:**
-1. (done: eba4d13e4) Views, the kept exits.
-2. The solver across renumbering: diff-first-06b (A3-solver's and A8's files). It is what a pan that brings
-   labels in the middle of the list still pays in layout.
-3. The display list across a changed tree: diff-first-07.
-4. Gates: the table above (`animation` is narrowed: diff-first-14). Open with a design and no code: `+` / `~` on
-   exit 1.46 (the later siblings only), the drag state (rows agent 2).
-5. The rows agent's changes 2-4 (above).
-6. diff-first-05 (the hashes and maps of `reconcile_dom`), diff-first-08 (tags, the cache clone of exit 1.46,
+**Stopped here: context short** (third successor). Everything is committed; nothing is half-written.
+
+**Left, each with its design in the block named:**
+1. The solver across renumbering: diff-first-06b (A3-solver's and A8's files): what is left of every case
+   where a node comes or goes before others. Its block has the inventory of ids and the four steps.
+2. Gates: the table above. Open with a design and no code: `+` / `~` on exit 1.46 (the later siblings only),
+   the drag state (rows agent 2).
+3. The rows agent's changes 2-4 (above).
+4. diff-first-05 (the hashes and maps of `reconcile_dom`), diff-first-08 (tags, the cache clone of exit 1.46,
    the animation lookup), diff-first-12.
+(Done: the window area's test `a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` runs its
+own mutant and asserts its premises, `55c008027`. If its first premise fails - no run translated under
+`AlwaysTranslate` - the `NodeCss` pass of that page builds its list in full and the page needs a pass that
+patches: a resize, as `audit_tests/diff_first.rs` has.)
 
 ## Not read
 

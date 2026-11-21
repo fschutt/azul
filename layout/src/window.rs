@@ -3800,7 +3800,7 @@ const fn scrollbar_fade_work(_boxes: usize) {}
 std::thread_local! {
     /// The choice of [`set_diff_first_on_this_thread`] / [`set_diff_first_steps_on_this_thread`]
     /// for the calling thread: one bit per [`DiffFirstStep`].
-    static DIFF_FIRST_ON_THIS_THREAD: core::cell::Cell<Option<u8>> =
+    static DIFF_FIRST_ON_THIS_THREAD: core::cell::Cell<Option<u16>> =
         const { core::cell::Cell::new(None) };
 }
 
@@ -3832,16 +3832,39 @@ pub enum DiffFirstStep {
     /// `view`: the same exits for the DOM a `VirtualView`'s callback returns when the view
     /// renders again. Off: every re-render of a view is styled and reconciled in full.
     View,
+    /// `list`: a view that renders again under `view` tells the pass that lays it out which
+    /// nodes it cascaded (`solver3::cache::CascadedSince`), and the pass patches the view's
+    /// display list where the tree kept its shape: the runs of the boxes that are what they
+    /// were, where they were, are copied from the list before, and only what was styled
+    /// again, changed, moved or came is painted. Off: the cascade epoch moved, so the
+    /// whole list of the view is emitted (`AZ_DIFF_FIRST=text,nodes,style,tree,view`).
+    List,
+    /// `wlist`: the same for the WINDOW's own list after a rebuild that kept its styled DOM
+    /// and styled the changed nodes where they stand (`nodes` with `style`): the shell hands
+    /// the pass the nodes the changes reach, and the runs of every other box are copied.
+    /// Off: such a rebuild emits the window's whole list.
+    WindowList,
+    /// `tlist`: the display list ACROSS A CHANGED TREE. A rebuild of the window's DOM that
+    /// was reconciled before it was styled (`tree`) hands the pass the nodes it cascaded,
+    /// as a view's re-render does (`list`); and where a node came or went, the pass copies
+    /// the runs of the boxes its reconcile carried over from the list of the tree before
+    /// (`solver3::display_list::PatchState::build_across_trees`) and paints what came,
+    /// changed or moved. Off: a pass whose layout tree changed its node count emits its
+    /// whole list, and exit 1.47 names no node.
+    TreeList,
 }
 
 impl DiffFirstStep {
     /// Every step.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 8] = [
         Self::Text,
         Self::Nodes,
         Self::Style,
         Self::Tree,
         Self::View,
+        Self::List,
+        Self::WindowList,
+        Self::TreeList,
     ];
 
     /// The step's name in `AZ_DIFF_FIRST`.
@@ -3853,27 +3876,34 @@ impl DiffFirstStep {
             Self::Style => "style",
             Self::Tree => "tree",
             Self::View => "view",
+            Self::List => "list",
+            Self::WindowList => "wlist",
+            Self::TreeList => "tlist",
         }
     }
 
-    const fn bit(self) -> u8 {
+    /// The step's bit: `1 << i` for the step at `ALL[i]`.
+    const fn bit(self) -> u16 {
         match self {
             Self::Text => 1,
             Self::Nodes => 2,
             Self::Style => 4,
             Self::Tree => 8,
             Self::View => 16,
+            Self::List => 32,
+            Self::WindowList => 64,
+            Self::TreeList => 128,
         }
     }
 
-    const EVERY_BIT: u8 = 1 | 2 | 4 | 8 | 16;
+    const EVERY_BIT: u16 = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128;
 }
 
 /// The steps a value of `AZ_DIFF_FIRST` switches on, one [`DiffFirstStep`] bit each: `0` none,
 /// a list that names at least one step exactly the named ones (an unknown name in it is
 /// skipped), anything else every step.
 #[must_use]
-pub fn diff_first_steps_of(value: &str) -> u8 {
+pub fn diff_first_steps_of(value: &str) -> u16 {
     if value.trim() == "0" {
         return 0;
     }
@@ -3881,7 +3911,7 @@ pub fn diff_first_steps_of(value: &str) -> u8 {
         .split(',')
         .map(str::trim)
         .filter_map(|name| DiffFirstStep::ALL.into_iter().find(|step| step.name() == name))
-        .fold(0_u8, |bits, step| bits | step.bit());
+        .fold(0_u16, |bits, step| bits | step.bit());
     if named == 0 {
         DiffFirstStep::EVERY_BIT
     } else {
@@ -3890,8 +3920,8 @@ pub fn diff_first_steps_of(value: &str) -> u8 {
 }
 
 /// The steps that are on for the calling thread: its own choice, else the environment's.
-fn diff_first_steps() -> u8 {
-    static FROM_ENVIRONMENT: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+fn diff_first_steps() -> u16 {
+    static FROM_ENVIRONMENT: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
     if let Some(steps) = DIFF_FIRST_ON_THIS_THREAD.with(core::cell::Cell::get) {
         return steps;
     }
@@ -3961,7 +3991,7 @@ pub fn tree_rebuilds_that_kept_rows_on_this_thread() -> usize {
 /// thread (`None`: the environment's again).
 pub fn set_diff_first_steps_on_this_thread(steps: Option<&[DiffFirstStep]>) {
     DIFF_FIRST_ON_THIS_THREAD.with(|choice| {
-        choice.set(steps.map(|steps| steps.iter().fold(0_u8, |bits, step| bits | step.bit())));
+        choice.set(steps.map(|steps| steps.iter().fold(0_u16, |bits, step| bits | step.bit())));
     });
 }
 
@@ -4569,6 +4599,7 @@ impl LayoutWindow {
                 laid_out_with_overlay: false,
                 previous_sizes: Vec::new(),
                 dom_diff_clean: None,
+                cascaded_since_list: None,
                 dom_pairing: None,
                 last_fingerprint_skips: 0,
                 last_patch_move: None,
@@ -8343,6 +8374,7 @@ impl LayoutWindow {
             laid_out_with_overlay: false,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
+            cascaded_since_list: None,
             dom_pairing: None,
             last_fingerprint_skips: 0,
             last_patch_move: None,
@@ -14791,6 +14823,7 @@ impl LayoutWindow {
             laid_out_with_overlay: false,
             previous_sizes: Vec::new(),
             dom_diff_clean: None,
+            cascaded_since_list: None,
             dom_pairing: None,
             last_fingerprint_skips: 0,
             last_patch_move: None,
@@ -15338,6 +15371,20 @@ impl LayoutWindow {
             .virtual_view_manager
             .get_nested_dom_id(parent_dom_id, node_id)
             .is_none_or(|child| self.dom_written_since_its_pass(child));
+        // Step `list`: the cascade epoch of the view's document as it stands before this
+        // render styles anything - the state its display list has to be built from for
+        // the nodes named below to be all that moved since (`CascadedSince`). Read off
+        // the result the cascade keeps its rows from: the live one, or the one a new
+        // generation retired.
+        let epoch_before_render: Option<u64> = self
+            .virtual_view_manager
+            .get_nested_dom_id(parent_dom_id, node_id)
+            .and_then(|child| {
+                self.layout_results
+                    .get(&child)
+                    .or_else(|| self.retired_child_results.get(&child))
+            })
+            .map(|result| result.styled_dom.get_css_property_cache().cascade_epoch);
         // Step `view` of the diff-first pipeline: the DOM comes out of the match below
         // UNSTYLED and is styled after its nodes are paired with the render before
         // (`reconcile_rematerialized_child`), with the sheets hung on the nodes of both
@@ -15405,9 +15452,13 @@ impl LayoutWindow {
                 } else {
                     None
                 };
-                if let Some((kept, restyled, clean)) = kept_document {
+                if let Some((kept, restyled, clean, named)) = kept_document {
                     self.child_dom_fingerprints.insert(child, fingerprints);
-                    cascade = ChildCascade::Kept { restyled, clean };
+                    cascade = ChildCascade::Kept {
+                        restyled,
+                        clean,
+                        named,
+                    };
                     kept
                 } else {
                 styles_moved = self
@@ -15515,17 +15566,32 @@ impl LayoutWindow {
         // was purged). Diff old vs new and drive the same exhaustive
         // `remap_node_ids` driver root migration uses, so state follows
         // content and unmatched nodes are GC'd.
+        // Whether the cascade of this render ran for NAMED nodes only, so that the flags
+        // below say which (`cascade_named`): the kept document's own answer, and for a
+        // paired one the flags themselves, which only a cascade that kept rows hands out.
+        let cascade_named: bool;
         let (entered, restyled, layout_clean) = match cascade {
             // The kept document, styled where it stands: its nodes are the nodes they were,
             // under the ids they had - nothing to pair, nothing entered.
-            ChildCascade::Kept { restyled, clean } => (Vec::new(), Some(restyled), Some(clean)),
-            cascade => self.reconcile_rematerialized_child(
-                child_dom_id,
-                &mut child_styled_dom,
-                (system_callbacks.get_system_time_fn.cb)(),
-                styles_moved,
-                cascade,
-            ),
+            ChildCascade::Kept {
+                restyled,
+                clean,
+                named,
+            } => {
+                cascade_named = named;
+                (Vec::new(), Some(restyled), Some(clean))
+            }
+            cascade => {
+                let paired = self.reconcile_rematerialized_child(
+                    child_dom_id,
+                    &mut child_styled_dom,
+                    (system_callbacks.get_system_time_fn.cb)(),
+                    styles_moved,
+                    cascade,
+                );
+                cascade_named = paired.2.is_some();
+                paired
+            }
         };
         // The CSS diff of the re-render, staged for the layout pass below as the root's is
         // for its own: the retained tree stays warm and re-solves the nodes whose styles
@@ -15545,11 +15611,37 @@ impl LayoutWindow {
         // Not for a document a callback wrote since its last pass
         // (`dom_written_since_its_pass`, read before the render took the document:
         // `written_since_its_pass`): the fingerprints of its boxes are older than the write.
+        // What an earlier render named for a pass that never ran describes a document this
+        // render has styled again or replaced: it is void whatever follows.
+        if let Some(cache) = self.child_layout_caches.get_mut(&child_dom_id) {
+            cache.cascaded_since_list = None;
+        }
         if let (Some(clean), Some(cache), false) = (
             layout_clean,
             self.child_layout_caches.get_mut(&child_dom_id),
             written_since_its_pass,
         ) {
+            // Step `list`: ... and for the display list of that pass, the nodes this render
+            // cascaded or moved in place - every node that is NOT flagged - between the
+            // epoch the document stood at and the one it stands at now
+            // (`solver3::cache::CascadedSince`, which says what the pass makes of it).
+            // Only where the cascade ran for named nodes (not the whole cascade in place,
+            // which made every row again).
+            cache.cascaded_since_list = match epoch_before_render {
+                Some(from_epoch) if cascade_named && diff_first_step(DiffFirstStep::List) => {
+                    Some(solver3::cache::CascadedSince {
+                        from_epoch,
+                        to_epoch: child_styled_dom.get_css_property_cache().cascade_epoch,
+                        nodes: clean
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, clean)| !**clean)
+                            .map(|(index, _)| NodeId::new(index))
+                            .collect(),
+                    })
+                }
+                _ => None,
+            };
             cache.dom_diff_clean = Some(clean);
         }
 
@@ -15631,8 +15723,9 @@ impl LayoutWindow {
     /// (`StyledDom::restyle_changed_nodes_moving`; the whole cascade in place where that
     /// says no). Nothing is flattened, paired (`reconcile_dom`) or remapped.
     ///
-    /// Answers the document, the CSS diff of the restyle (for the pass that lays it out) and
-    /// the nodes the restyle did not touch (`LayoutCache::dom_diff_clean`).
+    /// Answers the document, the CSS diff of the restyle (for the pass that lays it out),
+    /// the nodes the restyle did not touch (`LayoutCache::dom_diff_clean`) and whether the
+    /// cascade ran for the touched nodes alone (`false`: the whole cascade ran in place).
     ///
     /// `None`, having changed NOTHING, where the re-render owes more than that, and the
     /// caller takes the path that pairs the two documents:
@@ -15660,6 +15753,7 @@ impl LayoutWindow {
         StyledDom,
         Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
         Vec<bool>,
+        bool,
     )> {
         use azul_core::layout_inputs::NodeField;
 
@@ -15743,7 +15837,10 @@ impl LayoutWindow {
         // The cascade before is kept beside the new one for the diff below.
         let old_cache = retained.get_css_property_cache().clone();
         let moved_in_place: &[bool] = if any_moved { &moved } else { &[] };
-        if retained.restyle_changed_nodes_moving(&reached, moved_in_place) {
+        // Whether the cascade ran for the named nodes alone (the step `list` hands the
+        // layout their names only then).
+        let named = retained.restyle_changed_nodes_moving(&reached, moved_in_place);
+        if named {
             TREE_REBUILDS_THAT_KEPT_ROWS.with(|count| count.set(count.get() + 1));
         } else {
             // The whole cascade in place, pruned as a created DOM is
@@ -15765,7 +15862,7 @@ impl LayoutWindow {
             (0..node_count).filter(|index| touched(*index)),
         );
         let clean: Vec<bool> = (0..node_count).map(|index| !touched(index)).collect();
-        Some((retained, dirt, clean))
+        Some((retained, dirt, clean, named))
     }
 
     /// Takes back the child result of the view whose child is `child`, when
@@ -20068,7 +20165,9 @@ impl LayoutWindow {
     /// and stages the CSS diff of that for the layout pass that follows, as
     /// [`Self::begin_reconciliation`] stages the diff of a full rebuild. Answers the nodes the
     /// changes reach (`StyledDom::nodes_reached_by_changes`): every other node's cascade,
-    /// boxes and items are what they were.
+    /// boxes and items are what they were - and whether the cascade ran for those nodes
+    /// ALONE (`false`: the whole cascade ran over the kept DOM, and no row is the row it
+    /// was; the step `wlist` names the reached nodes to the layout only on `true`).
     ///
     /// `states_before` are the states the nodes were in before this rebuild raised any: the
     /// diff reads both cascades under them. `reuse_styles` (the step `style` of
@@ -20081,7 +20180,7 @@ impl LayoutWindow {
         replaced: &[(usize, azul_core::dom::NodeData)],
         states_before: &[azul_core::styled_dom::StyledNodeState],
         reuse_styles: bool,
-    ) -> Vec<bool> {
+    ) -> (Vec<bool>, bool) {
         KEPT_DOM_REBUILDS.with(|count| count.set(count.get() + 1));
         let changed: Vec<usize> = replaced.iter().map(|(index, _)| *index).collect();
         let reached = retained.nodes_reached_by_changes(&changed);
@@ -20092,7 +20191,8 @@ impl LayoutWindow {
         // rows; where that cannot be (`CssPropertyCache::recascade_nodes` says when), and
         // without the step, the whole cascade over the kept DOM, under the states its nodes
         // are in.
-        if !(reuse_styles && retained.restyle_changed_nodes(&reached)) {
+        let over_the_nodes = reuse_styles && retained.restyle_changed_nodes(&reached);
+        if !over_the_nodes {
             let css = old_cache.retained_author_css.clone();
             retained.restyle(css);
             // As a DOM that was just created reads: its inherited rows without the resting
@@ -20114,7 +20214,7 @@ impl LayoutWindow {
         let dirt = css_diff_of_kept_dom(&old_cache, retained, replaced, states_before, candidates);
         drop(span_diff);
         self.pending_css_dirty = Some((DomId::ROOT_ID, dirt));
-        reached
+        (reached, over_the_nodes)
     }
 
     /// Reconcile a NEW tree against the one this window currently holds, and
@@ -39186,6 +39286,8 @@ enum ChildCascade {
     Kept {
         restyled: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
         clean: Vec<bool>,
+        /// Whether the cascade ran for the nodes that are not `clean` alone.
+        named: bool,
     },
 }
 

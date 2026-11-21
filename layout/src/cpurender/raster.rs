@@ -11189,6 +11189,7 @@ pub fn render_component_preview(
         laid_out_with_overlay: false,
         previous_sizes: Vec::new(),
         dom_diff_clean: None,
+        cascaded_since_list: None,
         dom_pairing: None,
         last_fingerprint_skips: 0,
         last_patch_move: None,

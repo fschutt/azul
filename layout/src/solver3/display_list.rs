@@ -1637,6 +1637,15 @@ thread_local! {
         const { core::cell::Cell::new(0) };
     /// See [`cached_runs_copied_on_this_thread`].
     static CACHED_RUNS_COPIED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// See [`runs_painted_by_patched_builds_on_this_thread`].
+    static RUNS_PAINTED_BY_PATCHED_BUILDS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+    /// See [`lists_patched_after_a_named_cascade_on_this_thread`].
+    static LISTS_PATCHED_AFTER_A_NAMED_CASCADE: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+    /// See [`lists_patched_across_trees_on_this_thread`].
+    static LISTS_PATCHED_ACROSS_TREES: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
 }
 
 /// What the patched builds of the calling thread do with the run of a box
@@ -1703,6 +1712,47 @@ pub fn translated_runs_painted_anew_on_this_thread() -> usize {
 #[must_use]
 pub fn cached_runs_copied_on_this_thread() -> usize {
     CACHED_RUNS_COPIED.with(core::cell::Cell::get)
+}
+
+/// How many paint calls the patched builds of the calling thread made
+/// themselves, for a box they could not copy the run of: one in the re-emit
+/// set (styled again, fresh, reflowed, resized, paint-dirty), one that moved,
+/// one a tween frame had translated. With
+/// [`cached_runs_copied_on_this_thread`]: what a patched build painted and
+/// what it copied (a call for a box that painted nothing before and paints
+/// nothing now counts as neither).
+#[must_use]
+pub fn runs_painted_by_patched_builds_on_this_thread() -> usize {
+    RUNS_PAINTED_BY_PATCHED_BUILDS.with(core::cell::Cell::get)
+}
+
+/// How many display lists the calling thread patched although the cascade
+/// epoch had moved since the list before was built, because the producer of
+/// the pass named the nodes it had cascaded (`cache::CascadedSince`, the step
+/// `list` of the diff-first pipeline): what a test reads to say a view's
+/// re-render took that path.
+#[must_use]
+pub fn lists_patched_after_a_named_cascade_on_this_thread() -> usize {
+    LISTS_PATCHED_AFTER_A_NAMED_CASCADE.with(core::cell::Cell::get)
+}
+
+/// Counts one list for [`lists_patched_after_a_named_cascade_on_this_thread`].
+pub(crate) fn count_list_patched_after_a_named_cascade() {
+    LISTS_PATCHED_AFTER_A_NAMED_CASCADE.with(|n| n.set(n.get() + 1));
+}
+
+/// How many display lists the calling thread patched ACROSS A CHANGED TREE
+/// (`PatchState::build_across_trees`, the step `tlist` of the diff-first
+/// pipeline): the runs of the boxes the reconcile carried over were copied
+/// from a list built for another tree.
+#[must_use]
+pub fn lists_patched_across_trees_on_this_thread() -> usize {
+    LISTS_PATCHED_ACROSS_TREES.with(core::cell::Cell::get)
+}
+
+/// Counts one list for [`lists_patched_across_trees_on_this_thread`].
+pub(crate) fn count_list_patched_across_trees() {
+    LISTS_PATCHED_ACROSS_TREES.with(|n| n.set(n.get() + 1));
 }
 
 /// Which emission site produced a display-list item. See
@@ -6840,6 +6890,106 @@ impl<'a> PatchState<'a> {
             translated: std::collections::BTreeSet::new(),
         })
     }
+
+    /// [`Self::build`] for a list whose layout tree is ANOTHER tree than the one `prev`
+    /// was built from (a node came or went: the step `tlist` of the diff-first
+    /// pipeline). `new_of_old` is where the reconcile carried each box of the old tree
+    /// (`ReconciliationResult::carried_indices`: old layout index -> new layout index).
+    /// `prev_positions` and `prev_sizes` are indexed as the OLD tree, `new_positions`,
+    /// `new_sizes` and `reemit` as the new one, and so is everything the state holds:
+    /// the runs of `prev` are re-keyed to the box each was carried to (the run of a box
+    /// that went is dropped), a box's move is its place now less the place of the box
+    /// it was carried from. A box that came, one whose size is not its old box's, and
+    /// one a tween frame had translated in `prev` re-emit. Never a tween frame: a tree
+    /// that changed is no frame of a tween.
+    pub(crate) fn build_across_trees(
+        prev: &'a DisplayList,
+        prev_positions: &[LogicalPosition],
+        new_positions: &[LogicalPosition],
+        prev_sizes: &[Option<LogicalSize>],
+        new_sizes: &[Option<LogicalSize>],
+        reemit: &std::collections::BTreeSet<usize>,
+        new_of_old: &HashMap<usize, usize>,
+    ) -> Option<Self> {
+        if prev.layout_node_mapping.len() != prev.items.len() {
+            return None;
+        }
+        let new_len = new_positions.len().max(new_sizes.len());
+        let mut old_of_new: Vec<Option<usize>> = vec![None; new_len];
+        for (old, new) in new_of_old {
+            if let Some(slot) = old_of_new.get_mut(*new) {
+                *slot = Some(*old);
+            }
+        }
+
+        let mut reemit: std::collections::BTreeSet<usize> = reemit.clone();
+        let mut deltas = vec![LogicalPosition::zero(); new_positions.len()];
+        for (new, old) in old_of_new.iter().enumerate() {
+            let Some(old) = *old else {
+                // It came with this tree: the list before holds nothing of it.
+                reemit.insert(new);
+                continue;
+            };
+            match (prev_sizes.get(old), new_sizes.get(new)) {
+                (Some(before), Some(now)) if before == now => {}
+                _ => {
+                    reemit.insert(new);
+                }
+            }
+            match (prev_positions.get(old), new_positions.get(new), deltas.get_mut(new)) {
+                (Some(before), Some(now), Some(delta)) => {
+                    *delta = LogicalPosition {
+                        x: now.x - before.x,
+                        y: now.y - before.y,
+                    };
+                }
+                _ => {
+                    reemit.insert(new);
+                }
+            }
+            if prev.translated_since_painted.contains(&old) {
+                reemit.insert(new);
+            }
+        }
+
+        // Contiguous same-(node, phase) runs of the list before, under the index each
+        // box has now.
+        let mut runs: HashMap<(usize, u8), std::collections::VecDeque<(usize, usize)>> =
+            HashMap::new();
+        let mut i = 0usize;
+        while i < prev.items.len() {
+            let tag = prev.layout_node_mapping[i];
+            let start = i;
+            while i < prev.items.len() && prev.layout_node_mapping[i] == tag {
+                i += 1;
+            }
+            let Some((old_node, phase)) = tag else {
+                continue;
+            };
+            // The box went with the old tree: its run goes with it.
+            let Some(node) = new_of_old.get(&old_node).copied() else {
+                continue;
+            };
+            if !matches!(phase, EmitPhase::ScWalk | EmitPhase::Selection) {
+                if prev.items[start..i].iter().all(patchable_item) {
+                    runs.entry((node, phase as u8))
+                        .or_default()
+                        .push_back((start, i));
+                } else {
+                    reemit.insert(node);
+                }
+            }
+        }
+
+        Some(Self {
+            prev,
+            runs,
+            deltas,
+            reemit,
+            translate_moved: false,
+            translated: std::collections::BTreeSet::new(),
+        })
+    }
 }
 
 // +spec:stacking-contexts:9e85a3 - Stacking context tree: hierarchical, nested, atomic painting
@@ -7203,6 +7353,7 @@ where
             return false;
         };
         if patch.reemit.contains(&node_index) {
+            RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
             return false;
         }
         let Some(run) = patch
@@ -7265,11 +7416,13 @@ where
             MovedRunPolicy::TweenFramesTranslate | MovedRunPolicy::NeverTranslate => {
                 if moved {
                     MOVED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
+                    RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
                     drop(crate::probe::Probe::span("dl_patch_moved"));
                     return false;
                 }
                 if recorded {
                     TRANSLATED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
+                    RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
                     drop(crate::probe::Probe::span("dl_patch_settled"));
                     return false;
                 }
