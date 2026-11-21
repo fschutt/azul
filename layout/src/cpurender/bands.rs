@@ -182,12 +182,13 @@ pub(crate) fn paint_rect(
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
     sr: &SnappedRect,
-    clear: (u8, u8, u8, u8),
+    clear: Option<(u8, u8, u8, u8)>,
 ) -> Result<(usize, usize), String> {
     let threads = threads_for(render_state.paint_threads);
     // A target cleared to a colour that is not opaque has text that picks its path by what lies
     // under each run: one pass (see the module).
-    let bands = if clear.3 == 255 {
+    let cleared_to = clear.map_or(render_state.clear_color[3], |c| c.3);
+    let bands = if cleared_to == 255 {
         plan_bands([sr.x0, sr.y0, sr.x1, sr.y1], pixmap.width(), threads)
     } else {
         Vec::new()
@@ -239,7 +240,7 @@ fn paint_band(
     font_manager: &FontManager<FontRef>,
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
-    clear: (u8, u8, u8, u8),
+    clear: Option<(u8, u8, u8, u8)>,
 ) -> Result<(usize, usize), String> {
     let stride = frame.0 as usize * 4;
     let [x0, y0, x1, y1] = band;
@@ -311,7 +312,7 @@ fn paint_bands(
     render_state: &CpuRenderState,
     bands: &[[i32; 4]],
     threads: usize,
-    clear: (u8, u8, u8, u8),
+    clear: Option<(u8, u8, u8, u8)>,
 ) -> Result<(usize, usize), String> {
     let frame = (pixmap.width(), pixmap.height());
     let stride = frame.0 as usize * 4;

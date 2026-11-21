@@ -4179,7 +4179,7 @@ pub fn render_display_list_damaged(
             glyph_cache,
             render_state,
             sr,
-            clear,
+            Some(clear),
         )?;
         if damage_logging_enabled() {
             eprintln!(
@@ -4200,6 +4200,53 @@ pub fn render_display_list_damaged(
     Ok(rects.iter().map(|r| r.logical).collect())
 }
 
+/// Does a full repaint of `display_list` need the layered compositor? Only for a `filter` that
+/// the flat walk does not apply: the walk isolates `flood()` and `composite()` groups itself,
+/// and a blur (or any other filter) is applied to a layer when layers are composited.
+#[must_use]
+pub fn full_repaint_needs_layers(display_list: &DisplayList) -> bool {
+    display_list.items.iter().any(|item| match item {
+        DisplayListItem::PushFilter { filters, .. } => filters
+            .iter()
+            .any(|f| !matches!(f, StyleFilter::Flood(_) | StyleFilter::Composite(_))),
+        _ => false,
+    })
+}
+
+/// A full repaint of a frame the caller has cleared: the damaged walk over the whole frame,
+/// which is painted in bands on a few threads when it is large (`bands`), with the pixels of
+/// the walk that repaints its parts later (one path for a frame and for its damage: what a
+/// damage rect repaints is by construction what the full frame painted there).
+///
+/// # Errors
+///
+/// Returns an error string if rendering fails.
+pub fn render_display_list_whole(
+    display_list: &DisplayList,
+    pixmap: &mut AzulPixmap,
+    dpi_factor: f32,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    glyph_cache: &mut GlyphCache,
+    render_state: &CpuRenderState,
+) -> Result<(), String> {
+    let _p = crate::probe::Probe::span("raster_whole");
+    #[allow(clippy::cast_possible_wrap)] // a pixmap's sides
+    let sr = SnappedRect::from_physical(0, 0, pixmap.width() as i32, pixmap.height() as i32, dpi_factor);
+    super::bands::paint_rect(
+        display_list,
+        pixmap,
+        dpi_factor,
+        renderer_resources,
+        font_manager,
+        glyph_cache,
+        render_state,
+        &sr,
+        None,
+    )
+    .map(|_| ())
+}
+
 /// One pass of the damaged walk: clear the rect `sr` of `pixmap` to `clear` and paint the items
 /// of `display_list` that reach it, clipped to it, with stacks of its own. The unit a frame's
 /// repaint is made of: a damage rect, or one band of rows of one (`bands`). A pass writes no
@@ -4218,10 +4265,14 @@ pub(crate) fn paint_damage_rect(
     glyph_cache: &mut GlyphCache,
     render_state: &CpuRenderState,
     sr: &SnappedRect,
-    (cr, cg, cb, ca): (u8, u8, u8, u8),
+    // The colour the rect is cleared to first; `None` for a target the caller has cleared (a
+    // full repaint fills the frame once).
+    clear: Option<(u8, u8, u8, u8)>,
 ) -> Result<(usize, usize), String> {
-    crate::cpu_counters::count(crate::cpu_counters::Counter::PxCleared, u64::from((sr.x1 - sr.x0) as u32) * u64::from((sr.y1 - sr.y0) as u32));
-    pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
+    if let Some((cr, cg, cb, ca)) = clear {
+        crate::cpu_counters::count(crate::cpu_counters::Counter::PxCleared, u64::from((sr.x1 - sr.x0) as u32) * u64::from((sr.y1 - sr.y0) as u32));
+        pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
+    }
 
     let base_clip = AzRect::from_xywh(
         sr.x0 as f32,
@@ -17502,5 +17553,39 @@ mod audit_a1_tests {
         let strip = [rect(100.0, 60.0, 130.0, 90.0)];
         render_display_list_damaged(&host, &mut damaged, 1.0, &rr, &fm, &mut gc, &state.with_paint_threads(1), &strip).unwrap();
         assert_eq!(differing_pixels(&damaged, &direct), 0, "damaged == full");
+    }
+
+    /// A1-21: a full repaint goes through the walk that repaints damage, in bands: the frame of
+    /// `render_display_list_whole` on four threads is the frame of the plain full walk, pixel
+    /// for pixel, it clears nothing (the caller filled the frame), and a list without a filter
+    /// that only layers apply does not need the layered compositor.
+    /// Mutation: a band that clears its rect although the frame was filled counts the
+    /// cleared pixels; a whole-frame rect of the logical size at a scale factor of 2 leaves
+    /// three quarters of the frame unpainted.
+    #[test]
+    fn a_full_repaint_in_bands_is_the_full_walk() {
+        let font = test_font();
+        let (rr, fm, font_hash) = resources(font.as_ref());
+        let dl = seam_page(font.as_ref().zip(font_hash));
+        assert!(!full_repaint_needs_layers(&dl));
+        for dpi in [1.0_f32, 2.0] {
+            let paint = |banded: bool| {
+                let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(4);
+                let mut pm = AzulPixmap::new(900, 700).unwrap();
+                pm.fill(255, 255, 255, 255);
+                let mut gc = GlyphCache::new();
+                crate::cpu_counters::reset();
+                if banded {
+                    render_display_list_whole(&dl, &mut pm, dpi, &rr, &fm, &mut gc, &state).unwrap();
+                } else {
+                    render_display_list_with_state(&dl, &mut pm, dpi, &rr, &fm, &mut gc, &state).unwrap();
+                }
+                (pm, crate::cpu_counters::take())
+            };
+            let (banded, counted) = paint(true);
+            let (plain, _) = paint(false);
+            assert_eq!((counted.bands, counted.px_cleared), (3, 0), "dpi {dpi}: {counted:?}");
+            assert_eq!(differing_pixels(&banded, &plain), 0, "dpi {dpi}: the banded full repaint is the full walk");
+        }
     }
 }

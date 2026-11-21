@@ -125,8 +125,12 @@ pub struct CpuBackend {
     /// Last rendered pixmap (if CPU rendering is enabled).
     /// `None` when rendering is disabled (layout-only mode).
     pub last_frame: Option<crate::cpurender::AzulPixmap>,
-    /// Retained compositor state with per-layer pixbufs.
+    /// Retained compositor state with per-layer pixbufs. Made by the first full repaint that
+    /// needs layers (`cpurender::full_repaint_needs_layers`), `None` until then and after a
+    /// resize.
     pub compositor: Option<crate::cpurender::CompositorState>,
+    /// The frame's size in device pixels at the last `render_frame`, to tell a resize.
+    pub last_frame_px: Option<(u32, u32)>,
     /// Glyph cache — persists across frames for text rendering.
     pub glyph_cache: crate::glyph_cache::GlyphCache,
     /// Previous display list for damage rect computation.
@@ -280,6 +284,7 @@ impl CpuBackend {
             applied_shape: None,
             last_frame: None,
             compositor: None,
+            last_frame_px: None,
             glyph_cache: crate::glyph_cache::GlyphCache::new(),
             force_full_repaint: false,
             previous_display_list: None,
@@ -414,10 +419,9 @@ impl CpuBackend {
             );
             [c.r, c.g, c.b, c.a]
         };
-        let compositor = self
-            .compositor
-            .get_or_insert_with(|| cpurender::CompositorState::new(pixel_w, pixel_h));
-        compositor.set_clear_color(clear_color);
+        // The layered compositor is made when a frame needs it (a full repaint of a list with
+        // a filter only layers apply): its root layer is a second buffer of the window's size,
+        // and a window that never needs it does not hold one.
 
         // A different canvas colour invalidates every reused pixel, so this
         // frame cannot be incremental no matter what the display-list diff
@@ -440,12 +444,9 @@ impl CpuBackend {
         }
         let clear_color_changed = clear_color_changed || dpi_changed;
 
-        // Check if we need to resize the root layer
-        let root = compositor.layers.get(&compositor.root_layer);
-        let (old_pw, old_ph) = match root {
-            Some(layer) => (layer.pixbuf.width(), layer.pixbuf.height()),
-            None => (0, 0),
-        };
+        // Did the frame change its size since the last call?
+        let (old_pw, old_ph) = self.last_frame_px.unwrap_or((0, 0));
+        self.last_frame_px = Some((pixel_w, pixel_h));
         let needs_resize = old_pw != pixel_w || old_ph != pixel_h;
 
         let mut resize_damage = Vec::new();
@@ -459,16 +460,9 @@ impl CpuBackend {
             let is_grow = pixel_w >= old_pw && pixel_h >= old_ph && old_pw > 0 && old_ph > 0;
             if is_grow {
                 resize_preserved_pixels = true;
-                // Grow-only: resize root layer pixbuf, keep old content
-                if let Some(root_layer) = compositor.layers.get_mut(&compositor.root_layer) {
-                    let _ = root_layer
-                        .pixbuf
-                        .resize_grow_only(pixel_w, pixel_h, 255, 255, 255, 255);
-                    root_layer.bounds.size = azul_core::geom::LogicalSize {
-                        width: pixel_w as f32,
-                        height: pixel_h as f32,
-                    };
-                }
+                // The layers (if there are any) are made again at the new size by the frame
+                // that needs them; the frame itself keeps its pixels (`resize_reuse` below).
+                self.compositor = None;
                 // Damage rects are LOGICAL everywhere downstream (the renderer
                 // multiplies by dpi_factor) — convert the physical pixbuf dims
                 // back to logical, or at dpi≠1 the exposed strips land at
@@ -488,7 +482,7 @@ impl CpuBackend {
                 // valid and only the strip a side gained is unknown
                 // (`compute_resize_damage`: none for a shrink). Every step
                 // of a shrinking window-edge drag repainted the whole window.
-                *compositor = cpurender::CompositorState::new(pixel_w, pixel_h);
+                self.compositor = None;
                 if old_pw > 0 && old_ph > 0 {
                     resize_preserved_pixels = true;
                     resize_damage = cpurender::compute_resize_damage(
@@ -1345,23 +1339,45 @@ impl CpuBackend {
                 clear_color[2],
                 clear_color[3],
             );
-            compositor.allocate_layers_from_display_list(
+            // The walk that repaints damage paints the full frame, too, in bands: a first
+            // frame and every frame of a live resize are full repaints. The layered
+            // compositor is for a list whose filters only it applies (a blur), and for
+            // `AZ_CPU_FULL=layers` (the path before, for comparing the two).
+            let layered = cpurender::full_repaint_needs_layers(display_list)
+                || std::env::var("AZ_CPU_FULL").is_ok_and(|v| v == "layers");
+            if layered {
+                let compositor = self
+                    .compositor
+                    .get_or_insert_with(|| cpurender::CompositorState::new(pixel_w, pixel_h));
+                compositor.set_clear_color(clear_color);
+                compositor.allocate_layers_from_display_list(
+                    display_list,
+                    dpi_factor,
+                    &render_state.transforms,
+                    &render_state.opacities,
+                );
+                if let Err(e) = compositor.render_layers(
+                    display_list,
+                    dpi_factor,
+                    renderer_resources,
+                    &layout_window.font_manager,
+                    &mut self.glyph_cache,
+                    &render_state,
+                ) {
+                    eprintln!("[CpuBackend] render_layers error: {e}");
+                }
+                compositor.composite_frame(&mut output, dpi_factor);
+            } else if let Err(e) = cpurender::render_display_list_whole(
                 display_list,
-                dpi_factor,
-                &render_state.transforms,
-                &render_state.opacities,
-            );
-            if let Err(e) = compositor.render_layers(
-                display_list,
+                &mut output,
                 dpi_factor,
                 renderer_resources,
                 &layout_window.font_manager,
                 &mut self.glyph_cache,
                 &render_state,
             ) {
-                eprintln!("[CpuBackend] render_layers error: {e}");
+                eprintln!("[CpuBackend] render_display_list_whole error: {e}");
             }
-            compositor.composite_frame(&mut output, dpi_factor);
             // The design doc's invariant: the rendered frame is B ∪ zombies.
             layout_window.composite_zombies_cpu(
                 &mut output,
