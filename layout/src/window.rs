@@ -30405,6 +30405,11 @@ impl LayoutWindow {
             self.gpu_state_manager.scrollbar_fade_left_ms.remove(&child);
             self.gpu_state_manager.scrollbar_fade_ends.remove(&child);
             self.gl_texture_cache.solved_textures.remove(&child);
+            // A9-04: and what is kept per child DOM: a remounted view gets a new nested
+            // `DomId`, so nothing reads these again (a 12.5k-node child: 200 KB of
+            // fingerprints and its whole layout cache, per unmount).
+            self.child_dom_fingerprints.remove(&child);
+            self.child_layout_caches.remove(&child);
         }
     }
 }

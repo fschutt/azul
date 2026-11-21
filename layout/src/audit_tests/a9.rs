@@ -68,3 +68,52 @@ fn a9_01_accumulated_damage_stays_bounded_over_a_long_gpu_session() {
     }
     assert_eq!(report.accumulated_paint_damage.rect_count(), 5);
 }
+
+/// A9-04: a rebuild that unmounts a VirtualView's host drops what the window keeps per child
+/// DOM (its fingerprints and its layout cache), as it already dropped the child's GPU value
+/// cache: a remounted view gets a new nested `DomId`, so the old entries were dead weight,
+/// one set per unmount, for the life of the window.
+#[cfg(feature = "text_layout")]
+#[test]
+fn a9_04_a_dropped_child_leaves_no_fingerprints_or_layout_cache() {
+    use azul_core::dom::{DomId, NodeId};
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{managers::NodeIdMap, window::LayoutWindow};
+
+    let fingerprints = |n: usize| azul_core::diff::DomFingerprints {
+        structure: vec![1; n],
+        style: vec![2; n],
+        structure_root: 1,
+        style_root: 2,
+    };
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let host = NodeId::new(3);
+    let child = lw
+        .virtual_view_manager
+        .get_or_create_nested_dom_id(DomId::ROOT_ID, host);
+    lw.child_dom_fingerprints.insert(child, fingerprints(12_500));
+    lw.child_layout_caches.insert(child, Default::default());
+
+    // A rebuild of the root that keeps the host keeps the child's state.
+    lw.remap_node_ids(DomId::ROOT_ID, &NodeIdMap::from_pairs([(host, host)]));
+    assert!(lw.child_dom_fingerprints.contains_key(&child));
+    assert!(lw.child_layout_caches.contains_key(&child));
+
+    // One that unmounts it drops it (mutant: without the two removes both stay).
+    lw.remap_node_ids(DomId::ROOT_ID, &NodeIdMap::default());
+    assert!(!lw.child_dom_fingerprints.contains_key(&child), "fingerprints of a dead child");
+    assert!(!lw.child_layout_caches.contains_key(&child), "layout cache of a dead child");
+
+    // A hundred mounts and unmounts of the view leave nothing behind.
+    for _ in 0..100 {
+        let child = lw
+            .virtual_view_manager
+            .get_or_create_nested_dom_id(DomId::ROOT_ID, host);
+        lw.child_dom_fingerprints.insert(child, fingerprints(64));
+        lw.child_layout_caches.insert(child, Default::default());
+        lw.remap_node_ids(DomId::ROOT_ID, &NodeIdMap::default());
+    }
+    assert_eq!(lw.child_dom_fingerprints.len(), 0);
+    assert_eq!(lw.child_layout_caches.len(), 0);
+}
