@@ -71,9 +71,6 @@ static CONTROLS: std::sync::OnceLock<Agile<SystemMediaTransportControls>> =
 /// guessing with `GetForegroundWindow`, which would attach us to whatever the
 /// user happened to be looking at.
 pub fn start(hwnd: isize) {
-    if !azul_layout::window::expose_system_media_controls() {
-        return;
-    }
     if hwnd == 0 {
         return;
     }

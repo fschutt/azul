@@ -76,6 +76,7 @@ use crate::{
     desktop::{
         shell2::common::{
             accessibility::A11yActionQueue,
+            app_shared::AppShared,
             debug_server::{self, LogCategory},
             event::{self, CommonWindowState, HitTestNode, PlatformWindow},
             WindowError,
@@ -423,10 +424,40 @@ impl HeadlessWindow {
     /// 3. Sets up the `CpuBackend`
     ///
     /// No system resources (window handle, GL context) are allocated.
+    ///
+    /// The window is an app of its own: its mode starts as `config.mode` says, and a language or
+    /// a mode it chooses is its own (nothing is shared with another window - or another test -
+    /// of the process). The windows of ONE app share theirs through [`Self::with_app_shared`].
     pub fn new(
         options: WindowCreateOptions,
         app_data: Arc<RefCell<RefAny>>,
         undo_manager: event::SharedUndoManager,
+        config: AppConfig,
+        icon_provider: SharedIconProvider,
+        fc_cache: Arc<FcFontCache>,
+        font_registry: Option<Arc<FcFontRegistry>>,
+    ) -> Result<Self, WindowError> {
+        let app_shared = Arc::new(AppShared::new(&config));
+        Self::with_app_shared(
+            options,
+            app_data,
+            undo_manager,
+            app_shared,
+            config,
+            icon_provider,
+            fc_cache,
+            font_registry,
+        )
+    }
+
+    /// [`Self::new`] for a window of the app that owns `app_shared`: the run loop hands its
+    /// app's choices (the mode, the language, ...) to the windows it builds, and a window opens
+    /// in what the app chose last.
+    pub fn with_app_shared(
+        options: WindowCreateOptions,
+        app_data: Arc<RefCell<RefAny>>,
+        undo_manager: event::SharedUndoManager,
+        app_shared: Arc<AppShared>,
         config: AppConfig,
         icon_provider: SharedIconProvider,
         fc_cache: Arc<FcFontCache>,
@@ -442,15 +473,14 @@ impl HeadlessWindow {
         // Create layout window — same as real platforms
         let mut layout_window = LayoutWindow::new(fc_cache.as_ref().clone())
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
-        // Headless = the e2e test driver: deterministic, no caret / selection
-        // tween (a screenshot must never catch geometry mid-glide).
-        layout_window.system_animations_override =
-            Some(azul_core::resources::SystemAnimations::disabled());
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
-        layout_window.set_app_localization(&config);
-        layout_window.set_app_e2e(&config);
-        layout_window.set_app_node_identity(&config);
+        app_shared.seed_window(&mut layout_window, &config);
+        // Headless = the e2e test driver: deterministic, no caret / selection
+        // tween (a screenshot must never catch geometry mid-glide). After the seed, which
+        // takes the config's animations: this window never runs them.
+        layout_window.system_animations_override =
+            Some(azul_core::resources::SystemAnimations::disabled());
         // A recording web view backend (`HeadlessWebViews`): `<webview>`s are
         // created and placed through it, and their pages played by the test.
         layout_window
@@ -480,6 +510,7 @@ impl HeadlessWindow {
             Arc::new(config.system_style.clone()),
             app_data,
             undo_manager,
+            app_shared,
         );
         common.layout_window = Some(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
@@ -1184,10 +1215,13 @@ impl HeadlessWindow {
                 "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
                 pending_create.window_state.flags.window_type
             );
-            match HeadlessWindow::new(
+            match HeadlessWindow::with_app_shared(
                 pending_create,
                 self.common.app_data.clone(),
                 self.common.undo_manager.clone(),
+                // The child is a window of the same app: it opens in the mode and the
+                // language the app chose last.
+                self.common.app.clone(),
                 self.config.clone(),
                 self.icon_provider.clone(),
                 self.common.fc_cache.clone(),
@@ -6407,6 +6441,22 @@ mod tests {
 
     /// [`labels_window`] with the labels' `:hover` rule declaring `hover`.
     fn labels_window_hovering(hover: &'static str) -> (HeadlessWindow, LabelHovers) {
+        labels_window_under(hover, azul_layout::window::WindowSwitches::default())
+    }
+
+    /// [`labels_window`] for a window that binds a state colour when a state first PAINTS it
+    /// (A3-window-50) and not from the build of the list (A3-window-55).
+    fn labels_window_bound_when_painted() -> (HeadlessWindow, LabelHovers) {
+        let mut switches = azul_layout::window::WindowSwitches::default();
+        switches.set_state_colors_from_the_build(Some(false));
+        labels_window_under(LABEL_HOVER_PAINT, switches)
+    }
+
+    /// [`labels_window_hovering`] with the window's switches chosen before its first layout.
+    fn labels_window_under(
+        hover: &'static str,
+        switches: azul_layout::window::WindowSwitches,
+    ) -> (HeadlessWindow, LabelHovers) {
         use std::sync::atomic::AtomicUsize;
 
         let hovers = LabelHovers {
@@ -6418,6 +6468,12 @@ mod tests {
             content: RefAny::new(hovers.clone()),
         })));
         let mut window = make_window_sized(&state, labels_layout, 600.0, 300.0);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .switches = switches;
         window.regenerate_layout().expect("initial layout");
         window.regenerate_layout().expect("settle");
         window.common.drain_virtual_view_updates();
@@ -6477,12 +6533,7 @@ mod tests {
     /// which is the default, is the test below.
     #[test]
     fn a_mouse_move_over_the_text_of_labels_costs_no_layout_and_no_rebuild_of_the_windows_list() {
-        azul_layout::window::set_state_colors_from_the_build_on_this_thread(Some(false));
-        let swept = std::panic::catch_unwind(|| a_sweep_over_the_labels(false));
-        azul_layout::window::set_state_colors_from_the_build_on_this_thread(None);
-        if let Err(panic) = swept {
-            std::panic::resume_unwind(panic);
-        }
+        a_sweep_over_the_labels(false);
     }
 
     /// Audit A4-23, the eager binding (A3-window-55): the same sweep changes NO list. Every
@@ -6503,7 +6554,11 @@ mod tests {
     fn a_sweep_over_the_labels(by_value: bool) {
         use std::sync::atomic::Ordering;
 
-        let (mut window, hovers) = labels_window();
+        let (mut window, hovers) = if by_value {
+            labels_window()
+        } else {
+            labels_window_bound_when_painted()
+        };
         // The pointer arrives over empty ground; the baseline is taken from there.
         step(&mut window, HeadlessEvent::MouseMove { x: 300.0, y: 290.0 });
         let (root_before, child_before) = lists_of(&window);
@@ -14071,12 +14126,24 @@ mod tests {
     fn a3w_rebuild(window: &mut HeadlessWindow, diff_first: bool) {
         use crate::desktop::shell2::common::event::PlatformWindow;
 
-        azul_layout::window::set_diff_first_on_this_thread(Some(diff_first));
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .switches
+            .set_diff_first(Some(diff_first));
         window
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         let result = window.regenerate_layout();
-        azul_layout::window::set_diff_first_on_this_thread(None);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .switches
+            .set_diff_first(None);
         result.expect("the rebuild");
         let _ = window.common.take_regeneration();
     }
@@ -14382,6 +14449,12 @@ mod tests {
         })))
     }
 
+    /// What `window` has done, counted by its own layout window (`LayoutWindow::work`): every
+    /// window counts for itself, so a test reads the window it drives.
+    fn work_of(window: &HeadlessWindow) -> &azul_layout::window::WindowWork {
+        &window.common.layout_window.as_ref().expect("a layout window").work
+    }
+
     fn df_window(state: &Arc<RefCell<RefAny>>) -> HeadlessWindow {
         let mut window = make_window_sized(state, df_layout, 400.0, 600.0);
         window.regenerate_layout().expect("initial layout");
@@ -14401,12 +14474,24 @@ mod tests {
     fn df_rebuild(window: &mut HeadlessWindow, steps: &[azul_layout::window::DiffFirstStep]) {
         use crate::desktop::shell2::common::event::PlatformWindow;
 
-        azul_layout::window::set_diff_first_steps_on_this_thread(Some(steps));
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .switches
+            .set_diff_first_steps(Some(steps));
         window
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         let result = window.regenerate_layout();
-        azul_layout::window::set_diff_first_steps_on_this_thread(None);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .switches
+            .set_diff_first_steps(None);
         result.expect("the rebuild");
         let _ = window.common.take_regeneration();
     }
@@ -14524,7 +14609,7 @@ mod tests {
         pointer: bool,
         siblings: bool,
     ) -> usize {
-        let kept_rows_before = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        let mut kept_rows = 0;
         for seed in [1u64, 7, 20261121] {
             let state_first = df_state_with(12, siblings);
             let state_full = df_state_with(12, siblings);
@@ -14565,8 +14650,10 @@ mod tests {
                     differs.and_then(|line| right.get(line)),
                 );
             }
+            kept_rows +=
+                work_of(&first).tree_rebuilds_that_kept_rows() + work_of(&full).tree_rebuilds_that_kept_rows();
         }
-        azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept_rows_before
+        kept_rows
     }
 
     /// How to read a failure: the message names the seed, the step and its kind
@@ -14632,14 +14719,14 @@ mod tests {
         });
         let whole = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
         let nodes = azul_core::styled_dom::nodes_cascaded_on_this_thread();
-        let kept = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        let kept = work_of(&window).tree_rebuilds_that_kept_rows();
         df_rebuild(&mut window, steps);
         let lw = window.common.layout_window.as_ref().expect("a layout window");
         (
             azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - whole,
             azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
             lw.layout_cache.last_reconcile_fresh,
-            azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept,
+            lw.work.tree_rebuilds_that_kept_rows() - kept,
         )
     }
 
@@ -15440,7 +15527,7 @@ mod tests {
             callbacks::RelayoutReason, dom::flat_expansions_on_this_thread as expansions,
             styled_dom::nodes_cascaded_on_this_thread as cascaded,
         };
-        use azul_layout::window::{kept_dom_rebuilds_on_this_thread as kept, DiffFirstStep};
+        use azul_layout::window::DiffFirstStep;
 
         use crate::desktop::shell2::common::{
             event::PlatformWindow, layout::LayoutRegenerateResult,
@@ -15499,12 +15586,16 @@ mod tests {
         for state in [&flat_state, &tree_state] {
             df_change(state, |page| page.rows[7].kind = (page.rows[7].kind + 1) % 4);
         }
-        let before = kept();
+        let before = work_of(&flat).kept_dom_rebuilds();
         df_rebuild(&mut flat, &DiffFirstStep::ALL);
-        let flat_kept = kept() - before;
-        let before = kept();
+        let flat_kept = work_of(&flat).kept_dom_rebuilds() - before;
+        let before = work_of(&tree).kept_dom_rebuilds();
         df_rebuild(&mut tree, &DiffFirstStep::ALL);
-        assert_eq!(flat_kept, kept() - before, "a changed class takes the same exit");
+        assert_eq!(
+            flat_kept,
+            work_of(&tree).kept_dom_rebuilds() - before,
+            "a changed class takes the same exit"
+        );
         assert_eq!(dump(&flat), dump(&tree), "after a changed class");
 
         // A row added (the tree changed), then the same page again.
@@ -15532,12 +15623,12 @@ mod tests {
         let state = df_state(rows);
         let mut window = df_window(&state);
         df_change(&state, change);
-        let kept = azul_layout::window::kept_dom_rebuilds_on_this_thread();
+        let kept = work_of(&window).kept_dom_rebuilds();
         let cascades = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
         df_rebuild(&mut window, steps);
         let lw = window.common.layout_window.as_ref().expect("a layout window");
         (
-            azul_layout::window::kept_dom_rebuilds_on_this_thread() - kept,
+            lw.work.kept_dom_rebuilds() - kept,
             azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - cascades,
             lw.layout_cache.last_reconcile_fresh,
         )
@@ -15578,7 +15669,7 @@ mod tests {
     /// every step.
     #[test]
     fn the_steps_of_the_switch_are_named_one_by_one() {
-        use azul_layout::window::{diff_first_step, diff_first_steps_of, DiffFirstStep};
+        use azul_layout::window::{diff_first_steps_of, DiffFirstStep, WindowSwitches};
 
         let on = |value: &str| -> Vec<&'static str> {
             let bits = diff_first_steps_of(value);
@@ -15607,13 +15698,13 @@ mod tests {
         assert_eq!(on("nodes, style"), vec!["nodes", "style"]);
         assert_eq!(on("text,bogus"), vec!["text"], "an unknown name beside a known one is skipped");
 
-        azul_layout::window::set_diff_first_steps_on_this_thread(Some(&[DiffFirstStep::Nodes]));
+        let mut switches = WindowSwitches::default();
+        switches.set_diff_first_steps(Some(&[DiffFirstStep::Nodes]));
         let chosen = (
-            diff_first_step(DiffFirstStep::Text),
-            diff_first_step(DiffFirstStep::Nodes),
-            azul_layout::window::diff_first_enabled(),
+            switches.diff_first_step(DiffFirstStep::Text),
+            switches.diff_first_step(DiffFirstStep::Nodes),
+            switches.diff_first_enabled(),
         );
-        azul_layout::window::set_diff_first_steps_on_this_thread(None);
         assert_eq!(chosen, (false, true, true));
     }
 
@@ -15726,12 +15817,12 @@ mod tests {
         df_change(&state, |page| page.rows[2].place = 4);
         let mut window = df_window(&state);
         df_change(&state, change);
-        let kept = azul_layout::window::kept_dom_rebuilds_on_this_thread();
-        let tree = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        let kept = work_of(&window).kept_dom_rebuilds();
+        let tree = work_of(&window).tree_rebuilds_that_kept_rows();
         df_rebuild(&mut window, steps);
         (
-            azul_layout::window::kept_dom_rebuilds_on_this_thread() - kept,
-            azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - tree,
+            work_of(&window).kept_dom_rebuilds() - kept,
+            work_of(&window).tree_rebuilds_that_kept_rows() - tree,
             df_transitions(&window),
         )
     }
@@ -15853,9 +15944,15 @@ mod tests {
         let all = DiffFirstStep::ALL;
         let paths: [&[DiffFirstStep]; 3] = [&[], &[DiffFirstStep::Text], &all];
         for steps in paths {
-            azul_layout::window::set_diff_first_steps_on_this_thread(Some(steps));
             let state = Arc::new(RefCell::new(RefAny::new(DfwMoves(0))));
             let mut window = make_window_sized(&state, dfw_layout, 400.0, 200.0);
+            window
+                .common
+                .layout_window
+                .as_mut()
+                .expect("a layout window")
+                .switches
+                .set_diff_first_steps(Some(steps));
             window.regenerate_layout().expect("initial layout");
             window.regenerate_layout().expect("settle");
             let _ = window.common.take_regeneration();
@@ -15879,7 +15976,6 @@ mod tests {
                     10 * moves
                 );
             }
-            azul_layout::window::set_diff_first_steps_on_this_thread(None);
             assert!(
                 calls_per_move[2..].iter().all(|calls| *calls >= 1),
                 "premise (steps {steps:?}): the handler runs on every move inside the pad \
@@ -16009,13 +16105,25 @@ mod tests {
     fn dfv_rerender(window: &mut HeadlessWindow, steps: &[azul_layout::window::DiffFirstStep]) {
         use crate::desktop::shell2::common::event::PlatformWindow;
 
-        azul_layout::window::set_diff_first_steps_on_this_thread(Some(steps));
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .switches
+            .set_diff_first_steps(Some(steps));
         window
             .common
             .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
         let result = window.regenerate_layout();
         window.common.drain_virtual_view_updates();
-        azul_layout::window::set_diff_first_steps_on_this_thread(None);
+        window
+            .common
+            .layout_window
+            .as_mut()
+            .expect("a layout window")
+            .switches
+            .set_diff_first_steps(None);
         result.expect("the rebuild");
         let _ = window.common.take_regeneration();
     }
@@ -16168,7 +16276,7 @@ mod tests {
     /// styles, compact entries, tags, boxes and display list in both. Answers how many of
     /// the renders kept rows of the render before.
     fn dfv_walk(steps: &[azul_layout::window::DiffFirstStep]) -> usize {
-        let kept_before = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        let mut kept_rows = 0;
         for seed in [1u64, 7, 20261121] {
             let state_first = Arc::new(RefCell::new(RefAny::new(DfvLabels(dfv_labels(1, 24)))));
             let state_full = Arc::new(RefCell::new(RefAny::new(DfvLabels(dfv_labels(1, 24)))));
@@ -16203,8 +16311,10 @@ mod tests {
                     differs.and_then(|line| right.get(line)),
                 );
             }
+            kept_rows +=
+                work_of(&first).tree_rebuilds_that_kept_rows() + work_of(&full).tree_rebuilds_that_kept_rows();
         }
-        azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept_before
+        kept_rows
     }
 
     /// How to read a failure: the message names the seed, the step and its kind
@@ -16233,7 +16343,7 @@ mod tests {
         dfv_change(&state, change);
         let whole = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
         let nodes = azul_core::styled_dom::nodes_cascaded_on_this_thread();
-        let kept = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        let kept = work_of(&window).tree_rebuilds_that_kept_rows();
         dfv_rerender(&mut window, steps);
         let child = dfv_child(&window).expect("the view's document");
         let lw = window.common.layout_window.as_ref().expect("a layout window");
@@ -16243,7 +16353,7 @@ mod tests {
             lw.child_layout_caches
                 .get(&child)
                 .map_or(usize::MAX, |cache| cache.last_reconcile_fresh),
-            azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept,
+            lw.work.tree_rebuilds_that_kept_rows() - kept,
         )
     }
 

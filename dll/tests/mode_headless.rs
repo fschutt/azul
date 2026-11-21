@@ -15,12 +15,12 @@ use std::{
     cell::RefCell,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc, Mutex, MutexGuard,
+        Arc,
     },
 };
 
 use azul::desktop::shell2::{
-    common::{event::SharedUndoManager, PlatformWindow},
+    common::{app_shared::AppShared, event::SharedUndoManager, PlatformWindow},
     headless::HeadlessWindow,
 };
 use azul_core::{
@@ -43,16 +43,18 @@ const PIN_LIGHT: OptionDarkLightMode = OptionDarkLightMode::Some(DarkLightMode::
 const PIN_DARK: OptionDarkLightMode = OptionDarkLightMode::Some(DarkLightMode::Dark);
 const FOLLOW: OptionDarkLightMode = OptionDarkLightMode::None;
 
-/// The mode is APP-wide (every window of the App shares it), so the tests
-/// of this binary take turns, and each starts from "follow the desktop".
-static SERIAL: Mutex<()> = Mutex::new(());
+/// The mode is APP-wide: every window of ONE app shares it (`AppShared`). Each test opens its
+/// own app - from a config that follows the desktop unless the test pins a mode there - so
+/// the tests of this binary run side by side and none sees another's switch.
+fn app_config() -> AppConfig {
+    let mut config = AppConfig::default();
+    config.system_style = light_desktop();
+    config
+}
 
-fn fresh_app() -> MutexGuard<'static, ()> {
-    let guard = SERIAL
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    azul_layout::window::set_app_mode(FOLLOW);
-    guard
+/// A fresh app that follows the desktop.
+fn fresh_app() -> Arc<AppShared> {
+    Arc::new(AppShared::new(&app_config()))
 }
 
 /// `AZ_MODE` outranks the app's mode; under it there is nothing to test.
@@ -132,16 +134,20 @@ fn window_options(layout: LayoutCallbackType) -> WindowCreateOptions {
     options
 }
 
-/// Opens `options` on the light desktop.
+/// Opens `options` on the light desktop, in an app of its own.
 fn make_window_from(model: Model, options: WindowCreateOptions) -> HeadlessWindow {
-    let mut config = AppConfig::default();
-    config.system_style = light_desktop();
+    make_window_in(&fresh_app(), model, options)
+}
 
-    HeadlessWindow::new(
+/// Opens `options` on the light desktop as a window of `app`: it starts in the mode the app
+/// chose last, and a mode it chooses is the app's.
+fn make_window_in(app: &Arc<AppShared>, model: Model, options: WindowCreateOptions) -> HeadlessWindow {
+    HeadlessWindow::with_app_shared(
         options,
         Arc::new(RefCell::new(RefAny::new(model))),
         SharedUndoManager::new(),
-        config,
+        Arc::clone(app),
+        app_config(),
         SharedIconProvider::from_handle(IconProviderHandle::default()),
         Arc::new(FcFontCache::default()),
         None,
@@ -195,7 +201,6 @@ fn is_light(c: &ColorU) -> bool {
 
 #[test]
 fn a_mode_switch_restyles_without_running_layout_again() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -233,7 +238,6 @@ fn a_mode_switch_restyles_without_running_layout_again() {
 
 #[test]
 fn a_layout_that_read_the_mode_is_rebuilt_and_sees_the_pin() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -256,7 +260,6 @@ fn a_layout_that_read_the_mode_is_rebuilt_and_sees_the_pin() {
 
 #[test]
 fn a_desktop_flip_while_pinned_does_not_flip_the_window() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -280,7 +283,6 @@ fn a_desktop_flip_while_pinned_does_not_flip_the_window() {
 
 #[test]
 fn switching_back_to_system_follows_the_desktop_immediately() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -305,15 +307,15 @@ fn switching_back_to_system_follows_the_desktop_immediately() {
 
 #[test]
 fn a_window_opened_after_the_switch_starts_in_the_apps_mode() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
-    let mut first = make_window(Model::new(), mode_blind_layout);
+    let app = fresh_app();
+    let mut first = make_window_in(&app, Model::new(), window_options(mode_blind_layout));
     first.regenerate_layout().expect("first layout");
     let _ = set_mode(&mut first, PIN_DARK);
 
-    let second = make_window(Model::new(), mode_blind_layout);
+    let second = make_window_in(&app, Model::new(), window_options(mode_blind_layout));
     assert_eq!(
         mode_of(&second),
         DarkLightMode::Dark,
@@ -336,7 +338,6 @@ fn a_window_opened_after_the_switch_starts_in_the_apps_mode() {
 /// WROTE the theme: the rebuilt `layout()` still saw the old mode.
 #[test]
 fn modify_window_state_with_a_new_mode_switches_the_window() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -362,7 +363,6 @@ fn modify_window_state_with_a_new_mode_switches_the_window() {
 /// desktop).
 #[test]
 fn modify_window_state_does_not_override_the_apps_pin() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -385,12 +385,22 @@ fn modify_window_state_does_not_override_the_apps_pin() {
 /// calls before its `CommonWindowState`), and the CPU canvas follows the
 /// system background (every shell's `CpuBackend`; the headless one keeps a
 /// fixed canvas so offscreen output does not change with the machine).
-fn make_desktop_window_from(model: Model, mut options: WindowCreateOptions) -> HeadlessWindow {
+fn make_desktop_window_from(model: Model, options: WindowCreateOptions) -> HeadlessWindow {
+    make_desktop_window_in(&fresh_app(), model, options)
+}
+
+/// [`make_desktop_window_from`] for a window of `app`.
+fn make_desktop_window_in(
+    app: &Arc<AppShared>,
+    model: Model,
+    mut options: WindowCreateOptions,
+) -> HeadlessWindow {
     azul::desktop::shell2::common::resolve_initial_background_color(
         &mut options,
         &light_desktop(),
+        app.mode(),
     );
-    let mut window = make_window_from(model, options);
+    let mut window = make_window_in(app, model, options);
     window.cpu_backend.follow_system_background = true;
     window
 }
@@ -443,7 +453,6 @@ fn rgba(c: ColorU) -> [u8; 4] {
 /// canvas wherever the body did not reach.
 #[test]
 fn a_dark_pin_clears_the_window_dark_on_a_light_desktop() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -464,12 +473,13 @@ fn a_dark_pin_clears_the_window_dark_on_a_light_desktop() {
 /// creation-time background was chosen from the DESKTOP's theme.
 #[test]
 fn a_window_opened_under_a_dark_pin_starts_on_a_dark_canvas() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
-    azul_layout::window::set_app_mode(PIN_DARK);
-    let mut window = make_desktop_window(Model::new(), mode_blind_layout);
+    let mut config = app_config();
+    config.mode = PIN_DARK;
+    let app = Arc::new(AppShared::new(&config));
+    let mut window = make_desktop_window_in(&app, Model::new(), window_options(mode_blind_layout));
     window.regenerate_layout().expect("first layout");
     let clear = paint_and_read_clear_color(&mut window);
     assert!(is_dark_rgba(clear), "a dark-pinned window clears dark, got {clear:?}");
@@ -479,7 +489,6 @@ fn a_window_opened_under_a_dark_pin_starts_on_a_dark_canvas() {
 /// the window SHOWS, not of the desktop's palette.
 #[test]
 fn an_unseeded_canvas_takes_the_system_background_of_the_mode_the_window_shows() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -502,7 +511,6 @@ fn an_unseeded_canvas_takes_the_system_background_of_the_mode_the_window_shows()
 /// to it.
 #[test]
 fn a_per_mode_background_follows_the_pin() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -529,7 +537,6 @@ fn a_per_mode_background_follows_the_pin() {
 /// a background the scheme derived.
 #[test]
 fn a_background_the_app_set_survives_a_mode_change() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -562,7 +569,6 @@ fn a_background_the_app_set_survives_a_mode_change() {
 /// desktop's own background again, exactly.
 #[test]
 fn switching_back_to_system_returns_the_desktop_background() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -582,7 +588,6 @@ fn switching_back_to_system_returns_the_desktop_background() {
 /// one the scheme seeded.
 #[test]
 fn modify_window_state_with_a_new_theme_moves_the_seeded_background() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -608,7 +613,6 @@ fn modify_window_state_with_a_new_theme_moves_the_seeded_background() {
 /// titlebar on a light desktop.
 #[test]
 fn the_native_chrome_is_forced_into_a_pinned_mode_and_inherits_otherwise() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }
@@ -641,7 +645,6 @@ fn the_native_chrome_is_forced_into_a_pinned_mode_and_inherits_otherwise() {
 /// can flip under it later, and the window - titlebar included - must stay.
 #[test]
 fn a_pin_that_matches_the_desktop_still_holds_the_chrome_when_the_desktop_flips() {
-    let _app = fresh_app();
     if env_pinned() {
         return;
     }

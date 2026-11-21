@@ -430,9 +430,6 @@ impl MprisRoot {
 /// Idempotent and quiet: no session bus (a headless build, a CI container) is
 /// the normal case, not an error.
 pub fn start(window_id: u64) {
-    if !azul_layout::window::expose_system_media_controls() {
-        return;
-    }
     // Recorded before the OnceLock guard, so a second window calling this does
     // not silently leave `Raise` pointing at a window that has since closed.
     RAISE_TARGET.store(window_id, std::sync::atomic::Ordering::Relaxed);

@@ -7078,6 +7078,7 @@ impl MacOSWindow {
         options: WindowCreateOptions,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache: Arc<FcFontCache>,
@@ -7094,6 +7095,7 @@ impl MacOSWindow {
             options,
             app_data,
             undo_manager,
+            app_shared,
             config,
             shared_icon_provider,
             Some(fc_cache),
@@ -7109,6 +7111,7 @@ impl MacOSWindow {
         options: WindowCreateOptions,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
@@ -7117,6 +7120,7 @@ impl MacOSWindow {
             options,
             app_data,
             undo_manager,
+            app_shared,
             config,
             shared_icon_provider,
             None,
@@ -7132,6 +7136,7 @@ impl MacOSWindow {
         mut options: WindowCreateOptions,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<FcFontCache>>,
@@ -7151,6 +7156,7 @@ impl MacOSWindow {
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &config.system_style,
+            app_shared.mode(),
         );
         // For materials, leave background_color as None - renderer handles transparency
 
@@ -7848,9 +7854,7 @@ impl MacOSWindow {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
-        layout_window.set_app_localization(&config);
-        layout_window.set_app_e2e(&config);
-        layout_window.set_app_node_identity(&config);
+        app_shared.seed_window(&mut layout_window, &config);
         // `<webview>`s are WKWebViews (`webview::MacWebViews`).
         layout_window
             .webviews
@@ -7957,6 +7961,7 @@ impl MacOSWindow {
             system_style,
             app_data_arc,
             undo_manager,
+            app_shared,
         );
         common.layout_window = Some(layout_window);
         common.owner_window_id = owner_window_id;

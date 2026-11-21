@@ -32,7 +32,14 @@ pub mod windows;
 /// rather than guessed with `GetForegroundWindow`, which would attach the
 /// session to whatever the user happened to be looking at when the app
 /// started.
-pub fn ensure_started(window: azul_core::window::RawWindowHandle) {
+///
+/// `exposed` is `AppConfig::expose_system_media_controls` as the calling window's app holds it
+/// (`AppShared::expose_system_media_controls`): an app that did not ask to be a media player is
+/// not registered as one, and nothing here starts.
+pub fn ensure_started(window: azul_core::window::RawWindowHandle, exposed: bool) {
+    if !exposed {
+        return;
+    }
     #[cfg(target_os = "linux")]
     linux::start(registry_id_of(window));
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -84,11 +91,14 @@ fn hwnd_of(window: azul_core::window::RawWindowHandle) -> isize {
 ///
 /// Platforms with no session API (Windows, and the mobile shells) ignore this
 /// rather than failing - see 9h-i-a-i-b/c in the ledger.
+///
+/// `exposed` is `AppConfig::expose_system_media_controls` ([`ensure_started`]).
 pub fn publish_now_playing(
     info: &azul_core::media_session::NowPlayingInfo,
     window: azul_core::window::RawWindowHandle,
+    exposed: bool,
 ) {
-    if !azul_layout::window::expose_system_media_controls() {
+    if !exposed {
         // Not an error, but silently doing nothing when an app asked for
         // something visible is exactly the kind of gap this whole backlog is
         // about, so say so - once, because a player republishes constantly.
@@ -101,7 +111,7 @@ pub fn publish_now_playing(
         }
         return;
     }
-    ensure_started(window);
+    ensure_started(window, exposed);
 
     #[cfg(target_os = "linux")]
     linux::publish(info);

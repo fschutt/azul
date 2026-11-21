@@ -150,9 +150,6 @@ unsafe fn info_key(symbol: &[u8]) -> Option<*mut objc2::runtime::AnyObject> {
 /// Idempotent and quiet: no MediaPlayer framework, or a system that refuses
 /// the registration, simply means no media keys - the app still runs.
 pub fn start() {
-    if !azul_layout::window::expose_system_media_controls() {
-        return;
-    }
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if STARTED.set(()).is_err() {
         return;

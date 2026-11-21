@@ -1448,7 +1448,7 @@ extern "C" fn did_finish_launching(
     _opts: *mut Object,
 ) -> bool {
     unsafe {
-        let (app_data, undo_manager, config, fc_cache, font_registry, root_window) =
+        let (app_data, undo_manager, app_shared, config, fc_cache, font_registry, root_window) =
             match super::run::INITIAL_OPTIONS.take() {
                 Some(opts) => opts,
                 None => {
@@ -1474,6 +1474,7 @@ extern "C" fn did_finish_launching(
             config,
             app_data,
             undo_manager,
+            app_shared,
             font_registry,
         ) {
             Ok(w) => w,
@@ -1705,11 +1706,13 @@ impl IOSWindow {
         mut config: AppConfig,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Result<Self, WindowError> {
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &config.system_style,
+            app_shared.mode(),
         );
         let mut full_window_state = options.window_state;
 
@@ -1720,9 +1723,7 @@ impl IOSWindow {
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
-        layout_window.set_app_localization(&config);
-        layout_window.set_app_e2e(&config);
-        layout_window.set_app_node_identity(&config);
+        app_shared.seed_window(&mut layout_window, &config);
         // `<webview>`s are WKWebViews (`webview::IosWebViews`).
         layout_window
             .webviews
@@ -1871,6 +1872,7 @@ impl IOSWindow {
             Arc::new(config.system_style.clone()),
             Arc::new(RefCell::new(app_data)),
             undo_manager,
+            app_shared,
         );
         common.layout_window = Some(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());

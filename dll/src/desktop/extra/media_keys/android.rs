@@ -67,9 +67,6 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnMedia
 /// Claim the media session. Idempotent and quiet.
 #[cfg(feature = "jni")]
 pub fn start() {
-    if !azul_layout::window::expose_system_media_controls() {
-        return;
-    }
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if STARTED.set(()).is_err() {
         return;

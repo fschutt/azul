@@ -46,15 +46,15 @@ use rust_fontconfig::FcFontCache;
 const PIN_DARK: OptionDarkLightMode = OptionDarkLightMode::Some(DarkLightMode::Dark);
 const FOLLOW: OptionDarkLightMode = OptionDarkLightMode::None;
 
-/// The mode and the theme are APP-wide (process globals), so the tests of this binary take
-/// turns, and each starts from "follow the desktop" in the default theme.
+/// The mode is the app's own (every window built here is an app of its own, from a config that
+/// follows the desktop), but the app THEME is still a process global of azul-core, so the tests
+/// of this binary take turns and each starts from the default theme.
 static SERIAL: Mutex<()> = Mutex::new(());
 
 fn fresh_app() -> MutexGuard<'static, ()> {
     let guard = SERIAL
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    azul_layout::window::set_app_mode(FOLLOW);
     azul_core::app_theme::set_app_theme(azul_css::dynamic_selector::DEFAULT_APP_THEME);
     guard
 }

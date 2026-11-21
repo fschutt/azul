@@ -3170,8 +3170,8 @@ pub enum IncrementalRelayout {
 ///
 /// 1. `AZ_MODE=light|dark` pins it (a screenshot run must not follow the machine), exactly as it
 ///    pins the cascade's context;
-/// 2. else the APP's mode (`AppConfig::mode`, or the last `CallbackInfo::set_mode`) when it
-///    pins one;
+/// 2. else the APP's mode (`app`: `AppConfig::mode`, or the last `CallbackInfo::set_mode`,
+///    as [`super::app_shared::AppShared::mode`] holds it) when it pins one;
 /// 3. else this window's own request, `WindowCreateOptions::theme`;
 /// 4. else what the OS probe said (`SystemStyle::theme`, discovered at startup — on
 ///    macOS/Windows/Linux this IS the appearance probe; iOS and Android never write it, so they
@@ -3183,16 +3183,6 @@ pub enum IncrementalRelayout {
 /// is a creation seed that lasts until the desktop next changes, as before.
 #[must_use]
 pub fn initial_window_theme(
-    requested: azul_core::window::OptionDarkLightMode,
-    probed: azul_css::system::DarkLightMode,
-) -> azul_core::window::DarkLightMode {
-    initial_window_theme_for(azul_layout::window::app_mode(), requested, probed)
-}
-
-/// [`initial_window_theme`] with the app's mode passed in rather than read
-/// from the app-global one.
-#[must_use]
-pub fn initial_window_theme_for(
     app: azul_core::window::OptionDarkLightMode,
     requested: azul_core::window::OptionDarkLightMode,
     probed: azul_css::system::DarkLightMode,
@@ -3275,6 +3265,10 @@ pub struct CommonWindowState {
     /// A callback's `commit_undo_snapshot` / `undo_app_state` / `redo_app_state`
     /// drives this; undo/redo relayouts all windows.
     pub undo_manager: SharedUndoManager,
+    /// What the app chose and configured, shared by every window of it, owned by the App like
+    /// the undo manager: its mode and language (a window opened after a switch starts in them),
+    /// the natural-scrolling preference and the two config flags the platform layers read.
+    pub app: Arc<super::app_shared::AppShared>,
     /// Hit-tester for fast asynchronous hit-testing (updated on layout changes).
     /// `None` only during initialization on X11/Wayland before WebRender is set up.
     /// Not used in CPU mode — see `cpu_hit_tester` instead.
@@ -3643,7 +3637,7 @@ impl CommonWindowState {
     /// `requested_theme` is `WindowCreateOptions::theme`: the app's explicit
     /// light/dark request for this window, `None` = follow the system. The
     /// window's theme is SEEDED here, once for every backend, from
-    /// [`initial_window_theme`] — until this existed each shell copied
+    /// [`initial_window_theme`] (under the mode of `app`) — until this existed each shell copied
     /// `options.window_state.theme` (the `LightMode` default) and a window on
     /// a dark desktop started light, was re-cascaded dark a poll later, and
     /// `WindowCreateOptions::theme` had no reader at all.
@@ -3657,6 +3651,7 @@ impl CommonWindowState {
         system_style: Arc<azul_css::system::SystemStyle>,
         app_data: Arc<RefCell<RefAny>>,
         undo_manager: SharedUndoManager,
+        app: Arc<super::app_shared::AppShared>,
     ) -> Self {
         // A window built from `SystemStyle::default()` carries
         // `Platform::Unknown`, which `OsCondition::from_system_platform` maps to
@@ -3675,7 +3670,8 @@ impl CommonWindowState {
             azul_css::system::Platform::current(),
         );
         let mut current_window_state = current_window_state;
-        current_window_state.mode = initial_window_theme(requested_theme, system_style.mode);
+        current_window_state.mode =
+            initial_window_theme(app.mode(), requested_theme, system_style.mode);
         let desktop_theme = system_style.mode;
         Self {
             layout_window: None,
@@ -3690,6 +3686,7 @@ impl CommonWindowState {
             system_style,
             app_data,
             undo_manager,
+            app,
             hit_tester: None,
             cpu_hit_tester: None,
             last_hovered_node: None,
@@ -3722,13 +3719,13 @@ impl CommonWindowState {
     }
 
     /// The app's mode as this window applies it: the window's
-    /// `LayoutWindow` mirror, or - before it has one - the app-global
-    /// choice.
+    /// `LayoutWindow` mirror, or - before it has one - the app's own
+    /// choice ([`Self::app`]).
     #[must_use]
     pub fn app_mode(&self) -> azul_core::window::OptionDarkLightMode {
         self.layout_window
             .as_ref()
-            .map_or_else(azul_layout::window::app_mode, |lw| lw.mode)
+            .map_or_else(|| self.app.mode(), |lw| lw.mode)
     }
 
     /// The light / dark this window must show now: the desktop's, under the
@@ -4324,6 +4321,11 @@ macro_rules! impl_platform_window_getters {
         fn get_undo_manager(&self) -> &$crate::desktop::shell2::common::event::SharedUndoManager {
             &self.$field.undo_manager
         }
+        fn get_app_shared(
+            &self,
+        ) -> &Arc<$crate::desktop::shell2::common::app_shared::AppShared> {
+            &self.$field.app
+        }
         fn get_common_mut(
             &mut self,
         ) -> &mut $crate::desktop::shell2::common::event::CommonWindowState {
@@ -4725,6 +4727,11 @@ pub trait PlatformWindow {
 
     /// Get the app-global undo/redo manager (shared across all windows)
     fn get_undo_manager(&self) -> &SharedUndoManager;
+
+    /// What the app chose and configured, shared by every window of it: its mode, its
+    /// language, the natural-scrolling preference, the two config flags
+    /// ([`CommonWindowState::app`]).
+    fn get_app_shared(&self) -> &Arc<super::app_shared::AppShared>;
 
     // Scrollbar State
 
@@ -8794,7 +8801,7 @@ pub trait PlatformWindow {
                 // (`get_locale` / `is_rtl`) and that input moved, in which case
                 // its DOM is stale and has to be rebuilt. The choice is the
                 // app's: a window built afterwards (a dialog) starts in it.
-                azul_layout::window::set_app_locale(Some(locale.as_str()));
+                self.get_app_shared().set_locale(Some(locale.as_str()));
                 let rebuild = match self.get_layout_window_mut() {
                     Some(lw) => {
                         let change = lw.set_locale(locale.as_str());
@@ -8820,7 +8827,7 @@ pub trait PlatformWindow {
                 // built from now on starts in it (`LayoutWindow::new`,
                 // `initial_window_theme`), then every other open window
                 // adopts it through its own trigger, then this one.
-                azul_layout::window::set_app_mode(*mode);
+                self.get_app_shared().set_mode(*mode);
                 self.adopt_app_mode_in_other_windows();
 
                 let Some(target) = self.mirror_app_mode() else {
@@ -11485,13 +11492,13 @@ pub trait PlatformWindow {
         }
     }
 
-    /// Mirror the app-global mode (`azul_layout::window::app_mode`) into this
+    /// Mirror the app's mode (`CommonWindowState::app`) into this
     /// window and answer the light / dark the window must now show, when that
     /// differs from the one it shows (`None`: nothing to write). The decision
     /// is `CommonWindowState::resolved_window_mode` - the desktop's light /
     /// dark under the app's mode and `AZ_MODE`.
     fn mirror_app_mode(&mut self) -> Option<azul_core::window::DarkLightMode> {
-        let mode = azul_layout::window::app_mode();
+        let mode = self.get_app_shared().mode();
         let common = self.get_common_mut();
         if let Some(lw) = common.layout_window.as_mut() {
             lw.mode = mode;
@@ -11918,7 +11925,8 @@ pub trait PlatformWindow {
         // the Win32 `WM_APPCOMMAND` arm does: neither transport has a release,
         // and leaving the key latched would make it look held forever.
         if depth == 0 {
-            crate::desktop::extra::media_keys::ensure_started(self.get_raw_window_handle());
+            let exposed = self.get_app_shared().expose_system_media_controls();
+            crate::desktop::extra::media_keys::ensure_started(self.get_raw_window_handle(), exposed);
             // SEEKS (9h-i-a-i-a) ride the same drain: into the media session
             // manager, whose `EventProvider` impl turns each into a
             // `MediaControl` event at the root on this pass. And the other
@@ -12054,7 +12062,8 @@ pub trait PlatformWindow {
                 .and_then(|lw| lw.media_session_manager.take_if_dirty());
             if let Some(info) = announce {
                 let window = self.get_raw_window_handle();
-                crate::desktop::extra::media_keys::publish_now_playing(&info, window);
+                let exposed = self.get_app_shared().expose_system_media_controls();
+                crate::desktop::extra::media_keys::publish_now_playing(&info, window, exposed);
             }
         }
 
@@ -17147,12 +17156,12 @@ mod initial_window_theme_tests {
             return;
         }
         assert_eq!(
-            initial_window_theme(OptionDarkLightMode::None, DarkLightMode::Dark),
+            initial_window_theme(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Dark),
             DarkLightMode::Dark,
             "a dark desktop must not start a light window"
         );
         assert_eq!(
-            initial_window_theme(OptionDarkLightMode::None, DarkLightMode::Light),
+            initial_window_theme(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Light),
             DarkLightMode::Light
         );
     }
@@ -17163,11 +17172,19 @@ mod initial_window_theme_tests {
             return;
         }
         assert_eq!(
-            initial_window_theme(OptionDarkLightMode::Some(DarkLightMode::Light), DarkLightMode::Dark),
+            initial_window_theme(
+                OptionDarkLightMode::None,
+                OptionDarkLightMode::Some(DarkLightMode::Light),
+                DarkLightMode::Dark
+            ),
             DarkLightMode::Light
         );
         assert_eq!(
-            initial_window_theme(OptionDarkLightMode::Some(DarkLightMode::Dark), DarkLightMode::Light),
+            initial_window_theme(
+                OptionDarkLightMode::None,
+                OptionDarkLightMode::Some(DarkLightMode::Dark),
+                DarkLightMode::Light
+            ),
             DarkLightMode::Dark
         );
     }
@@ -17187,7 +17204,10 @@ mod initial_window_theme_tests {
             OptionDarkLightMode::Some(DarkLightMode::Dark),
         ] {
             for probed in [DarkLightMode::Light, DarkLightMode::Dark] {
-                assert_eq!(initial_window_theme(requested, probed), expected);
+                assert_eq!(
+                    initial_window_theme(OptionDarkLightMode::None, requested, probed),
+                    expected
+                );
             }
         }
     }
@@ -17197,7 +17217,6 @@ mod initial_window_theme_tests {
     /// old order alone.
     #[test]
     fn the_apps_pin_beats_the_windows_request_and_the_probe() {
-        use super::initial_window_theme_for;
         if pinned() {
             return;
         }
@@ -17209,7 +17228,7 @@ mod initial_window_theme_tests {
             for probed in [DarkLightMode::Light, DarkLightMode::Dark] {
                 for pin in [DarkLightMode::Light, DarkLightMode::Dark] {
                     assert_eq!(
-                        initial_window_theme_for(OptionDarkLightMode::Some(pin), requested, probed),
+                        initial_window_theme(OptionDarkLightMode::Some(pin), requested, probed),
                         pin,
                         "app pin {pin:?} vs request {requested:?} on a {probed:?} desktop"
                     );
@@ -17217,7 +17236,7 @@ mod initial_window_theme_tests {
             }
         }
         assert_eq!(
-            initial_window_theme_for(
+            initial_window_theme(
                 OptionDarkLightMode::None,
                 OptionDarkLightMode::Some(DarkLightMode::Light),
                 DarkLightMode::Dark
@@ -17226,7 +17245,7 @@ mod initial_window_theme_tests {
             "following the desktop, the window's own request still seeds it"
         );
         assert_eq!(
-            initial_window_theme_for(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Dark),
+            initial_window_theme(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Dark),
             DarkLightMode::Dark
         );
     }
@@ -17499,6 +17518,20 @@ mod paint_restyle_tests {
     }
 
     fn page() -> Page {
+        page_under(azul_layout::window::WindowSwitches::default())
+    }
+
+    /// [`page`] for a window that binds a state colour when a state first PAINTS it
+    /// (A3-window-50) and not from the build of the list (A3-window-55,
+    /// `AZ_EAGER_STATE_COLORS`): for the guards of the decoration patch.
+    fn page_bound_when_painted() -> Page {
+        let mut switches = azul_layout::window::WindowSwitches::default();
+        switches.set_state_colors_from_the_build(Some(false));
+        page_under(switches)
+    }
+
+    /// [`page`] with the window's switches chosen before its first layout.
+    fn page_under(switches: azul_layout::window::WindowSwitches) -> Page {
         let mut sidebar = Dom::create_div().with_css("width: 100px; height: 300px; overflow: hidden;");
         for i in 0..1_000 {
             sidebar = sidebar.with_child(Dom::create_div().with_css(if i % 2 == 0 {
@@ -17516,6 +17549,7 @@ mod paint_restyle_tests {
             );
         let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
         lw.system_animations_override = Some(SystemAnimations::default());
+        lw.switches = switches;
         let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(500.0, 300.0);
         lw.layout_and_generate_display_list(
@@ -17730,30 +17764,11 @@ mod paint_restyle_tests {
         );
     }
 
-    /// While this lives, the windows this thread builds bind a state colour when a state
-    /// first PAINTS it (A3-window-50) and not from the build of the list (A3-window-55,
-    /// `AZ_EAGER_STATE_COLORS`): for the guards of the decoration patch.
-    struct BoundWhenPainted;
-
-    impl BoundWhenPainted {
-        fn on_this_thread() -> Self {
-            azul_layout::window::set_state_colors_from_the_build_on_this_thread(Some(false));
-            Self
-        }
-    }
-
-    impl Drop for BoundWhenPainted {
-        fn drop(&mut self) {
-            azul_layout::window::set_state_colors_from_the_build_on_this_thread(None);
-        }
-    }
-
     /// The decoration patch (A3-window-07), with the binding of A3-window-50: the first
     /// enter paints the label's run into the view's list, the leave is the key's value.
     #[test]
     fn a_hover_over_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
-        let _binding = BoundWhenPainted::on_this_thread();
-        a_hover_over_a_label(1);
+        a_hover_over_a_label(page_bound_when_painted(), 1);
     }
 
     /// Audit A4-23, the eager binding (A3-window-55, the default): the label's background is
@@ -17763,13 +17778,12 @@ mod paint_restyle_tests {
     /// Mutation: `bind_state_colors` given no nodes (the enter paints a run: 1 patch).
     #[test]
     fn a_hover_over_a_label_is_the_value_of_a_colour_key_from_its_first_enter() {
-        a_hover_over_a_label(0);
+        a_hover_over_a_label(page(), 0);
     }
 
     /// The pointer enters and leaves the label; the enter paints `patches_of_the_enter` runs
     /// into the view's list.
-    fn a_hover_over_a_label(patches_of_the_enter: u32) {
-        let mut page = page();
+    fn a_hover_over_a_label(mut page: Page, patches_of_the_enter: u32) {
         let before = (
             list_of(&page, DomId::ROOT_ID),
             list_of(&page, page.child),
@@ -17809,20 +17823,18 @@ mod paint_restyle_tests {
     /// The decoration patch for `:active`, with the binding of A3-window-50.
     #[test]
     fn a_press_on_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
-        let _binding = BoundWhenPainted::on_this_thread();
-        a_press_on_a_label(1);
+        a_press_on_a_label(page_bound_when_painted(), 1);
     }
 
     /// The eager binding for `:active` (A3-window-55): the press is a value already.
     #[test]
     fn a_press_on_a_label_is_the_value_of_a_colour_key_from_the_first_press() {
-        a_press_on_a_label(0);
+        a_press_on_a_label(page(), 0);
     }
 
     /// The label is pressed and released; the press paints `patches_of_the_press` runs into
     /// the view's list.
-    fn a_press_on_a_label(patches_of_the_press: u32) {
-        let mut page = page();
+    fn a_press_on_a_label(mut page: Page, patches_of_the_press: u32) {
         let before = (
             list_of(&page, DomId::ROOT_ID),
             list_of(&page, page.child),
