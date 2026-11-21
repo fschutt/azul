@@ -924,6 +924,18 @@ pub struct InlineMeasureLayouts {
     /// The layout at the max-content width, where none is taken. Read and
     /// written by `layout_ifc`.
     pub max_content: Option<CachedInlineLayout>,
+    /// The lines a JOURNALED measure flowed at a definite width that is not
+    /// the final layout's (A3-solver-17c). Such a measure - a flex container
+    /// asking "how tall at this width?" of an item whose final layout is
+    /// current - is taken back when it is done, the final layout with it
+    /// (`taffy_bridge::MeasureJournal`); its lines are kept here
+    /// (`taffy_bridge::keep_inline_answers`), so that the next visit at that
+    /// width - the same question asked another way, or the final layout the
+    /// container then gives the item - flows nothing: `layout_ifc` makes them
+    /// the final layout when a visit at their width finds the final layout
+    /// at another. At most one, the last; a final layout stored for the IFC
+    /// at a definite width drops it.
+    pub definite: Option<CachedInlineLayout>,
 }
 
 impl InlineMeasureLayouts {
@@ -950,7 +962,7 @@ impl InlineMeasureLayouts {
 
     /// Drops the measures of any content other than `content_hash`.
     pub fn retain_content(&mut self, content_hash: u64) {
-        for slot in [&mut self.min_content, &mut self.max_content] {
+        for slot in [&mut self.min_content, &mut self.max_content, &mut self.definite] {
             if slot
                 .as_ref()
                 .is_some_and(|kept| kept.inline_content_hash != content_hash)
@@ -963,12 +975,15 @@ impl InlineMeasureLayouts {
     /// Whether no measure is kept.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
-        self.min_content.is_none() && self.max_content.is_none()
+        self.min_content.is_none() && self.max_content.is_none() && self.definite.is_none()
     }
 
     /// The kept measures.
     pub fn layouts(&self) -> impl Iterator<Item = &CachedInlineLayout> {
-        self.min_content.iter().chain(self.max_content.iter())
+        self.min_content
+            .iter()
+            .chain(self.max_content.iter())
+            .chain(self.definite.iter())
     }
 }
 

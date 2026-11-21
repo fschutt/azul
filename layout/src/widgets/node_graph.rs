@@ -1081,9 +1081,15 @@ impl NodeGraph {
     ///
     /// A `view_size` that is not positive and finite (`0 x 0`) shows
     /// everything, as [`Self::dom`] does.
-    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
     #[must_use]
     pub fn dom_in_view(self, view_size: LogicalSize) -> Dom {
+        self.dom_in_view_as(view_size, pan_mode())
+    }
+
+    /// [`Self::dom_in_view`] with the graph's offset carried as `pan` says
+    /// ([`PanMode`]); the dataset records it for the callbacks.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    fn dom_in_view_as(self, view_size: LogicalSize, pan: PanMode) -> Dom {
         let view = ViewWindow::new(view_size);
         static NODEGRAPH_CLASS: &[IdOrClass] = &[Class(AzString::from_const_str("nodegraph"))];
 
@@ -1142,6 +1148,7 @@ impl NodeGraph {
             callbacks,
             culled,
             graph_dragged: false,
+            pan,
         });
         // A second handle on the dataset, borrowed shared until the DOM is
         // built: the nodes' datasets take clones of the first handle, and
@@ -1218,7 +1225,13 @@ impl NodeGraph {
                     .with_children({
                         vec![
                             // connections
-                            render_connections(graph, index, connections_marker, view.as_ref()),
+                            render_connections(
+                                graph,
+                                index,
+                                connections_marker,
+                                view.as_ref(),
+                                pan,
+                            ),
                             // nodes
                             graph.nodes
                                 .iter()
@@ -1243,7 +1256,7 @@ impl NodeGraph {
 
                                     Some(render_node(
                                         node,
-                                        (graph.offset.x, graph.offset.y),
+                                        offset_in_boxes(graph, pan),
                                         &node_type_info.node_type_info,
                                         node_local_dataset,
                                         graph.scale_factor,
@@ -1254,8 +1267,10 @@ impl NodeGraph {
                                 .with_ids_and_classes(IdOrClassVec::from_const_slice(
                                     NODEGRAPH_NODES_CONTAINER_CLASS,
                                 ))
-                                .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+                                .with_css_props(container_props(
                                     NODEGRAPH_NODES_CONTAINER_PROPS,
+                                    graph,
+                                    pan,
                                 )),
                         ]
                         .into()
@@ -1315,6 +1330,9 @@ struct NodeGraphLocalDataset {
     culled: Option<CulledDom>,
     /// The graph itself (not a node) was dragged since the button went down.
     graph_dragged: bool,
+    /// How this render carries the graph's offset ([`PanMode`]): what a pan
+    /// and a node drag write, and what the end of a gesture hands back.
+    pan: PanMode,
 }
 
 struct ContextMenuEntryLocalDataset {
@@ -3081,6 +3099,7 @@ fn render_connections(
     index: &GraphIndex,
     connections_marker: AzString,
     view: Option<&ViewWindow>,
+    pan: PanMode,
 ) -> Dom {
     static NODEGRAPH_CONNECTIONS_CONTAINER_CLASS: &[IdOrClass] = &[Class(
         AzString::from_const_str("nodegraph-connections-container"),
@@ -3095,12 +3114,15 @@ fn render_connections(
         .with_ids_and_classes(IdOrClassVec::from_const_slice(
             NODEGRAPH_CONNECTIONS_CONTAINER_CLASS,
         ))
-        .with_css_props(CssPropertyWithConditionsVec::from_const_slice(
+        .with_css_props(container_props(
             NODEGRAPH_CONNECTIONS_CONTAINER_PROPS,
+            node_graph,
+            pan,
         ))
         .with_marker(Some(connections_marker).into())
         .with_children({
             let mut children = Vec::new();
+            let offset = offset_in_boxes(node_graph, pan);
 
             for (cld, rect) in drawn_connections(node_graph, index) {
                 // A connection nowhere near the box gets no DOM: its rect
@@ -3123,12 +3145,8 @@ fn render_connections(
                             StyleTransformVecValue::Exact(
                                 vec![
                                     StyleTransform::Translate(StyleTransformTranslate2D {
-                                        x: PixelValue::px(
-                                            node_graph.offset.x + rect.origin.x,
-                                        ),
-                                        y: PixelValue::px(
-                                            node_graph.offset.y + rect.origin.y,
-                                        ),
+                                        x: PixelValue::px(offset.0 + rect.origin.x),
+                                        y: PixelValue::px(offset.1 + rect.origin.y),
                                     }),
                                     StyleTransform::ScaleX(PercentageValue::new(
                                         node_graph.scale_factor * 100.0,
@@ -3522,9 +3540,92 @@ fn get_rect(
     Some(rect_between(&out_node.node, out_idx, &in_node.node, in_idx))
 }
 
+/// How a render of the graph carries the graph's offset (A3-solver-35b).
+///
+/// The offset moves every node and every wire by the same amount. Carried by
+/// each node box and wire in its own `transform`, a step of a pan is one write
+/// per box and wire that has DOM, and the end of the pan one clear each.
+/// Carried by the two containers - the wires' and the nodes' - it is two
+/// writes and two clears, whatever the graph holds: a node box then stands at
+/// `translate(position)`, a wire at `translate(rect.origin)`, in the graph's
+/// own coordinates, and its container moves them all by
+/// `translate(offset)`. The picture is the same: a translation around a
+/// box's own transform adds to its translation, and the scale of a box acts
+/// about the box's centre under either.
+///
+/// Example, offset (7, 9), a node at (300, 40): `Nodes` gives its box
+/// `translate(307px, 49px)` in an untransformed container; `Containers` gives
+/// the box `translate(300px, 40px)` and its container `translate(7px, 9px)`,
+/// which paints it at (300 + 7, 40 + 9) = (307, 49).
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum PanMode {
+    /// On the two containers: the default.
+    Containers,
+    /// On every node box and wire, as before A3-solver-35b: the environment
+    /// variable `AZ_NODEGRAPH_PAN=nodes`.
+    Nodes,
+}
+
+/// The [`PanMode`] of this process: `Containers`, unless the environment
+/// says `AZ_NODEGRAPH_PAN=nodes` (read once).
+fn pan_mode() -> PanMode {
+    #[cfg(feature = "std")]
+    {
+        if env_flag!("AZ_NODEGRAPH_PAN" == "nodes") {
+            return PanMode::Nodes;
+        }
+    }
+    PanMode::Containers
+}
+
+/// The part of the graph's offset a node box or a wire carries in its own
+/// `transform`: all of it, or none when the containers carry it.
+fn offset_in_boxes(graph: &NodeGraph, pan: PanMode) -> (f32, f32) {
+    match pan {
+        PanMode::Nodes => (graph.offset.x, graph.offset.y),
+        PanMode::Containers => (0.0, 0.0),
+    }
+}
+
+/// `transform: translate(offset)`: what each of the two containers declares
+/// when the containers carry the graph's offset, and what a step of a pan
+/// writes on each of them. A write of nothing but `transform` moves the
+/// container by the value its reference frame binds: no restyle, no layout,
+/// no display list.
+fn container_transform(graph: &NodeGraph) -> CssProperty {
+    CssProperty::transform(
+        vec![StyleTransform::Translate(StyleTransformTranslate2D {
+            x: PixelValue::px(graph.offset.x),
+            y: PixelValue::px(graph.offset.y),
+        })]
+        .into(),
+    )
+}
+
+/// What a container of the graph declares: its `constants` and, when the
+/// containers carry the graph's offset, [`container_transform`] - at the
+/// offset (0, 0) too, so that the container has its reference frame, and the
+/// frame its key, before the first pan writes a value under it.
+fn container_props(
+    constants: &'static [CssPropertyWithConditions],
+    graph: &NodeGraph,
+    pan: PanMode,
+) -> CssPropertyWithConditionsVec {
+    match pan {
+        PanMode::Nodes => CssPropertyWithConditionsVec::from_const_slice(constants),
+        PanMode::Containers => {
+            let mut props = Vec::with_capacity(constants.len() + 1);
+            props.extend_from_slice(constants);
+            props.push(CssPropertyWithConditions::simple(container_transform(graph)));
+            props.into()
+        }
+    }
+}
+
 /// What a step of a node drag writes on the box of a connection of the
 /// dragged node, `rect` being where [`connection_rect`] puts it now: its `transform`
-/// (the graph's offset and scale included) and nothing else. A write of
+/// (the scale included, and the graph's offset when the boxes carry it,
+/// [`offset_in_boxes`]) and nothing else. A write of
 /// nothing but `transform` moves the box by the value its reference frame
 /// binds: no restyle, no layout, no display list.
 ///
@@ -3536,10 +3637,15 @@ fn get_rect(
 /// test and the builder read the graph, not the DOM. Once connections are
 /// drawn their size has to follow a drag - when the drag ends, not per move.
 #[allow(clippy::float_cmp)] // intentional exact compare: at scale 1 the transform carries no scale
-fn connection_drag_writes(graph: &NodeGraph, rect: &LogicalRect) -> Vec<CssProperty> {
+fn connection_drag_writes(
+    graph: &NodeGraph,
+    rect: &LogicalRect,
+    pan: PanMode,
+) -> Vec<CssProperty> {
+    let offset = offset_in_boxes(graph, pan);
     let translate = StyleTransformTranslate2D {
-        x: PixelValue::px(graph.offset.x + rect.origin.x),
-        y: PixelValue::px(graph.offset.y + rect.origin.y),
+        x: PixelValue::px(offset.0 + rect.origin.x),
+        y: PixelValue::px(offset.1 + rect.origin.y),
     };
     vec![CssProperty::transform(
         if graph.scale_factor == 1.0 {
@@ -3555,7 +3661,10 @@ fn connection_drag_writes(graph: &NodeGraph, rect: &LogicalRect) -> Vec<CssPrope
     )]
 }
 
-/// What a pan of the graph writes on its node boxes: for each of `boxes` - a
+/// What a pan of the graph writes on its node boxes when the boxes carry the
+/// graph's offset ([`PanMode::Nodes`]; with [`PanMode::Containers`] a pan
+/// writes [`container_transform`] on the two containers and no box): for
+/// each of `boxes` - a
 /// node box and the dataset it carries - whose dataset names a node of
 /// `graph`, the `transform` that puts the box where the node stands under the
 /// graph's offset. A box without a dataset, with a dataset of another type or
@@ -3627,21 +3736,39 @@ extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo)
 /// `graph_box` is the graph's box (the node the drag and the release are heard on): its
 /// first child holds the wires, the next one the nodes, each in a holder of its own
 /// (`dom_in_view`).
-fn release_gesture_transforms(info: &mut CallbackInfo, graph_box: azul_core::dom::DomNodeId) {
+///
+/// A3-solver-35b: what is cleared is what the gesture wrote on. A pan (`panned`) wrote on
+/// the two containers when they carry the offset (`pan`), two clears; a node drag
+/// (`node_dragged`) wrote on node boxes and wires, and so did a pan that moved every box
+/// itself ([`PanMode::Nodes`]): one clear per node box and wire.
+fn release_gesture_transforms(
+    info: &mut CallbackInfo,
+    graph_box: azul_core::dom::DomNodeId,
+    pan: PanMode,
+    panned: bool,
+    node_dragged: bool,
+) {
     let Some(connections) = info.get_first_child(graph_box) else {
         return;
     };
+    let nodes = info.get_next_sibling(connections);
     let mut written = Vec::new();
-    let mut next = info.get_first_child(connections);
-    while let Some(holder) = next {
-        next = info.get_next_sibling(holder);
-        written.extend(info.get_first_child(holder));
+    if panned && pan == PanMode::Containers {
+        written.push(connections);
+        written.extend(nodes);
     }
-    if let Some(nodes) = info.get_next_sibling(connections) {
-        let mut next = info.get_first_child(nodes);
+    if node_dragged || (panned && pan == PanMode::Nodes) {
+        let mut next = info.get_first_child(connections);
         while let Some(holder) = next {
             next = info.get_next_sibling(holder);
             written.extend(info.get_first_child(holder));
+        }
+        if let Some(nodes) = nodes {
+            let mut next = info.get_first_child(nodes);
+            while let Some(holder) = next {
+                next = info.get_next_sibling(holder);
+                written.extend(info.get_first_child(holder));
+            }
         }
     }
     for node in written {
@@ -3651,9 +3778,11 @@ fn release_gesture_transforms(info: &mut CallbackInfo, graph_box: azul_core::dom
 
 extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, mut info: CallbackInfo) -> Update {
     if let Some(mut refany) = refany.downcast_mut::<NodeGraphLocalDataset>() {
-        if refany.active_node_being_dragged.is_some() || refany.graph_dragged {
+        let (node_dragged, panned) =
+            (refany.active_node_being_dragged.is_some(), refany.graph_dragged);
+        if node_dragged || panned {
             let graph_box = info.get_hit_node();
-            release_gesture_transforms(&mut info, graph_box);
+            release_gesture_transforms(&mut info, graph_box, refany.pan, panned, node_dragged);
         }
         refany.active_node_being_dragged = None;
         // A graph dragged while its DOM is culled to the box shows the nodes the
@@ -3700,9 +3829,11 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         // to the model, and a pan that brought a node without DOM near the box
         // asks for its one rebuild. (Not on the move that carries the press -
         // the button is down then - so a node just made active stays active.)
-        if !cur.left_down && (refany.active_node_being_dragged.is_some() || refany.graph_dragged) {
+        let (node_dragged, panned) =
+            (refany.active_node_being_dragged.is_some(), refany.graph_dragged);
+        if !cur.left_down && (node_dragged || panned) {
             let graph_box = info.get_hit_node();
-            release_gesture_transforms(&mut info, graph_box);
+            release_gesture_transforms(&mut info, graph_box, refany.pan, panned, node_dragged);
             refany.active_node_being_dragged = None;
             if core::mem::take(&mut refany.graph_dragged) {
                 if let Some(built) = refany.culled.as_ref() {
@@ -3759,9 +3890,11 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 return Update::DoNothing;
             };
 
+            // (with the graph's offset when the boxes carry it, A3-solver-35b)
+            let offset = offset_in_boxes(&refany.node_graph, refany.pan);
             let node_transform = StyleTransformTranslate2D {
-                x: PixelValue::px(node_position.x + refany.node_graph.offset.x),
-                y: PixelValue::px(node_position.y + refany.node_graph.offset.y),
+                x: PixelValue::px(node_position.x + offset.0),
+                y: PixelValue::px(node_position.y + offset.1),
             };
 
             info.set_css_property(
@@ -3822,7 +3955,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 cld.swap_vert = swap_vert;
                 cld.swap_horz = swap_horz;
 
-                for property in connection_drag_writes(&refany.node_graph, &new_rect) {
+                for property in
+                    connection_drag_writes(&refany.node_graph, &new_rect, refany.pan)
+                {
                     info.set_css_property(first_child, property);
                 }
             }
@@ -3852,12 +3987,27 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 return Update::DoNothing;
             };
 
+            // A3-solver-35b: the two containers carry the offset - a step of
+            // the pan is these two writes, and no node box or wire is walked
+            // (the walks below start at nothing). With the offset on every
+            // box (`PanMode::Nodes`) each box and wire is written, as before.
+            let per_box = refany.pan == PanMode::Nodes;
+            if !per_box {
+                let offset = container_transform(&refany.node_graph);
+                info.set_css_property(connection_container_nodeid, offset.clone());
+                info.set_css_property(node_container, offset);
+            }
+
             // The node boxes - the first child of each child of the container -
             // with their datasets. A step takes the next sibling before it
             // looks at the node it stands on, so the walk ends with the
             // siblings whatever a node turns out to be.
             let mut node_boxes = Vec::new();
-            let mut next_node = info.get_first_child(node_container);
+            let mut next_node = if per_box {
+                info.get_first_child(node_container)
+            } else {
+                None
+            };
             while let Some(node) = next_node {
                 next_node = info.get_next_sibling(node);
                 if let Some(node_box) = info.get_first_child(node) {
@@ -3872,7 +4022,11 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             }
 
             // Update the connection positions
-            let mut first_connection_child = info.get_first_child(connection_container_nodeid);
+            let mut first_connection_child = if per_box {
+                info.get_first_child(connection_container_nodeid)
+            } else {
+                None
+            };
 
             while let Some(connection_nodeid) = first_connection_child {
                 first_connection_child = info.get_next_sibling(connection_nodeid);
@@ -4619,6 +4773,11 @@ mod autotest_generated {
     /// A `RefAny<NodeGraphLocalDataset>` wrapping a snapshot of `g` — the payload every
     /// node-graph callback expects to find at the end of its `backref` chain.
     fn graph_dataset(g: &NodeGraph) -> RefAny {
+        graph_dataset_as(g, PanMode::Containers)
+    }
+
+    /// [`graph_dataset`] of a render that carries the graph's offset as `pan` says.
+    fn graph_dataset_as(g: &NodeGraph, pan: PanMode) -> RefAny {
         RefAny::new(NodeGraphLocalDataset {
             node_graph: g.clone(),
             index: GraphIndex::of(g),
@@ -4628,6 +4787,7 @@ mod autotest_generated {
             callbacks: g.callbacks.clone(),
             culled: None,
             graph_dragged: false,
+            pan,
         })
     }
 
@@ -6131,7 +6291,7 @@ mod autotest_generated {
     #[test]
     fn render_connections_of_an_unwired_graph_has_no_children() {
         let g = graph();
-        let dom = render_connections(&g, &GraphIndex::of(&g), marker(), None);
+        let dom = render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers);
         assert_eq!(dom.children.len(), 0);
         assert!(
             dom.root.get_marker().is_some(),
@@ -6143,20 +6303,20 @@ mod autotest_generated {
     fn render_connections_emits_exactly_one_child_per_wire() {
         let mut g = graph();
         g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
-        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 1);
 
         g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
-        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 2);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 2);
 
         g.connect_input_output(N4, 0, N3, 0).expect("N3 -> N4");
-        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 3);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 3);
     }
 
     #[test]
     fn render_connections_skips_a_wire_to_a_node_that_no_longer_exists() {
         // `get_rect` returns `None`; the renderer must drop the wire, not unwrap it.
         let g = force_out_connection(graph(), N1, 0, MISSING, 0);
-        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 0);
     }
 
     #[test]
@@ -6164,7 +6324,7 @@ mod autotest_generated {
         for out_idx in [1_usize, 99, usize::MAX] {
             let g = force_out_connection(graph(), N1, out_idx, N3, 0);
             assert_eq!(
-                render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(),
+                render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(),
                 0,
                 "output index {out_idx} must be skipped",
             );
@@ -6179,7 +6339,7 @@ mod autotest_generated {
             node: mk_node(TYPE_UNREGISTERED, 0.0, 0.0),
         });
         let g = force_out_connection(g, NodeGraphNodeId { inner: 50 }, 0, N3, 0);
-        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 0);
     }
 
     #[test]
@@ -6187,7 +6347,7 @@ mod autotest_generated {
         let mut g = graph();
         g.node_types.as_mut()[0].node_type_info.outputs = vec![IO_COLORLESS].into();
         let g = force_out_connection(g, N1, 0, N3, 0);
-        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 0);
     }
 
     #[test]
@@ -6203,14 +6363,14 @@ mod autotest_generated {
             y: f32::NAN,
         };
         g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
-        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 1);
     }
 
     #[test]
     fn render_connections_renders_a_self_loop() {
         let mut g = graph();
         g.connect_input_output(N1, 0, N1, 0).expect("self loop");
-        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None, PanMode::Containers).children.len(), 1);
     }
 
     // ==================================================================
@@ -6422,18 +6582,27 @@ mod autotest_generated {
     }
 
     /// A3-solver-55 (the widget half): the release after a pan or a node drag clears the
-    /// transform override of every node box and wire - one `override_css_property(initial
-    /// transform)` each and nothing else - so the next rebuild shows the model (an undo, a
-    /// programmatic move), not the gesture; a release without a gesture writes nothing.
+    /// transform override of everything the gesture wrote on - one
+    /// `override_css_property(initial transform)` each and nothing else - so the next
+    /// rebuild shows the model (an undo, a programmatic move), not the gesture; a release
+    /// without a gesture writes nothing.
     /// Mutation: `release_gesture_transforms` not called (no change is pushed: the
     /// overrides stay and migrate onto every rebuild).
+    ///
+    /// A3-solver-35b: what a gesture wrote on depends on where the render carries the
+    /// graph's offset. On the containers, a pan wrote on the two containers (2 clears,
+    /// whatever the graph holds) and a node drag on node boxes and wires (one clear
+    /// each); on the boxes, both wrote on node boxes and wires.
+    /// Mutation: the clears of a pan not told apart by `pan` (`panned` taken for
+    /// `node_dragged` in `release_gesture_transforms`) clears 7 for 2.
     #[test]
     fn the_release_after_a_gesture_hands_every_transform_back() {
-        let g = graph();
+        let g = column(4, 0.0, 300.0);
         let dom = g.clone().dom();
         let boxes = dom.children.as_ref()[0].children.as_ref()[1].children.len();
         let wires = connections_with_dom(&dom);
-        assert!(boxes > 0, "harness: the graph has nodes");
+        assert!(boxes > 0 && wires > 0, "harness: the graph has nodes and wires");
+        assert!(boxes + wires != 2, "harness: not as many boxes and wires as containers");
         // The graph's box: the first child of the widget's wrapper.
         let graph_box = DomNodeId {
             dom: DomId::ROOT_ID,
@@ -6446,11 +6615,30 @@ mod autotest_generated {
             .1
         };
 
+        // The two children of the graph's box: the wires' container, the nodes' container.
+        let containers: Vec<usize> =
+            with_info(StyledDom::create_from_dom(g.clone().dom()), graph_box, |info| {
+                let of_wires = info.get_first_child(graph_box).expect("the wires' container");
+                let of_nodes = info.get_next_sibling(of_wires).expect("the nodes' container");
+                [of_wires, of_nodes]
+                    .iter()
+                    .filter_map(|n| n.node.into_crate_internal())
+                    .map(|n| n.index())
+                    .collect()
+            })
+            .0;
+        assert_eq!(containers.len(), 2);
+
         let untouched = graph_dataset(&g);
         assert!(release(&untouched).is_empty(), "no gesture: nothing to hand back");
 
-        for pan in [true, false] {
-            let gd = graph_dataset(&g);
+        for (mode, pan, cleared) in [
+            (PanMode::Containers, true, 2),
+            (PanMode::Containers, false, boxes + wires),
+            (PanMode::Nodes, true, boxes + wires),
+            (PanMode::Nodes, false, boxes + wires),
+        ] {
+            let gd = graph_dataset_as(&g, mode);
             {
                 let mut probe = gd.clone();
                 let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
@@ -6461,7 +6649,7 @@ mod autotest_generated {
                 }
             }
             let changes = release(&gd);
-            assert_eq!(changes.len(), boxes + wires, "pan {pan}: one clear per box and wire");
+            assert_eq!(changes.len(), cleared, "{mode:?}, pan {pan}: one clear per written box");
             for change in &changes {
                 let clears = matches!(
                     change,
@@ -6470,7 +6658,20 @@ mod autotest_generated {
                             && properties.as_ref()[0]
                                 == CssProperty::initial(CssPropertyType::Transform)
                 );
-                assert!(clears, "pan {pan}: every change clears a transform override");
+                assert!(clears, "{mode:?}, pan {pan}: every change clears a transform override");
+            }
+            if mode == PanMode::Containers && pan {
+                // the wires' container and the nodes' container - not a node box, not a wire
+                let cleared_nodes: Vec<usize> = changes
+                    .iter()
+                    .filter_map(|change| match change {
+                        CallbackChange::OverrideNodeCssProperties { node_id, .. } => {
+                            Some(node_id.index())
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(cleared_nodes, containers, "the two containers");
             }
         }
     }
@@ -6515,7 +6716,8 @@ mod autotest_generated {
             (d.active_node_being_dragged.map(|n| n.inner), d.graph_dragged)
         };
         let with_gesture = |pan: bool| {
-            let gd = graph_dataset(&g);
+            // the boxes carry the offset: a pan wrote on every box and wire, as a drag did
+            let gd = graph_dataset_as(&g, PanMode::Nodes);
             {
                 let mut probe = gd.clone();
                 let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
@@ -6528,7 +6730,7 @@ mod autotest_generated {
             gd
         };
 
-        let untouched = graph_dataset(&g);
+        let untouched = graph_dataset_as(&g, PanMode::Nodes);
         let (update, changes) = moved(&untouched, false, false);
         assert_eq!(update, Update::DoNothing);
         assert!(changes.is_empty(), "no gesture on record: a move writes nothing");
@@ -6584,9 +6786,189 @@ mod autotest_generated {
             callbacks: g.callbacks.clone(),
             culled: Some(CulledDom::of(&away, &GraphIndex::of(&g), view)),
             graph_dragged: true,
+            pan: PanMode::Containers,
         });
-        assert_eq!(moved(&culled, false, false).0, Update::RefreshDom);
+        let (update, changes) = moved(&culled, false, false);
+        assert_eq!(update, Update::RefreshDom);
+        assert_eq!(changes.len(), 2, "the containers carry the offset: a pan hands back two");
         assert_eq!(moved(&culled, false, false).0, Update::DoNothing, "once: the flag is spent");
+    }
+
+    /// The window before and after one mouse move with the left button held, from
+    /// (100, 100) to (110, 95): a drag step of (10, -5).
+    fn drag_step() -> (Option<FullWindowState>, FullWindowState) {
+        let mouse = |x: f32, y: f32| {
+            let mut state = FullWindowState::default();
+            state.mouse_state.left_down = true;
+            state.mouse_state.cursor_position = InWindow(LogicalPosition { x, y });
+            state
+        };
+        (Some(mouse(100.0, 100.0)), mouse(110.0, 95.0))
+    }
+
+    /// The `transform` writes among `changes`: the node each is written on, and the
+    /// properties written.
+    fn transform_writes(changes: Vec<CallbackChange>) -> Vec<(usize, Vec<CssProperty>)> {
+        changes
+            .into_iter()
+            .filter_map(|change| match change {
+                CallbackChange::ChangeNodeCssProperties {
+                    node_id, properties, ..
+                } => Some((node_id.index(), properties.as_ref().to_vec())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// `transform: translate(x, y)`, as a pan and a drag at scale 1 write it.
+    fn translate(x: f32, y: f32) -> CssProperty {
+        CssProperty::transform(
+            vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                x: PixelValue::px(x),
+                y: PixelValue::px(y),
+            })]
+            .into(),
+        )
+    }
+
+    /// A3-solver-35b, the pan: a step of a pan writes `translate(offset)` on the two
+    /// containers and on nothing else, whatever the graph holds - 2 writes for 5 nodes
+    /// and for 20. With the offset on the boxes (`AZ_NODEGRAPH_PAN=nodes`, the way of
+    /// before) it writes every node box and wire: 9 and 39.
+    ///
+    /// Example: the graph at the offset (0, 0), the mouse from (100, 100) to (110, 95)
+    /// with the button down. The offset becomes (10, -5), each container is written
+    /// `translate(10px, -5px)`; on the boxes, node 1 at (0, 200) is written
+    /// `translate(10px, 195px)`.
+    /// Mutation: the walks over the boxes not skipped when the containers carry the
+    /// offset (`per_box` always true) writes 2 + 9; the step subtracted writes (-10, 5).
+    #[test]
+    fn a_step_of_a_pan_writes_the_two_containers_whatever_the_graph_holds() {
+        // The graph's box: the first child of the widget's wrapper.
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let step = |nodes: u64, mode: PanMode| {
+            let g = column(nodes, 0.0, 300.0);
+            let gd = graph_dataset_as(&g, mode);
+            let (before, after) = drag_step();
+            let ((update, containers), changes) = with_info_between(
+                StyledDom::create_from_dom(g.clone().dom_in_view_as(LogicalSize::zero(), mode)),
+                graph_box,
+                before,
+                after,
+                |info| {
+                    let of_wires = info.get_first_child(graph_box).expect("the wires' container");
+                    let of_nodes = info.get_next_sibling(of_wires).expect("the nodes' container");
+                    let containers: Vec<usize> = [of_wires, of_nodes]
+                        .iter()
+                        .filter_map(|n| n.node.into_crate_internal())
+                        .map(|n| n.index())
+                        .collect();
+                    (nodegraph_drag_graph_or_nodes(gd.clone(), *info), containers)
+                },
+            );
+            assert_eq!(update, Update::DoNothing);
+            let panned = dataset_graph(&gd);
+            assert_eq!((panned.offset.x, panned.offset.y), (10.0, -5.0), "the step is added");
+            (transform_writes(changes), containers)
+        };
+
+        for nodes in [5_u64, 20] {
+            let (writes, containers) = step(nodes, PanMode::Containers);
+            assert_eq!(containers.len(), 2);
+            assert_eq!(
+                writes,
+                vec![
+                    (containers[0], vec![translate(10.0, -5.0)]),
+                    (containers[1], vec![translate(10.0, -5.0)]),
+                ],
+                "{nodes} nodes: the offset on the wires' container and on the nodes' container"
+            );
+        }
+        for nodes in [5_u64, 20] {
+            let (writes, containers) = step(nodes, PanMode::Nodes);
+            assert_eq!(
+                writes.len() as u64,
+                nodes + (nodes - 1),
+                "{nodes} nodes, the offset on the boxes: every node box and wire is written"
+            );
+            assert!(
+                writes.iter().all(|w| !containers.contains(&w.0)),
+                "the offset on the boxes: no container is written"
+            );
+            // the node boxes first, in order: node 1 at (0, 200) under the offset (10, -5)
+            assert_eq!(writes[0].1, vec![translate(10.0, 195.0)]);
+        }
+    }
+
+    /// A3-solver-35b, the node drag: with the offset on the containers a dragged node
+    /// and its wires are written in the graph's own coordinates; with the offset on the
+    /// boxes, under the offset.
+    ///
+    /// Example: the column 1 (0, 200), 2 (0, 500), 3 (0, 800), wired 1 -> 2 -> 3, at the
+    /// offset (7, 9); node 2 dragged by (10, -5) stands at (10, 495). Its wires
+    /// (`rect_between`: x = min(x in, x out + 250), y = 71 + min(y in, y out)):
+    /// 1 -> 2 at (min(10, 250), 71 + min(495, 200)) = (10, 271), 2 -> 3 at
+    /// (min(0, 260), 71 + min(800, 495)) = (0, 566). On the containers these are the
+    /// values written; on the boxes each is (7, 9) more: (17, 504), (17, 280), (7, 575).
+    /// Mutation: `offset_in_boxes` answering the offset for `Containers` writes the second
+    /// list for the first (the picture: the node jumps by the offset when it is grabbed).
+    #[test]
+    fn a_step_of_a_node_drag_writes_the_offset_only_where_the_boxes_carry_it() {
+        let graph_box = DomNodeId {
+            dom: DomId::ROOT_ID,
+            node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(1))),
+        };
+        let dragged = |mode: PanMode| {
+            let g = NodeGraph {
+                offset: LogicalPosition { x: 7.0, y: 9.0 },
+                ..column(3, 0.0, 300.0)
+            };
+            // The render's own dataset: the drag finds the node's box by the marker the
+            // render gave it.
+            let dom = g.dom_in_view_as(LogicalSize::zero(), mode);
+            let gd = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+            {
+                let mut probe = gd.clone();
+                let mut d = probe.downcast_mut::<NodeGraphLocalDataset>().expect("gd");
+                d.active_node_being_dragged = Some(N2);
+            }
+            let (before, after) = drag_step();
+            let (_, changes) = with_info_between(
+                StyledDom::create_from_dom(dom),
+                graph_box,
+                before,
+                after,
+                |info| nodegraph_drag_graph_or_nodes(gd.clone(), *info),
+            );
+            let moved = dataset_graph(&gd);
+            let node = moved.nodes.as_ref()[1].node.position;
+            assert_eq!((node.x, node.y), (10.0, 495.0), "{mode:?}: the model takes the step");
+            transform_writes(changes)
+                .into_iter()
+                .map(|write| write.1)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            dragged(PanMode::Containers),
+            vec![
+                vec![translate(10.0, 495.0)],
+                vec![translate(10.0, 271.0)],
+                vec![translate(0.0, 566.0)],
+            ],
+            "the offset on the containers: the box of node 2, the wires 1 -> 2 and 2 -> 3"
+        );
+        assert_eq!(
+            dragged(PanMode::Nodes),
+            vec![
+                vec![translate(17.0, 504.0)],
+                vec![translate(17.0, 280.0)],
+                vec![translate(7.0, 575.0)],
+            ],
+            "the offset on the boxes"
+        );
     }
 
     #[test]
@@ -6656,6 +7038,7 @@ mod autotest_generated {
                 callbacks: g.callbacks.clone(),
                 culled: built_at.map(|x| CulledDom::of(&at(x), &GraphIndex::of(&g), view)),
                 graph_dragged,
+                pan: PanMode::Containers,
             })
         };
         // Built 50 000 px to the right of the box (no node has DOM), panned
@@ -7868,7 +8251,7 @@ mod audit_a3_solver_tests {
             g.scale_factor = scale;
             let drawn = drawn_connections(&g, &GraphIndex::of(&g));
             assert_eq!(drawn.len(), 1, "harness: the wire is drawn");
-            let writes = connection_drag_writes(&g, &drawn[0].1);
+            let writes = connection_drag_writes(&g, &drawn[0].1, PanMode::Containers);
             assert_eq!(writes.len(), 1, "scale {scale}: one write a connection a step");
             let batch: CssPropertyVec = writes.clone().into();
             assert!(
@@ -7883,19 +8266,23 @@ mod audit_a3_solver_tests {
             );
         }
         // The box goes where the builder would put it: the output port of node 1
-        // (250, 71) under the offset (7, 9).
+        // (250, 71) - in the graph's own coordinates when the containers carry the
+        // offset (A3-solver-35b), under the offset (7, 9) when the boxes do.
         g.scale_factor = 1.0;
         let rect = drawn_connections(&g, &GraphIndex::of(&g))[0].1;
-        assert_eq!(
-            connection_drag_writes(&g, &rect),
-            vec![CssProperty::transform(
-                vec![StyleTransform::Translate(StyleTransformTranslate2D {
-                    x: PixelValue::px(257.0),
-                    y: PixelValue::px(80.0),
-                })]
-                .into()
-            )]
-        );
+        for (mode, x, y) in [(PanMode::Containers, 250.0, 71.0), (PanMode::Nodes, 257.0, 80.0)] {
+            assert_eq!(
+                connection_drag_writes(&g, &rect, mode),
+                vec![CssProperty::transform(
+                    vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                        x: PixelValue::px(x),
+                        y: PixelValue::px(y),
+                    })]
+                    .into()
+                )],
+                "{mode:?}"
+            );
+        }
     }
 
     /// The dataset a node box carries for the graph node `id`.
@@ -8341,6 +8728,367 @@ mod audit_a3_solver_tests {
                     clip_mode: BoxShadowClipMode::Outset,
                 }
             )))
+        );
+    }
+
+    /// The `transform` a node of the DOM declares itself, as a list.
+    fn transform_of(node: &Dom) -> Option<Vec<StyleTransform>> {
+        declared(node).into_iter().find_map(|property| match property {
+            CssProperty::Transform(StyleTransformVecValue::Exact(list)) => {
+                Some(list.as_ref().to_vec())
+            }
+            _ => None,
+        })
+    }
+
+    /// `translate(x, y)` as one function of a transform list.
+    fn shift(x: f32, y: f32) -> StyleTransform {
+        StyleTransform::Translate(StyleTransformTranslate2D {
+            x: PixelValue::px(x),
+            y: PixelValue::px(y),
+        })
+    }
+
+    /// A3-solver-35b, the builder. The graph's offset is declared once per container -
+    /// the wires' and the nodes' - and a node box and a wire stand in the graph's own
+    /// coordinates; with the offset on the boxes (`AZ_NODEGRAPH_PAN=nodes`) every box and
+    /// wire declares it and the containers declare no transform.
+    ///
+    /// Example, offset (7, 9): node 1 at (300, 40), node 2 at (900, 400), the wire from
+    /// node 1's output at (300 + 250, 40 + 71) = (550, 111). On the containers: both
+    /// containers `translate(7px, 9px)`, node 1 `translate(300px, 40px)`, the wire
+    /// `translate(550px, 111px)`. On the boxes: node 1 `translate(307px, 49px)`, the wire
+    /// `translate(557px, 120px)`. And a graph at the offset (0, 0) declares
+    /// `translate(0px, 0px)` on its containers: the frame a pan writes under is there
+    /// before the first pan.
+    /// Mutation: the offset left in the boxes as well (`offset_in_boxes` answering it for
+    /// `Containers`) gives node 1 (307, 49) under a container at (7, 9): the offset twice.
+    #[test]
+    fn a_render_declares_the_offset_on_the_containers_and_the_model_on_the_boxes() {
+        let mut g = graph_of(&[(300.0, 40.0), (900.0, 400.0)]);
+        wire(&mut g, 1, 2);
+        let g = panned(&g, 7.0, 9.0);
+        // (the wires' container, the nodes' container, the box of node 1, the wire)
+        let parts = |dom: &Dom| {
+            let graph_box = &dom.children.as_ref()[0];
+            let of_wires = &graph_box.children.as_ref()[0];
+            let of_nodes = &graph_box.children.as_ref()[1];
+            assert_eq!(with_dom(dom), (2, 1), "harness: two nodes and their wire have DOM");
+            (
+                transform_of(of_wires),
+                transform_of(of_nodes),
+                transform_of(&of_nodes.children.as_ref()[0].children.as_ref()[0]),
+                transform_of(&of_wires.children.as_ref()[0].children.as_ref()[0])
+                    .map(|list| list[0].clone()),
+            )
+        };
+        assert_eq!(
+            parts(&g.clone().dom_in_view_as(LogicalSize::zero(), PanMode::Containers)),
+            (
+                Some(vec![shift(7.0, 9.0)]),
+                Some(vec![shift(7.0, 9.0)]),
+                Some(vec![shift(300.0, 40.0)]),
+                Some(shift(550.0, 111.0)),
+            ),
+            "the offset on the containers"
+        );
+        assert_eq!(
+            parts(&g.clone().dom_in_view_as(LogicalSize::zero(), PanMode::Nodes)),
+            (
+                None,
+                None,
+                Some(vec![shift(307.0, 49.0)]),
+                Some(shift(557.0, 120.0)),
+            ),
+            "the offset on the boxes"
+        );
+        let at_rest = panned(&g, 0.0, 0.0).dom_in_view_as(LogicalSize::zero(), PanMode::Containers);
+        let (of_wires, of_nodes, _, _) = parts(&at_rest);
+        assert_eq!(
+            (of_wires, of_nodes),
+            (Some(vec![shift(0.0, 0.0)]), Some(vec![shift(0.0, 0.0)])),
+            "a graph at rest: its containers have their frame"
+        );
+        // The culling reads the graph, not the DOM: the same nodes and wires have DOM
+        // under either.
+        let far = panned(&column(60), 0.0, -1000.0);
+        assert_eq!(
+            with_dom(&far.clone().dom_in_view_as(VIEW, PanMode::Containers)),
+            with_dom(&far.dom_in_view_as(VIEW, PanMode::Nodes)),
+        );
+    }
+
+    /// The window of the engine tests below: `g` built with its offset carried as `mode`
+    /// says, in a graph box of 600 x 440 px at the window's corner, laid out at 640 x 480.
+    #[cfg(feature = "cpurender")]
+    fn window_of(g: &NodeGraph, mode: PanMode) -> crate::window::LayoutWindow {
+        let mut page = Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(g.clone().dom_in_view_as(LogicalSize::zero(), mode));
+        let (css, _warnings) =
+            azul_css::parser2::new_from_str(".nodegraph { width: 600px; height: 440px; }");
+        let styled = azul_core::styled_dom::StyledDom::create(&mut page, css);
+        let mut lw = crate::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+            .expect("a layout window");
+        let mut ws = crate::window_state::FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(640.0, 480.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &azul_core::resources::RendererResources::default(),
+            &crate::callbacks::ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        lw
+    }
+
+    /// The nodes of the laid-out page that carry the class `class`, in document order.
+    #[cfg(feature = "cpurender")]
+    fn nodes_of_class(lw: &crate::window::LayoutWindow, class: &str) -> Vec<azul_core::dom::NodeId> {
+        let nodes = lw.layout_results[&azul_core::dom::DomId::ROOT_ID]
+            .styled_dom
+            .node_data
+            .as_container();
+        (0..nodes.len())
+            .map(azul_core::dom::NodeId::new)
+            .filter(|n| nodes[*n].has_class(class))
+            .collect()
+    }
+
+    /// The frame a backend that holds none paints of the window.
+    #[cfg(feature = "cpurender")]
+    fn frame_of(lw: &crate::window::LayoutWindow) -> crate::cpurender::AzulPixmap {
+        let mut backend = crate::cpu_backend::CpuBackend::new();
+        next_frame_of(&mut backend, lw)
+    }
+
+    /// The next frame of `backend`: the damage path after its first.
+    #[cfg(feature = "cpurender")]
+    fn next_frame_of(
+        backend: &mut crate::cpu_backend::CpuBackend,
+        lw: &crate::window::LayoutWindow,
+    ) -> crate::cpurender::AzulPixmap {
+        let _ = backend.render_frame(
+            lw,
+            &azul_core::resources::RendererResources::default(),
+            640.0,
+            480.0,
+            1.0,
+        );
+        backend
+            .last_frame
+            .as_ref()
+            .expect("harness: a frame")
+            .clone_pixmap()
+    }
+
+    /// How many pixels of two frames of the window differ.
+    #[cfg(feature = "cpurender")]
+    fn differing(a: &crate::cpurender::AzulPixmap, b: &crate::cpurender::AzulPixmap) -> usize {
+        assert_eq!((a.width, a.height), (b.width, b.height), "harness: two frames of one window");
+        a.data()
+            .chunks_exact(4)
+            .zip(b.data().chunks_exact(4))
+            .filter(|(one, other)| one != other)
+            .count()
+    }
+
+    /// The node boxes (their places in `boxes`) the window is hit in at `(x, y)`, front
+    /// to back, with the matrices its frames are painted with now.
+    #[cfg(feature = "cpurender")]
+    fn boxes_hit(
+        lw: &crate::window::LayoutWindow,
+        tester: &crate::headless::CpuHitTester,
+        boxes: &[azul_core::dom::NodeId],
+        x: f32,
+        y: f32,
+    ) -> Vec<usize> {
+        let gpu = &lw.gpu_state_manager;
+        let mut hit: Vec<usize> = tester
+            .hit_test_scrolled(LogicalPosition::new(x, y), &|_, _| None, &|dom, node| {
+                gpu.painted_transform_of(dom, node)
+            })
+            .iter()
+            .filter_map(|(_, node, _)| boxes.iter().position(|b| b == node))
+            .collect();
+        // (a box listed for more than one of its areas counts once)
+        hit.dedup();
+        hit
+    }
+
+    /// The hit tester of the window as it was laid out.
+    #[cfg(feature = "cpurender")]
+    fn tester_of(lw: &crate::window::LayoutWindow) -> crate::headless::CpuHitTester {
+        let mut tester = crate::headless::CpuHitTester::new();
+        tester.rebuild_from_layout_with_gpu(&lw.layout_results, Some(&lw.gpu_state_manager));
+        tester
+    }
+
+    /// Three nodes of 250 px width in a 600 x 440 graph box: (20, 30), (320, 60),
+    /// (120, 260), node 1 wired to node 2.
+    #[cfg(feature = "cpurender")]
+    fn three_nodes() -> NodeGraph {
+        let mut g = graph_of(&[(20.0, 30.0), (320.0, 60.0), (120.0, 260.0)]);
+        wire(&mut g, 1, 2);
+        g
+    }
+
+    /// A3-solver-35b, the picture and the hits (the CPU renderer and the hit tester, the
+    /// product path: a laid-out window, its backend, its tester).
+    ///
+    /// The offset on the two containers is a reference frame around the frames of the
+    /// node boxes. The window must be painted, pixel for pixel, and hit, node box for
+    /// node box, as the window whose boxes carry the offset themselves - the way of
+    /// before, which is what the eye knows.
+    ///
+    /// Example, offset (37, -21), the graph box at the window's corner (0, 0): node 2,
+    /// at (320, 60) in the graph, is painted from (357, 39). The point (367, 49) is
+    /// 10 px inside it: node 2 is hit there. The point (330, 100) is inside the place
+    /// node 2 has without the offset and left of where it is painted (330 < 357), right
+    /// of node 1 (57 + 250 = 307 < 330) and above node 3 (260 - 21 = 239 > 100): no
+    /// node is hit there.
+    /// Mutations: the containers built without their transform (the offset lost: node 2
+    /// from (320, 60), the point (367, 49) above it) and the offset left in the boxes as
+    /// well (twice: node 2 from (394, 18), the point left of it) each miss the first
+    /// hit and paint another frame.
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_graph_with_its_offset_on_the_containers_is_painted_and_hit_as_before() {
+        let g = panned(&three_nodes(), 37.0, -21.0);
+        let on_containers = window_of(&g, PanMode::Containers);
+        let on_boxes = window_of(&g, PanMode::Nodes);
+        let at_rest = window_of(&three_nodes(), PanMode::Containers);
+
+        // The picture.
+        let (painted, before, rest) =
+            (frame_of(&on_containers), frame_of(&on_boxes), frame_of(&at_rest));
+        assert!(
+            differing(&painted, &rest) > 1000,
+            "harness: the nodes are painted, and the offset moves them"
+        );
+        assert_eq!(
+            differing(&painted, &before),
+            0,
+            "the offset on the containers paints another frame than the offset on the boxes"
+        );
+
+        // The hits.
+        let boxes = nodes_of_class(&on_containers, "node_graph_node");
+        assert_eq!(boxes.len(), 3, "harness: the three node boxes");
+        assert_eq!(
+            boxes,
+            nodes_of_class(&on_boxes, "node_graph_node"),
+            "harness: one DOM under either"
+        );
+        let graph_box = nodes_of_class(&on_containers, "nodegraph");
+        assert_eq!(graph_box.len(), 1);
+        let corner = {
+            let lr = &on_containers.layout_results[&azul_core::dom::DomId::ROOT_ID];
+            let index = *lr
+                .layout_tree
+                .dom_to_layout
+                .get(&graph_box[0])
+                .and_then(|v| v.first())
+                .expect("the graph box is laid out");
+            *lr.calculated_positions
+                .get(index.index())
+                .expect("the graph box has a position")
+        };
+        assert_eq!((corner.x, corner.y), (0.0, 0.0), "harness: the graph box at the corner");
+        let (tester, tester_before) = (tester_of(&on_containers), tester_of(&on_boxes));
+        assert_eq!(
+            boxes_hit(&on_containers, &tester, &boxes, 367.0, 49.0),
+            vec![1],
+            "node 2 is hit 10 px inside where it is painted"
+        );
+        assert!(
+            boxes_hit(&on_containers, &tester, &boxes, 330.0, 100.0).is_empty(),
+            "no node is hit where node 2 stands without the offset"
+        );
+        let mut hit_somewhere = 0;
+        for y in (4..480).step_by(12) {
+            for x in (4..640).step_by(12) {
+                let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+                let here = boxes_hit(&on_containers, &tester, &boxes, x, y);
+                assert_eq!(
+                    here,
+                    boxes_hit(&on_boxes, &tester_before, &boxes, x, y),
+                    "the node boxes hit at ({x}, {y})"
+                );
+                hit_somewhere += usize::from(!here.is_empty());
+            }
+        }
+        assert!(hit_somewhere > 100, "harness: the lattice crosses the nodes ({hit_somewhere})");
+    }
+
+    /// A3-solver-35b, a pan without a rebuild. The graph is built and laid out at rest;
+    /// the pan writes `translate(37px, -21px)` on its two containers (what
+    /// `set_css_property` does after the callback: a value under each container's key,
+    /// no restyle, no layout, no display list). The frame the window's backend paints
+    /// next - its damage path - and the frame of a backend that holds none are the frame
+    /// of the graph BUILT at that offset, and the tester made at rest hits node 2 where
+    /// it is painted now.
+    ///
+    /// Mutation: a pan that writes one container only (the nodes') leaves the wires
+    /// behind - nothing to see while wires are not drawn, so the tier and the picture
+    /// are checked per write: each of the two writes must be a paint, not a layout.
+    #[cfg(feature = "cpurender")]
+    #[test]
+    fn a_pan_written_on_the_two_containers_paints_the_graph_built_at_that_offset() {
+        use crate::overlay::{ContentChange, ContentDirtyTier};
+        let g = three_nodes();
+        let there = panned(&g, 37.0, -21.0);
+        let built_there = frame_of(&window_of(&there, PanMode::Containers));
+
+        let mut lw = window_of(&g, PanMode::Containers);
+        let mut backend = crate::cpu_backend::CpuBackend::new();
+        let at_rest = next_frame_of(&mut backend, &lw);
+        assert!(differing(&at_rest, &built_there) > 1000, "harness: the pan moves the nodes");
+        let boxes = nodes_of_class(&lw, "node_graph_node");
+        let tester = tester_of(&lw);
+        assert_eq!(boxes_hit(&lw, &tester, &boxes, 330.0, 100.0), vec![1], "at rest: node 2");
+
+        let containers = [
+            nodes_of_class(&lw, "nodegraph-connections-container"),
+            nodes_of_class(&lw, "nodegraph-nodes-container"),
+        ];
+        for container in &containers {
+            assert_eq!(container.len(), 1, "harness: one container of each kind");
+            let tier = lw
+                .apply_content_change(ContentChange::NodeCss {
+                    dom_id: azul_core::dom::DomId::ROOT_ID,
+                    node_id: container[0],
+                    props: vec![container_transform(&there)],
+                    override_only: false,
+                })
+                .tier;
+            assert_eq!(
+                tier,
+                ContentDirtyTier::Paint,
+                "a pan step is a value under the container's key, not a rebuild"
+            );
+        }
+
+        assert_eq!(
+            differing(&next_frame_of(&mut backend, &lw), &built_there),
+            0,
+            "the frame after the pan (the damage path) is not the graph built at the offset"
+        );
+        assert_eq!(
+            differing(&frame_of(&lw), &built_there),
+            0,
+            "the panned window, painted from nothing, is not the graph built at the offset"
+        );
+        assert_eq!(
+            boxes_hit(&lw, &tester, &boxes, 367.0, 49.0),
+            vec![1],
+            "after the pan node 2 is hit where it is painted"
+        );
+        assert!(
+            boxes_hit(&lw, &tester, &boxes, 330.0, 100.0).is_empty(),
+            "after the pan no node is hit where node 2 stood"
         );
     }
 }

@@ -824,7 +824,9 @@ struct JournaledNode {
 /// of a pass keeps a journal (`TaffyPassMemo::measure_journal`): what is
 /// computed inside it - by this bridge or one made below it - is put back
 /// with the rest. The measurements the nodes below answered meanwhile are
-/// answers, not layout: they are stored again afterwards ([`KeptMeasure`]).
+/// answers, not layout: they are stored again afterwards ([`KeptMeasure`]),
+/// and the lines a measure flowed at the min- or max-content width stay in
+/// their node ([`keep_inline_answers`]).
 ///
 /// Opened only for a box whose final layout is current (a first layout pays
 /// nothing), and for a subtree of at most [`JOURNALED_NODES_AT_MOST`] boxes.
@@ -834,6 +836,109 @@ struct MeasureJournal {
     nodes: Vec<JournaledNode>,
     /// `TaffyPassMemo::unrestored_writes` when the journal was opened.
     writes: u64,
+}
+
+/// Keeps on `restored` - a node as it was before a journaled measure
+/// ([`MeasureJournal`]) - what the measure answered about the node's text,
+/// from `measured`, the node as the measure left it.
+///
+/// A measure of an inline formatting context at the min- or the max-content
+/// width flows its text and keeps the lines in a slot of their own, beside the
+/// final layout (`LayoutNodeWarm::inline_measure_layouts`): the next measure
+/// at that width flows nothing. Like a stored taffy answer ([`KeptMeasure`])
+/// that slot is an answer, not layout - but it sits in the node, and the
+/// journal put the node back as it was: the slot was gone, and every later
+/// measure of the node flowed its text again (a label measured twice and laid
+/// out at a new width flowed three times,
+/// `a_hovered_label_flows_its_text_once_however_often_it_is_measured`).
+///
+/// Kept: a slot the measure filled, when its lines are of the content the
+/// node's final layout is of (or the node holds no final layout) and the node
+/// holds no measure of that content at that width already - its own stays.
+/// The slots of other content go, as where a layout is stored
+/// (`InlineMeasureLayouts::retain_content`). And the collection of the inline
+/// content, when the node held none: it names what it is valid for itself
+/// (`CachedInlineContent`).
+///
+/// The same for a measure at a DEFINITE width - "how tall at this width?",
+/// what a flex container asks of an item before it lays it out. Its lines
+/// took the place of the node's final layout (a layout at a definite width
+/// is the final one to `layout_ifc`), and the journal put the old final
+/// layout back: the measure's lines were gone, the container's next question
+/// at that width flowed the text again, and so did the final layout it then
+/// gave the item at that width - a hover that narrows a label by 12 px
+/// flowed it three times for one. They are kept in the slot of their own
+/// (`InlineMeasureLayouts::definite`), where `layout_ifc` finds them for a
+/// visit at their width and makes them the final layout. Not kept when the
+/// node's final layout answers that width itself (the measure found it).
+fn keep_inline_answers(
+    restored: &mut crate::solver3::layout_tree::LayoutNodeWarm,
+    measured: crate::solver3::layout_tree::LayoutNodeWarm,
+) {
+    use crate::solver3::layout_tree::InlineMeasureLayouts;
+
+    if restored.inline_content_cache.is_none() {
+        restored.inline_content_cache = measured.inline_content_cache;
+    }
+    // The content the node's layouts are of: its final layout's.
+    let content = restored
+        .inline_layout_result
+        .as_deref()
+        .map(|laid_out| laid_out.inline_content_hash);
+    // The lines the measure kept at the min- and at the max-content width.
+    // (What it holds in the slot of a definite width is the node's own, from
+    // before: the node has it.)
+    if let Some(measures) = measured.inline_measure_layouts {
+        let InlineMeasureLayouts {
+            min_content,
+            max_content,
+            definite: _,
+        } = *measures;
+        for layout in [min_content, max_content].into_iter().flatten() {
+            let hash = layout.inline_content_hash;
+            if content.is_some_and(|of_final| of_final != hash) {
+                continue;
+            }
+            let kept = restored
+                .inline_measure_layouts
+                .get_or_insert_with(Box::default);
+            let held = kept
+                .get(layout.available_width)
+                .is_some_and(|own| own.inline_content_hash == hash);
+            if !held {
+                kept.retain_content(hash);
+                kept.keep(layout);
+            }
+        }
+    }
+    // The lines the measure left as the node's layout, at a definite width.
+    if let Some(lines) = measured.inline_layout_result {
+        let hash = lines.inline_content_hash;
+        let at = lines.available_width;
+        let floats = lines.has_floats;
+        let answers = |held: &crate::solver3::layout_tree::CachedInlineLayout| {
+            held.inline_content_hash == hash && held.is_valid_for(at, floats)
+        };
+        let definite = matches!(at, crate::text3::cache::AvailableSpace::Definite(_));
+        let of_this_content = content.is_none_or(|of_final| of_final == hash);
+        let final_answers = restored.inline_layout_result.as_deref().is_some_and(answers);
+        if definite && of_this_content && !final_answers {
+            let kept = restored
+                .inline_measure_layouts
+                .get_or_insert_with(Box::default);
+            if !kept.definite.as_ref().is_some_and(answers) {
+                kept.retain_content(hash);
+                kept.definite = Some(*lines);
+            }
+        }
+    }
+    if restored
+        .inline_measure_layouts
+        .as_deref()
+        .is_some_and(InlineMeasureLayouts::is_empty)
+    {
+        restored.inline_measure_layouts = None;
+    }
 }
 
 /// The largest subtree a [`MeasureJournal`] copies. A measure lays the whole
@@ -2712,7 +2817,10 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 *slot = hot;
             }
             if let Some(slot) = self.tree.warm.get_mut(index) {
-                *slot = warm;
+                // What the measure flowed of the node's text is an answer
+                // too: it stays beside what the node held.
+                let measured = core::mem::replace(slot, warm);
+                keep_inline_answers(slot, measured);
             }
             if let (Some(slot), Some(cold)) = (self.tree.cold.get_mut(index), cold) {
                 *slot = cold;
@@ -6553,6 +6661,216 @@ mod audit_a3_solver_tests {
             FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
             computed_first,
             "the row's final layout was computed again after a measure that left no write"
+        );
+    }
+
+    /// A kept inline layout of no items: at `width`, of the content `hash`,
+    /// told apart from another of the same slot by `has_floats`.
+    fn lines_at(
+        width: crate::text3::cache::AvailableSpace,
+        hash: u64,
+        has_floats: bool,
+    ) -> crate::solver3::layout_tree::CachedInlineLayout {
+        let mut lines = crate::solver3::layout_tree::CachedInlineLayout::new(
+            std::sync::Arc::new(crate::font_traits::UnifiedLayout {
+                items: Vec::new(),
+                overflow: Default::default(),
+            }),
+            width,
+            has_floats,
+        );
+        lines.inline_content_hash = hash;
+        lines
+    }
+
+    /// A node's warm data: its final layout (at 200 px, of the content
+    /// `final_of`) and its kept measures.
+    fn node_holding(
+        final_of: Option<u64>,
+        measures: Vec<crate::solver3::layout_tree::CachedInlineLayout>,
+    ) -> crate::solver3::layout_tree::LayoutNodeWarm {
+        use crate::{
+            solver3::layout_tree::{InlineMeasureLayouts, LayoutNodeWarm},
+            text3::cache::AvailableSpace as Width,
+        };
+        let mut kept = InlineMeasureLayouts::default();
+        for measure in measures {
+            kept.keep(measure);
+        }
+        LayoutNodeWarm {
+            inline_layout_result: final_of
+                .map(|hash| Box::new(lines_at(Width::Definite(200.0), hash, false))),
+            inline_measure_layouts: (!kept.is_empty()).then(|| Box::new(kept)),
+            ..LayoutNodeWarm::default()
+        }
+    }
+
+    /// The measures a node keeps: per slot (min-content, max-content) the
+    /// content its lines are of and their `has_floats` mark.
+    fn measures_of(
+        node: &crate::solver3::layout_tree::LayoutNodeWarm,
+    ) -> [Option<(u64, bool)>; 2] {
+        let slot = |width| {
+            node.inline_measure_layouts
+                .as_deref()
+                .and_then(|kept| kept.get(width))
+                .map(|lines| (lines.inline_content_hash, lines.has_floats))
+        };
+        [
+            slot(crate::text3::cache::AvailableSpace::MinContent),
+            slot(crate::text3::cache::AvailableSpace::MaxContent),
+        ]
+    }
+
+    /// A3-solver-17c, the text a journaled measure flowed. The journal puts a
+    /// node back as it was before the measure; the lines the measure flowed at
+    /// the min- or max-content width are an answer, kept in the node
+    /// (`inline_measure_layouts`), and went with the rest: every later measure
+    /// of the node flowed its text again
+    /// (`a_hovered_label_flows_its_text_once_however_often_it_is_measured`:
+    /// 3 flows for 1). They stay.
+    ///
+    /// Four nodes, each as the journal restores it and as the measure left it:
+    /// 1. a final layout of content 7, no measure; the measure flowed the
+    ///    min-content lines of content 7: kept, the final layout untouched;
+    /// 2. the same node, the measure's lines of content 9 (not what the final
+    ///    layout shows): not kept;
+    /// 3. the node held min-content lines of content 7 already (marked), the
+    ///    measure made its own of content 7 and max-content ones: the node's
+    ///    own min stays, the max is kept;
+    /// 4. no final layout, max-content lines of content 5 held; the measure
+    ///    flowed min-content lines of content 9: kept, and the lines of the
+    ///    other content go (a node keeps the layouts of one content).
+    ///
+    /// Mutations: `keep_inline_answers` keeping nothing (returning at once)
+    /// leaves case 1 without its measure; its call taken out of
+    /// `end_measure_journal` fails the hover test named above (`layout/tests`).
+    #[test]
+    fn a_journaled_measure_leaves_the_lines_it_flowed_in_their_node() {
+        use crate::text3::cache::AvailableSpace as Width;
+
+        // 1.
+        let mut restored = node_holding(Some(7), Vec::new());
+        let measured = node_holding(Some(7), vec![lines_at(Width::MinContent, 7, false)]);
+        keep_inline_answers(&mut restored, measured);
+        assert_eq!(measures_of(&restored), [Some((7, false)), None]);
+        let final_layout = restored.inline_layout_result.as_deref().expect("the final layout");
+        assert!(
+            matches!(final_layout.available_width, Width::Definite(w) if w == 200.0)
+                && final_layout.inline_content_hash == 7,
+            "the final layout is the one the node held"
+        );
+
+        // 2.
+        let mut restored = node_holding(Some(7), Vec::new());
+        let measured = node_holding(Some(9), vec![lines_at(Width::MinContent, 9, false)]);
+        keep_inline_answers(&mut restored, measured);
+        assert_eq!(measures_of(&restored), [None, None]);
+        assert!(restored.inline_measure_layouts.is_none(), "no empty box is left behind");
+
+        // 3.
+        let mut restored = node_holding(Some(7), vec![lines_at(Width::MinContent, 7, true)]);
+        let measured = node_holding(
+            Some(7),
+            vec![
+                lines_at(Width::MinContent, 7, false),
+                lines_at(Width::MaxContent, 7, false),
+            ],
+        );
+        keep_inline_answers(&mut restored, measured);
+        assert_eq!(measures_of(&restored), [Some((7, true)), Some((7, false))]);
+
+        // 4.
+        let mut restored = node_holding(None, vec![lines_at(Width::MaxContent, 5, false)]);
+        let measured = node_holding(None, vec![lines_at(Width::MinContent, 9, false)]);
+        keep_inline_answers(&mut restored, measured);
+        assert_eq!(measures_of(&restored), [Some((9, false)), None]);
+    }
+
+    /// The width of the lines a node keeps from a journaled measure at a
+    /// definite width, and the content they are of.
+    fn definite_of(node: &crate::solver3::layout_tree::LayoutNodeWarm) -> Option<(f32, u64)> {
+        let lines = node.inline_measure_layouts.as_deref()?.definite.as_ref()?;
+        match lines.available_width {
+            crate::text3::cache::AvailableSpace::Definite(width) => {
+                Some((width, lines.inline_content_hash))
+            }
+            _ => None,
+        }
+    }
+
+    /// A node as a measure at `width` px left it: its lines at that width, of
+    /// the content `hash`, where its final layout was.
+    fn node_measured_at(width: f32, hash: u64) -> crate::solver3::layout_tree::LayoutNodeWarm {
+        crate::solver3::layout_tree::LayoutNodeWarm {
+            inline_layout_result: Some(Box::new(lines_at(
+                crate::text3::cache::AvailableSpace::Definite(width),
+                hash,
+                false,
+            ))),
+            ..Default::default()
+        }
+    }
+
+    /// A3-solver-17c, a journaled measure at a definite width. A flex
+    /// container asks an item "how tall at 188 px?" before it lays it out at
+    /// 188 px; the item's final layout, current, is at 200 px. The measure
+    /// flows the text at 188 px, the journal puts the layout at 200 px back -
+    /// and the lines at 188 px were lost: the next question at 188 px and the
+    /// final layout at 188 px each flowed the text again (3 flows for 1).
+    /// They are kept beside the final layout.
+    ///
+    /// 1. final at 200 px of content 7; the measure left lines at 188 px of
+    ///    content 7: kept as (188, 7), the final layout still at 200 px;
+    /// 2. the measure was at 200 px (it found the final layout): nothing kept;
+    /// 3. the measure's lines are of content 9: nothing kept;
+    /// 4. the node keeps (188, 7) already and the measure left lines at 150 px:
+    ///    the last ones are kept, (150, 7); at 188 px again: its own stay.
+    ///
+    /// Mutation: the definite arm of `keep_inline_answers` removed keeps
+    /// nothing in case 1 (and the hover test of `layout/tests` flows 3 times).
+    #[test]
+    fn a_journaled_measure_at_a_definite_width_keeps_its_lines_beside_the_final_layout() {
+        use crate::text3::cache::AvailableSpace as Width;
+
+        // 1.
+        let mut restored = node_holding(Some(7), Vec::new());
+        keep_inline_answers(&mut restored, node_measured_at(188.0, 7));
+        assert_eq!(definite_of(&restored), Some((188.0, 7)));
+        let final_layout = restored.inline_layout_result.as_deref().expect("the final layout");
+        assert!(
+            matches!(final_layout.available_width, Width::Definite(w) if w == 200.0),
+            "the final layout is the one the node held, at 200 px"
+        );
+
+        // 2.
+        let mut restored = node_holding(Some(7), Vec::new());
+        keep_inline_answers(&mut restored, node_measured_at(200.0, 7));
+        assert_eq!(definite_of(&restored), None);
+        assert!(restored.inline_measure_layouts.is_none(), "no empty box is left behind");
+
+        // 3.
+        let mut restored = node_holding(Some(7), Vec::new());
+        keep_inline_answers(&mut restored, node_measured_at(188.0, 9));
+        assert_eq!(definite_of(&restored), None);
+
+        // 4.
+        let mut restored = node_holding(Some(7), Vec::new());
+        keep_inline_answers(&mut restored, node_measured_at(188.0, 7));
+        keep_inline_answers(&mut restored, node_measured_at(150.0, 7));
+        assert_eq!(definite_of(&restored), Some((150.0, 7)));
+        let kept_lines = |node: &crate::solver3::layout_tree::LayoutNodeWarm| {
+            node.inline_measure_layouts
+                .as_deref()
+                .and_then(|kept| kept.definite.as_ref())
+                .map(|lines| lines.layout.clone())
+                .expect("the kept lines")
+        };
+        let own = kept_lines(&restored);
+        keep_inline_answers(&mut restored, node_measured_at(150.0, 7));
+        assert!(
+            std::sync::Arc::ptr_eq(&kept_lines(&restored), &own),
+            "the node's own lines at that width stay"
         );
     }
 }
