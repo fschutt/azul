@@ -977,7 +977,8 @@ impl MultiValue<LayoutFloat> {
 /// Helper macro to reduce boilerplate for simple CSS property getters
 /// Returns the inner `PixelValue` wrapped in `MultiValue`
 macro_rules! get_css_property_pixel {
-    // Variant WITH compact cache fast path for i16-encoded resolved px properties
+    // Variant WITH compact cache fast path for the box length slots (`PxSlot`:
+    // thousandths of a px, so the slot gives the declared number exactly)
     (
         $fn_name:ident, $cache_method:ident, $ua_property:expr,compact_i16 = $compact_method:ident
     ) => {
@@ -991,25 +992,25 @@ macro_rules! get_css_property_pixel {
             if node_state.is_normal() {
                 if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
                     let raw = cc.$compact_method(node_id.index());
-                    if raw == azul_css::compact_cache::I16_AUTO {
+                    if raw == azul_css::compact_cache::PX_SLOT_AUTO {
                         return MultiValue::Auto;
                     }
-                    if raw == azul_css::compact_cache::I16_INITIAL {
+                    if raw == azul_css::compact_cache::PX_SLOT_INITIAL {
                         return MultiValue::Initial;
                     }
-                    if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                        // Valid value: decode i16 ×10 → px
-                        return MultiValue::Exact(PixelValue::px(f32::from(raw) / 10.0));
+                    // A px length: the declared one, to the thousandth.
+                    if let Some(length) = azul_css::compact_cache::px_slot_length(raw) {
+                        return MultiValue::Exact(length);
                     }
-                    // I16_SENTINEL: a length the slot cannot hold (beyond
-                    // +-3276 px, or not px). The builder kept it beside the
-                    // slots (A3-core-12): no cascade lookup per read.
-                    if raw == azul_css::compact_cache::I16_SENTINEL {
+                    // PX_SLOT_SENTINEL: a length the slot cannot hold (not
+                    // px, or beyond 2 million px). The builder kept it beside
+                    // the slots (A3-core-12): no cascade lookup per read.
+                    if raw == azul_css::compact_cache::PX_SLOT_SENTINEL {
                         if let Some(length) = cc.px_overflow_of(node_id.index(), $ua_property) {
                             return MultiValue::Exact(length);
                         }
                     }
-                    // I16_INHERIT, or a sentinel without a kept length → slow path
+                    // PX_SLOT_INHERIT, or a sentinel without a kept length → slow path
                 }
             }
 
@@ -1024,13 +1025,12 @@ macro_rules! get_css_property_pixel {
                 if val.is_auto() {
                     return MultiValue::Auto;
                 }
-                // A px length is the number the compact slot gives for it
-                // (tenths of a pixel), so a node reads one number at rest
-                // (the slot) and in any other state (here): A3-core-12.
+                // The declared length: the number the compact slot gives
+                // for it at rest too (it holds thousandths of a pixel, what
+                // a declared length has), so a node reads one number in
+                // every state: A3-core-12.
                 if let Some(exact) = val.get_property().copied() {
-                    return MultiValue::Exact(
-                        azul_css::compact_cache::px_as_the_i16_slot_reads_it(exact.inner),
-                    );
+                    return MultiValue::Exact(exact.inner);
                 }
             }
 
@@ -1038,9 +1038,7 @@ macro_rules! get_css_property_pixel {
 
             if let Some(ua_prop) = ua_css {
                 if let Some(inner) = ua_prop.get_pixel_inner() {
-                    return MultiValue::Exact(
-                        azul_css::compact_cache::px_as_the_i16_slot_reads_it(inner),
-                    );
+                    return MultiValue::Exact(inner);
                 }
             }
 
@@ -3152,12 +3150,14 @@ pub const fn used_border_width(
 /// Whether a border width read from the compact cache has to be read from
 /// the cascade instead: the cache stores resolved px only, so a width in
 /// another unit (`1in`, `0.25em`) or an explicit `inherit` is a sentinel
-/// (`I16_SENTINEL` / `I16_INHERIT`) that means "ask the cascade", not "no
-/// width". (`auto` / `initial` are the initial `medium`.)
-pub(crate) const fn compact_border_width_needs_cascade(raw: i16) -> bool {
-    raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD
-        && raw != azul_css::compact_cache::I16_AUTO
-        && raw != azul_css::compact_cache::I16_INITIAL
+/// (`PX_SLOT_SENTINEL` / `PX_SLOT_INHERIT`) that means "ask the cascade",
+/// not "no width". (`auto` / `initial` are the initial `medium`.)
+pub(crate) const fn compact_border_width_needs_cascade(
+    raw: azul_css::compact_cache::PxSlot,
+) -> bool {
+    raw >= azul_css::compact_cache::PX_SLOT_THRESHOLD
+        && raw != azul_css::compact_cache::PX_SLOT_AUTO
+        && raw != azul_css::compact_cache::PX_SLOT_INITIAL
 }
 
 /// The border of `node_id` as the cascade declared it: `None` for a side
@@ -3171,7 +3171,7 @@ fn declared_border_info(
     use azul_css::{
         css::CssPropertyValue,
         props::{
-            basic::{color::ColorU, pixel::PixelValue},
+            basic::color::ColorU,
             style::{
                 border::{
                     BorderStyle, StyleBorderBottomColor, StyleBorderBottomStyle,
@@ -3191,21 +3191,13 @@ fn declared_border_info(
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
             let idx = node_id.index();
 
-            // Border widths: decode from compact i16 (resolved px × 10).
+            // Border widths: decode from the compact slot (thousandths of a px).
             // Previously this block called the slow convenience getters
             // despite being in the "fast path" branch — 2014 slow walks
             // per width × 4 widths per cold excel.html layout. Fixed
             // 2026-04-17.
-            let make_width_px = |raw: i16| -> Option<PixelValue> {
-                if raw == azul_css::compact_cache::I16_AUTO
-                    || raw == azul_css::compact_cache::I16_INITIAL
-                    || raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD
-                {
-                    None
-                } else {
-                    Some(PixelValue::px(f32::from(raw) / 10.0))
-                }
-            };
+            // (`None` for every sentinel: `auto`, `initial` and the rest.)
+            let make_width_px = azul_css::compact_cache::px_slot_length;
             // A width the cache could not resolve (`1in`, `0.25em`:
             // `compact_border_width_needs_cascade`) is read from the
             // cascade - decoded as "no width" it painted `medium` (3px)

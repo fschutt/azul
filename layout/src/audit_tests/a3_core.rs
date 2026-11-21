@@ -253,10 +253,12 @@ fn a_shared_scroll_chain_is_the_chain_of_every_box_that_shares_it() {
 }
 
 /// A3-core-12 (A3-solver 36a): an inset, margin, padding or border width is read from a compact
-/// slot at rest (tenths of a pixel) and from the cascade in any other state, which gave the
-/// declared number: `left: 10.04px` was 10.0 at rest and 10.04 hovered. Both give the slot's
-/// number now. And a length the slot cannot hold (beyond +-3276 px) is kept beside the slots
-/// when the cache is built: a resting read of it asks the cascade no more.
+/// slot at rest and from the cascade in any other state. The slot was tenths of a pixel in an
+/// `i16`: `left: 10.04px` was 10.0 at rest and 10.04 hovered, and a length beyond +-3276 px did
+/// not fit. The slot holds thousandths of a pixel now, the number a declared length has: both
+/// states read the declared length. A length the slot still cannot hold (another unit, or
+/// beyond 2 million px) is kept beside the slots when the cache is built: a resting read of
+/// it asks the cascade no more.
 #[test]
 fn an_inset_is_one_number_at_rest_and_hovered_and_costs_no_lookup_beyond_the_slot() {
     use azul_core::styled_dom::StyledNodeState;
@@ -267,7 +269,7 @@ fn an_inset_is_one_number_at_rest_and_hovered_and_costs_no_lookup_beyond_the_slo
 
     use crate::solver3::getters::get_css_left;
 
-    // 0 body, then the boxes 1..=4.
+    // 0 body, then the boxes 1..=6.
     let boxed =
         |left: &str| Dom::create_div().with_css(&format!("position: absolute; left: {left};"));
     let mut styled = StyledDom::create_from_dom(
@@ -275,7 +277,9 @@ fn an_inset_is_one_number_at_rest_and_hovered_and_costs_no_lookup_beyond_the_slo
             .with_child(boxed("10.04px"))
             .with_child(boxed("10.05px"))
             .with_child(boxed("5000.25px"))
-            .with_child(boxed("7px")),
+            .with_child(boxed("7px"))
+            .with_child(boxed("2em"))
+            .with_child(boxed("3000000px")),
     );
     let rest = StyledNodeState::new();
     let mut hovered = StyledNodeState::new();
@@ -284,19 +288,38 @@ fn an_inset_is_one_number_at_rest_and_hovered_and_costs_no_lookup_beyond_the_slo
         get_css_left(styled, NodeId::new(node), state).exact()
     };
 
-    // 10.04 px is 100.4 tenths: 100, 10.0 px. Hovered it read 10.04.
-    assert_eq!(left(&styled, 1, &rest), Some(PixelValue::px(10.0)));
-    assert_eq!(left(&styled, 1, &hovered), Some(PixelValue::px(10.0)), "10.04px, hovered");
-    // 10.05 px is 100.5 tenths (exactly, as f32): a half, away from zero: 101, 10.1 px.
-    assert_eq!(left(&styled, 2, &rest), Some(PixelValue::px(10.1)));
-    assert_eq!(left(&styled, 2, &hovered), Some(PixelValue::px(10.1)), "10.05px, hovered");
-    // Beyond the slot (50,002.5 tenths): the declared length, in both states.
-    assert_eq!(left(&styled, 3, &rest), Some(PixelValue::px(5000.25)));
-    assert_eq!(left(&styled, 3, &hovered), Some(PixelValue::px(5000.25)), "5000.25px, hovered");
+    // The declared length to the thousandth, in the slot (at rest) and from the cascade
+    // (hovered): 10.04 px is 10,040 thousandths, 10.05 px is 10,050, 5000.25 px is 5,000,250.
+    for (node, declared) in [(1, 10.04), (2, 10.05), (3, 5000.25), (4, 7.0)] {
+        assert_eq!(left(&styled, node, &rest), Some(PixelValue::px(declared)), "{declared}px");
+        assert_eq!(
+            left(&styled, node, &hovered),
+            Some(PixelValue::px(declared)),
+            "{declared}px, hovered"
+        );
+    }
+    let slot = |styled: &StyledDom, node: usize| {
+        styled
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .expect("the compact cache is built with the styled DOM")
+            .get_left(node)
+    };
+    assert_eq!(slot(&styled, 1), 10_040, "10.04px is stored exactly");
+    assert_eq!(slot(&styled, 3), 5_000_250, "a length beyond the old range is in the slot");
+    assert_eq!(slot(&styled, 5), azul_css::compact_cache::PX_SLOT_SENTINEL, "2em is not px");
+    assert_eq!(slot(&styled, 6), azul_css::compact_cache::PX_SLOT_SENTINEL, "3,000,000 px");
+    // What the slot cannot hold: the declared length, in both states.
+    assert_eq!(left(&styled, 5, &rest), Some(PixelValue::em(2.0)));
+    assert_eq!(left(&styled, 5, &hovered), Some(PixelValue::em(2.0)), "2em, hovered");
+    assert_eq!(left(&styled, 6, &rest), Some(PixelValue::px(3_000_000.0)));
+    assert_eq!(left(&styled, 6, &hovered), Some(PixelValue::px(3_000_000.0)));
 
-    // No cascade lookup for a resting read, in the slot's range or beyond it: an override
-    // written into the cascade behind the compact cache's back is seen by the reads that ask
-    // the cascade (another state) and by no resting read.
+    // No cascade lookup for a resting read, in the slot or beyond it: an override written
+    // into the cascade behind the compact cache's back is seen by the reads that ask the
+    // cascade (another state) and by no resting read.
     let seven: CssProperty = styled
         .get_css_property_cache()
         .get_property(
@@ -309,21 +332,21 @@ fn an_inset_is_one_number_at_rest_and_hovered_and_costs_no_lookup_beyond_the_slo
         .expect("left: 7px");
     {
         let overrides = &mut styled.css_property_cache.downcast_mut().user_overridden_properties;
-        if overrides.len() < 5 {
-            overrides.resize(5, Vec::new());
+        if overrides.len() < 7 {
+            overrides.resize(7, Vec::new());
         }
         overrides[1] = vec![(CssPropertyType::Left, seven.clone())];
-        overrides[3] = vec![(CssPropertyType::Left, seven)];
+        overrides[5] = vec![(CssPropertyType::Left, seven)];
     }
     assert_eq!(
-        left(&styled, 3, &hovered),
+        left(&styled, 5, &hovered),
         Some(PixelValue::px(7.0)),
         "harness: the cascade answers the override"
     );
-    assert_eq!(left(&styled, 1, &rest), Some(PixelValue::px(10.0)), "the slot was read");
+    assert_eq!(left(&styled, 1, &rest), Some(PixelValue::px(10.04)), "the slot was read");
     assert_eq!(
-        left(&styled, 3, &rest),
-        Some(PixelValue::px(5000.25)),
+        left(&styled, 5, &rest),
+        Some(PixelValue::em(2.0)),
         "the kept length was read: a length beyond the slot cost a cascade lookup"
     );
 }

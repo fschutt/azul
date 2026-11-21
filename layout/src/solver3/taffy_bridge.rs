@@ -1002,7 +1002,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             ),
         };
 
-        // Gaps. COMPACT FAST PATH: row_gap / column_gap are i16 px × 10 in tier2_dims, which
+        // Gaps. COMPACT FAST PATH: row_gap / column_gap are px slots (thousandths) in tier2_dims, which
         // spares a cascade walk per node. A gap the compact cache could not keep (em, rem, a
         // percentage: the sentinel) and every gap without a compact cache come from the
         // cascade, the longhand first, then `gap`, resolved with the node's font sizes.
@@ -1029,12 +1029,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             |cc| {
                 let row = cc.tier2_dims[id.index()].row_gap;
                 let col = cc.tier2_dims[id.index()].column_gap;
-                let decode = |raw: i16, longhand: CssPropertyType| -> LengthPercentage {
-                    if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                        gap_from_cascade(longhand)
-                    } else {
-                        LengthPercentage::length(f32::from(raw) / 10.0)
-                    }
+                let decode = |raw: azul_css::compact_cache::PxSlot,
+                              longhand: CssPropertyType|
+                 -> LengthPercentage {
+                    azul_css::compact_cache::decode_px_slot(raw)
+                        .map_or_else(|| gap_from_cascade(longhand), LengthPercentage::length)
                 };
                 Size {
                     width: decode(col, CssPropertyType::ColumnGap),

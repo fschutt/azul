@@ -1550,7 +1550,8 @@ impl CssPropertyCache {
 
         let compact_bytes = self.compact_cache.as_ref().map_or(0, |c| {
             c.tier1_enums.capacity() * 8
-                + c.tier2_dims.capacity() * 68
+                + c.tier2_dims.capacity()
+                    * size_of::<azul_css::compact_cache::CompactNodeProps>()
                 + c.tier2_cold.capacity() * 28
                 + c.tier2b_text.capacity() * 24
                 + c.prev_font_hashes.capacity() * 8

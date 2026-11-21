@@ -3,7 +3,7 @@
 //! Replaces BTreeMap-based CSS property lookups with cache-friendly arrays.
 //!
 //! - **Tier 1**: `Vec<u64>` — ALL 21 enum properties bitpacked (8 B/node)
-//! - **Tier 2 hot**: `Vec<CompactNodeProps>` — layout-critical numeric dimensions (68 B/node)
+//! - **Tier 2 hot**: `Vec<CompactNodeProps>` — layout-critical numeric dimensions (108 B/node)
 //! - **Tier 2 cold**: `Vec<CompactNodePropsCold>` — paint-only properties (28 B/node)
 //! - **Tier 2b**: `Vec<CompactTextProps>` — text/IFC properties (24 B/node)
 //!
@@ -69,6 +69,23 @@ pub const I16_INHERIT: i16 = 0x7FFD; // 32765
 pub const I16_INITIAL: i16 = 0x7FFC; // 32764
 /// Any i16 value >= this threshold is a sentinel
 pub const I16_SENTINEL_THRESHOLD: i16 = 0x7FFC; // 32764
+
+/// A box length slot of [`CompactNodeProps`] (paddings, margins, border
+/// widths, insets, gaps): a px length in THOUSANDTHS of a pixel - the very
+/// number a `FloatValue` holds, so a declared px length is kept exactly - or
+/// one of the `PX_SLOT_*` sentinels at the top of the range.
+///
+/// These slots were `i16` tenths of a pixel: `left: 10.04px` was laid out at
+/// 10.0, and a length beyond 3,276.3 px did not fit (A3-core-12).
+pub type PxSlot = i32;
+/// The slot cannot hold the length (another unit than px, or beyond the
+/// range): read the declared value.
+pub const PX_SLOT_SENTINEL: PxSlot = 0x7FFF_FFFF;
+pub const PX_SLOT_AUTO: PxSlot = 0x7FFF_FFFE;
+pub const PX_SLOT_INHERIT: PxSlot = 0x7FFF_FFFD;
+pub const PX_SLOT_INITIAL: PxSlot = 0x7FFF_FFFC;
+/// Any slot value >= this threshold is a sentinel.
+pub const PX_SLOT_THRESHOLD: PxSlot = 0x7FFF_FFFC;
 
 /// u32 sentinel values (for dimension properties with unit info)
 pub const U32_SENTINEL: u32 = 0xFFFF_FFFF;
@@ -1283,26 +1300,42 @@ pub fn encode_resolved_px_i16(px: f32) -> i16 {
     i16::try_from(scaled).unwrap_or(I16_SENTINEL)
 }
 
-/// A length as a reader of a px slot (tenths of a pixel in an `i16`) gets
-/// it: a px length within the slot's range in tenths of a pixel, exactly
-/// the number `decode` of [`encode_resolved_px_i16`] gives; any other
-/// length (another unit, beyond the range) as it is - the slot holds the
-/// sentinel for it and the reader falls back to the declared value.
-///
-/// The resting state reads these properties from the slot and every other
-/// state (hover) from the cascade; both go through this, so a length is one
-/// number whatever state its node is in (`left: 10.04px` was 10.0 at rest
-/// and 10.04 hovered).
+/// Encode a length into a box slot ([`PxSlot`]): a px length as its
+/// thousandths, exact up to +-2,147,483.643 px; `PX_SLOT_SENTINEL` for a
+/// length in another unit (it needs a context to resolve) or beyond that.
 #[inline]
 #[must_use]
-pub fn px_as_the_i16_slot_reads_it(value: PixelValue) -> PixelValue {
-    if value.metric != SizeMetric::Px {
-        return value;
+pub fn encode_px_slot(length: PixelValue) -> PxSlot {
+    if length.metric != SizeMetric::Px {
+        return PX_SLOT_SENTINEL;
     }
-    match decode_resolved_px_i16(encode_resolved_px_i16(value.number.get())) {
-        Some(px) => PixelValue::px(px),
-        None => value,
+    match i32::try_from(length.number.number) {
+        Ok(thousandths) if thousandths < PX_SLOT_THRESHOLD => thousandths,
+        _ => PX_SLOT_SENTINEL,
     }
+}
+
+/// The length a box slot holds, exactly as it was declared. `None` for a
+/// sentinel.
+#[inline]
+#[must_use]
+pub const fn px_slot_length(slot: PxSlot) -> Option<PixelValue> {
+    if slot >= PX_SLOT_THRESHOLD {
+        return None;
+    }
+    Some(PixelValue {
+        metric: SizeMetric::Px,
+        number: FloatValue {
+            number: slot as isize,
+        },
+    })
+}
+
+/// Decode a box slot into px. `None` for a sentinel.
+#[inline]
+#[must_use]
+pub fn decode_px_slot(slot: PxSlot) -> Option<f32> {
+    px_slot_length(slot).map(|length| length.number.get())
 }
 
 /// Decode an i16 back to resolved px. Returns None for sentinel values.
@@ -1439,7 +1472,7 @@ pub const fn size_metric_from_u8(v: u8) -> SizeMetric {
     }
 }
 
-/// Layout-hot compact numeric properties for a single node (68 bytes).
+/// Layout-hot compact numeric properties for a single node (108 bytes).
 /// Only fields accessed during the constraint-solving loop.
 /// All dimensions use MSB-sentinel encoding.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -1455,31 +1488,31 @@ pub struct CompactNodeProps {
     pub flex_basis: u32,
     pub font_size: u32,
 
-    // --- Resolved px values (i16 MSB-sentinel, ×10) ---
-    pub padding_top: i16,
-    pub padding_right: i16,
-    pub padding_bottom: i16,
-    pub padding_left: i16,
-    pub margin_top: i16,
-    pub margin_right: i16,
-    pub margin_bottom: i16,
-    pub margin_left: i16,
-    pub border_top_width: i16,
-    pub border_right_width: i16,
-    pub border_bottom_width: i16,
-    pub border_left_width: i16,
-    pub top: i16,
-    pub right: i16,
-    pub bottom: i16,
-    pub left: i16,
+    // --- Px lengths (`PxSlot`: i32 thousandths of a px, sentinels on top) ---
+    pub padding_top: PxSlot,
+    pub padding_right: PxSlot,
+    pub padding_bottom: PxSlot,
+    pub padding_left: PxSlot,
+    pub margin_top: PxSlot,
+    pub margin_right: PxSlot,
+    pub margin_bottom: PxSlot,
+    pub margin_left: PxSlot,
+    pub border_top_width: PxSlot,
+    pub border_right_width: PxSlot,
+    pub border_bottom_width: PxSlot,
+    pub border_left_width: PxSlot,
+    pub top: PxSlot,
+    pub right: PxSlot,
+    pub bottom: PxSlot,
+    pub left: PxSlot,
 
     // --- Flex (u16 MSB-sentinel, ×100) ---
     pub flex_grow: u16,
     pub flex_shrink: u16,
 
-    // --- Gap (i16 px×10, 0 = default) ---
-    pub row_gap: i16,
-    pub column_gap: i16,
+    // --- Gap (`PxSlot`, 0 = default) ---
+    pub row_gap: PxSlot,
+    pub column_gap: PxSlot,
 }
 
 /// Paint-cold compact properties for a single node.
@@ -1639,14 +1672,14 @@ impl Default for CompactNodeProps {
             // 3px border - which a 0 here, indistinguishable from a declared
             // `0`, made impossible on the normal-state fast path (WPT
             // border-top-width-medium; `getters::used_border_width`).
-            border_top_width: I16_INITIAL,
-            border_right_width: I16_INITIAL,
-            border_bottom_width: I16_INITIAL,
-            border_left_width: I16_INITIAL,
-            top: I16_AUTO,
-            right: I16_AUTO,
-            bottom: I16_AUTO,
-            left: I16_AUTO,
+            border_top_width: PX_SLOT_INITIAL,
+            border_right_width: PX_SLOT_INITIAL,
+            border_bottom_width: PX_SLOT_INITIAL,
+            border_left_width: PX_SLOT_INITIAL,
+            top: PX_SLOT_AUTO,
+            right: PX_SLOT_AUTO,
+            bottom: PX_SLOT_AUTO,
+            left: PX_SLOT_AUTO,
             // Flex defaults
             flex_grow: 0,
             flex_shrink: encode_flex_u16(1.0), // CSS default: flex-shrink: 1
@@ -1765,7 +1798,7 @@ pub struct CompactLayoutCache {
     pub uses_viewport_units: bool,
     /// Tier 1: ALL enum properties bitpacked into u64 per node (8 B/node)
     pub tier1_enums: Vec<u64>,
-    /// Tier 2 hot: Layout-critical numeric dimensions per node (68 B/node)
+    /// Tier 2 hot: Layout-critical numeric dimensions per node (108 B/node)
     pub tier2_dims: Vec<CompactNodeProps>,
     /// Tier 2 cold: Paint-only properties per node (28 B/node)
     pub tier2_cold: Vec<CompactNodePropsCold>,
@@ -1824,13 +1857,13 @@ pub struct CompactLayoutCache {
     /// size): a resize that crosses no threshold may still flip it.
     pub inline_viewport_shape: bool,
     /// The lengths the px slots of `tier2_dims` cannot hold, by node and
-    /// property: a slot is tenths of a pixel in an `i16`, so an inset,
-    /// margin, padding or border width beyond +-3276 px or in another unit
-    /// is the sentinel there. The builder writes the resting value of each
-    /// such slot here once, and a reader that meets the sentinel takes it
-    /// from here instead of asking the cascade at every read (a map label
-    /// placed 3,300 px from its picture's origin is read several times per
-    /// layout). Only slots whose resting value is an exact length are here.
+    /// property: a slot is a px length in thousandths ([`PxSlot`]), so an
+    /// inset, margin, padding or border width in another unit (`2em`, `5%`)
+    /// or beyond 2 million px is the sentinel there. The builder writes the
+    /// resting value of each such slot here once, and a reader that meets
+    /// the sentinel takes it from here instead of asking the cascade at
+    /// every read (a box is read several times per layout). Only slots
+    /// whose resting value is an exact length are here.
     pub px_overflow: alloc::collections::BTreeMap<(u32, CssPropertyType), PixelValue>,
 }
 
@@ -2087,211 +2120,211 @@ impl CompactLayoutCache {
     #[inline]
     #[must_use]
     pub fn get_padding_top(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2_dims[node_idx].padding_top)
+        decode_px_slot(self.tier2_dims[node_idx].padding_top)
     }
 
     #[inline]
     #[must_use]
     pub fn get_padding_right(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2_dims[node_idx].padding_right)
+        decode_px_slot(self.tier2_dims[node_idx].padding_right)
     }
 
     #[inline]
     #[must_use]
     pub fn get_padding_bottom(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2_dims[node_idx].padding_bottom)
+        decode_px_slot(self.tier2_dims[node_idx].padding_bottom)
     }
 
     #[inline]
     #[must_use]
     pub fn get_padding_left(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2_dims[node_idx].padding_left)
+        decode_px_slot(self.tier2_dims[node_idx].padding_left)
     }
 
     #[inline]
     #[must_use]
     pub fn get_margin_top(&self, node_idx: usize) -> Option<f32> {
         let v = self.tier2_dims[node_idx].margin_top;
-        if v == I16_AUTO {
+        if v == PX_SLOT_AUTO {
             return None;
         } // Auto for margin is special
-        decode_resolved_px_i16(v)
+        decode_px_slot(v)
     }
 
     #[inline]
     #[must_use]
     pub fn get_margin_right(&self, node_idx: usize) -> Option<f32> {
         let v = self.tier2_dims[node_idx].margin_right;
-        if v == I16_AUTO {
+        if v == PX_SLOT_AUTO {
             return None;
         }
-        decode_resolved_px_i16(v)
+        decode_px_slot(v)
     }
 
     #[inline]
     #[must_use]
     pub fn get_margin_bottom(&self, node_idx: usize) -> Option<f32> {
         let v = self.tier2_dims[node_idx].margin_bottom;
-        if v == I16_AUTO {
+        if v == PX_SLOT_AUTO {
             return None;
         }
-        decode_resolved_px_i16(v)
+        decode_px_slot(v)
     }
 
     #[inline]
     #[must_use]
     pub fn get_margin_left(&self, node_idx: usize) -> Option<f32> {
         let v = self.tier2_dims[node_idx].margin_left;
-        if v == I16_AUTO {
+        if v == PX_SLOT_AUTO {
             return None;
         }
-        decode_resolved_px_i16(v)
+        decode_px_slot(v)
     }
 
     /// Check if margin is Auto (important for centering logic).
     #[inline]
     #[must_use]
     pub fn is_margin_top_auto(&self, node_idx: usize) -> bool {
-        self.tier2_dims[node_idx].margin_top == I16_AUTO
+        self.tier2_dims[node_idx].margin_top == PX_SLOT_AUTO
     }
 
     #[inline]
     #[must_use]
     pub fn is_margin_right_auto(&self, node_idx: usize) -> bool {
-        self.tier2_dims[node_idx].margin_right == I16_AUTO
+        self.tier2_dims[node_idx].margin_right == PX_SLOT_AUTO
     }
 
     #[inline]
     #[must_use]
     pub fn is_margin_bottom_auto(&self, node_idx: usize) -> bool {
-        self.tier2_dims[node_idx].margin_bottom == I16_AUTO
+        self.tier2_dims[node_idx].margin_bottom == PX_SLOT_AUTO
     }
 
     #[inline]
     #[must_use]
     pub fn is_margin_left_auto(&self, node_idx: usize) -> bool {
-        self.tier2_dims[node_idx].margin_left == I16_AUTO
+        self.tier2_dims[node_idx].margin_left == PX_SLOT_AUTO
     }
 
     #[inline]
     #[must_use]
     pub fn get_border_top_width(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2_dims[node_idx].border_top_width)
+        decode_px_slot(self.tier2_dims[node_idx].border_top_width)
     }
 
     #[inline]
     #[must_use]
     pub fn get_border_right_width(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2_dims[node_idx].border_right_width)
+        decode_px_slot(self.tier2_dims[node_idx].border_right_width)
     }
 
     #[inline]
     #[must_use]
     pub fn get_border_bottom_width(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2_dims[node_idx].border_bottom_width)
+        decode_px_slot(self.tier2_dims[node_idx].border_bottom_width)
     }
 
     #[inline]
     #[must_use]
     pub fn get_border_left_width(&self, node_idx: usize) -> Option<f32> {
-        decode_resolved_px_i16(self.tier2_dims[node_idx].border_left_width)
+        decode_px_slot(self.tier2_dims[node_idx].border_left_width)
     }
 
-    // -- Raw i16 getters for macro fast paths --
+    // -- Raw slot getters for macro fast paths (`PxSlot`) --
 
     #[inline]
     #[must_use]
-    pub fn get_padding_top_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_padding_top_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].padding_top
     }
 
     #[inline]
     #[must_use]
-    pub fn get_padding_right_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_padding_right_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].padding_right
     }
 
     #[inline]
     #[must_use]
-    pub fn get_padding_bottom_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_padding_bottom_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].padding_bottom
     }
 
     #[inline]
     #[must_use]
-    pub fn get_padding_left_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_padding_left_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].padding_left
     }
 
     #[inline]
     #[must_use]
-    pub fn get_margin_top_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_margin_top_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].margin_top
     }
 
     #[inline]
     #[must_use]
-    pub fn get_margin_right_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_margin_right_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].margin_right
     }
 
     #[inline]
     #[must_use]
-    pub fn get_margin_bottom_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_margin_bottom_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].margin_bottom
     }
 
     #[inline]
     #[must_use]
-    pub fn get_margin_left_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_margin_left_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].margin_left
     }
 
     #[inline]
     #[must_use]
-    pub fn get_border_top_width_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_border_top_width_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].border_top_width
     }
 
     #[inline]
     #[must_use]
-    pub fn get_border_right_width_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_border_right_width_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].border_right_width
     }
 
     #[inline]
     #[must_use]
-    pub fn get_border_bottom_width_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_border_bottom_width_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].border_bottom_width
     }
 
     #[inline]
     #[must_use]
-    pub fn get_border_left_width_raw(&self, node_idx: usize) -> i16 {
+    pub fn get_border_left_width_raw(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].border_left_width
     }
 
     #[inline]
     #[must_use]
-    pub fn get_top(&self, node_idx: usize) -> i16 {
+    pub fn get_top(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].top
     }
 
     #[inline]
     #[must_use]
-    pub fn get_right(&self, node_idx: usize) -> i16 {
+    pub fn get_right(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].right
     }
 
     #[inline]
     #[must_use]
-    pub fn get_bottom(&self, node_idx: usize) -> i16 {
+    pub fn get_bottom(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].bottom
     }
 
     #[inline]
     #[must_use]
-    pub fn get_left(&self, node_idx: usize) -> i16 {
+    pub fn get_left(&self, node_idx: usize) -> PxSlot {
         self.tier2_dims[node_idx].left
     }
 
@@ -2583,6 +2616,22 @@ impl CompactLayoutCache {
 /// Only handles `Exact(px(...))` values. Everything else → sentinel.
 /// For the compact cache builder, we only pre-resolve absolute pixel values.
 /// Relative units (em, %, etc.) get sentinel and fall back to the slow path.
+/// A box length property for its [`PxSlot`]: an exact length through
+/// [`encode_px_slot`], the keywords as their sentinels.
+#[inline]
+#[must_use]
+pub fn encode_css_pixel_as_px_slot(prop: &CssPropertyValue<PixelValue>) -> PxSlot {
+    match prop {
+        CssPropertyValue::Exact(pv) => encode_px_slot(*pv),
+        CssPropertyValue::Auto => PX_SLOT_AUTO,
+        CssPropertyValue::Initial => PX_SLOT_INITIAL,
+        CssPropertyValue::Inherit => PX_SLOT_INHERIT,
+        _ => PX_SLOT_SENTINEL,
+    }
+}
+
+/// The same for a slot that is still tenths of a pixel in an `i16` (tab size,
+/// letter and word spacing, text indent).
 #[inline]
 #[must_use]
 pub fn encode_css_pixel_as_i16(prop: &CssPropertyValue<PixelValue>) -> i16 {
@@ -2745,9 +2794,10 @@ mod tests {
 
     #[test]
     fn test_compact_node_props_size() {
-        // 72B hot props: 8×u32 dimensions (32B) + 16×i16 box model (32B)
-        // + 2×u16 flex (4B) + 1×i16 order + align/pos tier1 bits (4B).
-        assert_eq!(size_of::<CompactNodeProps>(), 72);
+        // 108B hot props: 8×u32 dimensions (32B) + 16×`PxSlot` box model
+        // (64B) + 2×u16 flex (4B) + 2×`PxSlot` gaps (8B). It was 72B while
+        // the 18 box slots were `i16` tenths of a pixel (A3-core-12).
+        assert_eq!(size_of::<CompactNodeProps>(), 108);
     }
 
     #[test]
@@ -4774,8 +4824,8 @@ mod autotest_generated {
             // A border width is `initial` until declared: `medium` when the
             // side has a style, 0 when it has none - the style decides, so
             // no pixel value is stored (CSS Backgrounds 3 s4.3).
-            assert_eq!(c.get_border_top_width_raw(i), I16_INITIAL);
-            assert_eq!(c.get_border_left_width_raw(i), I16_INITIAL);
+            assert_eq!(c.get_border_top_width_raw(i), PX_SLOT_INITIAL);
+            assert_eq!(c.get_border_left_width_raw(i), PX_SLOT_INITIAL);
             assert_eq!(c.get_border_top_width(i), None);
             assert_eq!(c.get_border_left_width(i), None);
             // margin defaults to 0, NOT auto — centering must not kick in for free.
@@ -4786,10 +4836,10 @@ mod autotest_generated {
             assert!(!c.is_margin_bottom_auto(i));
             assert!(!c.is_margin_left_auto(i));
             // …but the inset properties DO default to auto.
-            assert_eq!(c.get_top(i), I16_AUTO);
-            assert_eq!(c.get_right(i), I16_AUTO);
-            assert_eq!(c.get_bottom(i), I16_AUTO);
-            assert_eq!(c.get_left(i), I16_AUTO);
+            assert_eq!(c.get_top(i), PX_SLOT_AUTO);
+            assert_eq!(c.get_right(i), PX_SLOT_AUTO);
+            assert_eq!(c.get_bottom(i), PX_SLOT_AUTO);
+            assert_eq!(c.get_left(i), PX_SLOT_AUTO);
 
             // Flex: grow 0, shrink 1 (the CSS defaults).
             assert_eq!(c.get_flex_grow(i), Some(0.0));
@@ -5079,7 +5129,7 @@ mod autotest_generated {
         // These sizes are load-bearing: the cache is sized as N × these, and the
         // module header quotes them. A field added without updating the header
         // silently doubles the per-node memory cost.
-        assert_eq!(size_of::<CompactNodeProps>(), 72);
+        assert_eq!(size_of::<CompactNodeProps>(), 108);
         assert_eq!(size_of::<CompactNodePropsCold>(), 48);
         assert_eq!(size_of::<CompactTextProps>(), 24);
         // Tier 1 is exactly one u64 per node.

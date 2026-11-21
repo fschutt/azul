@@ -517,14 +517,60 @@ mod autotest_generated {
     }
 
     #[test]
-    fn margin_i16_keeps_auto_and_otherwise_matches_the_pixel_encoder() {
+    fn margin_slot_keeps_auto_and_otherwise_matches_the_pixel_encoder() {
         let auto: CssPropertyValue<LayoutMarginTop> = CssPropertyValue::Auto;
-        assert_eq!(encode_margin_i16(&auto), I16_AUTO);
+        assert_eq!(encode_margin_px_slot(&auto), PX_SLOT_AUTO);
         for px in [-50.0f32, 0.0, 12.5, 3276.3, 5.0e9, f32::NAN] {
             let m = CssPropertyValue::Exact(LayoutMarginTop {
                 inner: PixelValue::px(px),
             });
-            assert_eq!(encode_margin_i16(&m), encode_css_pixel_as_i16(&padding(px)));
+            assert_eq!(encode_margin_px_slot(&m), encode_css_pixel_as_px_slot(&padding(px)));
+        }
+    }
+
+    /// A3-core-12: a box length is kept in thousandths of a pixel, the number the declared
+    /// value has (`10.04px` is 10040, not the 100 of tenths), and a length beyond the old
+    /// +-3276 px fits. Another unit and the keywords are sentinels, as before.
+    #[test]
+    fn a_box_length_slot_holds_the_declared_thousandths() {
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(0.0)), 0);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(10.04)), 10_040);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(10.05)), 10_050);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(-10.5)), -10_500);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(123.456)), 123_456);
+        // Past the old range of the i16 slot (3276.3 px).
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(3276.4)), 3_276_400);
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(5000.25)), 5_000_250);
+        // What it holds is read back as the declared length.
+        for px in [0.0f32, 10.04, 10.05, -10.5, 123.456, 5000.25] {
+            let slot = encode_css_pixel_as_px_slot(&padding(px));
+            assert_eq!(px_slot_length(slot), Some(PixelValue::px(px)), "{px}");
+            assert_eq!(decode_px_slot(slot), Some(PixelValue::px(px).number.get()), "{px}");
+        }
+
+        // Beyond the slot (2,147,483.643 px) and non-finite: the sentinel, never a keyword.
+        for px in [3.0e6f32, -3.0e6, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {
+            let slot = encode_css_pixel_as_px_slot(&padding(px));
+            assert!(
+                slot == PX_SLOT_SENTINEL || slot < PX_SLOT_THRESHOLD,
+                "{px} encoded as the keyword {slot}"
+            );
+        }
+        assert_eq!(encode_css_pixel_as_px_slot(&padding(f32::INFINITY)), PX_SLOT_SENTINEL);
+
+        // Another unit needs a context to resolve.
+        let em = CssPropertyValue::Exact(LayoutPaddingTop { inner: PixelValue::em(1.0) });
+        assert_eq!(encode_css_pixel_as_px_slot(&em), PX_SLOT_SENTINEL);
+
+        let auto: CssPropertyValue<LayoutPaddingTop> = CssPropertyValue::Auto;
+        let initial: CssPropertyValue<LayoutPaddingTop> = CssPropertyValue::Initial;
+        let inherit: CssPropertyValue<LayoutPaddingTop> = CssPropertyValue::Inherit;
+        assert_eq!(encode_css_pixel_as_px_slot(&auto), PX_SLOT_AUTO);
+        assert_eq!(encode_css_pixel_as_px_slot(&initial), PX_SLOT_INITIAL);
+        assert_eq!(encode_css_pixel_as_px_slot(&inherit), PX_SLOT_INHERIT);
+        for sentinel in [PX_SLOT_SENTINEL, PX_SLOT_AUTO, PX_SLOT_INHERIT, PX_SLOT_INITIAL] {
+            assert_eq!(px_slot_length(sentinel), None);
+            assert_eq!(decode_px_slot(sentinel), None);
         }
     }
 
@@ -798,8 +844,9 @@ mod autotest_generated {
         s.apply(&CssProperty::Gap(CssPropertyValue::Exact(LayoutGap {
             inner: PixelValue::px(8.0),
         })));
-        assert_eq!(s.dims.row_gap, 80);
-        assert_eq!(s.dims.column_gap, 80);
+        // 8 px in thousandths (`PxSlot`); it was 80 tenths in the i16 slot.
+        assert_eq!(s.dims.row_gap, 8_000);
+        assert_eq!(s.dims.column_gap, 8_000);
 
         // An `em` gap cannot be resolved without a font context: it is marked with the
         // sentinel so the layout asks the cascade, never encoded as 2px or as no gap.
@@ -807,8 +854,8 @@ mod autotest_generated {
         em.apply(&CssProperty::Gap(CssPropertyValue::Exact(LayoutGap {
             inner: PixelValue::em(2.0),
         })));
-        assert_eq!(em.dims.row_gap, I16_SENTINEL);
-        assert_eq!(em.dims.column_gap, I16_SENTINEL);
+        assert_eq!(em.dims.row_gap, PX_SLOT_SENTINEL);
+        assert_eq!(em.dims.column_gap, PX_SLOT_SENTINEL);
     }
 
     // -------------------------------------------------------------------------
@@ -1280,11 +1327,11 @@ mod autotest_generated {
         let r = cache.build_compact_cache_with_inheritance(&nodes, &linear_hierarchy(2), &[], &[]);
 
         assert_eq!(
-            r.tier2_dims[0].padding_top, 50,
+            r.tier2_dims[0].padding_top, 5_000,
             "the `*` rule must apply to the element"
         );
         assert_ne!(
-            r.tier2_dims[1].padding_top, 50,
+            r.tier2_dims[1].padding_top, 5_000,
             "the `*` rule must NOT apply to a text node"
         );
     }
