@@ -384,9 +384,10 @@ where
     use crate::solver3::{
         display_list::{
             calculate_display_list_height, generate_display_list,
-            paginate_display_list_with_breaks_streaming, SlicerConfig,
+            paginate_streaming_with_running_text, SlicerConfig,
         },
         page_breaks,
+        running_text::RunningText,
     };
 
     // Font Resolution And Loading
@@ -765,14 +766,26 @@ where
 
     let mut page_count = 0usize;
     if materialize_pages {
+        // The text of the headers, the footers and the page numbers is set
+        // with the font manager the document was shaped with: its fonts are
+        // resolved and loaded there, whether the caller registered any font
+        // with a renderer or not.
+        let mut running_text = RunningText::new(
+            &slicer_config,
+            new_dom,
+            viewport.size,
+            font_manager,
+            &font_loader,
+            debug_messages,
+        );
         // Each page is handed to the sink as soon as it is sliced, so the
         // caller can consume (e.g. serialize) it and drop it. Peak memory is
         // one page instead of the whole document.
-        paginate_display_list_with_breaks_streaming(
+        paginate_streaming_with_running_text(
             full_display_list,
             &slicer_config,
             &breaks,
-            renderer_resources,
+            &mut running_text,
             |page| {
                 page_count += 1;
                 on_page(page)
@@ -3527,3 +3540,7 @@ impl PaginationSession {
         pagination_to_dom_breaks(&self.layout_cache, styled_dom, info)
     }
 }
+
+#[cfg(all(test, feature = "text_layout"))]
+#[path = "paged_layout_test.rs"]
+mod paged_layout_test;

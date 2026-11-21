@@ -200255,6 +200255,9 @@
                                 "footer_text": {
                                     "type": "OptionString"
                                 },
+                                "font_family": {
+                                    "type": "OptionString"
+                                },
                                 "header_height": {
                                     "type": "f32"
                                 },
@@ -200315,6 +200318,9 @@
                                 },
                                 "footer_content": {
                                     "type": "MarginBoxContent"
+                                },
+                                "font_family": {
+                                    "type": "OptionString"
                                 },
                                 "header_height": {
                                     "type": "f32"

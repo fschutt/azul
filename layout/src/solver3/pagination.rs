@@ -254,6 +254,10 @@ pub struct HeaderFooterConfig {
     pub header_content: MarginBoxContent,
     /// Content generator for the footer
     pub footer_content: MarginBoxContent,
+    /// The font family of the header and footer text: a CSS `font-family` list
+    /// (`"Georgia, serif"`). Unset - the default - the text is set in the
+    /// document's default font (see [`FakePageConfig::font_family`]).
+    pub font_family: OptionString,
     /// Height of the header area (if shown)
     pub header_height: f32,
     /// Height of the footer area (if shown)  
@@ -279,6 +283,7 @@ impl Default for HeaderFooterConfig {
             footer_height: DEFAULT_HEADER_FOOTER_HEIGHT,
             header_content: MarginBoxContent::None,
             footer_content: MarginBoxContent::None,
+            font_family: OptionString::None,
             font_size: DEFAULT_HEADER_FOOTER_FONT_SIZE,
             text_color: ColorU {
                 r: 0,
@@ -340,6 +345,14 @@ impl HeaderFooterConfig {
     pub fn with_footer_text(mut self, text: impl Into<String>) -> Self {
         self.show_footer = true;
         self.footer_content = MarginBoxContent::text(text);
+        self
+    }
+
+    /// Set the font family of the header and footer text: a CSS `font-family`
+    /// list such as `"Georgia, 'Times New Roman', serif"`.
+    #[must_use]
+    pub fn with_font_family(mut self, family: impl Into<String>) -> Self {
+        self.font_family = OptionString::Some(AzString::from(family.into()));
         self
     }
 
@@ -418,6 +431,7 @@ impl HeaderFooterConfig {
 /// - Page numbers in header and/or footer
 /// - Custom text in header and/or footer
 /// - Number format (decimal, roman numerals, alphabetic, greek)
+/// - Font family, size and color of the text
 /// - Skip first page option
 ///
 /// ## Example
@@ -443,6 +457,14 @@ pub struct FakePageConfig {
     pub header_text: OptionString,
     /// Footer text (static text, or None for page numbers only)
     pub footer_text: OptionString,
+    /// The font family of the header, the footer and the page numbers: a CSS
+    /// `font-family` list (`"Georgia, 'Times New Roman', serif"`), resolved
+    /// through the same font manager and fontconfig chains as the text of the
+    /// document, so a family the system lacks falls back as it does there.
+    /// Unset - the default - the text is set in the document's default font:
+    /// the one a node without a `font-family` of its own has, that of the
+    /// document's root element.
+    pub font_family: OptionString,
     /// Header height in points
     pub header_height: f32,
     /// Footer height in points
@@ -479,6 +501,7 @@ impl Default for FakePageConfig {
             show_footer: false,
             header_text: OptionString::None,
             footer_text: OptionString::None,
+            font_family: OptionString::None,
             header_page_number: false,
             footer_page_number: false,
             header_total_pages: false,
@@ -593,6 +616,15 @@ impl FakePageConfig {
         self
     }
 
+    /// Set the font family of the header, the footer and the page numbers: a
+    /// CSS `font-family` list such as `"Georgia, 'Times New Roman', serif"`
+    /// (see [`Self::font_family`]).
+    #[must_use]
+    pub fn with_font_family(mut self, family: impl Into<String>) -> Self {
+        self.font_family = OptionString::Some(AzString::from(family.into()));
+        self
+    }
+
     /// Convert this fake config to the internal `HeaderFooterConfig`.
     ///
     /// This is the bridge between the user-facing API and the internal
@@ -606,6 +638,7 @@ impl FakePageConfig {
             footer_height: self.footer_height,
             header_content: self.build_header_content(),
             footer_content: self.build_footer_content(),
+            font_family: self.font_family.clone(),
             skip_first_page: self.skip_first_page,
             font_size: self.font_size,
             text_color: self.text_color,
@@ -2256,3 +2289,7 @@ mod autotest_generated {
             .is_empty());
     }
 }
+
+#[cfg(test)]
+#[path = "pagination_test.rs"]
+mod pagination_test;
