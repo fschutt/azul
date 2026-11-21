@@ -10140,7 +10140,16 @@ impl LayoutWindow {
         if let Some(mc) = self.text_edit_manager.multi_cursor.as_ref() {
             // Debug formatting as the fingerprint basis: stable within a run,
             // covers every field without requiring Hash on selection types.
-            format!("{mc:?}").hash(&mut sel_h);
+            // Written straight into the hasher: this runs on every frame while a text
+            // session is open, and `format!` built (and freed) a `String` of it each time.
+            struct IntoHasher<'a>(&'a mut std::collections::hash_map::DefaultHasher);
+            impl core::fmt::Write for IntoHasher<'_> {
+                fn write_str(&mut self, s: &str) -> core::fmt::Result {
+                    self.0.write(s.as_bytes());
+                    Ok(())
+                }
+            }
+            let _ = core::fmt::write(&mut IntoHasher(&mut sel_h), format_args!("{mc:?}"));
         }
 
         let mut scroll_h = std::collections::hash_map::DefaultHasher::new();
