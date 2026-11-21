@@ -2418,3 +2418,85 @@ fn clearing_an_override_the_own_style_states_too_rebuilds_no_cascade() {
     assert!(!pinned(&lw), "the override is gone: a rebuild has none to carry over");
     assert_eq!(published(&lw), shown, "the box stays where the gesture left it");
 }
+
+// -- A3-window-16: a patched frame of a fade writes the window's list where it lies -------------
+
+/// A text colour fade patches the colour of its runs into the window's list on every frame
+/// (`patch_paint_colors`). The solver's cache holds that very list (each patched frame hands
+/// it the patched one), so `Arc::make_mut` copied the whole list per frame; the cache now
+/// lets go of it for the patch. With nobody else holding the list, a patched frame leaves it
+/// the allocation it was.
+/// Mutation: the release of `cached.5` before the patches removed (every patched frame is
+/// another allocation).
+#[test]
+fn a_patched_frame_of_a_colour_fade_copies_no_list() {
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+        style::StyleTextColor,
+    };
+
+    use crate::overlay::ContentChange;
+
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_span_with_text("Fading")
+            .with_css("color: #000000; font-size: 12px; animation: color 300ms linear;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 200.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let (root, node) = (DomId::ROOT_ID, NodeId::new(1));
+    drop(lw.apply_content_change(ContentChange::NodeCss {
+        dom_id: root,
+        node_id: node,
+        props: vec![CssProperty::text_color(StyleTextColor {
+            inner: ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        })],
+        override_only: false,
+    }));
+    assert!(
+        lw.css_transitions
+            .iter()
+            .any(|t| t.node == node && t.prop_type == CssPropertyType::TextColor),
+        "harness: the colour write seeds a fade"
+    );
+
+    // Frame 1 as the shells run it (it may build the list); then the fade's frames.
+    let _ = lw.tick_animations(0.016);
+    if !lw.take_transition_patched() && !lw.animation_tick_is_values_only() {
+        lw.regenerate_display_list_for_dom(root);
+    }
+    let mut patched_frames = 0;
+    for frame in 2..14 {
+        if lw.css_transitions.is_empty() {
+            break;
+        }
+        let before = Arc::as_ptr(&lw.layout_results[&root].display_list);
+        let _ = lw.tick_animations(0.016);
+        if lw.take_transition_patched() {
+            patched_frames += 1;
+            assert!(
+                core::ptr::eq(before, Arc::as_ptr(&lw.layout_results[&root].display_list)),
+                "frame {frame}: the list is patched where it lies"
+            );
+        } else if !lw.animation_tick_is_values_only() {
+            lw.regenerate_display_list_for_dom(root);
+        }
+    }
+    assert!(patched_frames >= 3, "harness: the fade's frames are patches ({patched_frames})");
+}

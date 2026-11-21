@@ -21005,17 +21005,9 @@ impl LayoutWindow {
                     // (a fade starting at 1.0) changes the item list: it takes
                     // the rebuild path below once, and the next frame is here.
                     if tr.prop_type == azul_css::props::property::CssPropertyType::Opacity {
-                        let bound = cache.opacity_keys.get(&tr.node).is_some_and(|key| {
-                            result.display_list.items.iter().any(|item| {
-                                matches!(
-                                    item,
-                                    solver3::display_list::DisplayListItem::PushOpacity {
-                                        opacity_key: Some(k),
-                                        ..
-                                    } if k == key
-                                )
-                            })
-                        });
+                        // A3-window-16: asked of the list's index of bound keys, not of
+                        // every item of the list per fade per frame.
+                        let bound = opacity_layer_is_bound(&*result, &*cache, tr.node);
                         if bound {
                             result.styled_dom.set_user_property_override_fast(
                                 &tr.node,
@@ -21088,8 +21080,11 @@ impl LayoutWindow {
                     if let (true, Some((_, to_c, solver3::display_list::PaintColorSlot::Background))) =
                         (patchable, colors)
                     {
+                        // A3-window-16: the list's index of bound keys answers (one walk per
+                        // list, kept with it); `color_bindings.contains` read a slot per
+                        // item of the window's list per fade per frame.
                         let bound_key = cache.color_keys.get(&tr.node).copied().filter(|key| {
-                            result.display_list.color_bindings.contains(&Some(*key))
+                            result.display_list.frame_index().binds_a_color_key(key.id)
                         });
                         if let Some(key) = bound_key {
                             // No note: the map stamps itself, and only when the colour
@@ -21200,6 +21195,19 @@ impl LayoutWindow {
                         } else {
                             needs_relayout = true;
                             tree_shape_kept &= tween_keeps_layout_tree_shape(tr.prop_type);
+                        }
+                    }
+                }
+
+                // A3-window-16: the solver's structural-identity cache holds this very list
+                // (the frame before put the patched one back, below): it lets go of it for
+                // the patches, so that a list nobody else holds is patched where it lies.
+                // `Arc::make_mut` copied the window's whole list on every patched frame of
+                // a fade, to drop the old copy a few lines later.
+                if !patch_jobs.is_empty() || !bind_jobs.is_empty() || !layer_jobs.is_empty() {
+                    if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                        if Arc::ptr_eq(&cached.5, &result.display_list) {
+                            drop(core::mem::take(&mut cached.5));
                         }
                     }
                 }
@@ -38484,17 +38492,16 @@ fn bound_node_size(result: &DomLayoutResult, node: NodeId) -> Option<(f32, f32)>
 /// Whether the display list of `result` opens an opacity layer for `node`
 /// bound to the key `cache` holds for it (`PushOpacity::opacity_key`): its
 /// opacity is then a value under that key.
+///
+/// Asked of the list's index of bound keys (`FrameIndex`: one walk per list, kept with the
+/// list): a node's CSS opacity key is bound by its `PushOpacity` and by nothing else. It
+/// was a walk of every item per ask - per opacity fade per frame, per `set_css_property`.
 fn opacity_layer_is_bound(result: &DomLayoutResult, cache: &GpuValueCache, node: NodeId) -> bool {
     cache.opacity_keys.get(&node).is_some_and(|key| {
-        result.display_list.items.iter().any(|item| {
-            matches!(
-                item,
-                solver3::display_list::DisplayListItem::PushOpacity {
-                    opacity_key: Some(k),
-                    ..
-                } if k == key
-            )
-        })
+        result
+            .display_list
+            .frame_index()
+            .binds_an_opacity_key(&std::collections::HashSet::from([key.id]))
     })
 }
 
