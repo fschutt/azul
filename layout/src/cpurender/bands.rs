@@ -13,8 +13,11 @@
 //!   `FrameIndex`), the views' lists, the resources, the fonts, the render state with the GPU
 //!   values, the kept group surfaces (`retained`);
 //! - per band, behind `&mut` or owned by its thread: the rows it writes, its walk's stacks and
-//!   group surfaces, a glyph cache, the text rasteriser of its thread, its counters (summed
-//!   into the frame's when the band is done).
+//!   group surfaces, a glyph cache with the text rasteriser and the counters of its thread (the
+//!   counters are summed into the frame's when the band is done);
+//! - shared behind a lock, for as long as the bands run: the frame's kept halos and blurred
+//!   shadows (`GlyphCache::scratch`): every band's cache reaches them there, and the frame's
+//!   cache takes them back when the bands are done.
 //!
 //! A band paints in the FRAME's coordinates, not in its own: every position the walk computes
 //! is the one a single pass over the whole rect computes, so the pixels are the same ones (a
@@ -39,10 +42,7 @@
 //! Memory: a band holds at most [`MAX_BAND_BYTES`] of the frame's rows, so a thread's scratch
 //! is that plus what its pass allocates (group surfaces of the parts that land in the band).
 
-use std::{
-    cell::Cell,
-    sync::{Arc, Mutex, OnceLock},
-};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use azul_core::resources::RendererResources;
 use azul_css::props::basic::FontRef;
@@ -50,12 +50,9 @@ use azul_css::props::basic::FontRef;
 use super::{
     pixmap::AzulPixmap,
     raster::{paint_damage_rect, CpuRenderState, SnappedRect},
-    text_halo,
 };
 use crate::{
-    cpu_counters::{self, Counter, CpuFrameCounters},
-    glyph_cache::GlyphCache,
-    solver3::display_list::DisplayList,
+    cpu_counters::Counter, glyph_cache::GlyphCache, solver3::display_list::DisplayList,
     text3::cache::FontManager,
 };
 
@@ -74,18 +71,13 @@ pub(crate) const MAX_BAND_BYTES: usize = 8 * 1024 * 1024;
 /// the other threads idle.
 const BANDS_PER_THREAD: usize = 2;
 
-thread_local! {
-    /// Whether this thread is painting a band: a composite inside a band does not start threads
-    /// of its own.
-    static IN_BAND: Cell<bool> = const { Cell::new(false) };
-}
-
 /// The most threads a repaint uses unless it is told otherwise: the other cores belong to the
 /// tile workers and to whatever else the machine runs.
 pub const DEFAULT_MAX_PAINT_THREADS: usize = 4;
 
 /// The threads the machine has (asked once: the answer reads `sysctl` or the cgroup files).
 fn machine_threads() -> usize {
+    // A hardware fact, computed once per process.
     static THREADS: OnceLock<usize> = OnceLock::new();
     *THREADS.get_or_init(|| std::thread::available_parallelism().map_or(1, usize::from))
 }
@@ -100,6 +92,7 @@ fn parse_threads(v: Option<&str>) -> Option<usize> {
 /// [`DEFAULT_MAX_PAINT_THREADS`]; never more than the machine has.
 #[must_use]
 pub fn max_threads() -> usize {
+    // Process-wide configuration, read once from the environment (`AZ_CPU_THREADS`).
     static CONFIGURED: OnceLock<Option<usize>> = OnceLock::new();
     let configured =
         *CONFIGURED.get_or_init(|| parse_threads(std::env::var("AZ_CPU_THREADS").ok().as_deref()));
@@ -118,17 +111,6 @@ pub(crate) fn threads_for(requested: usize) -> usize {
         max_threads()
     } else {
         requested
-    }
-}
-
-/// The threads one composite of `wanted` threads' worth of pixels may use: one inside a band
-/// (the band's thread is the composite's), else up to [`max_threads`].
-#[must_use]
-pub(crate) fn composite_threads(wanted: usize) -> usize {
-    if IN_BAND.with(Cell::get) {
-        1
-    } else {
-        wanted.clamp(1, max_threads())
     }
 }
 
@@ -277,45 +259,13 @@ fn paint_band(
     Ok(counted)
 }
 
-/// What a band thread is while it paints: marked as one, painting with the frame's shared
-/// halos and box shadows and reading the window's glyph cache. Dropped (also by a panic) before
-/// the thread ends, so that the frame's thread is the only holder of the three when it takes
-/// them back.
-struct BandThread {
-    was_in_band: bool,
-}
-
-impl BandThread {
-    fn enter(
-        halos: text_halo::SharedCpuHalos,
-        shadows: super::raster::SharedShadowCache,
-        glyphs: Arc<GlyphCache>,
-    ) -> Self {
-        text_halo::adopt_cpu_halos(Some(halos));
-        super::raster::adopt_shadow_cache(Some(shadows));
-        super::raster::adopt_shared_glyphs(Some(glyphs));
-        Self { was_in_band: IN_BAND.with(|b| b.replace(true)) }
-    }
-}
-
-impl Drop for BandThread {
-    fn drop(&mut self) {
-        IN_BAND.with(|b| b.set(self.was_in_band));
-        text_halo::adopt_cpu_halos(None);
-        super::raster::adopt_shadow_cache(None);
-        super::raster::adopt_shared_glyphs(None);
-    }
-}
-
-/// An empty glyph cache with the text settings of the window's: what a band builds into. A
-/// band that painted with the default settings would draw another text than one pass does.
-fn band_glyph_cache(
-    text_aa: super::raster::TextAaSettings,
-    lcd_order: crate::glyph_cache::LcdSubpixelOrder,
-) -> GlyphCache {
+/// An empty glyph cache with the text settings of `like`: what stands in the window's place while
+/// its cache is shared with the bands. (The window's own settings, not the defaults: a cache that
+/// painted with the defaults would draw another text than one pass does.)
+fn empty_cache_like(like: &GlyphCache) -> GlyphCache {
     let mut cache = GlyphCache::new();
-    let _ = cache.set_text_aa(text_aa);
-    let _ = cache.set_lcd_subpixel_order(lcd_order);
+    let _ = cache.set_text_aa(like.text_aa());
+    let _ = cache.set_lcd_subpixel_order(like.lcd_subpixel_order());
     cache
 }
 
@@ -365,14 +315,15 @@ fn paint_bands(
     // lacks it builds into a cache of its own, empty at the start of every repaint; the
     // window's cache takes those back below (`GlyphCache::absorb`), so no thread keeps a
     // second copy of the window's cells from frame to frame.
-    let halos = text_halo::share_cpu_halos();
-    let shadows = super::raster::share_shadow_cache();
-    let (text_aa, lcd_order) = (glyph_cache.text_aa(), glyph_cache.lcd_subpixel_order());
-    let window_glyphs =
-        Arc::new(core::mem::replace(glyph_cache, band_glyph_cache(text_aa, lcd_order)));
-    let mut own_cache = band_glyph_cache(text_aa, lcd_order);
+    let share = glyph_cache.scratch.share_with_bands();
+    let in_the_windows_place = empty_cache_like(glyph_cache);
+    let window_glyphs = Arc::new(core::mem::replace(glyph_cache, in_the_windows_place));
+    let mut own_cache = GlyphCache::for_band(&window_glyphs, &share);
     let mut thread_caches: Vec<GlyphCache> =
-        (1..workers).map(|_| band_glyph_cache(text_aa, lcd_order)).collect();
+        (1..workers).map(|_| GlyphCache::for_band(&window_glyphs, &share)).collect();
+    // The caches hold what the bands share now; the frame's thread must be the only other
+    // holder of it when it takes it back.
+    drop(share);
     #[cfg(test)]
     let test_flags = super::raster::walk_test_flags();
 
@@ -405,60 +356,53 @@ fn paint_bands(
         }
     };
 
-    let mut outcomes: Vec<(Result<(usize, usize), String>, CpuFrameCounters)> = Vec::new();
+    let mut outcomes: Vec<Result<(usize, usize), String>> = Vec::new();
     let own_outcome = std::thread::scope(|scope| {
         let handles: Vec<_> = thread_caches
             .iter_mut()
             .map(|cache| {
                 let work = &work;
-                let halos = Arc::clone(&halos);
-                let shadows = Arc::clone(&shadows);
-                let glyphs = Arc::clone(&window_glyphs);
                 scope.spawn(move || {
                     #[cfg(test)]
                     super::raster::set_walk_test_flags(test_flags);
-                    let band_thread = BandThread::enter(halos, shadows, glyphs);
-                    cpu_counters::reset();
-                    let result = work(cache);
-                    drop(band_thread);
-                    (result, cpu_counters::take())
+                    work(cache)
                 })
             })
             .collect();
-        // This thread paints bands, too; its counts go straight into the frame's.
-        let band_thread = BandThread::enter(
-            Arc::clone(&halos),
-            Arc::clone(&shadows),
-            Arc::clone(&window_glyphs),
-        );
+        // This thread paints bands, too; its counts go into the frame's with the others'.
         let own = work(&mut own_cache);
-        drop(band_thread);
         for handle in handles {
-            outcomes.push(handle.join().unwrap_or_else(|_| {
-                (Err("a band thread panicked".to_string()), CpuFrameCounters::default())
-            }));
+            outcomes.push(
+                handle
+                    .join()
+                    .unwrap_or_else(|_| Err("a band thread panicked".to_string())),
+            );
         }
         own
     });
-    text_halo::restore_cpu_halos(halos);
-    super::raster::restore_shadow_cache(shadows);
-    // The window's cache back in its place: every band thread dropped its clone before it
-    // ended (`BandThread`). Were one left, the window would go on with an empty cache: a
-    // frame of builds, never another pixel. Then what the bands built, in the order of the
-    // workers.
+    // The window's cache back in its place: every band's cache lets go of it first. Were one
+    // held, the window would go on with an empty cache: a frame of builds, never another pixel.
+    own_cache.release_window();
+    for cache in &mut thread_caches {
+        cache.release_window();
+    }
     *glyph_cache = Arc::try_unwrap(window_glyphs)
-        .unwrap_or_else(|_| band_glyph_cache(text_aa, lcd_order));
-    glyph_cache.absorb(own_cache);
-    for cache in thread_caches {
+        .unwrap_or_else(|_| empty_cache_like(&own_cache));
+    // Then what the bands counted and built, in the order of the workers: the frame's counters
+    // are the sum whichever thread painted what, and the window's cache holds the cells the
+    // bands made. A band's cache is gone when it is absorbed, which leaves the window's cache
+    // the only holder of the halos and shadows the bands shared: it takes them back.
+    for cache in core::iter::once(own_cache).chain(thread_caches) {
+        glyph_cache.counts().merge(&cache.counts().take());
         glyph_cache.absorb(cache);
     }
+    glyph_cache.scratch.take_back_from_bands();
 
-    cpu_counters::count(Counter::Bands, bands.len() as u64);
-    cpu_counters::count(Counter::BandThreads, (workers - 1) as u64);
+    glyph_cache.counts().add(Counter::Bands, bands.len() as u64);
+    glyph_cache.counts().add(Counter::BandThreads, (workers - 1) as u64);
     let mut counted = own_outcome?;
     let mut failed = None;
-    for (result, counters) in outcomes {
-        cpu_counters::merge(&counters);
+    for result in outcomes {
         match result {
             Ok((painted, skipped)) => {
                 counted.0 += painted;
@@ -502,15 +446,22 @@ mod tests {
     }
 
     /// A1-06 (a): a band's glyph cache is empty and has the window's text settings.
-    /// Mutation: `set_text_aa` left out of `band_glyph_cache` gives a band the default (LCD).
+    /// Mutation: the settings left out of `GlyphCache::for_band` give a band the default (LCD).
     #[test]
     fn a_bands_glyph_cache_is_empty_and_has_the_windows_settings() {
         let grayscale = super::super::raster::TextAaSettings::grayscale();
         let order = crate::glyph_cache::LcdSubpixelOrder::Bgr;
-        let cache = band_glyph_cache(grayscale, order);
+        let mut window = GlyphCache::new();
+        let _ = window.set_text_aa(grayscale);
+        let _ = window.set_lcd_subpixel_order(order);
+        let share = window.scratch.share_with_bands();
+        let window = Arc::new(window);
+        let cache = GlyphCache::for_band(&window, &share);
         assert!(cache.text_aa() == grayscale);
         assert!(cache.lcd_subpixel_order() == order);
         assert_eq!((cache.paths_len(), cache.cells_len(), cache.cells_built()), (0, 0, 0));
+        assert!(cache.scratch.in_band, "a band's thread does not start threads for a composite");
+        assert!(!window.scratch.in_band, "the window's cache is not a band's");
     }
 
     #[test]

@@ -543,6 +543,7 @@ impl Cursor {
 /// Is the grid used (the default), or does every walk test every item (`AZ_CPU_GRID=off`: the
 /// walk before, for comparing the two)?
 pub(crate) fn grid_is_used() -> bool {
+    // Process-wide configuration, read once from the environment (`AZ_CPU_GRID`).
     static USED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *USED.get_or_init(|| std::env::var("AZ_CPU_GRID").map_or(true, |v| v != "off" && v != "0"))
 }

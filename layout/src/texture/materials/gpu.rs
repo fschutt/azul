@@ -64,68 +64,77 @@ struct ContextState {
     wallpaper: Option<(u64, u32)>,
 }
 
-thread_local! {
-    static STATES: RefCell<Vec<ContextState>> = const { RefCell::new(Vec::new()) };
+/// What a renderer keeps for the GPU: the state of each GL context it has
+/// drawn in. The objects of a GL context are its own, so each context has a
+/// state of its own. The contexts are bound to the thread that made them, and
+/// so is this: it lives in the renderer's handle, which stays on the window's
+/// thread (the worker thread draws on the CPU and never reaches it).
+#[derive(Default)]
+pub(super) struct GpuStates {
+    states: RefCell<Vec<ContextState>>,
 }
 
-/// `material` drawn by the GPU of `gl` for a `width` x `height` device-px
-/// rect, as a GL texture image; `None` when this context cannot (the caller
-/// draws on the CPU).
-pub(crate) fn render_material_gl(
-    gl_ptr: &GlContextPtr,
-    material: Material,
-    width: u32,
-    height: u32,
-    dpr: f32,
-    params: &MaterialParams,
-    scene: &SurfaceScene,
-) -> Option<ImageRef> {
-    if !gl_ptr.is_gl_usable() || width == 0 || height == 0 || width > 16_384 || height > 16_384 {
-        return None;
-    }
-    let version = gl_ptr.get_usable_glsl_version();
-    let version = version.as_str().trim();
-    // `#version 100` (GLES 2) has no `gl_VertexID`, `textureLod` in a
-    // fragment shader or `out` variables: the CPU draws there.
-    if version.is_empty() || version == "100" {
-        return None;
-    }
-    let gl: Rc<GenericGlContext> = gl_ptr.get().clone();
-    // Before anything is compiled, uploaded or bound: what the frame path
-    // had set up is put back after the draw.
-    let saved = SavedGlState::save(&gl);
-    let frame = STATES.with(|states| {
-        let mut states = states.borrow_mut();
-        let index = state_index(&mut states, &gl, version);
-        let state = &mut states[index];
-        if state.program == 0 {
+impl GpuStates {
+    /// `material` drawn by the GPU of `gl_ptr` for a `width` x `height`
+    /// device-px rect, as a GL texture image; `None` when this context cannot
+    /// (the caller draws on the CPU).
+    pub(super) fn render(
+        &self,
+        gl_ptr: &GlContextPtr,
+        material: Material,
+        width: u32,
+        height: u32,
+        dpr: f32,
+        params: &MaterialParams,
+        scene: &SurfaceScene,
+    ) -> Option<ImageRef> {
+        if !gl_ptr.is_gl_usable() || width == 0 || height == 0 || width > 16_384 || height > 16_384 {
             return None;
         }
-        state.draw(gl_ptr, &gl, material, [width, height], dpr, params, scene)
-    });
-    saved.restore(&gl);
-    frame
-}
-
-/// Whether the material shader compiles and links on `gl` (tests ask, to
-/// know the GPU path is the one being compared).
-#[must_use]
-pub fn material_shader_compiles(gl_ptr: &GlContextPtr) -> bool {
-    let version = gl_ptr.get_usable_glsl_version();
-    let version = version.as_str().trim();
-    if !gl_ptr.is_gl_usable() || version.is_empty() || version == "100" {
-        return false;
+        let version = gl_ptr.get_usable_glsl_version();
+        let version = version.as_str().trim();
+        // `#version 100` (GLES 2) has no `gl_VertexID`, `textureLod` in a
+        // fragment shader or `out` variables: the CPU draws there.
+        if version.is_empty() || version == "100" {
+            return None;
+        }
+        let gl: Rc<GenericGlContext> = gl_ptr.get().clone();
+        // Before anything is compiled, uploaded or bound: what the frame path
+        // had set up is put back after the draw.
+        let saved = SavedGlState::save(&gl);
+        let frame = {
+            let mut states = self.states.borrow_mut();
+            let index = state_index(&mut states, &gl, version);
+            let state = &mut states[index];
+            if state.program == 0 {
+                None
+            } else {
+                state.draw(gl_ptr, &gl, material, [width, height], dpr, params, scene)
+            }
+        };
+        saved.restore(&gl);
+        frame
     }
-    let gl = gl_ptr.get().clone();
-    // Linking the program and uploading the blank texture bind things.
-    let saved = SavedGlState::save(&gl);
-    let compiles = STATES.with(|states| {
-        let mut states = states.borrow_mut();
-        let index = state_index(&mut states, &gl, version);
-        states[index].program != 0
-    });
-    saved.restore(&gl);
-    compiles
+
+    /// Whether the material shader compiles and links on `gl_ptr`'s context
+    /// (tests ask, to know the GPU path is the one being compared).
+    pub(super) fn shader_compiles(&self, gl_ptr: &GlContextPtr) -> bool {
+        let version = gl_ptr.get_usable_glsl_version();
+        let version = version.as_str().trim();
+        if !gl_ptr.is_gl_usable() || version.is_empty() || version == "100" {
+            return false;
+        }
+        let gl = gl_ptr.get().clone();
+        // Linking the program and uploading the blank texture bind things.
+        let saved = SavedGlState::save(&gl);
+        let compiles = {
+            let mut states = self.states.borrow_mut();
+            let index = state_index(&mut states, &gl, version);
+            states[index].program != 0
+        };
+        saved.restore(&gl);
+        compiles
+    }
 }
 
 /// The index of `gl`'s state, made now if it has none; states of contexts
@@ -395,7 +404,7 @@ impl ContextState {
         params: &MaterialParams,
         scene: &SurfaceScene,
     ) -> Option<ImageRef> {
-        // The caller (`render_material_gl`) saved the context's state and
+        // The caller (`GpuStates::render`) saved the context's state and
         // puts it back: this binds and turns off what the draw needs.
         let u = prepare(material, [width, height], dpr, params, scene);
         let (tile_tex, macro_tex, macro_period) = self.tile_textures(gl, material);
@@ -496,7 +505,6 @@ impl ContextState {
                 i1(name, unit as i32);
             }
             gl.draw_arrays(gl::TRIANGLES, 0, 3);
-            super::count_render();
         }
 
         // The frame's framebuffer is unbound before it goes: the caller puts

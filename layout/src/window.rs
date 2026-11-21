@@ -1549,8 +1549,8 @@ pub struct FrameReport {
     pub gpu_total: GpuFrameCounters,
     /// What the GPU backend's scans did with the text halos it keeps as pictures
     /// ([`TextHaloStats`]): the last scan's numbers (drawn, dropped, left,
-    /// painted with a stand-in), the sums of this thread and what is kept. Per thread, not per
-    /// window, and not reset with the counters. Filled in by [`LayoutWindow::frame_report_synced`].
+    /// painted with a stand-in), the sums of this window's store and what is kept. Per window,
+    /// and not reset with the counters. Filled in by [`LayoutWindow::frame_report_synced`].
     pub text_halos: TextHaloStats,
     /// The work of the last CPU frame ([`crate::cpu_counters`]): pixels cleared and blitted, items
     /// walked and painted, text runs and glyphs rasterised, halos drawn, isolated groups opened
@@ -1993,6 +1993,11 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         frame_report: _,
         frame_report_reset_request: _,
         cpu_counters: _,
+        // CAN grow with content, and is not walked: the kept text halos are pictures (up to
+        // `MAX_HALO_BYTES`, 96 MB, of them per window) that the GPU backend's scan draws for
+        // the labels of the lists. A live gap, like `font_manager`'s decoded tables.
+        #[cfg(feature = "cpurender")]
+        text_halo_store: _,
         // Bounded by SIZE_QUERY_CAP (256 entries), not by the document.
         recorded_size_queries: _,
         // A six-bit mask, keyed by nothing.
@@ -2055,6 +2060,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         #[cfg(feature = "pdf")]
             fragmentation_context: _,
         image_cache: _,
+        // NOT WALKED: bounded - at most 64 MiB of frames and about 60 MB of
+        // grain tiles, both keyed by what they are drawn from.
+        material_renderer: _,
         content_overlay: _,
         image_callback_inputs: _,
         // A counter per DOM and the few callback-image boxes found per DOM.
@@ -2484,6 +2492,13 @@ pub struct LayoutWindow {
     /// reset ([`crate::cpu_counters`]). Written by the backend that renders the frame, which
     /// only holds `&LayoutWindow`.
     pub cpu_counters: std::sync::Mutex<crate::cpu_counters::CpuCounterState>,
+    /// The text halos this window's GPU frames paint as kept pictures, and the numbers of
+    /// the scans that drew them ([`crate::cpurender::TextHaloStore`]): the window's own,
+    /// so what one window draws, drops or gives back moves nothing of another's. Written by
+    /// the renderer host's scan of the display lists (which only holds `&LayoutWindow`, as
+    /// the translation of a list does) and read by [`Self::text_halo_stats`].
+    #[cfg(feature = "cpurender")]
+    pub text_halo_store: crate::cpurender::TextHaloStore,
     /// Fragmentation context for this window (continuous for screen, paged for print)
     #[cfg(feature = "pdf")]
     pub fragmentation_context: crate::paged::FragmentationContext,
@@ -2720,6 +2735,14 @@ pub struct LayoutWindow {
     /// the shell keeps no copy; mutations go through
     /// [`Self::apply_content_change`] (`ContentChange::ImageById`).
     pub image_cache: ImageCache,
+    /// What draws this window's built-in materials and remembers what it
+    /// drew: its render cache, its grain tiles, its worker thread, the state
+    /// of its GL context, the wallpapers its metals reflect and the count of
+    /// surfaces drawn. Each of the window's material images carries a handle
+    /// to it. A window has its own; a popup whose image map was seeded from
+    /// its parent's (`Self::seed_image_id_map`) reads its parent's, since the
+    /// material images it was seeded with draw with that one.
+    pub material_renderer: crate::texture::MaterialRenderer,
     /// The content overlay: quickly-mutable content (swapped node images,
     /// produced callback frames) layered over the immutable DOM. Readers go
     /// overlay→DOM via [`crate::overlay::ResolvedContent`]; the ONLY writer is
@@ -4457,12 +4480,30 @@ impl LayoutWindow {
         let cpu = self.cpu_frame_counters();
         report.cpu_last = cpu.last;
         report.cpu_since_reset = cpu.since_reset;
-        report.text_halos = crate::cpu_counters::text_halo_stats();
+        report.text_halos = self.text_halo_stats();
         report
     }
 
-    /// Keep the counters of a CPU frame ([`crate::cpu_counters::FrameScope`]): the last frame's,
-    /// and the sum since the counters were last reset.
+    /// What the scans of this window did with the text halos it keeps as pictures
+    /// ([`TextHaloStats`]): the last scan's numbers, the sums since the window was made and
+    /// what is kept now. All zero without the CPU renderer (feature `cpurender`), which keeps
+    /// no halos. What the frame report carries as `text_halos` and
+    /// `CallbackInfo::get_text_halo_stats` answers.
+    #[must_use]
+    pub fn text_halo_stats(&self) -> TextHaloStats {
+        #[cfg(feature = "cpurender")]
+        {
+            self.text_halo_store.text_halo_stats()
+        }
+        #[cfg(not(feature = "cpurender"))]
+        {
+            TextHaloStats::default()
+        }
+    }
+
+    /// Keep the counters of a CPU frame (what `CpuBackend::render_frame` took from its glyph
+    /// cache when the frame was done): the last frame's, and the sum since the counters were last
+    /// reset.
     pub fn record_cpu_counters(&self, frame: crate::cpu_counters::CpuFrameCounters) {
         let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
         if let Ok(mut state) = self.cpu_counters.lock() {
@@ -4543,6 +4584,7 @@ impl LayoutWindow {
         // Its own queues until `join_app` hands it its app's; the window is a member of
         // its own hotkey manager (no backend: every declaration reads `Unsupported`).
         let app_services = crate::managers::app_services::AppServices::new();
+        let material_renderer = crate::texture::MaterialRenderer::new();
         Self {
             pending_css_dirty: None,
             css_dirty_waiting: BTreeMap::new(),
@@ -4575,6 +4617,8 @@ impl LayoutWindow {
             last_dom_fingerprints: None,
             frame_report_reset_request: core::sync::atomic::AtomicU64::new(0),
             cpu_counters: std::sync::Mutex::new(crate::cpu_counters::CpuCounterState::default()),
+            #[cfg(feature = "cpurender")]
+            text_halo_store: crate::cpurender::TextHaloStore::new(),
             #[cfg(feature = "pdf")]
             fragmentation_context: crate::paged::FragmentationContext::new_continuous(800.0),
             animations: azul_core::animation::AnimationManager::new(),
@@ -4639,7 +4683,8 @@ impl LayoutWindow {
             text_cache: TextLayoutCache::new(),
             font_manager,
             // The built-in textures under their CSS names, in every window.
-            image_cache: crate::texture::image_cache_with_builtin_textures(),
+            image_cache: crate::texture::image_cache_with_builtin_textures(&material_renderer),
+            material_renderer,
             content_overlay: crate::overlay::ContentOverlay::default(),
             image_callback_inputs: BTreeMap::new(),
             dom_generations: DomGenerations::default(),
@@ -6087,7 +6132,7 @@ impl LayoutWindow {
         // weak references to it live. `Arc::get_mut` refuses then, and the
         // GPU path keeps weak references as the NAME of a list (the kept
         // fonts and images of a list, `wr_translate2::list_names`; its kept
-        // text shadows, `text_halo::LIST_SHADOWS`; the digest of the bound
+        // text shadows, the window's `TextHaloStore`; the digest of the bound
         // values, `GpuValueSource`): with any of them alive every pan frame
         // copied the host's list (ten thousand items), the copy was a list
         // the renderer did not hold, and the frame translated and sent it
@@ -14284,13 +14329,10 @@ impl LayoutWindow {
         let screen = self.window_screen_rect();
         let highlight = self.system_highlight_colour();
         // A new wallpaper is a new reflection for every metal.
-        #[cfg(feature = "materials")]
-        let environment_generation = crate::texture::environment::desktop_generation();
-        #[cfg(not(feature = "materials"))]
-        let environment_generation = 0_u64;
+        let environment_generation = self.material_renderer.desktop_generation();
         // Where the window sits matters to a point light and to the
         // wallpaper a metal reflects.
-        let desktop_bits = if light.depends_on_position() || Self::reflects_the_desktop() {
+        let desktop_bits = if light.depends_on_position() || self.reflects_the_desktop() {
             [window_origin.x.to_bits(), window_origin.y.to_bits()]
         } else {
             [0, 0]
@@ -14717,20 +14759,13 @@ impl LayoutWindow {
     /// that sees the window move redraws it then.
     #[must_use]
     pub fn materials_follow_window_position(&self) -> bool {
-        self.effective_light().depends_on_position() || Self::reflects_the_desktop()
+        self.effective_light().depends_on_position() || self.reflects_the_desktop()
     }
 
     /// Whether a material here reflects the desktop (the wallpapers are
     /// known): a window that moves then renders its metals again.
-    fn reflects_the_desktop() -> bool {
-        #[cfg(feature = "materials")]
-        {
-            crate::texture::environment::desktop_generation() > 0
-        }
-        #[cfg(not(feature = "materials"))]
-        {
-            false
-        }
+    fn reflects_the_desktop(&self) -> bool {
+        self.material_renderer.desktop_generation() > 0
     }
 
     /// The system's text highlight colour (macOS's pale blue by default):
@@ -34630,6 +34665,9 @@ impl LayoutWindow {
             frame_report: _,
             frame_report_reset_request: _,
         cpu_counters: _,
+            // Kept by what a label's pixels depend on (its glyphs, fonts, sizes), never by NodeId.
+            #[cfg(feature = "cpurender")]
+            text_halo_store: _,
             // Thresholds + answers, keyed by nothing.
             recorded_size_queries: _,
             // A six-bit mask, keyed by nothing.
@@ -34716,6 +34754,8 @@ impl LayoutWindow {
             text_cache: _,
             font_manager: _,
             image_cache: _,
+            // Keyed by what a surface is drawn from, never by NodeId.
+            material_renderer: _,
             renderer_resources: _,
             // Derived per frame from the CURRENT StyledDom (a11y tree is rebuilt
             // from scratch in `A11yManager::build_tree_update`), so it cannot go stale:
@@ -41230,7 +41270,9 @@ impl LayoutWindow {
                 } else {
                     None
                 };
-                crate::cpurender::blit_pixmap_affine_clipped(&cut, output, &m, job.opacity, clip);
+                let written =
+                    crate::cpurender::blit_pixmap_affine_clipped(&cut, output, &m, job.opacity, clip);
+                glyph_cache.counts().add(crate::cpu_counters::Counter::PxBlitted, written);
                 drew = true;
             }
         }

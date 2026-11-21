@@ -20,7 +20,6 @@ use azul_layout::{
     callbacks::ExternalSystemCallbacks,
     cpurender::{compute_display_list_damage, ScrollOffsetMap},
     solver3::display_list::DisplayListItem,
-    texture::materials::renders_on_this_thread,
     widgets::{
         ribbon::{
             Ribbon, RibbonAppButton, RibbonButton, RibbonGroup, RibbonItem, RibbonTab,
@@ -134,7 +133,7 @@ fn cursor_frame(lw: &mut LayoutWindow, x: f32, y: f32) -> (Duration, Option<Vec<
 fn a_cursor_over_the_leather_draws_nothing_and_damages_nothing_on_the_cpu() {
     let mut lw = azdrive_window();
     let rect = leather(&lw).expect("harness: the ribbon's leather is drawn");
-    let renders = renders_on_this_thread();
+    let renders = lw.material_renderer.renders();
     for i in 0..24 {
         #[allow(clippy::cast_precision_loss)] // a small step count
         let x = rect.origin.x + 40.0 + 45.0 * i as f32;
@@ -146,7 +145,7 @@ fn a_cursor_over_the_leather_draws_nothing_and_damages_nothing_on_the_cpu() {
         );
     }
     assert_eq!(
-        renders_on_this_thread() - renders,
+        lw.material_renderer.renders() - renders,
         0,
         "the cursor drew the leather again"
     );

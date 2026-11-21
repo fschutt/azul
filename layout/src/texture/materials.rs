@@ -36,6 +36,9 @@
 //! drawn by the GPU instead (`gpu`). A window that does not wait for a frame
 //! (a desktop shell's CPU window) gets a large surface drawn on a worker
 //! thread, off the UI thread, and shows what the layer showed until then.
+//! Both caches, the worker, the GPU context's state and the count of surfaces
+//! drawn belong to the window's [`MaterialRenderer`]: no two windows share
+//! them.
 
 // Per-channel loops over parallel colour arrays (`for c in 0..3`) read
 // clearer indexed than zipped three ways.
@@ -43,17 +46,22 @@
 
 use std::{
     hash::{Hash, Hasher},
-    sync::{Arc, Mutex, OnceLock},
+    rc::Rc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Condvar, Mutex, OnceLock,
+    },
 };
 
 use azul_core::{
+    gl::GlContextPtr,
     light::Light,
     refany::RefAny,
     resources::{ImageRef, RawImage, RawImageData, RawImageFormat},
 };
 
 use super::{
-    environment::{self, Environment},
+    environment::{DesktopWallpapers, Environment},
     transparent_pixel, Material, MaterialLight, MaterialRays,
 };
 use crate::callbacks::{RenderImageCallback, RenderImageCallbackExtras, RenderImageCallbackInfo};
@@ -64,7 +72,6 @@ mod shade;
 mod surface;
 
 pub use distance::ShapeField;
-pub use gpu::material_shader_compiles;
 
 // -- The tiles -------------------------------------------------------------------------------
 
@@ -122,6 +129,8 @@ pub struct MaterialTile {
 /// does not decode (the material then draws nothing).
 #[must_use]
 pub fn tile(material: Material) -> Option<Arc<MaterialTile>> {
+    // KEPT process-wide: a pure function of the assets compiled into the
+    // library, decoded at most once; four slots that never grow, no window's state.
     static TILES: [OnceLock<Option<Arc<MaterialTile>>>; 4] =
         [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
     TILES[material_index(material)]
@@ -531,6 +540,7 @@ const fn wrap(i: i64, side: usize) -> usize {
 /// the material's tile does not decode).
 #[must_use]
 pub fn colourless_tile(material: Material) -> Option<Arc<ColourlessTile>> {
+    // KEPT process-wide, like `tile`: a pure function of the compiled-in assets.
     static TILES: [OnceLock<Option<Arc<ColourlessTile>>>; 4] =
         [OnceLock::new(), OnceLock::new(), OnceLock::new(), OnceLock::new()];
     TILES[material_index(material)]
@@ -1270,10 +1280,25 @@ pub(crate) fn prepare(
 
 /// `material` rendered on the CPU for a `width` x `height` device-px rect at
 /// `dpr`, worn as `params` say, in `scene`. RGBA8, premultiplied, exactly
-/// `width` x `height`. Not cached as a frame (its grain is) - see
-/// [`render_material`].
+/// `width` x `height`. A render of its own: its grain is computed afresh and
+/// kept nowhere, and the frame is not cached - a renderer keeps both
+/// ([`MaterialRenderer::render_pixels`], [`MaterialRenderer::render_material`]).
 #[must_use]
 pub fn render_material_pixels(
+    material: Material,
+    width: u32,
+    height: u32,
+    dpr: f32,
+    params: &MaterialParams,
+    scene: &SurfaceScene,
+) -> Option<RawImage> {
+    render_pixels_into(&shade::GrainCache::default(), material, width, height, dpr, params, scene)
+}
+
+/// [`render_material_pixels`], with the grain tiles looked up in `grain` and
+/// kept there.
+fn render_pixels_into(
+    grain: &shade::GrainCache,
     material: Material,
     width: u32,
     height: u32,
@@ -1312,6 +1337,7 @@ pub fn render_material_pixels(
             relief: u.relief,
             dpr: u.dpr,
         },
+        grain,
         size: u.size,
         origin_px: u.origin_px,
         radii: params.radii,
@@ -1417,88 +1443,278 @@ pub(crate) fn render_key(
     h.finish()
 }
 
-std::thread_local! {
-    /// How many material surfaces this thread had a shader draw
-    /// ([`renders_on_this_thread`]).
-    static RENDERS_ON_THIS_THREAD: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-
-/// How many material surfaces a shader drew for this thread: the CPU's
-/// (a render cache miss) or the GPU's. A material is drawn when something
-/// it is drawn from changes, never per frame; this is what tests count. Per
-/// thread, so tests running side by side do not see each other's renders.
-#[must_use]
-pub fn renders_on_this_thread() -> u64 {
-    RENDERS_ON_THIS_THREAD.with(std::cell::Cell::get)
-}
-
-/// One more surface drawn for this thread ([`renders_on_this_thread`]).
-pub(crate) fn count_render() {
-    RENDERS_ON_THIS_THREAD.with(|n| n.set(n.get() + 1));
-}
-
 /// The renders kept, at most this many bytes of pixels ...
 const RENDERS_BYTES: usize = 64 * 1024 * 1024;
 /// ... and this many renders.
 const RENDERS_KEPT: usize = 96;
 
-/// The process-wide render cache: render key, frame, its bytes; the most
-/// recently used last. Shared by the UI thread and the deferred renders'
-/// worker.
-static RENDERS: Mutex<Vec<(u64, ImageRef, usize)>> = Mutex::new(Vec::new());
+// -- The renderer -------------------------------------------------------------------------------
 
-/// The frame rendered under `key` before, if the cache still holds it (it
-/// moves to the back: the most recently used).
-fn cached_render(key: u64) -> Option<ImageRef> {
-    let mut cache = RENDERS.lock().ok()?;
-    let i = cache.iter().position(|(k, _, _)| *k == key)?;
-    let entry = cache.remove(i);
-    let found = entry.1.clone();
-    cache.push(entry);
-    drop(cache);
-    Some(found)
+/// What draws one window's materials and remembers what it drew: the frames
+/// it rendered, the grain they were lit over, the queue and the worker thread
+/// that draw a large surface off the UI thread, the shader programs and
+/// textures of the window's GL context, the wallpapers the window's metals
+/// reflect, and how many surfaces it had a shader draw. Every window has its
+/// own (`LayoutWindow::material_renderer`): no two share a frame, a grain
+/// tile, a worker, a wallpaper or a count, so what one window or one test
+/// draws never changes what another finds or counts.
+///
+/// A handle is cheap to clone. Each of the window's material images carries
+/// one, which is how the callback behind the image reaches its renderer, and
+/// the worker thread ends when the last handle is dropped. The handles stay
+/// on the window's thread, like the GL context whose state they hold; the
+/// worker only gets what is shared.
+#[derive(Clone)]
+pub struct MaterialRenderer {
+    inner: Rc<Renderer>,
 }
 
-/// Keep `image` (`bytes` of pixels) under `key`, the oldest renders going
-/// once the cache holds too many or too much.
-fn remember_render(key: u64, image: &ImageRef, bytes: usize) {
-    if let Ok(mut cache) = RENDERS.lock() {
-        cache.push((key, image.clone(), bytes));
-        let mut total: usize = cache.iter().map(|(_, _, b)| *b).sum();
-        while cache.len() > 1 && (total > RENDERS_BYTES || cache.len() > RENDERS_KEPT) {
-            total -= cache.remove(0).2;
+/// What the handles of one [`MaterialRenderer`] have in common.
+struct Renderer {
+    /// What the worker thread has as well.
+    shared: Arc<Shared>,
+    /// The wallpapers the metals reflect.
+    desktop: DesktopWallpapers,
+    /// The state of the GL contexts it drew in.
+    gpu: gpu::GpuStates,
+}
+
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        // The last handle is gone: the worker ends instead of waiting for ever.
+        self.shared.close();
+    }
+}
+
+/// What a renderer shares with its worker thread: everything that does not
+/// belong to the window's thread.
+#[derive(Default)]
+struct Shared {
+    /// The render cache: render key, frame, its bytes; the most recently used
+    /// last.
+    renders: Mutex<Vec<(u64, ImageRef, usize)>>,
+    /// The grain tiles the renders are lit over.
+    grain: shade::GrainCache,
+    /// The renders waiting for the worker.
+    deferred: Mutex<DeferredRenders>,
+    /// Wakes the worker for a new render or for its end, and
+    /// [`MaterialRenderer::wait_for_deferred_renders`] when one is done.
+    changed: Condvar,
+    /// How many surfaces a shader drew ([`MaterialRenderer::renders`]).
+    drawn: AtomicU64,
+}
+
+impl Default for MaterialRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl core::fmt::Debug for MaterialRenderer {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("MaterialRenderer")
+            .field("renders", &self.renders())
+            .finish_non_exhaustive()
+    }
+}
+
+impl MaterialRenderer {
+    /// A renderer that has drawn nothing, knows no wallpaper and has no
+    /// worker thread (the first surface drawn off the UI thread starts it).
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            inner: Rc::new(Renderer {
+                shared: Arc::new(Shared::default()),
+                desktop: DesktopWallpapers::new(),
+                gpu: gpu::GpuStates::default(),
+            }),
         }
     }
+
+    /// The desktop this renderer's metals reflect: the wallpapers its window's
+    /// shell reads for it.
+    #[must_use]
+    pub fn desktop(&self) -> &DesktopWallpapers {
+        &self.inner.desktop
+    }
+
+    /// How many times the desktop's wallpapers changed (a window compares it
+    /// to render its metals again).
+    #[must_use]
+    pub fn desktop_generation(&self) -> u64 {
+        self.inner.desktop.generation()
+    }
+
+    /// How many material surfaces a shader drew for this renderer: the CPU's
+    /// (a render cache miss, or a surface queued for the worker) or the GPU's.
+    /// A material is drawn when something it is drawn from changes, never per
+    /// frame; this is what tests count.
+    #[must_use]
+    pub fn renders(&self) -> u64 {
+        self.inner.shared.drawn.load(Ordering::Relaxed)
+    }
+
+    /// Wait until no render of this renderer is waiting or being drawn off
+    /// the UI thread (a test, a screenshot that must show every surface whole).
+    pub fn wait_for_deferred_renders(&self) {
+        self.inner.shared.wait_for_deferred();
+    }
+
+    /// [`render_material_pixels`] with the grain tiles kept in this renderer,
+    /// so a surface lit again (a new light, a growing height) does not
+    /// compute its grain again.
+    #[must_use]
+    pub fn render_pixels(
+        &self,
+        material: Material,
+        width: u32,
+        height: u32,
+        dpr: f32,
+        params: &MaterialParams,
+        scene: &SurfaceScene,
+    ) -> Option<RawImage> {
+        self.inner.shared.render_pixels(material, width, height, dpr, params, scene)
+    }
+
+    /// [`Self::render_pixels`] as an image, from this renderer's render cache
+    /// when the same surface was rendered before (the same `ImageRef`:
+    /// nothing is uploaded or repainted again). A transparent pixel for an
+    /// empty rect.
+    #[must_use]
+    pub fn render_material(
+        &self,
+        material: Material,
+        width: u32,
+        height: u32,
+        dpr: f32,
+        params: &MaterialParams,
+        scene: &SurfaceScene,
+    ) -> ImageRef {
+        self.inner.shared.render(material, width, height, dpr, params, scene)
+    }
+
+    /// `material` as a callback image: rendered by this renderer for the rect
+    /// it fills - a background layer's (with its corner radii and its node's
+    /// `--azul-*` properties) or an image node's - under the window's light.
+    #[must_use]
+    pub fn callback_image(&self, material: Material) -> ImageRef {
+        ImageRef::callback(
+            RenderImageCallback::create(render_material_callback),
+            RefAny::new(MaterialImageData {
+                material,
+                renderer: self.clone(),
+            }),
+        )
+    }
+
+    /// Whether the material shader compiles and links on `gl_ptr`'s context
+    /// (tests ask, to know the GPU path is the one being compared).
+    #[must_use]
+    pub fn shader_compiles(&self, gl_ptr: &GlContextPtr) -> bool {
+        self.inner.gpu.shader_compiles(gl_ptr)
+    }
+
+    /// `material` drawn by the GPU of `gl_ptr` for a `width` x `height`
+    /// device-px rect, as a GL texture image; `None` when this context cannot
+    /// (the caller draws on the CPU).
+    fn render_gl(
+        &self,
+        gl_ptr: &GlContextPtr,
+        material: Material,
+        width: u32,
+        height: u32,
+        dpr: f32,
+        params: &MaterialParams,
+        scene: &SurfaceScene,
+    ) -> Option<ImageRef> {
+        let frame = self.inner.gpu.render(gl_ptr, material, width, height, dpr, params, scene)?;
+        self.inner.shared.count_render();
+        Some(frame)
+    }
 }
 
-/// [`render_material_pixels`] as an image, from the process-wide render
-/// cache when the same surface was rendered before (the same `ImageRef`:
-/// nothing is uploaded or repainted again). A transparent pixel for an
-/// empty rect.
-#[must_use]
-pub fn render_material(
-    material: Material,
-    width: u32,
-    height: u32,
-    dpr: f32,
-    params: &MaterialParams,
-    scene: &SurfaceScene,
-) -> ImageRef {
-    if width == 0 || height == 0 {
-        return transparent_pixel();
+impl Shared {
+    /// One more surface drawn ([`MaterialRenderer::renders`]).
+    fn count_render(&self) {
+        self.drawn.fetch_add(1, Ordering::Relaxed);
     }
-    let key = render_key(material, width, height, dpr, params, scene);
-    if let Some(found) = cached_render(key) {
-        return found;
+
+    /// The frame rendered under `key` before, if the cache still holds it (it
+    /// moves to the back: the most recently used).
+    fn cached_render(&self, key: u64) -> Option<ImageRef> {
+        let mut cache = self.renders.lock().ok()?;
+        let i = cache.iter().position(|(k, _, _)| *k == key)?;
+        let entry = cache.remove(i);
+        let found = entry.1.clone();
+        cache.push(entry);
+        drop(cache);
+        Some(found)
     }
-    count_render();
-    let Some(image) = render_material_pixels(material, width, height, dpr, params, scene)
-        .and_then(ImageRef::new_rawimage)
-    else {
-        return transparent_pixel();
-    };
-    remember_render(key, &image, width as usize * height as usize * 4);
-    image
+
+    /// Keep `image` (`bytes` of pixels) under `key`, the oldest renders going
+    /// once the cache holds too many or too much.
+    fn remember_render(&self, key: u64, image: &ImageRef, bytes: usize) {
+        if let Ok(mut cache) = self.renders.lock() {
+            cache.push((key, image.clone(), bytes));
+            let mut total: usize = cache.iter().map(|(_, _, b)| *b).sum();
+            while cache.len() > 1 && (total > RENDERS_BYTES || cache.len() > RENDERS_KEPT) {
+                total -= cache.remove(0).2;
+            }
+        }
+    }
+
+    /// [`render_material_pixels`], the grain from this renderer's tiles.
+    fn render_pixels(
+        &self,
+        material: Material,
+        width: u32,
+        height: u32,
+        dpr: f32,
+        params: &MaterialParams,
+        scene: &SurfaceScene,
+    ) -> Option<RawImage> {
+        render_pixels_into(&self.grain, material, width, height, dpr, params, scene)
+    }
+
+    /// [`Self::render_pixels`] as an image, from the render cache when the
+    /// same surface was rendered before. A transparent pixel for an empty
+    /// rect.
+    fn render(
+        &self,
+        material: Material,
+        width: u32,
+        height: u32,
+        dpr: f32,
+        params: &MaterialParams,
+        scene: &SurfaceScene,
+    ) -> ImageRef {
+        if width == 0 || height == 0 {
+            return transparent_pixel();
+        }
+        let key = render_key(material, width, height, dpr, params, scene);
+        if let Some(found) = self.cached_render(key) {
+            return found;
+        }
+        self.count_render();
+        let Some(image) = self
+            .render_pixels(material, width, height, dpr, params, scene)
+            .and_then(ImageRef::new_rawimage)
+        else {
+            return transparent_pixel();
+        };
+        self.remember_render(key, &image, width as usize * height as usize * 4);
+        image
+    }
+
+    /// The renderer has no handle left: the worker ends once the render it is
+    /// drawing, if any, is done.
+    fn close(&self) {
+        if let Ok(mut deferred) = self.deferred.lock() {
+            deferred.closing = true;
+        }
+        self.changed.notify_all();
+    }
 }
 
 // -- Renders off the UI thread -------------------------------------------------------------------
@@ -1528,147 +1744,141 @@ struct DeferredRender {
 
 /// The renders waiting for the worker, oldest first, and the keys of every
 /// render waiting or being drawn.
+#[derive(Default)]
 struct DeferredRenders {
     /// The renders the worker has not started, oldest first.
     waiting: Vec<DeferredRender>,
     /// The keys of every render waiting or being drawn: a window asking
     /// again for one of them queues nothing.
     pending: std::collections::BTreeSet<u64>,
-    /// Whether the worker thread runs.
-    worker: bool,
+    /// The worker thread, once started.
+    worker: Option<std::thread::JoinHandle<()>>,
+    /// Whether the renderer is gone: the worker ends instead of waiting for
+    /// another render.
+    closing: bool,
 }
 
-static DEFERRED: Mutex<DeferredRenders> = Mutex::new(DeferredRenders {
-    waiting: Vec::new(),
-    pending: std::collections::BTreeSet::new(),
-    worker: false,
-});
-/// Wakes the worker for a new render, and [`wait_for_deferred_renders`]
-/// when one is done.
-static DEFERRED_CHANGED: std::sync::Condvar = std::sync::Condvar::new();
-
-/// `material` for a `width` x `height` device-px rect of `surface`, without
-/// waiting: the frame when the render cache holds it, else `None` - the
-/// render is queued for the worker thread (once: asked again while it waits
-/// or is drawn, nothing more is queued; a newer render of the same surface
-/// replaces a waiting one), and the frame is in the cache when it is done.
-fn render_material_deferred(
-    surface: u64,
-    material: Material,
-    [width, height]: [u32; 2],
-    dpr: f32,
-    params: &MaterialParams,
-    scene: &SurfaceScene,
-) -> Option<ImageRef> {
-    let key = render_key(material, width, height, dpr, params, scene);
-    if let Some(found) = cached_render(key) {
-        return Some(found);
-    }
-    let Ok(mut deferred) = DEFERRED.lock() else {
-        return Some(render_material(material, width, height, dpr, params, scene));
-    };
-    if deferred.pending.contains(&key) {
-        return None;
-    }
-    let superseded: Vec<u64> = deferred
-        .waiting
-        .iter()
-        .filter(|job| job.surface == surface)
-        .map(|job| job.key)
-        .collect();
-    deferred.waiting.retain(|job| job.surface != surface);
-    for old in superseded {
-        deferred.pending.remove(&old);
-    }
-    if !deferred.worker {
-        let spawned = std::thread::Builder::new()
-            .name("azul-materials".into())
-            .spawn(deferred_worker)
-            .is_ok();
-        if !spawned {
-            drop(deferred);
-            return Some(render_material(material, width, height, dpr, params, scene));
+impl Shared {
+    /// `material` for a `width` x `height` device-px rect of `surface`,
+    /// without waiting: the frame when the render cache holds it, else `None`
+    /// - the render is queued for the worker thread (once: asked again while
+    /// it waits or is drawn, nothing more is queued; a newer render of the
+    /// same surface replaces a waiting one), and the frame is in the cache
+    /// when it is done.
+    fn render_deferred(
+        self: &Arc<Self>,
+        surface: u64,
+        material: Material,
+        [width, height]: [u32; 2],
+        dpr: f32,
+        params: &MaterialParams,
+        scene: &SurfaceScene,
+    ) -> Option<ImageRef> {
+        let key = render_key(material, width, height, dpr, params, scene);
+        if let Some(found) = self.cached_render(key) {
+            return Some(found);
         }
-        deferred.worker = true;
-    }
-    count_render();
-    deferred.pending.insert(key);
-    deferred.waiting.push(DeferredRender {
-        surface,
-        key,
-        material,
-        size: [width, height],
-        dpr,
-        params: *params,
-        scene: scene.clone(),
-    });
-    drop(deferred);
-    DEFERRED_CHANGED.notify_all();
-    None
-}
-
-/// The worker: draws the waiting renders, oldest first, into the render
-/// cache. A render that fails leaves a transparent pixel under its key, so
-/// it is not asked for again and again.
-fn deferred_worker() {
-    loop {
-        let job = {
-            let Ok(mut deferred) = DEFERRED.lock() else {
-                return;
+        let Ok(mut deferred) = self.deferred.lock() else {
+            return Some(self.render(material, width, height, dpr, params, scene));
+        };
+        if deferred.pending.contains(&key) {
+            return None;
+        }
+        let superseded: Vec<u64> = deferred
+            .waiting
+            .iter()
+            .filter(|job| job.surface == surface)
+            .map(|job| job.key)
+            .collect();
+        deferred.waiting.retain(|job| job.surface != surface);
+        for old in superseded {
+            deferred.pending.remove(&old);
+        }
+        if deferred.worker.is_none() {
+            let worker = Arc::clone(self);
+            let Ok(handle) = std::thread::Builder::new()
+                .name("azul-materials".into())
+                .spawn(move || worker.work())
+            else {
+                drop(deferred);
+                return Some(self.render(material, width, height, dpr, params, scene));
             };
-            loop {
-                if !deferred.waiting.is_empty() {
-                    break deferred.waiting.remove(0);
-                }
-                deferred = match DEFERRED_CHANGED.wait(deferred) {
-                    Ok(guard) => guard,
-                    Err(_) => return,
-                };
-            }
-        };
-        let [width, height] = job.size;
-        let image = render_material_pixels(job.material, width, height, job.dpr, &job.params, &job.scene)
-            .and_then(ImageRef::new_rawimage)
-            .unwrap_or_else(transparent_pixel);
-        remember_render(job.key, &image, width as usize * height as usize * 4);
-        if let Ok(mut deferred) = DEFERRED.lock() {
-            deferred.pending.remove(&job.key);
+            deferred.worker = Some(handle);
         }
-        DEFERRED_CHANGED.notify_all();
+        self.count_render();
+        deferred.pending.insert(key);
+        deferred.waiting.push(DeferredRender {
+            surface,
+            key,
+            material,
+            size: [width, height],
+            dpr,
+            params: *params,
+            scene: scene.clone(),
+        });
+        drop(deferred);
+        self.changed.notify_all();
+        None
     }
-}
 
-/// Wait until no material render is waiting or being drawn off the UI
-/// thread (a test, a screenshot that must show every surface whole).
-pub fn wait_for_deferred_renders() {
-    let Ok(mut deferred) = DEFERRED.lock() else {
-        return;
-    };
-    while !deferred.pending.is_empty() {
-        deferred = match DEFERRED_CHANGED.wait(deferred) {
-            Ok(guard) => guard,
-            Err(_) => return,
+    /// The worker: draws the waiting renders, oldest first, into the render
+    /// cache, and ends when its renderer is dropped. A render that fails
+    /// leaves a transparent pixel under its key, so it is not asked for
+    /// again and again.
+    fn work(&self) {
+        loop {
+            let job = {
+                let Ok(mut deferred) = self.deferred.lock() else {
+                    return;
+                };
+                loop {
+                    if deferred.closing {
+                        return;
+                    }
+                    if !deferred.waiting.is_empty() {
+                        break deferred.waiting.remove(0);
+                    }
+                    deferred = match self.changed.wait(deferred) {
+                        Ok(guard) => guard,
+                        Err(_) => return,
+                    };
+                }
+            };
+            let [width, height] = job.size;
+            let image = self
+                .render_pixels(job.material, width, height, job.dpr, &job.params, &job.scene)
+                .and_then(ImageRef::new_rawimage)
+                .unwrap_or_else(transparent_pixel);
+            self.remember_render(job.key, &image, width as usize * height as usize * 4);
+            if let Ok(mut deferred) = self.deferred.lock() {
+                deferred.pending.remove(&job.key);
+            }
+            self.changed.notify_all();
+        }
+    }
+
+    /// Wait until no render is waiting or being drawn off the UI thread.
+    fn wait_for_deferred(&self) {
+        let Ok(mut deferred) = self.deferred.lock() else {
+            return;
         };
+        while !deferred.pending.is_empty() {
+            deferred = match self.changed.wait(deferred) {
+                Ok(guard) => guard,
+                Err(_) => return,
+            };
+        }
     }
 }
 
 // -- The callback image -------------------------------------------------------------------------
 
-/// What a material's callback image carries.
-#[derive(Debug, Clone, Copy)]
+/// What a material's callback image carries: the material, and the renderer
+/// of the window the image belongs to.
+#[derive(Debug, Clone)]
 struct MaterialImageData {
     material: Material,
-}
-
-/// `material` as a callback image: rendered by the engine for the rect it
-/// fills - a background layer's (with its corner radii and its node's
-/// `--azul-*` properties) or an image node's - under the window's light.
-#[must_use]
-pub fn material_callback_image(material: Material) -> ImageRef {
-    ImageRef::callback(
-        RenderImageCallback::create(render_material_callback),
-        RefAny::new(MaterialImageData { material }),
-    )
+    renderer: MaterialRenderer,
 }
 
 /// The params a node's custom properties give `material`
@@ -1688,9 +1898,10 @@ pub fn params_from_extras(material: Material, extras: Option<&RenderImageCallbac
 }
 
 /// The scene the engine describes for a rect `size` (logical px) at `dpr`:
-/// its light, place and shape, and - for a metal - the desktop.
+/// its light, place and shape, and - for a metal - `desktop`, the window's.
 #[must_use]
 pub fn scene_from_extras(
+    desktop: &DesktopWallpapers,
     material: Material,
     extras: Option<&RenderImageCallbackExtras>,
     params: &MaterialParams,
@@ -1718,7 +1929,7 @@ pub fn scene_from_extras(
     scene.apply_light_colour(&e.material_light);
     let highlight = [e.highlight.r, e.highlight.g, e.highlight.b];
     scene.environment = if metal_of(material).0 > 0.0 {
-        environment::desktop_environment(highlight)
+        desktop.environment(highlight)
     } else {
         Environment::highlight(highlight)
     };
@@ -1741,7 +1952,10 @@ pub fn scene_from_extras(
 /// usable GPU context the GPU draws it; otherwise (and for god rays) the
 /// CPU.
 extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallbackInfo) -> ImageRef {
-    let Some(material) = data.downcast_ref::<MaterialImageData>().map(|d| d.material) else {
+    let Some((material, renderer)) = data
+        .downcast_ref::<MaterialImageData>()
+        .map(|d| (d.material, d.renderer.clone()))
+    else {
         return transparent_pixel();
     };
     let bounds = info.get_bounds();
@@ -1750,10 +1964,12 @@ extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallba
     let logical = [bounds.logical_size.width, bounds.logical_size.height];
     let extras = info.get_extras();
     let params = params_from_extras(material, extras);
-    let scene = scene_from_extras(material, extras, &params, logical, dpr);
+    let scene = scene_from_extras(renderer.desktop(), material, extras, &params, logical, dpr);
     if scene.rays.strength <= 0.0 {
         if let Some(gl) = info.get_gl_context().as_ref() {
-            if let Some(frame) = gpu::render_material_gl(gl, material, size.width, size.height, dpr, &params, &scene) {
+            if let Some(frame) =
+                renderer.render_gl(gl, material, size.width, size.height, dpr, &params, &scene)
+            {
                 return frame;
             }
         }
@@ -1768,13 +1984,16 @@ extern "C" fn render_material_callback(mut data: RefAny, info: RenderImageCallba
             (node.dom.inner, node.node.into_crate_internal().map(|n| n.index()), material).hash(&mut h);
             h.finish()
         };
-        return render_material_deferred(surface, material, [size.width, size.height], dpr, &params, &scene)
+        return renderer
+            .inner
+            .shared
+            .render_deferred(surface, material, [size.width, size.height], dpr, &params, &scene)
             .unwrap_or_else(|| {
                 crate::callbacks::mark_frame_deferred();
                 transparent_pixel()
             });
     }
-    render_material(material, size.width, size.height, dpr, &params, &scene)
+    renderer.render_material(material, size.width, size.height, dpr, &params, &scene)
 }
 
 #[cfg(test)]
@@ -1952,14 +2171,15 @@ mod tests {
     fn the_same_surface_renders_once_and_a_new_light_renders_again() {
         let params = MaterialParams::of(Material::BlueJeans);
         let scene = SurfaceScene::default();
-        let a = render_material(Material::BlueJeans, 64, 24, 1.0, &params, &scene);
-        let b = render_material(Material::BlueJeans, 64, 24, 1.0, &params, &scene);
+        let renderer = MaterialRenderer::new();
+        let a = renderer.render_material(Material::BlueJeans, 64, 24, 1.0, &params, &scene);
+        let b = renderer.render_material(Material::BlueJeans, 64, 24, 1.0, &params, &scene);
         assert_eq!(a.get_hash(), b.get_hash(), "the same surface is the same frame");
         let lower = SurfaceScene {
             light: Light::sun(270.0, 40.0),
             ..SurfaceScene::default()
         };
-        let c = render_material(Material::BlueJeans, 64, 24, 1.0, &params, &lower);
+        let c = renderer.render_material(Material::BlueJeans, 64, 24, 1.0, &params, &lower);
         assert_ne!(a.get_hash(), c.get_hash(), "another light is another render");
     }
 
@@ -2014,3 +2234,7 @@ mod tests {
         assert!(sheen_sprite(Material::Leather, &params, &MaterialLight::DEFAULT).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "materials_test.rs"]
+mod materials_test;

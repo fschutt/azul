@@ -324,7 +324,8 @@ impl Blender {
 fn opaque_table(mode: StyleMixBlendMode) -> Option<&'static [u8]> {
     use std::sync::OnceLock;
     use StyleMixBlendMode as M;
-    // One slot per separable float mode, built on first use (64 KiB each).
+    // One slot per separable float mode, built on first use (64 KiB each): a pure function of
+    // the mode, fixed in size, so nothing to own.
     static TABLES: [OnceLock<Box<[u8]>>; 10] = [const { OnceLock::new() }; 10];
     let slot = match mode {
         M::Screen => 0,

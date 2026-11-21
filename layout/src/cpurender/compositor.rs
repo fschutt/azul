@@ -136,6 +136,9 @@ pub struct CompositorState {
     next_layer_id: u64,
     /// Previous frame's per-node positions, used for damage computation.
     pub previous_positions: Vec<LogicalPosition>,
+    /// Whether the log was told that a layer was asked for at a size that cannot be real
+    /// ([`layer_pixel_size`]): said once for this compositor, not on every frame.
+    said_impossible_layer_size: bool,
 }
 
 /// A single compositing layer with its own pixel buffer.
@@ -273,21 +276,24 @@ fn node_of(display_list: &DisplayList, index: usize) -> Option<azul_core::dom::N
     display_list.node_mapping.get(index).and_then(|n| *n)
 }
 
+/// The pixel size of a layer of `size` logical px, clamped to what can be made. An impossible size
+/// is reported to the log once, through `said` (the compositor's own note that it did).
 fn layer_pixel_size(
     size: LogicalSize,
     dpi_factor: f32,
     node: Option<azul_core::dom::NodeId>,
+    said: &mut bool,
 ) -> (u32, u32) {
     let dw = size.width * dpi_factor;
     let dh = size.height * dpi_factor;
 
     if !dw.is_finite() || !dh.is_finite() {
-        report_impossible_layer_size(size, dpi_factor, node, "not finite");
+        report_impossible_layer_size(size, dpi_factor, node, "not finite", said);
         return (0, 0);
     }
     let over = dw.ceil() > MAX_LAYER_DIM as f32 || dh.ceil() > MAX_LAYER_DIM as f32;
     if over {
-        report_impossible_layer_size(size, dpi_factor, node, "past MAX_LAYER_DIM");
+        report_impossible_layer_size(size, dpi_factor, node, "past MAX_LAYER_DIM", said);
     }
     let px = |v: f32| -> u32 {
         if v <= 0.0 {
@@ -309,20 +315,20 @@ fn report_impossible_layer_size(
     dpi_factor: f32,
     node: Option<azul_core::dom::NodeId>,
     why: &str,
+    said: &mut bool,
 ) {
     #[cfg(feature = "std")]
-    {
-        static ANNOUNCE: std::sync::Once = std::sync::Once::new();
-        ANNOUNCE.call_once(|| {
-            eprintln!(
-                "[azul][compositor] layer for node {node:?} requested at {}x{} logical (dpi \
-                 {dpi_factor}) — {why}. This is a LAYOUT bug: no box has an infinite used size. \
-                 The layer is being skipped or clamped so the process survives; the wrong size is \
-                 still wrong.",
-                size.width, size.height,
-            );
-        });
+    if !core::mem::replace(said, true) {
+        eprintln!(
+            "[azul][compositor] layer for node {node:?} requested at {}x{} logical (dpi \
+             {dpi_factor}) — {why}. This is a LAYOUT bug: no box has an infinite used size. \
+             The layer is being skipped or clamped so the process survives; the wrong size is \
+             still wrong.",
+            size.width, size.height,
+        );
     }
+    #[cfg(not(feature = "std"))]
+    let _ = said;
     // Not under `cfg(test)`: this module's own tests feed the guard infinities
     // on purpose to prove it holds, and they must assert on the RESULT rather
     // than die inside the thing they are testing.
@@ -436,6 +442,7 @@ impl CompositorState {
             root_layer: root_id,
             next_layer_id: 1,
             previous_positions: Vec::new(),
+            said_impossible_layer_size: false,
         }
     }
 
@@ -586,7 +593,7 @@ impl CompositorState {
                 } => {
                     let bounds = *clip_bounds.inner();
                     let (pw, ph) =
-                        layer_pixel_size(bounds.size, dpi_factor, node_of(display_list, i));
+                        layer_pixel_size(bounds.size, dpi_factor, node_of(display_list, i), &mut self.said_impossible_layer_size);
                     // Find the matching PopScrollFrame FIRST: an EMPTY frame
                     // (every empty TextInput's value <p>) must not allocate a
                     // layer at all. Its pixbuf was never seeded, cleared or
@@ -684,7 +691,7 @@ impl CompositorState {
                         .and_then(|k| live_opacities.get(&k.id).copied())
                         .unwrap_or(*opacity);
                     let b = *bounds.inner();
-                    let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
+                    let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i), &mut self.said_impossible_layer_size);
                     let end = find_matching_pop(&display_list.items, i, MatchKind::Opacity);
                     // A group that blends (`mix-blend-mode`) stays in its
                     // parent: the rasteriser blends it there onto the pixels
@@ -737,7 +744,7 @@ impl CompositorState {
                     // unfiltered (A1-38).
                     let needs_layer = filters_need_a_layer(filters);
                     let (pw, ph) = if needs_layer {
-                        layer_pixel_size(bounds.inner().size, dpi_factor, node_of(display_list, i))
+                        layer_pixel_size(bounds.inner().size, dpi_factor, node_of(display_list, i), &mut self.said_impossible_layer_size)
                     } else {
                         (0, 0)
                     };
@@ -838,7 +845,7 @@ impl CompositorState {
                     });
                     if promote {
                         let (pw, ph) =
-                            layer_pixel_size(extent.size, dpi_factor, node_of(display_list, i));
+                            layer_pixel_size(extent.size, dpi_factor, node_of(display_list, i), &mut self.said_impossible_layer_size);
                         let (pw, ph) = (pw.max(1), ph.max(1));
                         let new_id = self.alloc_layer_id();
                         let mut layer = Layer::new(new_id, extent, pw, ph);
@@ -897,7 +904,7 @@ impl CompositorState {
                 // blitting the content (see `composite_layer_recursive`).
                 DisplayListItem::PushBackdropFilter { bounds, filters } => {
                     let b = *bounds.inner();
-                    let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i));
+                    let (pw, ph) = layer_pixel_size(b.size, dpi_factor, node_of(display_list, i), &mut self.said_impossible_layer_size);
                     let promote = pw > 0 && ph > 0 && !filters.is_empty();
                     backdrop_promoted.push(promote);
                     if promote {
@@ -1279,8 +1286,26 @@ impl CompositorState {
     }
 
     pub fn composite_frame(&self, output: &mut AzulPixmap, dpi_factor: f32) {
+        self.composite_frame_counted(output, dpi_factor, &crate::cpu_counters::FrameCounts::new());
+    }
+
+    /// [`Self::composite_frame`] counting the pixels its composites wrote into `counts`
+    /// ([`Counter::PxBlitted`](crate::cpu_counters::Counter::PxBlitted)): the frame's counters.
+    pub fn composite_frame_counted(
+        &self,
+        output: &mut AzulPixmap,
+        dpi_factor: f32,
+        counts: &crate::cpu_counters::FrameCounts,
+    ) {
         // Start from root layer, with an identity device transform, unclipped.
-        self.composite_layer_recursive(self.root_layer, output, MAT3_IDENTITY, None, dpi_factor);
+        self.composite_layer_recursive(
+            self.root_layer,
+            output,
+            MAT3_IDENTITY,
+            None,
+            dpi_factor,
+            counts,
+        );
     }
 
     /// `parent_m` maps the PARENT's local device-pixel space to output
@@ -1310,6 +1335,7 @@ impl CompositorState {
         parent_h: Mat3,
         clip: Option<(i32, i32, i32, i32)>,
         dpi_factor: f32,
+        counts: &crate::cpu_counters::FrameCounts,
     ) {
         let Some(layer) = self.layers.get(&layer_id) else {
             return;
@@ -1456,7 +1482,14 @@ impl CompositorState {
                     + layout_offset_device_px(layer.scroll_offset.1, dpi)),
             );
             for child_id in &layer.children {
-                self.composite_layer_recursive(*child_id, &mut flattened, local_base, None, dpi_factor);
+                self.composite_layer_recursive(
+                    *child_id,
+                    &mut flattened,
+                    local_base,
+                    None,
+                    dpi_factor,
+                    counts,
+                );
             }
             if !layer.filters.is_empty() {
                 apply_layer_filters(&mut flattened, &layer.filters, dpi_factor);
@@ -1464,7 +1497,10 @@ impl CompositorState {
             if is_pure_translation {
                 blit_pixmap_clipped(&flattened, output, px_x, px_y, layer.opacity, clip);
             } else if is_affine {
-                blit_pixmap_affine_clipped(&flattened, output, &this_m, layer.opacity, clip);
+                counts.add(
+                    crate::cpu_counters::Counter::PxBlitted,
+                    blit_pixmap_affine_clipped(&flattened, output, &this_m, layer.opacity, clip),
+                );
             } else {
                 blit_pixmap_projective_clipped(&flattened, output, &this_h, layer.opacity, clip);
             }
@@ -1521,7 +1557,10 @@ impl CompositorState {
             } else if is_pure_translation {
                 blit_pixmap_clipped(src_pixbuf, output, px_x, px_y, layer.opacity, clip);
             } else if is_affine {
-                blit_pixmap_affine_clipped(src_pixbuf, output, &this_m, layer.opacity, clip);
+                counts.add(
+                    crate::cpu_counters::Counter::PxBlitted,
+                    blit_pixmap_affine_clipped(src_pixbuf, output, &this_m, layer.opacity, clip),
+                );
             } else {
                 blit_pixmap_projective_clipped(src_pixbuf, output, &this_h, layer.opacity, clip);
             }
@@ -1575,7 +1614,14 @@ impl CompositorState {
                 clip
             };
         for child_id in &children {
-            self.composite_layer_recursive(*child_id, output, child_base, child_clip, dpi_factor);
+            self.composite_layer_recursive(
+                *child_id,
+                output,
+                child_base,
+                child_clip,
+                dpi_factor,
+                counts,
+            );
         }
     }
 }
@@ -2728,6 +2774,9 @@ pub struct GpuValueDamage {
     /// transform animation): the moved CONTENT's extent isn't derivable from
     /// the item alone, so the caller must full-repaint.
     pub needs_full: bool,
+    /// How many items the scans that found this damage read (a whole list each): what the frame
+    /// counts as `Counter::ScanItems`. Nothing is read when no key a list binds changed.
+    pub scanned_items: u64,
 }
 
 /// Diff the GPU value maps of two frames and damage the items BOUND to the
@@ -2838,10 +2887,7 @@ fn gpu_value_damage_of(
     if !index.binds_a_transform_key(changed_t) && !index.binds_an_opacity_key(changed_o) {
         return out;
     }
-    crate::cpu_counters::count(
-        crate::cpu_counters::Counter::ScanItems,
-        display_list.items.len() as u64,
-    );
+    out.scanned_items += display_list.items.len() as u64;
 
     // A moved reference frame damages its CONTENT at both the old and the
     // new position: `reference_frame_extent`, transformed by each matrix
@@ -3034,10 +3080,7 @@ fn color_value_damage_of(
     if !changed_colors.iter().any(|k| index.binds_a_color_key(*k)) {
         return out;
     }
-    crate::cpu_counters::count(
-        crate::cpu_counters::Counter::ScanItems,
-        display_list.items.len() as u64,
-    );
+    out.scanned_items += display_list.items.len() as u64;
     let mut stack = ScrollStack::new(scroll_offsets);
     // The reference frames open at the current item, each with the matrix
     // it is painted with now.
@@ -3138,6 +3181,7 @@ fn list_value_damage(
     let colors = color_value_damage_of(list, &changed.colors, &new.transforms, scroll_offsets);
     out.rects.extend(colors.rects);
     out.needs_full |= colors.needs_full;
+    out.scanned_items += colors.scanned_items;
     if views.is_empty() {
         return out;
     }
@@ -3150,6 +3194,9 @@ fn list_value_damage(
             if let Some(child) = views.get(child_dom_id) {
                 let inner = (depth < MAX_VIEW_DEPTH)
                     .then(|| list_value_damage(child, views, old, new, changed, scroll_offsets, depth + 1));
+                if let Some(inner) = &inner {
+                    out.scanned_items += inner.scanned_items;
+                }
                 inners.push((at, inner));
             }
         }
@@ -3160,7 +3207,7 @@ fn list_value_damage(
     if inners.iter().all(|(_, inner)| owes_nothing(inner)) {
         return out;
     }
-    crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, list.items.len() as u64);
+    out.scanned_items += list.items.len() as u64;
     // The frames around each view item, with the live matrices of this frame: a view
     // inside a turned or scaled frame is painted through it.
     let mut stack = ScrollStack::with_transforms(scroll_offsets, &new.transforms);
@@ -4034,12 +4081,6 @@ pub fn overlay_rects_after_frame_in(
     overlay_rects_after(display_list, scroll_id, end, clip_bounds, scroll_offsets, transforms)
 }
 
-#[cfg(test)]
-std::thread_local! {
-    /// Tests: how many items [`overlay_rects_after`] has read the bounds of on this thread.
-    static OVERLAY_BOUNDS_READ: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-}
-
 /// [`overlay_rects_after_frame_in`] for a frame whose first pop is at `end` (the caller found
 /// its pushes).
 #[allow(clippy::implicit_hasher)]
@@ -4051,7 +4092,22 @@ fn overlay_rects_after(
     scroll_offsets: &ScrollOffsetMap,
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> Vec<LogicalRect> {
+    overlay_rects_after_counted(display_list, scroll_id, end, clip_bounds, scroll_offsets, transforms).0
+}
+
+/// [`overlay_rects_after`] with how many items it read the bounds of: what a test pins to say
+/// the scan asks for the bounds of what is painted after the frame and not of every item.
+#[allow(clippy::implicit_hasher)]
+fn overlay_rects_after_counted(
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    end: usize,
+    clip_bounds: &LogicalRect,
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> (Vec<LogicalRect>, u64) {
     let mut out = Vec::new();
+    let mut bounds_read = 0_u64;
     let cx1 = clip_bounds.origin.x + clip_bounds.size.width;
     let cy1 = clip_bounds.origin.y + clip_bounds.size.height;
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
@@ -4064,8 +4120,7 @@ fn overlay_rects_after(
         let can_be_one =
             i >= end && !moved_with_the_frame && !it.is_state_management() && !paints_nothing(it);
         let on_screen = if can_be_one {
-            #[cfg(test)]
-            OVERLAY_BOUNDS_READ.with(|n| n.set(n.get() + 1));
+            bounds_read += 1;
             // (A run's ink as the list knows it, A3-core-26.)
             display_list.visual_bounds_of(i).map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
         } else {
@@ -4089,7 +4144,7 @@ fn overlay_rects_after(
             });
         }
     }
-    out
+    (out, bounds_read)
 }
 
 /// If `it` is a fully-opaque, square-cornered rectangle fill, its bounds.
@@ -4506,6 +4561,35 @@ fn render_display_list_range(
 // AzulPixmap — replacement for tiny_skia::Pixmap
 // ============================================================================
 
+/// Is the trace switch `AZ_BLIT_DEBUG` set? Asked of the environment once per process: a read
+/// takes the process's lock on the environment and scans every variable, and the list diff
+/// asked once per mismatched pair of items (17,495 times for a map whose every item moved).
+#[doc(hidden)]
+#[must_use]
+pub fn blit_debug() -> bool {
+    // Process-wide configuration, read once from the environment.
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_BLIT_DEBUG").is_some())
+}
+
+/// Is the trace switch `AZ_PATCH_DEBUG` set? Asked once per process, like [`blit_debug`].
+#[doc(hidden)]
+#[must_use]
+pub fn patch_debug() -> bool {
+    // Process-wide configuration, read once from the environment.
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("AZ_PATCH_DEBUG").is_some())
+}
+
+/// Is the trace switch `AZ_MAP_DEBUG` set? Asked once per process, like [`blit_debug`].
+#[doc(hidden)]
+#[must_use]
+pub fn map_debug() -> bool {
+    // Process-wide configuration, read once from the environment.
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_MAP_DEBUG").is_ok())
+}
+
 /// Compute damage rects by comparing two display lists item by item.
 ///
 /// Returns a list of bounding rects that need repainting, or `None` if a
@@ -4533,56 +4617,16 @@ fn render_display_list_range(
 /// fringe overhang (inflated in the diff below). The corpus damage-
 /// soundness gate is green with the refinements on; `AZ_DL_DIFF_REFINE=0`
 /// remains as the kill-switch.
-static DL_DIFF_REFINEMENTS: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
-/// Is the trace switch `AZ_BLIT_DEBUG` set? Asked of the environment once per process: a read
-/// takes the process's lock on the environment and scans every variable, and the list diff
-/// asked once per mismatched pair of items (17,495 times for a map whose every item moved).
-#[doc(hidden)]
-#[must_use]
-pub fn blit_debug() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("AZ_BLIT_DEBUG").is_some())
-}
-
-/// Is the trace switch `AZ_PATCH_DEBUG` set? Asked once per process, like [`blit_debug`].
-#[doc(hidden)]
-#[must_use]
-pub fn patch_debug() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("AZ_PATCH_DEBUG").is_some())
-}
-
-/// Is the trace switch `AZ_MAP_DEBUG` set? Asked once per process, like [`blit_debug`].
-#[doc(hidden)]
-#[must_use]
-pub fn map_debug() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("AZ_MAP_DEBUG").is_ok())
-}
-
 #[must_use]
 pub fn dl_diff_refinements_enabled() -> bool {
-    use core::sync::atomic::Ordering;
-    match DL_DIFF_REFINEMENTS.load(Ordering::Relaxed) {
-        1 => true,
-        2 => false,
-        _ => {
-            // Default ON; the env var forces either way ("0"/"off" = off).
-            let on = match std::env::var("AZ_DL_DIFF_REFINE") {
-                Ok(v) => !(v == "0" || v.eq_ignore_ascii_case("off")),
-                Err(_) => true,
-            };
-            DL_DIFF_REFINEMENTS.store(if on { 1 } else { 2 }, Ordering::Relaxed);
-            on
-        }
-    }
-}
-
-/// Force the refinements on/off (tests; overrides the env).
-pub fn set_dl_diff_refinements(on: bool) {
-    use core::sync::atomic::Ordering;
-    DL_DIFF_REFINEMENTS.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+    // Process-wide configuration, read once from the environment: the kill switch is
+    // `AZ_DL_DIFF_REFINE=0` ("off" too), nothing else turns the refinements off. (A test that
+    // needs honest damage asserts this answer instead of forcing it: no code can change it.)
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| match std::env::var("AZ_DL_DIFF_REFINE") {
+        Ok(v) => !(v == "0" || v.eq_ignore_ascii_case("off")),
+        Err(_) => true,
+    })
 }
 
 /// Round-3 translate hint: a mismatching item pair whose OLD geometry
@@ -6868,13 +6912,13 @@ mod layer_size_is_never_an_allocation_bomb {
     fn an_infinite_size_is_not_a_size() {
         // `as u32` saturates, so this used to be u32::MAX — and the caller then
         // asked for u32::MAX * height * 4 bytes.
-        assert_eq!(layer_pixel_size(sz(f32::INFINITY, 27.0), 2.0, None), (0, 0));
+        assert_eq!(layer_pixel_size(sz(f32::INFINITY, 27.0), 2.0, None, &mut false), (0, 0));
         assert_eq!(
-            layer_pixel_size(sz(100.0, f32::INFINITY), 2.0, None),
+            layer_pixel_size(sz(100.0, f32::INFINITY), 2.0, None, &mut false),
             (0, 0)
         );
-        assert_eq!(layer_pixel_size(sz(f32::NAN, 27.0), 2.0, None), (0, 0));
-        assert_eq!(layer_pixel_size(sz(100.0, 27.0), f32::NAN, None), (0, 0));
+        assert_eq!(layer_pixel_size(sz(f32::NAN, 27.0), 2.0, None, &mut false), (0, 0));
+        assert_eq!(layer_pixel_size(sz(100.0, 27.0), f32::NAN, None, &mut false), (0, 0));
     }
 
     #[test]
@@ -6882,7 +6926,7 @@ mod layer_size_is_never_an_allocation_bomb {
         // Finite overflow is the same bomb with an extra step: 1e30 * 2 still
         // saturates the cast.
         assert_eq!(
-            layer_pixel_size(sz(1e30, 27.0), 2.0, None),
+            layer_pixel_size(sz(1e30, 27.0), 2.0, None, &mut false),
             (MAX_LAYER_DIM, 54),
         );
     }
@@ -6891,17 +6935,17 @@ mod layer_size_is_never_an_allocation_bomb {
     fn a_non_positive_extent_is_zero_not_a_wrapped_huge_number() {
         // `-5.0 as u32` is 0 today, but only because the cast saturates at the
         // bottom too — state it, so a future refactor cannot turn it negative.
-        assert_eq!(layer_pixel_size(sz(-5.0, 27.0), 2.0, None), (0, 54));
-        assert_eq!(layer_pixel_size(sz(0.0, 0.0), 2.0, None), (0, 0));
+        assert_eq!(layer_pixel_size(sz(-5.0, 27.0), 2.0, None, &mut false), (0, 54));
+        assert_eq!(layer_pixel_size(sz(0.0, 0.0), 2.0, None, &mut false), (0, 0));
     }
 
     #[test]
     fn ordinary_sizes_are_unchanged_by_the_guard() {
         // The guard must be invisible to every layout that was already fine,
         // rounding up exactly as the old cast did.
-        assert_eq!(layer_pixel_size(sz(1000.0, 730.0), 2.0, None), (2000, 1460));
-        assert_eq!(layer_pixel_size(sz(27.5, 13.5), 2.0, None), (55, 27));
-        assert_eq!(layer_pixel_size(sz(1.0, 1.0), 1.0, None), (1, 1));
+        assert_eq!(layer_pixel_size(sz(1000.0, 730.0), 2.0, None, &mut false), (2000, 1460));
+        assert_eq!(layer_pixel_size(sz(27.5, 13.5), 2.0, None, &mut false), (55, 27));
+        assert_eq!(layer_pixel_size(sz(1.0, 1.0), 1.0, None, &mut false), (1, 1));
     }
 }
 
@@ -8712,7 +8756,7 @@ mod autotest_generated {
     /// (and the resize damage already covers it).
     #[test]
     fn a_scroll_frame_that_only_resized_damages_nothing_by_itself() {
-        set_dl_diff_refinements(true);
+        assert!(dl_diff_refinements_enabled(), "premise: honest (refined) damage");
         let list = |width: f32| {
             dlist(vec![
                 push_scroll(1, 0.0, 0.0, width, 300.0),
@@ -9448,9 +9492,8 @@ mod autotest_generated {
         let (old, new) = (at(0.0), at(25.0));
         // The first ask builds the indexes of the lists: one read of each.
         let _ = window_value_damage(&parent, &views, &old, &new, &ScrollOffsetMap::new());
-        crate::cpu_counters::reset();
-        let _ = window_value_damage(&parent, &views, &old, &new, &ScrollOffsetMap::new());
-        (crate::cpu_counters::take().scan_items, parent_len, child_len)
+        let again = window_value_damage(&parent, &views, &old, &new, &ScrollOffsetMap::new());
+        (again.scanned_items, parent_len, child_len)
     }
 
     /// A value that changed under a key a list does not bind changes none of its pixels: the
@@ -9482,18 +9525,16 @@ mod autotest_generated {
         let no_frames = HashMap::new();
         let scrolls = ScrollOffsetMap::new();
         let _ = l.frame_index();
-        crate::cpu_counters::reset();
         let d = color_value_damage(&l, &old, &new, &no_frames, &scrolls);
-        assert_eq!(crate::cpu_counters::take().scan_items, 0, "nothing of the list is bound to key 7");
+        assert_eq!(d.scanned_items, 0, "nothing of the list is bound to key 7");
         assert!(d.rects.is_empty() && !d.needs_full);
         // Bind the rect at 3 to the key: the list is read once and the rect is damaged.
         l.color_bindings = vec![None; 40];
         l.color_bindings[3] = Some(ColorKey { id: 7 });
         l.frame_index.clear();
         let _ = l.frame_index();
-        crate::cpu_counters::reset();
         let d = color_value_damage(&l, &old, &new, &no_frames, &scrolls);
-        assert_eq!(crate::cpu_counters::take().scan_items, 40, "the bound list is read once");
+        assert_eq!(d.scanned_items, 40, "the bound list is read once");
         assert_eq!(d.rects.len(), 1, "{d:?}");
     }
 
@@ -13203,9 +13244,9 @@ mod audit_a1_tests {
             listed(items)
         };
         let scan = |rows: usize| {
-            OVERLAY_BOUNDS_READ.with(|n| n.set(0));
-            let found = overlay_rects_after_frame_in(&page(rows), 4, &clip, &ScrollOffsetMap::new(), &HashMap::new());
-            (found, OVERLAY_BOUNDS_READ.with(core::cell::Cell::get))
+            let list = page(rows);
+            let &(_, end) = frame_pushes(&list, 4).first().expect("the scroll frame");
+            overlay_rects_after_counted(&list, 4, end, &clip, &ScrollOffsetMap::new(), &HashMap::new())
         };
         let (small, read_small) = scan(50);
         let (large, read_large) = scan(200);

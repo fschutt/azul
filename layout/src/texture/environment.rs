@@ -7,13 +7,18 @@
 //! test) the metal reflects the system's text highlight colour as a flat
 //! light instead.
 //!
-//! The platform readers (`azul_dll`'s `desktop::wallpaper`) hand the
-//! wallpaper of each screen to [`set_desktop_wallpapers`], or register a
-//! loader with [`set_wallpaper_loader`] that runs the first time a metal
-//! asks. A [`Wallpaper`] keeps a small mip chain (512 px wide at most), so a
-//! blurred reflection is a cheap lookup, on the CPU as on the GPU.
+//! The platform readers (`azul_dll`'s `desktop::wallpaper`) give each
+//! window's [`DesktopWallpapers`] the reader that finds the wallpaper of each
+//! screen ([`DesktopWallpapers::set_loader`], run the first time a metal
+//! asks), or hand it the wallpapers directly
+//! ([`DesktopWallpapers::set_wallpapers`]). A [`Wallpaper`] keeps a small mip
+//! chain (512 px wide at most), so a blurred reflection is a cheap lookup, on
+//! the CPU as on the GPU.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::{
+    hash::{Hash, Hasher},
+    sync::{Arc, Mutex},
+};
 
 use super::materials::srgb_to_linear;
 
@@ -34,8 +39,9 @@ pub struct Wallpaper {
     /// The mip chain in linear light, from the base down to one pixel: what
     /// the CPU samples.
     mips: Vec<Mip>,
-    /// A number that is new for every wallpaper made (a cache key: a render
-    /// that reflected an older wallpaper renders again).
+    /// A number made from the picture and the screen it covers: the same for
+    /// the same wallpaper wherever it was read, another for any other (a cache
+    /// key: a render that reflected an older wallpaper renders again).
     pub id: u64,
 }
 
@@ -79,13 +85,13 @@ impl Wallpaper {
             let next = halve(last);
             mips.push(next);
         }
-        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = content_id(screen, base_size, &base_rgba);
         Some(Self {
             screen,
             base_rgba,
             base_size,
             mips,
-            id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            id,
         })
     }
 
@@ -106,6 +112,16 @@ impl Wallpaper {
         let b = self.mips[hi].bilinear(uv);
         [0, 1, 2].map(|c| a[c] * (1.0 - t) + b[c] * t)
     }
+}
+
+/// What identifies a wallpaper: its picture (the base the mips are made from)
+/// and the screen it covers, which a render's frame depends on as well.
+fn content_id(screen: [f32; 4], base_size: [usize; 2], base_rgba: &[u8]) -> u64 {
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    screen.map(f32::to_bits).hash(&mut h);
+    base_size.hash(&mut h);
+    base_rgba.hash(&mut h);
+    h.finish()
 }
 
 impl Mip {
@@ -263,110 +279,132 @@ impl Environment {
 /// A function that reads the desktop's wallpapers (a platform reader).
 pub type WallpaperLoader = fn() -> Vec<Wallpaper>;
 
-struct Desktop {
+/// The desktop as one window's metals know it: the platform reader that finds
+/// the wallpapers, the wallpapers it found, and how many times they changed.
+/// A window has one ([`super::materials::MaterialRenderer::desktop`]): the
+/// shell gives it the reader when it builds the window and has it read again
+/// when the window is activated, so what one window reflects is its own
+/// instance's, never another window's or another test's.
+#[derive(Debug)]
+pub struct DesktopWallpapers {
+    state: Mutex<DesktopState>,
+}
+
+#[derive(Debug)]
+struct DesktopState {
     loader: Option<WallpaperLoader>,
     loaded: bool,
     wallpapers: Arc<Vec<Arc<Wallpaper>>>,
     generation: u64,
 }
 
-fn desktop() -> &'static Mutex<Desktop> {
-    static DESKTOP: OnceLock<Mutex<Desktop>> = OnceLock::new();
-    DESKTOP.get_or_init(|| {
-        Mutex::new(Desktop {
-            loader: None,
-            loaded: false,
-            wallpapers: Arc::new(Vec::new()),
-            generation: 0,
-        })
-    })
-}
-
-/// Set the desktop's wallpapers (one per screen) directly: what a platform
-/// reader found, or a test's picture. Every metal reflects them from its
-/// next render on.
-pub fn set_desktop_wallpapers(list: Vec<Wallpaper>) {
-    let mut d = desktop().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    d.wallpapers = Arc::new(list.into_iter().map(Arc::new).collect());
-    d.loaded = true;
-    d.generation = d.generation.wrapping_add(1);
-}
-
-/// Register the platform's reader. It runs the first time a metal asks for
-/// the desktop ([`desktop_environment`]) and again after
-/// [`refresh_desktop_wallpapers`].
-pub fn set_wallpaper_loader(loader: WallpaperLoader) {
-    let mut d = desktop().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    d.loader = Some(loader);
-    d.loaded = false;
-}
-
-/// Read the wallpapers again now (the user may have changed them while the
-/// app was in the background). Returns whether they changed: the windows'
-/// material frames then render again (their inputs carry
-/// [`desktop_generation`]).
-pub fn refresh_desktop_wallpapers() -> bool {
-    let loader = desktop()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .loader;
-    let Some(load) = loader else {
-        return false;
-    };
-    // The reader runs outside the lock: it may decode an image.
-    let list = load();
-    adopt(list)
-}
-
-/// Install `list` as the desktop's wallpapers; the generation moves only
-/// when they differ from the ones there (a reader that found the same files
-/// hands back the same wallpapers).
-fn adopt(list: Vec<Wallpaper>) -> bool {
-    let mut d = desktop().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    d.loaded = true;
-    let same = d.wallpapers.len() == list.len()
-        && d.wallpapers.iter().zip(&list).all(|(a, b)| a.id == b.id);
-    if same {
-        return false;
+impl Default for DesktopWallpapers {
+    fn default() -> Self {
+        Self::new()
     }
-    d.wallpapers = Arc::new(list.into_iter().map(Arc::new).collect());
-    d.generation = d.generation.wrapping_add(1);
-    true
 }
 
-/// What the desktop gives a metal to reflect: its wallpapers if any are
-/// known (loading them now if a reader is registered and has not run), else
-/// the highlight colour `highlight` (sRGB).
-#[must_use]
-pub fn desktop_environment(highlight: [u8; 3]) -> Environment {
-    let loader = {
-        let d = desktop().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if d.loaded {
-            None
-        } else {
-            d.loader
+impl DesktopWallpapers {
+    /// A desktop that knows no wallpaper and has no reader: its metals
+    /// reflect the highlight colour.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            state: Mutex::new(DesktopState {
+                loader: None,
+                loaded: false,
+                wallpapers: Arc::new(Vec::new()),
+                generation: 0,
+            }),
         }
-    };
-    if let Some(load) = loader {
-        let list = load();
-        adopt(list);
     }
-    let d = desktop().lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if d.wallpapers.is_empty() {
-        Environment::highlight(highlight)
-    } else {
-        Environment::Wallpapers(d.wallpapers.clone())
-    }
-}
 
-/// How many times the desktop's wallpapers changed (a window compares it to
-/// re-render its metals).
-#[must_use]
-pub fn desktop_generation() -> u64 {
-    desktop()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .generation
+    fn state(&self) -> std::sync::MutexGuard<'_, DesktopState> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Set the wallpapers (one per screen) directly: what a platform reader
+    /// found, or a test's picture. Every metal reflects them from its next
+    /// render on.
+    pub fn set_wallpapers(&self, list: Vec<Wallpaper>) {
+        let mut d = self.state();
+        d.wallpapers = Arc::new(list.into_iter().map(Arc::new).collect());
+        d.loaded = true;
+        d.generation = d.generation.wrapping_add(1);
+    }
+
+    /// Give this desktop the platform's reader. It runs the first time a
+    /// metal asks for the desktop ([`Self::environment`]) and again after
+    /// [`Self::refresh`].
+    pub fn set_loader(&self, loader: WallpaperLoader) {
+        let mut d = self.state();
+        d.loader = Some(loader);
+        d.loaded = false;
+    }
+
+    /// Read the wallpapers again now (the user may have changed them while
+    /// the app was in the background). Returns whether they changed: the
+    /// window's material frames then render again (their inputs carry
+    /// [`Self::generation`]).
+    pub fn refresh(&self) -> bool {
+        let loader = self.state().loader;
+        let Some(load) = loader else {
+            return false;
+        };
+        // The reader runs outside the lock: it may decode an image.
+        let list = load();
+        self.adopt(list)
+    }
+
+    /// Install `list` as the wallpapers; the generation moves only when they
+    /// differ from the ones there (a reader that found the same files hands
+    /// back the same wallpapers).
+    fn adopt(&self, list: Vec<Wallpaper>) -> bool {
+        let mut d = self.state();
+        d.loaded = true;
+        let same = d.wallpapers.len() == list.len()
+            && d.wallpapers.iter().zip(&list).all(|(a, b)| a.id == b.id);
+        if same {
+            return false;
+        }
+        d.wallpapers = Arc::new(list.into_iter().map(Arc::new).collect());
+        d.generation = d.generation.wrapping_add(1);
+        true
+    }
+
+    /// What the desktop gives a metal to reflect: its wallpapers if any are
+    /// known (loading them now if a reader is set and has not run), else the
+    /// highlight colour `highlight` (sRGB).
+    #[must_use]
+    pub fn environment(&self, highlight: [u8; 3]) -> Environment {
+        let loader = {
+            let d = self.state();
+            if d.loaded {
+                None
+            } else {
+                d.loader
+            }
+        };
+        if let Some(load) = loader {
+            let list = load();
+            self.adopt(list);
+        }
+        let d = self.state();
+        if d.wallpapers.is_empty() {
+            Environment::highlight(highlight)
+        } else {
+            Environment::Wallpapers(d.wallpapers.clone())
+        }
+    }
+
+    /// How many times the wallpapers changed (a window compares it to render
+    /// its metals again).
+    #[must_use]
+    pub fn generation(&self) -> u64 {
+        self.state().generation
+    }
 }
 
 #[cfg(test)]
@@ -408,3 +446,7 @@ mod tests {
         assert!(Environment::default().wallpaper_at([0.0, 0.0]).is_none());
     }
 }
+
+#[cfg(test)]
+#[path = "environment_test.rs"]
+mod environment_test;

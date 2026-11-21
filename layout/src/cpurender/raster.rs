@@ -30,6 +30,7 @@ use azul_css::props::{
 #[allow(clippy::wildcard_imports)]
 // widget/render module pulls in the css property/value types it builds with
 use super::*;
+use super::scratch::{PaintScratch, SaidOnce};
 use crate::{
     font::parsed::ParsedFont,
     glyph_cache::GlyphCache,
@@ -636,7 +637,8 @@ impl agg_rust::span_gradient::GradientFunction for ConicTurn {
 /// 20 ms). miniword's Word-style pages all share one shadow spec, so the
 /// whole 190 ms collapses into ONE cache entry replayed at four offsets.
 ///
-/// Thread-local (the CPU raster path is single-threaded per window),
+/// Owned by the glyph cache the thread paints with (`PaintScratch::shadows`: the frame's
+/// thread keeps its own, the bands of a repaint share the frame's behind a lock),
 /// byte-capped LRU — a page-sized entry is ~3.7 MB, so the cap admits a
 /// handful of distinct shadow specs before evicting; a document with
 /// per-node unique shadows degrades to the old per-frame blur, never to
@@ -649,91 +651,21 @@ pub(crate) struct ShadowCacheEntry {
     h: u32,
 }
 
-thread_local! {
-    static SHADOW_BLUR_CACHE: core::cell::RefCell<(
-        HashMap<u64, ShadowCacheEntry>,
-        std::collections::VecDeque<u64>,
-        usize, // bytes
-    )> = core::cell::RefCell::new((
-        HashMap::new(),
-        std::collections::VecDeque::new(),
-        0,
-    ));
-}
-
-/// The blurred box shadows a thread keeps: by key, their order of use, their bytes.
+/// The blurred box shadows a cache keeps: by key, their order of use, their bytes.
 pub(crate) type ShadowCache = (
     HashMap<u64, ShadowCacheEntry>,
     std::collections::VecDeque<u64>,
     usize,
 );
 
-/// The frame thread's blurred box shadows while the bands of a repaint run (`bands`), behind
-/// a lock its band threads share: a band thread starts with no thread-locals of its own, and
-/// one that blurred every shadow of its band again on every frame would lose what the cache
-/// is for (as for the kept text halos, `text_halo::SharedCpuHalos`).
-pub(crate) type SharedShadowCache = std::sync::Arc<std::sync::Mutex<ShadowCache>>;
-
-thread_local! {
-    /// Set on a thread while it paints a band: the frame's shared shadows, read and kept
-    /// instead of this thread's own [`SHADOW_BLUR_CACHE`].
-    static FRAME_SHADOW_CACHE: core::cell::RefCell<Option<SharedShadowCache>> =
-        const { core::cell::RefCell::new(None) };
-}
-
-/// This thread's blurred box shadows, moved out to be shared with the band threads of the
-/// frame it paints; [`restore_shadow_cache`] moves them back.
-pub(crate) fn share_shadow_cache() -> SharedShadowCache {
-    let cache = SHADOW_BLUR_CACHE.with(|c| core::mem::take(&mut *c.borrow_mut()));
-    std::sync::Arc::new(std::sync::Mutex::new(cache))
-}
-
-/// Paint on this thread with the frame's shared box shadows (`Some`), or its own (`None`).
-pub(crate) fn adopt_shadow_cache(shared: Option<SharedShadowCache>) {
-    FRAME_SHADOW_CACHE.with(|frame| *frame.borrow_mut() = shared);
-}
-
-/// Move the shadows shared for a frame's bands back into this thread's own cache, with what
-/// the bands kept.
-pub(crate) fn restore_shadow_cache(shared: SharedShadowCache) {
-    adopt_shadow_cache(None);
-    if let Ok(lock) = std::sync::Arc::try_unwrap(shared) {
-        let cache = lock.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
-        SHADOW_BLUR_CACHE.with(|c| *c.borrow_mut() = cache);
-    }
-}
-
-thread_local! {
-    /// Set on a thread while it paints a band: the window's glyph cache, which every band
-    /// reads and none writes while the bands run (`bands::paint_bands`). A band looks a
-    /// glyph's cells up there first ([`GlyphCache::cached_cells`]) and builds into the cache
-    /// of its own only what the window's lacks; the window's cache takes those back when the
-    /// bands are done (`GlyphCache::absorb`).
-    static SHARED_GLYPHS: core::cell::RefCell<Option<std::sync::Arc<GlyphCache>>> =
-        const { core::cell::RefCell::new(None) };
-}
-
-/// Paint on this thread with the window's glyph cache to look cells up in (`Some`: in a band),
-/// or with the cache it is handed alone (`None`). A band thread sets `None` before it ends, so
-/// that the frame's thread is the only holder when it takes the cache back.
-pub(crate) fn adopt_shared_glyphs(shared: Option<std::sync::Arc<GlyphCache>>) {
-    SHARED_GLYPHS.with(|frame| *frame.borrow_mut() = shared);
-}
-
-/// The window's glyph cache while this thread paints a band; `None` outside bands, where the
-/// cache a text function is handed IS the window's.
-fn shared_glyphs() -> Option<std::sync::Arc<GlyphCache>> {
-    SHARED_GLYPHS.with(|frame| frame.borrow().clone())
-}
-
 /// Count the glyph cell sets `glyph_cache` has built since it had built `before`
-/// (`Counter::CellsBuilt`), on this thread: the cache is the window's, or in a band the band's
-/// own, whose count nobody reads once the window's cache has absorbed it. The three glyph loops
-/// are the only callers of the cell builders.
+/// (`Counter::CellsBuilt`), into the cache's own counters: the cache is the window's, or in a
+/// band the band's own, whose count is merged into the window's when the bands are done. The
+/// three glyph loops are the only callers of the cell builders.
 fn count_cells_built(glyph_cache: &GlyphCache, before: u64) {
     let built = glyph_cache.cells_built().saturating_sub(before);
     if built != 0 {
-        crate::cpu_counters::count(crate::cpu_counters::Counter::CellsBuilt, built);
+        glyph_cache.counts().add(crate::cpu_counters::Counter::CellsBuilt, built);
     }
 }
 
@@ -793,18 +725,6 @@ fn keep_shadow(cache: &mut ShadowCache, key: u64, data: &std::sync::Arc<Vec<u8>>
     }
 }
 
-/// The box-shadow cache this thread paints with: the frame's shared one in a band, else its own.
-fn with_shadow_cache<R>(f: impl FnOnce(&mut ShadowCache) -> R) -> R {
-    let shared = FRAME_SHADOW_CACHE.with(|frame| frame.borrow().clone());
-    match shared {
-        Some(shared) => {
-            let mut cache = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            f(&mut cache)
-        }
-        None => SHADOW_BLUR_CACHE.with(|c| f(&mut c.borrow_mut())),
-    }
-}
-
 fn render_box_shadow(
     pixmap: &mut AzulPixmap,
     bounds: &LogicalRect,
@@ -812,6 +732,7 @@ fn render_box_shadow(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
+    scratch: &mut PaintScratch,
 ) -> Result<(), String> {
     // Clamp a shadow blit to the active clip. The shadow BLENDS (alpha), so
     // any write OUTSIDE a damage rect re-darkens retained, already-shadowed
@@ -826,6 +747,7 @@ fn render_box_shadow(
     #[allow(clippy::too_many_arguments)]
     fn blit_clipped(
         pixmap: &mut AzulPixmap,
+        counts: &crate::cpu_counters::FrameCounts,
         clip_px: Option<(i32, i32, i32, i32)>,
         src: &[u8],
         src_w: u32,
@@ -871,7 +793,10 @@ fn render_box_shadow(
                 h -= over as u32;
             }
         }
-        blit_buffer_sub(pixmap, src, src_w, src_h, sx, sy, w, h, dx, dy);
+        counts.add(
+            crate::cpu_counters::Counter::PxBlitted,
+            blit_buffer_sub(pixmap, src, src_w, src_h, sx, sy, w, h, dx, dy),
+        );
     }
     use azul_css::props::style::box_shadow::BoxShadowClipMode;
 
@@ -949,7 +874,7 @@ fn render_box_shadow(
             }
             h.finish()
         };
-        let kept = with_shadow_cache(|c| kept_shadow(c, inset_key));
+        let kept = scratch.shadows.with(|c| kept_shadow(c, inset_key));
         let finished = if let Some((data, _, _)) = kept {
             data
         } else {
@@ -1027,7 +952,7 @@ fn render_box_shadow(
             }
         }
             let data = std::sync::Arc::new(tmp.data.into_vec());
-            with_shadow_cache(|c| keep_shadow(c, inset_key, &data, sw, sh));
+            scratch.shadows.with(|c| keep_shadow(c, inset_key, &data, sw, sh));
             data
         };
         // Never outside the padding box (nor the active clip).
@@ -1051,6 +976,7 @@ fn render_box_shadow(
         }
         blit_clipped(
             pixmap,
+            &scratch.counts,
             Some(clip),
             &finished,
             sw,
@@ -1105,7 +1031,7 @@ fn render_box_shadow(
         h.finish()
     };
 
-    let cached = with_shadow_cache(|c| kept_shadow(c, cache_key));
+    let cached = scratch.shadows.with(|c| kept_shadow(c, cache_key));
 
     let (shadow_data, sw, sh) = if let Some((data, w, h)) = cached {
         drop(crate::probe::Probe::span("shadow_cache_hit"));
@@ -1170,7 +1096,7 @@ fn render_box_shadow(
         }
 
         let data = std::sync::Arc::new(tmp.data.into_vec());
-        with_shadow_cache(|c| keep_shadow(c, cache_key, &data, sw, sh));
+        scratch.shadows.with(|c| keep_shadow(c, cache_key, &data, sw, sh));
         (data, sw, sh)
     };
 
@@ -1213,6 +1139,7 @@ fn render_box_shadow(
             // Top strip (full width).
             blit_clipped(
                 pixmap,
+                &scratch.counts,
                 clip_px,
                 &shadow_data,
                 sw,
@@ -1227,6 +1154,7 @@ fn render_box_shadow(
             // Bottom strip (full width).
             blit_clipped(
                 pixmap,
+                &scratch.counts,
                 clip_px,
                 &shadow_data,
                 sw,
@@ -1241,6 +1169,7 @@ fn render_box_shadow(
             // Left strip (between top and bottom).
             blit_clipped(
                 pixmap,
+                &scratch.counts,
                 clip_px,
                 &shadow_data,
                 sw,
@@ -1255,6 +1184,7 @@ fn render_box_shadow(
             // Right strip (between top and bottom).
             blit_clipped(
                 pixmap,
+                &scratch.counts,
                 clip_px,
                 &shadow_data,
                 sw,
@@ -1290,8 +1220,8 @@ fn render_box_shadow(
             box_y.to_bits().hash(&mut h);
             h.finish()
         };
-        if let Some((cut, _, _)) = with_shadow_cache(|c| kept_shadow(c, cut_key)) {
-            blit_clipped(pixmap, clip_px, &cut, sw, sh, 0, 0, sw, sh, dst_x, dst_y);
+        if let Some((cut, _, _)) = scratch.shadows.with(|c| kept_shadow(c, cut_key)) {
+            blit_clipped(pixmap, &scratch.counts, clip_px, &cut, sw, sh, 0, 0, sw, sh, dst_x, dst_y);
             return Ok(());
         }
         let mut mask = AzulPixmap::new_transparent(sw, sh).ok_or("cannot create shadow mask")?;
@@ -1321,9 +1251,10 @@ fn render_box_shadow(
             }
         }
         let outside_the_box = std::sync::Arc::new(outside_the_box);
-        with_shadow_cache(|c| keep_shadow(c, cut_key, &outside_the_box, sw, sh));
+        scratch.shadows.with(|c| keep_shadow(c, cut_key, &outside_the_box, sw, sh));
         blit_clipped(
             pixmap,
+            &scratch.counts,
             clip_px,
             &outside_the_box,
             sw,
@@ -1339,6 +1270,7 @@ fn render_box_shadow(
     }
     blit_clipped(
         pixmap,
+        &scratch.counts,
         clip_px,
         &shadow_data,
         sw,
@@ -1454,6 +1386,8 @@ impl ReferenceFrameGroup {
         // (A10-06) The frame the shell shows as a layer (`CpuRenderState::promote`): an
         // isolated group whatever its matrix is, so that its picture is a surface.
         promoted: Option<PromoteFrame>,
+        // The painting thread's scratch: the surfaces opened here are counted into it.
+        scratch: &PaintScratch,
     ) -> Self {
         let isolate = promoted.is_some();
         // As the layer builder places the frame: the identity paints where it
@@ -1504,10 +1438,11 @@ impl ReferenceFrameGroup {
         // Transparent from the allocator (`new_transparent`): a page of it costs memory once
         // something is painted on it, and only the part that lands is painted.
         let surface: Option<AzulPixmap> = if lands {
-            use crate::cpu_counters::{count, Counter};
-            count(Counter::GroupsOpened, 1);
-            count(Counter::GroupPx, u64::from(width) * u64::from(height));
-            count(
+            use crate::cpu_counters::Counter;
+            let counts = &scratch.counts;
+            counts.add(Counter::GroupsOpened, 1);
+            counts.add(Counter::GroupPx, u64::from(width) * u64::from(height));
+            counts.add(
                 Counter::GroupPxPainted,
                 part.map_or_else(|| u64::from(width) * u64::from(height), |(x0, y0, x1, y1)| {
                     u64::from((x1 - x0) as u32) * u64::from((y1 - y0) as u32)
@@ -1519,7 +1454,7 @@ impl ReferenceFrameGroup {
             // the part of the picture a zoom shows) gets no surface of its size: one pixel
             // stands in, the clip pushed below denies every paint into it, and its pop
             // composites nothing. It used to be allocated, cleared and blitted like any other.
-            crate::cpu_counters::count(crate::cpu_counters::Counter::GroupsEmpty, 1);
+            scratch.counts.add(crate::cpu_counters::Counter::GroupsEmpty, 1);
             AzulPixmap::new_transparent(1, 1)
         };
         surfaces.push(surface.unwrap_or_else(|| AzulPixmap {
@@ -1566,6 +1501,7 @@ impl ReferenceFrameGroup {
         clip_stack: &mut Vec<Option<AzRect>>,
         real_clip_stack: &mut Vec<Option<AzRect>>,
         scroll_offset_stack: &mut Vec<(f32, f32)>,
+        scratch: &PaintScratch,
     ) {
         drop(self.finish_keeping(
             pixmap,
@@ -1573,6 +1509,7 @@ impl ReferenceFrameGroup {
             clip_stack,
             real_clip_stack,
             scroll_offset_stack,
+            scratch,
         ));
     }
 
@@ -1586,6 +1523,7 @@ impl ReferenceFrameGroup {
         clip_stack: &mut Vec<Option<AzRect>>,
         real_clip_stack: &mut Vec<Option<AzRect>>,
         scroll_offset_stack: &mut Vec<(f32, f32)>,
+        scratch: &PaintScratch,
     ) -> Option<AzulPixmap> {
         match self {
             Self::Identity => None,
@@ -1610,7 +1548,7 @@ impl ReferenceFrameGroup {
                     Some(below) => below,
                     None => pixmap,
                 };
-                group.finish(&surface, below);
+                group.finish(&surface, below, scratch);
                 Some(surface)
             }
         }
@@ -1800,19 +1738,22 @@ fn clip_before_matrix(
 }
 
 impl TransformGroup {
-    /// Composites the group's `surface` through its matrix into `pixmap`.
-    fn finish(&self, surface: &AzulPixmap, pixmap: &mut AzulPixmap) {
+    /// Composites the group's `surface` through its matrix into `pixmap`: the pixels it wrote
+    /// are counted into `scratch`, and a composite inside a band does not start threads.
+    fn finish(&self, surface: &AzulPixmap, pixmap: &mut AzulPixmap, scratch: &PaintScratch) {
         if self.width == 0 || self.height == 0 || !self.lands {
             return;
         }
         if mat3_is_affine(&self.matrix) {
-            blit_pixmap_affine_clipped(
+            let written = blit_pixmap_affine_clipped_with_threads(
                 surface,
                 pixmap,
                 &mat3_affine_part(&self.matrix),
                 1.0,
                 self.outer_clip,
+                scratch.composite_threads(),
             );
+            scratch.counts.add(crate::cpu_counters::Counter::PxBlitted, written);
         } else {
             blit_pixmap_projective_clipped(surface, pixmap, &self.matrix, 1.0, self.outer_clip);
         }
@@ -1839,22 +1780,17 @@ thread_local! {
 }
 
 /// Tests: the switches of this thread's walk, for the band threads it starts (a thread starts
-/// with its own thread-locals): whether the walk culls by the clip, whether halos are kept,
-/// whether the levels' grids are left unused.
+/// with its own thread-locals): whether the walk culls by the clip, whether the levels' grids
+/// are left unused. (Whether halos are kept travels with the halo memo the bands share.)
 #[cfg(test)]
-pub(crate) fn walk_test_flags() -> (bool, bool, bool) {
-    (
-        GROUP_CULL_OFF.with(std::cell::Cell::get),
-        super::text_halo::cpu_halos_are_kept(),
-        GRID_OFF.with(std::cell::Cell::get),
-    )
+pub(crate) fn walk_test_flags() -> (bool, bool) {
+    (GROUP_CULL_OFF.with(std::cell::Cell::get), GRID_OFF.with(std::cell::Cell::get))
 }
 
 /// Tests: paint on this thread with the switches of [`walk_test_flags`].
 #[cfg(test)]
-pub(crate) fn set_walk_test_flags((cull_off, halos_kept, grid_off): (bool, bool, bool)) {
+pub(crate) fn set_walk_test_flags((cull_off, grid_off): (bool, bool)) {
     GROUP_CULL_OFF.with(|c| c.set(cull_off));
-    super::text_halo::keep_cpu_halos(halos_kept);
     GRID_OFF.with(|c| c.set(grid_off));
 }
 
@@ -3183,12 +3119,12 @@ pub(crate) fn walk_range(
         let item_idx = next;
         next += 1;
         let item = &list.items[item_idx];
-        crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsWalked, 1);
+        glyph_cache.counts().add(crate::cpu_counters::Counter::ItemsWalked, 1);
         // The pop of a frame whose surface is kept: what the `PopReferenceFrame` arm of
         // `render_single_item` does, and the surface, composited, goes to the cache.
         if keeping.last().is_some_and(|(end, _)| *end == item_idx) {
             if let Some((_, candidate)) = keeping.pop() {
-                crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsPainted, 1);
+                glyph_cache.counts().add(crate::cpu_counters::Counter::ItemsPainted, 1);
                 painted += 1;
                 if transform_stack.len() > 1 {
                     transform_stack.pop();
@@ -3208,6 +3144,7 @@ pub(crate) fn walk_range(
                             clip_stack,
                             real_clip_stack,
                             scroll_offset_stack,
+                            &glyph_cache.scratch,
                         );
                         if let (Some(surface), Some(retained)) =
                             (surface, render_state.retained.as_deref())
@@ -3276,6 +3213,7 @@ pub(crate) fn walk_range(
                 mask_stack,
                 text_shadow_stack,
                 render_state,
+                glyph_cache.counts(),
             ) {
                 skipped += 1;
                 next = frame.end + 1;
@@ -3327,16 +3265,16 @@ pub(crate) fn walk_range(
                     false,
                 ) {
                     if let Some(surface) = retained.lookup(&candidate.key, candidate.needed) {
-                        crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedHits, 1);
+                        glyph_cache.counts().add(crate::cpu_counters::Counter::RetainedHits, 1);
                         // (A10-06) The frame the shell shows as a layer is not composited.
                         if !candidate.layer {
-                            candidate.group.finish(&surface, pixmap);
+                            candidate.group.finish(&surface, pixmap, &glyph_cache.scratch);
                         }
                         skipped += 1;
                         next = frame.end + 1;
                         continue;
                     }
-                    crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedMisses, 1);
+                    glyph_cache.counts().add(crate::cpu_counters::Counter::RetainedMisses, 1);
                     keeping.push((frame.end, candidate));
                 }
             }
@@ -3367,13 +3305,13 @@ pub(crate) fn walk_range(
                 );
                 if let Some((candidate, opacity, blend)) = fade {
                     if let Some(kept) = retained.lookup(&candidate.key, candidate.part()) {
-                        crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedHits, 1);
+                        glyph_cache.counts().add(crate::cpu_counters::Counter::RetainedHits, 1);
                         candidate.blend(&kept, pixmap, opacity, blend);
                         skipped += 1;
                         next = scope.end + 1;
                         continue;
                     }
-                    crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedMisses, 1);
+                    glyph_cache.counts().add(crate::cpu_counters::Counter::RetainedMisses, 1);
                     keeping_fades.push((scope.end, candidate));
                 }
             }
@@ -4099,6 +4037,7 @@ fn turned_text_is_drawn_directly() -> bool {
     if TURNED_TEXT_IN_GROUPS.with(std::cell::Cell::get) {
         return false;
     }
+    // Process-wide configuration, read once from the environment (`AZ_CPU_TURNED_TEXT`).
     static DIRECT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *DIRECT.get_or_init(|| std::env::var("AZ_CPU_TURNED_TEXT").map_or(true, |v| v != "group"))
 }
@@ -4324,8 +4263,8 @@ fn paint_turned_text_frame(
                 agg_fill_path_clipped(pixmap, &mut path, &fill, FillingRule::NonZero, clip);
             }
             DisplayListItem::Text { glyphs, font_hash, font_size_px, color, .. } => {
-                crate::cpu_counters::count(crate::cpu_counters::Counter::TextRuns, 1);
-                crate::cpu_counters::count(crate::cpu_counters::Counter::Glyphs, glyphs.len() as u64);
+                glyph_cache.counts().add(crate::cpu_counters::Counter::TextRuns, 1);
+                glyph_cache.counts().add(crate::cpu_counters::Counter::Glyphs, glyphs.len() as u64);
                 let (Some(ink), Some(first)) = (ink_of(at, it), glyphs.first()) else {
                     continue;
                 };
@@ -4377,8 +4316,9 @@ fn paint_turned_text_frame(
                     let x1 = clip_box.2.min(place.0 + picture.width as i32);
                     let y1 = clip_box.3.min(place.1 + picture.height as i32);
                     if x1 > x0 && y1 > y0 {
-                        blit_tinted_coverage(
+                        let written = blit_tinted_coverage(
                             pixmap,
+                            &mut glyph_cache.scratch.tint,
                             &picture.coverage,
                             picture.width,
                             (x0 - place.0) as u32,
@@ -4389,6 +4329,7 @@ fn paint_turned_text_frame(
                             y0,
                             tint,
                         );
+                        glyph_cache.counts().add(crate::cpu_counters::Counter::PxBlitted, written);
                     }
                 }
             }
@@ -4510,8 +4451,8 @@ fn turned_run_picture(
         ((y * 4.0).floor() as i64).hash(&mut hasher);
     }
     let key = hasher.finish();
-    if cpu_halos_are_kept() {
-        if let Some(kept) = kept_cpu_halo(key) {
+    if cpu_halos_are_kept(&glyph_cache.scratch) {
+        if let Some(kept) = kept_cpu_halo(&mut glyph_cache.scratch, key) {
             return kept;
         }
     }
@@ -4530,7 +4471,7 @@ fn turned_run_picture(
     // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
     parsed_font.touch();
     {
-        let mut pooled = PooledTextRaster::take();
+        let mut pooled = glyph_cache.scratch.text_raster.take();
         let (ras, sl) = pooled.parts();
         for g in run.glyphs {
             let glyph_index = g.index as u16;
@@ -4568,9 +4509,10 @@ fn turned_run_picture(
         let pf = PixfmtRgba32::new(&mut ra);
         let mut rb = RendererBase::new(pf);
         render_scanlines_aa_solid(ras, sl, &mut rb, &Rgba8::new(255, 255, 255, 255));
+        glyph_cache.scratch.text_raster.give_back(pooled);
     }
     if halo.is_some() {
-        crate::cpu_counters::count(crate::cpu_counters::Counter::HalosDrawn, 1);
+        glyph_cache.counts().add(crate::cpu_counters::Counter::HalosDrawn, 1);
         dilate_disk(&mut buffer, spread);
         if radius > 0 {
             let mut ra = unsafe { RowAccessor::new_with_buf(buffer.data.as_mut_ptr(), w as u32, h as u32, w * 4) };
@@ -4583,8 +4525,8 @@ fn turned_run_picture(
         offset: (bx0, by0),
         coverage: buffer.data().chunks_exact(4).map(|p| p[3]).collect(),
     });
-    if cpu_halos_are_kept() && (i64::from(w) * i64::from(h)) as u64 <= MAX_CPU_HALO_PIXELS {
-        keep_cpu_halo(key, Some(std::sync::Arc::clone(&picture)));
+    if cpu_halos_are_kept(&glyph_cache.scratch) && (i64::from(w) * i64::from(h)) as u64 <= MAX_CPU_HALO_PIXELS {
+        keep_cpu_halo(&mut glyph_cache.scratch, key, Some(std::sync::Arc::clone(&picture)));
     }
     Some(picture)
 }
@@ -4760,7 +4702,7 @@ pub fn refresh_retained_surfaces(
     glyph_cache: &mut GlyphCache,
     dpi_factor: f32,
 ) -> Result<(), String> {
-    use crate::cpu_counters::{count, Counter};
+    use crate::cpu_counters::Counter;
     let Some(retained) = render_state.retained.as_deref() else {
         return Ok(());
     };
@@ -4849,16 +4791,16 @@ pub fn refresh_retained_surfaces(
         })();
         match repaired {
             Some(Ok(repainted)) => {
-                count(Counter::RetainedPatched, 1);
+                glyph_cache.counts().add(Counter::RetainedPatched, 1);
                 // (The stamp of the surface's pixels moves only when a box was painted again:
                 // A10's `## For area A1`, 7 (d).)
                 retained.put_back(entry, repainted);
             }
             Some(Err(e)) => {
-                count(Counter::RetainedInvalidations, 1);
+                glyph_cache.counts().add(Counter::RetainedInvalidations, 1);
                 return Err(e);
             }
-            None => count(Counter::RetainedInvalidations, 1),
+            None => glyph_cache.counts().add(Counter::RetainedInvalidations, 1),
         }
     }
     Ok(())
@@ -4895,6 +4837,8 @@ fn frame_paints_nothing(
     mask_stack: &[MaskEntry],
     text_shadow_stack: &[StyleBoxShadow],
     render_state: &CpuRenderState,
+    // What the walk counts a frame stepped over as ([`Counter::GroupsEmpty`]).
+    counts: &crate::cpu_counters::FrameCounts,
 ) -> bool {
     let DisplayListItem::PushReferenceFrame {
         transform_key,
@@ -4937,7 +4881,7 @@ fn frame_paints_nothing(
         let lands =
             g.width > 0 && g.height > 0 && part.is_none_or(|(x0, y0, x1, y1)| x1 > x0 && y1 > y0);
         if !lands {
-            crate::cpu_counters::count(crate::cpu_counters::Counter::GroupsEmpty, 1);
+            counts.add(crate::cpu_counters::Counter::GroupsEmpty, 1);
         }
         return !lands;
     };
@@ -5061,6 +5005,7 @@ const fn probe_label_for_item(item: &DisplayListItem) -> &'static str {
 /// look identical on screen.
 fn damage_clear_color() -> (u8, u8, u8, u8) {
     use std::sync::OnceLock;
+    // Process-wide configuration, read once from the environment (`AZ_DEBUG_FILL`).
     static C: OnceLock<(u8, u8, u8, u8)> = OnceLock::new();
     *C.get_or_init(|| parse_damage_fill(std::env::var("AZ_DEBUG_FILL").ok().as_deref()))
 }
@@ -5158,6 +5103,7 @@ pub(crate) fn box_minus(p: [i32; 4], d: [i32; 4]) -> Vec<[i32; 4]> {
 /// `AZ_DEBUG_DAMAGE=1` — log what each damaged repaint actually touched.
 fn damage_logging_enabled() -> bool {
     use std::sync::OnceLock;
+    // Process-wide configuration, read once from the environment (`AZ_DEBUG_DAMAGE`).
     static E: OnceLock<bool> = OnceLock::new();
     *E.get_or_init(|| std::env::var_os("AZ_DEBUG_DAMAGE").is_some())
 }
@@ -5345,6 +5291,7 @@ pub fn render_display_list_damaged(
     }
 
     // What a rect is cleared to before it is repainted (the same for every rect of the frame).
+    // Process-wide configuration, read once from the environment (`AZ_DEBUG_FILL`).
     static DEBUG_FILL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let clear = if *DEBUG_FILL.get_or_init(|| std::env::var_os("AZ_DEBUG_FILL").is_some()) {
         damage_clear_color()
@@ -5462,7 +5409,10 @@ pub(crate) fn paint_damage_rect(
     clear: Option<(u8, u8, u8, u8)>,
 ) -> Result<(usize, usize), String> {
     if let Some((cr, cg, cb, ca)) = clear {
-        crate::cpu_counters::count(crate::cpu_counters::Counter::PxCleared, u64::from((sr.x1 - sr.x0) as u32) * u64::from((sr.y1 - sr.y0) as u32));
+        glyph_cache.counts().add(
+            crate::cpu_counters::Counter::PxCleared,
+            u64::from((sr.x1 - sr.x0) as u32) * u64::from((sr.y1 - sr.y0) as u32),
+        );
         pixmap.fill_rect(sr.x0, sr.y0, sr.x1 - sr.x0, sr.y1 - sr.y0, cr, cg, cb, ca);
     }
 
@@ -5549,7 +5499,7 @@ pub fn render_single_item(
     render_state: &CpuRenderState,
 ) -> Result<(), String> {
     use azul_css::props::style::border::BorderStyle;
-    crate::cpu_counters::count(crate::cpu_counters::Counter::ItemsPainted, 1);
+    glyph_cache.counts().add(crate::cpu_counters::Counter::ItemsPainted, 1);
     // Current accumulated scroll offset — applied to all item bounds.
     // Negative because scrolling down (positive offset) moves content up.
     let (scroll_dx, scroll_dy) = *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0));
@@ -5621,6 +5571,7 @@ pub fn render_single_item(
                 scroll_offset_stack,
                 below,
                 render_state.promote.filter(|p| p.transform_key == transform_key.id),
+                &glyph_cache.scratch,
             );
             mask_stack.push(MaskEntry::Transform(group));
             return Ok(());
@@ -5637,6 +5588,7 @@ pub fn render_single_item(
                         clip_stack,
                         real_clip_stack,
                         scroll_offset_stack,
+                        &glyph_cache.scratch,
                     );
                 }
             }
@@ -6047,6 +5999,7 @@ pub fn render_single_item(
                 border_radius,
                 clip,
                 dpi_factor,
+                &glyph_cache.scratch.said,
             );
         }
         DisplayListItem::ScrollBar {
@@ -6433,6 +6386,7 @@ pub fn render_single_item(
                 border_radius,
                 clip,
                 dpi_factor,
+                &mut glyph_cache.scratch,
             )?;
         }
 
@@ -7134,6 +7088,7 @@ fn render_scanlines_aliased_solid<PF: agg_rust::pixfmt_rgba::PixelFormat>(
 /// are compile-time constants, but this was rebuilt per text run per frame
 /// (3x256 f64 mul+floor+cast), measurable inside `glyph_lcd_sweep`.
 fn lcd_distribution_lut() -> &'static agg_rust::pixfmt_lcd::LcdDistributionLut {
+    // A pure function of constants, built once (never grows, nothing to own).
     static LUT: std::sync::OnceLock<agg_rust::pixfmt_lcd::LcdDistributionLut> =
         std::sync::OnceLock::new();
     LUT.get_or_init(|| {
@@ -7342,14 +7297,14 @@ fn render_glyphs_lcd(
 
     // Accumulate every glyph outline (at 3× horizontal resolution) into one
     // rasterizer, then sweep once — same batching as the grayscale path.
-    let mut pooled = PooledTextRaster::take();
+    let mut pooled = glyph_cache.scratch.text_raster.take();
     let (ras, sl) = pooled.parts();
 
     let p_outline = crate::probe::Probe::span("glyph_lcd_outline");
     // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
     parsed_font.touch();
-    // In a band: the window's cache, asked first and never written (`shared_glyphs`).
-    let shared = shared_glyphs();
+    // In a band: the window's cache, asked first and never written (`GlyphCache::window_arc`).
+    let shared = glyph_cache.window_arc();
     let cells_built_before = glyph_cache.cells_built();
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
@@ -7524,6 +7479,7 @@ fn render_glyphs_lcd(
         }
         render_scanlines_aa_solid(ras, sl, &mut rb, &agg_color);
     }
+    glyph_cache.scratch.text_raster.give_back(pooled);
 }
 
 /// A `font_hash` that layout emitted but the `FontManager` that emitted it cannot
@@ -7532,18 +7488,16 @@ fn render_glyphs_lcd(
 ///
 /// Fail LOUDLY (and, in a debug build, fatally so a test catches it), but never by
 /// dereferencing something unresolved: the caller drops this one run and keeps the
-/// frame. Deduplicated per hash so a broken frame cannot spam the log at 60 Hz.
+/// frame. Deduplicated per hash (in the window's `said` notes) so a broken frame cannot spam
+/// the log at 60 Hz.
 #[cfg(feature = "std")]
-fn font_resolution_failed(font_hash: u64) {
-    use std::sync::{Mutex, OnceLock};
-    static SEEN: OnceLock<Mutex<std::collections::BTreeSet<u64>>> = OnceLock::new();
+fn font_resolution_failed(said: &SaidOnce, font_hash: u64) {
     debug_assert!(
         false,
         "[cpurender] BUG: layout emitted font hash {font_hash} that its own FontManager cannot \
          resolve — the display list and the font state are out of sync"
     );
-    let seen = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
-    if let Ok(mut seen) = seen.lock() {
+    if let Ok(mut seen) = said.unresolved_fonts.lock() {
         if seen.insert(font_hash) {
             eprintln!(
                 "[azul][font] BUG: layout emitted font hash {font_hash} that its own FontManager \
@@ -7555,7 +7509,7 @@ fn font_resolution_failed(font_hash: u64) {
 }
 
 #[cfg(not(feature = "std"))]
-const fn font_resolution_failed(_font_hash: u64) {}
+const fn font_resolution_failed(_said: &SaidOnce, _font_hash: u64) {}
 
 /// How far each side of a glyph moves out when the run is drawn in
 /// synthetic bold ([`FontHash::synthetic_bold`]), in device pixels; 0 for a
@@ -7608,8 +7562,8 @@ fn render_text_with_bg(
     force_grayscale: bool,
     uniform_bg: Option<(ColorU, crate::solver3::display_list::WindowLogicalRect)>,
 ) {
-    crate::cpu_counters::count(crate::cpu_counters::Counter::TextRuns, 1);
-    crate::cpu_counters::count(crate::cpu_counters::Counter::Glyphs, glyphs.len() as u64);
+    glyph_cache.counts().add(crate::cpu_counters::Counter::TextRuns, 1);
+    glyph_cache.counts().add(crate::cpu_counters::Counter::Glyphs, glyphs.len() as u64);
     let aa = glyph_cache.text_aa();
     if let Some((bg, proven_rect)) = uniform_bg {
         if aa.lcd_enabled() && !force_grayscale {
@@ -7761,8 +7715,8 @@ fn render_text_prerendered_lcd(
     let mut next_component = 0usize;
     // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
     parsed_font.touch();
-    // In a band: the window's cache, asked first and never written (`shared_glyphs`).
-    let shared = shared_glyphs();
+    // In a band: the window's cache, asked first and never written (`GlyphCache::window_arc`).
+    let shared = glyph_cache.window_arc();
     for glyph in glyphs {
         let gx = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let gy = (glyph.point.y - scroll_offset.1) * dpi_factor;
@@ -8011,7 +7965,7 @@ pub(super) fn render_text(
         // Not a "font we happen not to have": layout emitted a hash the manager
         // that produced it cannot resolve, i.e. the two went out of sync. Report it
         // as the invariant violation it is instead of quietly dropping the text.
-        font_resolution_failed(font_hash.font_hash);
+        font_resolution_failed(&glyph_cache.scratch.said, font_hash.font_hash);
         return;
     };
     // Safe reborrow with a lifetime tied to the `font_ref` we hold — NOT a raw
@@ -8090,15 +8044,15 @@ pub(super) fn render_text(
     if let Some((x1, y1, x2, y2)) = clip_box {
         rb.clip_box_i(x1, y1, x2, y2);
     }
-    let mut pooled = PooledTextRaster::take();
+    let mut pooled = glyph_cache.scratch.text_raster.take();
     let (ras, sl) = pooled.parts();
 
     // Accumulate all glyph cells into one rasterizer, then render once.
     // This amortizes sort_cells cost across all glyphs in the run.
     // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
     parsed_font.touch();
-    // In a band: the window's cache, asked first and never written (`shared_glyphs`).
-    let shared = shared_glyphs();
+    // In a band: the window's cache, asked first and never written (`GlyphCache::window_arc`).
+    let shared = glyph_cache.window_arc();
     let cells_built_before = glyph_cache.cells_built();
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
@@ -8179,61 +8133,7 @@ pub(super) fn render_text(
     } else {
         render_scanlines_aa_solid(ras, sl, &mut rb, &agg_color);
     }
-}
-
-/// The rasteriser and scanline a text run sweeps its glyph cells with. Every run used to make
-/// its own (the rasteriser's cell storage, the scanline's span and cover tables, grown from
-/// nothing) and drop them after one sweep; a map draws thousands of runs a frame. A run takes the
-/// thread's pair and its drop hands it back, emptied.
-struct PooledTextRaster {
-    ras: Option<RasterizerScanlineAa>,
-    sl: Option<ScanlineU8>,
-}
-
-thread_local! {
-    static TEXT_RASTER_POOL: std::cell::RefCell<Option<(RasterizerScanlineAa, ScanlineU8)>> =
-        const { std::cell::RefCell::new(None) };
-    /// Tests: how many rasterisers this thread has had to make.
-    #[cfg(test)]
-    static TEXT_RASTERS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// Tests: make one per run, as before the pool.
-    #[cfg(test)]
-    static TEXT_RASTER_POOL_OFF: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
-impl PooledTextRaster {
-    fn take() -> Self {
-        #[cfg(test)]
-        let pooled = if TEXT_RASTER_POOL_OFF.with(std::cell::Cell::get) {
-            None
-        } else {
-            TEXT_RASTER_POOL.with(|p| p.borrow_mut().take())
-        };
-        #[cfg(not(test))]
-        let pooled = TEXT_RASTER_POOL.with(|p| p.borrow_mut().take());
-        let (ras, sl) = pooled.unwrap_or_else(|| {
-            #[cfg(test)]
-            TEXT_RASTERS_MADE.with(|n| n.set(n.get() + 1));
-            (RasterizerScanlineAa::new(), ScanlineU8::new())
-        });
-        Self { ras: Some(ras), sl: Some(sl) }
-    }
-
-    /// The rasteriser (empty, non-zero winding) and the scanline.
-    fn parts(&mut self) -> (&mut RasterizerScanlineAa, &mut ScanlineU8) {
-        let ras = self.ras.as_mut().expect("held until drop");
-        ras.filling_rule(FillingRule::NonZero);
-        (ras, self.sl.as_mut().expect("held until drop"))
-    }
-}
-
-impl Drop for PooledTextRaster {
-    fn drop(&mut self) {
-        if let (Some(mut ras), Some(sl)) = (self.ras.take(), self.sl.take()) {
-            ras.reset();
-            TEXT_RASTER_POOL.with(|p| *p.borrow_mut() = Some((ras, sl)));
-        }
-    }
+    glyph_cache.scratch.text_raster.give_back(pooled);
 }
 
 /// A box of device pixels in the target pixmap.
@@ -8404,7 +8304,7 @@ fn render_text_shadow(
         })
         .collect();
     // A halo that was drawn before, at this place or another, is tinted and composited.
-    if text_halo::cpu_halos_are_kept()
+    if text_halo::cpu_halos_are_kept(&glyph_cache.scratch)
         && draw_kept_text_shadow(
             &shifted,
             &KeptShadow {
@@ -8436,7 +8336,7 @@ fn render_text_shadow(
         clip_rect: shadow_clip_rect,
         clip: source,
     };
-    crate::cpu_counters::count(crate::cpu_counters::Counter::HalosDrawn, 1);
+    glyph_cache.counts().add(crate::cpu_counters::Counter::HalosDrawn, 1);
     let Some(tmp) = blurred_glyphs(
         &[run],
         color,
@@ -8454,7 +8354,7 @@ fn render_text_shadow(
 
     // Composite the (premultiplied) shadow where it lands.
     let out = boxes.out;
-    blit_buffer_sub(
+    let written = blit_buffer_sub(
         pixmap,
         &tmp.data,
         tmp.width,
@@ -8466,6 +8366,7 @@ fn render_text_shadow(
         out.x,
         out.y,
     );
+    glyph_cache.counts().add(crate::cpu_counters::Counter::PxBlitted, written);
 }
 
 /// What a text shadow's halo is drawn from ([`draw_kept_text_shadow`]).
@@ -8559,7 +8460,7 @@ fn draw_kept_text_shadow(
     }
     let key = hasher.finish();
 
-    let halo = if let Some(kept) = kept_cpu_halo(key) { kept } else {
+    let halo = if let Some(kept) = kept_cpu_halo(&mut glyph_cache.scratch, key) { kept } else {
         // The box the glyphs reach: nothing of the halo lies past it. Its edges are the
         // whole pixels the key counts (the text paths clip to whole pixels), a pixel wider on
         // the right and below than `text_shadow_boxes` needs when the clip ends on a pixel.
@@ -8575,7 +8476,7 @@ fn draw_kept_text_shadow(
         {
             None
         } else {
-            crate::cpu_counters::count(crate::cpu_counters::Counter::HalosDrawn, 1);
+            glyph_cache.counts().add(crate::cpu_counters::Counter::HalosDrawn, 1);
             let buffer = PixelBox {
                 x: x0,
                 y: y0,
@@ -8611,7 +8512,7 @@ fn draw_kept_text_shadow(
                 })
             })
         };
-        keep_cpu_halo(key, drawn.clone());
+        keep_cpu_halo(&mut glyph_cache.scratch, key, drawn.clone());
         drawn
     };
     let Some(halo) = halo else {
@@ -8626,8 +8527,9 @@ fn draw_kept_text_shadow(
     let x1 = (out.x + out.width as i32).min(place.0 + halo.width as i32);
     let y1 = (out.y + out.height as i32).min(place.1 + halo.height as i32);
     if x1 > x0 && y1 > y0 {
-        blit_tinted_coverage(
+        let written = blit_tinted_coverage(
             pixmap,
+            &mut glyph_cache.scratch.tint,
             &halo.coverage,
             halo.width,
             (x0 - place.0) as u32,
@@ -8638,6 +8540,7 @@ fn draw_kept_text_shadow(
             y0,
             shadow.color,
         );
+        glyph_cache.counts().add(crate::cpu_counters::Counter::PxBlitted, written);
     }
     true
 }
@@ -9588,7 +9491,6 @@ mod audit_a8_halo_tests {
             origin: LogicalPosition { x: 0.0, y: 0.0 },
             size: LogicalSize { width: 300.0, height: 60.0 },
         };
-        let decodes = || crate::glyph_cache::GLYPH_DECODES.with(core::cell::Cell::get);
         for grayscale in [true, false] {
             let paint = |cache: &mut GlyphCache| {
                 let mut pm = AzulPixmap::new(300, 60).expect("a pixmap");
@@ -9611,12 +9513,12 @@ mod audit_a8_halo_tests {
                 pm
             };
             let mut cache = GlyphCache::new();
-            let before = decodes();
+            let before = cache.decodes();
             let first = paint(&mut cache);
-            let after_first = decodes();
+            let after_first = cache.decodes();
             assert!(after_first > before, "grayscale {grayscale}: the first paint decodes");
             let second = paint(&mut cache);
-            assert_eq!(decodes(), after_first, "grayscale {grayscale}: a repaint decodes nothing");
+            assert_eq!(cache.decodes(), after_first, "grayscale {grayscale}: a repaint decodes nothing");
             assert!(first.data() == second.data(), "grayscale {grayscale}: the same pixels");
             assert!(first.data().iter().any(|b| *b < 200), "grayscale {grayscale}: text paints");
         }
@@ -10084,6 +9986,7 @@ fn render_image(
     border_radius: &BorderRadius,
     clip: Option<AzRect>,
     dpi_factor: f32,
+    said: &SaidOnce,
 ) {
     let Some(rect) = logical_rect_to_az_rect(bounds, dpi_factor) else {
         return;
@@ -10156,16 +10059,15 @@ fn render_image(
             // the display list — so reaching this arm means a host skipped
             // frame preparation (a bug), or the callback hasn't produced a
             // frame yet. Grey is indistinguishable from "still loading", so
-            // say so once.
-            static CALLBACK_PLACEHOLDER: std::sync::Once = std::sync::Once::new();
-            CALLBACK_PLACEHOLDER.call_once(|| {
+            // say so once per window (`said`).
+            if !said.callback_placeholder.swap(true, std::sync::atomic::Ordering::Relaxed) {
                 eprintln!(
                     "[azul][cpurender] a RenderImageCallback image was composited as a flat grey \
                      placeholder: the frame was rendered without content preparation \
                      (LayoutWindow::prepare_frame_cpu), so the callback's content cannot appear \
                      (logged once)"
                 );
-            });
+            }
             let gray = Rgba8::new(200, 200, 200, 255);
             // The placeholder stands in for the image, so it takes the image's
             // shape: a `border-radius` on the <img> has to round the grey too,
@@ -12832,9 +12734,9 @@ mod text_shadow_tests {
         };
         let mut pm = AzulPixmap::new(w, h).unwrap();
         pm.fill(255, 255, 255, 255);
-        crate::cpu_counters::reset();
+        glyph_cache.counts().reset();
         render_display_list(&dl, &mut pm, 1.0, rr, fm, glyph_cache).unwrap();
-        (pm, crate::cpu_counters::take().halos_drawn)
+        (pm, glyph_cache.counts().take().halos_drawn)
     }
 
     /// The most a channel of `a` differs from `b`, and how many channels differ at all.
@@ -12861,7 +12763,9 @@ mod text_shadow_tests {
         // A blur, the editor's solid spread, and both.
         for halo in [(4.0, 0.0), (0.0, 2.0), (2.0, 1.5)] {
             let mut kept = GlyphCache::new();
+            // The halo drawn afresh on every frame, as before halos were kept.
             let mut fresh = GlyphCache::new();
+            super::super::text_halo::keep_cpu_halos(&mut fresh.scratch, false);
             let tag = format!("halo {halo:?}");
             // (position, colour, halos it draws)
             let frames = [
@@ -12875,10 +12779,8 @@ mod text_shadow_tests {
             for (at, color, drawn) in frames {
                 let (frame, n) = shadowed_label(&font, &resources, "Tuebingen", at, halo, color, &mut kept);
                 assert_eq!(n, drawn, "{tag}: halos drawn for {at:?} {color:?}");
-                super::super::text_halo::keep_cpu_halos(false);
                 let (old, _) =
                     shadowed_label(&font, &resources, "Tuebingen", at, halo, color, &mut fresh);
-                super::super::text_halo::keep_cpu_halos(true);
                 let (most, n) = channel_difference(&frame, &old);
                 assert!(
                     most <= 2,
@@ -12901,7 +12803,9 @@ mod text_shadow_tests {
         let resources = renderer_resources_with(&font);
         let red = ColorU { r: 220, g: 20, b: 20, a: 255 };
         let mut kept = GlyphCache::new();
+        // The halo drawn afresh on every frame, as before halos were kept.
         let mut fresh = GlyphCache::new();
+        super::super::text_halo::keep_cpu_halos(&mut fresh.scratch, false);
         for (at, drawn) in [
             ((20.0, 50.0), 1),
             ((20.2, 50.0), 0),
@@ -12912,9 +12816,7 @@ mod text_shadow_tests {
         ] {
             let (frame, n) = shadowed_label(&font, &resources, "T", at, (3.0, 1.0), red, &mut kept);
             assert_eq!(n, drawn, "halos drawn for a glyph at {at:?}");
-            super::super::text_halo::keep_cpu_halos(false);
             let (old, _) = shadowed_label(&font, &resources, "T", at, (3.0, 1.0), red, &mut fresh);
-            super::super::text_halo::keep_cpu_halos(true);
             let (most, n) = channel_difference(&frame, &old);
             assert!(most <= 2, "at {at:?}: differs from the drawn halo by {most} in {n} channels");
         }
@@ -12927,6 +12829,7 @@ mod text_shadow_tests {
         resources: &(RendererResources, FontManager<FontRef>, FontHash),
         count: usize,
         turned_by: Option<f32>,
+        gc: &mut GlyphCache,
     ) -> AzulPixmap {
         let (rr, fm, font_hash) = resources;
         let (w, h) = (260u32, 90u32);
@@ -12974,8 +12877,7 @@ mod text_shadow_tests {
         let dl = DisplayList { items, ..Default::default() };
         let mut pm = AzulPixmap::new(w, h).unwrap();
         pm.fill(255, 255, 255, 255);
-        let mut gc = GlyphCache::new();
-        render_display_list(&dl, &mut pm, 1.0, rr, fm, &mut gc).unwrap();
+        render_display_list(&dl, &mut pm, 1.0, rr, fm, gc).unwrap();
         pm
     }
 
@@ -12998,14 +12900,14 @@ mod text_shadow_tests {
             return;
         };
         let resources = renderer_resources_with(&font);
-        let settled = text_page(&font, &resources, 6, None);
+        let settled = text_page(&font, &resources, 6, None, &mut GlyphCache::new());
         assert!(
             colour_fringe(&settled) > 8,
             "the settled picture is LCD text (fringe {})",
             colour_fringe(&settled)
         );
         for degrees in [3.0_f32, 20.0] {
-            let turned = text_page(&font, &resources, 6, Some(degrees));
+            let turned = text_page(&font, &resources, 6, Some(degrees), &mut GlyphCache::new());
             assert_eq!(
                 colour_fringe(&turned),
                 0,
@@ -13014,29 +12916,28 @@ mod text_shadow_tests {
         }
     }
 
-    /// A run takes the thread's rasteriser and scanline and hands them back: a page of runs makes
-    /// one, however many it draws and however often it is painted, and paints the same pixels as
-    /// a rasteriser made for every run.
+    /// A run takes its glyph cache's rasteriser and scanline and hands them back: a page of runs
+    /// makes one, however many it draws and however often it is painted, and paints the same
+    /// pixels as a rasteriser made for every run.
     #[test]
-    fn the_text_runs_of_a_thread_share_one_rasteriser() {
+    fn the_text_runs_of_a_glyph_cache_share_one_rasteriser() {
         let Some(font) = load_test_font() else {
             eprintln!("[skip] no system font available");
             return;
         };
         let resources = renderer_resources_with(&font);
-        let made = || TEXT_RASTERS_MADE.with(std::cell::Cell::get);
-        let before = made();
-        let first = text_page(&font, &resources, 9, None);
-        let second = text_page(&font, &resources, 9, Some(7.0));
-        let again = text_page(&font, &resources, 9, None);
-        assert!(made() - before <= 1, "one rasteriser for 27 runs: {}", made() - before);
+        let mut gc = GlyphCache::new();
+        let first = text_page(&font, &resources, 9, None, &mut gc);
+        let second = text_page(&font, &resources, 9, Some(7.0), &mut gc);
+        let again = text_page(&font, &resources, 9, None, &mut gc);
+        assert!(gc.scratch.text_raster.made() <= 1, "one rasteriser for 27 runs: {}", gc.scratch.text_raster.made());
         assert_eq!(channel_difference(&first, &again), (0, 0), "a reused rasteriser paints the same");
-        TEXT_RASTER_POOL_OFF.with(|c| c.set(true));
-        let made_before = made();
-        let unpooled = text_page(&font, &resources, 9, None);
-        let unpooled_turned = text_page(&font, &resources, 9, Some(7.0));
-        TEXT_RASTER_POOL_OFF.with(|c| c.set(false));
-        assert!(made() - made_before >= 9, "without the pool every run makes one: {}", made() - made_before);
+        let mut unpooled_gc = GlyphCache::new();
+        unpooled_gc.scratch.text_raster.set_pooling(false);
+        let unpooled = text_page(&font, &resources, 9, None, &mut unpooled_gc);
+        let unpooled_turned = text_page(&font, &resources, 9, Some(7.0), &mut unpooled_gc);
+        let made = unpooled_gc.scratch.text_raster.made();
+        assert!(made >= 9, "without the pool every run makes one: {made}");
         assert_eq!(channel_difference(&first, &unpooled), (0, 0), "the pool changes no pixel");
         assert_eq!(channel_difference(&second, &unpooled_turned), (0, 0), "nor in a group");
     }
@@ -13108,14 +13009,14 @@ mod text_shadow_tests {
         pm.fill(255, 255, 255, 255);
         let mut gc = GlyphCache::new();
         GROUP_CULL_OFF.with(|c| c.set(!culling));
-        crate::cpu_counters::reset();
+        gc.counts().reset();
         match strips {
             Some(strips) => {
                 render_display_list_damaged(dl, &mut pm, dpi, &rr, &fm, &mut gc, state, strips).unwrap();
             }
             None => render_display_list_with_state(dl, &mut pm, dpi, &rr, &fm, &mut gc, state).unwrap(),
         }
-        let painted = crate::cpu_counters::take().items_painted;
+        let painted = gc.counts().take().items_painted;
         GROUP_CULL_OFF.with(|c| c.set(false));
         (pm, painted)
     }
@@ -14469,6 +14370,7 @@ mod autotest_generated {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut PaintScratch::default(),
         );
         assert!(res.is_ok());
         let dark = p.data().chunks_exact(4).filter(|c| c[0] < 50).count();
@@ -14486,6 +14388,7 @@ mod autotest_generated {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut PaintScratch::default(),
         )
         .unwrap();
         let dark2 = p2.data().chunks_exact(4).filter(|c| c[0] < 50).count();
@@ -14506,6 +14409,7 @@ mod autotest_generated {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut PaintScratch::default(),
         );
         assert_eq!(res, Ok(()));
         assert_eq!(before, p.data());
@@ -14524,6 +14428,7 @@ mod autotest_generated {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut PaintScratch::default(),
         );
         assert_eq!(res, Ok(()));
         assert_eq!(before, p.data(), "an oversized shadow must be skipped");
@@ -14540,6 +14445,7 @@ mod autotest_generated {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut PaintScratch::default(),
         );
         assert_eq!(res, Ok(()));
         assert_eq!(before, p.data(), "a fully-shrunk shadow paints nothing");
@@ -14557,6 +14463,7 @@ mod autotest_generated {
                 &BorderRadius::default(),
                 None,
                 bad,
+                &mut PaintScratch::default(),
             );
             assert_eq!(res, Ok(()), "dpi {bad} must not error");
             assert_eq!(before, p.data(), "dpi {bad} must not paint");
@@ -14570,6 +14477,7 @@ mod autotest_generated {
                 &BorderRadius::default(),
                 None,
                 1.0,
+                &mut PaintScratch::default(),
             );
             assert_eq!(res, Ok(()), "size {bad} must not error");
             assert_eq!(before, p.data(), "size {bad} must not paint");
@@ -17210,11 +17118,8 @@ mod shadow_blur_cache_tests {
         }
     }
 
-    fn cache_state() -> (usize, usize) {
-        SHADOW_BLUR_CACHE.with(|c| {
-            let c = c.borrow();
-            (c.0.len(), c.2)
-        })
+    fn cache_state(scratch: &mut PaintScratch) -> (usize, usize) {
+        scratch.shadows.with(|c| (c.0.len(), c.2))
     }
 
     /// The blurred buffer is a pure function of the shadow SPEC, not its
@@ -17224,12 +17129,7 @@ mod shadow_blur_cache_tests {
     /// 47.7 ms stack blur each) collapsed into one cache slot.
     #[test]
     fn same_spec_shadows_share_one_entry_and_pixels_match() {
-        SHADOW_BLUR_CACHE.with(|c| {
-            let mut c = c.borrow_mut();
-            c.0.clear();
-            c.1.clear();
-            c.2 = 0;
-        });
+        let mut scratch = PaintScratch::default();
 
         let mut a = AzulPixmap::new(120, 100).unwrap();
         a.fill(255, 255, 255, 255);
@@ -17240,9 +17140,10 @@ mod shadow_blur_cache_tests {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut scratch,
         )
         .unwrap();
-        let (len_after_first, bytes_after_first) = cache_state();
+        let (len_after_first, bytes_after_first) = cache_state(&mut scratch);
         assert_eq!(len_after_first, 1, "first render must populate one entry");
         assert!(bytes_after_first > 0);
 
@@ -17256,18 +17157,14 @@ mod shadow_blur_cache_tests {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut scratch,
         )
         .unwrap();
-        assert_eq!(cache_state().0, 1, "same-spec shadow must reuse the entry");
+        assert_eq!(cache_state(&mut scratch).0, 1, "same-spec shadow must reuse the entry");
 
         // Replay correctness: a fresh (cold-cache) render at the SAME
         // position as `a` must equal the cached render pixel-for-pixel.
-        SHADOW_BLUR_CACHE.with(|c| {
-            let mut c = c.borrow_mut();
-            c.0.clear();
-            c.1.clear();
-            c.2 = 0;
-        });
+        let mut cold = PaintScratch::default();
         let mut a2 = AzulPixmap::new(120, 100).unwrap();
         a2.fill(255, 255, 255, 255);
         render_box_shadow(
@@ -17277,6 +17174,7 @@ mod shadow_blur_cache_tests {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut cold,
         )
         .unwrap();
         assert_eq!(
@@ -17289,12 +17187,7 @@ mod shadow_blur_cache_tests {
     /// byte cap must hold under eviction.
     #[test]
     fn different_spec_gets_its_own_entry() {
-        SHADOW_BLUR_CACHE.with(|c| {
-            let mut c = c.borrow_mut();
-            c.0.clear();
-            c.1.clear();
-            c.2 = 0;
-        });
+        let mut scratch = PaintScratch::default();
         let mut p = AzulPixmap::new(120, 100).unwrap();
         render_box_shadow(
             &mut p,
@@ -17303,6 +17196,7 @@ mod shadow_blur_cache_tests {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut scratch,
         )
         .unwrap();
         let mut s2 = shadow();
@@ -17314,9 +17208,10 @@ mod shadow_blur_cache_tests {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut scratch,
         )
         .unwrap();
-        let (len, bytes) = cache_state();
+        let (len, bytes) = cache_state(&mut scratch);
         assert_eq!(len, 2, "distinct blur radii are distinct entries");
         assert!(bytes <= SHADOW_CACHE_MAX_BYTES);
     }
@@ -17372,6 +17267,7 @@ mod shadow_ring_blit_tests {
             &BorderRadius::default(),
             None,
             1.0,
+            &mut PaintScratch::default(),
         )
         .unwrap();
 
@@ -19041,9 +18937,9 @@ mod audit_a1_tests {
         let mut pm = AzulPixmap::new(w, h).unwrap();
         pm.fill(255, 255, 255, 255);
         let mut gc = GlyphCache::new();
-        crate::cpu_counters::reset();
+        gc.counts().reset();
         render_display_list_with_state(dl, &mut pm, 1.0, &rr, &fm, &mut gc, state).unwrap();
-        (pm, crate::cpu_counters::take())
+        (pm, gc.counts().take())
     }
 
     /// A1-03 (c): a group whose box lands nowhere gets no surface. Two frames with a 40 x 30
@@ -19275,9 +19171,9 @@ mod audit_a1_tests {
         pm.fill(255, 255, 255, 255);
         let mut gc = GlyphCache::new();
         let whole = [rect(0.0, 0.0, w as f32 / dpi, h as f32 / dpi)];
-        crate::cpu_counters::reset();
+        gc.counts().reset();
         render_display_list_damaged(dl, &mut pm, dpi, rr, fm, &mut gc, &state, &whole).unwrap();
-        (pm, crate::cpu_counters::take())
+        (pm, gc.counts().take())
     }
 
     fn differing_pixels(a: &AzulPixmap, b: &AzulPixmap) -> usize {
@@ -19340,9 +19236,9 @@ mod audit_a1_tests {
             let mut pm = AzulPixmap::new(900, 700).unwrap();
             pm.fill(1, 2, 3, 255);
             let mut gc = GlyphCache::new();
-            crate::cpu_counters::reset();
+            gc.counts().reset();
             render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &damage).unwrap();
-            (pm, crate::cpu_counters::take())
+            (pm, gc.counts().take())
         };
         let (banded, counted) = paint(4);
         let (single, _) = paint(1);
@@ -19355,8 +19251,8 @@ mod audit_a1_tests {
         assert_ne!(px(&banded, 839, 669), [1, 2, 3, 255], "and its last pixel");
     }
 
-    /// A1-29: `release_cpu_halos` drops what this thread's CPU renderer keeps - a halo and a
-    /// remembered "not kept" alike - and the store keeps new ones afterwards.
+    /// A1-29: `release_cpu_halos` drops what the CPU renderer keeps for a glyph cache - a halo
+    /// and a remembered "not kept" alike - and the store keeps new ones afterwards.
     /// Mutation: a release that leaves the memo as it is still finds both.
     #[test]
     fn released_halos_are_gone_and_the_store_keeps_new_ones() {
@@ -19365,15 +19261,23 @@ mod audit_a1_tests {
             Some(std::sync::Arc::new(CpuHalo { width: 2, height: 1, offset: (0, 0), coverage: vec![255, 0] }))
         };
         let (a, b) = (0xA129_0001_u64, 0xA129_0002_u64);
-        keep_cpu_halo(a, halo());
-        keep_cpu_halo(b, None);
-        assert!(matches!(kept_cpu_halo(a), Some(Some(_))), "premise: kept");
-        assert!(matches!(kept_cpu_halo(b), Some(None)), "premise: remembered as not kept");
-        release_cpu_halos();
-        assert!(kept_cpu_halo(a).is_none() && kept_cpu_halo(b).is_none(), "released");
-        keep_cpu_halo(a, halo());
-        assert!(matches!(kept_cpu_halo(a), Some(Some(_))), "and the store keeps on keeping");
-        release_cpu_halos();
+        let mut cache = GlyphCache::new();
+        keep_cpu_halo(&mut cache.scratch, a, halo());
+        keep_cpu_halo(&mut cache.scratch, b, None);
+        assert!(matches!(kept_cpu_halo(&mut cache.scratch, a), Some(Some(_))), "premise: kept");
+        assert!(matches!(kept_cpu_halo(&mut cache.scratch, b), Some(None)), "premise: remembered as not kept");
+        // Another cache's halos are its own: this cache's release does not touch them.
+        let mut other = GlyphCache::new();
+        keep_cpu_halo(&mut other.scratch, a, halo());
+        release_cpu_halos(&mut cache);
+        assert!(
+            kept_cpu_halo(&mut cache.scratch, a).is_none() && kept_cpu_halo(&mut cache.scratch, b).is_none(),
+            "released"
+        );
+        assert!(matches!(kept_cpu_halo(&mut other.scratch, a), Some(Some(_))), "and another cache's are kept");
+        keep_cpu_halo(&mut cache.scratch, a, halo());
+        assert!(matches!(kept_cpu_halo(&mut cache.scratch, a), Some(Some(_))), "and the store keeps on keeping");
+        release_cpu_halos(&mut cache);
     }
 
     /// A1-06 (a), wired to A8-38: the bands of a repaint read the window's glyph cache and
@@ -19400,9 +19304,9 @@ mod audit_a1_tests {
             let mut pm = AzulPixmap::new(900, 700).unwrap();
             pm.fill(255, 255, 255, 255);
             let whole = [rect(0.0, 0.0, 900.0, 700.0)];
-            crate::cpu_counters::reset();
+            gc.counts().reset();
             render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, gc, &state, &whole).unwrap();
-            (pm, crate::cpu_counters::take())
+            (pm, gc.counts().take())
         };
         let mut window = GlyphCache::new();
         let _ = window.set_text_aa(grayscale);
@@ -19491,10 +19395,10 @@ mod audit_a1_tests {
                 pm.fill(255, 255, 255, 255);
                 let mut gc = GlyphCache::new();
                 GROUP_CULL_OFF.with(|c| c.set(!cull));
-                crate::cpu_counters::reset();
+                gc.counts().reset();
                 render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &damage).unwrap();
                 GROUP_CULL_OFF.with(|c| c.set(false));
-                (pm, crate::cpu_counters::take())
+                (pm, gc.counts().take())
             };
             let (stepped, counted) = paint(true);
             let (whole, counted_whole) = paint(false);
@@ -19536,8 +19440,9 @@ mod audit_a1_tests {
             text_only: false,
         };
         let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let counts = crate::cpu_counters::FrameCounts::new();
         let nothing = |entry: &FrameEntry, cull: WalkCull, clip: Option<AzRect>| {
-            frame_paints_nothing(&push, entry, &cull, false, (400, 300), 1.0, clip, (10.0, 0.0), &[], &[], &state)
+            frame_paints_nothing(&push, entry, &cull, false, (400, 300), 1.0, clip, (10.0, 0.0), &[], &[], &state, &counts)
         };
         let damage = |w: f32| WalkCull::Damage(rect(0.0, 0.0, w, 100.0));
         assert!(nothing(&entry, damage(110.0), None), "117 is past a rect that ends at 110");
@@ -19556,38 +19461,41 @@ mod audit_a1_tests {
         // the box is x 7 .. 73 and reaches the rect.
         let mut live = CpuRenderState::new(ScrollOffsetMap::new());
         live.transforms.insert(77, azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.0, -80.0, 0.0) });
-        assert!(!frame_paints_nothing(&push, &entry, &damage(110.0), false, (400, 300), 1.0, None, (10.0, 0.0), &[], &[], &live));
+        assert!(!frame_paints_nothing(&push, &entry, &damage(110.0), false, (400, 300), 1.0, None, (10.0, 0.0), &[], &[], &live, &counts));
     }
 
     /// A1-06 (a): the halos the frame's thread keeps are shared with a band thread, and come
-    /// back with what the band kept. Mutation: a band thread that does not adopt the store
-    /// finds nothing kept (and would draw every halo of its band on every frame); a store not
-    /// restored loses the frame thread's halos after the first repaint in bands.
+    /// back with what the band kept. Mutation: a band thread whose scratch does not share the
+    /// frame's memo finds nothing kept (and would draw every halo of its band on every frame); a
+    /// memo not taken back loses the frame thread's halos after the first repaint in bands.
     #[test]
     fn a_band_thread_reads_and_keeps_the_halos_of_the_frames_thread() {
-        use super::super::text_halo::{
-            adopt_cpu_halos, keep_cpu_halo, kept_cpu_halo, restore_cpu_halos, share_cpu_halos, CpuHalo,
-        };
+        use super::super::text_halo::{keep_cpu_halo, kept_cpu_halo, CpuHalo};
         fn halo(width: u32) -> Option<std::sync::Arc<CpuHalo>> {
             Some(std::sync::Arc::new(CpuHalo { width, height: 1, offset: (0, 0), coverage: vec![7; width as usize] }))
         }
         let (mine, theirs) = (0x00A1_0001_u64, 0x00A1_0002_u64);
-        keep_cpu_halo(mine, halo(3));
-        let shared = share_cpu_halos();
-        assert!(kept_cpu_halo(mine).is_none(), "moved out of this thread's memo while it is shared");
-        let for_band = std::sync::Arc::clone(&shared);
-        std::thread::spawn(move || {
-            assert!(kept_cpu_halo(mine).is_none(), "a new thread has kept nothing");
-            adopt_cpu_halos(Some(for_band));
-            assert_eq!(kept_cpu_halo(mine).flatten().map(|h| h.width), Some(3), "the band reads the frame's halo");
-            keep_cpu_halo(theirs, halo(5));
-            adopt_cpu_halos(None);
-        })
-        .join()
-        .expect("the band thread");
-        restore_cpu_halos(shared);
-        assert_eq!(kept_cpu_halo(mine).flatten().map(|h| h.width), Some(3), "back in this thread's memo");
-        assert_eq!(kept_cpu_halo(theirs).flatten().map(|h| h.width), Some(5), "with what the band kept");
+        let mut frame = PaintScratch::default();
+        keep_cpu_halo(&mut frame, mine, halo(3));
+        let share = frame.share_with_bands();
+        let mut band = PaintScratch::for_band(&share);
+        drop(share);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                assert_eq!(
+                    kept_cpu_halo(&mut band, mine).flatten().map(|h| h.width),
+                    Some(3),
+                    "the band reads the frame's halo"
+                );
+                keep_cpu_halo(&mut band, theirs, halo(5));
+            });
+        });
+        // A scratch that did not share the frame's memo has kept nothing.
+        assert!(kept_cpu_halo(&mut PaintScratch::default(), mine).is_none(), "another thread's own memo is empty");
+        drop(band);
+        frame.take_back_from_bands();
+        assert_eq!(kept_cpu_halo(&mut frame, mine).flatten().map(|h| h.width), Some(3), "back in the frame's memo");
+        assert_eq!(kept_cpu_halo(&mut frame, theirs).flatten().map(|h| h.width), Some(5), "with what the band kept");
     }
 
     // ---- kept group surfaces ----------------------------------------------------------------
@@ -19671,8 +19579,9 @@ mod audit_a1_tests {
     ) -> crate::cpu_counters::CpuFrameCounters {
         let mut gc = GlyphCache::new();
         let whole = [rect(0.0, 0.0, 900.0, 700.0)];
-        crate::cpu_counters::reset();
         if let Some(retained) = &state.retained {
+            // (Drops before this frame are not this frame's.)
+            let _ = retained.take_invalidated();
             refresh_retained_surfaces(state, rr, fm, &mut gc, 1.0).unwrap();
             retained.begin_frame(&[Arc::as_ptr(&scene.host) as usize, Arc::as_ptr(&scene.child) as usize]);
         }
@@ -19680,7 +19589,12 @@ mod audit_a1_tests {
         if let Some(retained) = &state.retained {
             retained.commit();
         }
-        crate::cpu_counters::take()
+        // What the backend reports: the painting's counters and the surfaces the frame dropped.
+        let mut counted = gc.counts().take();
+        if let Some(retained) = &state.retained {
+            counted.retained_invalidations += retained.take_invalidated();
+        }
+        counted
     }
 
     /// The same frame painted afresh: no kept surface, one pass, a new target.
@@ -19962,13 +19876,15 @@ mod audit_a1_tests {
         };
         let (rr, fm, font_hash) = resources(Some(&font));
         let (host, state) = turned_labels((&font, font_hash.expect("the font's hash")));
-        let paint = || {
+        // One glyph cache for every paint, as a window has: the pictures it keeps are what a
+        // second paint finds.
+        let mut window = GlyphCache::new();
+        let mut paint = || {
             let mut pm = AzulPixmap::new(400, 300).unwrap();
             pm.fill(255, 255, 255, 255);
-            let mut gc = GlyphCache::new();
-            crate::cpu_counters::reset();
-            render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
-            (pm, crate::cpu_counters::take())
+            window.counts().reset();
+            render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut window, &state).unwrap();
+            (pm, window.counts().take())
         };
         let (direct, counted) = paint();
         assert_eq!(counted.groups_opened, 0, "no surface for a turned label: {counted:?}");
@@ -20015,13 +19931,13 @@ mod audit_a1_tests {
                 let mut pm = AzulPixmap::new(900, 700).unwrap();
                 pm.fill(255, 255, 255, 255);
                 let mut gc = GlyphCache::new();
-                crate::cpu_counters::reset();
+                gc.counts().reset();
                 if banded {
                     render_display_list_whole(&dl, &mut pm, dpi, &rr, &fm, &mut gc, &state).unwrap();
                 } else {
                     render_display_list_with_state(&dl, &mut pm, dpi, &rr, &fm, &mut gc, &state).unwrap();
                 }
-                (pm, crate::cpu_counters::take())
+                (pm, gc.counts().take())
             };
             let (banded, counted) = paint(true);
             let (plain, _) = paint(false);
@@ -20110,36 +20026,43 @@ mod audit_a1_tests {
     }
 
     /// A1-25: the blurred box shadows the frame's thread keeps are shared with a band thread,
-    /// and come back with what the band kept. Mutation: a band thread that does not adopt the
-    /// cache finds nothing kept and blurs every shadow of its band on every frame.
+    /// and come back with what the band kept. Mutation: a band thread whose scratch does not
+    /// share the frame's cache finds nothing kept and blurs every shadow of its band on every
+    /// frame.
     #[test]
     fn a_band_thread_reads_and_keeps_the_box_shadows_of_the_frames_thread() {
         fn entry(w: u32) -> ShadowCacheEntry {
             ShadowCacheEntry { data: Arc::new(vec![9; (w * 4) as usize]), w, h: 1 }
         }
-        fn keep(key: u64, w: u32) {
-            with_shadow_cache(|c| {
+        fn keep(scratch: &mut PaintScratch, key: u64, w: u32) {
+            scratch.shadows.with(|c| {
                 c.2 += (w * 4) as usize;
                 c.0.insert(key, entry(w));
                 c.1.push_back(key);
             });
         }
-        let kept = |key: u64| with_shadow_cache(|c| c.0.get(&key).map(|e| e.w));
-        keep(71, 3);
-        let shared = share_shadow_cache();
-        assert_eq!(kept(71), None, "moved out of this thread's cache while it is shared");
-        let for_band = Arc::clone(&shared);
-        std::thread::spawn(move || {
-            adopt_shadow_cache(Some(for_band));
-            assert_eq!(with_shadow_cache(|c| c.0.get(&71).map(|e| e.w)), Some(3), "the band reads the frame's shadow");
-            keep(72, 5);
-            adopt_shadow_cache(None);
-        })
-        .join()
-        .expect("the band thread");
-        restore_shadow_cache(shared);
-        assert_eq!((kept(71), kept(72)), (Some(3), Some(5)), "back, with what the band kept");
-        assert_eq!(with_shadow_cache(|c| c.2), 32, "and the bytes of both");
+        fn kept(scratch: &mut PaintScratch, key: u64) -> Option<u32> {
+            scratch.shadows.with(|c| c.0.get(&key).map(|e| e.w))
+        }
+        let mut frame = PaintScratch::default();
+        keep(&mut frame, 71, 3);
+        let share = frame.share_with_bands();
+        let mut band = PaintScratch::for_band(&share);
+        drop(share);
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                assert_eq!(kept(&mut band, 71), Some(3), "the band reads the frame's shadow");
+                keep(&mut band, 72, 5);
+            });
+        });
+        drop(band);
+        frame.take_back_from_bands();
+        assert_eq!(
+            (kept(&mut frame, 71), kept(&mut frame, 72)),
+            (Some(3), Some(5)),
+            "back, with what the band kept"
+        );
+        assert_eq!(frame.shadows.with(|c| c.2), 32, "and the bytes of both");
     }
 
     /// A2-gpu-06: an opacity group fades everything it paints, not only what lies in its
@@ -20407,7 +20330,7 @@ mod audit_a1_tests {
             }
             state.transforms.insert(1, azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.5, 0.0, 0.0) });
             let mut gc = GlyphCache::new();
-            crate::cpu_counters::reset();
+            gc.counts().reset();
             if let Some(retained) = retained {
                 refresh_retained_surfaces(&state, &rr, &fm, &mut gc, 1.0).unwrap();
                 retained.begin_frame(&[Arc::as_ptr(dl) as usize]);
@@ -20416,7 +20339,7 @@ mod audit_a1_tests {
             if let Some(retained) = retained {
                 retained.commit();
             }
-            crate::cpu_counters::take()
+            gc.counts().take()
         };
         let white = || {
             let mut pm = AzulPixmap::new(900, 600).unwrap();
@@ -20480,9 +20403,9 @@ mod audit_a1_tests {
         let mut pm = AzulPixmap::new(400, 300).unwrap();
         pm.fill(255, 255, 255, 255);
         let mut gc = GlyphCache::new();
-        crate::cpu_counters::reset();
+        gc.counts().reset();
         render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
-        let counted = crate::cpu_counters::take();
+        let counted = gc.counts().take();
         let dark = (0..300u32).flat_map(|y| (0..400u32).map(move |x| (x, y))).filter(|&(x, y)| px(&pm, x, y)[0] < 64).count();
         assert!(dark > 2000, "the letters that land in the view are painted: {dark} dark px, {counted:?}");
         assert_eq!(counted.groups_opened, 1, "as a group: {counted:?}");
@@ -20512,9 +20435,9 @@ mod audit_a1_tests {
         let mut pm = AzulPixmap::new(400, 300).unwrap();
         pm.fill(255, 255, 255, 255);
         let mut gc = GlyphCache::new();
-        crate::cpu_counters::reset();
+        gc.counts().reset();
         render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
-        let counted = crate::cpu_counters::take();
+        let counted = gc.counts().take();
         assert_eq!(counted.groups_opened, 0, "drawn directly: {counted:?}");
         assert!((4..=12).contains(&counted.halos_drawn), "halo pictures for the runs in the view alone: {counted:?}");
     }
@@ -20752,7 +20675,7 @@ mod audit_a1_tests {
         pm.fill(255, 255, 255, 255);
         let shadow = StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 255 }, ..halo(0.0, 4.0, [0, 0, 0]) };
         let clip = AzRect::from_xywh(0.0, 0.0, 30.5, 40.0);
-        render_box_shadow(&mut pm, &rect(10.0, 10.0, 40.0, 20.0), &shadow, &BorderRadius::default(), clip, 1.0).unwrap();
+        render_box_shadow(&mut pm, &rect(10.0, 10.0, 40.0, 20.0), &shadow, &BorderRadius::default(), clip, 1.0, &mut PaintScratch::default()).unwrap();
         assert_eq!(px(&pm, 8, 20), [0, 0, 0, 255], "premise: the spread's ring left of the box is painted");
         assert_eq!(px(&pm, 29, 8), [0, 0, 0, 255], "the last column a fill under the clip writes");
         assert_eq!(px(&pm, 30, 8), [255, 255, 255, 255], "the column the clip ends in is not written");
@@ -20818,13 +20741,14 @@ mod audit_a1_tests {
     /// counts.
     #[test]
     fn a_rounded_or_inner_shadow_is_cut_once_and_kept() {
-        let clear = || SHADOW_BLUR_CACHE.with(|c| *c.borrow_mut() = ShadowCache::default());
-        let kept = || SHADOW_BLUR_CACHE.with(|c| c.borrow().0.len());
+        let scratch = std::cell::RefCell::new(PaintScratch::default());
+        let clear = || scratch.borrow_mut().shadows.with(|c| *c = ShadowCache::default());
+        let kept = || scratch.borrow_mut().shadows.with(|c| c.0.len());
         let radius = BorderRadius { top_left: 6.0, top_right: 6.0, bottom_left: 6.0, bottom_right: 6.0 };
         let draw = |shadow: &StyleBoxShadow, x: f32, y: f32| {
             let mut pm = AzulPixmap::new(120, 90).unwrap();
             pm.fill(255, 255, 255, 255);
-            render_box_shadow(&mut pm, &rect(x, y, 50.0, 30.0), shadow, &radius, None, 1.0).unwrap();
+            render_box_shadow(&mut pm, &rect(x, y, 50.0, 30.0), shadow, &radius, None, 1.0, &mut scratch.borrow_mut()).unwrap();
             pm
         };
         let outer = StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 160 }, ..halo(5.0, 2.0, [0, 0, 0]) };
@@ -21246,8 +21170,9 @@ mod audit_a1_tests {
     ) -> crate::cpu_counters::CpuFrameCounters {
         let mut gc = GlyphCache::new();
         let whole = [rect(0.0, 0.0, 900.0, 700.0)];
-        crate::cpu_counters::reset();
         if let Some(retained) = &state.retained {
+            // (Drops before this frame are not this frame's.)
+            let _ = retained.take_invalidated();
             refresh_retained_surfaces(state, rr, fm, &mut gc, 1.0).unwrap();
             retained.begin_frame(&[Arc::as_ptr(scene) as usize]);
         }
@@ -21255,7 +21180,12 @@ mod audit_a1_tests {
         if let Some(retained) = &state.retained {
             retained.commit();
         }
-        crate::cpu_counters::take()
+        // What the backend reports: the painting's counters and the surfaces the frame dropped.
+        let mut counted = gc.counts().take();
+        if let Some(retained) = &state.retained {
+            counted.retained_invalidations += retained.take_invalidated();
+        }
+        counted
     }
 
     /// The same frame painted afresh: nothing kept, one pass, a new target.
@@ -21615,9 +21545,9 @@ mod audit_a1_tests {
         let mut gc = GlyphCache::new();
         GRID_OFF.with(|c| c.set(!grid));
         PAINT_TRACE.with(|trace| *trace.borrow_mut() = Some(Vec::new()));
-        crate::cpu_counters::reset();
+        gc.counts().reset();
         let painted = render_display_list_damaged(dl, &mut pm, dpi, &rr, &fm, &mut gc, state, damage);
-        let counted = crate::cpu_counters::take();
+        let counted = gc.counts().take();
         let trace = PAINT_TRACE.with(|trace| trace.borrow_mut().take()).unwrap_or_default();
         GRID_OFF.with(|c| c.set(false));
         painted.unwrap();
@@ -21764,11 +21694,11 @@ mod audit_a1_tests {
             pm.fill(255, 255, 255, 255);
             let mut gc = GlyphCache::new();
             GRID_OFF.with(|c| c.set(!grid));
-            crate::cpu_counters::reset();
+            gc.counts().reset();
             let painted = render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &whole);
             GRID_OFF.with(|c| c.set(false));
             painted.unwrap();
-            (pm, crate::cpu_counters::take())
+            (pm, gc.counts().take())
         };
         let (banded, counted) = paint(4, true);
         let (banded_scan, counted_banded_scan) = paint(4, false);
@@ -22126,9 +22056,9 @@ mod audit_a1_tests {
             let mut pm = AzulPixmap::new(900, 700).unwrap();
             pm.fill(255, 255, 255, 255);
             let mut gc = GlyphCache::new();
-            crate::cpu_counters::reset();
+            gc.counts().reset();
             render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
-            (pm, crate::cpu_counters::take())
+            (pm, gc.counts().take())
         };
         // How far the painted pixels reach along the turned baseline: the last painted row.
         let along = |pm: &AzulPixmap| {
@@ -22440,10 +22370,10 @@ mod audit_a1_tests {
             pm.fill(255, 255, 255, 255);
             let mut gc = GlyphCache::new();
             retained.begin_frame(&[Arc::as_ptr(&dl) as usize]);
-            crate::cpu_counters::reset();
+            gc.counts().reset();
             render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &[rect(0.0, 0.0, 1230.0, 762.0)]).unwrap();
             retained.commit();
-            (retained.len(), crate::cpu_counters::take(), pm)
+            (retained.len(), gc.counts().take(), pm)
         };
         let (kept, counted, plain) = paint(false);
         assert_eq!(kept, 1, "premise: the frame that fits a surface is kept: {counted:?}");

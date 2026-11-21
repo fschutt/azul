@@ -85,7 +85,8 @@ fn texel(row: &[u8], x: i32, width: i32) -> u32 {
 
 /// Composite `src`, scaled by `(sx, sy)` and moved by `(tx, ty)` (source device pixels to
 /// destination device pixels), over `dst` at opacity `op` (0..=255), inside the destination box
-/// `(x0, y0, x1, y1)` (half-open, already clamped to `dst`).
+/// `(x0, y0, x1, y1)` (half-open, already clamped to `dst`), on at most `max_threads` threads
+/// (a pass on a band's thread of a repaint asks for 1: the band's thread is the composite's).
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::many_single_char_names)]
 pub(crate) fn blit_scale_translate(
     src: &AzulPixmap,
@@ -93,6 +94,7 @@ pub(crate) fn blit_scale_translate(
     (sx, sy, tx, ty): (f64, f64, f64, f64),
     op: u32,
     (x0, y0, x1, y1): (i32, i32, i32, i32),
+    max_threads: usize,
 ) {
     let (sw, sh) = (src.width as i32, src.height as i32);
     let dw = dst.width as i32;
@@ -141,10 +143,10 @@ pub(crate) fn blit_scale_translate(
 
     let total_rows = (y1 - y0) as usize;
     let px = total_rows * (x1 - x0) as usize;
-    // At most the repaint's thread budget (`bands::max_threads`: `AZ_CPU_THREADS`, 4 by default,
-    // the machine's count asked once, not on every composite), and one inside a band of a
-    // repaint: the band's thread is the composite's.
-    let threads = super::bands::composite_threads(px / PX_PER_THREAD);
+    // At most the caller's thread budget (`bands::max_threads`: `AZ_CPU_THREADS`, 4 by default,
+    // the machine's count asked once, not on every composite; one inside a band of a repaint:
+    // the band's thread is the composite's).
+    let threads = (px / PX_PER_THREAD).clamp(1, max_threads.max(1));
     let area = &mut dst.data[y0 as usize * stride..y1 as usize * stride];
     if threads <= 1 {
         band_rows(y0, area, total_rows);
@@ -225,7 +227,7 @@ mod tests {
         let m = matrix(sx, sy, tx, ty);
         let b = bbox(&src, &slow, &m);
         blit_pixmap_affine_general(&src, &mut slow, &m, op, b);
-        blit_scale_translate(&src, &mut fast, (sx, sy, tx, ty), op, b);
+        blit_scale_translate(&src, &mut fast, (sx, sy, tx, ty), op, b, super::super::bands::max_threads());
         let mut worst = 0u8;
         let mut off = 0usize;
         for (a, b) in slow.data.iter().zip(fast.data.iter()) {
@@ -267,10 +269,10 @@ mod tests {
         // one thread: a box too small to split
         let rows = (b.3 - b.1) as usize;
         assert!(rows * (b.2 - b.0) as usize > 2 * PX_PER_THREAD, "harness: the box is split");
-        blit_scale_translate(&src, &mut many, (1.4, 1.25, 3.0, 2.0), 255, b);
+        blit_scale_translate(&src, &mut many, (1.4, 1.25, 3.0, 2.0), 255, b, super::super::bands::max_threads());
         let (top, bottom) = ((b.0, b.1, b.2, b.1 + (b.3 - b.1) / 2), (b.0, b.1 + (b.3 - b.1) / 2, b.2, b.3));
-        blit_scale_translate(&src, &mut one, (1.4, 1.25, 3.0, 2.0), 255, top);
-        blit_scale_translate(&src, &mut one, (1.4, 1.25, 3.0, 2.0), 255, bottom);
+        blit_scale_translate(&src, &mut one, (1.4, 1.25, 3.0, 2.0), 255, top, 1);
+        blit_scale_translate(&src, &mut one, (1.4, 1.25, 3.0, 2.0), 255, bottom, 1);
         assert!(one.data == many.data, "the bands of one composite are the composite");
     }
 
@@ -305,7 +307,7 @@ mod tests {
                     if general {
                         blit_pixmap_affine_general(&src, &mut dst, &m, 255, b);
                     } else {
-                        blit_scale_translate(&src, &mut dst, (scale, scale, tx, ty), 255, b);
+                        blit_scale_translate(&src, &mut dst, (scale, scale, tx, ty), 255, b, super::super::bands::max_threads());
                     }
                     dst
                 };

@@ -4167,6 +4167,16 @@ pub(crate) fn reference_frame_extent_walked(
     items: &[DisplayListItem],
     idx: usize,
 ) -> Option<LogicalRect> {
+    reference_frame_extent_walked_counted(items, idx).map(|(extent, _)| extent)
+}
+
+/// [`reference_frame_extent_walked`] with how many items the walk read: the frame's own, from its
+/// push to its pop. What a test pins to say the index reads each item of a list once and not once
+/// per frame.
+pub(crate) fn reference_frame_extent_walked_counted(
+    items: &[DisplayListItem],
+    idx: usize,
+) -> Option<(LogicalRect, u64)> {
     let DisplayListItem::PushReferenceFrame { bounds, .. } = items.get(idx)? else {
         return None;
     };
@@ -4182,9 +4192,11 @@ pub(crate) fn reference_frame_extent_walked(
             depth == 0
         })
         .map_or(items.len(), |at| idx + at);
-    crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, (end - idx) as u64);
     let frame_box = *bounds.inner();
-    Some(group_paint_bounds(&items[idx + 1..end]).map_or(frame_box, |c| rect_union(frame_box, c)))
+    Some((
+        group_paint_bounds(&items[idx + 1..end]).map_or(frame_box, |c| rect_union(frame_box, c)),
+        (end - idx) as u64,
+    ))
 }
 
 /// One reference frame of a list: where it ends and what it paints.
@@ -4392,7 +4404,6 @@ impl FrameIndex {
     /// [`group_paint_bounds`] counts a frame's range, so the extents are the walked ones.
     fn of(list: &DisplayList) -> Self {
         let items = &list.items;
-        crate::cpu_counters::count(crate::cpu_counters::Counter::ScanItems, items.len() as u64);
         let mut transform_keys = std::collections::HashSet::new();
         let mut opacity_keys = std::collections::HashSet::new();
         let mut views = Vec::new();
@@ -5034,9 +5045,14 @@ impl FrameIndex {
     }
 }
 
-/// The [`FrameIndex`] a [`DisplayList`] keeps.
+/// The [`FrameIndex`] a [`DisplayList`] keeps, and how many items the scans that made the
+/// indexes of this list have read in all (a number the list keeps, so that a frame can say how
+/// much scanning it owed: [`DisplayList::index_items_scanned`]).
 #[derive(Default)]
-pub struct FrameIndexCell(std::sync::Mutex<Option<Arc<FrameIndex>>>);
+pub struct FrameIndexCell(
+    std::sync::Mutex<Option<Arc<FrameIndex>>>,
+    std::sync::atomic::AtomicU64,
+);
 
 impl FrameIndexCell {
     /// Drop the index: the items changed.
@@ -5044,6 +5060,11 @@ impl FrameIndexCell {
         if let Ok(mut slot) = self.0.lock() {
             *slot = None;
         }
+    }
+
+    /// An index of `items` items was made.
+    fn note_scanned(&self, items: usize) {
+        self.1.fetch_add(items as u64, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -5072,10 +5093,20 @@ impl DisplayList {
                 }
             }
             let index = Arc::new(FrameIndex::of(self));
+            self.frame_index.note_scanned(len);
             *slot = Some(Arc::clone(&index));
             return index;
         }
+        self.frame_index.note_scanned(len);
         Arc::new(FrameIndex::of(self))
+    }
+
+    /// How many items the scans that made this list's frame indexes have read since the list was
+    /// made: one pass over the items each time an index is made (the first ask, and again after
+    /// the items changed). A frame that asks a list nothing new adds nothing to it.
+    #[must_use]
+    pub(crate) fn index_items_scanned(&self) -> u64 {
+        self.frame_index.1.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
