@@ -3057,24 +3057,26 @@ fn rows_window(above: f32) -> (LayoutWindow, DomId) {
     (lw, child)
 }
 
-/// The list of a PATCHED pass is the list a build gives, bit for bit. The box above forty
-/// rows gets another height (10.7 to 255.8 px): the rows move down by 245.1 px and nothing
-/// else of them changes. A pass that copies their runs shifts every coordinate by the row's
-/// move, and `(old + 2.3) + move` is not `new + 2.3` in the last bit for some of such sums
-/// (two roundings against one; in single precision, rows 3, 4, 6, 8, 10, 12 and 28 of this
-/// page when a row's place is the sum of the heights above it): the patched list and a
-/// built one differ by an ulp in a row's rect, which is what the equality walks of the
-/// diff-first pipeline found. A row that moved is painted again (the diff-first owner's
-/// fix in `try_copy_cached_run`: a run is copied only where it lies).
+/// After the `NodeCss` pass of a view's document every box and item is bit for bit what a
+/// build of the changed page holds. The box above forty rows gets another height (10.7 to
+/// 255.8 px): the rows move down by 245.1 px and nothing else of them changes. A pass that
+/// copied their runs and shifted every coordinate by the row's move would leave
+/// `(old + 2.3) + move` where a build has `new + 2.3`: not the same in the last bit for some
+/// of such sums (two roundings against one; in single precision, rows 3, 4, 6, 8, 10, 12 and
+/// 28 of this page when a row's place is the sum of the heights above it), which is what the
+/// equality walks of the diff-first pipeline found. A row that moved is painted again (the
+/// diff-first owner's fix in `try_copy_cached_run`: a run is copied only where it lies).
 ///
-/// The test runs its own mutant first, because the page it had (a move by 27.2 px) passed
-/// with and without the fix: under `MovedRunPolicy::AlwaysTranslate` (the per-thread twin
-/// of `AZ_DL_TRANSLATE_MOVED_RUNS=1`) the same pass must translate the runs of the forty
-/// rows - or it is no patched pass that meets moved boxes, and proves nothing - and must
-/// leave a list that is NOT the built one - or these sums add exactly, and prove nothing
-/// either. Then the default policy: bit for bit the built list.
-/// Mutation: a moved node's run copied and shifted again by every pass: the last
-/// `same_bits` names the first row whose rect is an ulp off.
+/// What this test does NOT prove (the verifier's run, measured 2026-11-21): this pass builds
+/// the document's list in full: 0 runs copied, 0 translated, also under
+/// `MovedRunPolicy::AlwaysTranslate`, where its list is the built one bit for bit. So the page
+/// cannot tell a pass that shifts moved runs from one that paints them: the two premises the
+/// test ran its own mutant for ("at least 40 runs translated", "the shifted list is not the
+/// built one") cannot hold on a pass that patches nothing, and are gone. The moved-run
+/// property is guarded by `audit_tests::diff_first::a_box_a_patched_pass_moved_is_painted_as_a_build_paints_it`
+/// and `the_switch_translates_a_moved_run_as_before`, which use a pass that patches (a
+/// resize). Nothing here pins the full build: the day this pass patches its list, the
+/// equality below is the guard it must keep.
 #[test]
 fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
     use azul_css::props::{
@@ -3083,10 +3085,7 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
 
     use crate::{
         overlay::{ContentChange, ContentDirtyTier},
-        solver3::display_list::{
-            moved_runs_translated_on_this_thread, set_moved_run_policy_on_this_thread,
-            MovedRunPolicy,
-        },
+        solver3::display_list::{set_moved_run_policy_on_this_thread, MovedRunPolicy},
     };
 
     const BEFORE: f32 = 10.7;
@@ -3105,30 +3104,13 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
     };
     let (fresh, fresh_child) = rows_window(AFTER);
 
-    // The mutant, run here: every moved run copied and shifted.
-    set_moved_run_policy_on_this_thread(Some(MovedRunPolicy::AlwaysTranslate));
-    let translated_before = moved_runs_translated_on_this_thread();
-    let (mut shifted, shifted_child) = rows_window(BEFORE);
-    grow(&mut shifted, shifted_child);
-    let translated = moved_runs_translated_on_this_thread() - translated_before;
-    let shifted_is_the_built_list =
-        same_bits(&shifted, shifted_child, &fresh, fresh_child).is_ok();
-    set_moved_run_policy_on_this_thread(None);
-    assert!(
-        translated >= 40,
-        "premise: the pass patches its list and meets the forty rows it moved ({translated} \
-         runs were translated; with none, this pass builds its list in full and the test \
-         needs a pass that patches: a resize, as `audit_tests::diff_first` has)"
-    );
-    assert!(
-        !shifted_is_the_built_list,
-        "premise: a list whose moved runs are shifted is not the built one on this page \
-         (if it is, these moves add exactly and the page tells nothing)"
-    );
-
-    // The pass as it is: a moved box is painted anew.
+    // The pass as it is (the default policy: a moved box is painted anew).
     set_moved_run_policy_on_this_thread(Some(MovedRunPolicy::TweenFramesTranslate));
     let (mut lw, child) = rows_window(BEFORE);
+    assert!(
+        same_bits(&lw, child, &fresh, fresh_child).is_err(),
+        "premise: before the pass the rows stand where the lower box put them"
+    );
     grow(&mut lw, child);
     let painted = same_bits(&lw, child, &fresh, fresh_child);
     set_moved_run_policy_on_this_thread(None);
