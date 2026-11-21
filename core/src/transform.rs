@@ -783,6 +783,40 @@ impl ComputedTransform3D {
         self.m[3][2] *= scale_factor;
     }
 
+    /// This matrix, which maps LOGICAL (CSS) px to logical px, as the matrix
+    /// that maps DEVICE px to device px at `scale_factor` device px per
+    /// logical px: `S^-1 * M * S` with `S = scale(f, f, f)` (row vectors, so
+    /// a device point is first brought to logical px, then moved by `M`,
+    /// then brought back).
+    ///
+    /// Element by element that is: the linear 3x3 part unchanged, the
+    /// TRANSLATION row (`m[3][0..3]`, lengths) times `f`, and the PERSPECTIVE
+    /// column (`m[0..3][3]`, 1 / length: what a coordinate adds to `w`)
+    /// divided by `f`. [`Self::scale_for_dpi`] does the translation row
+    /// alone, which is the whole conversion only for an affine matrix: under
+    /// `perspective()` a renderer that takes its coordinates in device px
+    /// and leaves the perspective column as it is foreshortens `f` times too
+    /// strongly (`w = 1 + f * x * m03` where `w = 1 + x * m03` is meant).
+    ///
+    /// The CPU compositor converts this way (`cpurender`'s `layer_h`); the
+    /// `WebRender` translation hands its frames the result of this.
+    /// A `scale_factor` that is not a positive finite number leaves the
+    /// matrix as it is.
+    #[must_use]
+    pub fn to_device_px(&self, scale_factor: f32) -> Self {
+        if !(scale_factor.is_finite() && scale_factor > 0.0) {
+            return *self;
+        }
+        let mut m = self.m;
+        m[3][0] *= scale_factor;
+        m[3][1] *= scale_factor;
+        m[3][2] *= scale_factor;
+        m[0][3] /= scale_factor;
+        m[1][3] /= scale_factor;
+        m[2][3] /= scale_factor;
+        Self { m }
+    }
+
     /// Multiplies this matrix by `other`, applying `other` AFTER the current matrix.
     #[must_use]
     #[inline]
@@ -1238,3 +1272,135 @@ mod audit_tests {
 #[cfg(test)]
 #[path = "transform_test.rs"]
 mod transform_test;
+
+/// A2-gpu (audit 2026-11-21): the conversion of a matrix from logical to
+/// device pixels, `audit/A2-gpu.md` finding A2-gpu-01.
+#[cfg(test)]
+mod audit_a2_gpu_tests {
+    use azul_css::props::basic::{AngleValue, PixelValue};
+
+    use super::*;
+
+    fn close(a: f32, b: f32, tolerance: f32) -> bool {
+        (a - b).abs() <= tolerance
+    }
+
+    /// `perspective(400px) rotateY(60deg)` about the centre of a 100 x 40 box.
+    fn tilt() -> ComputedTransform3D {
+        ComputedTransform3D::from_style_transform_vec(
+            &[
+                StyleTransform::Perspective(PixelValue::px(400.0)),
+                StyleTransform::RotateY(AngleValue::deg(60.0)),
+            ],
+            &StyleTransformOrigin::default(),
+            100.0,
+            40.0,
+            RotationMode::ForWebRender,
+        )
+    }
+
+    fn at(m: &ComputedTransform3D, x: f32, y: f32) -> LogicalPosition {
+        m.transform_point2d(LogicalPosition::new(x, y))
+            .expect("in front of the eye")
+    }
+
+    /// The hand-computed matrix of the example: with c = cos 60 = 0.5,
+    /// s = sin 60 = 0.8660254, d = 400 and the origin o = (50, 20),
+    /// `T(-o) * R * P * T(o)` has the rows
+    /// `[c + o.x s/d, o.y s/d, -s, s/d]`, `[0, 1, 0, 0]` and the translation
+    /// row `[-o.x c + (1 - o.x s/d) o.x, -o.y + (1 - o.x s/d) o.y, o.x s, 1 - o.x s/d]`.
+    #[test]
+    fn the_tilt_of_the_example_is_the_hand_computed_matrix() {
+        let m = tilt().m;
+        assert!(close(m[0][0], 0.608_253, 1e-4), "{m:?}");
+        assert!(close(m[0][1], 0.043_301, 1e-4), "{m:?}");
+        assert!(close(m[0][3], 0.002_165_06, 1e-6), "{m:?}");
+        assert!(close(m[1][1], 1.0, 1e-5) && close(m[1][3], 0.0, 1e-7), "{m:?}");
+        assert!(close(m[3][0], 19.587_35, 1e-3), "{m:?}");
+        assert!(close(m[3][1], -2.165_06, 1e-3), "{m:?}");
+        assert!(close(m[3][3], 0.891_747, 1e-5), "{m:?}");
+    }
+
+    /// The box's top-right corner (100, 0), in logical px: (72.558, 1.954).
+    /// At 2 device px per logical px the same corner is the device point
+    /// (200, 0) and lands at twice that, (145.116, 3.907). The matrix whose
+    /// translation alone was scaled puts it at (121.400, 3.269): 23.7 device
+    /// px to the left.
+    ///
+    /// Mutation: `m[0][3] /= scale_factor` -> `m[0][3]` unchanged in
+    /// `to_device_px` fails this test.
+    #[test]
+    fn a_perspective_matrix_in_device_px_draws_a_point_where_the_logical_one_does() {
+        let m = tilt();
+        let logical = at(&m, 100.0, 0.0);
+        assert!(
+            close(logical.x, 72.558, 0.01) && close(logical.y, 1.954, 0.01),
+            "{logical:?}"
+        );
+
+        let device = at(&m.to_device_px(2.0), 200.0, 0.0);
+        assert!(
+            close(device.x, 145.116, 0.02) && close(device.y, 3.907, 0.02),
+            "{device:?}"
+        );
+
+        let mut translation_only = m;
+        translation_only.scale_for_dpi(2.0);
+        let wrong = at(&translation_only, 200.0, 0.0);
+        assert!(
+            close(wrong.x, 121.400, 0.02) && close(wrong.y, 3.269, 0.02),
+            "what a translation-only scaling gives: {wrong:?}"
+        );
+    }
+
+    /// The property behind the example: for every point and every scale, the
+    /// device matrix maps `f * p` to `f * M(p)`.
+    #[test]
+    fn the_device_matrix_commutes_with_the_scale() {
+        let m = tilt();
+        for f in [0.5_f32, 1.0, 1.25, 1.5, 2.0, 3.0] {
+            let device = m.to_device_px(f);
+            for (x, y) in [
+                (0.0_f32, 0.0_f32),
+                (100.0, 0.0),
+                (100.0, 40.0),
+                (0.0, 40.0),
+                (50.0, 20.0),
+                (-30.0, 75.0),
+            ] {
+                let want = at(&m, x, y);
+                let got = at(&device, x * f, y * f);
+                assert!(
+                    close(got.x, want.x * f, 0.01 * f.max(1.0))
+                        && close(got.y, want.y * f, 0.01 * f.max(1.0)),
+                    "scale {f}, point ({x}, {y}): {got:?}, want {f} x {want:?}"
+                );
+            }
+        }
+    }
+
+    /// An affine matrix has no perspective column to divide: there the
+    /// conversion is the scaling of the translation row.
+    #[test]
+    fn an_affine_matrix_in_device_px_only_has_its_translation_scaled() {
+        // scale(2) about (50, 20): p -> 2 p - (50, 20)
+        let m = ComputedTransform3D::new_translation(-50.0, -20.0, 0.0)
+            .then(&ComputedTransform3D::new_scale(2.0, 2.0, 1.0))
+            .then(&ComputedTransform3D::new_translation(50.0, 20.0, 0.0));
+        assert!(close(m.m[3][0], -50.0, 1e-4) && close(m.m[3][1], -20.0, 1e-4));
+        let mut translation_only = m;
+        translation_only.scale_for_dpi(2.0);
+        assert_eq!(m.to_device_px(2.0), translation_only);
+        assert!(close(m.to_device_px(2.0).m[3][0], -100.0, 1e-4));
+    }
+
+    /// A scale that is no scale leaves the matrix alone (no division by 0).
+    #[test]
+    fn a_degenerate_scale_leaves_the_matrix_as_it_is() {
+        let m = tilt();
+        for f in [0.0_f32, -2.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(m.to_device_px(f), m, "scale {f}");
+        }
+        assert_eq!(m.to_device_px(1.0), m);
+    }
+}
