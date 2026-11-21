@@ -20,7 +20,7 @@
 //!   keys and close reasons, UN action identifiers, balloon messages) into
 //!   the one event type, and the UTF-16 truncation the balloon struct needs.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::Arc;
 
 use azul_core::{
     callbacks::Update,
@@ -39,25 +39,17 @@ use azul_core::{
 use azul_css::{system::SystemStyle, AzString};
 use azul_layout::{
     callbacks::{Callback, CallbackInfo, ExternalSystemCallbacks},
-    managers::notification::{
-        clear_recorded_notifications, current_notification_event, drain_notification_events,
-        drain_notification_requests, has_queued_requests, push_notification_request,
-        queue_notification_event, record_posted_notification, record_withdrawn_notification,
-        recorded_notifications, wire, with_current_notification_event, NotificationDelivery,
-        NotificationRecorder, NotificationRegistry, NotificationRequest, MAX_QUEUED_EVENTS,
+    managers::{
+        app_services::AppServices,
+        notification::{
+            wire, NotificationChannels, NotificationDelivery, NotificationRecorder,
+            NotificationRegistry, NotificationRequest, MAX_QUEUED_EVENTS,
+        },
     },
     window::LayoutWindow,
     window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
-
-/// The queues and the recorder are process globals (the platform callbacks
-/// that write them hold nothing else), so the tests that touch them take
-/// turns. Poison is ignored: one failing test must not fail the rest.
-fn serial() -> MutexGuard<'static, ()> {
-    static SERIAL: Mutex<()> = Mutex::new(());
-    SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-}
 
 fn s(v: &str) -> AzString {
     AzString::from(v)
@@ -131,7 +123,8 @@ fn deliver(lw: &mut LayoutWindow, delivery: NotificationDelivery) -> Update {
     let mut cb = Callback::from_core(callback.callback);
     let mut data = callback.refany;
     let state = lw.current_window_state.clone();
-    with_current_notification_event(&event, || {
+    let channels = lw.app_services.notifications.clone();
+    channels.with_current_notification_event(&event, || {
         lw.invoke_single_callback(
             &mut cb,
             &mut data,
@@ -210,20 +203,19 @@ fn every_event_names_its_notification_and_what_happened() {
 
 #[test]
 fn requests_reach_the_platform_in_the_order_the_app_made_them() {
-    let _serial = serial();
-    drop(drain_notification_requests());
-    assert!(!has_queued_requests(), "premise: an empty queue");
+    let channels = NotificationChannels::new();
+    assert!(!channels.has_queued_requests(), "premise: an empty queue");
 
-    assert!(push_notification_request(NotificationRequest::Post(
+    assert!(channels.push_notification_request(NotificationRequest::Post(
         Notification::create(s("a"), s("first"))
     )));
-    assert!(push_notification_request(NotificationRequest::Withdraw(s("a"))));
-    assert!(push_notification_request(NotificationRequest::Post(
+    assert!(channels.push_notification_request(NotificationRequest::Withdraw(s("a"))));
+    assert!(channels.push_notification_request(NotificationRequest::Post(
         Notification::create(s("b"), s("second"))
     )));
-    assert!(has_queued_requests(), "the dll's pump must see the queue as armed");
+    assert!(channels.has_queued_requests(), "the dll's pump must see the queue as armed");
 
-    let drained = drain_notification_requests();
+    let drained = channels.drain_notification_requests();
     let order: Vec<String> = drained
         .iter()
         .map(|r| match r {
@@ -232,15 +224,14 @@ fn requests_reach_the_platform_in_the_order_the_app_made_them() {
         })
         .collect();
     assert_eq!(order, vec!["post a", "withdraw a", "post b"]);
-    assert!(!has_queued_requests(), "draining empties the queue");
-    assert!(drain_notification_requests().is_empty());
+    assert!(!channels.has_queued_requests(), "draining empties the queue");
+    assert!(channels.drain_notification_requests().is_empty());
 }
 
 #[test]
 fn a_callback_posts_and_withdraws_through_callback_info() {
-    let _serial = serial();
-    drop(drain_notification_requests());
     let mut lw = laid_out_window();
+    let channels = lw.app_services.notifications.clone();
 
     let mut cb = Callback::from_ptr(post_and_withdraw);
     let mut data = RefAny::new(());
@@ -258,7 +249,7 @@ fn a_callback_posts_and_withdraws_through_callback_info() {
     );
     assert_eq!(update, Update::DoNothing);
 
-    let drained = drain_notification_requests();
+    let drained = channels.drain_notification_requests();
     assert_eq!(drained.len(), 2, "one post, one withdraw: {drained:?}");
     match &drained[0] {
         NotificationRequest::Post(n) => {
@@ -272,30 +263,29 @@ fn a_callback_posts_and_withdraws_through_callback_info() {
 
 #[test]
 fn the_event_mailbox_is_bounded_and_drains_in_arrival_order() {
-    let _serial = serial();
-    drop(drain_notification_events());
+    let channels = NotificationChannels::new();
 
     for i in 0..MAX_QUEUED_EVENTS {
         assert!(
-            queue_notification_event(NotificationEvent::dismissed(AzString::from(format!(
-                "n{i}"
-            )))),
+            channels.queue_notification_event(NotificationEvent::dismissed(AzString::from(
+                format!("n{i}")
+            ))),
             "event {i} fits"
         );
     }
     assert!(
-        !queue_notification_event(NotificationEvent::dismissed(s("one-too-many"))),
+        !channels.queue_notification_event(NotificationEvent::dismissed(s("one-too-many"))),
         "an app that never drains must not grow the mailbox without bound"
     );
 
-    let drained = drain_notification_events();
+    let drained = channels.drain_notification_events();
     assert_eq!(drained.len(), MAX_QUEUED_EVENTS);
     assert_eq!(drained[0].notification_id.as_str(), "n0");
     assert_eq!(
         drained[MAX_QUEUED_EVENTS - 1].notification_id.as_str(),
         format!("n{}", MAX_QUEUED_EVENTS - 1)
     );
-    assert!(drain_notification_events().is_empty());
+    assert!(channels.drain_notification_events().is_empty());
 }
 
 #[test]
@@ -393,23 +383,22 @@ fn an_empty_id_is_given_a_unique_one() {
 
 #[test]
 fn the_delivered_callback_reads_its_event_from_callback_info() {
-    let _serial = serial();
-    drop(drain_notification_events());
+    let mut lw = laid_out_window();
+    let channels = lw.app_services.notifications.clone();
 
     let data = RefAny::new(Seen::default());
     let mut registry = NotificationRegistry::new();
     registry.admit(notification_with_callback("build", &data));
 
     // What a platform callback does, on whatever thread the OS uses...
-    assert!(queue_notification_event(NotificationEvent::action_invoked(
+    assert!(channels.queue_notification_event(NotificationEvent::action_invoked(
         s("build"),
         s("open-log")
     )));
     // ...and what the run loop does with it.
-    let deliveries = registry.route(drain_notification_events());
+    let deliveries = registry.route(channels.drain_notification_events());
     assert_eq!(deliveries.len(), 1);
 
-    let mut lw = laid_out_window();
     for delivery in deliveries {
         assert_eq!(deliver(&mut lw, delivery), Update::DoNothing);
     }
@@ -422,7 +411,7 @@ fn the_delivered_callback_reads_its_event_from_callback_info() {
         "and saw the event it was delivered for"
     );
     assert_eq!(
-        current_notification_event(),
+        channels.current_notification_event(),
         None,
         "outside a delivery there is no current event"
     );
@@ -453,16 +442,17 @@ fn an_ordinary_callback_sees_no_notification_event() {
 
 #[test]
 fn the_current_event_is_restored_after_a_nested_delivery() {
+    let channels = NotificationChannels::new();
     let outer = NotificationEvent::activated(s("outer"));
     let inner = NotificationEvent::dismissed(s("inner"));
-    with_current_notification_event(&outer, || {
-        assert_eq!(current_notification_event(), Some(outer.clone()));
-        with_current_notification_event(&inner, || {
-            assert_eq!(current_notification_event(), Some(inner.clone()));
+    channels.with_current_notification_event(&outer, || {
+        assert_eq!(channels.current_notification_event(), Some(outer.clone()));
+        channels.with_current_notification_event(&inner, || {
+            assert_eq!(channels.current_notification_event(), Some(inner.clone()));
         });
-        assert_eq!(current_notification_event(), Some(outer.clone()));
+        assert_eq!(channels.current_notification_event(), Some(outer.clone()));
     });
-    assert_eq!(current_notification_event(), None);
+    assert_eq!(channels.current_notification_event(), None);
 }
 
 // ---------------------------------------------------------------------------
@@ -524,17 +514,16 @@ fn the_recorder_is_bounded() {
 }
 
 #[test]
-fn the_process_recorder_is_what_an_e2e_assertion_reads() {
-    let _serial = serial();
-    clear_recorded_notifications();
-    record_posted_notification(&Notification::create(s("e2e-1"), s("Hello from headless")));
-    assert!(record_withdrawn_notification("e2e-1"));
-    let recorded = recorded_notifications();
+fn the_apps_recorder_is_what_an_e2e_assertion_reads() {
+    let channels = NotificationChannels::new();
+    channels.record_posted_notification(&Notification::create(s("e2e-1"), s("Hello from headless")));
+    assert!(channels.record_withdrawn_notification("e2e-1"));
+    let recorded = channels.recorded_notifications();
     assert_eq!(recorded.len(), 1);
     assert_eq!(recorded[0].notification.title.as_str(), "Hello from headless");
     assert!(recorded[0].withdrawn);
-    clear_recorded_notifications();
-    assert!(recorded_notifications().is_empty());
+    channels.clear_recorded_notifications();
+    assert!(channels.recorded_notifications().is_empty());
 }
 
 // ---------------------------------------------------------------------------
@@ -655,11 +644,7 @@ fn balloon_text_is_truncated_to_its_fixed_buffer_without_splitting_a_character()
 mod gaps {
     use azul_core::notification::{NotificationCallback, OptionNotificationCallback};
     use azul_layout::managers::{
-        notification::{
-            app_notification_handler, drain_notification_deliveries, has_queued_deliveries,
-            queue_notification_delivery, set_app_notification_handler,
-            take_notification_permission_request, MAX_QUEUED_REQUESTS,
-        },
+        notification::MAX_QUEUED_REQUESTS,
         permission::{PermissionQuality, PermissionState},
     };
 
@@ -674,26 +659,17 @@ mod gaps {
         }
     }
 
-    /// Installs the process-wide app-level handler for one test and removes
-    /// it again when dropped - also when the test fails, so a red test cannot
-    /// leave a handler behind for the next one.
-    struct AppHandlerForThisTest;
-
-    impl AppHandlerForThisTest {
-        fn install(data: &RefAny) -> Self {
-            set_app_notification_handler(OptionNotificationCallback::Some(app_handler(data)));
-            Self
-        }
-    }
-
-    impl Drop for AppHandlerForThisTest {
-        fn drop(&mut self) {
-            set_app_notification_handler(OptionNotificationCallback::None);
-        }
-    }
-
-    fn run_callback(cb: extern "C" fn(RefAny, CallbackInfo) -> Update, data: &RefAny) {
+    /// A window of the app whose notification queues are `channels`, running `cb` once: the
+    /// queues the callback posts to are the test's own.
+    fn run_callback(
+        cb: extern "C" fn(RefAny, CallbackInfo) -> Update,
+        data: &RefAny,
+        channels: &NotificationChannels,
+    ) {
         let mut lw = laid_out_window();
+        let mut app = AppServices::new();
+        app.notifications = channels.clone();
+        lw.join_app(&app);
         let mut cb = Callback::from_ptr(cb);
         let mut data = data.clone();
         let state = lw.current_window_state.clone();
@@ -845,14 +821,18 @@ mod gaps {
     }
 
     #[test]
-    fn the_app_handler_is_set_once_for_the_process() {
-        let _serial = serial();
+    fn the_app_handler_is_the_apps() {
+        let channels = NotificationChannels::new();
         let handler = RefAny::new(Seen::default());
-        set_app_notification_handler(OptionNotificationCallback::Some(app_handler(&handler)));
-        let read = app_notification_handler();
+        channels.set_app_notification_handler(OptionNotificationCallback::Some(app_handler(&handler)));
+        let read = channels.app_notification_handler();
         assert_eq!(read.as_ref().map(|h| h.refany.clone()), Some(handler));
-        set_app_notification_handler(OptionNotificationCallback::None);
-        assert!(app_notification_handler().is_none());
+        assert!(
+            NotificationChannels::new().app_notification_handler().is_none(),
+            "another app has none"
+        );
+        channels.set_app_notification_handler(OptionNotificationCallback::None);
+        assert!(channels.app_notification_handler().is_none());
     }
 
     // ---- the payload (G2, G8) ----
@@ -886,21 +866,19 @@ mod gaps {
 
     #[test]
     fn a_post_to_a_full_queue_reports_failed_to_its_own_callback() {
-        let _serial = serial();
-        drop(drain_notification_requests());
-        drop(drain_notification_deliveries());
+        let channels = NotificationChannels::new();
         for i in 0..MAX_QUEUED_REQUESTS {
-            assert!(push_notification_request(NotificationRequest::Post(
+            assert!(channels.push_notification_request(NotificationRequest::Post(
                 Notification::create(AzString::from(format!("filler-{i}")), s("t"))
             )));
         }
         let data = RefAny::new(Seen::default());
-        run_callback(post_the_overflow, &data);
-        drop(drain_notification_requests());
+        run_callback(post_the_overflow, &data, &channels);
+        drop(channels.drain_notification_requests());
 
         // Today `post_notification` discards the `false` and the post is
         // gone: 0 deliveries. Expected: one `Failed`, to its own callback.
-        let deliveries = drain_notification_deliveries();
+        let deliveries = channels.drain_notification_deliveries();
         assert_eq!(deliveries.len(), 1, "{deliveries:?}");
         assert_eq!(deliveries[0].event.kind, NotificationEventType::Failed);
         assert_eq!(deliveries[0].event.notification_id.as_str(), "overflow");
@@ -914,30 +892,27 @@ mod gaps {
 
     #[test]
     fn a_post_to_a_full_queue_without_a_callback_still_reports_failed() {
-        let _serial = serial();
-        drop(drain_notification_requests());
-        drop(drain_notification_events());
-        drop(drain_notification_deliveries());
+        let channels = NotificationChannels::new();
         let handler = RefAny::new(Seen::default());
-        let _handler = AppHandlerForThisTest::install(&handler);
+        channels.set_app_notification_handler(OptionNotificationCallback::Some(app_handler(&handler)));
         for i in 0..MAX_QUEUED_REQUESTS {
-            assert!(push_notification_request(NotificationRequest::Post(
+            assert!(channels.push_notification_request(NotificationRequest::Post(
                 Notification::create(AzString::from(format!("filler-{i}")), s("t"))
             )));
         }
-        run_callback(post_a_plain_overflow, &RefAny::new(()));
-        drop(drain_notification_requests());
+        run_callback(post_a_plain_overflow, &RefAny::new(()), &channels);
+        drop(channels.drain_notification_requests());
 
         // Straight to the app handler, as a waiting delivery - NOT through
         // the mailbox, whose routing would take the id for whatever an
         // earlier post under it left (see `follow_ups`).
-        let deliveries = drain_notification_deliveries();
+        let deliveries = channels.drain_notification_deliveries();
         assert_eq!(deliveries.len(), 1, "{deliveries:?}");
         assert_eq!(deliveries[0].event.kind, NotificationEventType::Failed);
         assert_eq!(deliveries[0].event.notification_id.as_str(), "overflow-plain");
         assert_eq!(deliveries[0].callback.refany, handler);
         assert!(
-            drain_notification_events().is_empty(),
+            channels.drain_notification_events().is_empty(),
             "nothing for the router to misread"
         );
     }
@@ -946,8 +921,7 @@ mod gaps {
 
     #[test]
     fn deliveries_wait_in_order_until_a_window_takes_them() {
-        let _serial = serial();
-        drop(drain_notification_deliveries());
+        let channels = NotificationChannels::new();
         let data = RefAny::new(Seen::default());
         let first = NotificationDelivery {
             callback: app_handler(&data),
@@ -957,42 +931,40 @@ mod gaps {
             callback: app_handler(&data),
             event: NotificationEvent::dismissed(s("b")),
         };
-        assert!(queue_notification_delivery(first.clone()));
-        assert!(queue_notification_delivery(second.clone()));
-        assert!(has_queued_deliveries());
-        assert_eq!(drain_notification_deliveries(), vec![first.clone(), second]);
-        assert!(!has_queued_deliveries());
+        assert!(channels.queue_notification_delivery(first.clone()));
+        assert!(channels.queue_notification_delivery(second.clone()));
+        assert!(channels.has_queued_deliveries());
+        assert_eq!(channels.drain_notification_deliveries(), vec![first.clone(), second]);
+        assert!(!channels.has_queued_deliveries());
 
         for _ in 0..MAX_QUEUED_EVENTS {
-            assert!(queue_notification_delivery(first.clone()));
+            assert!(channels.queue_notification_delivery(first.clone()));
         }
         assert!(
-            !queue_notification_delivery(first),
+            !channels.queue_notification_delivery(first),
             "a windowless app must not grow the queue without bound"
         );
-        assert_eq!(drain_notification_deliveries().len(), MAX_QUEUED_EVENTS);
+        assert_eq!(channels.drain_notification_deliveries().len(), MAX_QUEUED_EVENTS);
     }
 
     // ---- the permission request (G3) ----
 
     #[test]
     fn a_permission_request_is_queued_for_the_platform() {
-        let _serial = serial();
-        drop(drain_notification_requests());
-        let _ = take_notification_permission_request();
-        assert!(!has_queued_requests(), "premise: nothing queued");
+        let channels = NotificationChannels::new();
+        assert!(!channels.has_queued_requests(), "premise: nothing queued");
 
-        run_callback(ask_for_the_permission, &RefAny::new(()));
+        run_callback(ask_for_the_permission, &RefAny::new(()), &channels);
         assert!(
-            has_queued_requests(),
+            channels.has_queued_requests(),
             "the capability pump arms its timer on this, so the prompt is not late"
         );
-        assert!(take_notification_permission_request());
+        assert!(channels.take_notification_permission_request());
         assert!(
-            !take_notification_permission_request(),
+            !channels.take_notification_permission_request(),
             "one request, one prompt"
         );
-        assert!(!has_queued_requests());
+        assert!(!channels.has_queued_requests());
     }
 
     // ---- wire: Apple ----
@@ -1221,20 +1193,17 @@ mod gaps {
         use azul_layout::{
             callbacks::CallbackInfo,
             managers::notification::{
-                app_notification_handler, drain_notification_deliveries,
-                drain_notification_events, drain_notification_requests,
-                push_notification_request, NotificationDelivery, NotificationRegistry,
+                NotificationChannels, NotificationDelivery, NotificationRegistry,
                 NotificationRequest, MAX_QUEUED_REQUESTS,
             },
         };
 
-        use super::super::{notification_with_callback, s, serial, Seen};
-        use super::{post_a_plain_overflow, run_callback, AppHandlerForThisTest};
+        use super::super::{notification_with_callback, s, Seen};
+        use super::{app_handler, post_a_plain_overflow, run_callback};
 
-        fn fill_the_request_queue_with_posts() {
-            drop(drain_notification_requests());
+        fn fill_the_request_queue_with_posts(channels: &NotificationChannels) {
             for i in 0..MAX_QUEUED_REQUESTS {
-                assert!(push_notification_request(NotificationRequest::Post(
+                assert!(channels.push_notification_request(NotificationRequest::Post(
                     Notification::create(AzString::from(format!("filler-{i}")), s("t"))
                 )));
             }
@@ -1242,9 +1211,12 @@ mod gaps {
 
         /// What the dll's `pump_notifications` hands the loop: the deliveries
         /// that waited, then the mailbox routed through the registry.
-        fn pump(registry: &mut NotificationRegistry) -> Vec<NotificationDelivery> {
-            let mut out = drain_notification_deliveries();
-            out.extend(registry.route(drain_notification_events()));
+        fn pump(
+            channels: &NotificationChannels,
+            registry: &mut NotificationRegistry,
+        ) -> Vec<NotificationDelivery> {
+            let mut out = channels.drain_notification_deliveries();
+            out.extend(registry.route(channels.drain_notification_events()));
             out
         }
 
@@ -1255,25 +1227,25 @@ mod gaps {
 
         #[test]
         fn a_rejected_post_does_not_end_the_live_notification_under_its_id() {
-            let _serial = serial();
-            drop(drain_notification_events());
-            drop(drain_notification_deliveries());
+            let channels = NotificationChannels::new();
             let own = RefAny::new(Seen::default());
             let handler = RefAny::new(Seen::default());
-            let _handler = AppHandlerForThisTest::install(&handler);
+            channels.set_app_notification_handler(
+                azul_core::notification::OptionNotificationCallback::Some(app_handler(&handler)),
+            );
             let mut registry = NotificationRegistry::new();
-            registry.set_app_handler(app_notification_handler());
+            registry.set_app_handler(channels.app_notification_handler());
             // On screen: posted earlier, with its own callback.
             registry.admit(notification_with_callback("overflow-plain", &own));
 
             // A repost under the same id, without a callback, that does not fit.
-            fill_the_request_queue_with_posts();
-            run_callback(post_a_plain_overflow, &RefAny::new(()));
-            drop(drain_notification_requests());
+            fill_the_request_queue_with_posts(&channels);
+            run_callback(post_a_plain_overflow, &RefAny::new(()), &channels);
+            drop(channels.drain_notification_requests());
 
             // Today the rejection travels through the mailbox, and routing
             // hands its `Failed` to the notification on screen and ends it.
-            let deliveries = pump(&mut registry);
+            let deliveries = pump(&channels, &mut registry);
             assert!(
                 registry.is_live("overflow-plain"),
                 "the post that failed never reached the screen, so it replaced nothing"
@@ -1288,13 +1260,13 @@ mod gaps {
 
         #[test]
         fn a_rejected_post_under_an_ended_id_still_reports_failed() {
-            let _serial = serial();
-            drop(drain_notification_events());
-            drop(drain_notification_deliveries());
+            let channels = NotificationChannels::new();
             let handler = RefAny::new(Seen::default());
-            let _handler = AppHandlerForThisTest::install(&handler);
+            channels.set_app_notification_handler(
+                azul_core::notification::OptionNotificationCallback::Some(app_handler(&handler)),
+            );
             let mut registry = NotificationRegistry::new();
-            registry.set_app_handler(app_notification_handler());
+            registry.set_app_handler(channels.app_notification_handler());
             // Posted earlier, clicked: the id has ENDED in this process.
             registry.admit(Notification::create(s("overflow-plain"), s("Saved")));
             assert_eq!(
@@ -1304,13 +1276,13 @@ mod gaps {
                 1
             );
 
-            fill_the_request_queue_with_posts();
-            run_callback(post_a_plain_overflow, &RefAny::new(()));
-            drop(drain_notification_requests());
+            fill_the_request_queue_with_posts(&channels);
+            run_callback(post_a_plain_overflow, &RefAny::new(()), &channels);
+            drop(channels.drain_notification_requests());
 
             // Today 0: routing takes the `Failed` for the trailing close of
             // the notification that ended, and swallows it.
-            let deliveries = pump(&mut registry);
+            let deliveries = pump(&channels, &mut registry);
             assert_eq!(deliveries.len(), 1, "{deliveries:?}");
             assert_eq!(deliveries[0].event.kind, NotificationEventType::Failed);
             assert_eq!(
@@ -1322,13 +1294,13 @@ mod gaps {
 
         #[test]
         fn a_withdraw_still_reaches_the_platform_when_posts_filled_the_queue() {
-            let _serial = serial();
-            fill_the_request_queue_with_posts();
-            run_callback(withdraw_the_one_on_screen, &RefAny::new(()));
+            let channels = NotificationChannels::new();
+            fill_the_request_queue_with_posts(&channels);
+            run_callback(withdraw_the_one_on_screen, &RefAny::new(()), &channels);
 
             // Today the withdraw is dropped: MAX_QUEUED_REQUESTS requests, and
             // the notification stays on screen with its callback armed.
-            let requests = drain_notification_requests();
+            let requests = channels.drain_notification_requests();
             assert_eq!(requests.len(), MAX_QUEUED_REQUESTS + 1);
             assert_eq!(
                 requests.last(),
@@ -1338,10 +1310,10 @@ mod gaps {
 
         #[test]
         fn posts_cannot_take_the_room_withdraws_are_given_and_withdraws_are_bounded_too() {
-            let _serial = serial();
-            fill_the_request_queue_with_posts();
+            let channels = NotificationChannels::new();
+            fill_the_request_queue_with_posts(&channels);
             assert!(
-                !push_notification_request(NotificationRequest::Post(Notification::create(
+                !channels.push_notification_request(NotificationRequest::Post(Notification::create(
                     s("one-more"),
                     s("t")
                 ))),
@@ -1349,17 +1321,17 @@ mod gaps {
             );
             for i in 0..MAX_QUEUED_REQUESTS {
                 assert!(
-                    push_notification_request(NotificationRequest::Withdraw(AzString::from(
-                        format!("w-{i}")
-                    ))),
+                    channels.push_notification_request(NotificationRequest::Withdraw(
+                        AzString::from(format!("w-{i}"))
+                    )),
                     "withdraw {i} fits: one for every post the queue can hold"
                 );
             }
             assert!(
-                !push_notification_request(NotificationRequest::Withdraw(s("one-too-many"))),
+                !channels
+                    .push_notification_request(NotificationRequest::Withdraw(s("one-too-many"))),
                 "a target that never drains must not grow the queue without bound"
             );
-            drop(drain_notification_requests());
         }
     }
 }

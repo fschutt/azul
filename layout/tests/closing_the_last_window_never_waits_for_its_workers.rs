@@ -1,8 +1,8 @@
 //! The LAST window to close does not wait for its workers either: a tray app
 //! goes on running after its last window, and a worker stuck in a blocking
 //! call froze it for up to the 2 s grace in `stop_all`. The workers are told
-//! to stop and the window goes at once; the process waits for them at its
-//! end (`join_stopping_workers`, which the shells call when `App::run`
+//! to stop and the window goes at once; the app waits for them at its end
+//! (`StoppingWorkers::join_all`, which the shells call when `App::run`
 //! returns), each up to its grace, so a closing app still lets them finish.
 
 use std::time::{Duration, Instant};
@@ -12,7 +12,7 @@ use azul_core::{
     task::{OptionThreadSendMsg, ThreadId, ThreadReceiver, ThreadSendMsg},
 };
 use azul_layout::{
-    managers::thread_owner::{join_stopping_workers, ORPHAN_GRACE},
+    managers::{app_services::AppServices, thread_owner::ORPHAN_GRACE},
     thread::{Thread, ThreadCallbackType, ThreadSender},
     window::LayoutWindow,
 };
@@ -34,7 +34,10 @@ extern "C" fn slow_to_stop(_init: RefAny, _sender: ThreadSender, mut recv: Threa
 
 #[test]
 fn closing_the_last_window_never_waits_for_its_workers() {
+    // The app the window belongs to: the workers it stops are the app's to wait for.
+    let app = AppServices::new();
     let mut last = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    last.join_app(&app);
     last.add_thread(
         ThreadId::unique(),
         Thread::create(RefAny::new(()), RefAny::new(()), slow_to_stop as ThreadCallbackType),
@@ -48,9 +51,9 @@ fn closing_the_last_window_never_waits_for_its_workers() {
         "closing the last window waited {took:?} for a worker that takes {STOP_TAKES:?} to stop"
     );
 
-    // At the end of the process the worker gets its time to finish, bounded.
+    // At the end of the app the worker gets its time to finish, bounded.
     let start = Instant::now();
-    join_stopping_workers();
+    app.stopping_workers.join_all();
     let took = start.elapsed();
     assert!(
         took >= STOP_TAKES / 2,

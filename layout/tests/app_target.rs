@@ -8,7 +8,7 @@
 //! tooltips only when nothing else is open; and never the input order.
 
 use azul_layout::managers::app_target::{
-    pick_app_target, AppTargetCandidate, WindowActivationOrder,
+    pick_app_target, ActivationClock, AppTargetCandidate, WindowActivationOrder,
 };
 
 fn window(key: u32, order: WindowActivationOrder) -> AppTargetCandidate<u32> {
@@ -50,9 +50,10 @@ fn no_window_means_no_target() {
 
 #[test]
 fn with_no_focus_history_the_oldest_window_wins() {
-    let oldest = WindowActivationOrder::for_new_window();
-    let middle = WindowActivationOrder::for_new_window();
-    let newest = WindowActivationOrder::for_new_window();
+    let clock = ActivationClock::new();
+    let oldest = WindowActivationOrder::for_new_window(&clock);
+    let middle = WindowActivationOrder::for_new_window(&clock);
+    let newest = WindowActivationOrder::for_new_window(&clock);
     assert!(oldest.created < middle.created && middle.created < newest.created);
     // Keys deliberately NOT in creation order: a registry keyed by pointer
     // would list 1 first.
@@ -62,12 +63,13 @@ fn with_no_focus_history_the_oldest_window_wins() {
 
 #[test]
 fn the_most_recently_focused_window_wins_over_the_oldest() {
-    let mut main = WindowActivationOrder::for_new_window();
-    let mut inspector = WindowActivationOrder::for_new_window();
-    let palette = WindowActivationOrder::for_new_window();
+    let clock = ActivationClock::new();
+    let mut main = WindowActivationOrder::for_new_window(&clock);
+    let mut inspector = WindowActivationOrder::for_new_window(&clock);
+    let palette = WindowActivationOrder::for_new_window(&clock);
 
-    main.note_focused();
-    inspector.note_focused();
+    main.note_focused(&clock);
+    inspector.note_focused(&clock);
     let candidates = [window(10, main), window(20, inspector), window(30, palette)];
     assert_eq!(
         pick_in_every_order(&candidates),
@@ -77,48 +79,70 @@ fn the_most_recently_focused_window_wins_over_the_oldest() {
 
     // The user goes back to the main window: it wins again, although the
     // inspector was focused later than the main window's FIRST focus.
-    main.note_focused();
+    main.note_focused(&clock);
     let candidates = [window(10, main), window(20, inspector), window(30, palette)];
     assert_eq!(pick_in_every_order(&candidates), Some(10));
 }
 
 #[test]
 fn a_focused_window_beats_one_that_never_had_the_focus_even_if_older() {
-    let never_focused_but_oldest = WindowActivationOrder::for_new_window();
-    let mut focused = WindowActivationOrder::for_new_window();
-    focused.note_focused();
+    let clock = ActivationClock::new();
+    let never_focused_but_oldest = WindowActivationOrder::for_new_window(&clock);
+    let mut focused = WindowActivationOrder::for_new_window(&clock);
+    focused.note_focused(&clock);
     let candidates = [window(1, never_focused_but_oldest), window(2, focused)];
     assert_eq!(pick_in_every_order(&candidates), Some(2));
 }
 
 #[test]
 fn menus_and_tooltips_are_skipped_while_a_real_window_exists() {
-    let main = WindowActivationOrder::for_new_window();
-    let mut context_menu = WindowActivationOrder::for_new_window();
+    let clock = ActivationClock::new();
+    let main = WindowActivationOrder::for_new_window(&clock);
+    let mut context_menu = WindowActivationOrder::for_new_window(&clock);
     // The menu holds the focus right now - it is still not where an app's
     // hotkey or tray click belongs.
-    context_menu.note_focused();
+    context_menu.note_focused(&clock);
     let candidates = [menu(99, context_menu), window(1, main)];
     assert_eq!(pick_in_every_order(&candidates), Some(1));
 }
 
 #[test]
 fn a_transient_window_is_used_when_it_is_all_there_is() {
-    let older = WindowActivationOrder::for_new_window();
-    let newer = WindowActivationOrder::for_new_window();
+    let clock = ActivationClock::new();
+    let older = WindowActivationOrder::for_new_window(&clock);
+    let newer = WindowActivationOrder::for_new_window(&clock);
     let candidates = [menu(5, newer), menu(4, older)];
     assert_eq!(pick_in_every_order(&candidates), Some(4));
 }
 
 #[test]
 fn the_activation_clock_never_repeats_a_stamp() {
-    let mut a = WindowActivationOrder::for_new_window();
-    let b = WindowActivationOrder::for_new_window();
+    let clock = ActivationClock::new();
+    let mut a = WindowActivationOrder::for_new_window(&clock);
+    let b = WindowActivationOrder::for_new_window(&clock);
     assert!(!a.was_ever_focused(), "a new window has no focus stamp");
-    a.note_focused();
+    a.note_focused(&clock);
     assert!(a.was_ever_focused());
     assert!(
         a.last_focused > b.created,
         "a later focus is newer than an earlier creation"
     );
+}
+
+#[test]
+fn each_apps_clock_counts_for_itself() {
+    let ours = ActivationClock::new();
+    let theirs = ActivationClock::new();
+    let first = WindowActivationOrder::for_new_window(&ours);
+    let second = WindowActivationOrder::for_new_window(&ours);
+    let other_app = WindowActivationOrder::for_new_window(&theirs);
+    assert!(first.created < second.created);
+    assert_eq!(
+        other_app.created, first.created,
+        "another app's clock starts from the same first tick: the orders of two apps are never compared"
+    );
+    // A clone of a clock is the same clock.
+    let clone = ours.clone();
+    let third = WindowActivationOrder::for_new_window(&clone);
+    assert!(third.created > second.created);
 }

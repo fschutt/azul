@@ -22,12 +22,10 @@ use azul_core::{
 };
 use azul_css::{F32Vec, U8Vec};
 use azul_layout::managers::{
-    gamepad::{drain_gamepad_states, push_gamepad_state, GamepadId, GamepadManager, GamepadState},
-    geolocation::{drain_location_fixes, push_location_fix},
+    gamepad::{GamepadId, GamepadManager, GamepadState, GamepadStates},
+    geolocation::GeolocationChannel,
     gesture::GestureAndDragManager,
-    sensors::{
-        drain_sensor_readings, push_sensor_reading, SensorKind, SensorManager, SensorReading,
-    },
+    sensors::{SensorChannel, SensorKind, SensorManager, SensorReading},
 };
 
 fn ts() -> Instant {
@@ -39,10 +37,11 @@ fn ts() -> Instant {
 /// event - the same path a real CoreMotion / Android sample takes.
 #[test]
 fn synthetic_sensor_reading_fires_sensorchanged() {
-    let _ = drain_sensor_readings(); // clear any prior parked readings
+    // The app's channel, as the platform backend would hold it (this test owns its own).
+    let channel = SensorChannel::new();
 
     // Synthetic: the platform backend would call this on every sample.
-    push_sensor_reading(SensorReading {
+    channel.push_reading(SensorReading {
         kind: SensorKind::Accelerometer,
         x: 0.1,
         y: 0.2,
@@ -51,7 +50,7 @@ fn synthetic_sensor_reading_fires_sensorchanged() {
     });
 
     // The dll layout pass drains + folds each reading into the manager.
-    let drained = drain_sensor_readings();
+    let drained = channel.drain_readings();
     assert_eq!(drained.len(), 1, "the synthetic reading parks + drains");
 
     let mut mgr = SensorManager::new();
@@ -70,7 +69,6 @@ fn synthetic_sensor_reading_fires_sensorchanged() {
 /// sensor streaming the same value doesn't spam events).
 #[test]
 fn synthetic_unchanged_sensor_reading_does_not_refire() {
-    let _ = drain_sensor_readings();
     let r = SensorReading {
         kind: SensorKind::Gyroscope,
         x: 1.0,
@@ -92,9 +90,9 @@ fn synthetic_unchanged_sensor_reading_does_not_refire() {
 /// through the manager and produces a `GamepadInput` event.
 #[test]
 fn synthetic_gamepad_state_fires_gamepadinput() {
-    let _ = drain_gamepad_states();
+    let states = GamepadStates::default();
 
-    push_gamepad_state(GamepadState {
+    states.push(GamepadState {
         id: GamepadId { id: 0 },
         connected: true,
         buttons: 0b101,
@@ -112,7 +110,7 @@ fn synthetic_gamepad_state_fires_gamepadinput() {
         ..Default::default()
     });
 
-    let drained = drain_gamepad_states();
+    let drained = states.drain();
     assert_eq!(drained.len(), 1);
 
     let mut mgr = GamepadManager::new();
@@ -155,8 +153,8 @@ fn input_events_route_to_node_and_window_filters() {
 /// CoreLocation / Android fix takes.
 #[test]
 fn synthetic_location_fix_drains() {
-    let _ = drain_location_fixes();
-    push_location_fix(LocationFix {
+    let channel = GeolocationChannel::new();
+    channel.push_fix(LocationFix {
         latitude_deg: 37.7749,
         longitude_deg: -122.4194,
         accuracy_m: 5.0,
@@ -166,7 +164,7 @@ fn synthetic_location_fix_drains() {
         speed_mps: 1.5,
         timestamp_ms: 42,
     });
-    let drained = drain_location_fixes();
+    let drained = channel.drain_fixes();
     assert_eq!(drained.len(), 1, "the synthetic fix parks + drains");
     assert!((drained[0].latitude_deg - 37.7749).abs() < 1e-9);
     assert!((drained[0].longitude_deg - (-122.4194)).abs() < 1e-9);
