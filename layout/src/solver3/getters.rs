@@ -5087,7 +5087,7 @@ fn build_font_selector_stack_memo_themed(
     const MAX_ENTRIES: usize = 256;
 
     thread_local! {
-        static MEMO: RefCell<HashMap<u64, Vec<FontSelector>>> =
+        static MEMO: RefCell<HashMap<u64, (FontStackMemoInputs, Vec<FontSelector>)>> =
             RefCell::new(HashMap::new());
     }
 
@@ -5119,12 +5119,20 @@ fn build_font_selector_stack_memo_themed(
         h.finish()
     };
 
-    if let Some(hit) = MEMO.with(|m| m.borrow().get(&key).cloned()) {
+    // An entry answers only for the inputs it was built from: the key is a
+    // 64-bit hash of them, and two inputs with one hash would otherwise be
+    // served each other's stack (another family's fonts, silently).
+    if let Some(hit) = MEMO.with(|m| {
+        m.borrow().get(&key).and_then(|entry| {
+            font_stack_memo_answer(entry, font_families, platform, theme, &fc_weight, &fc_style)
+        })
+    }) {
         drop(crate::probe::Probe::span("font_stack_memo_hit"));
         return hit;
     }
 
     let _p = crate::probe::Probe::span("font_stack_build");
+    let inputs = font_stack_memo_inputs(font_families, platform, theme, &fc_weight, &fc_style);
     let built =
         build_font_selector_stack_themed(font_families, platform, theme, fc_weight, fc_style);
     MEMO.with(|m| {
@@ -5132,9 +5140,56 @@ fn build_font_selector_stack_memo_themed(
         if m.len() >= MAX_ENTRIES {
             m.clear();
         }
-        m.insert(key, built.clone());
+        m.insert(key, (inputs, built.clone()));
     });
     built
+}
+
+/// What a memoised font-selector stack was built from - everything the memo's
+/// key hashes (`build_font_selector_stack_memo_themed`) - kept beside the
+/// stack and compared when the key hits.
+type FontStackMemoInputs = (
+    Vec<azul_css::props::basic::font::StyleFontFamily>,
+    Option<azul_css::system::Platform>,
+    Option<String>,
+    core::mem::Discriminant<FcWeight>,
+    core::mem::Discriminant<FontStyle>,
+);
+
+/// The inputs of one stack, as the memo keeps them.
+fn font_stack_memo_inputs(
+    font_families: &StyleFontFamilyVec,
+    platform: Option<&azul_css::system::Platform>,
+    theme: Option<&str>,
+    fc_weight: &FcWeight,
+    fc_style: &FontStyle,
+) -> FontStackMemoInputs {
+    (
+        font_families.as_slice().to_vec(),
+        platform.cloned(),
+        theme.map(str::to_owned),
+        core::mem::discriminant(fc_weight),
+        core::mem::discriminant(fc_style),
+    )
+}
+
+/// The stack of the memo entry `entry`, if the entry was built from exactly
+/// these inputs (`None`: its key is another input's hash too).
+fn font_stack_memo_answer(
+    entry: &(FontStackMemoInputs, Vec<FontSelector>),
+    font_families: &StyleFontFamilyVec,
+    platform: Option<&azul_css::system::Platform>,
+    theme: Option<&str>,
+    fc_weight: &FcWeight,
+    fc_style: &FontStyle,
+) -> Option<Vec<FontSelector>> {
+    let (inputs, stack) = entry;
+    (inputs.0.as_slice() == font_families.as_slice()
+        && inputs.1.as_ref() == platform
+        && inputs.2.as_deref() == theme
+        && inputs.3 == core::mem::discriminant(fc_weight)
+        && inputs.4 == core::mem::discriminant(fc_style))
+    .then(|| stack.clone())
 }
 
 /// `stack` with every selector at the optical size of text of `font_size_px`
@@ -12648,6 +12703,71 @@ mod text_node_font_stack_tests {
         assert!(
             !got.iter().any(|(_, s)| *s == FontStyle::Italic),
             "no text of the document is italic, so no italic stack: {got:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use azul_css::props::basic::font::{StyleFontFamily, StyleFontFamilyVec};
+
+    use super::*;
+
+    fn family(name: &str) -> StyleFontFamilyVec {
+        StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System(name.to_string().into())])
+    }
+
+    /// A3-solver-33. The font-stack memo is keyed by a 64-bit hash of its
+    /// inputs and answered a hit without looking at them: two inputs with one
+    /// hash were served each other's stack. An entry answers only for the
+    /// inputs it was built from. (No two real inputs with one hash can be
+    /// written down, so the entry is asked directly, as a colliding key
+    /// would ask it.)
+    ///
+    /// Mutation: `font_stack_memo_answer` returning the stack without
+    /// comparing serves Iosevka's stack to Menlo.
+    #[test]
+    fn a_font_stack_memo_entry_answers_only_for_the_inputs_it_was_built_from() {
+        let (iosevka, menlo) = (family("Iosevka"), family("Menlo"));
+        let (weight, style) = (FcWeight::Normal, FontStyle::Normal);
+        let stack = build_font_selector_stack_memo(&iosevka, None, FcWeight::Normal, FontStyle::Normal);
+        let entry = (
+            font_stack_memo_inputs(&iosevka, None, Some("dark"), &weight, &style),
+            stack.clone(),
+        );
+
+        let same = font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &weight, &style);
+        assert_eq!(same.map(|s| s.len()), Some(stack.len()), "its own inputs: the stack");
+
+        assert!(
+            font_stack_memo_answer(&entry, &menlo, None, Some("dark"), &weight, &style).is_none(),
+            "another family behind the same key must not get this stack"
+        );
+        assert!(
+            font_stack_memo_answer(&entry, &iosevka, None, Some("light"), &weight, &style)
+                .is_none(),
+            "nor another theme"
+        );
+        assert!(
+            font_stack_memo_answer(&entry, &iosevka, None, None, &weight, &style).is_none(),
+            "nor no theme"
+        );
+        assert!(
+            font_stack_memo_answer(&entry, &iosevka, None, Some("dark"), &FcWeight::Bold, &style)
+                .is_none(),
+            "nor another weight"
+        );
+        assert!(
+            font_stack_memo_answer(
+                &entry,
+                &iosevka,
+                None,
+                Some("dark"),
+                &weight,
+                &FontStyle::Italic
+            )
+            .is_none(),
+            "nor another style"
         );
     }
 }
