@@ -849,7 +849,7 @@ fn is_blank(e: &Expr) -> bool {
 // ===========================================================================
 
 /// Elements that are document plumbing, not content.
-const SKIPPED_TAGS: &[&str] = &[
+static SKIPPED_TAGS: &[&str] = &[
     "style", "script", "head", "title", "meta", "link", "base", "template",
 ];
 
@@ -1647,7 +1647,7 @@ fn get_css_blocks(css: &Css, matcher: &CssMatcher) -> Vec<CssBlock> {
 /// Img, Select, Textarea, Label, A, Table, …) take constructor arguments, so an
 /// exported page maps them to a plain `div` container (structure preserved; the
 /// user re-wires behavior). Keep these CamelCase to match `NodeTypeTag` debug names.
-const SAFE_CONTAINER_TAGS: &[&str] = &[
+static SAFE_CONTAINER_TAGS: &[&str] = &[
     // These must match the real `NodeType` Debug names exactly (the lookup below is a
     // string compare against `{:?}`). Six used to be mis-cased — "Blockquote",
     // "Colgroup", "Figcaption", "Tbody", "Tfoot", "Thead" — so those tags silently
@@ -1899,7 +1899,7 @@ fn first_caption_text(node: &XmlNode) -> Option<String> {
 }
 
 /// Tags with a single-arg `create_<tag>_with_text(text)` constructor (Tier A).
-const WITH_TEXT_TAGS: &[&str] = &[
+static WITH_TEXT_TAGS: &[&str] = &[
     "acronym",
     "b",
     "bdi",

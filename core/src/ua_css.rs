@@ -405,7 +405,7 @@ static BORDER_SPACING_2PX: CssProperty = CssProperty::BorderSpacing(CssPropertyV
 ));
 
 /// The table's border colour: gray (a `<table border>`'s outset frame).
-const TABLE_BORDER_GRAY: ColorU = ColorU {
+static TABLE_BORDER_GRAY: ColorU = ColorU {
     r: 128,
     g: 128,
     b: 128,
@@ -483,7 +483,7 @@ static BORDER_RIGHT_STYLE_INSET: CssProperty =
     }));
 
 /// The hr's `color: gray` - its borders' colour (`currentcolor`).
-const HR_GRAY: ColorU = ColorU {
+static HR_GRAY: ColorU = ColorU {
     r: 128,
     g: 128,
     b: 128,
@@ -493,7 +493,7 @@ const HR_GRAY: ColorU = ColorU {
 /// The hr's colour on a DARK window: a subtle divider, like the platforms'
 /// own separators on dark (#5a5a5a), where the light rule's mid grey would
 /// read as a bright bar.
-const HR_GRAY_DARK: ColorU = ColorU {
+static HR_GRAY_DARK: ColorU = ColorU {
     r: 90,
     g: 90,
     b: 90,
@@ -595,7 +595,7 @@ static TEXT_DECORATION_LINE_THROUGH: CssProperty =
     CssProperty::TextDecoration(CssPropertyValue::Exact(StyleTextDecoration::LineThrough));
 
 /// The generic `monospace` family, resolved like an author's `font-family: monospace`.
-const MONOSPACE_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(
+static MONOSPACE_FAMILIES: &[StyleFontFamily] = &[StyleFontFamily::System(
     AzString::from_const_str("monospace"),
 )];
 
@@ -1284,7 +1284,7 @@ pub fn get_ua_property(
 /// default was the first instance found). A type only one pass can store is
 /// harmless in the other: `apply_css_property_to_compact` ignores what has no
 /// compact slot, and a cascaded entry nothing reads costs one push.
-pub const UA_PROPERTY_TYPES: &[CssPropertyType] = &[
+pub static UA_PROPERTY_TYPES: &[CssPropertyType] = &[
     // Tier1 enum properties
     CssPropertyType::Display,
     CssPropertyType::Position,

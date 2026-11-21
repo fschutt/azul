@@ -967,7 +967,7 @@ impl GlobalHotkey {
 /// ONE table on purpose: the parser, the display string, the X11 grab
 /// (`XStringToKeysym` of the third column) and the Wayland portal's trigger
 /// string all read it, so a key cannot be parseable and ungrabbable.
-const NAMED_KEYS: &[(VirtualKeyCode, &str, &str)] = &[
+static NAMED_KEYS: &[(VirtualKeyCode, &str, &str)] = &[
     (K::A, "A", "a"),
     (K::B, "B", "b"),
     (K::C, "C", "c"),
@@ -1084,7 +1084,7 @@ const NAMED_KEYS: &[(VirtualKeyCode, &str, &str)] = &[
 ];
 
 /// Spellings the parser accepts besides the display names (lower case).
-const KEY_ALIASES: &[(&str, VirtualKeyCode)] = &[
+static KEY_ALIASES: &[(&str, VirtualKeyCode)] = &[
     ("esc", K::Escape),
     ("return", K::Return),
     ("bksp", K::Back),

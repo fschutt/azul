@@ -258,16 +258,16 @@ fn presentational(name: &str, value: &str) -> Option<NodeSetting> {
 /// rendering section, "tables" and "flow content"; `webview` is azul's
 /// iframe, whose `width` / `height` map to the dimension properties ignoring
 /// zero - "attributes for embedded content and images", 15.4.3).
-const HINT_WIDTH_TAGS: &[&str] = &["table", "td", "th", "col", "colgroup", "webview"];
-const HINT_HEIGHT_TAGS: &[&str] = &["table", "td", "th", "tr", "webview"];
-const HINT_BGCOLOR_TAGS: &[&str] = &["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th"];
-const HINT_TABLE_TAGS: &[&str] = &["table"];
-const HINT_CELL_TAGS: &[&str] = &["td", "th"];
-const HINT_ALIGN_TAGS: &[&str] = &[
+static HINT_WIDTH_TAGS: &[&str] = &["table", "td", "th", "col", "colgroup", "webview"];
+static HINT_HEIGHT_TAGS: &[&str] = &["table", "td", "th", "tr", "webview"];
+static HINT_BGCOLOR_TAGS: &[&str] = &["body", "table", "thead", "tbody", "tfoot", "tr", "td", "th"];
+static HINT_TABLE_TAGS: &[&str] = &["table"];
+static HINT_CELL_TAGS: &[&str] = &["td", "th"];
+static HINT_ALIGN_TAGS: &[&str] = &[
     "table", "caption", "thead", "tbody", "tfoot", "tr", "td", "th", "col", "colgroup", "div",
     "p", "h1", "h2", "h3", "h4", "h5", "h6",
 ];
-const HINT_VALIGN_TAGS: &[&str] = &["thead", "tbody", "tfoot", "tr", "td", "th", "col", "colgroup"];
+static HINT_VALIGN_TAGS: &[&str] = &["thead", "tbody", "tfoot", "tr", "td", "th", "col", "colgroup"];
 
 /// A form control's HTML attribute as its typed `AttributeType`; one with no
 /// typed variant as `Custom`. Boolean attributes follow HTML - PRESENT means

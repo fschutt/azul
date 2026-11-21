@@ -2198,7 +2198,7 @@ pub struct WaylandTheme {
 /// Lived in `azul-dll`'s shell (`shell2::common::CSS_BREAKPOINTS`, still
 /// re-exported there) until the headless E2E runner needed the same resize
 /// decision — the list is engine policy, not shell policy.
-pub const CSS_BREAKPOINTS: &[f32] = &[320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
+pub static CSS_BREAKPOINTS: &[f32] = &[320.0, 480.0, 640.0, 768.0, 1024.0, 1280.0, 1440.0, 1920.0];
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd)]
 #[repr(C)]

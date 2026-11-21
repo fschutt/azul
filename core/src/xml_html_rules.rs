@@ -434,9 +434,9 @@ use Step::{
 };
 
 /// The cells, rows and row groups a table part's start tag closes (XML; [`CloseInTable`]).
-const CELLS: &[&str] = &["td", "th"];
-const CELLS_AND_ROWS: &[&str] = &["td", "th", "tr"];
-const TABLE_PARTS: &[&str] = &[
+static CELLS: &[&str] = &["td", "th"];
+static CELLS_AND_ROWS: &[&str] = &["td", "th", "tr"];
+static TABLE_PARTS: &[&str] = &[
     "td", "th", "tr", "thead", "tbody", "tfoot", "caption", "colgroup",
 ];
 
@@ -729,7 +729,7 @@ pub(super) static END_TAGS: &[(&[&str], Scope, EndAction)] = &[
 ];
 
 /// "Any other end tag", in the default scope (XML).
-pub(super) const DEFAULT_END: (Scope, EndAction) = (Scope::Default, EndAction::AnyOther);
+pub(super) static DEFAULT_END: (Scope, EndAction) = (Scope::Default, EndAction::AnyOther);
 
 /// The rule of the end tag `name` (lower-case).
 pub(super) fn end_rule(name: &str) -> (Scope, EndAction) {
