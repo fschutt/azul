@@ -174,6 +174,16 @@ Not decided yet (each needs its fix reverted in a scratch build to see the test 
 `6f402e476`). All seven pass WITH their fixes (run 1). A3-solver-32's fix moved exactly the golden lines its
 commit predicted, so that bug was real.
 
+Checkpoint results so far (head `e19bed682`): rows 1 and 2 PASS (`audit_tests::a2_cpu` + `audit_tests::a8`: 20
+passed, 0 failed, with `91ca03104`, A1-62 / A1-64 and the harness fix `8193ae482`); A8 `1b3cd3449` merged
+(`b419ea882`), 0 compile errors; goldens: exactly the three `vertical-align` documents changed as described and
+were taken (`e19bed682`), golden suite 6 of 6. OPEN on this tree: the pre-existing
+`a_measured_label_flows_its_text_only_at_a_new_width::a_hovered_label_flows_its_text_once_however_often_it_is_measured`
+(3 flows for 1; passes with `AZ_NO_TAFFY_MEASURE_JOURNAL=1`: A3-solver 17c `083fe5ada`) and the 16 dll lib failures.
+The gate runs as one background chain writing `<scratchpad>/verify/gate.txt` (one block per step: totals and
+failing names; logs `40-gate-layout` .. `46-gate-check-windows`): if this file's log below does not hold its
+results, read that file, or run the steps of point 3 again.
+
 ## State for a successor (the CHECKPOINT; written when the verifier's context ran short)
 
 Tree: `audit/integration`, clean; head = `b419ea882` (merge of `audit/A8` at `1b3cd3449`) + log commits. Everything
@@ -185,7 +195,7 @@ under 9 GB free) and `summ`. `target/codegen` in the worktree is current for Rus
 `api.json` did not change since.
 
 What is left for the checkpoint, in order:
-1. Result of log `32-build-layout-tests` + the targeted runs after it (rows 1 and 2 with the corrected harness;
+1. (DONE, see "Checkpoint results so far" above.) Result of log `32-build-layout-tests` + the targeted runs after it (rows 1 and 2 with the corrected harness;
    `audit_tests::a8`; the golden suite: with A8's fix EXACTLY three documents may differ:
    `CSS2/linebox/vertical-align-sub-001.xht`, `-sub-001-ref.xht`, `vertical-align-super-001.xht`: fs=96 on their
    text items, a 96 px line box, baseline 77, the text's width at 96 px: check each, then take them with
