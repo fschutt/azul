@@ -1006,7 +1006,7 @@ allow = true
 risk = "low"
 review = "digest-only"
 reason = "build-dependency: ordinary library linked into other crates' build scripts; no build-time entry point of its own"
-reviewed = ["0.4.14:7b398169aefcebb5f803c5e65f27fa13d893253bdd677e4fabea61af1daa3cc6"]
+reviewed = ["0.2.3:b387b468676a7d18f41d6532ad57187e152f7dc02d5b5223e0db0ceb17af49cd", "0.4.14:7b398169aefcebb5f803c5e65f27fa13d893253bdd677e4fabea61af1daa3cc6"]
 
 [crate."hyphenation"]  # build-script
 allow = true
@@ -2007,7 +2007,7 @@ allow = true
 risk = "low"
 review = "audited"
 reason = "one-line build script cfg-gating the nightly read_buf feature; sans-I/O library, no build-time I/O"
-reviewed = ["0.23.45:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
+reviewed = ["0.23.46:253b9987f6beaf9c80f7cc7f237ee5e0ce83cceec26350f9fb4dcae235e4cb39"]
 
 [crate."rustls-pki-types"]  # build-dependency
 allow = true
