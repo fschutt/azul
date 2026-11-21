@@ -1004,10 +1004,32 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
      `bump_list`, `record_full_emission`.
   5. RESULT: tier `Paint` (`ShouldReRenderCurrentWindow`); the CPU hit-test index takes the same delta for the
      subtree's entries (A6's index) or is rebuilt on the next press.
-- test: equality: the list and the positions after the patch == those after `relayout_child_dom_in_place`
-  for the same write; count: 0 passes, 0 list builds, items written == items of the label.
+- built (round 5), `LayoutWindow::move_node_in_place` (tried by `apply_node_style_change` when the changed keys are
+  within {`left`, `top`, `transform`}), as designed with these decisions:
+  - ITEMS are found by the node's REFERENCE FRAME (`PushReferenceFrame` carries its owner): the range push ..= pop
+    is exactly what the node and the boxes below it paint, so no tag has to be interpreted. The push is found in a
+    table of the list's frames by owner (`DomGenerations::frame_owners`: one walk per list, re-stamped by
+    `bump_for_a_move`, so a drag walks the list once). A node WITHOUT a frame of its own (no `transform`) takes
+    the pass of A3-window-44 as before: its items have no marker for where its context begins and ends (the
+    pushes of a positioned box cannot be told from its parent's by the list alone). The editor's labels have a
+    frame from the first move of a drag on (`item_css` always writes `transform: rotate(..)`); its street-index
+    blocks have none (For area A7-editor).
+  - the kept tree's fingerprint of the box IS written (through `Arc::get_mut`, the solver's cache letting go of
+    the tree for the write): a stale one would call a rebuilt DOM that states the OLD insets "clean" and keep the
+    box where the drag left it.
+  - no `cascade_epoch` bump, no list revision bump (no item changes kind or index); the generation moves
+    (`bump_for_a_move` keeps what a move cannot change: callback-image boxes, image items, the frame table).
+  - a `transform` value alone: `refresh_transform_value_of`, no list (the `write_bound_gpu_properties` channel).
+  - the result is `Paint`; the shell builds its hit-test index again before the next query
+    (`take_boxes_moved_in_place` in `perform_hit_test`): STILL LINEAR in the DOMs' boxes per move, in A6's index
+    (For area A6 has the O(1) change). Also still linear per move, outside this area: the CPU compositor's copy
+    of a list it holds and its diff, `FrameIndex` built again, the GPU translation of a changed list.
+- test: `a_move_of_a_label_drag_looks_at_that_label_alone` (count: boxes and items at 40 and 160 labels equal, 0
+  passes, 0 builds), `a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it` (positions of result and
+  solver cache, the list, and the label after a later pass == a fresh layout of the moved DOM),
+  `a_label_turned_where_it_lies_is_a_value_and_no_list`.
 - severity: medium
-- status: open: designed in this block, not built (this session ran out of room after A3-window-44, which makes the move correct)
+- status: fixed 50dda7e4e
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
@@ -1128,6 +1150,17 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   `nested_dom_hosts` (the Tab order) walks every item of every list although
   `VirtualViewManager::nested_dom_host_map()` now hands out the same map (A3-window-35).
 
+- **A move in place and the hit-test index** (A3-window-49). `LayoutWindow::move_node_in_place` moves the boxes of
+  one subtree by a delta without a layout pass and raises `take_boxes_moved_in_place()`; `perform_hit_test` then
+  calls `rebuild_cpu_hit_tester()` (a minimal patch in your function): one rebuild of the tester per mouse move
+  of a `left` / `top` drag, linear in the boxes of every DOM (as the relayout tier's rebuild was). The O(1)
+  change: `CpuHitTester::move_boxes(dom, nodes: &[NodeId], delta)`: for each entry of `node_rects[dom]` whose
+  node is in `nodes` (found through `DomIndex::top_entry_of_node`), `rect.origin += delta`; the clips those
+  nodes own; the `FrameOrigin` of the `HitChainLink::Transform(dom, node, origin)` links of those nodes; the
+  group grid cell of each moved entry (or the group's grid dropped) and `DomIndex::frame_bounds = None` for the
+  dom (it is worked out again by `sync_frame_bounds`). `move_node_in_place` has the subtree's layout boxes and
+  the delta in hand and would call it through a list it leaves for the shell instead of the flag.
+
 ## For area A2-cpu
 - `virtual_view_frame_scroll_offsets` (`window.rs` about 4490, per GPU frame): `all_view_keys()` allocates a `Vec`
   per frame; O(views).
@@ -1155,6 +1188,10 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   let `reconcile_dom` follow the label, and with A3-window-08 a label that only moved keeps its text layout once
   the solver handles `INLINE_STYLE_INSETS`.
 - The groups of 64 are not needed by this area's code any more (answer 4).
+- A drag by `set_node_style` costs no pass when the node has a `transform` of its own and only `left` / `top`
+  / the transform value change (A3-window-49). `block_css` (the street-index blocks) writes no transform: add
+  `transform: translate(0px, 0px);` to it (and to anything else dragged by `left` / `top`) and the block drag
+  is a move in place too; without it the block takes the pass of A3-window-44 (correct, linear in the view).
 
 ## For area A9
 - With A3-window-23 the font collector (`garbage_collect_fonts`) runs only in a window without a child DOM: a
