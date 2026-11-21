@@ -1,0 +1,57 @@
+[
+  {
+    "name": "a file named in NFD here and in NFC on the drive is one file: a remote edit updates it in place, never deletes it",
+    "description": "KDRIVE-003 (kDrive): a local NFD name and the remote's NFC name stopped matching; a remote edit blacklisted and deleted the file. Rules P2 and P1: names compare in NFC, the original bytes are kept; the edit replaces the local file under its own spelling, nothing is trashed, no duplicate, no name-collision. sync-chaos port-nfc-nfd.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "R\u00e9sum\u00e9.txt", "text": "cv v1", "writer": "web" },
+      { "op": "drive_write", "device": "b", "path": "Re\u0301sume\u0301.txt", "text": "cv v1" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "R\u00e9sum\u00e9.txt", "text": "cv v2, edited on the web", "writer": "web" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Re\u0301sume\u0301.txt", "text": "cv v2, edited on the web" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 1 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision", "absent": true },
+      { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "Re\u0301sume\u0301.txt", "count": 0 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a decomposed name made on a Mac stays one file on the drive and on the other device",
+    "description": "KDRIVE-003 (kDrive): the NFD local name against an NFC entry. Rule P2: the original bytes are stored, a disk that ignores normalization sees one file, every later pass is quiet. sync-chaos port-nfc-nfd.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Re\u0301sume\u0301.txt", "text": "my cv" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "Re\u0301sume\u0301.txt", "text": "my cv" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "R*", "count": 1 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Re\u0301sume\u0301.txt", "text": "my cv" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_write", "device": "b", "path": "Re\u0301sume\u0301.txt", "text": "my cv, edited on b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "Re\u0301sume\u0301.txt", "text": "my cv, edited on b" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 1 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

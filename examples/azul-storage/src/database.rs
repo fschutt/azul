@@ -1,0 +1,1200 @@
+//! A database browsed as files: a PostgreSQL or MySQL / MariaDB database or a SQLite file,
+//! its tables as folders, every row a JSON file named by its key, a table's rows as a CSV file -
+//! read-only. The layout and the SQL are [`crate::tables`]'s; this is the driver: sqlx 0.8, the
+//! one OpenDAL's postgresql / mysql / sqlite services use.
+//!
+//! Every call blocks: it runs on [`crate::runtime`]'s runtime from the calling thread (an azul
+//! `Thread`, never a UI callback). Opening checks the settings and connects to nothing; the
+//! first call opens a small pool of connections (two) that later calls share. A table's
+//! columns and key are read once (again when its folder or the root is listed), its CSV made
+//! when its folder is listed and kept until the next listing of it.
+//!
+//! No password in `Debug` output or in an error.
+
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+    path::PathBuf,
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    time::{Duration, Instant},
+};
+
+use serde_json::Value;
+use sqlx::{
+    mysql::{MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlSslMode},
+    postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgSslMode},
+    sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions},
+};
+
+use crate::{
+    catalog::{MYSQL_SSLMODES, MYSQL_SSLMODE_DEFAULT, PG_SSLMODES, PG_SSLMODE_DEFAULT},
+    config::{DatabaseEngine, SecretOptions},
+    key::folder_of,
+    runtime,
+    tables::{self, Column, Dialect, RowKey, TablePath, TableRef},
+    ByteRange, Drive, DriveError, ListPage, ListRequest, ObjectInfo,
+};
+
+/// Connections a drive keeps open at most.
+const MAX_CONNECTIONS: u32 = 2;
+/// How long a call waits for a connection (a server that does not answer).
+const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long a CSV built by a listing is reused by the next listing of the same folder (a user's
+/// refresh builds a new one): opening a table built its whole CSV on every listing (AZ-CN14).
+const CSV_FRESH: Duration = Duration::from_secs(30);
+/// Tables whose CSV is kept at most; the oldest goes first.
+const CSV_KEPT: usize = 4;
+
+/// What a PostgreSQL session is told first: the transactions it starts are read-only.
+pub(crate) const PG_READ_ONLY: &str = "SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY";
+/// What a MySQL / MariaDB session is told first.
+pub(crate) const MYSQL_READ_ONLY: &str = "SET SESSION TRANSACTION READ ONLY";
+
+/// How to connect, per engine.
+enum Connect {
+    Sqlite(SqliteConnectOptions),
+    Postgres(PgConnectOptions),
+    Mysql(MySqlConnectOptions),
+}
+
+/// The connections, per engine (a clone shares them).
+#[derive(Clone)]
+enum Pool {
+    Sqlite(SqlitePool),
+    Postgres(PgPool),
+    Mysql(MySqlPool),
+}
+
+/// Runs `$body` with `$p` the pool of whichever engine it is and `$db` naming its sqlx
+/// database type: one query written once for the three engines.
+macro_rules! on_pool {
+    ($pool:expr, $p:ident, $db:ident => $body:expr) => {
+        match $pool {
+            Pool::Sqlite($p) => {
+                type $db = sqlx::Sqlite;
+                $body
+            }
+            Pool::Postgres($p) => {
+                type $db = sqlx::Postgres;
+                $body
+            }
+            Pool::Mysql($p) => {
+                type $db = sqlx::MySql;
+                $body
+            }
+        }
+    };
+}
+
+/// Rows of three texts.
+async fn fetch_triples(
+    pool: &Pool,
+    sql: &str,
+    binds: &[String],
+) -> Result<Vec<(String, String, String)>, sqlx::Error> {
+    on_pool!(pool, p, Db => {
+        let mut query = sqlx::query_as::<Db, (String, String, String)>(sql);
+        for value in binds {
+            query = query.bind(value.clone());
+        }
+        query.fetch_all(p).await
+    })
+}
+
+/// Rows of two texts.
+async fn fetch_pairs(
+    pool: &Pool,
+    sql: &str,
+    binds: &[String],
+) -> Result<Vec<(String, String)>, sqlx::Error> {
+    on_pool!(pool, p, Db => {
+        let mut query = sqlx::query_as::<Db, (String, String)>(sql);
+        for value in binds {
+            query = query.bind(value.clone());
+        }
+        query.fetch_all(p).await
+    })
+}
+
+/// Rows of one text.
+async fn fetch_texts(pool: &Pool, sql: &str, binds: &[String]) -> Result<Vec<String>, sqlx::Error> {
+    on_pool!(pool, p, Db => {
+        let mut query = sqlx::query_scalar::<Db, String>(sql);
+        for value in binds {
+            query = query.bind(value.clone());
+        }
+        query.fetch_all(p).await
+    })
+}
+
+/// A table as the drive knows it: where it is, its columns, what names its rows.
+#[derive(Clone)]
+struct Table {
+    reference: TableRef,
+    columns: Vec<Column>,
+    key: RowKey,
+}
+
+/// A database as a [`Drive`]: its tables are folders, every row a JSON file, a table's rows a
+/// CSV file (module docs). Read-only.
+pub struct DatabaseDrive {
+    engine: DatabaseEngine,
+    dialect: Dialect,
+    /// What the messages call the database: the file's name, `shop on db.example`.
+    label: String,
+    connect: Connect,
+    /// The connections, opened on the first call (on the storage runtime).
+    pool: Mutex<Option<Pool>>,
+    /// The tables of the last listing of the root, by folder.
+    folders: Mutex<HashMap<String, TableRef>>,
+    /// The columns and key of each table asked for, by folder.
+    tables: Mutex<HashMap<String, Table>>,
+    /// Each table's CSV as its folder's last listing made it, by folder (at most [`CSV_KEPT`]).
+    csv: Mutex<HashMap<String, Csv>>,
+    /// The most bytes a CSV holds ([`tables::CSV_MAX_BYTES`]).
+    csv_max_bytes: usize,
+}
+
+/// A table's CSV and whether the table has more rows than it holds (the cap: AZ-CN6).
+#[derive(Clone)]
+struct Csv {
+    bytes: Arc<Vec<u8>>,
+    capped: bool,
+    /// When it was built.
+    built: Instant,
+}
+
+impl fmt::Debug for DatabaseDrive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DatabaseDrive")
+            .field("engine", &self.engine)
+            .field("database", &self.label)
+            .finish_non_exhaustive()
+    }
+}
+
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// A setting of the connection, trimmed; `None` when it is empty.
+fn setting<'a>(options: &'a BTreeMap<String, String>, key: &str) -> Option<&'a str> {
+    options
+        .get(key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+}
+
+fn missing(what: &str) -> DriveError {
+    DriveError::InvalidConfig(format!("the database's settings need {what}"))
+}
+
+/// A server's host, port, database and user.
+fn server(
+    options: &BTreeMap<String, String>,
+    default_port: u16,
+) -> Result<(&str, u16, &str, &str), DriveError> {
+    let host = setting(options, "host").ok_or_else(|| missing("its host"))?;
+    let database = setting(options, "database").ok_or_else(|| missing("the database's name"))?;
+    let user = setting(options, "user").ok_or_else(|| missing("a user"))?;
+    let port = match setting(options, "port") {
+        None => default_port,
+        Some(text) => text.parse::<u16>().map_err(|_| {
+            DriveError::InvalidConfig(format!(
+                "the port \"{text}\" is not a number from 1 to 65535"
+            ))
+        })?,
+    };
+    Ok((host, port, database, user))
+}
+
+/// The password, when there is one.
+fn password(secrets: &SecretOptions) -> Option<&str> {
+    secrets.get("password").filter(|p| !p.is_empty())
+}
+
+fn sqlite_connect(options: &BTreeMap<String, String>) -> Result<(Connect, String), DriveError> {
+    let path = setting(options, "path").ok_or_else(|| missing("the path of the SQLite file"))?;
+    let path = PathBuf::from(path);
+    match std::fs::metadata(&path) {
+        Ok(meta) if meta.is_file() => {}
+        Ok(_) => {
+            return Err(DriveError::InvalidConfig(format!(
+                "{} is a folder, not a SQLite database file",
+                path.display()
+            )))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(DriveError::NotFound {
+                key: path.display().to_string(),
+            })
+        }
+        Err(e) => return Err(DriveError::Io(format!("{}: {e}", path.display()))),
+    }
+    let label = path.file_name().map_or_else(
+        || path.display().to_string(),
+        |name| name.to_string_lossy().into_owned(),
+    );
+    let connect = SqliteConnectOptions::new()
+        .filename(&path)
+        .read_only(true)
+        .create_if_missing(false);
+    Ok((Connect::Sqlite(connect), label))
+}
+
+fn postgres_connect(
+    options: &BTreeMap<String, String>,
+    secrets: &SecretOptions,
+) -> Result<(Connect, String), DriveError> {
+    let (host, port, database, user) = server(options, 5432)?;
+    // No word is not sqlx's own default (`prefer`: plain text when the server answers N, any
+    // certificate, the password in clear text when the server asks for it): it is the form's, which
+    // checks the server (AZ-CN2). A stored entry with a word keeps it.
+    let ssl = match setting(options, "sslmode").unwrap_or(PG_SSLMODE_DEFAULT) {
+        "prefer" => PgSslMode::Prefer,
+        "disable" => PgSslMode::Disable,
+        "allow" => PgSslMode::Allow,
+        "require" => PgSslMode::Require,
+        "verify-ca" => PgSslMode::VerifyCa,
+        "verify-full" => PgSslMode::VerifyFull,
+        other => {
+            return Err(DriveError::InvalidConfig(format!(
+                "the TLS mode \"{other}\" is none of {}",
+                PG_SSLMODES.join(", ")
+            )))
+        }
+    };
+    let mut connect = PgConnectOptions::new()
+        .host(host)
+        .port(port)
+        .database(database)
+        .username(user)
+        .ssl_mode(ssl)
+        .application_name("azul-storage");
+    if let Some(password) = password(secrets) {
+        connect = connect.password(password);
+    }
+    Ok((Connect::Postgres(connect), format!("{database} on {host}")))
+}
+
+fn mysql_connect(
+    options: &BTreeMap<String, String>,
+    secrets: &SecretOptions,
+) -> Result<(Connect, String), DriveError> {
+    let (host, port, database, user) = server(options, 3306)?;
+    let ssl = match setting(options, "sslmode").unwrap_or(MYSQL_SSLMODE_DEFAULT) {
+        "preferred" => MySqlSslMode::Preferred,
+        "disabled" => MySqlSslMode::Disabled,
+        "required" => MySqlSslMode::Required,
+        "verify-ca" => MySqlSslMode::VerifyCa,
+        "verify-identity" => MySqlSslMode::VerifyIdentity,
+        other => {
+            return Err(DriveError::InvalidConfig(format!(
+                "the TLS mode \"{other}\" is none of {}",
+                MYSQL_SSLMODES.join(", ")
+            )))
+        }
+    };
+    let mut connect = MySqlConnectOptions::new()
+        .host(host)
+        .port(port)
+        .database(database)
+        .username(user)
+        .ssl_mode(ssl);
+    if let Some(password) = password(secrets) {
+        connect = connect.password(password);
+    }
+    Ok((Connect::Mysql(connect), format!("{database} on {host}")))
+}
+
+/// An object of a listing: a file of the drive and its size.
+fn object(key: String, size: usize) -> ObjectInfo {
+    ObjectInfo {
+        key,
+        size: size as u64,
+        modified: None,
+        etag: None,
+    }
+}
+
+impl DatabaseDrive {
+    /// The database `options` describe (the catalog's form: `path` for SQLite; `host`,
+    /// `port`, `database`, `user`, `sslmode` for PostgreSQL and MySQL), with its `password`
+    /// from `secrets`. Checks the settings - a SQLite file must be there - and connects to
+    /// nothing yet.
+    pub fn open(
+        engine: DatabaseEngine,
+        options: &BTreeMap<String, String>,
+        secrets: &SecretOptions,
+    ) -> Result<DatabaseDrive, DriveError> {
+        DatabaseDrive::open_trusting(engine, options, secrets, true)
+    }
+
+    /// [`DatabaseDrive::open`] for an app whose TLS trusts the public roots as they are
+    /// (`public_roots`, `Transport::trusts_public_roots`) or not. sqlx always trusts its
+    /// compiled-in Mozilla roots and cannot drop any, so under a narrowed set a PostgreSQL or
+    /// MySQL database is opened only without TLS.
+    pub fn open_trusting(
+        engine: DatabaseEngine,
+        options: &BTreeMap<String, String>,
+        secrets: &SecretOptions,
+        public_roots: bool,
+    ) -> Result<DatabaseDrive, DriveError> {
+        let (connect, label) = match engine {
+            DatabaseEngine::Sqlite => sqlite_connect(options)?,
+            DatabaseEngine::Postgres => postgres_connect(options, secrets)?,
+            DatabaseEngine::Mysql => mysql_connect(options, secrets)?,
+        };
+        let tls = match &connect {
+            Connect::Sqlite(_) => false,
+            Connect::Postgres(_) => setting(options, "sslmode") != Some("disable"),
+            Connect::Mysql(_) => setting(options, "sslmode") != Some("disabled"),
+        };
+        if tls && !public_roots {
+            return Err(DriveError::InvalidConfig(format!(
+                "{label}: the database driver trusts its own fixed set of roots over TLS, which \
+                 cannot follow this app's trusted roots (pinned or distrusted ones); connect \
+                 with sslmode disable(d) only inside a network you trust"
+            )));
+        }
+        Ok(DatabaseDrive {
+            engine,
+            dialect: Dialect::of(engine),
+            label,
+            connect,
+            pool: Mutex::new(None),
+            folders: Mutex::new(HashMap::new()),
+            tables: Mutex::new(HashMap::new()),
+            csv: Mutex::new(HashMap::new()),
+            csv_max_bytes: tables::CSV_MAX_BYTES,
+        })
+    }
+
+    /// With a CSV budget of `bytes` (a test's: the real one is 64 MiB).
+    #[cfg(test)]
+    pub(crate) fn with_csv_budget(mut self, bytes: usize) -> DatabaseDrive {
+        self.csv_max_bytes = bytes;
+        self
+    }
+
+    /// The connections, opened on first use. Call it on the storage runtime (inside
+    /// [`runtime::block_on`]): a pool starts its housekeeping task there.
+    fn pool(&self) -> Pool {
+        let mut slot = lock(&self.pool);
+        if let Some(pool) = slot.as_ref() {
+            return pool.clone();
+        }
+        let pool = match &self.connect {
+            Connect::Sqlite(options) => Pool::Sqlite(
+                SqlitePoolOptions::new()
+                    .max_connections(MAX_CONNECTIONS)
+                    .acquire_timeout(ACQUIRE_TIMEOUT)
+                    .connect_lazy_with(options.clone()),
+            ),
+            // A database is browsed, never written: every session starts read-only (SQLite's is
+            // opened read-only), so a view or a function a shared database holds cannot change
+            // anything as the user on a listing (AZ-CN14).
+            Connect::Postgres(options) => Pool::Postgres(
+                PgPoolOptions::new()
+                    .max_connections(MAX_CONNECTIONS)
+                    .acquire_timeout(ACQUIRE_TIMEOUT)
+                    .after_connect(|connection, _meta| {
+                        Box::pin(async move {
+                            sqlx::query(PG_READ_ONLY).execute(&mut *connection).await?;
+                            Ok(())
+                        })
+                    })
+                    .connect_lazy_with(options.clone()),
+            ),
+            Connect::Mysql(options) => Pool::Mysql(
+                MySqlPoolOptions::new()
+                    .max_connections(MAX_CONNECTIONS)
+                    .acquire_timeout(ACQUIRE_TIMEOUT)
+                    .after_connect(|connection, _meta| {
+                        Box::pin(async move {
+                            sqlx::query(MYSQL_READ_ONLY)
+                                .execute(&mut *connection)
+                                .await?;
+                            Ok(())
+                        })
+                    })
+                    .connect_lazy_with(options.clone()),
+            ),
+        };
+        *slot = Some(pool.clone());
+        pool
+    }
+
+    /// Why a call failed, as a sentence (never with the password): a refused login is
+    /// [`DriveError::Denied`], a table or row that is not there [`DriveError::NotFound`]
+    /// (`what` names it), no answer [`DriveError::Transport`].
+    fn failure(&self, error: sqlx::Error, what: &str) -> DriveError {
+        let label = &self.label;
+        match error {
+            sqlx::Error::RowNotFound => DriveError::NotFound {
+                key: what.to_string(),
+            },
+            sqlx::Error::Database(db) => {
+                let code = sqlx::error::DatabaseError::code(&*db)
+                    .map(|c| c.into_owned())
+                    .unwrap_or_default();
+                let message = sqlx::error::DatabaseError::message(&*db).to_string();
+                let lower = message.to_ascii_lowercase();
+                if code.starts_with("28")
+                    || code == "42501"
+                    || lower.contains("access denied")
+                    || lower.contains("authentication failed")
+                {
+                    DriveError::Denied {
+                        message: format!("{label} refused: {message}"),
+                    }
+                } else if code == "42P01"
+                    || code == "42S02"
+                    || lower.contains("no such table")
+                    || lower.contains("doesn't exist") && lower.contains("table")
+                {
+                    DriveError::NotFound {
+                        key: what.to_string(),
+                    }
+                } else if code == "3D000" || lower.contains("unknown database") {
+                    DriveError::InvalidConfig(format!("{label}: {message}"))
+                } else {
+                    DriveError::Protocol(format!("{label}: {message}"))
+                }
+            }
+            sqlx::Error::Io(e) => DriveError::Transport(format!("{label}: {e}")),
+            sqlx::Error::Tls(e) => {
+                DriveError::Transport(format!("{label}: TLS: {e}{}", self.tls_hint()))
+            }
+            sqlx::Error::PoolTimedOut => {
+                DriveError::Transport(format!("{label} did not answer in time"))
+            }
+            sqlx::Error::Configuration(e) => DriveError::InvalidConfig(format!("{label}: {e}")),
+            other => DriveError::Protocol(format!("{label}: {other}")),
+        }
+    }
+
+    /// How the connection is secured, as sqlx will use it (`VerifyFull`, `Require`, `Prefer`, ...);
+    /// `None` for a SQLite file, which has no connection.
+    #[must_use]
+    pub fn tls_mode(&self) -> Option<String> {
+        match &self.connect {
+            Connect::Sqlite(_) => None,
+            Connect::Postgres(options) => Some(format!("{:?}", options.get_ssl_mode())),
+            Connect::Mysql(options) => Some(format!("{:?}", options.get_ssl_mode())),
+        }
+    }
+
+    /// What to add to a TLS error when the connection CHECKS the server: a server whose
+    /// certificate no public authority signed (a private CA, a self-signed one) is reached with the
+    /// setting that only encrypts.
+    pub(crate) fn tls_hint(&self) -> &'static str {
+        let verifies = match &self.connect {
+            Connect::Sqlite(_) => false,
+            Connect::Postgres(options) => matches!(
+                options.get_ssl_mode(),
+                PgSslMode::VerifyCa | PgSslMode::VerifyFull
+            ),
+            Connect::Mysql(options) => matches!(
+                options.get_ssl_mode(),
+                MySqlSslMode::VerifyCa | MySqlSslMode::VerifyIdentity
+            ),
+        };
+        if verifies {
+            " (the TLS setting checks the server's certificate against the public authorities; \
+             for a server with a certificate of its own choose the setting that only encrypts)"
+        } else {
+            ""
+        }
+    }
+
+    /// What a write is answered with.
+    fn read_only(&self, key: &str) -> DriveError {
+        DriveError::Denied {
+            message: format!(
+                "\"{key}\" is in the database {}, which is browsed read-only",
+                self.label
+            ),
+        }
+    }
+
+    /// Every table and view, by folder, in the folders' order (and they are what the folders
+    /// name from now on; the columns are read again).
+    async fn list_tables(&self, pool: &Pool) -> Result<Vec<(String, TableRef)>, DriveError> {
+        let rows = fetch_triples(pool, self.dialect.list_tables_sql(), &[])
+            .await
+            .map_err(|e| self.failure(e, ""))?;
+        let mut found: Vec<(String, TableRef)> = rows
+            .into_iter()
+            .map(|(schema, name, kind)| {
+                let table = TableRef {
+                    view: tables::is_view(&kind),
+                    schema,
+                    name,
+                };
+                (tables::folder_name(self.dialect, &table), table)
+            })
+            .collect();
+        found.sort_by(|a, b| a.0.cmp(&b.0));
+        found.dedup_by(|a, b| a.0 == b.0);
+        *lock(&self.folders) = found.iter().cloned().collect();
+        lock(&self.tables).clear();
+        Ok(found)
+    }
+
+    /// The table a folder names.
+    async fn resolve(&self, pool: &Pool, folder: &str) -> Result<TableRef, DriveError> {
+        let known = lock(&self.folders).get(folder).cloned();
+        if let Some(table) = known {
+            return Ok(table);
+        }
+        let not_found = || DriveError::NotFound {
+            key: format!("{folder}/"),
+        };
+        let binds = self.dialect.find_table_binds(folder).ok_or_else(not_found)?;
+        let rows = fetch_triples(pool, self.dialect.find_table_sql(), &binds)
+            .await
+            .map_err(|e| self.failure(e, folder))?;
+        let (schema, name, kind) = rows.into_iter().next().ok_or_else(not_found)?;
+        let table = TableRef {
+            view: tables::is_view(&kind),
+            schema,
+            name,
+        };
+        // Only the table this folder shows (PostgreSQL: `a.b` of `public` is not `b` of `a`).
+        if tables::folder_name(self.dialect, &table) != folder {
+            return Err(not_found());
+        }
+        lock(&self.folders).insert(folder.to_string(), table.clone());
+        Ok(table)
+    }
+
+    /// A table's columns, in their order.
+    async fn columns(&self, pool: &Pool, table: &TableRef) -> Result<Vec<Column>, sqlx::Error> {
+        let sql = self.dialect.columns_sql();
+        let binds = self.dialect.columns_binds(table);
+        match pool {
+            Pool::Sqlite(p) => {
+                let mut query = sqlx::query_as::<sqlx::Sqlite, (String, String, i64, i64)>(sql);
+                for value in &binds {
+                    query = query.bind(value.clone());
+                }
+                Ok(query
+                    .fetch_all(p)
+                    .await?
+                    .into_iter()
+                    .map(|(name, data_type, not_null, key)| Column {
+                        name,
+                        data_type,
+                        nullable: not_null == 0,
+                        primary_key: u32::try_from(key).unwrap_or(0),
+                    })
+                    .collect())
+            }
+            Pool::Postgres(p) => {
+                let mut query = sqlx::query_as::<sqlx::Postgres, (String, String, bool, i32)>(sql);
+                for value in &binds {
+                    query = query.bind(value.clone());
+                }
+                Ok(query
+                    .fetch_all(p)
+                    .await?
+                    .into_iter()
+                    .map(|(name, data_type, nullable, key)| Column {
+                        name,
+                        data_type,
+                        nullable,
+                        primary_key: u32::try_from(key).unwrap_or(0),
+                    })
+                    .collect())
+            }
+            Pool::Mysql(p) => {
+                let mut query = sqlx::query_as::<sqlx::MySql, (String, String, i64, i64)>(sql);
+                for value in &binds {
+                    query = query.bind(value.clone());
+                }
+                Ok(query
+                    .fetch_all(p)
+                    .await?
+                    .into_iter()
+                    .map(|(name, data_type, nullable, key)| Column {
+                        name,
+                        data_type,
+                        nullable: nullable != 0,
+                        primary_key: u32::try_from(key).unwrap_or(0),
+                    })
+                    .collect())
+            }
+        }
+    }
+
+    /// The table a folder names, with its columns and key (read again when `fresh`).
+    async fn table(&self, pool: &Pool, folder: &str, fresh: bool) -> Result<Table, DriveError> {
+        let known = if fresh {
+            lock(&self.tables).remove(folder);
+            None
+        } else {
+            lock(&self.tables).get(folder).cloned()
+        };
+        if let Some(table) = known {
+            return Ok(table);
+        }
+        let reference = self.resolve(pool, folder).await?;
+        let columns = self
+            .columns(pool, &reference)
+            .await
+            .map_err(|e| self.failure(e, folder))?;
+        if columns.is_empty() {
+            return Err(DriveError::NotFound {
+                key: format!("{folder}/"),
+            });
+        }
+        let key = RowKey::for_table(self.dialect, &columns, reference.view);
+        let table = Table {
+            reference,
+            columns,
+            key,
+        };
+        lock(&self.tables).insert(folder.to_string(), table.clone());
+        Ok(table)
+    }
+
+    /// `limit` rows from `offset` in key order, as (file name without `.json`, JSON text).
+    async fn rows(
+        &self,
+        pool: &Pool,
+        folder: &str,
+        table: &Table,
+        limit: u64,
+        offset: u64,
+    ) -> Result<Vec<(String, String)>, DriveError> {
+        let sql = self
+            .dialect
+            .rows_sql(&table.reference, &table.columns, &table.key, limit, offset);
+        let found = fetch_pairs(pool, &sql, &[])
+            .await
+            .map_err(|e| self.failure(e, folder))?;
+        Ok(found
+            .into_iter()
+            .zip(offset + 1..)
+            .map(|((key_json, json), place)| (tables::row_name(&table.key, &key_json, place), json))
+            .collect())
+    }
+
+    /// One row's JSON text, by its file's name (without `.json`).
+    async fn row(
+        &self,
+        pool: &Pool,
+        folder: &str,
+        table: &Table,
+        name: &str,
+    ) -> Result<String, DriveError> {
+        let key = TablePath::Row {
+            folder: folder.to_string(),
+            name: name.to_string(),
+        }
+        .key();
+        let Some(lookup) = tables::parse_row_name(name, &table.key) else {
+            return Err(DriveError::NotFound { key });
+        };
+        let (sql, binds) =
+            self.dialect
+                .row_sql(&table.reference, &table.columns, &table.key, &lookup);
+        let found = fetch_texts(pool, &sql, &binds)
+            .await
+            .map_err(|e| self.failure(e, &key))?;
+        found
+            .into_iter()
+            .next()
+            .ok_or(DriveError::NotFound { key })
+    }
+
+    /// A table's CSV: the one its folder's last listing made, or (`fresh`, or none yet) a new one
+    /// of its first rows - built page by page within the byte budget, and one row past the cap is
+    /// asked for to know whether the table has more than the cap (AZ-CN6, AZ-CN14).
+    async fn csv(
+        &self,
+        pool: &Pool,
+        folder: &str,
+        table: &Table,
+        fresh: bool,
+    ) -> Result<Csv, DriveError> {
+        if !fresh {
+            let known = lock(&self.csv).get(folder).cloned();
+            if let Some(csv) = known {
+                return Ok(csv);
+            }
+        }
+        let mut text = tables::CsvText::new(&table.columns, self.csv_max_bytes);
+        let mut capped = false;
+        let mut offset = 0;
+        let mut page_rows = tables::CSV_FIRST_PAGE;
+        while !capped && offset <= tables::CSV_MAX_ROWS {
+            let want = page_rows.min(tables::CSV_MAX_ROWS + 1 - offset);
+            let page = self.rows(pool, folder, table, want, offset).await?;
+            let got = page.len() as u64;
+            // The next page is sized by the rows seen: a thousand small ones, a few big ones.
+            let seen: usize = page.iter().map(|(_, json)| json.len()).sum();
+            page_rows = tables::csv_page_rows(seen / page.len().max(1));
+            for (_, json) in page {
+                // The row past the cap, or one that takes the text past its budget: the table has
+                // more than the CSV holds.
+                if text.rows() >= tables::CSV_MAX_ROWS {
+                    capped = true;
+                    break;
+                }
+                let value: Value = serde_json::from_str(&json).unwrap_or(Value::Null);
+                if !text.push(&value) {
+                    capped = true;
+                    break;
+                }
+            }
+            if got < want {
+                break;
+            }
+            offset += got;
+        }
+        let csv = Csv {
+            bytes: Arc::new(text.finish().into_bytes()),
+            capped,
+            built: Instant::now(),
+        };
+        let mut kept = lock(&self.csv);
+        kept.insert(folder.to_string(), csv.clone());
+        while kept.len() > CSV_KEPT {
+            let Some(oldest) = kept
+                .iter()
+                .min_by_key(|(_, csv)| csv.built)
+                .map(|(folder, _)| folder.clone())
+            else {
+                break;
+            };
+            kept.remove(&oldest);
+        }
+        Ok(csv)
+    }
+
+    /// Whether the table has more rows than a listing shows: one row past the cap is asked for.
+    async fn beyond_the_cap(
+        &self,
+        pool: &Pool,
+        folder: &str,
+        table: &Table,
+    ) -> Result<bool, DriveError> {
+        Ok(!self
+            .rows(pool, folder, table, 1, tables::MAX_ROW_FILES)
+            .await?
+            .is_empty())
+    }
+
+    /// Whether a note exists: the table's folder has one when its CSV stops before the table's
+    /// last row (the row cap or the byte budget), its `rows/` folder when the table has more rows
+    /// than that lists.
+    async fn has_note(
+        &self,
+        pool: &Pool,
+        folder: &str,
+        table: &Table,
+        in_rows: bool,
+    ) -> Result<bool, DriveError> {
+        if in_rows {
+            self.beyond_the_cap(pool, folder, table).await
+        } else {
+            Ok(self.csv(pool, folder, table, false).await?.capped)
+        }
+    }
+
+    /// A table's `schema.json`; `capped`: the table has more rows than a listing shows.
+    fn schema(&self, table: &Table, capped: bool) -> String {
+        tables::schema_json(
+            self.engine.key(),
+            &table.reference,
+            &table.columns,
+            &table.key,
+            capped,
+        )
+    }
+
+    /// The object of the note of a capped table, in its folder or its `rows/` folder.
+    fn note_object(folder: &str, in_rows: bool) -> ObjectInfo {
+        let note = TablePath::Note {
+            folder: folder.to_string(),
+            in_rows,
+        };
+        object(note.key(), tables::note_text(folder).len())
+    }
+
+    /// One folder level (`request.prefix` a folder, or a folder and the start of a name).
+    async fn list_folder(&self, pool: &Pool, request: &ListRequest) -> Result<ListPage, DriveError> {
+        let prefix = request.prefix.as_str();
+        let page_size = request.page_size();
+        let continuation = request.continuation.as_deref();
+        let Some(path) = TablePath::parse(folder_of(prefix)) else {
+            return Ok(ListPage::default());
+        };
+        match path {
+            TablePath::Root => {
+                let folders: Vec<String> = self
+                    .list_tables(pool)
+                    .await?
+                    .into_iter()
+                    .map(|(folder, _)| format!("{folder}/"))
+                    .filter(|folder| folder.starts_with(prefix))
+                    .collect();
+                let (start, end, next) = tables::page_bounds(folders.len(), page_size, continuation)?;
+                Ok(ListPage {
+                    folders: folders[start..end].to_vec(),
+                    objects: Vec::new(),
+                    next,
+                })
+            }
+            TablePath::Table { folder } => {
+                if continuation.is_some() {
+                    // The folder fits on one page.
+                    return Ok(ListPage::default());
+                }
+                let table = self.table(pool, &folder, true).await?;
+                // The CSV of the last listing is reused for a while: the folder is listed again
+                // by every look at it, and a user's refresh builds a new one (AZ-CN14).
+                let stale = lock(&self.csv)
+                    .get(&folder)
+                    .is_none_or(|csv| csv.built.elapsed() > CSV_FRESH);
+                let csv = self
+                    .csv(pool, &folder, &table, request.refresh || stale)
+                    .await?;
+                let schema = self.schema(&table, csv.capped);
+                let mut objects = vec![
+                    object(
+                        TablePath::Csv {
+                            folder: folder.clone(),
+                        }
+                        .key(),
+                        csv.bytes.len(),
+                    ),
+                    object(
+                        TablePath::Schema {
+                            folder: folder.clone(),
+                        }
+                        .key(),
+                        schema.len(),
+                    ),
+                ];
+                // A table with more rows than the CSV holds says so beside it (AZ-CN6).
+                if csv.capped {
+                    objects.push(DatabaseDrive::note_object(&folder, false));
+                }
+                objects.retain(|o| o.key.starts_with(prefix));
+                let mut folders = vec![TablePath::Rows { folder }.key()];
+                folders.retain(|f| f.starts_with(prefix));
+                Ok(ListPage {
+                    folders,
+                    objects,
+                    next: None,
+                })
+            }
+            TablePath::Rows { folder } => {
+                let offset = match continuation {
+                    None => 0,
+                    Some(token) => token.trim().parse::<u64>().map_err(|_| {
+                        DriveError::Protocol(String::from(
+                            "the listing's continuation token is not one of this drive's",
+                        ))
+                    })?,
+                };
+                if offset >= tables::MAX_ROW_FILES {
+                    return Ok(ListPage::default());
+                }
+                let table = self.table(pool, &folder, false).await?;
+                let limit = u64::from(page_size).min(tables::MAX_ROW_FILES - offset);
+                // One row more than the page: is there another page?
+                let mut rows = self.rows(pool, &folder, &table, limit + 1, offset).await?;
+                let more = rows.len() as u64 > limit && offset + limit < tables::MAX_ROW_FILES;
+                // The cap cut the listing while the table has more rows: the last page says so
+                // with a note file (AZ-CN6), so a copy of this folder is never a silent partial.
+                let capped = rows.len() as u64 > limit && offset + limit >= tables::MAX_ROW_FILES;
+                rows.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+                let mut objects: Vec<ObjectInfo> = rows
+                    .into_iter()
+                    .map(|(name, json)| {
+                        object(
+                            TablePath::Row {
+                                folder: folder.clone(),
+                                name,
+                            }
+                            .key(),
+                            json.len(),
+                        )
+                    })
+                    .collect();
+                if capped {
+                    objects.push(DatabaseDrive::note_object(&folder, true));
+                }
+                objects.retain(|o| o.key.starts_with(prefix));
+                Ok(ListPage {
+                    folders: Vec::new(),
+                    objects,
+                    next: more.then(|| (offset + limit).to_string()),
+                })
+            }
+            // A file's name is no folder.
+            TablePath::Csv { .. }
+            | TablePath::Schema { .. }
+            | TablePath::Row { .. }
+            | TablePath::Note { .. } => Ok(ListPage::default()),
+        }
+    }
+
+    /// Every file under `request.prefix` at any depth (S3 semantics: no folders): the tables'
+    /// CSV and schema files and their rows' files.
+    async fn list_everything(
+        &self,
+        pool: &Pool,
+        request: &ListRequest,
+    ) -> Result<ListPage, DriveError> {
+        let prefix = request.prefix.as_str();
+        let folders: Vec<String> = match TablePath::parse(folder_of(prefix)) {
+            Some(TablePath::Root) => self
+                .list_tables(pool)
+                .await?
+                .into_iter()
+                .map(|(folder, _)| folder)
+                .collect(),
+            Some(TablePath::Table { folder } | TablePath::Rows { folder }) => vec![folder],
+            _ => Vec::new(),
+        };
+        let mut objects = Vec::new();
+        for folder in folders {
+            let table = self.table(pool, &folder, false).await?;
+            let csv = self.csv(pool, &folder, &table, false).await?;
+            objects.push(object(
+                TablePath::Csv {
+                    folder: folder.clone(),
+                }
+                .key(),
+                csv.bytes.len(),
+            ));
+            objects.push(object(
+                TablePath::Schema {
+                    folder: folder.clone(),
+                }
+                .key(),
+                self.schema(&table, csv.capped).len(),
+            ));
+            // A table with more rows than the CSV holds: the note beside it (AZ-CN6).
+            if csv.capped {
+                objects.push(DatabaseDrive::note_object(&folder, false));
+            }
+            let mut offset = 0;
+            while offset < tables::MAX_ROW_FILES {
+                let limit = tables::ROWS_PAGE.min(tables::MAX_ROW_FILES - offset);
+                let rows = self.rows(pool, &folder, &table, limit, offset).await?;
+                let count = rows.len() as u64;
+                objects.extend(rows.into_iter().map(|(name, json)| {
+                    object(
+                        TablePath::Row {
+                            folder: folder.clone(),
+                            name,
+                        }
+                        .key(),
+                        json.len(),
+                    )
+                }));
+                if count < limit {
+                    break;
+                }
+                offset += count;
+            }
+            // The listing stopped at the cap while the table goes on: the note in rows/ too.
+            if offset >= tables::MAX_ROW_FILES && self.beyond_the_cap(pool, &folder, &table).await?
+            {
+                objects.push(DatabaseDrive::note_object(&folder, true));
+            }
+        }
+        objects.retain(|o| o.key.starts_with(prefix));
+        objects.sort_by(|a, b| a.key.cmp(&b.key));
+        let (start, end, next) = tables::page_bounds(
+            objects.len(),
+            request.page_size(),
+            request.continuation.as_deref(),
+        )?;
+        Ok(ListPage {
+            folders: Vec::new(),
+            objects: objects[start..end].to_vec(),
+            next,
+        })
+    }
+
+    async fn list_now(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        let pool = self.pool();
+        if request.delimiter.is_none() {
+            self.list_everything(&pool, request).await
+        } else {
+            self.list_folder(&pool, request).await
+        }
+    }
+
+    /// A file's bytes.
+    async fn get_now(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        let pool = self.pool();
+        let Some(path) = TablePath::parse(key) else {
+            return Err(DriveError::NotFound {
+                key: key.to_string(),
+            });
+        };
+        match path {
+            TablePath::Csv { folder } => {
+                let table = self.table(&pool, &folder, false).await?;
+                Ok(self
+                    .csv(&pool, &folder, &table, false)
+                    .await?
+                    .bytes
+                    .to_vec())
+            }
+            TablePath::Schema { folder } => {
+                let table = self.table(&pool, &folder, false).await?;
+                let capped = self.csv(&pool, &folder, &table, false).await?.capped;
+                Ok(self.schema(&table, capped).into_bytes())
+            }
+            TablePath::Note { folder, in_rows } => {
+                // Only a table that has more rows than the listing it is in shows has the note.
+                let table = self.table(&pool, &folder, false).await?;
+                if !self.has_note(&pool, &folder, &table, in_rows).await? {
+                    return Err(DriveError::NotFound {
+                        key: key.to_string(),
+                    });
+                }
+                Ok(tables::note_text(&folder).into_bytes())
+            }
+            TablePath::Row { folder, name } => {
+                let table = self.table(&pool, &folder, false).await?;
+                Ok(self.row(&pool, &folder, &table, &name).await?.into_bytes())
+            }
+            TablePath::Root | TablePath::Table { .. } | TablePath::Rows { .. } => {
+                Err(DriveError::InvalidKey {
+                    key: key.to_string(),
+                    reason: "it names a folder, not a file",
+                })
+            }
+        }
+    }
+
+    /// A file's size.
+    async fn head_now(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        let pool = self.pool();
+        let Some(path) = TablePath::parse(key) else {
+            return Err(DriveError::NotFound {
+                key: key.to_string(),
+            });
+        };
+        let size = match path {
+            TablePath::Csv { folder } => {
+                let table = self.table(&pool, &folder, false).await?;
+                self.csv(&pool, &folder, &table, false).await?.bytes.len()
+            }
+            TablePath::Schema { folder } => {
+                let table = self.table(&pool, &folder, false).await?;
+                let capped = self.csv(&pool, &folder, &table, false).await?.capped;
+                self.schema(&table, capped).len()
+            }
+            TablePath::Note { folder, in_rows } => {
+                let table = self.table(&pool, &folder, false).await?;
+                if !self.has_note(&pool, &folder, &table, in_rows).await? {
+                    return Err(DriveError::NotFound {
+                        key: key.to_string(),
+                    });
+                }
+                tables::note_text(&folder).len()
+            }
+            TablePath::Row { folder, name } => {
+                let table = self.table(&pool, &folder, false).await?;
+                self.row(&pool, &folder, &table, &name).await?.len()
+            }
+            TablePath::Root | TablePath::Table { .. } | TablePath::Rows { .. } => {
+                return Err(DriveError::InvalidKey {
+                    key: key.to_string(),
+                    reason: "it names a folder, not a file",
+                })
+            }
+        };
+        Ok(object(key.to_string(), size))
+    }
+}
+
+// `get_limited` is the trait's default (the read, then the length): a file of this drive is MADE
+// here, from rows read under the caps of the listing ([`tables::MAX_ROW_FILES`], the CSV's
+// `csv_max_bytes`), so the read is bounded by construction and a size asked first would build the
+// file twice (X-DELTA-AZDRIVE-KEYS-43).
+impl Drive for DatabaseDrive {
+    fn list(&self, request: &ListRequest) -> Result<ListPage, DriveError> {
+        runtime::block_on(self.list_now(request))?
+    }
+
+    fn get(&self, key: &str) -> Result<Vec<u8>, DriveError> {
+        runtime::block_on(self.get_now(key))?
+    }
+
+    fn get_range(&self, key: &str, range: ByteRange) -> Result<Vec<u8>, DriveError> {
+        let bytes = self.get(key)?;
+        tables::byte_range(&bytes, range, key)
+    }
+
+    fn put(&self, key: &str, _bytes: &[u8]) -> Result<(), DriveError> {
+        Err(self.read_only(key))
+    }
+
+    fn delete(&self, key: &str) -> Result<(), DriveError> {
+        Err(self.read_only(key))
+    }
+
+    fn head(&self, key: &str) -> Result<ObjectInfo, DriveError> {
+        runtime::block_on(self.head_now(key))?
+    }
+
+    fn copy(&self, _from: &str, to: &str) -> Result<(), DriveError> {
+        Err(self.read_only(to))
+    }
+
+    fn create_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        Err(self.read_only(prefix))
+    }
+
+    fn rename(&self, from: &str, _to: &str) -> Result<(), DriveError> {
+        Err(self.read_only(from))
+    }
+
+    fn delete_folder(&self, prefix: &str) -> Result<(), DriveError> {
+        Err(self.read_only(prefix))
+    }
+
+    fn metadata(&self, key: &str) -> Result<Vec<(String, String)>, DriveError> {
+        self.head(key)?;
+        let mut out = vec![
+            (String::from("Database"), self.label.clone()),
+            (String::from("Engine"), self.engine.name().to_string()),
+        ];
+        if let Some(folder) = TablePath::parse(key).as_ref().and_then(TablePath::folder) {
+            let table = tables::unescape_segment(folder).unwrap_or_else(|| folder.to_string());
+            out.push((String::from("Table"), table));
+            // What a listing of a table shows at most: the CSV and the row files stop there.
+            out.push((String::from("Row limit"), tables::MAX_ROW_FILES.to_string()));
+        }
+        Ok(out)
+    }
+}
+
+impl Drop for DatabaseDrive {
+    fn drop(&mut self) {
+        // A pool's connections go back to the runtime they were opened on.
+        let pool = self
+            .pool
+            .get_mut()
+            .map(Option::take)
+            .unwrap_or_else(|poisoned| poisoned.into_inner().take());
+        if let Some(pool) = pool {
+            if let Ok(runtime) = runtime::shared() {
+                let _context = runtime.enter();
+                drop(pool);
+            }
+        }
+    }
+}

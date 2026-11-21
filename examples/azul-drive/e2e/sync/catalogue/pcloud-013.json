@@ -1,0 +1,41 @@
+[
+  {
+    "name": "a video and a photo come down byte for byte as they went up (never a re-encode)",
+    "description": "PCLOUD-013 (pCloud): iPhone videos downloaded with distorted colours or flipped. Rules S15/I1: the stored bytes are the original bytes, checked by hash on every download.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "DCIM/IMG_0042.MOV", "size": 2000000, "seed": 13 },
+      { "op": "drive_write", "device": "a", "path": "DCIM/IMG_0043.HEIC", "size": 300000, "seed": 14 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0042.MOV", "same_as": "{root:a}/DCIM/IMG_0042.MOV" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0043.HEIC", "same_as": "{root:a}/DCIM/IMG_0043.HEIC" },
+      { "op": "drive_check", "check": "remote_file", "key": "DCIM/IMG_0042.MOV", "same_as": "DCIM/IMG_0042.MOV", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "an HDR HEVC video with rotation metadata uploaded from the phone app comes down byte-identical",
+    "description": "PCLOUD-013 (pCloud iOS): uploads from several iPhones came back re-coloured or flipped. Rule I1 for the mobile upload (sync-chaos mobile-camera-upload): original bytes stored unchanged.",
+    "pending": "AzDrive has no mobile app yet (MISS25-A): the camera upload queue - assets by id and content hash, kept across a reinstall, within the system's background-task budget - is planning/mobile's; drive_camera_upload and drive_reinstall need that queue (a one-way camera pairing exists: drive_pair mode camera-upload)",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "phone", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "phone" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_camera_upload", "device": "phone", "assets": [{"kind": "hevc-hdr", "rotation": 90, "path": "DCIM/IMG_0042.MOV"}] },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "DCIM/IMG_0042.MOV", "same_as": "{root:phone}/DCIM/IMG_0042.MOV" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

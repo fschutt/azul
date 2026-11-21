@@ -124,7 +124,7 @@ fn build_mime_array<'a>(
 /// with the resulting `JNIEnv`. Returns `Err` if the VM hasn't been
 /// published yet (e.g. dispatch happened before `android_main`).
 #[cfg(target_os = "android")]
-fn with_env<R>(
+pub(crate) fn with_env<R>(
     f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Result<R, jni::errors::Error>,
 ) -> Result<R, String> {
     use jni::JavaVM;

@@ -80,13 +80,17 @@ fn cursor(byte: u32, affinity: CursorAffinity) -> TextCursor {
     }
 }
 
-/// Install an editing session on the text leaf with one RANGE selection.
+/// Install an editing session in the text leaf's block with one RANGE
+/// selection.
 fn select(lw: &mut LayoutWindow, dom: DomId, node: NodeId, start: TextCursor, end: TextCursor) {
     let dom_node = DomNodeId {
         dom,
         node: NodeHierarchyItemId::from_crate_internal(Some(node)),
     };
-    let mut mc = MultiCursorState::new_with_cursor(start, dom_node, 0);
+    let block = lw
+        .text_block_of(dom_node)
+        .expect("the text leaf is in a text block");
+    let mut mc = MultiCursorState::new_with_cursor(start, block, 0);
     mc.selections = vec![IdentifiedSelection {
         id: SelectionId::new(),
         selection: Selection::Range(SelectionRange { start, end }),
@@ -225,13 +229,15 @@ fn arabic_selection_is_logical_byte_order() {
 #[test]
 fn caret_resolves_and_clamps() {
     let (mut lw, dom, _host, text) = editable_paragraph("hi");
-    let dom_node = DomNodeId {
-        dom,
-        node: NodeHierarchyItemId::from_crate_internal(Some(text)),
-    };
+    let block = lw
+        .text_block_of(DomNodeId {
+            dom,
+            node: NodeHierarchyItemId::from_crate_internal(Some(text)),
+        })
+        .expect("the text leaf is in a text block");
     lw.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
         cursor(1, CursorAffinity::Trailing),
-        dom_node,
+        block,
         0,
     ));
     let caret = lw.document_caret().expect("session active");
@@ -240,7 +246,7 @@ fn caret_resolves_and_clamps() {
     // A stale cursor beyond the text clamps to the end instead of lying.
     lw.text_edit_manager.multi_cursor = Some(MultiCursorState::new_with_cursor(
         cursor(999, CursorAffinity::Trailing),
-        dom_node,
+        block,
         0,
     ));
     let caret = lw.document_caret().expect("session active");

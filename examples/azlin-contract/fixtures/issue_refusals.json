@@ -1,0 +1,52 @@
+[
+  {
+    "error": "bad_request"
+  },
+  {
+    "error": "issue_key_required"
+  },
+  {
+    "error": "key_id_required"
+  },
+  {
+    "error": "issue_key_wrong"
+  },
+  {
+    "error": "no_such_checkout"
+  },
+  {
+    "error": "not_paid"
+  },
+  {
+    "error": "mandate_stopped"
+  },
+  {
+    "error": "already_issued"
+  },
+  {
+    "error": "not_due",
+    "schedule": {
+      "months": 3,
+      "issued": 1,
+      "next_issue_at": "2026-11-21T08:00:00Z"
+    }
+  },
+  {
+    "error": "key_changed",
+    "key_id": "100GB/2027",
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\n...\n"
+  },
+  {
+    "error": "key_changed",
+    "key_id": "100GB/2027"
+  },
+  {
+    "error": "issuer_key_missing"
+  },
+  {
+    "error": "try_again"
+  },
+  {
+    "error": "unavailable"
+  }
+]

@@ -56,7 +56,87 @@ pub struct ColorInput {
     /// Carried by the WIDGET so it knows at build time whether it was named;
     /// forwarded into the accessibility declaration it already builds.
     pub accessibility_name: OptionString,
+    /// The widget theme this widget is PINNED to (`with_theme`), or `None`
+    /// to follow the app theme (`AppConfig::with_theme`,
+    /// `CallbackInfo::set_theme`; flat unless the app chose another).
+    pub theme: crate::widgets::themes::OptionUiTheme,
 }
+
+/// What a theme decides about a colour input: the swatch's own additions and
+/// the picker panel's surfaces - SKINS, paint and metrics. [`build`] keeps
+/// the structure (the live updates find the panel's parts by position), each
+/// part's layout (`PICKER_*_BASE_CSS`, the same in every theme, a sheet of its
+/// own before the skin's) and the behaviour; built by
+/// `themes::flat::color_input` and `themes::flora::color_input`.
+pub(crate) struct ColorInputLook {
+    /// Appended to the swatch's own style (after its colour), when the
+    /// widget owns that style: its frame and its focus ring.
+    pub swatch: Vec<CssPropertyWithConditions>,
+    /// The picker panel's skin CSS, light and dark (its layout is
+    /// [`PICKER_PANEL_BASE_CSS`]).
+    pub panel_css: &'static str,
+    /// The preview swatch's frame CSS (its layout is
+    /// [`PICKER_PREVIEW_BASE_CSS`]).
+    pub preview_css: &'static str,
+    /// The eyedropper button's skin CSS (its layout is
+    /// [`PICKER_EYEDROPPER_BASE_CSS`]).
+    pub eyedropper_css: &'static str,
+    /// The grip handle's CSS (a bar: size, radius, paint).
+    pub grip_handle_css: &'static str,
+    /// Inline additions to the plane, hue and alpha bars - keyboard stops,
+    /// so their focus ring.
+    pub slider_focus: Vec<CssPropertyWithConditions>,
+    /// The theme's marker class on the swatch, if it has one.
+    pub marker: Option<&'static str>,
+    /// The widget theme this look is: the picker's panel, built when its
+    /// popup is shown ([`picker_content`]), is built in the same one.
+    pub theme: crate::widgets::themes::UiTheme,
+}
+
+// ---- the base: the picker's structure, in every theme ----
+//
+// What lays the picker out is the same whichever theme paints it, so it is
+// the widget's own: `picker_panel` gives each part its base sheet FIRST, then
+// the theme's skin sheet (`ColorInputLook`). A CSS string is one rule, and a
+// rule is never split between the themes: a layout written in the same
+// string as the paint went into each `@theme` block with it. Written apart,
+// it is declared once for every theme (R5).
+
+/// The picker panel: a column of its parts.
+pub(crate) const PICKER_PANEL_BASE_CSS: &str = "display: flex; flex-direction: column;";
+/// The preview: the containing block of its checkerboard and colour overlay
+/// (absolutely positioned), clipped to its frame.
+pub(crate) const PICKER_PREVIEW_BASE_CSS: &str = "position: relative; overflow: hidden;";
+/// The eyedropper: a button that centres its icon.
+pub(crate) const PICKER_EYEDROPPER_BASE_CSS: &str =
+    "display: flex; align-items: center; justify-content: center; cursor: pointer;";
+
+// ---- the flat skin ----
+
+/// The established panel CSS (the flat look; its layout is
+/// [`PICKER_PANEL_BASE_CSS`]).
+pub(crate) const PANEL_CSS: &str =
+    "gap: 8px; padding: 8px; background: #ffffff; border: 1px solid #c8c8c8; border-radius: 6px; \
+     box-shadow: 0px 4px 16px rgba(0, 0, 0, 0.25); font-size: 12px; color: #202020; @media \
+     (prefers-color-scheme: dark) { background: system:window-background; border-color: \
+     system:separator; color: system:text; }";
+/// The established preview frame CSS (the flat look; its layout is
+/// [`PICKER_PREVIEW_BASE_CSS`]). The frame's grey had no night value; it
+/// takes the desktop's separator, as the panel's own border does.
+pub(crate) const PREVIEW_CSS: &str = "width: 28px; height: 28px; border-radius: 4px; border: 1px \
+                                      solid #c8c8c8; @media (prefers-color-scheme: dark) { \
+                                      border-color: system:separator; }";
+/// The established eyedropper CSS (the flat look; its layout is
+/// [`PICKER_EYEDROPPER_BASE_CSS`]).
+pub(crate) const EYEDROPPER_CSS: &str =
+    "width: 28px; height: 28px; border: 1px solid #c8c8c8; border-radius: 4px; background: \
+     #f4f4f4; color: #404040; font-size: 18px; @media (prefers-color-scheme: dark) { background: \
+     system:button-face; color: system:button-text; border-color: system:separator; }";
+/// The established grip-handle CSS (the flat look), with the desktop's
+/// separator as its night value (it had none).
+pub(crate) const GRIP_HANDLE_CSS: &str =
+    "width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8; @media \
+     (prefers-color-scheme: dark) { background: system:separator; }";
 
 /// Callback function type invoked when the color input value changes.
 pub type ColorInputOnValueChangeCallbackType =
@@ -180,7 +260,23 @@ impl ColorInput {
             },
             style: OptionCssPropertyWithConditionsVec::None,
             accessibility_name: OptionString::None,
+            theme: crate::widgets::themes::OptionUiTheme::None,
         }
+    }
+
+    /// Pin the widget theme: the input keeps this look whatever the app
+    /// theme is. Unset (`None`), it follows the app theme.
+    #[inline]
+    pub const fn set_theme(&mut self, theme: crate::widgets::themes::UiTheme) {
+        self.theme = crate::widgets::themes::OptionUiTheme::Some(theme);
+    }
+
+    /// [`Self::set_theme`] for the builder chain.
+    #[inline]
+    #[must_use]
+    pub const fn with_theme(mut self, theme: crate::widgets::themes::UiTheme) -> Self {
+        self.set_theme(theme);
+        self
     }
 
     /// The swatch CSS this input renders with.
@@ -232,21 +328,51 @@ impl ColorInput {
     }
 
     /// Converts this `ColorInput` into a styled [`Dom`]: the swatch, with the
-    /// picker popup attached as its (closed) transient child.
+    /// picker popup attached as its (closed) transient child. The popup node
+    /// has no child: the picker's panel is built when the engine shows the
+    /// popup ([`picker_content`], A3-solver-34), so an input whose picker is
+    /// closed is two nodes, not its panel's fifty. The look comes
+    /// from the theme module (`themes::flat::color_input` /
+    /// `themes::flora::color_input`); `None` carries both
+    /// looks, each in its `@theme(<name>)` block, and the app theme picks.
     #[inline]
     #[must_use]
     pub fn dom(self) -> Dom {
-        use azul_core::{
-            a11y::{AccessibilityInfo, AccessibilityRole},
-            callbacks::{CoreCallback, CoreCallbackData},
-            dom::{ComponentEventFilter, EventFilter, HoverEventFilter, IdOrClass::Class},
-        };
+        use crate::widgets::themes::UiTheme;
+        match self.theme.into_option() {
+            Some(UiTheme::Flora) => crate::widgets::themes::flora::color_input(self),
+            Some(UiTheme::Flat) => crate::widgets::themes::flat::color_input(self),
+            // No theme: follow the app theme - both looks in one DOM, each
+            // inside its `@theme(<name>)` block, and the app theme picks.
+            None => crate::widgets::themes::theme_blocks::follow_app_theme(
+                self,
+                crate::widgets::themes::flat::color_input,
+                crate::widgets::themes::flora::color_input,
+            ),
+        }
+    }
+}
 
-        let color = self.color_input_state.inner.color;
-        let title = self.color_input_state.title.clone();
-        // Resolved before `self.accessibility_name` is moved out below.
-        let resolved_style = self.resolved_style();
-        let a11y_name = match self.accessibility_name {
+/// The colour input's DOM in `look`: the swatch (its colour, then the look's
+/// additions when the widget owns its style) with the picker popup as its
+/// transient child.
+pub(crate) fn build(input: ColorInput, look: &ColorInputLook) -> Dom {
+    use azul_core::{
+        a11y::{AccessibilityInfo, AccessibilityRole},
+        callbacks::{CoreCallback, CoreCallbackData},
+        dom::{ComponentEventFilter, EventFilter, HoverEventFilter, IdOrClass::Class},
+    };
+
+    {
+        // The picker's own controls wear the input's theme: pinned with it,
+        // following the app theme with it.
+        let theme = input.theme;
+        let color = input.color_input_state.inner.color;
+        let title = input.color_input_state.title.clone();
+        // Resolved before `input.accessibility_name` is moved out below.
+        let resolved_style = input.resolved_style();
+        let owns_style = input.style.as_ref().is_none();
+        let a11y_name = match input.accessibility_name {
             OptionString::Some(n) => n,
             OptionString::None => title,
         };
@@ -261,13 +387,14 @@ impl ColorInput {
         // The persistent half: hue/sat survive a pass through black, the
         // open flag survives the app's rebuilds, a drag survives a move.
         let data = RefAny::new(ColorPickerData {
-            state: self.color_input_state,
+            state: input.color_input_state,
             hsv: Hsv::from_color(color),
             open: false,
             drag: Drag::None,
+            look: look.theme,
+            pin: theme,
+            built_for: azul_core::app_theme::current_theme(),
         });
-
-        let panel = picker_panel(&data, color);
 
         // `tearoff`: the grip strip at the top of the panel tears the picker
         // off into a floating palette (a real toplevel) and docks it back.
@@ -288,7 +415,18 @@ impl ColorInput {
             data.clone(),
             Callback::from_ptr(on_picker_dismissed).to_core(),
         );
-        let popup = Dom::create_from_data(transient).with_child(panel);
+        // A3-solver-34: the panel is not built here. Every rebuild of a DOM
+        // with colour inputs built, styled and reconciled the panel of each
+        // of them, open or not (some fifty nodes an input; a node of the
+        // node graph with a colour field carried one). The popup node asks
+        // for it when the engine shows the popup: with the swatch's data,
+        // which the dataset merge keeps (`merge_picker_data`) and the
+        // reconcile repoints on this node as on the swatch.
+        transient.set_transient_content(
+            data.clone(),
+            picker_content as azul_core::callbacks::TransientContentCallbackType,
+        );
+        let popup = Dom::create_from_data(transient);
 
         // A translucent colour shows a checkerboard through it: the board and
         // a colour overlay go in as children, under the popup node. The
@@ -314,9 +452,20 @@ impl ColorInput {
                     css_rgba(ColorU { a: 255, ..color }, color.a)
                 )));
         }
+        // The theme's frame and focus ring, after everything the swatch
+        // needs - and only on the widget's own style: a caller's `style`
+        // chose every property.
+        if owns_style {
+            style.extend(look.swatch.iter().cloned());
+        }
+
+        let mut classes = vec![Class(COLOR_INPUT_CLASS.into())];
+        if let Some(marker) = look.marker {
+            classes.push(Class(marker.into()));
+        }
 
         swatch
-            .with_ids_and_classes(vec![Class(COLOR_INPUT_CLASS.into())].into())
+            .with_ids_and_classes(classes.into())
             .with_css_props(style.into())
             .with_tab_index(azul_core::dom::TabIndex::Auto)
             .with_accessibility_info(AccessibilityInfo {
@@ -450,44 +599,20 @@ impl Hsv {
     }
 }
 
-/// `#rrggbb`, or `#rrggbbaa` when the colour is not fully opaque.
+/// `#rrggbb`, or `#rrggbbaa` when the colour is not fully opaque:
+/// [`ColorU::to_hex`] (the one formatter; this name stays for its callers).
 #[must_use]
 pub fn color_to_hex(c: ColorU) -> String {
-    if c.a == 255 {
-        format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
-    } else {
-        format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
-    }
+    c.to_hex()
 }
 
 /// Parse `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (the `#` optional,
 /// case-insensitive, surrounding whitespace ignored). A missing alpha is
-/// opaque.
+/// opaque: [`ColorU::parse_hex`] (the one parser; this name stays for its
+/// callers).
 #[must_use]
-#[allow(clippy::many_single_char_names)] // r, g, b, a: the channels
 pub fn color_from_hex(text: &str) -> Option<ColorU> {
-    let t = text.trim().trim_start_matches('#');
-    let nib = |ch: u8| -> Option<u8> { char::from(ch).to_digit(16).map(|d| d as u8) };
-    let bytes = t.as_bytes();
-    let pair = |i: usize| -> Option<u8> { Some(nib(bytes[i])? * 16 + nib(bytes[i + 1])?) };
-    let (r, g, b, a) = match bytes.len() {
-        3 => (
-            nib(bytes[0])? * 17,
-            nib(bytes[1])? * 17,
-            nib(bytes[2])? * 17,
-            255,
-        ),
-        4 => (
-            nib(bytes[0])? * 17,
-            nib(bytes[1])? * 17,
-            nib(bytes[2])? * 17,
-            nib(bytes[3])? * 17,
-        ),
-        6 => (pair(0)?, pair(2)?, pair(4)?, 255),
-        8 => (pair(0)?, pair(2)?, pair(4)?, pair(6)?),
-        _ => return None,
-    };
-    Some(ColorU { r, g, b, a })
+    ColorU::parse_hex(text)
 }
 
 // ---------------------------------------------------------------------------
@@ -510,6 +635,16 @@ pub struct ColorPickerData {
     hsv: Hsv,
     open: bool,
     drag: Drag,
+    /// The widget theme the input was built in: the look its picker's panel
+    /// is built in when the popup is shown ([`picker_content`]).
+    look: crate::widgets::themes::UiTheme,
+    /// The theme the input is pinned to, if it is: the panel's own controls
+    /// wear it, or follow the app theme with the input.
+    pin: crate::widgets::themes::OptionUiTheme,
+    /// The app theme the input's DOM was built for
+    /// (`azul_core::app_theme::current_theme`): the panel is built for it
+    /// too, outside the layout callback that built the input.
+    built_for: AzString,
 }
 
 impl ColorPickerData {
@@ -558,6 +693,10 @@ extern "C" fn merge_picker_data(mut new_data: RefAny, mut old_data: RefAny) -> R
             let app_color = new_g.state.inner.color;
             old_g.state.on_value_change = new_g.state.on_value_change.clone();
             old_g.state.title = new_g.state.title.clone();
+            // The look is the new build's: the app may have changed its theme.
+            old_g.look = new_g.look;
+            old_g.pin = new_g.pin;
+            old_g.built_for = new_g.built_for.clone();
             old_g.set_color(app_color);
             true
         } else {
@@ -609,46 +748,189 @@ pub const CHECKERBOARD_LIGHT_CLASS: &str = "__azul_native_checkerboard_light";
 /// Class on a checkerboard's dark cells.
 pub const CHECKERBOARD_DARK_CLASS: &str = "__azul_native_checkerboard_dark";
 
-/// A checkerboard of `cell`-px squares filling `w`×`h`, built from DIVS so a
-/// stylesheet can restyle it (`.__azul_native_checkerboard_dark { … }`) and
-/// so it follows the theme: the cells carry a light-theme colour and a dark
-/// one gated on `theme: dark`. What sits behind any colour that is not fully
-/// opaque. (An image would tile faster, but could not be styled or themed.)
+/// How a checkerboard is built, see [`checkerboard`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckerboardBuild {
+    /// One node whose background draws the cells ([`checkerboard_one_node`]).
+    OneNode,
+    /// A div per cell ([`checkerboard_cells`]).
+    Cells,
+}
+
+/// The build the process asked for: one node, or - with the environment
+/// variable `AZ_COLOR_PICKER_CHECKER=cells` - a div per cell, as every
+/// checkerboard was built before. Read once.
+fn checkerboard_build() -> CheckerboardBuild {
+    #[cfg(feature = "std")]
+    {
+        static CELLS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *CELLS.get_or_init(|| {
+            std::env::var_os("AZ_COLOR_PICKER_CHECKER").is_some_and(|v| v == "cells")
+        }) {
+            return CheckerboardBuild::Cells;
+        }
+    }
+    CheckerboardBuild::OneNode
+}
+
+/// A checkerboard of `cell`-px squares filling `w`×`h`: what sits behind any
+/// colour that is not fully opaque. It follows the theme (a light and a dark
+/// pair of colours, the dark one gated on dark mode).
+///
+/// ONE node by default ([`checkerboard_one_node`]). A div per cell was 75
+/// nodes for the picker's alpha bar and 21 for its preview - 96 of the 142
+/// nodes every colour input carries in its closed popup, styled, laid out and
+/// reconciled with every DOM the input is in. `AZ_COLOR_PICKER_CHECKER=cells`
+/// builds the cells again ([`checkerboard_cells`]): for a stylesheet that
+/// restyles them by class (`.__azul_native_checkerboard_dark { … }`; the one
+/// node has no cell to carry a class), and to compare the two on screen.
 fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
+    match checkerboard_build() {
+        CheckerboardBuild::OneNode => checkerboard_one_node(w, h, cell),
+        CheckerboardBuild::Cells => checkerboard_cells(w, h, cell),
+    }
+}
+
+/// The two colours of a checkerboard's cells - the light cell, the dark cell -
+/// by day and at night.
+const CHECKERBOARD_COLORS: [(ColorU, ColorU); 2] = [
+    (
+        ColorU {
+            r: 0xff,
+            g: 0xff,
+            b: 0xff,
+            a: 255,
+        },
+        ColorU {
+            r: 0xcc,
+            g: 0xcc,
+            b: 0xcc,
+            a: 255,
+        },
+    ),
+    (
+        ColorU {
+            r: 0x55,
+            g: 0x55,
+            b: 0x55,
+            a: 255,
+        },
+        ColorU {
+            r: 0x33,
+            g: 0x33,
+            b: 0x33,
+            a: 255,
+        },
+    ),
+];
+
+/// [`checkerboard`] as one node. Each row of cells is a layer of the node's
+/// background: a strip one cell tall at the row's height that repeats along
+/// the row (`background-repeat: repeat-x`), its tile two cells wide and drawn
+/// by a linear gradient with a hard stop in the middle - `[light | dark]` for
+/// the even rows, `[dark | light]` for the odd ones. The display list tiles a
+/// layer that has a `background-size` (one gradient item per tile, in
+/// `solver3::display_list`), so both renderers are handed the same items, and
+/// both draw a hard stop as an edge.
+///
+/// The cells are the ones [`checkerboard_cells`] draws: whole px wide (a
+/// `cell` of 6.5 is 6), `ceil(w / cell)` by `ceil(h / cell)` of them, and the
+/// node is as large as they are together (no larger than `w`×`h`).
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // small cell counts and px sizes
+fn checkerboard_one_node(w: f32, h: f32, cell: f32) -> Dom {
+    use azul_core::dom::IdOrClass::Class;
+    use azul_css::dynamic_selector::DynamicSelector;
+
+    let side = (cell as isize) as f32;
+    let cols = (w / cell).ceil().max(1.0) as usize;
+    let rows = (h / cell).ceil().max(1.0) as usize;
+    let width = (cols as f32 * side).min(w);
+    let height = (rows as f32 * side).min(h);
+
+    let stop = |percent: isize, color: ColorU| NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(percent),
+        color: ColorOrSystem::color(color),
+        offset_px: FloatValue::const_new(0),
+    };
+    // The rows, the top one first: a strip `[first | second]` each.
+    let strips = |(light, dark): (ColorU, ColorU)| -> StyleBackgroundContentVec {
+        (0..rows)
+            .map(|row| {
+                let (first, second) = if row % 2 == 0 {
+                    (light, dark)
+                } else {
+                    (dark, light)
+                };
+                StyleBackgroundContent::LinearGradient(LinearGradient {
+                    direction: Direction::FromTo(DirectionCorners {
+                        dir_from: DirectionCorner::Left,
+                        dir_to: DirectionCorner::Right,
+                    }),
+                    extend_mode: ExtendMode::Clamp,
+                    stops: vec![
+                        stop(0, first),
+                        stop(50, first),
+                        stop(50, second),
+                        stop(100, second),
+                    ]
+                    .into(),
+                })
+            })
+            .collect::<Vec<_>>()
+            .into()
+    };
+    // Where each row's strip starts: at the left, `row` cells down.
+    let positions: Vec<StyleBackgroundPosition> = (0..rows)
+        .map(|row| StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_px(0)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::px(row as f32 * side)),
+        })
+        .collect();
+
+    Dom::create_div()
+        .with_ids_and_classes(vec![Class(CHECKERBOARD_CLASS.into())].into())
+        .with_css(&format!(
+            "position: absolute; left: 0px; top: 0px; width: {width}px; height: {height}px;"
+        ))
+        .with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_background_content(strips(CHECKERBOARD_COLORS[0])),
+        ))
+        .with_css_property(CssPropertyWithConditions {
+            property: CssProperty::const_background_content(strips(CHECKERBOARD_COLORS[1])),
+            apply_if: vec![DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)].into(),
+        })
+        .with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_background_size(
+                vec![StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(2.0 * side),
+                    height: PixelValue::px(side),
+                })]
+                .into(),
+            ),
+        ))
+        .with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_background_repeat(vec![StyleBackgroundRepeat::RepeatX].into()),
+        ))
+        .with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_background_position(positions.into()),
+        ))
+}
+
+/// [`checkerboard`] built from DIVS, a row of cells per row: a stylesheet can
+/// restyle the cells by class. What `AZ_COLOR_PICKER_CHECKER=cells` builds.
+fn checkerboard_cells(w: f32, h: f32, cell: f32) -> Dom {
     use azul_core::dom::IdOrClass::Class;
     use azul_css::dynamic_selector::{DynamicSelector, ThemeCondition};
 
     let cell_css = |dark: bool| -> CssPropertyWithConditionsVec {
         let (light_mode, dark_mode) = if dark {
-            (
-                ColorU {
-                    r: 0xcc,
-                    g: 0xcc,
-                    b: 0xcc,
-                    a: 255,
-                },
-                ColorU {
-                    r: 0x33,
-                    g: 0x33,
-                    b: 0x33,
-                    a: 255,
-                },
-            )
+            (CHECKERBOARD_COLORS[0].1, CHECKERBOARD_COLORS[1].1)
         } else {
-            (
-                ColorU {
-                    r: 0xff,
-                    g: 0xff,
-                    b: 0xff,
-                    a: 255,
-                },
-                ColorU {
-                    r: 0x55,
-                    g: 0x55,
-                    b: 0x55,
-                    a: 255,
-                },
-            )
+            (CHECKERBOARD_COLORS[0].0, CHECKERBOARD_COLORS[1].0)
         };
         let bg = |c: ColorU| {
             CssProperty::const_background_content(vec![StyleBackgroundContent::Color(c)].into())
@@ -666,7 +948,7 @@ fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
             CssPropertyWithConditions::simple(bg(light_mode)),
             CssPropertyWithConditions {
                 property: bg(dark_mode),
-                apply_if: vec![DynamicSelector::Theme(ThemeCondition::Dark)].into(),
+                apply_if: vec![DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)].into(),
             },
         ])
     };
@@ -727,8 +1009,67 @@ fn field_container_style(width_px: isize, grow: bool) -> CssPropertyWithConditio
     props.into()
 }
 
-/// The picker panel that lives inside the popup.
-fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
+/// The content of the picker's popup, built when the engine shows the popup
+/// (`NodeData::set_transient_content`, A3-solver-34): the panel for the
+/// colour `data` holds, in the look and for the app theme the input was
+/// built with. `data` is the swatch's `ColorPickerData` - after a rebuild the
+/// one the merge kept - and every control of the panel carries it.
+extern "C" fn picker_content(mut data: RefAny) -> Dom {
+    use crate::widgets::themes::UiTheme;
+
+    let (color, look, pin, built_for) = {
+        let Some(picker) = data.downcast_ref::<ColorPickerData>() else {
+            return Dom::create_div();
+        };
+        (
+            picker.color(),
+            picker.look,
+            picker.pin,
+            picker.built_for.clone(),
+        )
+    };
+    // The panel's own controls follow the app theme through
+    // `UiTheme::current`: the one of the build, not of whoever asks.
+    let _built_for = azul_core::app_theme::ThemeScope::enter(built_for);
+    let look = match look {
+        UiTheme::Flat => crate::widgets::themes::flat::color_input_look(),
+        UiTheme::Flora => crate::widgets::themes::flora::color_input_look(),
+    };
+    picker_panel(&data, color, &look, pin)
+}
+
+/// `dom` - a built colour input - with its picker's panel in the popup node,
+/// as the engine shows the popup (`azul_core::transient::extract_subtree_as_dom`
+/// asks the node's content callback): what the tests of the panel read.
+#[cfg(test)]
+pub(crate) fn with_panel(mut dom: Dom) -> Dom {
+    // The popup is the swatch's last child.
+    if let Some(popup) = dom.children.as_mut().last_mut() {
+        if let Some(content) = popup.root.take_transient_content() {
+            popup.add_child(content.callback.invoke(content.refany));
+        }
+    }
+    dom
+}
+
+#[cfg(test)]
+impl ColorInput {
+    /// [`Self::dom`] with the picker's panel in its popup node
+    /// ([`with_panel`]).
+    pub(crate) fn dom_with_panel(self) -> Dom {
+        with_panel(self.dom())
+    }
+}
+
+/// The picker panel that lives inside the popup, in `look`. Its structure -
+/// grip, plane, hue, alpha, preview row, channel row - is the same in every
+/// look: `publish` finds the parts it restyles by position.
+fn picker_panel(
+    data: &RefAny,
+    color: ColorU,
+    look: &ColorInputLook,
+    theme: crate::widgets::themes::OptionUiTheme,
+) -> Dom {
     use azul_core::{
         a11y::{AccessibilityInfo, AccessibilityRole},
         callbacks::{CoreCallback, CoreCallbackData},
@@ -785,6 +1126,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
                  border-radius: 4px; cursor: crosshair; background: {};",
             plane_background_css(hsv.h)
         ))
+        .with_css_props(look.slider_focus.clone().into())
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Slider,
             accessibility_name: Some("Saturation and brightness".into()).into(),
@@ -818,6 +1160,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
                  cursor: pointer; background: {HUE_BACKGROUND_CSS};"
         ))
+        .with_css_props(look.slider_focus.clone().into())
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Slider,
             accessibility_name: Some("Hue".into()).into(),
@@ -857,6 +1200,7 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             "position: relative; width: {PLANE_WIDTH}px; height: 12px; border-radius: 6px; \
              cursor: pointer; overflow: hidden;"
         ))
+        .with_css_props(look.slider_focus.clone().into())
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Slider,
             accessibility_name: Some("Opacity".into()).into(),
@@ -877,10 +1221,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
 
     // Preview + hex. A translucent colour shows the checkerboard through it.
     let mut preview = Dom::create_div()
-        .with_css(
-            "position: relative; width: 28px; height: 28px; border-radius: 4px; border: 1px solid \
-             #c8c8c8; overflow: hidden;",
-        )
+        .with_css(PICKER_PREVIEW_BASE_CSS)
+        .with_css(look.preview_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Graphic,
             accessibility_name: Some("Current colour".into()).into(),
@@ -892,15 +1234,18 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
         "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background: {};",
         css_rgba(opaque, color.a)
     )));
-    let hex_input = TextInput::create()
+    let mut hex_field = TextInput::create()
         .with_text(hex.into())
         .with_accessibility_name("Hex colour")
         .with_container_style(field_container_style(96, true))
         .with_on_focus_lost(data.clone(), {
             let cb: crate::widgets::text_input::TextInputOnFocusLostCallbackType = on_hex_committed;
             cb
-        })
-        .dom();
+        });
+    if let Some(pin) = theme.into_option() {
+        hex_field.set_theme(pin);
+    }
+    let hex_input = hex_field.dom();
     // The eyedropper: `pick_screen_color` runs the platform's sampler (the
     // system loupe on macOS; a screenshot in a fullscreen loupe elsewhere -
     // Wayland asks the user through the portal first). The answer comes
@@ -908,11 +1253,8 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
     // very node so it reaches the picker's data.
     let eyedropper = Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_EYEDROPPER_CLASS.into())].into())
-        .with_css(
-            "display: flex; align-items: center; justify-content: center; width: 28px; height: \
-             28px; border: 1px solid #c8c8c8; border-radius: 4px; cursor: pointer; background: \
-             #f4f4f4; color: #404040; font-size: 18px;",
-        )
+        .with_css(PICKER_EYEDROPPER_BASE_CSS)
+        .with_css(look.eyedropper_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::PushButton,
             accessibility_name: Some("Pick a colour from the screen".into()).into(),
@@ -955,15 +1297,19 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
          short: &str,
          value: u8,
          cb: crate::widgets::number_input::NumberInputOnValueChangeCallbackType| {
-            let field = NumberInput::create(f32::from(value))
+            let mut field = NumberInput::create(f32::from(value))
                 .with_accessibility_name(name)
                 .with_container_style(field_container_style(44, false))
-                .with_on_value_change(data.clone(), cb)
-                .dom();
+                .with_on_value_change(data.clone(), cb);
+            let mut label = Label::create(short.into());
+            if let Some(pin) = theme.into_option() {
+                field.set_theme(pin);
+                label.set_theme(pin);
+            }
             Dom::create_div()
                 .with_css("display: flex; flex-direction: row; align-items: center; gap: 4px;")
-                .with_child(Label::create(short.into()).dom())
-                .with_child(field)
+                .with_child(label.dom())
+                .with_child(field.dom())
         };
     let rgb_row = Dom::create_div()
         .with_css("display: flex; flex-direction: row; align-items: center; gap: 8px;")
@@ -987,18 +1333,12 @@ fn picker_panel(data: &RefAny, color: ColorU) -> Dom {
             accessibility_name: Some("Drag to tear off".into()).into(),
             ..Default::default()
         })
-        .with_child(
-            Dom::create_div()
-                .with_css("width: 36px; height: 4px; border-radius: 2px; background: #c8c8c8;"),
-        );
+        .with_child(Dom::create_div().with_css(look.grip_handle_css));
 
     Dom::create_div()
         .with_ids_and_classes(vec![Class(COLOR_PICKER_CLASS.into())].into())
-        .with_css(
-            "display: flex; flex-direction: column; gap: 8px; padding: 8px; background: #ffffff; \
-             border: 1px solid #c8c8c8; border-radius: 6px; box-shadow: 0px 4px 16px rgba(0, 0, \
-             0, 0.25); font-size: 12px; color: #202020;",
-        )
+        .with_css(PICKER_PANEL_BASE_CSS)
+        .with_css(look.panel_css)
         .with_accessibility_info(AccessibilityInfo {
             role: AccessibilityRole::Dialog,
             accessibility_name: Some("Colour picker".into()).into(),
@@ -1036,7 +1376,9 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
         return Update::DoNothing;
     };
     let swatch = info.get_hit_node();
-    let Some(transient) = info.get_first_child(swatch) else {
+    // The popup is the swatch's LAST child: a translucent colour has its
+    // checkerboard and the colour over it in front of it (`build`).
+    let Some(transient) = info.get_last_child(swatch) else {
         return Update::DoNothing;
     };
     picker.open = !picker.open;
@@ -1173,10 +1515,21 @@ fn publish(
     }
 }
 
-/// Arrow-key control for the picker's plane and hue bar, so a colour can be
-/// set WITHOUT a mouse: arrows nudge by 1%, Ctrl+arrows by 10% (the usual
-/// coarse/fine pair). Up/Down move brightness on the plane; Left/Right move
-/// saturation there and hue on the hue bar.
+/// Keyboard control for the picker's plane, hue bar and alpha bar, so a
+/// colour can be set WITHOUT a mouse (WAI-ARIA slider keys; the plane is the
+/// de-facto 2-D colour area):
+/// - arrows nudge by 1%, or 10% with the large-step modifier (see
+///   [`picker_step`]: Shift, or the platform's primary modifier). On the
+///   plane Left / Right move saturation and Up / Down brightness; on the
+///   bars Left / Down decrease and Right / Up increase.
+/// - `PageUp` / `PageDown` are the 10% step (the plane's y-axis, brightness).
+/// - Home / End go to the minimum / maximum (the plane's x-axis,
+///   saturation).
+///
+/// A handled key is claimed (`prevent_default`), so spatial navigation and
+/// page scrolling never run from inside the picker; any other key - and any
+/// chord `picker_step` declines - keeps its default (Tab moves on, Escape
+/// dismisses the popup).
 ///
 /// Shares `set_hsv` + `publish` with the drag handlers, so a keyboard change
 /// commits through exactly the same path a mouse drag does - one update
@@ -1188,9 +1541,9 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
     let Some(key) = ks.current_virtual_keycode.into_option() else {
         return Update::DoNothing;
     };
-    // Ctrl (or Cmd on macOS) = the coarse step.
-    let coarse = ks.ctrl_down() || ks.super_down();
-    let step = if coarse { 0.10 } else { 0.01 };
+    let Some(step) = picker_step(&ks, azul_core::window::mac_shortcut_conventions()) else {
+        return Update::DoNothing;
+    };
 
     let mut hsv = picker.hsv;
     match (axis, key) {
@@ -1198,23 +1551,50 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
         (NudgeAxis::Plane, K::Right) => hsv.s = (hsv.s + step).clamp(0.0, 1.0),
         (NudgeAxis::Plane, K::Up) => hsv.v = (hsv.v + step).clamp(0.0, 1.0),
         (NudgeAxis::Plane, K::Down) => hsv.v = (hsv.v - step).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::PageUp) => hsv.v = (hsv.v + COARSE_STEP).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::PageDown) => hsv.v = (hsv.v - COARSE_STEP).clamp(0.0, 1.0),
+        (NudgeAxis::Plane, K::Home) => hsv.s = 0.0,
+        (NudgeAxis::Plane, K::End) => hsv.s = 1.0,
         (NudgeAxis::Hue, K::Left | K::Down) => {
             hsv.h = (hsv.h - step * 360.0).rem_euclid(360.0);
         }
         (NudgeAxis::Hue, K::Right | K::Up) => {
             hsv.h = (hsv.h + step * 360.0).rem_euclid(360.0);
         }
+        (NudgeAxis::Hue, K::PageDown) => {
+            hsv.h = (hsv.h - COARSE_STEP * 360.0).rem_euclid(360.0);
+        }
+        (NudgeAxis::Hue, K::PageUp) => {
+            hsv.h = (hsv.h + COARSE_STEP * 360.0).rem_euclid(360.0);
+        }
+        (NudgeAxis::Hue, K::Home) => hsv.h = 0.0,
+        // The top of the bar, as a drag to its right edge picks it (360
+        // would wrap straight back to 0).
+        (NudgeAxis::Hue, K::End) => hsv.h = HUE_MAX,
         // Alpha is a channel of the COLOUR, not of `hsv` - go through the
         // same `set_color` the alpha drag uses.
-        (NudgeAxis::Alpha, K::Left | K::Down | K::Right | K::Up) => {
-            let dir = if matches!(key, K::Left | K::Down) {
-                -1.0
-            } else {
-                1.0
-            };
+        (
+            NudgeAxis::Alpha,
+            K::Left
+            | K::Down
+            | K::Right
+            | K::Up
+            | K::PageUp
+            | K::PageDown
+            | K::Home
+            | K::End,
+        ) => {
             let mut c = picker.color();
             let a = f32::from(c.a) / 255.0;
-            c.a = channel_value((a + dir * step).clamp(0.0, 1.0) * 255.0);
+            let target = match key {
+                K::Home => 0.0,
+                K::End => 1.0,
+                K::PageDown => a - COARSE_STEP,
+                K::PageUp => a + COARSE_STEP,
+                K::Left | K::Down => a - step,
+                _ => a + step,
+            };
+            c.a = channel_value(target.clamp(0.0, 1.0) * 255.0);
             picker.set_color(c);
             info.prevent_default();
             let panel = info.get_parent(info.get_hit_node());
@@ -1230,6 +1610,46 @@ fn nudge_hsv(picker: &mut ColorPickerData, info: &mut CallbackInfo, axis: NudgeA
     info.prevent_default();
     let panel = info.get_parent(info.get_hit_node());
     publish(picker, info, panel)
+}
+
+/// One keyboard step of a picker control: 1%.
+const FINE_STEP: f32 = 0.01;
+/// The large keyboard step of a picker control: 10%.
+const COARSE_STEP: f32 = 0.10;
+/// The top of the hue bar - what a drag to its right edge picks.
+const HUE_MAX: f32 = 359.9;
+
+/// The step a picker key takes for the modifiers held: [`FINE_STEP`], or
+/// [`COARSE_STEP`] with the large-step modifier. `None` means the chord is
+/// not the picker's and must fall through untouched.
+///
+/// THE one place the modifier decision lives (user ruling, 2026-09-26):
+/// - the large step is the platform's PRIMARY modifier - Cmd on a Mac,
+///   Ctrl everywhere else (the same split as every editing shortcut,
+///   `KeyboardState::primary_down`) - or Shift, the design-tool convention
+///   (Figma, Photoshop) that no OS reserves;
+/// - Alt, and the OTHER command modifier, are not the picker's: a stock Mac
+///   takes Ctrl+arrow for Mission Control / Spaces, Windows takes Win+arrow
+///   for window snapping, and Alt+arrow is an app's history / word motion.
+///
+/// `mac_conventions` is the process's
+/// [`azul_core::window::mac_shortcut_conventions`] (false for the X11
+/// backend on a Mac, whose keys follow Linux), passed in rather than read
+/// here so both conventions are testable on any host.
+fn picker_step(ks: &azul_core::window::KeyboardState, mac_conventions: bool) -> Option<f32> {
+    let (primary, other_command) = if mac_conventions {
+        (ks.super_down(), ks.ctrl_down())
+    } else {
+        (ks.ctrl_down(), ks.super_down())
+    };
+    if ks.alt_down() || other_command {
+        return None;
+    }
+    Some(if primary || ks.shift_down() {
+        COARSE_STEP
+    } else {
+        FINE_STEP
+    })
 }
 
 /// Which control `nudge_hsv` is driving.
@@ -1682,9 +2102,7 @@ mod autotest_generated {
 
     /// The properties of a rendered node's *inline* style, in declaration order.
     fn inline_properties(dom: &Dom) -> Vec<CssProperty> {
-        dom.root
-            .style
-            .iter_inline_properties()
+        crate::widgets::themes::theme_blocks::checks::live_inline(dom).iter()
             .map(|(p, _)| p.clone())
             .collect()
     }
@@ -1743,11 +2161,11 @@ mod autotest_generated {
                 warm: Vec::new(),
                 cold: Vec::new(),
                 root: 0,
-                dom_to_layout: BTreeMap::new(),
+                dom_to_layout: Default::default(),
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
-            },
+            }.into(),
             calculated_positions: Vec::new(),
             viewport: LogicalRect::zero(),
             display_list: Arc::new(DisplayList::default()),
@@ -1824,7 +2242,7 @@ mod autotest_generated {
     /// two is the real wiring — nothing is re-created by hand, so a mismatch between what
     /// `dom()` stores and what the handler expects cannot hide behind the fixture.
     fn laid_out(color_input: ColorInput) -> (StyledDom, RefAny) {
-        let dom = color_input.dom();
+        let dom = color_input.dom_with_panel();
         let state = dom.root.callbacks.as_ref()[0].refany.clone();
         (StyledDom::create_from_dom(dom), state)
     }
@@ -2445,7 +2863,7 @@ mod autotest_generated {
     #[test]
     fn dom_is_a_div_with_the_native_class_and_a_closed_popup_child() {
         for c in SAMPLE_COLORS {
-            let dom = ColorInput::create(c).dom();
+            let dom = ColorInput::create(c).dom_with_panel();
             assert!(
                 matches!(dom.root.get_node_type(), NodeType::Div),
                 "{c:?}: the color input is not a div",
@@ -2503,12 +2921,13 @@ mod autotest_generated {
         // background appended *after* it (so a user override earlier in the table can't win).
         for c in SAMPLE_COLORS {
             let base = properties(&ColorInput::create(c).resolved_style());
-            let rendered = inline_properties(&ColorInput::create(c).dom());
+            let rendered = inline_properties(&ColorInput::create(c).dom_with_panel());
 
             // The colour, plus — for a translucent swatch only — the three
             // props that let the checkerboard sit under it (relative
-            // positioning, overflow hidden x/y).
-            let extra = if c.a < 255 { 4 } else { 1 };
+            // positioning, overflow hidden x/y), then the theme's focus ring
+            // (the halo and its night twin): the swatch is a keyboard stop.
+            let extra = if c.a < 255 { 4 } else { 1 } + 2;
             assert_eq!(
                 rendered.len(),
                 base.len() + extra,
@@ -2532,9 +2951,9 @@ mod autotest_generated {
     fn dom_round_trips_every_channel_of_every_sample_color() {
         for c in SAMPLE_COLORS {
             assert_eq!(
-                dom_background(&ColorInput::create(c).dom()),
+                dom_background(&ColorInput::create(c).dom_with_panel()),
                 Some(c),
-                "create({c:?}).dom() does not paint {c:?}",
+                "create({c:?}).dom_with_panel() does not paint {c:?}",
             );
         }
     }
@@ -2542,7 +2961,9 @@ mod autotest_generated {
     #[test]
     fn dom_declares_exactly_one_background_and_no_property_twice() {
         for c in SAMPLE_COLORS {
-            let props = inline_properties(&ColorInput::create(c).dom());
+            // At rest: the focus ring is a `:focus` declaration with a night
+            // twin of the same property, which is a pair, not a duplicate.
+            let props = crate::widgets::theme_probe::unconditional(&ColorInput::create(c).dom_with_panel());
             let backgrounds = props
                 .iter()
                 .filter(|p| matches!(p, CssProperty::BackgroundContent(_)))
@@ -2570,7 +2991,7 @@ mod autotest_generated {
         // `dom()` performs; losing it would leave a background-only, zero-sized node.
         for c in SAMPLE_COLORS {
             let rendered: CssPropertyWithConditionsVec =
-                inline_properties(&ColorInput::create(c).dom())
+                inline_properties(&ColorInput::create(c).dom_with_panel())
                     .into_iter()
                     .map(CssPropertyWithConditions::simple)
                     .collect();
@@ -2590,7 +3011,7 @@ mod autotest_generated {
     #[test]
     fn dom_registers_exactly_one_activation_handler_and_it_is_the_widgets_own() {
         for c in SAMPLE_COLORS {
-            let dom = ColorInput::create(c).dom();
+            let dom = ColorInput::create(c).dom_with_panel();
             let callbacks = dom.root.callbacks.as_ref();
 
             assert_eq!(callbacks.len(), 1, "{c:?}: expected exactly one callback");
@@ -2624,7 +3045,7 @@ mod autotest_generated {
                     RefAny::new(9u32),
                     value_do_nothing as ColorInputOnValueChangeCallbackType,
                 )
-                .dom();
+                .dom_with_panel();
 
             let mut state = dom.root.callbacks.as_ref()[0].refany.clone();
             let picker = state
@@ -2653,7 +3074,7 @@ mod autotest_generated {
     #[test]
     fn dom_of_a_callback_less_color_input_still_registers_the_click_handler() {
         // The handler must always be installed: it is what opens the picker.
-        let dom = ColorInput::create(DEFAULT_COLOR).dom();
+        let dom = ColorInput::create(DEFAULT_COLOR).dom_with_panel();
         assert_eq!(dom.root.callbacks.as_ref().len(), 1);
 
         let mut state = dom.root.callbacks.as_ref()[0].refany.clone();
@@ -2673,7 +3094,7 @@ mod autotest_generated {
             style: OptionCssPropertyWithConditionsVec::Some(CssPropertyWithConditionsVec::new()),
             ..ColorInput::default()
         };
-        let dom = w.dom();
+        let dom = w.dom_with_panel();
         assert_eq!(
             inline_properties(&dom),
             vec![expected_background(DEFAULT_COLOR)],
@@ -2681,7 +3102,7 @@ mod autotest_generated {
         );
 
         // ...and the no-opinion default still gets the real table around it.
-        let dom = ColorInput::default().dom();
+        let dom = ColorInput::default().dom_with_panel();
         assert!(
             inline_properties(&dom).len() > 1,
             "a no-opinion default must resolve its style, not render bare",
@@ -2696,7 +3117,7 @@ mod autotest_generated {
     fn the_rendered_dom_flattens_with_exactly_one_transient_window() {
         // `Dom::estimated_total_children` is a *cached* count; if it under-reports, the
         // flatten under-allocates its arenas. The picker panel is a real subtree.
-        let styled = StyledDom::create_from_dom(ColorInput::create(SAMPLE_COLORS[6]).dom());
+        let styled = StyledDom::create_from_dom(ColorInput::create(SAMPLE_COLORS[6]).dom_with_panel());
         let nodes = styled.node_data.as_ref();
         assert!(
             nodes.len() > 10,
@@ -2722,7 +3143,7 @@ mod autotest_generated {
         for c in SAMPLE_COLORS {
             let (styled, state) = laid_out(ColorInput::create(c));
             // Open: the only thing a click does is ask the engine to hold the
-            // popup (the swatch's first child) open.
+            // popup (the swatch's last child) open.
             let (update, changes) = click(styled.clone(), &state, node(0));
             assert_eq!(
                 update,
@@ -2734,13 +3155,23 @@ mod autotest_generated {
                 1,
                 "{c:?}: a click must push exactly one change"
             );
-            let popup_node = node(1);
+            // The popup: node 1 of an opaque swatch; behind the checkerboard
+            // and the colour over it for a translucent one (A3-solver-34b:
+            // the click named node 1 - the checkerboard - for those too).
+            let popup_node = node(
+                styled
+                    .node_data
+                    .as_ref()
+                    .iter()
+                    .position(|n| matches!(n.get_node_type(), NodeType::TransientWindow(_)))
+                    .expect("the swatch has a popup"),
+            );
             assert!(
                 matches!(
                     &changes[0],
                     CallbackChange::SetTransientWindowOpen { node: n, open: true } if *n == popup_node
                 ),
-                "{c:?}: expected SetTransientWindowOpen(node 1, true), got {:?}",
+                "{c:?}: expected SetTransientWindowOpen(the popup, true), got {:?}",
                 changes[0]
             );
             assert_eq!(
@@ -3280,7 +3711,7 @@ mod autotest_generated {
             b: 0,
             a: 255,
         })
-        .dom();
+        .dom_with_panel();
         let old = old_dom.root.get_dataset().cloned().unwrap();
         {
             let mut o = old.clone();
@@ -3302,7 +3733,7 @@ mod autotest_generated {
             a: 255,
         })
         .with_on_value_change(probe, record_value as ColorInputOnValueChangeCallbackType)
-        .dom();
+        .dom_with_panel();
         let new = new_dom.root.get_dataset().cloned().unwrap();
         let mut merged = merge_picker_data(new, old.clone());
         let d = merged.downcast_ref::<ColorPickerData>().unwrap();
@@ -3323,7 +3754,7 @@ mod autotest_generated {
             b: 0,
             a: 255,
         })
-        .dom();
+        .dom_with_panel();
         let new = new_dom.root.get_dataset().cloned().unwrap();
         let mut merged = merge_picker_data(new, old);
         let d = merged.downcast_ref::<ColorPickerData>().unwrap();
@@ -3338,7 +3769,7 @@ mod autotest_generated {
         );
         assert_eq!(d.hsv.h, 120.0);
         // A foreign old payload is not merged into.
-        let new_dom = ColorInput::create(DEFAULT_COLOR).dom();
+        let new_dom = ColorInput::create(DEFAULT_COLOR).dom_with_panel();
         let new = new_dom.root.get_dataset().cloned().unwrap();
         let mut out = merge_picker_data(new, RefAny::new(7u8));
         assert!(out.downcast_ref::<ColorPickerData>().is_some());
@@ -3369,44 +3800,1029 @@ mod autotest_generated {
             CallbackChange::SetTransientWindowOpen { open: true, .. }
         ));
     }
-    /// KEYBOARD COLOUR CONTROL (2026-09-01 request): the picker must be
-    /// usable with no mouse at all - arrows nudge by 1%, Ctrl+arrows by 10%.
-    ///
-    /// Pins the pure decision (`nudge_hsv`'s arithmetic) via the public
-    /// state: a keyboard change must go through the SAME `set_hsv` a drag
-    /// uses, so the two can never drift apart.
-    #[test]
-    fn arrow_steps_are_one_percent_and_ctrl_steps_are_ten() {
-        // Saturation from a known midpoint, fine then coarse.
-        let mid = Hsv {
-            h: 200.0,
-            s: 0.50,
-            v: 0.50,
+    // ==================================================================
+    // KEYBOARD COLOUR CONTROL, through the real key handlers
+    // ==================================================================
+    //
+    // The picker must be usable with no mouse at all. These drive the
+    // widget's own `Focus(VirtualKeyDown)` handlers with a real keyboard
+    // state; the test they replace re-implemented `(s + step).clamp(..)`
+    // and never called the handler.
+
+    /// The colour the key tests start from: h ~11deg, s 0.8, v 1.0.
+    const KEY_START: ColorU = ColorU {
+        r: 255,
+        g: 87,
+        b: 51,
+        a: 255,
+    };
+
+    /// Like `with_info`, with `ks` as the window's live keyboard state - what
+    /// a key handler reads through `get_current_keyboard_state`.
+    fn with_info_keys<R>(
+        styled_dom: StyledDom,
+        hit: DomNodeId,
+        ks: azul_core::window::KeyboardState,
+        f: impl FnOnce(&mut CallbackInfo) -> R,
+    ) -> (R, Vec<CallbackChange>) {
+        let mut layout_window =
+            LayoutWindow::new(FcFontCache::default()).expect("LayoutWindow::new failed");
+        layout_window
+            .layout_results
+            .insert(DomId::ROOT_ID, layout_result(styled_dom));
+
+        let renderer_resources = RendererResources::default();
+        let previous_window_state: Option<FullWindowState> = None;
+        let current_window_state = FullWindowState {
+            keyboard_state: ks,
+            ..Default::default()
+        };
+        let gl_context = OptionGlContextPtr::None;
+        let scroll_states: BTreeMap<DomId, BTreeMap<NodeHierarchyItemId, ScrollPosition>> =
+            BTreeMap::new();
+        let window_handle = RawWindowHandle::Unsupported;
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+
+        let ref_data = CallbackInfoRefData {
+            layout_window: &layout_window,
+            renderer_resources: &renderer_resources,
+            previous_window_state: &previous_window_state,
+            current_window_state: &current_window_state,
+            gl_context: &gl_context,
+            current_scroll_manager: &scroll_states,
+            current_window_handle: &window_handle,
+            system_callbacks: &system_callbacks,
+            system_style: Arc::new(system::SystemStyle::default()),
+            monitors: Arc::new(Mutex::new(MonitorVec::from_const_slice(&[]))),
+            #[cfg(feature = "icu")]
+            icu_localizer: IcuLocalizerHandle::default(),
+            ctx: core::cell::RefCell::new(OptionRefAny::None),
         };
 
-        let stepped = |s0: f32, step: f32| (s0 + step).clamp(0.0, 1.0);
-        assert!(
-            (stepped(mid.s, 0.01) - 0.51).abs() < 1e-6,
-            "fine step is 1%"
-        );
-        assert!(
-            (stepped(mid.s, 0.10) - 0.60).abs() < 1e-6,
-            "coarse step is 10%"
+        let changes: Arc<Mutex<Vec<CallbackChange>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let mut info = CallbackInfo::new(
+            &ref_data,
+            &changes,
+            hit,
+            OptionLogicalPosition::None,
+            OptionLogicalPosition::None,
         );
 
-        // Clamping at both ends, so holding an arrow cannot walk out of range.
-        assert!((stepped(1.0, 0.10) - 1.0).abs() < 1e-6);
-        assert!((stepped(0.0, -0.10) - 0.0).abs() < 1e-6);
+        let r = f(&mut info);
+        let pushed = info.take_changes();
+        (r, pushed)
+    }
 
-        // Hue WRAPS instead of clamping - it is an angle.
-        let hue_after = |h: f32, d: f32| (h + d * 360.0).rem_euclid(360.0);
+    /// A keyboard with `key` just pressed while `held` are down.
+    fn keys(
+        key: azul_core::window::VirtualKeyCode,
+        held: &[azul_core::window::VirtualKeyCode],
+    ) -> azul_core::window::KeyboardState {
+        let mut ks = azul_core::window::KeyboardState::default();
+        let mut pressed: Vec<azul_core::window::VirtualKeyCode> = held.to_vec();
+        pressed.push(key);
+        ks.pressed_virtual_keycodes = pressed.into();
+        ks.current_virtual_keycode = Some(key).into();
+        ks.sync_modifiers();
+        ks
+    }
+
+    /// The rendered widget, the state its controls share, and the node of
+    /// the picker control carrying `class` (plane / hue / alpha).
+    fn picker_control(color: ColorU, class: &str) -> (StyledDom, RefAny, DomNodeId) {
+        let dom = ColorInput::create(color).dom_with_panel();
+        let state = dom.root.callbacks.as_ref()[0].refany.clone();
+        let styled = StyledDom::create_from_dom(dom);
+        let idx = styled
+            .node_data
+            .as_ref()
+            .iter()
+            .position(|n| {
+                n.get_ids_and_classes()
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == class))
+            })
+            .expect("the picker control is in the widget's dom");
+        (styled, state, node(idx))
+    }
+
+    /// One key press on `control`, through the handler the widget registered
+    /// for `axis`. Returns what the handler pushed.
+    fn press_key(
+        styled: StyledDom,
+        state: &RefAny,
+        control: DomNodeId,
+        axis: NudgeAxis,
+        ks: azul_core::window::KeyboardState,
+    ) -> Vec<CallbackChange> {
+        let (_, changes) = with_info_keys(styled, control, ks, |info| match axis {
+            NudgeAxis::Plane => on_plane_key(state.clone(), *info),
+            NudgeAxis::Hue => on_hue_key(state.clone(), *info),
+            NudgeAxis::Alpha => on_alpha_key(state.clone(), *info),
+        });
+        changes
+    }
+
+    fn hsv_of(state: &RefAny) -> Hsv {
+        let mut state = state.clone();
+        let picker = state
+            .downcast_ref::<ColorPickerData>()
+            .expect("the widget state changed type");
+        picker.hsv
+    }
+
+    /// Whether the handler claimed the key (no default action after it).
+    fn claimed(changes: &[CallbackChange]) -> bool {
+        changes
+            .iter()
+            .any(|c| matches!(c, CallbackChange::PreventDefault))
+    }
+
+    /// THE MODIFIER RULE, both conventions pinned on any host (user ruling,
+    /// 2026-09-26): a plain arrow is 1%; the large step (10%) is the
+    /// platform's PRIMARY modifier - Cmd on a Mac, Ctrl everywhere else -
+    /// or Shift (the design-tool convention, reserved by no OS). Alt and the
+    /// OTHER command modifier are not the picker's and fall through, so OS
+    /// and app shortcuts survive (a stock Mac gives Ctrl+arrow to Mission
+    /// Control; Windows gives Win+arrow to window snapping).
+    #[test]
+    fn the_large_step_is_the_platforms_primary_modifier_or_shift() {
+        use azul_core::window::VirtualKeyCode as K;
+        for mac in [true, false] {
+            assert_eq!(
+                picker_step(&keys(K::Right, &[]), mac),
+                Some(FINE_STEP),
+                "a plain arrow is 1% (mac={mac})"
+            );
+            assert_eq!(
+                picker_step(&keys(K::Right, &[K::LShift]), mac),
+                Some(COARSE_STEP),
+                "Shift is the large step on every platform (mac={mac})"
+            );
+            assert_eq!(
+                picker_step(&keys(K::Right, &[K::LAlt]), mac),
+                None,
+                "Alt+arrow falls through (mac={mac})"
+            );
+        }
+        assert_eq!(
+            picker_step(&keys(K::Right, &[K::LWin]), true),
+            Some(COARSE_STEP),
+            "Cmd is the Mac's large step"
+        );
+        assert_eq!(
+            picker_step(&keys(K::Right, &[K::LControl]), true),
+            None,
+            "Ctrl+arrow belongs to the OS on a Mac"
+        );
+        assert_eq!(
+            picker_step(&keys(K::Right, &[K::LControl]), false),
+            Some(COARSE_STEP),
+            "Ctrl is the large step everywhere else"
+        );
+        assert_eq!(
+            picker_step(&keys(K::Right, &[K::LWin]), false),
+            None,
+            "the Super key's arrows belong to the OS everywhere else"
+        );
+    }
+
+    /// Guard: a plain Right on the plane adds 1% saturation through the
+    /// same `set_hsv` a drag uses, and claims the key (no scroll under it).
+    #[test]
+    fn right_on_the_plane_adds_one_percent_saturation() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let s0 = hsv_of(&state).s;
+        let changes = press_key(styled, &state, plane, NudgeAxis::Plane, keys(K::Right, &[]));
         assert!(
-            (hue_after(355.0, 0.10) - 31.0).abs() < 1e-4,
-            "hue wraps past 360"
+            (hsv_of(&state).s - (s0 + FINE_STEP)).abs() < 1e-4,
+            "{s0} -> {}",
+            hsv_of(&state).s
+        );
+        assert!(claimed(&changes), "the arrow is the plane's");
+    }
+
+    #[test]
+    fn shift_right_on_the_plane_is_the_large_step() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let s0 = hsv_of(&state).s;
+        let changes = press_key(
+            styled,
+            &state,
+            plane,
+            NudgeAxis::Plane,
+            keys(K::Right, &[K::LShift]),
         );
         assert!(
-            (hue_after(5.0, -0.10) - 329.0).abs() < 1e-4,
-            "and wraps below 0"
+            (hsv_of(&state).s - (s0 + COARSE_STEP)).abs() < 1e-4,
+            "Shift+Right adds 10% saturation: {s0} -> {}",
+            hsv_of(&state).s
+        );
+        assert!(claimed(&changes));
+    }
+
+    /// WAI-ARIA slider "large step": PageUp / PageDown move the plane's
+    /// y-axis (brightness) by 10%.
+    #[test]
+    fn page_up_and_down_on_the_plane_step_brightness_by_ten_percent() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let v0 = hsv_of(&state).v;
+        let changes = press_key(
+            styled.clone(),
+            &state,
+            plane,
+            NudgeAxis::Plane,
+            keys(K::PageDown, &[]),
+        );
+        assert!(
+            (hsv_of(&state).v - (v0 - COARSE_STEP)).abs() < 1e-4,
+            "PageDown darkens by 10%: {v0} -> {}",
+            hsv_of(&state).v
+        );
+        assert!(claimed(&changes), "PageDown is the plane's, not a page scroll");
+        let _ = press_key(styled, &state, plane, NudgeAxis::Plane, keys(K::PageUp, &[]));
+        assert!(
+            (hsv_of(&state).v - v0).abs() < 1e-4,
+            "PageUp brightens it back"
+        );
+    }
+
+    /// Home / End go to the ends of the plane's x-axis: no saturation, full.
+    #[test]
+    fn home_and_end_on_the_plane_go_to_the_saturation_ends() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let changes = press_key(
+            styled.clone(),
+            &state,
+            plane,
+            NudgeAxis::Plane,
+            keys(K::Home, &[]),
+        );
+        assert!(
+            hsv_of(&state).s.abs() < 1e-4,
+            "Home is zero saturation, got {}",
+            hsv_of(&state).s
+        );
+        assert!(claimed(&changes));
+        let _ = press_key(styled, &state, plane, NudgeAxis::Plane, keys(K::End, &[]));
+        assert!(
+            (hsv_of(&state).s - 1.0).abs() < 1e-4,
+            "End is full saturation"
+        );
+    }
+
+    /// The hue and alpha bars: Home / End are their minimum / maximum.
+    #[test]
+    fn home_and_end_on_the_hue_and_alpha_bars_go_to_their_ends() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, hue) = picker_control(KEY_START, COLOR_PICKER_HUE_CLASS);
+        let _ = press_key(styled.clone(), &state, hue, NudgeAxis::Hue, keys(K::Home, &[]));
+        assert!(hsv_of(&state).h.abs() < 1e-3, "Home is hue 0");
+        let _ = press_key(styled, &state, hue, NudgeAxis::Hue, keys(K::End, &[]));
+        assert!(hsv_of(&state).h > 359.0, "End is the top of the hue bar");
+
+        let (styled, state, alpha) = picker_control(KEY_START, COLOR_PICKER_ALPHA_CLASS);
+        let _ = press_key(
+            styled.clone(),
+            &state,
+            alpha,
+            NudgeAxis::Alpha,
+            keys(K::Home, &[]),
+        );
+        assert_eq!(state_color(&state).a, 0, "Home is fully transparent");
+        let _ = press_key(styled, &state, alpha, NudgeAxis::Alpha, keys(K::End, &[]));
+        assert_eq!(state_color(&state).a, 255, "End is fully opaque");
+    }
+
+    /// Alt+arrow is not the picker's: nothing moves and the key is not
+    /// claimed, so an app or OS shortcut on it still runs.
+    #[test]
+    fn alt_arrow_is_not_consumed_by_the_picker() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, plane) = picker_control(KEY_START, COLOR_PICKER_PLANE_CLASS);
+        let before = hsv_of(&state);
+        let changes = press_key(
+            styled,
+            &state,
+            plane,
+            NudgeAxis::Plane,
+            keys(K::Right, &[K::LAlt]),
+        );
+        assert_eq!(hsv_of(&state), before, "Alt+Right changed the colour");
+        assert!(!claimed(&changes), "Alt+Right must fall through");
+    }
+
+    /// The hue is an angle: stepping past either end wraps.
+    #[test]
+    fn the_hue_bar_wraps_around() {
+        use azul_core::window::VirtualKeyCode as K;
+        let (styled, state, hue) = picker_control(KEY_START, COLOR_PICKER_HUE_CLASS);
+        let h0 = hsv_of(&state).h;
+        let _ = press_key(styled, &state, hue, NudgeAxis::Hue, keys(K::Left, &[K::LShift]));
+        let expected = (h0 - COARSE_STEP * 360.0).rem_euclid(360.0);
+        assert!(
+            (hsv_of(&state).h - expected).abs() < 1e-3,
+            "Shift+Left from {h0} wraps below 0 to {expected}, got {}",
+            hsv_of(&state).h
+        );
+    }
+}
+
+/// The theme option: which look a colour input renders in, and what each
+/// look is.
+#[cfg(test)]
+mod theme_tests {
+    use azul_core::dom::IdOrClass::Class;
+    use azul_css::{
+        css::CssDeclaration,
+        dynamic_selector::{DynamicSelector, PseudoStateType, ThemeCondition},
+    };
+
+    use super::*;
+    use crate::widgets::{
+        theme_probe,
+        themes::{flora, OptionUiTheme, UiTheme},
+    };
+
+    const RED: ColorU = ColorU {
+        r: 200,
+        g: 30,
+        b: 30,
+        a: 255,
+    };
+
+    fn input(theme: UiTheme) -> Dom {
+        ColorInput::create(RED).with_theme(theme).dom_with_panel()
+    }
+
+    /// The picker panel inside the swatch's popup (the popup is the swatch's
+    /// last child; the panel is its only one).
+    fn panel(swatch: &Dom) -> &Dom {
+        let popup = swatch.children.as_ref().last().expect("the popup");
+        &popup.children.as_ref()[0]
+    }
+
+    /// The panel's parts, in the order `publish` relies on.
+    fn part(swatch: &Dom, i: usize) -> &Dom {
+        &panel(swatch).children.as_ref()[i]
+    }
+
+    fn preview(swatch: &Dom) -> &Dom {
+        &part(swatch, 4).children.as_ref()[0]
+    }
+
+    fn grip_handle(swatch: &Dom) -> &Dom {
+        &part(swatch, 0).children.as_ref()[0]
+    }
+
+    fn declarations(node: &Dom) -> Vec<CssPropertyWithConditions> {
+        crate::widgets::themes::theme_blocks::checks::live_inline(node).iter()
+            .map(|(p, c)| CssPropertyWithConditions {
+                property: p.clone(),
+                apply_if: c.clone(),
+            })
+            .collect()
+    }
+
+    fn in_state<T>(
+        node: &Dom,
+        state: PseudoStateType,
+        pick: impl Fn(&CssProperty) -> Option<T>,
+    ) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            // Keyboard focus raises `:focus` and `:focus-visible` together: a
+            // probe of the focused state sees the rings declared for either.
+            let conds = d.pseudo_state_conditions();
+            let focus_ring = state == PseudoStateType::Focus
+                && conds == [PseudoStateType::FocusVisible];
+            if conds != [state] && !focus_ring {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    /// The `(light, dark)` value `pick` finds among the RESTING declarations
+    /// (no pseudo-state). `theme_probe::dark` would also return the
+    /// `:hover` / `:focus` dark twins, declared after the resting pair.
+    fn at_rest<T>(node: &Dom, pick: impl Fn(&CssProperty) -> Option<T>) -> (Option<T>, Option<T>) {
+        let mut light = None;
+        let mut dark = None;
+        for d in declarations(node) {
+            if !d.pseudo_state_conditions().is_empty() {
+                continue;
+            }
+            let Some(v) = pick(&d.property) else {
+                continue;
+            };
+            if d.is_dark_twin() {
+                dark = Some(v);
+            } else {
+                light = Some(v);
+            }
+        }
+        (light, dark)
+    }
+
+    fn shadow(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BoxShadowTop(v)
+            | CssProperty::BoxShadowRight(v)
+            | CssProperty::BoxShadowBottom(v)
+            | CssProperty::BoxShadowLeft(v) => v.get_property().map(|s| s.as_ref().color),
+            _ => None,
+        }
+    }
+
+    fn top_edge(p: &CssProperty) -> Option<ColorU> {
+        match p {
+            CssProperty::BorderTopColor(v) => v.get_property().map(|c| c.inner),
+            _ => None,
+        }
+    }
+
+    fn bg(p: &CssProperty) -> Option<Vec<StyleBackgroundContent>> {
+        match p {
+            CssProperty::BackgroundContent(v) => v.get_property().map(|v| v.as_ref().to_vec()),
+            _ => None,
+        }
+    }
+
+    /// The `background-color` a declaration sets (a stylesheet's `background:`).
+    fn bg_colour(p: &CssProperty) -> Option<StyleBackgroundContent> {
+        match p {
+            CssProperty::BackgroundColor(v) => v.get_property().cloned(),
+            _ => None,
+        }
+    }
+
+    fn last<T>(props: &[CssProperty], f: impl Fn(&CssProperty) -> Option<T>) -> Option<T> {
+        props.iter().rev().find_map(f)
+    }
+
+    /// The declarations of a node's component stylesheet (`with_css`), those
+    /// under `@media (prefers-color-scheme: dark)` or those outside it.
+    fn component(node: &Dom, dark: bool) -> Vec<CssProperty> {
+        node.css
+            .as_ref()
+            .iter()
+            .flat_map(|css| css.rules.as_ref().iter())
+            .filter(|r| {
+                r.conditions
+                    .as_ref()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::Mode(azul_css::dynamic_selector::ModeCondition::Dark)))
+                    == dark
+            })
+            .flat_map(|r| r.declarations.as_ref().iter())
+            .filter_map(|d| match d {
+                CssDeclaration::Static(p) => Some(p.clone()),
+                CssDeclaration::Dynamic(_) | CssDeclaration::CustomProperty(_) => None,
+            })
+            .collect()
+    }
+
+    fn has_class(dom: &Dom, name: &str) -> bool {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, Class(s) if s.as_str() == name))
+    }
+
+    #[test]
+    fn a_color_input_without_a_theme_renders_flat() {
+        let plain = ColorInput::create(RED);
+        assert_eq!(plain.theme, OptionUiTheme::None, "no opinion by default");
+        assert_eq!(
+            declarations(&plain.clone().dom_with_panel()),
+            declarations(&plain.with_theme(UiTheme::Flat).dom_with_panel())
+        );
+    }
+
+    #[test]
+    fn set_theme_and_with_theme_record_the_same_theme() {
+        let mut set = ColorInput::create(RED);
+        set.set_theme(UiTheme::Flora);
+        assert_eq!(set.theme, OptionUiTheme::Some(UiTheme::Flora));
+        assert_eq!(ColorInput::create(RED).with_theme(UiTheme::Flora), set);
+    }
+
+    #[test]
+    fn a_flat_swatch_and_the_pickers_bars_ring_on_focus_by_day_and_night() {
+        let dom = input(UiTheme::Flat);
+        let (l, d) = in_state(&dom, PseudoStateType::Focus, shadow);
+        assert!(l.is_some() && d.is_some(), "the swatch is a keyboard stop: {l:?} {d:?}");
+        for (name, i) in [("plane", 1), ("hue", 2), ("alpha", 3)] {
+            let (l, d) = in_state(part(&dom, i), PseudoStateType::Focus, shadow);
+            assert!(l.is_some() && d.is_some(), "{name}: a keyboard stop with no ring");
+        }
+    }
+
+    #[test]
+    fn a_flat_pickers_preview_frame_and_grip_follow_the_night() {
+        let dom = input(UiTheme::Flat);
+        assert!(
+            last(&component(preview(&dom), true), top_edge).is_some(),
+            "the preview's #c8c8c8 frame has a night colour"
+        );
+        assert!(
+            last(&component(grip_handle(&dom), true), bg).is_some(),
+            "the grip's #c8c8c8 handle has a night colour"
+        );
+    }
+
+    #[test]
+    fn a_flora_swatch_is_framed_in_a_hairline_and_rings_in_the_accent() {
+        let dom = input(UiTheme::Flora);
+        let rest = theme_probe::unconditional(&dom);
+        assert_eq!(
+            last(&rest, bg),
+            Some(vec![StyleBackgroundContent::Color(RED)]),
+            "the swatch is its colour"
+        );
+        assert_eq!(
+            at_rest(&dom, top_edge),
+            (Some(flora::LIGHT_BD2), Some(flora::DARK_BD2)),
+            "a --fl-bd2 hairline (#4A4A4A at night)"
+        );
+        assert_eq!(
+            in_state(&dom, PseudoStateType::Hover, top_edge),
+            (Some(flora::LIGHT_BD3), Some(flora::DARK_BD3)),
+            "--fl-bd3 under the pointer"
+        );
+        assert_eq!(
+            in_state(&dom, PseudoStateType::Focus, top_edge),
+            (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+            "flora's focus colour on the frame"
+        );
+        for (name, i) in [("plane", 1), ("hue", 2), ("alpha", 3)] {
+            assert_eq!(
+                in_state(part(&dom, i), PseudoStateType::Focus, shadow),
+                (Some(flora::LIGHT_ACC), Some(flora::DARK_GLOW)),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_flora_picker_is_a_leaf_by_day_and_at_night() {
+        let dom = input(UiTheme::Flora);
+        let p = panel(&dom);
+        assert_eq!(
+            last(&component(p, false), bg_colour),
+            Some(StyleBackgroundContent::Color(flora::LIGHT_SUR))
+        );
+        assert_eq!(last(&component(p, false), top_edge), Some(flora::LIGHT_BD));
+        assert_eq!(
+            last(&component(p, true), bg_colour),
+            Some(StyleBackgroundContent::Color(flora::DARK_SUR))
+        );
+        assert_eq!(last(&component(p, true), top_edge), Some(flora::DARK_BD));
+    }
+
+    #[test]
+    fn a_flora_color_input_keeps_the_swatch_and_the_pickers_structure() {
+        let flora = input(UiTheme::Flora);
+        let flat = input(UiTheme::Flat);
+        assert!(flora.root.get_tab_index().is_some());
+        assert_eq!(
+            flora.root.get_accessibility_info().map(|a| a.role),
+            flat.root.get_accessibility_info().map(|a| a.role)
+        );
+        assert_eq!(flora.root.get_callbacks().as_ref().len(), 1, "opens the picker");
+        let classes = |d: &Dom| -> Vec<String> {
+            d.children
+                .as_ref()
+                .iter()
+                .map(|c| {
+                    c.root
+                        .get_ids_and_classes()
+                        .as_ref()
+                        .iter()
+                        .filter_map(|k| match k {
+                            Class(s) => Some(s.as_str().to_string()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .collect()
+        };
+        assert_eq!(classes(panel(&flora)), classes(panel(&flat)), "the parts publish finds");
+        assert!(has_class(&flora, "__azul-theme-flora"));
+        assert!(has_class(&flora, COLOR_INPUT_CLASS));
+    }
+}
+
+/// Following the app theme (`theme: None`): the DOM carries every widget
+/// theme's `@theme(<name>)` block and renders the app theme's; a pinned
+/// widget (`with_theme`) ignores the app theme (T2 migration, T1 report
+/// section 4).
+#[cfg(test)]
+mod app_theme_tests {
+    use super::*;
+    use crate::widgets::themes::{theme_blocks::checks, UiTheme};
+
+    #[test]
+    fn a_color_input_without_a_theme_follows_the_app_theme() {
+        let color = azul_css::props::basic::ColorU {
+            r: 200,
+            g: 60,
+            b: 20,
+            a: 255,
+        };
+        checks::assert_follows_the_app_theme(
+            "color_input",
+            || ColorInput::create(color).dom_with_panel(),
+            |t: UiTheme| ColorInput::create(color).with_theme(t).dom_with_panel(),
+        );
+    }
+
+    /// The classes of the widgets the picker nests (the hex field and the
+    /// channel fields are text inputs, the channel names labels). Each
+    /// follows the app theme on its own and answers for its own structure in
+    /// its own tests.
+    const NESTED_WIDGETS: [&str; 2] = [
+        crate::widgets::text_input::TEXT_INPUT_CONTAINER_CLASS,
+        "__azul-native-label",
+    ];
+
+    /// `dom` with every nested widget's subtree replaced by an empty div:
+    /// what the colour input itself builds.
+    fn own_nodes(mut dom: Dom) -> Dom {
+        use crate::widgets::themes::theme_checks::has_class;
+        let children = core::mem::take(&mut dom.children).into_library_owned_vec();
+        dom.children = children
+            .into_iter()
+            .map(|child| {
+                if NESTED_WIDGETS.iter().any(|c| has_class(&child, c)) {
+                    Dom::create_div()
+                } else {
+                    own_nodes(child)
+                }
+            })
+            .collect::<Vec<Dom>>()
+            .into();
+        dom
+    }
+
+    /// R5: the swatch's box and pointer, the picker panel's column, the
+    /// preview's positioned clip, the eyedropper's centred box and pointer,
+    /// the grip's and the rows' layout are the colour input's BASE, declared
+    /// once outside every `@theme` block. An opaque colour and a translucent
+    /// one (the swatch then clips a checkerboard).
+    #[test]
+    fn a_color_input_declares_its_structure_once_for_every_theme() {
+        use crate::widgets::themes::theme_checks::assert_structure_is_shared;
+        let opaque = azul_css::props::basic::ColorU {
+            r: 200,
+            g: 60,
+            b: 20,
+            a: 255,
+        };
+        let translucent = azul_css::props::basic::ColorU { a: 128, ..opaque };
+        for t in checks::BOTH {
+            for color in [opaque, translucent] {
+                let dom = checks::under(t, || ColorInput::create(color).dom_with_panel());
+                assert_structure_is_shared(
+                    &format!("color_input alpha {} built for {}", color.a, t.name()),
+                    &own_nodes(dom),
+                    &[],
+                );
+            }
+        }
+    }
+}
+
+/// A3-solver-34a: a checkerboard is one node whose background draws the
+/// cells, not a div per cell. Counted: the nodes of a checkerboard and of a
+/// closed picker.
+#[cfg(all(test, feature = "std"))]
+mod audit_a3_solver_tests {
+    use azul_core::dom::IdOrClass;
+
+    use super::*;
+
+    /// The picker's alpha bar, its preview, a translucent swatch of 14 px:
+    /// `(w, h, cell)` as `picker_panel` and `build` ask for them.
+    const BOARDS: [(f32, f32, f32); 3] = [(216.0, 12.0, 6.0), (26.0, 26.0, 6.5), (14.0, 14.0, 7.0)];
+
+    fn nodes(dom: &Dom) -> usize {
+        1 + dom.children.as_ref().iter().map(nodes).sum::<usize>()
+    }
+
+    /// How many nodes of `dom` carry the class `name`.
+    fn with_class(dom: &Dom, name: &str) -> usize {
+        let own = dom
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name));
+        usize::from(own)
+            + dom
+                .children
+                .as_ref()
+                .iter()
+                .map(|child| with_class(child, name))
+                .sum::<usize>()
+    }
+
+    /// What `node` declares for `ty` whatever the mode (its first
+    /// declaration of it under no condition).
+    fn declared(node: &Dom, ty: CssPropertyType) -> Option<&CssProperty> {
+        node.root
+            .get_style()
+            .rules
+            .as_ref()
+            .iter()
+            .filter(|rule| rule.conditions.as_ref().is_empty())
+            .flat_map(|rule| rule.declarations.as_ref().iter())
+            .find_map(|declaration| match declaration {
+                azul_css::css::CssDeclaration::Static(property) if property.get_type() == ty => {
+                    Some(property)
+                }
+                _ => None,
+            })
+    }
+
+    /// The layers of the background `node` declares by day.
+    fn day_layers(node: &Dom) -> Vec<StyleBackgroundContent> {
+        match declared(node, CssPropertyType::BackgroundContent) {
+            Some(CssProperty::BackgroundContent(layers)) => layers
+                .get_property()
+                .map(|layers| layers.as_ref().to_vec())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// A checkerboard was a div per cell under a div per row: 75 nodes for
+    /// the alpha bar (2 x 36 cells), 21 for the preview (4 x 4), 7 for a
+    /// 14 px swatch (2 x 2). It is one node.
+    ///
+    /// Mutation: `checkerboard_one_node` building a child per cell (or
+    /// `checkerboard` answering with `checkerboard_cells`) counts the cells.
+    #[test]
+    fn a_checkerboard_is_one_node_where_it_was_a_div_per_cell() {
+        for ((w, h, cell), cells) in BOARDS.into_iter().zip([75_usize, 21, 7]) {
+            assert_eq!(
+                nodes(&checkerboard_cells(w, h, cell)),
+                cells,
+                "harness: the cells of a {w} x {h} board"
+            );
+            let one = checkerboard_one_node(w, h, cell);
+            assert_eq!(nodes(&one), 1, "the {w} x {h} board");
+            assert_eq!(with_class(&one, CHECKERBOARD_CLASS), 1);
+        }
+    }
+
+    /// The one node draws the picture the cells draw: a strip per row of
+    /// cells, at the row's height, one cell tall, repeated along the row;
+    /// its tile two cells wide with a hard stop in the middle, and the colour
+    /// of each half the colour of the cells it stands for (cell `x` of a row
+    /// is the tile's first half for an even `x`, its second for an odd one).
+    ///
+    /// Mutation: the same strip for every row (stripes), a tile of another
+    /// size, or a strip at another height fails.
+    #[test]
+    fn the_one_node_checkerboard_declares_the_cells_colours_cell_for_cell() {
+        for (w, h, cell) in BOARDS {
+            let cells = checkerboard_cells(w, h, cell);
+            let one = checkerboard_one_node(w, h, cell);
+            // the cells are whole px wide: 6.5 is 6
+            let side = cell.trunc();
+            let rows = cells.children.as_ref();
+            let strips = day_layers(&one);
+            assert_eq!(strips.len(), rows.len(), "{w} x {h}: a strip per row of cells");
+            assert_eq!(
+                declared(&one, CssPropertyType::BackgroundSize),
+                Some(&CssProperty::const_background_size(
+                    vec![StyleBackgroundSize::ExactSize(PixelValueSize {
+                        width: PixelValue::px(2.0 * side),
+                        height: PixelValue::px(side),
+                    })]
+                    .into()
+                )),
+                "{w} x {h}: a tile is two cells wide and one tall"
+            );
+            assert_eq!(
+                declared(&one, CssPropertyType::BackgroundRepeat),
+                Some(&CssProperty::const_background_repeat(
+                    vec![StyleBackgroundRepeat::RepeatX].into()
+                )),
+                "{w} x {h}: a strip repeats along its row only"
+            );
+            let Some(CssProperty::BackgroundPosition(positions)) =
+                declared(&one, CssPropertyType::BackgroundPosition)
+            else {
+                panic!("{w} x {h}: the strips have no positions");
+            };
+            let positions = positions
+                .get_property()
+                .map(|p| p.as_ref().to_vec())
+                .unwrap_or_default();
+            assert_eq!(positions.len(), rows.len(), "{w} x {h}: a position per strip");
+            for (y, row) in rows.iter().enumerate() {
+                #[allow(clippy::cast_precision_loss)] // a handful of rows
+                let top = y as f32 * side;
+                assert_eq!(
+                    positions[y],
+                    StyleBackgroundPosition {
+                        horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_px(0)),
+                        vertical: BackgroundPositionVertical::Exact(PixelValue::px(top)),
+                    },
+                    "{w} x {h}: strip {y} stands where row {y} of the cells does"
+                );
+                let StyleBackgroundContent::LinearGradient(strip) = &strips[y] else {
+                    panic!("{w} x {h}: strip {y} is no linear gradient");
+                };
+                let stops = strip.stops.as_ref();
+                assert_eq!(stops.len(), 4, "{w} x {h}: strip {y}");
+                assert!(
+                    stops[0].color == stops[1].color
+                        && stops[2].color == stops[3].color
+                        && stops[1].offset == stops[2].offset,
+                    "{w} x {h}: strip {y} is two flat halves with a hard stop between"
+                );
+                for (x, cell_div) in row.children.as_ref().iter().enumerate() {
+                    let of_the_cell = day_layers(cell_div);
+                    let [StyleBackgroundContent::Color(color)] = of_the_cell.as_slice() else {
+                        panic!("harness: cell ({x}, {y}) declares one colour");
+                    };
+                    let half = if x % 2 == 0 { &stops[0] } else { &stops[3] };
+                    assert!(
+                        half.color == ColorOrSystem::color(*color),
+                        "{w} x {h}: cell ({x}, {y}) is {color:?}, its half of the strip {:?}",
+                        half.color
+                    );
+                }
+            }
+        }
+    }
+
+    /// The picker's panel (as its popup shows it, `dom_with_panel`; since
+    /// A3-solver-34 a closed input builds none): its alpha bar and its
+    /// preview are a checkerboard node each, where they were 96 nodes. (A
+    /// process started with `AZ_COLOR_PICKER_CHECKER=cells` builds the cells:
+    /// the test then has nothing to say.)
+    ///
+    /// Mutation: `checkerboard` building cells without being asked carries
+    /// 88 cell divs and at least 142 nodes.
+    #[test]
+    fn a_closed_picker_carries_a_node_per_checkerboard_not_a_div_per_cell() {
+        if checkerboard_build() != CheckerboardBuild::OneNode {
+            return;
+        }
+        let opaque = ColorU {
+            r: 200,
+            g: 60,
+            b: 20,
+            a: 255,
+        };
+        let cell_divs = |dom: &Dom| {
+            with_class(dom, CHECKERBOARD_LIGHT_CLASS) + with_class(dom, CHECKERBOARD_DARK_CLASS)
+        };
+        let closed = ColorInput::create(opaque).dom_with_panel();
+        assert_eq!(with_class(&closed, CHECKERBOARD_CLASS), 2, "the alpha bar's and the preview's");
+        assert_eq!(cell_divs(&closed), 0);
+        let total = nodes(&closed);
+        assert!(
+            total < 75,
+            "a closed picker is {total} nodes: more than its alpha bar's cells alone were"
+        );
+        // A translucent colour: the swatch has a checkerboard of its own.
+        let translucent = ColorInput::create(ColorU { a: 128, ..opaque }).dom_with_panel();
+        assert_eq!(with_class(&translucent, CHECKERBOARD_CLASS), 3);
+        assert_eq!(cell_divs(&translucent), 0);
+        assert_eq!(nodes(&translucent), total + 2, "the swatch's board and the colour over it");
+    }
+
+    /// A3-solver-34. Every colour input of a DOM carried its picker's panel -
+    /// grip, plane, hue and alpha bars, preview, hex field, four channel
+    /// fields: some fifty nodes - whether its picker was open or not, and
+    /// every rebuild built, styled and reconciled all of them. The popup node
+    /// asks for the panel when the engine shows the popup.
+    ///
+    /// Counted: a closed input is 2 nodes, the swatch and the popup node (4
+    /// for a translucent colour: its board and the colour over it), none of
+    /// them of the panel's class; ten inputs are 20 nodes. The engine's own
+    /// extraction of the popup shows the panel, the same nodes the popup of
+    /// a built-in-place panel held.
+    ///
+    /// Mutation: `build` giving the popup its panel as a child again
+    /// (`.with_child(picker_panel(..))`) counts the panel's nodes per input.
+    #[test]
+    fn a_closed_colour_input_builds_no_panel() {
+        let opaque = ColorU {
+            r: 200,
+            g: 60,
+            b: 20,
+            a: 255,
+        };
+        let closed = ColorInput::create(opaque).dom();
+        assert_eq!(nodes(&closed), 2, "the swatch and its popup node");
+        assert_eq!(with_class(&closed, COLOR_PICKER_CLASS), 0);
+        let popup = closed.children.as_ref().last().expect("the popup node");
+        assert!(matches!(popup.root.get_node_type(), NodeType::TransientWindow(_)));
+        assert!(popup.children.as_ref().is_empty(), "a closed popup holds no panel");
+        assert!(
+            popup.root.get_transient_content().is_some(),
+            "the popup asks for its panel when it is shown"
+        );
+        if checkerboard_build() == CheckerboardBuild::OneNode {
+            let translucent = ColorInput::create(ColorU { a: 128, ..opaque }).dom();
+            assert_eq!(nodes(&translucent), 4, "and the swatch's board and the colour over it");
+        }
+        let mut page = Dom::create_body();
+        for _ in 0..10 {
+            page = page.with_child(ColorInput::create(opaque).dom());
+        }
+        assert_eq!(nodes(&page), 1 + 10 * 2, "ten closed inputs");
+
+        // What the engine shows: body 0 > swatch 1 > popup 2.
+        let styled = azul_core::styled_dom::StyledDom::create_from_dom(
+            Dom::create_body().with_child(ColorInput::create(opaque).dom()),
+        );
+        let shown = azul_core::transient::extract_subtree_as_dom(
+            &styled,
+            azul_core::dom::NodeId::new(2),
+        )
+        .expect("the popup's content");
+        assert_eq!(shown.children.as_ref().len(), 1, "the popup's root holds the panel");
+        assert_eq!(with_class(&shown, COLOR_PICKER_CLASS), 1);
+        for part in [
+            COLOR_PICKER_GRIP_CLASS,
+            COLOR_PICKER_PLANE_CLASS,
+            COLOR_PICKER_HUE_CLASS,
+            COLOR_PICKER_ALPHA_CLASS,
+            COLOR_PICKER_EYEDROPPER_CLASS,
+        ] {
+            assert_eq!(with_class(&shown, part), 1, "the panel's {part}");
+        }
+        // The same panel the tests of the panel read (`with_panel`).
+        let in_place = ColorInput::create(opaque).dom_with_panel();
+        let popup = in_place.children.as_ref().last().expect("the popup node");
+        assert_eq!(nodes(&shown), nodes(popup));
+        assert!(nodes(popup) > 20, "harness: the panel is the bulk of an open input");
+    }
+
+    /// A3-solver-34, the state. The panel is built from the data the popup
+    /// node carries, and that is the swatch's dataset - one allocation - so
+    /// what the dataset merge keeps across a rebuild (the hue at black, a
+    /// drag, the open flag) is what the panel's controls carry: the reconcile
+    /// repoints the node's content data with its other `RefAny`s
+    /// (`azul_core::layout_inputs::NodeField::TransientContent`).
+    ///
+    /// Mutation: `build` handing the popup a dataset of its own
+    /// (`RefAny::new(..)` for `data.clone()`) fails the first assertion; a
+    /// `picker_content` that builds from another `RefAny` than the one it is
+    /// given fails the second.
+    #[test]
+    fn the_panel_is_built_from_the_state_the_swatch_keeps() {
+        let dom = ColorInput::create(ColorU {
+            r: 10,
+            g: 200,
+            b: 30,
+            a: 255,
+        })
+        .dom();
+        let dataset = dom.root.get_dataset().expect("the swatch's dataset").clone();
+        let popup = dom.children.as_ref().last().expect("the popup node");
+        let content = popup
+            .root
+            .get_transient_content()
+            .expect("the popup's content callback");
+        assert_eq!(
+            content.refany.sharing_info.ptr, dataset.sharing_info.ptr,
+            "the popup's content is built from the swatch's dataset"
+        );
+        let panel = content.callback.invoke(content.refany.clone());
+        assert_eq!(with_class(&panel, COLOR_PICKER_CLASS), 1);
+        // panel > [grip, plane, ..]: the plane's handlers carry the state.
+        let plane = &panel.children.as_ref()[1];
+        assert_eq!(with_class(plane, COLOR_PICKER_PLANE_CLASS), 1);
+        assert_eq!(
+            plane.root.callbacks.as_ref()[0].refany.sharing_info.ptr,
+            dataset.sharing_info.ptr,
+            "the panel's controls write into the state the swatch keeps"
         );
     }
 }

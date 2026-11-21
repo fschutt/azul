@@ -1,0 +1,50 @@
+[
+  {
+    "name": "a file deleted and uploaded again sends its bytes again; the same bytes in another drive are sent too",
+    "description": "ICLOUD-024 (sync-chaos crypto-no-plaintext-no-dedup): with ADP on, iCloud re-uploaded 6 GB in seconds after a 'permanent' delete, so it kept and deduplicated the chunks. Rule I1: no deduplication of ciphertext across a delete or across accounts; each upload of a new file carries its bytes under new keys.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "random.bin", "size": 1048576, "seed": 70 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_rm", "device": "a", "path": "random.bin" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "a", "path": "random.bin", "size": 1048576, "seed": 70 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_counters", "device": "a" },
+      { "op": "assert_response", "path": "result.bytes_up", "at_least": 2097152 },
+      { "op": "drive_create", "remote": "r2", "encrypted": true },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle", "device": "c" },
+      { "op": "drive_write", "device": "c", "path": "random.bin", "size": 1048576, "seed": 70 },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_counters", "device": "c" },
+      { "op": "assert_response", "path": "result.bytes_up", "at_least": 1048576 },
+      { "op": "drive_check", "check": "remote_never_has", "marker": "{secret}" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a purged file's objects are gone, and its upload again stores only new objects",
+    "description": "ICLOUD-024: rule I1: a permanent delete removes the stored objects; the same bytes uploaded later get new keys and new objects, so equality across time is not visible to the server.",
+    "steps": [
+      { "op": "drive_create", "remote": "r3", "encrypted": true },
+      { "op": "drive_open", "device": "d", "remote": "r3" },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "d", "path": "random.bin", "size": 1048576, "seed": 71 },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_mark_objects", "remote": "r3", "name": "before" },
+      { "op": "drive_rm", "device": "d", "path": "random.bin" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_tamper", "remote": "r3", "action": "purge", "key": "random.bin" },
+      { "op": "drive_write", "device": "d", "path": "random.bin", "size": 1048576, "seed": 71 },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_check", "check": "objects_fresh", "remote": "r3", "since": "before" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

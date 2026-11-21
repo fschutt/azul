@@ -1,0 +1,46 @@
+[package]
+name = "AzERP"
+version = "0.1.0"
+edition = "2021"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = """
+    AzERP - the ERP on azul, its first section asset management: fixed
+    assets, categories, locations, depreciation schedules (straight-line and
+    declining balance, monthly pro rata, money in integer minor units), the
+    maintenance log, check-out / check-in, CSV import / export and reports.
+    The screens come from the ERP's view JSON (table / form / detail /
+    wizard views) through the app's interpreter, on azul's S6 RecordsShell
+    with the DataTable and Chart widgets. Records are files: one JSON per
+    record under erp/ in the data tree, through azul-storage's Drive.
+"""
+publish = false
+
+[dependencies]
+azul = { path = "../../dll", package = "azul-dll", default-features = false, features = ["link-dynamic"] }
+# The Azlin app skeleton: the common switches, the data root, the settings page (Appearance,
+# Data, Shortcuts, About), the --shot timer, the file jobs on an azul Thread.
+azul-appkit = { path = "../azul-appkit", features = ["azul"] }
+azul-storage = { path = "../azul-storage" }
+# The write-behind queue every Azlin app's durable writes go through (one batch in flight).
+azul-pim = { path = "../azul-pim" }
+# The view JSON and the record files.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# The same features azul-layout, AzCalendar and AzTasks build chrono with (dates).
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+# CSV import / export: the crate AzSheets already has (Cargo.lock 1.4.0), no new crate.
+csv = "1.4"
+
+[dev-dependencies]
+# The shared temporary folder for tests (azul_pim::testing::TempDir).
+azul-pim = { path = "../azul-pim", features = ["test-util"] }
+
+[lib]
+name = "azerp"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "AzERP"
+path = "src/main.rs"

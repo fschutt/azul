@@ -224,6 +224,51 @@ AzResultRefAnyString MyDataModel_fromJson(AzJson json) {
 }
 ```
 
+### Missing values and errors in callbacks
+
+C has no optional or result type of its own, so an Option stays the tagged 
+union the API defines: `AzOptionString_none()` / `AzOptionString_some(s)` build 
+one, `AzOptionString_isNone(&o)` tests it. To read the payload, 
+`AZ_LET_SOME(OptT, &option, out, otherwise)` binds `out` to it or runs 
+`otherwise` (usually a `return`), and `AZ_LET_OK` does the same for the `Ok` of 
+a Result. Both are one `if` over the generated `<Type>_matchRefSome` / 
+`<Type>_matchRefOk` helpers.
+
+A folder picker. Before, every level checked the tag by hand:
+
+```c
+AzOptionFileOpenResult picked = AzFileOpenResult_downcast(result);
+if (picked.None.tag == AzOptionFileOpenResult_Tag_None) return AzUpdate_DoNothing;
+if (picked.Some.payload.path.None.tag == AzOptionFilePath_Tag_None) { /* cancelled */ }
+AzFilePath* path = &picked.Some.payload.path.Some.payload;
+```
+
+Now:
+
+```c
+AzUpdate on_pick_folder(AzRefAny data, AzCallbackInfo info, AzRefAny result) {
+    MyDataModelRefMut d = MyDataModelRefMut_create(&data);
+    if (!MyDataModel_downcastMut(&data, &d)) {
+        MyDataModelRefMut_delete(&d);
+        return AzUpdate_DoNothing;
+    }
+    AzOptionFileOpenResult picked = AzFileOpenResult_downcast(result);
+    const AzFileOpenResult* open;
+    AZ_LET_SOME(AzOptionFileOpenResult, &picked, open, MyDataModelRefMut_delete(&d); return AzUpdate_DoNothing);
+    const AzFilePath* path;
+    AZ_LET_SOME(AzOptionFilePath, &open->path, path, AzOptionFileOpenResult_delete(&picked); MyDataModelRefMut_delete(&d); return AzUpdate_DoNothing); /* cancelled */
+    d.ptr->folder = AzString_clone(&path->inner);
+    AzOptionFileOpenResult_delete(&picked);
+    MyDataModelRefMut_delete(&d);
+    return AzUpdate_RefreshDom;
+}
+
+AzUpdate on_choose_folder(AzRefAny data, AzCallbackInfo info) {
+    AzFileDialog_openDirectory(AZ_STR("Choose a folder"), AzOptionString_none(), AzRefAny_clone(&data), on_pick_folder);
+    return AzUpdate_DoNothing;
+}
+```
+
 ### Further Notes
 
 Every `_create` reference (like `MyDataModelRef_create`) must be paired with a `_delete` before 

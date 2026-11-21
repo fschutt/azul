@@ -1,0 +1,63 @@
+[
+  {
+    "name": "an inline box broken across lines draws one box per line, its side borders at its ends",
+    "description": "LAYOUT23 proof 3. A span with a border, a background and side padding around words that cross a line break, with a <b> inside it: each line gets one yellow box; the left border only on the first line, the right one only on the last; the padding moves the text once, not per word or per nested <b> (see the screenshot). The paragraph is three lines at its 220 px.",
+    "setup": { "window_width": 300, "window_height": 200, "dpi": 96 },
+    "steps": [
+      { "op": "mount",
+        "html": [
+          "<p id=\"para\">Some words before <span id=\"box\" class=\"box\">a boxed run of text that <b>crosses</b> the line break</span> and after.</p>"
+        ],
+        "css": [
+          "body { margin: 0; }",
+          "p { width: 220px; margin: 10px; font-size: 16px; line-height: 20px; }",
+          ".box { border: 2px solid blue; background: yellow; padding: 0 6px; }"
+        ] },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#para", "property": "height", "expected": 60, "tolerance": 0.5 },
+      { "op": "take_screenshot" }
+    ]
+  },
+  {
+    "name": "a background image is drawn at its declared size, centred, repeated along x and clipped to its box",
+    "description": "LAYOUT23 proof 2. A 300 x 100 box with `background: url(tile) center / 50px 50px repeat-x` over a grey fill shows one blue band 50 px tall across the box's middle and nothing below or above it; a second box with `background-size: cover` is blue all over. Run once with AZ_BACKEND=cpu and once with AZ_BACKEND=gpu: the screenshots are the same.",
+    "setup": { "window_width": 340, "window_height": 260, "dpi": 96 },
+    "steps": [
+      { "op": "add_image_to_cache", "css_id": "tile", "width": 10, "height": 10, "color": "#285ac8" },
+      { "op": "mount",
+        "html": [
+          "<div id=\"band\" class=\"band\"></div>",
+          "<div id=\"cover\" class=\"cover\"></div>"
+        ],
+        "css": [
+          "body { margin: 0; }",
+          ".band { width: 300px; height: 100px; margin: 10px; background: #dddddd url(\"tile\") center / 50px 50px repeat-x; }",
+          ".cover { width: 300px; height: 100px; margin: 10px; background-color: #dddddd; background-image: url(\"tile\"); background-size: cover; }"
+        ] },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#band", "property": "height", "expected": 100, "tolerance": 0.5 },
+      { "op": "take_screenshot" }
+    ]
+  },
+  {
+    "name": "an inline list item shows its marker before its text on the same line",
+    "description": "LAYOUT23 proof 7. `display: inline list-item` items in a line: each shows its marker (a number in an ordered list, a bullet otherwise) before its text, and the whole stays one line.",
+    "setup": { "window_width": 400, "window_height": 160, "dpi": 96 },
+    "steps": [
+      { "op": "mount",
+        "html": [
+          "<ol id=\"numbered\"><li class=\"inline\">apples</li> <li class=\"inline\">pears</li></ol>",
+          "<ul id=\"bulleted\"><li class=\"inline\">plums</li> <li class=\"inline\">figs</li></ul>"
+        ],
+        "css": [
+          "body { margin: 0; }",
+          "ol, ul { margin: 10px; padding: 0; font-size: 16px; line-height: 20px; }",
+          ".inline { display: inline list-item; list-style-position: inside; margin-right: 12px; }"
+        ] },
+      { "op": "wait_frame" },
+      { "op": "assert_layout", "selector": "#numbered", "property": "height", "expected": 20, "tolerance": 0.5 },
+      { "op": "assert_layout", "selector": "#bulleted", "property": "height", "expected": 20, "tolerance": 0.5 },
+      { "op": "take_screenshot" }
+    ]
+  }
+]

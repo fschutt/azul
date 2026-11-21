@@ -1,0 +1,61 @@
+[
+  {
+    "name": "access revoked in the middle of a download: no partial file, sign in again is listed, the local edit is kept, the download finishes after",
+    "description": "ICLOUD-025 (sync-chaos crypto-keys-and-recovery, res-credentials-revoked): with ADP, iCloud.com's key grant expired after about an hour and broke long downloads with no way through. Rules E6 and A5: a 401 mid-pass lists sign-in-needed, leaves no temp or partial file, keeps every local edit, and the next pass after signing in resumes and finishes.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Movies/holiday.mov", "size": 6000000, "seed": 72 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_write", "device": "b", "path": "Notes/edit.txt", "text": "written on b during the outage" },
+      { "op": "drive_sync", "device": "b", "pause_at": "download-start" },
+      { "op": "drive_fault", "device": "b", "auth_failed": true },
+      { "op": "drive_cont", "device": "b" },
+      { "op": "drive_wait", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "sign-in-needed", "when": "last" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Movies/holiday.mov", "absent": true },
+      { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Notes/edit.txt", "text": "written on b during the outage" },
+      { "op": "drive_fault", "device": "b", "clear": true },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Movies/holiday.mov", "same_as": "{root:a}/Movies/holiday.mov" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "sign-in-needed", "absent": true, "when": "last" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "Notes/edit.txt", "text": "written on b during the outage" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a new device whose approving device goes offline mid-handshake: a clear error, the recovery code still works, nothing is deleted",
+    "description": "ICLOUD-025: 'Your device hasn't given access to display your files' with no way through. Rules I1 and O1: a join that cannot finish says so (sign-in-needed), the recovery code is the way through, and the drive is untouched meanwhile.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": true },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "Documents/a.txt", "text": "end-to-end encrypted" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_open", "device": "d", "remote": "r2", "joined": false },
+      { "op": "drive_pair", "device": "d" },
+      { "op": "drive_wait_idle", "device": "d" },
+      { "op": "drive_join", "device": "d", "approver": "c", "pause_at": "approve" },
+      { "op": "drive_fault", "device": "c", "partition": true },
+      { "op": "drive_cont", "device": "d" },
+      { "op": "drive_sync", "device": "d", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "d", "code": "sign-in-needed", "when": "last" },
+      { "op": "drive_check", "check": "files_count", "device": "d", "count": 0 },
+      { "op": "drive_fault", "device": "c", "clear": true },
+      { "op": "drive_check", "check": "remote_count", "count": 1 },
+      { "op": "drive_recover", "device": "d" },
+      { "op": "drive_sync", "device": "d" },
+      { "op": "drive_check", "check": "file", "device": "d", "path": "Documents/a.txt", "text": "end-to-end encrypted" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

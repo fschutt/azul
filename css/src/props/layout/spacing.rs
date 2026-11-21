@@ -351,6 +351,7 @@ pub fn parse_layout_margin(input: &str) -> Result<LayoutMargin, LayoutMarginPars
 
 // -- Longhand Property Parsers --
 
+#[cfg(feature = "parser")]
 macro_rules! typed_pixel_value_parser {
     (
         $fn:ident, $fn_str:expr, $return:ident, $return_str:expr, $import_str:expr, $test_str:expr
@@ -928,21 +929,22 @@ mod autotest_generated {
             LayoutPaddingTop::zero()
         );
         assert_eq!(
-            parse_layout_padding_top("-0.0009px").unwrap(),
+            parse_layout_padding_top("-0.0004px").unwrap(),
             LayoutPaddingTop::zero()
         );
         assert_eq!(
             parse_layout_padding_top("1e-40px").unwrap(),
             LayoutPaddingTop::zero()
         );
-        // Truncation, not rounding: 1.9999px stays below 2px.
+        // The nearest thousandth (A2-cpu-24): 1.9999px is 2px, it read 1.999
+        // while the fourth decimal was cut off.
         assert_eq!(
             parse_layout_padding_top("1.9999px")
                 .unwrap()
                 .inner
                 .number
                 .get(),
-            1.999
+            2.0
         );
     }
 
@@ -1326,7 +1328,7 @@ mod autotest_generated {
         // Two values that quantise to the same thousandth are Eq, so they must hash
         // alike -- otherwise they would behave inconsistently as HashMap keys.
         let a = LayoutMarginTop::px(1.0001);
-        let b = LayoutMarginTop::px(1.0009);
+        let b = LayoutMarginTop::px(1.0004);
         assert_eq!(a, b);
         assert_eq!(hash_of(&a), hash_of(&b));
 

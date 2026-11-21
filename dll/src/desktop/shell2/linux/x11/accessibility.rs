@@ -91,7 +91,11 @@ impl LinuxAccessibilityAdapter {
         let had_tree = tree_update.tree.is_some();
         // Use try_lock to avoid blocking the UI thread
         let Ok(mut guard) = self.adapter.try_lock() else {
-            return; // Skip update if lock not available
+            // Skip the update if the lock is not available - and hand the
+            // adapter the complete tree next time, not a patch against the
+            // one it missed.
+            self.feed.missed();
+            return;
         };
 
         if let Some(adapter) = guard.as_mut() {
@@ -104,6 +108,8 @@ impl LinuxAccessibilityAdapter {
             });
             if applied.is_ok() {
                 self.feed.delivered(had_tree);
+            } else {
+                self.feed.missed();
             }
         }
     }

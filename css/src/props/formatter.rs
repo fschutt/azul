@@ -42,7 +42,7 @@ macro_rules! impl_print_as_css_hash {
     ($($t:ty),+ $(,)?) => {
         $(impl PrintAsCssValue for $t {
             fn print_as_css_value(&self) -> String {
-                self.inner.to_hash()
+                self.inner.to_css_value()
             }
         })+
     };

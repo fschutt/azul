@@ -33,7 +33,7 @@ jobs:
     timeout-minutes: 350
     steps:
       - name: Install bootstrap Rust
-        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable branch, 2026-09-07; the toolchain itself is pinned via with:
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master, 2026-09-03; the toolchain itself is pinned via with:
         with:
           # Bootstrap compiler for the rust9x build; kept in step with the
           # workspace toolchain (rust-toolchain.toml).

@@ -1,0 +1,59 @@
+[
+  {
+    "name": "logging out (unpairing) and logging in again never removes a local file, never duplicates one, and sends only what is new",
+    "description": "JOTTA-023 (Jottacloud): every login created a new backup device ('myserver (2)'), orphaned the old history and rescanned everything. Rule D5 (no login path removes a file; a re-pairing rebuilds by content and re-attaches). sync-chaos delete-unpair-keeps-files, state-upgrade-migration.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "thesis/ch1.tex", "text": "chapter 1" },
+      { "op": "drive_write", "device": "a", "path": "thesis/ch2.tex", "text": "chapter 2" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 2 },
+      { "op": "drive_write", "device": "a", "path": "thesis/ch3.tex", "text": "written while logged out" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 3 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 3 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "thesis/ch1.tex", "count": 0 },
+      { "op": "drive_check", "check": "kept_live", "texts": ["chapter 1", "chapter 2", "written while logged out"] },
+      { "op": "drive_check", "check": "remote_puts", "device": "a", "max": 3 },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a reinstall (the state folder gone) and a new login on the same machine re-attach to the drive: nothing sent, fetched or doubled",
+    "description": "JOTTA-023 (Jottacloud): reinstall forced a new device and a full rescan. Rules D5 and A1 (the base is rebuilt by hashing against the drive).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "a" },
+      { "op": "drive_write", "device": "a", "path": "b/c.txt", "text": "c" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_wipe_state", "device": "a" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "assert_response", "path": "result.down", "equals": 0 },
+      { "op": "assert_response", "path": "result.conflicts", "equals": 0 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "a.txt", "count": 0 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 2 },
+      { "op": "drive_check", "check": "remote_puts", "device": "a", "max": 2 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

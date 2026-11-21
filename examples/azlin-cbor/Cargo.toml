@@ -1,0 +1,19 @@
+# W1-SCAF skeleton (OWNERSHIP.md section 5, COMMON-W1R.md R2), changed by lane S14a for M-CBOR-SECRET
+# (decision D-W1S14A, rule R17 of the W1 common rules): ONE dependency, zeroize, for `SecretValue` and
+# `decode_secret` (the wipe of decoded key material). wasm32-clean. Its fuzz project (own [workspace],
+# own lock) is lane S14a's.
+
+[package]
+name = "azlin-cbor"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.91"
+authors = ["Felix Schuett <felix.schuett@maps4print.com>"]
+license = "MIT"
+description = "Strict deterministic CBOR: the one codec of the Azlin engine's wire and signed formats"
+publish = false
+
+[dependencies]
+# Already in azul's lock for other crates (1.9.0): a lock edge, no new package. Default features off,
+# `alloc` only (Vec<u8> and String). The dependency-justification line is INT-WIRE's.
+zeroize = { version = "1.8", default-features = false, features = ["alloc"] }

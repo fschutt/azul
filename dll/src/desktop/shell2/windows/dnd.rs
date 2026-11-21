@@ -41,8 +41,11 @@ use super::{dlopen, registry, Win32Window};
 /// Ensure the calling thread is OLE-initialised into an STA exactly once.
 ///
 /// `RegisterDragDrop` requires an STA — using `CoInitialize`(Ex) with MTA, or
-/// not initialising at all, makes it fail with `E_OUTOFMEMORY`.
-fn ensure_ole_initialized() {
+/// not initialising at all, makes it fail with `E_OUTOFMEMORY`. The toast
+/// activator's `CoRegisterClassObject` (`desktop::notifications`) wants the
+/// same apartment: in an STA, COM delivers `Activate` on this thread through
+/// its message loop.
+pub(crate) fn ensure_ole_initialized() {
     static OLE_INIT: Once = Once::new();
     OLE_INIT.call_once(|| unsafe {
         // `None` reserved arg. Ignore the HRESULT: `S_FALSE` means already

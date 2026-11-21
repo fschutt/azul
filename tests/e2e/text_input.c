@@ -1,6 +1,6 @@
 /**
  * Text Input E2E Test (Single-Line)
- * 
+ *
  * Minimal single-line text input to test:
  * 1. Focus and cursor appearance
  * 2. Text input via keyboard/API
@@ -8,13 +8,13 @@
  * 4. Backspace/Delete
  * 5. Selection via Shift+Arrow
  * 6. Select All (Ctrl+A / Cmd+A)
- * 
+ *
  * Uses large font (48px) for visual debugging.
- * 
+ *
  * Compile:
  *   cd tests/e2e && cc text_input.c -I../../target/codegen/ -L../../target/release/ -lazul -o text_input -Wl,-rpath,../../target/release
- * 
- * Run with: AZUL_DEBUG=8765 ./text_input
+ *
+ * Run with: AZ_DEBUG=8765 ./text_input
  * Test with: ./test_text_input.sh
  */
 
@@ -47,7 +47,7 @@ AzJson TextInputData_toJson(AzRefAny refany) {
     if (!TextInputData_downcastRef(&refany, &ref)) {
         return AzJson_null();
     }
-    
+
     AzJsonKeyValue entries[6] = {
         AzJsonKeyValue_create(AZ_STR("text"), AzJson_string(AZ_STR(ref.ptr->text))),
         AzJsonKeyValue_create(AZ_STR("cursor_pos"), AzJson_int(ref.ptr->cursor_pos)),
@@ -56,7 +56,7 @@ AzJson TextInputData_toJson(AzRefAny refany) {
         AzJsonKeyValue_create(AZ_STR("key_count"), AzJson_int(ref.ptr->key_count)),
         AzJsonKeyValue_create(AZ_STR("input_count"), AzJson_int(ref.ptr->input_count))
     };
-    
+
     TextInputDataRef_delete(&ref);
     AzJsonKeyValueVec vec = AzJsonKeyValueVec_copyFromArray(entries, 6);
     return AzJson_object(vec);
@@ -93,51 +93,51 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
     if (!TextInputData_downcastRef(&data, &ref)) {
         return AzDom_createBody();
     }
-    
+
     // Create input field
     AzDom input = AzDom_createDiv();
-    
+
     // Add text content
     AzDom text_node = AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(ref.ptr->text));
     AzDom_addChild(&input, text_node);
-    
+
     // Make it focusable and contenteditable
     AzDom_setTabIndex(&input, AzTabIndex_auto());
     AzDom_addClass(&input, AZ_STR("input"));
-    
+
     // Add event handlers
     AzEventFilter key_filter = AzEventFilter_focus(AzFocusEventFilter_VirtualKeyDown);
     AzDom_addCallback(&input, key_filter, AzRefAny_clone(&data), on_key_down);
-    
+
     AzEventFilter text_filter = AzEventFilter_focus(AzFocusEventFilter_TextInput);
     AzDom_addCallback(&input, text_filter, AzRefAny_clone(&data), on_text_input);
-    
+
     // Status label
     char status[128];
     snprintf(status, sizeof(status), "Keys: %d | Inputs: %d | Cursor: %d | Sel: %d-%d",
              ref.ptr->key_count, ref.ptr->input_count, ref.ptr->cursor_pos,
              ref.ptr->selection_start, ref.ptr->selection_end);
-    
+
     AzDom status_label = AzDom_createDiv();
     AzDom_addChild(&status_label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR(status)));
     AzDom_addClass(&status_label, AZ_STR("status"));
-    
+
     TextInputDataRef_delete(&ref);
-    
+
     // Build body
     AzDom body = AzDom_createBody();
-    
+
     // Label
     AzDom label = AzDom_createDiv();
     AzDom_addChild(&label, AzDom_createTextDoNotUseWithoutBlockLevelWrapper(AZ_STR("Single-Line Input (Tab to focus, then type):")));
     AzDom_addClass(&label, AZ_STR("label"));
     AzDom_addChild(&body, label);
-    
+
     AzDom_addChild(&body, input);
     AzDom_addChild(&body, status_label);
-    
+
     // CSS
-    const char* css_str = 
+    const char* css_str =
         "body { "
         "  background-color: #1e1e1e; "
         "  display: flex; "
@@ -170,7 +170,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         "  padding: 10px; "
         "  background-color: #252525; "
         "} ";
-    
+
     // The layout callback returns AzDom now: the Css rides along as a field
     // and the framework builds the StyledDom itself, because constructing it
     // here got in the way of cascading and re-cascading.
@@ -187,10 +187,10 @@ int main() {
     printf("  - Shift+Arrow to select\n");
     printf("  - Backspace/Delete to remove\n");
     printf("\n");
-    printf("Debug API: AZUL_DEBUG=8765 ./text_input\n");
+    printf("Debug API: AZ_DEBUG=8765 ./text_input\n");
     printf("Test: ./test_text_input.sh\n");
     printf("\n");
-    
+
     TextInputData initial_data = {
         .text = "Hello World",
         .cursor_pos = 11,  // At end
@@ -199,18 +199,18 @@ int main() {
         .key_count = 0,
         .input_count = 0
     };
-    
+
     AzRefAny app_data = TextInputData_upcast(initial_data);
-    
+
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AZ_STR("Text Input Test");
     window.window_state.size.dimensions.width = 800.0;
     window.window_state.size.dimensions.height = 300.0;
-    
+
     AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(app_data, config);
     AzApp_run(&app, window);
     AzApp_delete(&app);
-    
+
     return 0;
 }

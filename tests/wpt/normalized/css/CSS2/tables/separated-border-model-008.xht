@@ -1,0 +1,74 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Border-spacing - contiguous table-row-groups (tbody and tfoot)</title>
+<meta name="assert" content="When a table element has 2 contiguous table-row-groups (thead, tbody, tfoot or more than 1 tbody elements), then border-spacing between such table-row-groups - tbody and tfoot in this testcase - must merge, must collapse into one."/>
+<style>
+  body
+  {
+  font: 1em/2 serif;
+  margin: 1em;
+  }
+
+  div#expected-results {top: 1em;}
+
+  div
+  {
+  background-color: white;
+  height: 3em;
+  left: 1em;
+  position: absolute;
+  width: 600px;
+  }
+
+  table
+  {
+  background-color: red;
+  border-collapse: separate;
+  border-spacing: 0em 3em;
+  margin-top: 0px;
+  table-layout: fixed;
+  }
+
+  td
+  {
+  background-color: white;
+  height: 2em;
+  padding: 0px;
+  width: 600px;
+  }
+
+  div#between-tbody-and-tfoot {top: 6em;}
+
+  div#after-tfoot {top: 11em;}
+  
+</style>
+</head>
+<body>
+
+  <table>
+
+   <tfoot>
+    <tr>
+     <td></td>
+    </tr>
+   </tfoot>
+
+   <tbody>
+    <tr>
+     <td></td>
+    </tr>
+   </tbody>
+
+  </table>
+
+  <div id="expected-results">Test passes if there is <strong>no red</strong>.</div>
+
+  <div id="between-tbody-and-tfoot"></div>
+
+  <div id="after-tfoot"></div>
+
+
+
+ 
+</body>
+</html>

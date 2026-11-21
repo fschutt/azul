@@ -1,0 +1,17 @@
+# row: X-DELTA-W1S17A-3
+# why: `VerifiedRestore::apply` re-anchors every listed chain, also one whose pinned signed head was signed AFTER the record: a restore record that arrives late takes the chain back behind the progress the device already made on the restored timeline, and `Reanchored::kept` stays empty (5.13, 2.17, 6.10 V3)
+# killers: azlin-chain:restore_epoch_tests::a_late_record_cannot_reanchor_behind_a_newer_head_lib
+# replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-W1S17A-3-late.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
+# mutant: late_record_check_off
+# guard: a chain whose pinned signed head has `signed_at` above the record's `at` is KEPT (listed in `Reanchored::kept`, its pin untouched) and the floor is raised anyway; the committed guard is `chain_restore_late_record_check_off`. The killer pins a team log at 12 (epoch 1, signed at 600) and a space at 20 (signed at 200), then applies a record stamped 500: the team log must be kept, the space moved.
+--- a/examples/azlin-chain/src/restore.rs
++++ b/examples/azlin-chain/src/restore.rs
+@@ -357,7 +357,7 @@
+             // A pin whose signed head was signed AFTER this record already follows the restored
+             // timeline: a record that arrives late does not take it back behind that progress.
+             if let Some(signed) = pin.signed_head(&head.chain) {
+-                if signed.signed_at > self.at && !mutant!("chain_restore_late_record_check_off") {
++                if signed.signed_at > self.at && false {
+                     kept.push(Kept {
+                         chain: head.chain,
+                         pinned: signed.head,

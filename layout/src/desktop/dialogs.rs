@@ -10,13 +10,15 @@
 use azul_core::{refany::RefAny, task::RequestId};
 use azul_css::{
     corety::OptionString,
-    impl_option, impl_option_inner,
+    impl_option,
     props::basic::color::{ColorU, OptionColorU},
     AzString, OptionStringVec, StringVec, U8Vec,
 };
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use tfd::{DefaultColorValue, MessageBoxIcon};
 
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+use super::file_picker::{self, PickAnswer, PickOp, PickRequest};
 use crate::{
     callbacks::ResumeCallback,
     file::{FilePath, FilePathVec, OptionFilePath},
@@ -501,6 +503,216 @@ fn apply_filter(mut dialog: tfd::FileDialog, filter: FileTypeList) -> tfd::FileD
     dialog
 }
 
+/// A request as the pickers are asked it: the provider gets it as its
+/// request line, the system's dialog is built from it when it answers.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn pick_request(
+    op: PickOp,
+    title: &AzString,
+    default_location: &OptionString,
+    filter: &OptionFileTypeList,
+) -> PickRequest {
+    PickRequest {
+        op,
+        title: title.as_str().to_string(),
+        default_location: default_location
+            .as_option()
+            .map(|p| p.as_str().to_string()),
+        filters: filter
+            .as_option()
+            .map(|f| {
+                vec![(
+                    f.document_descriptor.as_str().to_string(),
+                    f.document_types
+                        .as_ref()
+                        .iter()
+                        .map(|t| t.as_str().to_string())
+                        .collect(),
+                )]
+            })
+            .unwrap_or_default(),
+    }
+}
+
+/// What a provider's answer resumes a request with: the picked paths, the
+/// cancelled result, or - when the provider had no usable answer - what the
+/// system's dialog (`native`) answers for the same request.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn provider_answer<T>(
+    answer: PickAnswer,
+    picked: impl FnOnce(Vec<String>) -> T,
+    cancelled: T,
+    native: impl FnOnce() -> T,
+) -> T {
+    match answer {
+        PickAnswer::Selected(paths) => picked(paths),
+        PickAnswer::Cancelled => cancelled,
+        PickAnswer::Error(why) | PickAnswer::Unusable(why) => {
+            eprintln!("[azul][file-picker] {why}: the system's dialog answers");
+            native()
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn file_path(path: String) -> FilePath {
+    FilePath::new(AzString::from(path))
+}
+
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn path_target(path: String) -> SaveTarget {
+    SaveTarget {
+        kind: SaveTargetKind::Path,
+        path: OptionFilePath::Some(file_path(path)),
+        handle_id: 0,
+    }
+}
+
+/// A `tfd` dialog titled, placed and filtered as `pick` asks.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn tfd_dialog(pick: &PickRequest) -> tfd::FileDialog {
+    let mut dialog = tfd::FileDialog::new(&pick.title);
+    if let Some(location) = &pick.default_location {
+        dialog = dialog.with_path(location);
+    }
+    if let Some((descriptor, patterns)) = pick.filters.first() {
+        let filter = FileTypeList {
+            document_types: StringVec::from_vec(
+                patterns.iter().map(|p| AzString::from(p.as_str())).collect(),
+            ),
+            document_descriptor: AzString::from(descriptor.as_str()),
+        };
+        dialog = apply_filter(dialog, filter);
+    }
+    dialog
+}
+
+/// The system's answer to an open request: under an e2e run the mock store's
+/// (or cancelled, loudly - a real dialog would hang the test), else tfd's.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn desktop_open_file(pick: &PickRequest) -> FileOpenResult {
+    match request::mock::take_file_open("FileDialog::open_file") {
+        request::mock::Answer::Mocked(path) => FileOpenResult {
+            path: path.map(FilePath::new).into(),
+        },
+        request::mock::Answer::Unmocked => FileOpenResult {
+            path: OptionFilePath::None,
+        },
+        request::mock::Answer::NotArmed => FileOpenResult {
+            path: tfd_dialog(pick).open_file().map(file_path).into(),
+        },
+    }
+}
+
+/// [`desktop_open_file`] for a folder. macOS: our own script, not tfd's (its
+/// two-step conversion fails on every pick: see `macos_folder_script`).
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn desktop_open_directory(pick: &PickRequest) -> FileOpenResult {
+    match request::mock::take_file_open("FileDialog::open_directory") {
+        request::mock::Answer::Mocked(path) => FileOpenResult {
+            path: path.map(FilePath::new).into(),
+        },
+        request::mock::Answer::Unmocked => FileOpenResult {
+            path: OptionFilePath::None,
+        },
+        request::mock::Answer::NotArmed => {
+            #[cfg(target_os = "macos")]
+            let picked = macos_choose_folder(&pick.title, pick.default_location.as_deref());
+            #[cfg(not(target_os = "macos"))]
+            let picked = tfd_dialog(pick).select_folder();
+            FileOpenResult {
+                path: picked.map(file_path).into(),
+            }
+        }
+    }
+}
+
+/// [`desktop_open_file`] for several files.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn desktop_open_multiple_files(pick: &PickRequest) -> FileOpenMultiResult {
+    let paths = match request::mock::take_file_open_multi() {
+        request::mock::Answer::Mocked(paths) => paths.into_iter().map(FilePath::new).collect(),
+        request::mock::Answer::Unmocked => Vec::new(),
+        request::mock::Answer::NotArmed => tfd_dialog(pick)
+            .with_multiple_selection(true)
+            .open_files()
+            .unwrap_or_default()
+            .into_iter()
+            .map(file_path)
+            .collect(),
+    };
+    FileOpenMultiResult {
+        paths: FilePathVec::from_vec(paths),
+    }
+}
+
+/// [`desktop_open_file`] for where to save: `pick.default_location` is the
+/// suggested file name.
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+fn desktop_save_file(pick: &PickRequest) -> SaveTargetResult {
+    let target = match request::mock::take_save_file() {
+        request::mock::Answer::Mocked(path) => path.map(|p| path_target(p.as_str().to_string())),
+        request::mock::Answer::Unmocked => None,
+        request::mock::Answer::NotArmed => tfd_dialog(pick).save_file().map(path_target),
+    };
+    SaveTargetResult {
+        target: target.into(),
+    }
+}
+
+/// The `AppleScript` of the macOS folder picker: `choose folder`, its answer
+/// turned into a POSIX path IN THE SAME SCRIPT (a folder's ends in `/`).
+///
+/// tfd 0.1.2 runs `choose folder` alone and feeds its output to a second
+/// `osascript`: `POSIX path of alias Macintosh HD:Users:me:` - the alias
+/// unquoted, an `AppleScript` syntax error (-2740) - so every folder the user
+/// picked came back as "cancelled" (`AzCode`: "selecting a folder does
+/// nothing").
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn macos_folder_script(title: &str, default_path: Option<&str>) -> String {
+    use core::fmt::Write as _;
+    let mut script = format!(
+        "POSIX path of (choose folder with prompt \"{}\"",
+        applescript_text(title)
+    );
+    if let Some(path) = default_path.filter(|p| !p.is_empty()) {
+        let _ = write!(
+            script,
+            " default location (POSIX file \"{}\")",
+            applescript_text(path)
+        );
+    }
+    script.push(')');
+    script
+}
+
+/// `text` as the inside of an `AppleScript` string literal: the backslashes
+/// escaped first, then the quotes (tfd's order doubled the backslash of an
+/// escaped quote).
+#[cfg(any(target_os = "macos", test))]
+fn applescript_text(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// The macOS folder picker: `osascript` running [`macos_folder_script`].
+/// `None` when the user cancelled (osascript fails with -128) or the picker
+/// could not run.
+#[cfg(target_os = "macos")]
+fn macos_choose_folder(title: &str, default_path: Option<&str>) -> Option<String> {
+    let output = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(macos_folder_script(title, default_path))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&output.stdout)
+        .trim_end_matches(['\n', '\r'])
+        .to_string();
+    (!path.is_empty()).then_some(path)
+}
+
 impl Default for FileDialog {
     fn default() -> Self {
         Self::new()
@@ -536,46 +748,55 @@ impl FileDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
-        // Under an e2e run the picker is answered from the mock store (or
-        // resolves as cancelled, loudly); a real dialog would hang the test.
-        match request::mock::take_file_open("FileDialog::open_file") {
-            request::mock::Answer::NotArmed => {}
-            request::mock::Answer::Mocked(path) => {
-                return request::complete(
-                    data,
-                    on_result,
-                    FileOpenResult {
-                        path: path.map(FilePath::new).into(),
-                    },
-                );
-            }
-            request::mock::Answer::Unmocked => {
-                return request::complete(
-                    data,
-                    on_result,
-                    FileOpenResult {
-                        path: OptionFilePath::None,
-                    },
-                );
-            }
-        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            let mut dialog = tfd::FileDialog::new(title.as_str());
-            if let Some(path) = default_path.as_option() {
-                dialog = dialog.with_path(path.as_str());
+            let pick = pick_request(PickOp::Open, &title, &default_path, &filter_list);
+            match file_picker::ask_preferred(&pick) {
+                Some(pending) => request::defer(
+                    data,
+                    on_result,
+                    Box::new(move || {
+                        let answer = pending.poll()?;
+                        Some(RefAny::new(provider_answer(
+                            answer,
+                            |paths| FileOpenResult {
+                                path: paths.into_iter().next().map(file_path).into(),
+                            },
+                            FileOpenResult {
+                                path: OptionFilePath::None,
+                            },
+                            || desktop_open_file(&pick),
+                        )))
+                    }),
+                ),
+                None => request::complete(data, on_result, desktop_open_file(&pick)),
             }
-            if let Some(filter) = filter_list.into_option() {
-                dialog = apply_filter(dialog, filter);
-            }
-            let path = dialog
-                .open_file()
-                .map(|p| FilePath::new(AzString::from(p)))
-                .into();
-            request::complete(data, on_result, FileOpenResult { path })
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
+            // Under an e2e run the picker is answered from the mock store (or
+            // resolves as cancelled, loudly); a real dialog would hang the test.
+            match request::mock::take_file_open("FileDialog::open_file") {
+                request::mock::Answer::NotArmed => {}
+                request::mock::Answer::Mocked(path) => {
+                    return request::complete(
+                        data,
+                        on_result,
+                        FileOpenResult {
+                            path: path.map(FilePath::new).into(),
+                        },
+                    );
+                }
+                request::mock::Answer::Unmocked => {
+                    return request::complete(
+                        data,
+                        on_result,
+                        FileOpenResult {
+                            path: OptionFilePath::None,
+                        },
+                    );
+                }
+            }
             match FILE_PICKER_BACKEND.get() {
                 Some(backend) => {
                     let handle = (backend.open_file)(
@@ -619,41 +840,53 @@ impl FileDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
-        match request::mock::take_file_open("FileDialog::open_directory") {
-            request::mock::Answer::NotArmed => {}
-            request::mock::Answer::Mocked(path) => {
-                return request::complete(
-                    data,
-                    on_result,
-                    FileOpenResult {
-                        path: path.map(FilePath::new).into(),
-                    },
-                );
-            }
-            request::mock::Answer::Unmocked => {
-                return request::complete(
-                    data,
-                    on_result,
-                    FileOpenResult {
-                        path: OptionFilePath::None,
-                    },
-                );
-            }
-        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            let mut dialog = tfd::FileDialog::new(title.as_str());
-            if let Some(path) = default_path.as_option() {
-                dialog = dialog.with_path(path.as_str());
+            let pick = pick_request(PickOp::OpenDirectory, &title, &default_path, &OptionFileTypeList::None);
+            match file_picker::ask_preferred(&pick) {
+                Some(pending) => request::defer(
+                    data,
+                    on_result,
+                    Box::new(move || {
+                        let answer = pending.poll()?;
+                        Some(RefAny::new(provider_answer(
+                            answer,
+                            |paths| FileOpenResult {
+                                path: paths.into_iter().next().map(file_path).into(),
+                            },
+                            FileOpenResult {
+                                path: OptionFilePath::None,
+                            },
+                            || desktop_open_directory(&pick),
+                        )))
+                    }),
+                ),
+                None => request::complete(data, on_result, desktop_open_directory(&pick)),
             }
-            let path = dialog
-                .select_folder()
-                .map(|p| FilePath::new(AzString::from(p)))
-                .into();
-            request::complete(data, on_result, FileOpenResult { path })
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
+            match request::mock::take_file_open("FileDialog::open_directory") {
+                request::mock::Answer::NotArmed => {}
+                request::mock::Answer::Mocked(path) => {
+                    return request::complete(
+                        data,
+                        on_result,
+                        FileOpenResult {
+                            path: path.map(FilePath::new).into(),
+                        },
+                    );
+                }
+                request::mock::Answer::Unmocked => {
+                    return request::complete(
+                        data,
+                        on_result,
+                        FileOpenResult {
+                            path: OptionFilePath::None,
+                        },
+                    );
+                }
+            }
             match FILE_PICKER_BACKEND.get() {
                 Some(backend) => {
                     let handle = (backend.open_directory)(title, default_path);
@@ -687,53 +920,56 @@ impl FileDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
-        match request::mock::take_file_open_multi() {
-            request::mock::Answer::NotArmed => {}
-            request::mock::Answer::Mocked(paths) => {
-                let paths = paths.into_iter().map(FilePath::new).collect::<Vec<_>>();
-                return request::complete(
-                    data,
-                    on_result,
-                    FileOpenMultiResult {
-                        paths: FilePathVec::from_vec(paths),
-                    },
-                );
-            }
-            request::mock::Answer::Unmocked => {
-                return request::complete(
-                    data,
-                    on_result,
-                    FileOpenMultiResult {
-                        paths: FilePathVec::from_vec(Vec::new()),
-                    },
-                );
-            }
-        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            let mut dialog = tfd::FileDialog::new(title.as_str()).with_multiple_selection(true);
-            if let Some(path) = default_path.as_option() {
-                dialog = dialog.with_path(path.as_str());
+            let pick = pick_request(PickOp::OpenMultiple, &title, &default_path, &filter_list);
+            match file_picker::ask_preferred(&pick) {
+                Some(pending) => request::defer(
+                    data,
+                    on_result,
+                    Box::new(move || {
+                        let answer = pending.poll()?;
+                        Some(RefAny::new(provider_answer(
+                            answer,
+                            |paths| FileOpenMultiResult {
+                                paths: FilePathVec::from_vec(
+                                    paths.into_iter().map(file_path).collect(),
+                                ),
+                            },
+                            FileOpenMultiResult {
+                                paths: FilePathVec::from_vec(Vec::new()),
+                            },
+                            || desktop_open_multiple_files(&pick),
+                        )))
+                    }),
+                ),
+                None => request::complete(data, on_result, desktop_open_multiple_files(&pick)),
             }
-            if let Some(filter) = filter_list.into_option() {
-                dialog = apply_filter(dialog, filter);
-            }
-            let paths = dialog
-                .open_files()
-                .unwrap_or_default()
-                .into_iter()
-                .map(|p| FilePath::new(AzString::from(p)))
-                .collect::<Vec<_>>();
-            request::complete(
-                data,
-                on_result,
-                FileOpenMultiResult {
-                    paths: FilePathVec::from_vec(paths),
-                },
-            )
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
+            match request::mock::take_file_open_multi() {
+                request::mock::Answer::NotArmed => {}
+                request::mock::Answer::Mocked(paths) => {
+                    let paths = paths.into_iter().map(FilePath::new).collect::<Vec<_>>();
+                    return request::complete(
+                        data,
+                        on_result,
+                        FileOpenMultiResult {
+                            paths: FilePathVec::from_vec(paths),
+                        },
+                    );
+                }
+                request::mock::Answer::Unmocked => {
+                    return request::complete(
+                        data,
+                        on_result,
+                        FileOpenMultiResult {
+                            paths: FilePathVec::from_vec(Vec::new()),
+                        },
+                    );
+                }
+            }
             match FILE_PICKER_BACKEND.get() {
                 Some(backend) => {
                     let handle = (backend.open_file)(
@@ -793,53 +1029,63 @@ impl FileDialog {
         data: RefAny,
         on_result: ResumeCallback,
     ) -> RequestId {
-        match request::mock::take_save_file() {
-            request::mock::Answer::NotArmed => {}
-            request::mock::Answer::Mocked(path) => {
-                let target = path.map(|p| SaveTarget {
-                    kind: SaveTargetKind::Path,
-                    path: OptionFilePath::Some(FilePath::new(p)),
-                    handle_id: 0,
-                });
-                return request::complete(
-                    data,
-                    on_result,
-                    SaveTargetResult {
-                        target: target.into(),
-                    },
-                );
-            }
-            request::mock::Answer::Unmocked => {
-                return request::complete(
-                    data,
-                    on_result,
-                    SaveTargetResult {
-                        target: OptionSaveTarget::None,
-                    },
-                );
-            }
-        }
         #[cfg(not(any(target_os = "android", target_os = "ios")))]
         {
-            let mut dialog = tfd::FileDialog::new(title.as_str());
-            if !suggested_name.as_str().is_empty() {
-                dialog = dialog.with_path(suggested_name.as_str());
+            let suggested = if suggested_name.as_str().is_empty() {
+                OptionString::None
+            } else {
+                OptionString::Some(suggested_name)
+            };
+            let pick = pick_request(PickOp::Save, &title, &suggested, &OptionFileTypeList::None);
+            match file_picker::ask_preferred(&pick) {
+                Some(pending) => request::defer(
+                    data,
+                    on_result,
+                    Box::new(move || {
+                        let answer = pending.poll()?;
+                        Some(RefAny::new(provider_answer(
+                            answer,
+                            |paths| SaveTargetResult {
+                                target: paths.into_iter().next().map(path_target).into(),
+                            },
+                            SaveTargetResult {
+                                target: OptionSaveTarget::None,
+                            },
+                            || desktop_save_file(&pick),
+                        )))
+                    }),
+                ),
+                None => request::complete(data, on_result, desktop_save_file(&pick)),
             }
-            let target = dialog.save_file().map(|p| SaveTarget {
-                kind: SaveTargetKind::Path,
-                path: OptionFilePath::Some(FilePath::new(AzString::from(p))),
-                handle_id: 0,
-            });
-            request::complete(
-                data,
-                on_result,
-                SaveTargetResult {
-                    target: target.into(),
-                },
-            )
         }
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
+            match request::mock::take_save_file() {
+                request::mock::Answer::NotArmed => {}
+                request::mock::Answer::Mocked(path) => {
+                    let target = path.map(|p| SaveTarget {
+                        kind: SaveTargetKind::Path,
+                        path: OptionFilePath::Some(FilePath::new(p)),
+                        handle_id: 0,
+                    });
+                    return request::complete(
+                        data,
+                        on_result,
+                        SaveTargetResult {
+                            target: target.into(),
+                        },
+                    );
+                }
+                request::mock::Answer::Unmocked => {
+                    return request::complete(
+                        data,
+                        on_result,
+                        SaveTargetResult {
+                            target: OptionSaveTarget::None,
+                        },
+                    );
+                }
+            }
             match FILE_PICKER_BACKEND.get() {
                 Some(backend) => {
                     let suggested = if suggested_name.as_str().is_empty() {
@@ -1161,6 +1407,62 @@ fn filter_patterns(filter_list: OptionFileTypeList) -> OptionStringVec {
 /// Convenience shim: show a default "Info" message box.
 pub fn msg_box(content: &str) {
     MsgBox::info(AzString::from(content));
+}
+
+#[cfg(test)]
+mod macos_folder_picker_tests {
+    use super::macos_folder_script;
+
+    /// AzCode, 2026-10-07: "selecting a folder does absolutely nothing". tfd
+    /// 0.1.2 ran `choose folder` alone and fed its output to a SECOND
+    /// osascript, `POSIX path of alias Macintosh HD:Users:...:` - unquoted,
+    /// an AppleScript syntax error - so every folder picked on macOS came
+    /// back as "cancelled". The picked folder has to come back as a POSIX
+    /// path from the same script.
+    #[test]
+    fn the_macos_folder_picker_asks_for_the_posix_path_in_the_same_script() {
+        assert_eq!(
+            macos_folder_script("Open a folder", None),
+            "POSIX path of (choose folder with prompt \"Open a folder\")"
+        );
+        assert_eq!(
+            macos_folder_script("Say \"hi\" \\o/", Some("/Users/me/My \"Code\"")),
+            "POSIX path of (choose folder with prompt \"Say \\\"hi\\\" \\\\o/\" default location \
+             (POSIX file \"/Users/me/My \\\"Code\\\"\"))"
+        );
+        assert_eq!(
+            macos_folder_script("Open a folder", Some("")),
+            "POSIX path of (choose folder with prompt \"Open a folder\")",
+            "an empty default path is no default location"
+        );
+    }
+
+    /// The script is AppleScript macOS can compile (`osacompile` parses
+    /// without running it: no dialog opens). tfd's second step did not:
+    /// `osacompile -e 'POSIX path of alias Macintosh HD:Users:me:'` fails
+    /// with -2740.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_macos_folder_picker_script_is_valid_applescript() {
+        let out = std::env::temp_dir().join(format!(
+            "azul-folder-picker-{}.scpt",
+            std::process::id()
+        ));
+        for script in [
+            macos_folder_script("Open a folder", None),
+            macos_folder_script("Open \"a\" folder \\ here", Some("/tmp")),
+        ] {
+            let status = std::process::Command::new("osacompile")
+                .arg("-e")
+                .arg(&script)
+                .arg("-o")
+                .arg(&out)
+                .status()
+                .expect("osacompile runs");
+            assert!(status.success(), "{script}");
+        }
+        let _ = std::fs::remove_file(&out);
+    }
 }
 
 #[cfg(test)]
@@ -1759,5 +2061,168 @@ mod autotest_generated {
             .into_option()
             .expect("a FileOpenMultiResult");
         assert!(many.paths.as_ref().is_empty());
+    }
+}
+
+/// `FileDialog` with a registered picker: the request goes to the provider,
+/// on a worker, and resumes with what it answers; a provider without a usable
+/// answer hands the request to the system's dialog.
+#[cfg(all(test, unix, not(any(target_os = "android", target_os = "ios"))))]
+mod provider_tests {
+    use azul_core::{callbacks::Update, refany::OptionRefAny};
+
+    use super::*;
+    use crate::{
+        callbacks::CallbackInfo,
+        desktop::file_picker::tests::{fake_provider, scratch, with_provider},
+    };
+
+    extern "C" fn resumed(_: RefAny, _: CallbackInfo, _: RefAny) -> Update {
+        Update::DoNothing
+    }
+
+    fn on_result() -> ResumeCallback {
+        ResumeCallback {
+            cb: resumed,
+            ctx: OptionRefAny::None,
+        }
+    }
+
+    /// The result `id` resumes with, pumping the request queue as the shells
+    /// do once per frame (a provider is a real process).
+    fn resumed_with(id: RequestId) -> RefAny {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        loop {
+            if let Some(done) = request::take_completed()
+                .into_iter()
+                .find(|c| c.request_id == id)
+            {
+                return done.result;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the request did not resume in 20 s"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    const PICKED: &str =
+        r#"echo 'AZPICK {"v":1,"status":"selected","items":[{"path":"/picked/a.png"},{"path":"/picked/b.png"}]}'"#;
+
+    #[test]
+    fn open_file_resumes_with_the_path_the_registered_picker_answers() {
+        let dir = scratch("open-file");
+        let registration = fake_provider(&dir, &format!("read line; {PICKED}"), 1);
+        let id = with_provider(&registration, || {
+            FileDialog::open_file(
+                AzString::from("Insert picture"),
+                OptionString::None,
+                OptionFileTypeList::None,
+                RefAny::new(0u8),
+                on_result(),
+            )
+        });
+        let result = FileOpenResult::downcast(resumed_with(id)).into_option().expect("an open result");
+        assert_eq!(
+            result.path.into_option().map(|p| p.as_str().to_string()),
+            Some("/picked/a.png".to_string())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn open_multiple_files_and_save_file_resume_with_the_pickers_answer() {
+        let dir = scratch("multi-save");
+        let registration = fake_provider(&dir, &format!("read line; {PICKED}"), 1);
+        let id = with_provider(&registration, || {
+            FileDialog::open_multiple_files(
+                AzString::from("Attach"),
+                OptionString::None,
+                OptionFileTypeList::None,
+                RefAny::new(0u8),
+                on_result(),
+            )
+        });
+        let multi = FileOpenMultiResult::downcast(resumed_with(id))
+            .into_option()
+            .expect("a multi result");
+        let paths: Vec<&str> = multi.paths.as_ref().iter().map(FilePath::as_str).collect();
+        assert_eq!(paths, ["/picked/a.png", "/picked/b.png"]);
+
+        let id = with_provider(&registration, || {
+            FileDialog::save_file(
+                AzString::from("Export"),
+                AzString::from("a.png"),
+                RefAny::new(0u8),
+                on_result(),
+            )
+        });
+        let saved = SaveTargetResult::downcast(resumed_with(id))
+            .into_option()
+            .expect("a save result");
+        let target = saved.target.into_option().expect("a target");
+        assert_eq!(target.kind, SaveTargetKind::Path);
+        assert_eq!(
+            target.path.into_option().map(|p| p.as_str().to_string()),
+            Some("/picked/a.png".to_string())
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_cancel_in_the_registered_picker_is_final() {
+        let dir = scratch("cancel");
+        let registration = fake_provider(
+            &dir,
+            r#"read line; echo 'AZPICK {"v":1,"status":"cancelled"}'"#,
+            1,
+        );
+        let id = with_provider(&registration, || {
+            FileDialog::open_directory(
+                AzString::from("Folder"),
+                OptionString::None,
+                RefAny::new(0u8),
+                on_result(),
+            )
+        });
+        let result = FileOpenResult::downcast(resumed_with(id)).into_option().expect("a result");
+        assert!(result.path.into_option().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_provider_without_a_usable_answer_hands_the_request_to_the_system_dialog() {
+        let mut asked = false;
+        let result = provider_answer(
+            file_picker::PickAnswer::Unusable("ended without an answer".to_string()),
+            |_| "picked",
+            "cancelled",
+            || {
+                asked = true;
+                "the system's dialog"
+            },
+        );
+        assert!(asked);
+        assert_eq!(result, "the system's dialog");
+        let mut asked = false;
+        let error = provider_answer(
+            file_picker::PickAnswer::Error("no keys".to_string()),
+            |_| "picked",
+            "cancelled",
+            || {
+                asked = true;
+                "the system's dialog"
+            },
+        );
+        assert!(asked, "the path-only API cannot carry the error: the system's dialog answers");
+        assert_eq!(error, "the system's dialog");
+        let cancelled = provider_answer(
+            file_picker::PickAnswer::Cancelled,
+            |_| "picked",
+            "cancelled",
+            || "the system's dialog",
+        );
+        assert_eq!(cancelled, "cancelled");
     }
 }

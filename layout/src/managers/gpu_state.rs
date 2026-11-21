@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use azul_core::{
     dom::{DomId, NodeId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    gpu::{GpuEventChanges, GpuTransformKeyEvent, GpuValueCache},
+    gpu::{GpuEventChanges, GpuTransformKeyEvent, GpuValueCache, TransformChannel},
     resources::TransformKey,
     task::{Duration, SystemTimeDiff},
     transform::ComputedTransform3D,
@@ -23,7 +23,6 @@ use azul_core::{
 use crate::{
     managers::scroll_state::ScrollManager,
     solver3::{
-        fc::DEFAULT_SCROLLBAR_WIDTH_PX,
         layout_tree::{LayoutNodeId, LayoutTree},
         scrollbar::compute_scrollbar_geometry_with_button_size,
     },
@@ -88,6 +87,65 @@ pub enum SubmittedDigest {
     ScrollOffsets,
 }
 
+/// What a digest of the bound values was taken of
+/// ([`GpuStateManager::last_gpu_value_source`]): everything the digest is a
+/// function of, in a form that is compared without reading a value.
+#[derive(Debug, Clone)]
+pub struct GpuValueSource {
+    /// The digest that was taken.
+    digest: u64,
+    /// [`GpuStateManager::value_generation`] then: the content of every
+    /// DOM's value cache.
+    generation: u64,
+    /// The renderer's scale then, bitwise (the values go across in device px).
+    scale_bits: u32,
+    /// The display list each DOM showed then, in DOM order: which DOMs'
+    /// caches were read, and the lists whose keys the values are bound by.
+    /// Weak: it keeps the allocation, so a list built later never has the
+    /// address of one of these.
+    lists: alloc::vec::Vec<(
+        DomId,
+        alloc::sync::Weak<crate::solver3::display_list::DisplayList>,
+    )>,
+}
+
+/// Whether the renderer host gave back the pictures a window's display lists
+/// paint text halos from, because nobody sees the window (audit A5-20:
+/// `cpurender::text_halo`, the host's `release_text_halo_images`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HaloRelease {
+    /// The pictures are kept and registered: the lists paint from them.
+    #[default]
+    Kept,
+    /// Given back, and the window is not shown: a scan draws no halo and looks
+    /// none up, and a list that is sent is translated to the renderer's own
+    /// shadows, so no list names an image that was deleted.
+    Hidden,
+    /// Given back, and the window is shown again: the next scan draws them - a
+    /// small picture for every label in that one scan - and they are `Kept`.
+    Returning,
+}
+
+/// A view's zoom frame as the renderer holds it (audit A4-29): the one
+/// reference frame of a view's display list that the renderer's host declared
+/// a 2D scale / translation and opened above a picture cache slice of its own,
+/// so that a step of the zoom scales the tiles the renderer has. Written and
+/// read by the renderer's host only ([`GpuStateManager::zoom_frames`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ZoomFrameState {
+    /// The id of the frame's transform key.
+    pub key: usize,
+    /// The node the frame is of: its bound transform is the zoom.
+    pub node: NodeId,
+    /// The frame's scale when the host last looked at it.
+    pub scale: f32,
+    /// Whether the renderer was told that the frame is being zoomed (it then
+    /// keeps the tiles below the frame at the scale they were drawn at).
+    pub zooming: bool,
+    /// When the scale last changed, in microseconds of the host's clock.
+    pub changed_at_us: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuStateManager {
     /// GPU value caches indexed by DOM ID
@@ -96,26 +154,145 @@ pub struct GpuStateManager {
     pub fade_delay: Duration,
     /// Duration of the fade-out animation
     pub fade_duration: Duration,
-    /// Whether any scrollbar has non-zero opacity and needs continued frame
-    /// generation. Set during both the `fade_delay` period (opacity == 1.0)
-    /// and the active fade-out phase (0 < opacity < 1).
-    /// Set by `LayoutWindow::synchronize_scrollbar_opacity`, read by the platform render loop.
+    /// Whether any scrollbar is MID-FADE (0 < opacity < 1) and the platform loop
+    /// has to keep generating frames for it. NOT set in the hold before the
+    /// fade (opacity == 1.0): that phase is driven by the scroll timer, and
+    /// counting it repainted forever. [`Self::scrollbar_fade_left_ms`] is the
+    /// one that sees the hold. Set by `LayoutWindow::synchronize_scrollbar_opacity`,
+    /// read by the platform render loop.
     pub scrollbar_fade_active: bool,
+    /// Whether the last scan of the display lists for text halos left some of
+    /// them undrawn (a frame draws a bounded number of new ones,
+    /// `cpurender::within_halo_budget`): the lists were translated with a
+    /// blurred shadow where a halo is still to come, so the platform loop has
+    /// to keep generating frames - each of which scans again and draws the next
+    /// ones - until none is left ([`Self::frames_owed`]). Set and cleared by
+    /// the renderer host's scan, once per transaction.
+    pub halos_owed: bool,
+    /// How many scans in a row were made only because the last one left halos
+    /// undrawn ([`Self::halos_owed`]); the chain ends at a limit the host sets, for
+    /// the lists that name more halos than can be kept.
+    pub halo_follow_ups: u32,
+    /// Whether the window's halo pictures were given back while nobody saw it
+    /// ([`HaloRelease`]). Set by the renderer host's release, moved on by
+    /// [`Self::halos_return`] and by the host's next scan.
+    pub halo_release: HaloRelease,
+    /// How much longer each DOM's overlay scrollbars are still on screen, in
+    /// whole milliseconds rounded up: the longest of its painted, unheld bars
+    /// has `hold + fade - time since its box last scrolled` left. A DOM with no
+    /// such bar is absent. It is what makes a window that has just been
+    /// scrolled NOT settled while its bar waits to fade
+    /// ([`Self::scrollbar_fade_left`]): `scrollbar_fade_active` is false for the
+    /// whole hold, and `wait_settled` answered "settled" 50 ms after a wheel
+    /// with the track still to fall some 750 ms later (E2E-M3). Set by
+    /// `LayoutWindow::synchronize_scrollbar_opacity`; a bar with a delay of 0
+    /// never fades and counts nothing.
+    pub scrollbar_fade_left_ms: BTreeMap<DomId, u64>,
+    /// The instant each DOM's overlay scrollbars run out
+    /// ([`Self::scrollbar_fade_left_ms`] as of the last synchronization, as a
+    /// deadline): what [`Self::scrollbar_fade_left`] counts down to by the
+    /// clock. The milliseconds alone are a snapshot, and only a frame
+    /// refreshes it: a window that has stopped drawing - an idle one, which
+    /// is what a settle wait waits for - held its last answer for ever, so
+    /// `wait_settled` never saw a scrolled list's bar fade.
+    pub scrollbar_fade_ends: BTreeMap<DomId, azul_core::task::Instant>,
     /// Digest of the dynamic properties (scrollbar opacities + transforms)
     /// last handed to the renderer, so an IDENTICAL set can be recognised and
     /// skipped. See [`GpuStateManager::gpu_values_changed`].
     pub last_gpu_value_digest: Option<u64>,
+    /// What [`Self::last_gpu_value_digest`] was taken of
+    /// ([`Self::note_gpu_value_digest`]). While it still describes the
+    /// window, a walk of the bound values would give that digest again, and
+    /// the renderer's host does not walk them
+    /// ([`Self::gpu_values_are_the_digested_ones`]).
+    pub last_gpu_value_source: Option<GpuValueSource>,
     /// Digest of the image registrations last handed to the renderer.
     /// See [`GpuStateManager::submitted_digest_changed`].
     pub last_image_digest: Option<u64>,
     /// Digest of the scroll offsets last handed to the renderer.
     /// See [`GpuStateManager::submitted_digest_changed`].
     pub last_scroll_digest: Option<u64>,
+    /// The display list of each DOM as `WebRender` last received it
+    /// ([`Self::note_display_lists_submitted`]). A list changed since - an
+    /// in-place patch of a colour or gradient fade, a content patch - is
+    /// owed to the renderer even on a frame that rebuilt nothing
+    /// ([`Self::display_lists_unsubmitted`]). Weak: the renderer's copy is
+    /// its own, and a held `Arc` would make every in-place patch clone the
+    /// list. A weak reference keeps the allocation, so a new list never
+    /// reuses the address of the one it replaces.
+    pub submitted_display_lists:
+        BTreeMap<DomId, alloc::sync::Weak<crate::solver3::display_list::DisplayList>>,
+    /// What the lists in [`Self::submitted_display_lists`] were translated
+    /// against besides the lists themselves (the renderer's scale, the kept
+    /// text-halo pictures): an opaque number the renderer's host computes
+    /// ([`Self::note_display_lists_submitted`]). A list is HELD by the renderer
+    /// only while this still equals what a translation would be made against
+    /// ([`Self::display_list_is_held`]).
+    pub submitted_translation_env: u64,
+    /// What each DOM's display list paints of text halos, as the renderer
+    /// host's last scan found it: per DOM a digest over every shadow painted as
+    /// a kept picture (its image key, rect and colour); a DOM without one is
+    /// absent. Written by the host's scan only.
+    pub text_halo_digests: BTreeMap<DomId, u64>,
+    /// The DOMs whose list the renderer holds translated against other
+    /// pictures than the host's last scan found - the halos of its shadows
+    /// ([`Self::text_halo_digests`] changed since the list was sent), a place
+    /// kept for a node's picture to come: owed to the renderer like a list
+    /// that was built again. A scan that only replaced pictures under the keys
+    /// the lists name leaves it empty. Set by the host's scan, cleared by the
+    /// host for each DOM whose list it sends.
+    pub stale_display_lists: alloc::collections::BTreeSet<DomId>,
+    /// Per view: the zoom frame its display list was last sent with
+    /// ([`ZoomFrameState`], audit A4-29); a DOM whose list has none is absent.
+    /// The host declared that frame a 2D scale / translation to the renderer,
+    /// which is a promise about every value the frame gets while the renderer
+    /// holds the list: the host checks it before every transaction and sends
+    /// the list again when it no longer holds. Written by the host only.
+    pub zoom_frames: BTreeMap<DomId, ZoomFrameState>,
+    /// Whether a frame of [`Self::zoom_frames`] is being zoomed: the renderer
+    /// was told so and has to be told when the zoom has come to rest, so the
+    /// platform loop keeps asking for frames until then ([`Self::frames_owed`]).
+    /// Kept by the host with every change of the map.
+    pub zoom_gesture_running: bool,
     /// GPU events produced during layout (CSS transform / opacity synchronization,
     /// scrollbar transform / opacity updates) that have not yet been pushed to
     /// the renderer. Drained by the platform render path when a transaction is
     /// built.
     pub pending_changes: GpuEventChanges,
+    /// Per DOM: the boxes of its layout tree whose bound values follow a
+    /// scroll offset, as [`Self::update_scrollbar_transforms`] last found
+    /// them (`ScrollDrivenBoxes`). What a frame reads instead of every
+    /// box ([`Self::refresh_scroll_driven_transforms`]).
+    scroll_driven: BTreeMap<DomId, ScrollDrivenBoxes>,
+    /// How many layout boxes the two functions above have looked at since
+    /// this manager was made: every box of the tree per walk, the listed
+    /// ones per frame. A counter for the guards (a frame of a window with
+    /// two scroll boxes among a thousand adds 2).
+    pub scroll_boxes_looked_at: u64,
+}
+
+/// The boxes of one DOM's layout tree whose bound values follow a scroll
+/// offset: the ones with a scrollbar on an axis (their thumbs) and the
+/// `position: sticky` ones. A layout tree stores a `ScrollbarRequirements`
+/// on nearly every box, a bar on a handful, so finding them is a walk over
+/// all boxes; the walk is made once per tree
+/// ([`GpuStateManager::update_scrollbar_transforms`]) and its answer kept
+/// here for the frames in between.
+///
+/// Only WHICH boxes is kept. Every value (sizes, extents, offsets, the
+/// bars' kind) is read from the tree and the scroll manager again by each
+/// frame, so a box that is listed and no longer scroll-driven costs a look
+/// and nothing else.
+#[derive(Debug, Clone, Default)]
+struct ScrollDrivenBoxes {
+    /// Layout index and DOM node of every box of every listed node (a node
+    /// may have several: a list item and its marker), ascending by index -
+    /// the order the walk visits them in.
+    boxes: Vec<(usize, NodeId)>,
+    /// The DOM nodes of `boxes`, ascending, each once.
+    nodes: Vec<NodeId>,
+    /// `LayoutTree::nodes.len()` of the tree the walk was made over.
+    tree_len: usize,
 }
 
 impl Default for GpuStateManager {
@@ -151,6 +328,18 @@ impl GpuStateManager {
         floats: &[(u64, f32)],
         transforms: &[(u64, [f32; 16])],
     ) -> bool {
+        self.gpu_values_changed_with_colors(floats, transforms, &[])
+    }
+
+    /// [`Self::gpu_values_changed`] for a set that also carries the bound
+    /// background colours (`key -> RGBA`): a colour fade frame is a change,
+    /// a colour that stood still is none.
+    pub fn gpu_values_changed_with_colors(
+        &mut self,
+        floats: &[(u64, f32)],
+        transforms: &[(u64, [f32; 16])],
+        colors: &[(u64, [u8; 4])],
+    ) -> bool {
         // Sorted by key before digesting. The caller collects these out of
         // `HashMap`s, whose iteration order is not a promise; an order that
         // flapped while the values stayed the same would report a change on a
@@ -172,6 +361,13 @@ impl GpuStateManager {
             for f in m {
                 h.push_f32(*f);
             }
+        }
+        let mut sorted_colors = colors.iter().collect::<Vec<_>>();
+        sorted_colors.sort_unstable_by_key(|(k, _)| *k);
+        h.push_u64(colors.len() as u64);
+        for (k, rgba) in sorted_colors {
+            h.push_u64(*k);
+            h.push_u64(u64::from(u32::from_be_bytes(*rgba)));
         }
         let digest = h.finish();
 
@@ -200,6 +396,72 @@ impl GpuStateManager {
         true
     }
 
+    /// `digest` is the digest of the bound values as a walk of them just found
+    /// them, for the DOMs of `layout_results` at the renderer's `scale`:
+    /// remembers what it was taken of. The renderer's host calls this where
+    /// it compares the digest with [`Self::last_gpu_value_digest`].
+    pub fn note_gpu_value_digest(
+        &mut self,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        scale: f32,
+        digest: u64,
+    ) {
+        self.last_gpu_value_source = Some(GpuValueSource {
+            digest,
+            generation: self.value_generation(),
+            scale_bits: scale.to_bits(),
+            lists: layout_results
+                .iter()
+                .map(|(dom, result)| (*dom, alloc::sync::Arc::downgrade(&result.display_list)))
+                .collect(),
+        });
+    }
+
+    /// Would a walk of the bound values give [`Self::last_gpu_value_digest`]
+    /// again? Then the values are the ones the renderer was last sent and
+    /// its host has nothing to walk, hash or send: the frame of a pan, of a
+    /// tile that arrived, of a hover, of a fade's hold.
+    ///
+    /// Yes exactly when everything the digest is a function of is what it
+    /// was when the digest was taken ([`Self::note_gpu_value_digest`]):
+    /// - the digest kept is still that one (a full frame forgets it,
+    ///   [`Self::invalidate_submitted_digests`], and so does anything else
+    ///   that makes the renderer need the values again: this answers `false`
+    ///   wherever the digest alone would say "send");
+    /// - no value and no key of any DOM was written since
+    ///   ([`Self::value_generation`]);
+    /// - the scale is the same;
+    /// - every DOM shows the very list it showed (the same allocation; the
+    ///   DOMs are the same ones). A list that was built again - also one
+    ///   with the same items and the same values - answers `false`: its keys
+    ///   are new bindings to the renderer, and which DOMs there are decides
+    ///   whose values are read.
+    #[must_use]
+    pub fn gpu_values_are_the_digested_ones(
+        &self,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        scale: f32,
+    ) -> bool {
+        let Some(source) = self.last_gpu_value_source.as_ref() else {
+            return false;
+        };
+        self.last_gpu_value_digest == Some(source.digest)
+            && source.scale_bits == scale.to_bits()
+            && source.generation == self.value_generation()
+            && source.lists.len() == layout_results.len()
+            && source
+                .lists
+                .iter()
+                .zip(layout_results)
+                .all(|((dom, list), (dom_now, now))| {
+                    dom == dom_now
+                        && core::ptr::eq(
+                            list.as_ptr(),
+                            alloc::sync::Arc::as_ptr(&now.display_list),
+                        )
+                })
+    }
+
     /// Forget what was last submitted, so the next submission pushes
     /// everything again.
     ///
@@ -214,6 +476,58 @@ impl GpuStateManager {
         self.last_scroll_digest = None;
     }
 
+    /// The longest any DOM's overlay scrollbar still has to be on screen, in
+    /// milliseconds ([`Self::scrollbar_fade_left_ms`]); 0 when none is. Counted
+    /// down by the clock to the deadline the last synchronization set
+    /// ([`Self::scrollbar_fade_ends`]), so it reaches 0 while no frame is drawn.
+    #[must_use]
+    pub fn scrollbar_fade_left(&self) -> u64 {
+        #[cfg(feature = "std")]
+        let now = azul_core::task::Instant::now();
+        self.scrollbar_fade_left_ms
+            .iter()
+            .map(|(dom, snapshot)| {
+                // Only a deadline on the system clock can be counted down by it: a
+                // window that runs on ticks (a driven clock, a test's) has no
+                // other clock than its frames, and its snapshot is the answer.
+                #[cfg(feature = "std")]
+                if let Some(end) = self
+                    .scrollbar_fade_ends
+                    .get(dom)
+                    .filter(|end| matches!(end, azul_core::task::Instant::System(_)))
+                {
+                    let left = end.duration_since(&now).as_nanos().div_ceil(1_000_000);
+                    return u64::try_from(left).unwrap_or(u64::MAX).min(*snapshot);
+                }
+                let _ = dom;
+                *snapshot
+            })
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Whether the engine itself still owes frames, whatever the app does: a
+    /// scrollbar that is fading (or waiting to) and text halos left for a
+    /// later frame. The platform loop requests another frame while this is
+    /// true.
+    #[must_use]
+    pub const fn frames_owed(&self) -> bool {
+        self.scrollbar_fade_active || self.halos_owed || self.zoom_gesture_running
+    }
+
+    /// The window whose halo pictures were given back is shown again: a frame is
+    /// owed, and its scan draws them ([`HaloRelease::Returning`]). Returns whether
+    /// that was so; a window whose pictures are kept, or that already returns, is
+    /// left as it is.
+    pub fn halos_return(&mut self) -> bool {
+        if self.halo_release != HaloRelease::Hidden {
+            return false;
+        }
+        self.halo_release = HaloRelease::Returning;
+        self.halos_owed = true;
+        true
+    }
+
     /// Creates a new GPU state manager with specified fade timing.
     #[must_use]
     pub fn new(fade_delay: Duration, fade_duration: Duration) -> Self {
@@ -222,11 +536,125 @@ impl GpuStateManager {
             fade_delay,
             fade_duration,
             scrollbar_fade_active: false,
+            halos_owed: false,
+            halo_follow_ups: 0,
+            halo_release: HaloRelease::Kept,
+            scrollbar_fade_left_ms: BTreeMap::new(),
+            scrollbar_fade_ends: BTreeMap::new(),
             last_gpu_value_digest: None,
+            last_gpu_value_source: None,
             last_image_digest: None,
             last_scroll_digest: None,
+            submitted_display_lists: BTreeMap::new(),
+            submitted_translation_env: 0,
+            text_halo_digests: BTreeMap::new(),
+            stale_display_lists: alloc::collections::BTreeSet::new(),
+            zoom_frames: BTreeMap::new(),
+            zoom_gesture_running: false,
             pending_changes: GpuEventChanges::empty(),
+            scroll_driven: BTreeMap::new(),
+            scroll_boxes_looked_at: 0,
         }
+    }
+
+    /// `WebRender` received these lists, one per DOM, translated against
+    /// `env` (see [`Self::submitted_translation_env`]).
+    pub fn note_display_lists_submitted(
+        &mut self,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        env: u64,
+    ) {
+        self.submitted_translation_env = env;
+        self.submitted_display_lists = layout_results
+            .iter()
+            .map(|(dom, r)| (*dom, alloc::sync::Arc::downgrade(&r.display_list)))
+            .collect();
+    }
+
+    /// `WebRender` received this one list of `dom` (a `VirtualView` child sent
+    /// alone), translated against the environment of the last full submission.
+    pub fn note_one_display_list_submitted(
+        &mut self,
+        dom: DomId,
+        list: &alloc::sync::Arc<crate::solver3::display_list::DisplayList>,
+    ) {
+        self.submitted_display_lists
+            .insert(dom, alloc::sync::Arc::downgrade(list));
+    }
+
+    /// The list of `dom` moved from the allocation `before` to `after` by a
+    /// patch that changes nothing of what the renderer's copy of it says: an
+    /// image the renderer shows through a key of the node's own was replaced
+    /// in place (`RendererResources::node_image_is_replaced_in_place`), so the
+    /// copy names the same key in the same rect, and the new pixels reach the
+    /// renderer as an update of the key. If the renderer held the list before
+    /// the patch it holds it after; a list it did not hold stays owed.
+    ///
+    /// `before`: the list's address taken before the patch
+    /// (`Arc::as_ptr`). Without this a tile that arrives in a map sent the
+    /// map's whole list again and had the scene built again - for new pixels
+    /// under a key the list already named (audit A4-09).
+    pub fn display_list_moved(
+        &mut self,
+        dom: DomId,
+        before: *const crate::solver3::display_list::DisplayList,
+        after: &alloc::sync::Arc<crate::solver3::display_list::DisplayList>,
+    ) {
+        if let Some(held) = self.submitted_display_lists.get_mut(&dom) {
+            if core::ptr::eq(held.as_ptr(), before) {
+                *held = alloc::sync::Arc::downgrade(after);
+            }
+        }
+    }
+
+    /// Does `WebRender` already hold exactly this list of `dom`, translated
+    /// against `env`? Then a transaction need not translate it again or send
+    /// it: `WebRender` keeps every pipeline's list until a new one replaces it
+    /// (`Scene::set_display_list`), which is what lets a `VirtualView`'s child
+    /// be sent alone (`process_virtual_view_updates`).
+    ///
+    /// The identity is the list's allocation: a list rebuilt or patched in
+    /// place is another one (the held `Weak` keeps the old allocation alive, so
+    /// a new list never takes its address, and `Arc::make_mut` moves a patched
+    /// list to a new one). A hover that rebuilt the host's list therefore sends
+    /// the host's list and leaves the 5 000-item child of a map where it is.
+    #[must_use]
+    pub fn display_list_is_held(
+        &self,
+        dom: DomId,
+        list: &alloc::sync::Arc<crate::solver3::display_list::DisplayList>,
+        env: u64,
+    ) -> bool {
+        self.submitted_translation_env == env
+            && self
+                .submitted_display_lists
+                .get(&dom)
+                .is_some_and(|weak| core::ptr::eq(weak.as_ptr(), alloc::sync::Arc::as_ptr(list)))
+    }
+
+    /// Does any DOM have a display list `WebRender` has not received - one
+    /// built or patched since the last submission, or a DOM that is new or
+    /// gone? A frame that rebuilt nothing still owes the renderer such a
+    /// list: a fade patched into the list in place reached the CPU renderer
+    /// and never the GPU one, which showed the colour the fade started from.
+    #[must_use]
+    pub fn display_lists_unsubmitted(
+        &self,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+    ) -> bool {
+        let mut count = 0usize;
+        for (dom, result) in layout_results {
+            count += 1;
+            let list = &result.display_list;
+            let submitted = self
+                .submitted_display_lists
+                .get(dom)
+                .is_some_and(|weak| core::ptr::eq(weak.as_ptr(), alloc::sync::Arc::as_ptr(list)));
+            if !submitted {
+                return true;
+            }
+        }
+        count != self.submitted_display_lists.len()
     }
 
     /// Take any queued transform / opacity events that have been accumulated
@@ -249,15 +677,71 @@ impl GpuStateManager {
         self.caches.get(&dom_id)
     }
 
+    /// The write generation of the bound values of EVERY DOM of the window:
+    /// one number that is another one after any cache gained or lost a key,
+    /// had a value written that differs from what it held
+    /// (`GpuValueCache::value_generation`), or after a DOM's cache appeared
+    /// or went. A frame that finds the number it last read has no bound
+    /// value to read again: no copy of the values (`WindowGpuValues::of_doms`),
+    /// no comparison with the previous ones, no walk for the compositor
+    /// (`synchronize_gpu_values`).
+    ///
+    /// Safe to skip work by (A6-22): every bound value of a cache stamps
+    /// itself, whoever writes it and however (`StampedMap`, `StampedValue`),
+    /// so no writer has to say anything. What it does NOT cover is the
+    /// display lists: a list that was rebuilt with the same values still
+    /// has its own keys to read, so a frame keys its skip on this number
+    /// AND on the identity of the lists it draws. Only equality is
+    /// meaningful.
+    #[must_use]
+    pub fn value_generation(&self) -> u64 {
+        // The DOM ids go in with the generations: a cache that went and
+        // another that came with the same count is another set.
+        const STEP: u64 = 0x9E37_79B9_7F4A_7C15;
+        self.caches.iter().fold(self.caches.len() as u64, |acc, (dom, cache)| {
+            (acc ^ dom.inner as u64)
+                .wrapping_mul(STEP)
+                .wrapping_add(cache.value_generation())
+                .rotate_left(17)
+        })
+    }
+
     pub fn get_or_create_cache(&mut self, dom_id: DomId) -> &mut GpuValueCache {
         self.caches.entry(dom_id).or_default()
     }
 
-    /// Updates scrollbar thumb transforms based on current scroll positions.
+    /// The matrix `node` of `dom_id` is painted with now - the transform of
+    /// the reference frame the display list opens for it, from the CSS or
+    /// the animation channel (`GpuValueCache::reference_frame_of`). THE
+    /// `resolve_transform` every hit test and "where is it on screen"
+    /// question passes, so pointer targets follow the pixels.
+    #[must_use]
+    pub fn painted_transform_of(
+        &self,
+        dom_id: DomId,
+        node: NodeId,
+    ) -> Option<ComputedTransform3D> {
+        self.caches
+            .get(&dom_id)
+            .and_then(|cache| cache.painted_transform_of(node))
+    }
+
+    /// Updates the scroll-driven transforms based on current scroll positions:
+    /// the scrollbar thumbs, and the `position: sticky` boxes.
     ///
     /// Calculates the transform needed to position scrollbar thumbs correctly
-    /// based on the scroll offset and content/container sizes. Returns the
-    /// GPU event changes that need to be applied by the renderer.
+    /// based on the scroll offset and content/container sizes, and how far a
+    /// scroll since the layout pass moves each sticky box from where that
+    /// pass placed it (`StickyConstraint::shift_at` now minus what the pass
+    /// baked in), so a header holds while its list scrolls without a
+    /// relayout. Returns the GPU event changes that need to be applied by
+    /// the renderer.
+    ///
+    /// THE FORM FOR A TREE NOBODY HAS WALKED: it looks at every box of
+    /// `layout_tree`, whatever tree that is, and leaves the list of the
+    /// scroll-driven ones behind (`ScrollDrivenBoxes`). The layout pass
+    /// calls it for the tree it made. A frame calls
+    /// [`Self::refresh_scroll_driven_transforms`], which reads the list.
     pub fn update_scrollbar_transforms(
         &mut self,
         dom_id: DomId,
@@ -265,134 +749,353 @@ impl GpuStateManager {
         layout_tree: &LayoutTree,
     ) -> GpuEventChanges {
         let mut changes = GpuEventChanges::empty();
-        let gpu_cache = self.get_or_create_cache(dom_id);
+        // The list this walk leaves; the storage of the one it replaces is
+        // used again, so a walk allocates only while a list grows.
+        let mut listed = self.scroll_driven.remove(&dom_id).unwrap_or_default();
+        listed.boxes.clear();
+        listed.nodes.clear();
+        listed.tree_len = layout_tree.nodes.len();
 
-        for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
-            let warm = layout_tree.warm(LayoutNodeId::new(node_idx));
-            // The necessity flags are the layout pass's, amended after layout by
-            // `cache::apply_virtual_scroll_necessity` (via `register_scroll_nodes`)
-            // for a `VirtualView`, whose scrollable extent layout cannot see. This
-            // path deliberately re-derives nothing: it reads the one stored answer,
-            // so a bar that `paint_scrollbars` drew always gets its thumb moved.
-            let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
-                continue;
-            };
-            let Some(node_id) = node.dom_node_id else {
-                continue;
-            };
-
-            let scroll_offset = scroll_manager
-                .get_current_offset(dom_id, node_id)
-                .unwrap_or_default();
-
-            // Compute inner_rect (padding-box) by subtracting borders from used_size
-            let border_box_size = node.used_size.unwrap_or_default();
-            let nbp = node.box_props.unpack();
-            let border = &nbp.border;
-            let inner_size = LogicalSize {
-                width: (border_box_size.width - border.left - border.right).max(0.0),
-                height: (border_box_size.height - border.top - border.bottom).max(0.0),
-            };
-            // Use zero origin since we only need the geometry ratios, not absolute position
-            let inner_rect = LogicalRect {
-                origin: LogicalPosition::new(0.0, 0.0),
-                size: inner_size,
-            };
-
-            // `display_list::paint_scrollbars` sizes the thumb from
-            // `ScrollPosition::children_rect.size` — the `VirtualView` virtual size
-            // when the callback reported one, else the laid-out content size. This
-            // path OVERWRITES the transform key that path seeds, so it has to size
-            // from the same number: a `VirtualView` is a replaced element with no
-            // flow content, so `get_content_size` returns roughly the viewport and
-            // the thumb would snap to the full track on the first live scroll.
-            let content_size = scroll_manager
-                .get_scroll_state(dom_id, node_id)
-                .and_then(|s| s.virtual_scroll_size)
-                .unwrap_or_else(|| layout_tree.get_content_size(LayoutNodeId::new(node_idx)));
-
-            if scrollbar_info.needs_vertical {
-                // Use the visual width from the scrollbar style — same value used
-                // by display_list.rs to paint the scrollbar. For overlay scrollbars,
-                // visual_width_px is non-zero (e.g. 8.0) even though the layout-
-                // reserved width (scrollbar_height) is 0.0.
-                let is_overlay = scrollbar_info.scrollbar_height == 0.0;
-                let scrollbar_width_px = if scrollbar_info.visual_width_px > 0.0 {
-                    scrollbar_info.visual_width_px
-                } else if !is_overlay {
-                    scrollbar_info.scrollbar_height
-                } else {
-                    DEFAULT_SCROLLBAR_WIDTH_PX
-                };
-                // Overlay scrollbars (macOS-style) have no arrow buttons
-                let button_size = if is_overlay { 0.0 } else { scrollbar_width_px };
-
-                let v_geom = compute_scrollbar_geometry_with_button_size(
-                    ScrollbarOrientation::Vertical,
-                    inner_rect,
-                    content_size,
-                    scroll_offset.y,
-                    scrollbar_width_px,
-                    scrollbar_info.needs_horizontal,
-                    button_size,
-                );
-
-                // Quantised to whole logical pixels: this value is the only
-                // channel that can damage the bar, and a sub-pixel thumb move
-                // repaints a gutter that did not visibly change. See
-                // `quantize_thumb_offset` — `paint_scrollbars` bakes the
-                // display list's initial value through the same rounding.
-                let transform = ComputedTransform3D::new_translation(
-                    0.0,
-                    crate::solver3::scrollbar::quantize_thumb_offset(v_geom.thumb_offset),
-                    0.0,
-                );
-                update_scrollbar_transform_key(
-                    gpu_cache,
-                    &mut changes,
-                    node_id,
-                    transform,
-                    ScrollbarOrientation::Vertical,
-                );
-            }
-
-            if scrollbar_info.needs_horizontal {
-                let is_overlay = scrollbar_info.scrollbar_width == 0.0;
-                let scrollbar_width_px = if scrollbar_info.visual_width_px > 0.0 {
-                    scrollbar_info.visual_width_px
-                } else if !is_overlay {
-                    scrollbar_info.scrollbar_width
-                } else {
-                    DEFAULT_SCROLLBAR_WIDTH_PX
-                };
-                let button_size = if is_overlay { 0.0 } else { scrollbar_width_px };
-
-                let h_geom = compute_scrollbar_geometry_with_button_size(
-                    ScrollbarOrientation::Horizontal,
-                    inner_rect,
-                    content_size,
-                    scroll_offset.x,
-                    scrollbar_width_px,
-                    scrollbar_info.needs_vertical,
-                    button_size,
-                );
-
-                let transform = ComputedTransform3D::new_translation(
-                    crate::solver3::scrollbar::quantize_thumb_offset(h_geom.thumb_offset),
-                    0.0,
-                    0.0,
-                );
-                update_scrollbar_transform_key(
-                    gpu_cache,
-                    &mut changes,
-                    node_id,
-                    transform,
-                    ScrollbarOrientation::Horizontal,
-                );
+        let gpu_cache = self.caches.entry(dom_id).or_default();
+        for node_idx in 0..layout_tree.nodes.len() {
+            if let Some(node_id) = update_scroll_driven_box(
+                gpu_cache,
+                &mut changes,
+                scroll_manager,
+                dom_id,
+                layout_tree,
+                node_idx,
+            ) {
+                listed.boxes.push((node_idx, node_id));
+                listed.nodes.push(node_id);
             }
         }
+        self.scroll_boxes_looked_at = self
+            .scroll_boxes_looked_at
+            .wrapping_add(layout_tree.nodes.len() as u64);
 
+        // Every box of a listed node, not only the one that is scroll-driven
+        // now: a bar raised later on another box of the same node (its
+        // marker, the second part of a split) is then a box a frame looks
+        // at. A node the scroll manager holds a bar for and this list does
+        // not name sends the frame back here (`scroll_driven_boxes_hold`).
+        listed.nodes.sort_unstable();
+        listed.nodes.dedup();
+        for node_id in &listed.nodes {
+            let Some(boxes) = layout_tree.dom_to_layout.get(node_id) else {
+                continue;
+            };
+            for layout_id in boxes {
+                let of_this_node = layout_tree
+                    .nodes
+                    .get(layout_id.index())
+                    .is_some_and(|node| node.dom_node_id == Some(*node_id));
+                if of_this_node {
+                    listed.boxes.push((layout_id.index(), *node_id));
+                }
+            }
+        }
+        listed.boxes.sort_unstable();
+        listed.boxes.dedup();
+
+        self.scroll_driven.insert(dom_id, listed);
         changes
+    }
+
+    /// [`Self::update_scrollbar_transforms`] for a frame: the same values
+    /// and the same events, from the boxes that function listed instead of
+    /// every box of the tree. A window with a thousand boxes and two scroll
+    /// boxes looks at 2 per frame, one without a scroll box or a sticky box
+    /// at none ([`Self::scroll_boxes_looked_at`]).
+    ///
+    /// FOR THE TREE THE WALK WAS MADE OVER, written to since or not: the
+    /// one in `LayoutWindow::layout_results`, between two layout passes.
+    /// Whoever installs ANOTHER tree calls `update_scrollbar_transforms`
+    /// for it (`LayoutWindow::layout_dom_recursive_impl` does).
+    ///
+    /// What is checked here, per call, and sends the call to the walk when
+    /// it fails (`scroll_driven_boxes_hold`): the tree has the
+    /// number of boxes the walk saw, each listed box still belongs to its
+    /// node, and every node the scroll manager holds a bar for is listed.
+    /// The last one is what sees a bar raised in place after the pass
+    /// (`register_scroll_nodes` for a `VirtualView` or a text edit that
+    /// began to overflow): whoever raises it registers the node with that
+    /// bar. A sticky box is made by a layout pass only.
+    ///
+    /// `AZ_WALK_SCROLL_BOXES` in the environment makes every call the walk
+    /// (`walk_every_frame`).
+    pub fn refresh_scroll_driven_transforms(
+        &mut self,
+        dom_id: DomId,
+        scroll_manager: &ScrollManager,
+        layout_tree: &LayoutTree,
+    ) -> GpuEventChanges {
+        if walk_every_frame() || !self.scroll_driven_boxes_hold(dom_id, scroll_manager, layout_tree)
+        {
+            return self.update_scrollbar_transforms(dom_id, scroll_manager, layout_tree);
+        }
+        let mut changes = GpuEventChanges::empty();
+        let Self {
+            ref scroll_driven,
+            ref mut caches,
+            ref mut scroll_boxes_looked_at,
+            ..
+        } = *self;
+        let Some(listed) = scroll_driven.get(&dom_id) else {
+            return changes;
+        };
+        let gpu_cache = caches.entry(dom_id).or_default();
+        for &(node_idx, _) in &listed.boxes {
+            let _ = update_scroll_driven_box(
+                gpu_cache,
+                &mut changes,
+                scroll_manager,
+                dom_id,
+                layout_tree,
+                node_idx,
+            );
+        }
+        *scroll_boxes_looked_at = scroll_boxes_looked_at.wrapping_add(listed.boxes.len() as u64);
+        changes
+    }
+
+    /// Is the list of `dom_id`'s scroll-driven boxes still the list of
+    /// `layout_tree`'s, as far as a frame can tell without the walk? See
+    /// [`Self::refresh_scroll_driven_transforms`] for what that covers.
+    fn scroll_driven_boxes_hold(
+        &self,
+        dom_id: DomId,
+        scroll_manager: &ScrollManager,
+        layout_tree: &LayoutTree,
+    ) -> bool {
+        let Some(listed) = self.scroll_driven.get(&dom_id) else {
+            return false;
+        };
+        listed.tree_len == layout_tree.nodes.len()
+            && listed.boxes.iter().all(|&(node_idx, node_id)| {
+                layout_tree
+                    .nodes
+                    .get(node_idx)
+                    .is_some_and(|node| node.dom_node_id == Some(node_id))
+            })
+            && scroll_manager
+                .nodes_with_a_bar(dom_id)
+                .all(|node_id| listed.nodes.binary_search(&node_id).is_ok())
+    }
+}
+
+/// `AZ_WALK_SCROLL_BOXES` set (to anything): every frame walks every box of
+/// every tree, as before the list of scroll-driven boxes existed. The switch
+/// that tells a thumb or a sticky box that stays behind BECAUSE of the list
+/// from one that stays behind for another reason. Read once per process.
+#[cfg(feature = "std")]
+fn walk_every_frame() -> bool {
+    static SET: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SET.get_or_init(|| std::env::var_os("AZ_WALK_SCROLL_BOXES").is_some())
+}
+
+#[cfg(not(feature = "std"))]
+const fn walk_every_frame() -> bool {
+    false
+}
+
+/// Refreshes what box `node_idx` of `layout_tree` binds to a scroll offset -
+/// the transform of its sticky frame, the transforms of its scrollbar
+/// thumbs - and returns its DOM node; `None`, and nothing done, for a box
+/// that is neither sticky nor has a bar on an axis (nearly every box: the
+/// test comes before anything is looked up or measured for it).
+fn update_scroll_driven_box(
+    gpu_cache: &mut GpuValueCache,
+    changes: &mut GpuEventChanges,
+    scroll_manager: &ScrollManager,
+    dom_id: DomId,
+    layout_tree: &LayoutTree,
+    node_idx: usize,
+) -> Option<NodeId> {
+    let node = layout_tree.nodes.get(node_idx)?;
+    let node_id = node.dom_node_id?;
+    let warm = layout_tree.warm(LayoutNodeId::new(node_idx))?;
+    let sticky = warm.sticky.as_deref();
+    // The bars `paint_scrollbars` drew, and only those: the one
+    // per-axis answer layout resolved from the axis's overflow and the
+    // node's style (`ScrollbarRequirements::presence`) - thickness
+    // and arrow buttons included. Deciding "overlay" here from the
+    // RESERVED width, with a 16px fallback for a zero one, moved a
+    // thumb for a `scrollbar-width: none` box that paints no bar, and
+    // measured a bar whose style shows no buttons with them.
+    //
+    // The necessity flags are the layout pass's, amended after layout by
+    // `cache::apply_virtual_scroll_necessity` (via `register_scroll_nodes`)
+    // for a `VirtualView`, whose scrollable extent layout cannot see. This
+    // path deliberately re-derives nothing: it reads the one stored answer,
+    // so a bar that `paint_scrollbars` drew always gets its thumb moved.
+    // The amended answer stands beside the tree, in the scroll manager
+    // (`ScrollManager::scrollbar_info`), and in the tree for a box nothing
+    // was raised for.
+    let bars = scroll_manager
+        .scrollbar_info(dom_id, node_idx, layout_tree)
+        .map(|info| {
+            (
+                info.presence(ScrollbarOrientation::Vertical),
+                info.presence(ScrollbarOrientation::Horizontal),
+            )
+        })
+        .filter(|(v_bar, h_bar)| v_bar.is_present() || h_bar.is_present());
+    if sticky.is_none() && bars.is_none() {
+        return None;
+    }
+    if let Some(sticky) = sticky {
+        update_sticky_transform(gpu_cache, changes, scroll_manager, dom_id, node_id, sticky);
+    }
+    let Some((v_bar, h_bar)) = bars else {
+        return Some(node_id);
+    };
+
+    let scroll_offset = scroll_manager
+        .get_current_offset(dom_id, node_id)
+        .unwrap_or_default();
+
+    // THE VIEWPORT'S BAR runs along the window and scrolls the root's
+    // margin box (CSS Overflow 3 §3.3): the scrollport
+    // `register_scroll_nodes` published and the extent it measured,
+    // which is the bar `paint_scrollbars` paints and the pointer drags.
+    // Measured against the root's own box - which IS its content -
+    // there was nothing to scroll, so the thumb stayed parked at the
+    // top while the page scrolled under it.
+    let is_viewport = crate::solver3::scrollbar::is_viewport_scroller(dom_id, node_id);
+
+    // Compute inner_rect (padding-box) by subtracting borders from used_size
+    let border_box_size = node.used_size.unwrap_or_default();
+    let nbp = node.box_props.unpack();
+    let border = &nbp.border;
+    let padding_box_size = LogicalSize {
+        width: (border_box_size.width - border.left - border.right).max(0.0),
+        height: (border_box_size.height - border.top - border.bottom).max(0.0),
+    };
+    let inner_size = if is_viewport {
+        scroll_manager
+            .get_scroll_state(dom_id, node_id)
+            .map_or(padding_box_size, |s| s.container_rect.size)
+    } else {
+        padding_box_size
+    };
+    // Use zero origin since we only need the geometry ratios, not absolute position
+    let inner_rect = LogicalRect {
+        origin: LogicalPosition::new(0.0, 0.0),
+        size: inner_size,
+    };
+
+    // The extent the scroll manager holds - what registration
+    // published for this layout (`LayoutTree::scroll_extent` plus the
+    // caret gutter, `caret_scroll_extent`), or a `VirtualView`'s
+    // virtual size (`effective_content_size`): the number
+    // `display_list::paint_scrollbars` sizes the thumb from and the
+    // press router measures it with, so the thumb moves where it is
+    // drawn and pressed. Re-derived from the bare layout extent, the
+    // box hosting the caret had its thumb moved along a track 6px
+    // shorter than the one it was pressed on. A box registration has
+    // not described (no state, or one a bare `set_scroll_position`
+    // made: no bar, no extent) falls back to this layout's extent.
+    let content_size = scroll_manager
+        .get_scroll_state(dom_id, node_id)
+        .filter(|s| {
+            s.virtual_scroll_size.is_some()
+                || s.bar(ScrollbarOrientation::Vertical).is_present()
+                || s.bar(ScrollbarOrientation::Horizontal).is_present()
+        })
+        .map_or_else(
+            || layout_tree.scroll_extent(LayoutNodeId::new(node_idx), is_viewport),
+            super::scroll_state::AnimatedScrollState::effective_content_size,
+        );
+
+    if v_bar.is_present() {
+        let v_geom = compute_scrollbar_geometry_with_button_size(
+            ScrollbarOrientation::Vertical,
+            inner_rect,
+            content_size,
+            scroll_offset.y,
+            v_bar.thickness(),
+            h_bar.is_present(),
+            v_bar.button_size(),
+        );
+
+        // Quantised to whole logical pixels: this value is the only
+        // channel that can damage the bar, and a sub-pixel thumb move
+        // repaints a gutter that did not visibly change. See
+        // `quantize_thumb_offset` — `paint_scrollbars` bakes the
+        // display list's initial value through the same rounding.
+        let transform = ComputedTransform3D::new_translation(
+            0.0,
+            crate::solver3::scrollbar::quantize_thumb_offset(v_geom.thumb_offset),
+            0.0,
+        );
+        update_scrollbar_transform_key(
+            gpu_cache,
+            changes,
+            node_id,
+            transform,
+            ScrollbarOrientation::Vertical,
+        );
+    }
+
+    if h_bar.is_present() {
+        let h_geom = compute_scrollbar_geometry_with_button_size(
+            ScrollbarOrientation::Horizontal,
+            inner_rect,
+            content_size,
+            scroll_offset.x,
+            h_bar.thickness(),
+            v_bar.is_present(),
+            h_bar.button_size(),
+        );
+
+        let transform = ComputedTransform3D::new_translation(
+            crate::solver3::scrollbar::quantize_thumb_offset(h_geom.thumb_offset),
+            0.0,
+            0.0,
+        );
+        update_scrollbar_transform_key(
+            gpu_cache,
+            changes,
+            node_id,
+            transform,
+            ScrollbarOrientation::Horizontal,
+        );
+    }
+
+    Some(node_id)
+}
+
+/// Moves the sticky box `node_id` by what a scroll since its layout pass
+/// changed: the translation from where the pass placed it to where it
+/// sticks at its scroller's offset now. Only a box `synchronize` gave a key
+/// is moved - the display list opened its reference frame with that key.
+fn update_sticky_transform(
+    gpu_cache: &mut GpuValueCache,
+    changes: &mut GpuEventChanges,
+    scroll_manager: &ScrollManager,
+    dom_id: DomId,
+    node_id: NodeId,
+    sticky: &crate::solver3::positioning::StickyConstraint,
+) {
+    let Some(key) = gpu_cache.transform_key(TransformChannel::Sticky, node_id) else {
+        return;
+    };
+    let offset = sticky
+        .scroller
+        .and_then(|scroller| scroll_manager.get_current_offset(dom_id, scroller))
+        .unwrap_or_default();
+    let now = sticky.shift_at(offset);
+    let transform =
+        ComputedTransform3D::new_translation(now.x - sticky.baked.x, now.y - sticky.baked.y, 0.0);
+    match gpu_cache.set_transform_value(TransformChannel::Sticky, node_id, transform) {
+        Some(old) if old == transform => {}
+        Some(old) => changes
+            .transform_key_changes
+            .push(GpuTransformKeyEvent::Changed(node_id, key, old, transform)),
+        None => changes
+            .transform_key_changes
+            .push(GpuTransformKeyEvent::Added(node_id, key, transform)),
     }
 }
 
@@ -404,20 +1107,16 @@ fn update_scrollbar_transform_key(
     transform: ComputedTransform3D,
     orientation: ScrollbarOrientation,
 ) {
-    let (keys, values) = match orientation {
-        ScrollbarOrientation::Vertical => (
-            &mut gpu_cache.transform_keys,
-            &mut gpu_cache.current_transform_values,
-        ),
-        ScrollbarOrientation::Horizontal => (
-            &mut gpu_cache.h_transform_keys,
-            &mut gpu_cache.h_current_transform_values,
-        ),
+    // Through the cache's write methods: a thumb that moved moves the write
+    // generation, one that stayed where it was does not.
+    let channel = match orientation {
+        ScrollbarOrientation::Vertical => TransformChannel::ScrollbarVertical,
+        ScrollbarOrientation::Horizontal => TransformChannel::ScrollbarHorizontal,
     };
 
-    if let Some(existing_transform) = values.get(&node_id) {
-        if *existing_transform != transform {
-            let Some(&transform_key) = keys.get(&node_id) else {
+    if let Some(existing_transform) = gpu_cache.transform_value(channel, node_id) {
+        if existing_transform != transform {
+            let Some(transform_key) = gpu_cache.transform_key(channel, node_id) else {
                 return;
             };
             changes
@@ -425,15 +1124,14 @@ fn update_scrollbar_transform_key(
                 .push(GpuTransformKeyEvent::Changed(
                     node_id,
                     transform_key,
-                    *existing_transform,
+                    existing_transform,
                     transform,
                 ));
-            values.insert(node_id, transform);
+            gpu_cache.set_transform_value(channel, node_id, transform);
         }
     } else {
         let transform_key = TransformKey::unique();
-        keys.insert(node_id, transform_key);
-        values.insert(node_id, transform);
+        gpu_cache.set_transform(channel, node_id, transform_key, transform);
         changes
             .transform_key_changes
             .push(GpuTransformKeyEvent::Added(
@@ -454,22 +1152,40 @@ impl crate::managers::NodeIdRemap for GpuStateManager {
     /// platform loop keeps generating frames for a node that is not the one
     /// actually scrolling.
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
+        // The list of scroll-driven boxes names the nodes by the ids the
+        // rebuild replaces: the layout pass that follows a rebuild walks
+        // the new tree, and a frame before it walks rather than trust it.
+        self.scroll_driven.remove(&dom);
+        // The view's zoom frame names its node too (audit A4-29): it follows
+        // the node, and goes with it (the list that held it is built again).
+        if let Some(node) = self.zoom_frames.get(&dom).map(|zoom| zoom.node) {
+            match map.resolve(node) {
+                Some(now) => {
+                    if let Some(zoom) = self.zoom_frames.get_mut(&dom) {
+                        zoom.node = now;
+                    }
+                }
+                None => {
+                    let _ = self.zoom_frames.remove(&dom);
+                    self.zoom_gesture_running = self.zoom_frames.values().any(|zoom| zoom.zooming);
+                }
+            }
+        }
         let Some(cache) = self.caches.get_mut(&dom) else {
             return;
         };
 
-        remap_hashmap(&mut cache.transform_keys, map);
-        remap_hashmap(&mut cache.current_transform_values, map);
-        remap_hashmap(&mut cache.h_transform_keys, map);
-        remap_hashmap(&mut cache.h_current_transform_values, map);
-        remap_hashmap(&mut cache.css_transform_keys, map);
-        remap_hashmap(&mut cache.css_current_transform_values, map);
-        remap_hashmap(&mut cache.opacity_keys, map);
-        remap_hashmap(&mut cache.current_opacity_values, map);
-        remap_dom_hashmap(&mut cache.scrollbar_v_opacity_keys, dom, map);
-        remap_dom_hashmap(&mut cache.scrollbar_h_opacity_keys, dom, map);
-        remap_dom_hashmap(&mut cache.scrollbar_v_opacity_values, dom, map);
-        remap_dom_hashmap(&mut cache.scrollbar_h_opacity_values, dom, map);
+        // Every node-keyed map of the cache, as the cache lists them
+        // (`GpuValueCache::rekey_nodes`): the scrollbar thumbs, the CSS
+        // channel with the size each value was resolved against, the
+        // ANIMATION channel (`LayoutWindow::tick_animations` writes a FLIP's
+        // transform and opacity under the node's id every tick: left behind,
+        // a value stayed under the OLD id and the unrelated node that
+        // inherited that slot was painted through a stranger's transform),
+        // the STICKY and SHEEN channels, the bound background colours and
+        // the scrollbar fades. The maps used to be named here one by one,
+        // and a map added to the cache was a map this forgot.
+        cache.rekey_nodes(&mut NodeRemap { dom, map });
     }
 }
 
@@ -496,6 +1212,23 @@ fn remap_dom_hashmap<V>(
         } else if let Some(new_id) = node_map.resolve(old_id) {
             map.insert((d, new_id), v);
         }
+    }
+}
+
+/// The node ids of one DOM's GPU value maps, rewritten after a rebuild:
+/// what `GpuStateManager::remap_node_ids` hands `GpuValueCache::rekey_nodes`.
+struct NodeRemap<'a> {
+    dom: DomId,
+    map: &'a crate::managers::NodeIdMap,
+}
+
+impl azul_core::gpu::RekeyNodes for NodeRemap<'_> {
+    fn node_map<V>(&mut self, map: &mut azul_core::gpu::NodeMap<V>) {
+        remap_hashmap(map, self.map);
+    }
+
+    fn dom_node_map<V>(&mut self, map: &mut azul_core::gpu::DomNodeMap<V>) {
+        remap_dom_hashmap(map, self.dom, self.map);
     }
 }
 
@@ -647,7 +1380,7 @@ mod autotest_generated {
             cache::apply_virtual_scroll_necessity,
             geometry::PackedBoxProps,
             layout_tree::{LayoutNodeCold, LayoutNodeHot, LayoutNodeWarm},
-            scrollbar::ScrollbarRequirements,
+            scrollbar::{ScrollbarKind, ScrollbarPresence, ScrollbarRequirements},
         },
     };
 
@@ -699,11 +1432,13 @@ mod autotest_generated {
     /// What layout computes for an `overflow-y: auto` VirtualView: nothing.
     /// The node is a replaced element with no flow content, so its laid-out
     /// content never exceeds its box and `check_scrollbar_necessity` finds no
-    /// reason for a bar — only `visual_width_px` survives from the CSS style.
+    /// reason for a bar — only the style's bar (kind and `visual_width_px`)
+    /// survives, waiting for an axis that needs it.
     fn auto_no_scrollbar() -> ScrollbarRequirements {
         ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: false,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 0.0,
             scrollbar_height: 0.0,
             visual_width_px: 16.0,
@@ -728,6 +1463,7 @@ mod autotest_generated {
         ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 16.0,
             scrollbar_height: 16.0,
             visual_width_px: 16.0,
@@ -738,6 +1474,7 @@ mod autotest_generated {
         ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: false,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 16.0,
             scrollbar_height: 16.0,
             visual_width_px: 16.0,
@@ -751,7 +1488,7 @@ mod autotest_generated {
             warm,
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena: Vec::new(),
             children_offsets: vec![(0, 0); n],
             subtree_needs_intrinsic: Vec::new(),
@@ -1433,6 +2170,55 @@ mod autotest_generated {
         assert!(c.scrollbar_v_opacity_values.is_empty());
     }
 
+    /// The ANIMATION channel is a per-node cache like the twelve maps above:
+    /// a FLIP in flight writes its node's transform and opacity under the
+    /// node's id on every tick (`LayoutWindow::tick_animations`), and a
+    /// rebuild renumbers the arena. Left where it was, the value stayed
+    /// under the OLD id, and the unrelated node that inherited that slot
+    /// was painted through a reference frame with a stranger's transform:
+    /// a document mounted over AzWidgets at 760x400 had its first `<p>`
+    /// (node 4) painted off-screen - "the first text line is missing".
+    #[test]
+    fn remap_node_ids_moves_the_animation_channel_with_its_node_and_drops_the_unmounted() {
+        let mut m = GpuStateManager::default();
+        let (moved, gone, new) = (NodeId::new(1), NodeId::new(4), NodeId::new(8));
+        let d = dom(0);
+        {
+            let c = m.get_or_create_cache(d);
+            c.anim_transform_keys.insert(moved, TransformKey::unique());
+            c.anim_current_transform_values.insert(moved, tx(0.0, -50.0));
+            c.anim_opacity_keys.insert(moved, OpacityKey::unique());
+            c.anim_current_opacity_values.insert(moved, 0.5);
+            c.anim_transform_keys.insert(gone, TransformKey::unique());
+            c.anim_current_transform_values.insert(gone, tx(0.0, -300.0));
+            c.anim_opacity_keys.insert(gone, OpacityKey::unique());
+            c.anim_current_opacity_values.insert(gone, 1.0);
+        }
+
+        m.remap_node_ids(d, &NodeIdMap::from_pairs([(moved, new)]));
+
+        let c = m.get_cache(d).unwrap();
+        assert!(
+            c.anim_transform_keys.contains_key(&new),
+            "the animation's transform key follows its node"
+        );
+        assert_eq!(
+            c.anim_current_transform_values.get(&new),
+            Some(&tx(0.0, -50.0))
+        );
+        assert!(c.anim_opacity_keys.contains_key(&new));
+        assert_eq!(c.anim_current_opacity_values.get(&new), Some(&0.5));
+        for old in [moved, gone] {
+            assert!(
+                !c.anim_transform_keys.contains_key(&old),
+                "no animation transform stays under {old:?}"
+            );
+            assert!(!c.anim_current_transform_values.contains_key(&old));
+            assert!(!c.anim_opacity_keys.contains_key(&old));
+            assert!(!c.anim_current_opacity_values.contains_key(&old));
+        }
+    }
+
     // ------------------------------------------------------------------
     // update_scrollbar_transforms
     // ------------------------------------------------------------------
@@ -1591,10 +2377,8 @@ mod autotest_generated {
             ),
             LogicalSize::new(100.0, 100.0),
             t0(),
-            16.0,
-            16.0,
-            false,
-            true,
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
         );
         sm.update_virtual_scroll_bounds(dom(0), NODE, LogicalSize::new(100.0, 1000.0), None);
         sm.set_scroll_position(dom(0), NODE, LogicalPosition::new(0.0, 450.0), t0());
@@ -1690,7 +2474,12 @@ mod autotest_generated {
         assert_eq!(
             (info.scrollbar_width, info.scrollbar_height),
             (0.0, 0.0),
-            "no layout gutter is reserved after the fact — the bar overlays"
+            "no layout gutter is reserved after the fact — the bar is drawn over the content"
+        );
+        assert_eq!(
+            info.presence(ScrollbarOrientation::Vertical),
+            ScrollbarPresence::Classic { thickness: 16.0 },
+            "the amended axis has the bar the node's style draws"
         );
         t.warm_mut(LayoutNodeId::new(0))
             .expect("the fixture has a warm node")
@@ -1704,10 +2493,8 @@ mod autotest_generated {
             ),
             LogicalSize::new(100.0, 100.0),
             t0(),
-            info.scrollbar_width.max(info.scrollbar_height),
-            info.visual_width_px,
-            info.needs_horizontal,
-            info.needs_vertical,
+            info.presence(ScrollbarOrientation::Horizontal),
+            info.presence(ScrollbarOrientation::Vertical),
         );
 
         // 4. Half a document down.
@@ -1717,8 +2504,12 @@ mod autotest_generated {
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
 
         // ...and what `paint_scrollbars` computes for the same node from the
-        // same ScrollPosition: overlay bar (scrollbar_height == 0) => no arrow
-        // buttons on either path.
+        // same ScrollPosition and the same presence. The style's bar is a
+        // CLASSIC one, and the painter always drew it with its arrow buttons:
+        // this fixture used to measure it as a button-less overlay because no
+        // gutter had been reserved, pinning the GPU thumb (and the hit test)
+        // one button's worth of travel away from the painted one.
+        let bar = info.presence(ScrollbarOrientation::Vertical);
         let states = sm.get_scroll_states_for_dom(dom(0));
         let pos = states.get(&NODE).expect("the node is registered now");
         let painted = compute_scrollbar_geometry_with_button_size(
@@ -1726,9 +2517,9 @@ mod autotest_generated {
             LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(100.0, 100.0)),
             pos.children_rect.size,
             pos.children_rect.origin.y,
-            info.visual_width_px,
-            info.needs_horizontal,
-            0.0,
+            bar.thickness(),
+            info.presence(ScrollbarOrientation::Horizontal).is_present(),
+            bar.button_size(),
         );
         // Both producers of the thumb TRANSFORM quantise (see
         // `quantize_thumb_offset`), so the agreement is asserted against the
@@ -1740,11 +2531,11 @@ mod autotest_generated {
             (y - painted_transform).abs() < 0.01,
             "GPU path put the thumb at {y}, the painter at {painted_transform}"
         );
-        // usable track = 100 (no buttons), thumb = max(100 * 100/1000, 2*16) = 32,
-        // max_scroll = 900 -> half travel = (100 - 32) * 0.5 = 34.
+        // usable track = 100 - 2*16 = 68, thumb = max(68 * 100/1000, 2*16) = 32,
+        // max_scroll = 900 -> half travel = (68 - 32) * 0.5 = 18.
         assert!(
-            (y - 34.0).abs() < 0.01,
-            "expected the half-track thumb at 34.0, got {y}"
+            (y - 18.0).abs() < 0.01,
+            "expected the half-track thumb at 18.0, got {y}"
         );
 
         // The pre-fix tree — layout's flags, unamended — emits nothing at all,
@@ -1840,6 +2631,7 @@ mod autotest_generated {
         let both = ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 16.0,
             scrollbar_height: 16.0,
             visual_width_px: 16.0,
@@ -1969,9 +2761,8 @@ mod autotest_generated {
     }
 
     #[test]
-    fn overlay_vertical_scrollbars_fall_back_to_the_default_width() {
-        // visual_width_px == 0 and no reserved space at all -> the DEFAULT_SCROLLBAR
-        // _WIDTH_PX (16.0) fallback with button_size 0:
+    fn an_overlay_vertical_bar_runs_its_whole_track_without_buttons() {
+        // An overlay bar, 16px thick, reserving nothing:
         //   usable = 100, thumb = max(100*0.1, 32) = 32, offset@full = 100 - 32 = 68
         let mut m = GpuStateManager::default();
         let mut sm = ScrollManager::new();
@@ -1984,36 +2775,59 @@ mod autotest_generated {
         let overlay = ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Overlay,
             scrollbar_width: 0.0,
             scrollbar_height: 0.0,
-            visual_width_px: 0.0,
+            visual_width_px: 16.0,
         };
         let t = one_node_tree(overlay, LogicalSize::new(100.0, 1000.0));
 
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
         assert!(
             (y - 68.0).abs() < 0.01,
-            "expected the 16px default, got {y}"
+            "an overlay thumb travels the whole 100px track, got {y}"
         );
-        assert_eq!(DEFAULT_SCROLLBAR_WIDTH_PX, 16.0);
     }
 
     #[test]
-    fn classic_vertical_scrollbar_overlay_check_reads_the_wrong_reserved_field() {
-        // BUG (characterisation). ScrollbarRequirements documents:
-        //   scrollbar_width  = layout-reserved width  for a *vertical*   scrollbar
-        //   scrollbar_height = layout-reserved height for a *horizontal* scrollbar
-        // but the needs_vertical branch tests `scrollbar_height == 0.0` to decide
-        // whether the *vertical* bar is an overlay, and falls back to
-        // `scrollbar_height` for its width. The two fields are swapped.
-        //
-        // Repro: a classic, space-reserving vertical-only scrollbar --
-        //   scrollbar_width  = 16.0  (16px reserved for the vertical bar)
-        //   scrollbar_height =  0.0  (no horizontal bar -> nothing reserved)
-        //   visual_width_px  =  0.0  (unset, so the fallback actually runs)
-        // is misread as an overlay: button_size collapses to 0, so the usable
-        // track is 100 instead of 68 and the thumb travels to 68.0 rather than the
-        // correct 36.0 -- the thumb overshoots its own track by ~32px.
+    fn a_style_that_draws_no_bar_gets_no_thumb_to_move() {
+        // `scrollbar-width: none`: the axis scrolls (`needs_vertical`) but no
+        // bar is painted, so there is no thumb for a GPU value to move. This
+        // used to fall back to a 16px overlay bar and emit a transform for it.
+        let mut m = GpuStateManager::default();
+        let mut sm = ScrollManager::new();
+        sm.set_scroll_position_unclamped(
+            dom(0),
+            NodeId::new(1),
+            LogicalPosition::new(0.0, 900.0),
+            t0(),
+        );
+        let none = ScrollbarRequirements {
+            needs_horizontal: true,
+            needs_vertical: true,
+            bar_kind: ScrollbarKind::None,
+            scrollbar_width: 0.0,
+            scrollbar_height: 0.0,
+            visual_width_px: 0.0,
+        };
+        let t = one_node_tree(none, LogicalSize::new(1000.0, 1000.0));
+
+        assert!(
+            m.update_scrollbar_transforms(dom(0), &sm, &t).is_empty(),
+            "no painted bar, no thumb transform"
+        );
+    }
+
+    #[test]
+    fn classic_vertical_scrollbar_is_measured_with_its_arrow_buttons() {
+        // A classic vertical-only scrollbar -- 16px thick, reserving its
+        // WIDTH and no height (`scrollbar_height` is the horizontal bar's
+        // reservation) -- has 16px arrow buttons: the usable track is
+        // 100 - 2 x 16 = 68, the thumb max(68 x 0.1, 32) = 32, and at the
+        // bottom it travels to 68 - 32 = 36.0. Read as an overlay (which the
+        // old reservation-based guess did for the wrong axis) it travelled to
+        // 68.0 and overshot its own track by 32px. The buttons come from the
+        // bar's kind now, not from any reservation.
         let mut m = GpuStateManager::default();
         let mut sm = ScrollManager::new();
         sm.set_scroll_position_unclamped(
@@ -2025,24 +2839,26 @@ mod autotest_generated {
         let classic_vertical_only = ScrollbarRequirements {
             needs_horizontal: false,
             needs_vertical: true,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 16.0,
             scrollbar_height: 0.0,
-            visual_width_px: 0.0,
+            visual_width_px: 16.0,
         };
         let t = one_node_tree(classic_vertical_only, LogicalSize::new(100.0, 1000.0));
 
         let y = sole_added_y(&m.update_scrollbar_transforms(dom(0), &sm, &t));
         assert!(
-            (y - 68.0).abs() < 0.01,
-            "pinning the buggy value; 36.0 once the field swap is fixed, got {y}"
+            (y - 36.0).abs() < 0.01,
+            "a vertical-only classic bar must travel its usable track between the buttons \
+             (36.0), got {y}"
         );
     }
 
     #[test]
-    fn classic_horizontal_scrollbar_overlay_check_reads_the_wrong_reserved_field() {
-        // The mirror image of the above: the needs_horizontal branch tests
-        // `scrollbar_width == 0.0` (the *vertical* bar's reserved width) to decide
-        // whether the *horizontal* bar is an overlay.
+    fn classic_horizontal_scrollbar_is_measured_with_its_arrow_buttons() {
+        // The mirror image of the above: a horizontal-only classic bar reserves
+        // its HEIGHT (`scrollbar_height`) and has arrow buttons, whatever the
+        // vertical bar's `scrollbar_width` says.
         let mut m = GpuStateManager::default();
         let mut sm = ScrollManager::new();
         sm.set_scroll_position_unclamped(
@@ -2054,16 +2870,18 @@ mod autotest_generated {
         let classic_horizontal_only = ScrollbarRequirements {
             needs_horizontal: true,
             needs_vertical: false,
+            bar_kind: ScrollbarKind::Classic,
             scrollbar_width: 0.0,
             scrollbar_height: 16.0,
-            visual_width_px: 0.0,
+            visual_width_px: 16.0,
         };
         let t = one_node_tree(classic_horizontal_only, LogicalSize::new(1000.0, 100.0));
 
         let x = sole_added_x(&m.update_scrollbar_transforms(dom(0), &sm, &t));
         assert!(
-            (x - 68.0).abs() < 0.01,
-            "pinning the buggy value; 36.0 once the field swap is fixed, got {x}"
+            (x - 36.0).abs() < 0.01,
+            "a horizontal-only classic bar must travel its usable track between the buttons \
+             (36.0), got {x}"
         );
     }
 
@@ -2173,5 +2991,406 @@ mod autotest_generated {
         // The second node overwrote the first within the same pass.
         let stored = m.get_cache(dom(0)).unwrap().current_transform_values[&NodeId::new(1)];
         assert!((stored.m[3][1] - 68.0).abs() < 0.01);
+    }
+}
+
+/// A2-gpu (audit 2026-11-21): the writes of this file go through the cache's
+/// write methods and move the write generation (`audit/A2-gpu.md`, A2-gpu-13).
+#[cfg(test)]
+mod audit_a2_gpu_tests {
+    use azul_core::{
+        dom::FormattingContext,
+        gpu::OpacityChannel,
+        resources::OpacityKey,
+        task::{Instant, SystemTick},
+    };
+    use azul_css::props::basic::ColorU;
+
+    use super::*;
+    use crate::{
+        managers::{NodeIdMap, NodeIdRemap},
+        solver3::{
+            geometry::PackedBoxProps,
+            layout_tree::{LayoutNodeCold, LayoutNodeHot, LayoutNodeWarm},
+            scrollbar::{ScrollbarKind, ScrollbarPresence, ScrollbarRequirements},
+        },
+    };
+
+    fn tx(x: f32, y: f32) -> ComputedTransform3D {
+        ComputedTransform3D::new_translation(x, y, 0.0)
+    }
+
+    /// A scroll moves a thumb by whole pixels, and most frames of a glide
+    /// leave it where it is (`quantize_thumb_offset`): the write generation
+    /// moves with the thumb, not with the frame.
+    ///
+    /// First write (0, 10): an `Added` event, the generation moves. The same
+    /// offset again: no event, the generation stays. (0, 11): `Changed`, it
+    /// moves. The horizontal thumb of the same node is a channel of its own.
+    ///
+    /// Mutation: `gpu_cache.set_transform_value(channel, node_id, transform)`
+    /// replaced by a direct `current_transform_values.insert` fails "a thumb
+    /// that moved".
+    #[test]
+    fn a_thumb_that_moves_moves_the_write_generation_and_one_that_stays_does_not() {
+        let node = NodeId::new(3);
+        let mut cache = GpuValueCache::default();
+        let mut changes = GpuEventChanges::empty();
+        let start = cache.value_generation();
+
+        update_scrollbar_transform_key(
+            &mut cache,
+            &mut changes,
+            node,
+            tx(0.0, 10.0),
+            ScrollbarOrientation::Vertical,
+        );
+        let added = cache.value_generation();
+        assert_ne!(added, start, "a thumb was keyed");
+        assert_eq!(changes.transform_key_changes.len(), 1);
+
+        update_scrollbar_transform_key(
+            &mut cache,
+            &mut changes,
+            node,
+            tx(0.0, 10.0),
+            ScrollbarOrientation::Vertical,
+        );
+        assert_eq!(cache.value_generation(), added, "a thumb that stayed");
+        assert_eq!(changes.transform_key_changes.len(), 1);
+
+        update_scrollbar_transform_key(
+            &mut cache,
+            &mut changes,
+            node,
+            tx(0.0, 11.0),
+            ScrollbarOrientation::Vertical,
+        );
+        let moved = cache.value_generation();
+        assert_ne!(moved, added, "a thumb that moved");
+        assert_eq!(
+            cache.transform_value(TransformChannel::ScrollbarVertical, node),
+            Some(tx(0.0, 11.0))
+        );
+
+        update_scrollbar_transform_key(
+            &mut cache,
+            &mut changes,
+            node,
+            tx(4.0, 0.0),
+            ScrollbarOrientation::Horizontal,
+        );
+        assert_ne!(cache.value_generation(), moved);
+        assert_eq!(
+            cache.transform_value(TransformChannel::ScrollbarHorizontal, node),
+            Some(tx(4.0, 0.0))
+        );
+        assert_eq!(
+            cache.transform_value(TransformChannel::ScrollbarVertical, node),
+            Some(tx(0.0, 11.0)),
+            "the vertical thumb is another channel"
+        );
+        assert_ne!(
+            cache.transform_key(TransformChannel::ScrollbarHorizontal, node),
+            cache.transform_key(TransformChannel::ScrollbarVertical, node)
+        );
+    }
+
+    /// A rebuild that renumbers a DOM's nodes moves every value of its cache
+    /// with its node: also the bound background colour and the animation
+    /// channel, and the window's write generation moves. Node 1 becomes node
+    /// 8; node 2 is unmounted.
+    ///
+    /// Mutation: `cache.rekey_nodes(&mut NodeRemap { dom, map })` removed
+    /// from `remap_node_ids` fails every "follows its node".
+    #[test]
+    fn a_rebuild_moves_every_value_with_its_node_and_the_window_generation() {
+        let (old, new, gone) = (NodeId::new(1), NodeId::new(8), NodeId::new(2));
+        let dom = DomId { inner: 0 };
+        let mut manager = GpuStateManager::default();
+        let empty = manager.value_generation();
+        let red = ColorU::new(255, 0, 0, 255);
+        let (css_key, anim_key, color_key, fade_key);
+        {
+            let cache = manager.get_or_create_cache(dom);
+            css_key = cache.key_transform(TransformChannel::Css, old, tx(1.0, 1.0));
+            anim_key = cache.key_transform(TransformChannel::Animation, old, tx(2.0, 2.0));
+            let _ = cache.key_transform(TransformChannel::Animation, gone, tx(9.0, 9.0));
+            let _ = cache.key_opacity(OpacityChannel::Animation, old, 0.5);
+            color_key = cache.key_color(old, red);
+            fade_key = OpacityKey::unique();
+            cache.set_scrollbar_opacity(ScrollbarOrientation::Vertical, dom, old, fade_key, 0.25);
+        }
+        let written = manager.value_generation();
+        assert_ne!(written, empty, "a cache with values is another set than none");
+
+        manager.remap_node_ids(dom, &NodeIdMap::from_pairs([(old, new)]));
+
+        assert_ne!(manager.value_generation(), written, "renumbered nodes are another set");
+        let cache = manager.get_cache(dom).expect("the DOM's cache");
+        assert_eq!(cache.transform_key(TransformChannel::Css, new), Some(css_key));
+        assert_eq!(cache.transform_value(TransformChannel::Css, new), Some(tx(1.0, 1.0)));
+        assert_eq!(
+            cache.transform_key(TransformChannel::Animation, new),
+            Some(anim_key),
+            "the animation channel follows its node"
+        );
+        assert_eq!(cache.opacity_value(OpacityChannel::Animation, new), Some(0.5));
+        assert_eq!(cache.color_key(new), Some(color_key), "the colour key follows its node");
+        assert_eq!(cache.color_value(new), Some(red));
+        assert_eq!(
+            cache.scrollbar_opacity_key(ScrollbarOrientation::Vertical, dom, new),
+            Some(fade_key)
+        );
+        assert_eq!(cache.transform_key(TransformChannel::Css, old), None);
+        assert_eq!(cache.color_key(old), None);
+        assert_eq!(
+            cache.transform_key(TransformChannel::Animation, gone),
+            None,
+            "an unmounted node's value is dropped"
+        );
+        // The frame of the renumbered node: its CSS matrix, then its slide.
+        let (frame_key, product) = cache.reference_frame_of(new).expect("a frame");
+        assert_eq!(frame_key, css_key);
+        assert_eq!(product, tx(3.0, 3.0));
+
+        // A second DOM's cache is part of the window's generation.
+        let before = manager.value_generation();
+        let _ = manager.get_or_create_cache(DomId { inner: 1 });
+        assert_ne!(manager.value_generation(), before);
+    }
+
+    const DOM: DomId = DomId { inner: 0 };
+
+    fn now() -> Instant {
+        Instant::Tick(SystemTick::new(0))
+    }
+
+    /// What layout stores on a box: the requirements of its style, with a
+    /// classic vertical bar 16 px thick when `bar`, with none otherwise
+    /// (the case of nearly every box).
+    fn requirements(bar: bool) -> ScrollbarRequirements {
+        ScrollbarRequirements {
+            needs_horizontal: false,
+            needs_vertical: bar,
+            bar_kind: ScrollbarKind::Classic,
+            scrollbar_width: if bar { 16.0 } else { 0.0 },
+            scrollbar_height: 0.0,
+            visual_width_px: 16.0,
+        }
+    }
+
+    /// A tree of `count` boxes of 100 x 100 without a border, box `i` the
+    /// one box of DOM node `i`; the boxes named in `bars` scroll vertically.
+    fn boxes(count: usize, bars: &[usize]) -> LayoutTree {
+        let nodes = (0..count)
+            .map(|i| LayoutNodeHot {
+                box_props: PackedBoxProps::default(),
+                dom_node_id: Some(NodeId::new(i)),
+                used_size: Some(LogicalSize::new(100.0, 100.0)),
+                formatting_context: FormattingContext::Block {
+                    establishes_new_context: true,
+                },
+                parent: None,
+            })
+            .collect();
+        let warm = (0..count)
+            .map(|i| LayoutNodeWarm {
+                scrollbar_info: Some(requirements(bars.contains(&i))),
+                ..Default::default()
+            })
+            .collect();
+        LayoutTree {
+            nodes,
+            warm,
+            cold: vec![LayoutNodeCold::default(); count],
+            root: 0,
+            dom_to_layout: (0..count)
+                .map(|i| (NodeId::new(i), vec![LayoutNodeId::new(i)]))
+                .collect(),
+            children_arena: Vec::new(),
+            children_offsets: vec![(0, 0); count],
+            subtree_needs_intrinsic: Vec::new(),
+        }
+    }
+
+    /// Registers `node` as registration does for a box of 100 x 100 over
+    /// 1000 px of content with a classic vertical bar: 900 px to scroll.
+    fn register(scroll_manager: &mut ScrollManager, node: usize) {
+        scroll_manager.register_or_update_scroll_node(
+            DOM,
+            NodeId::new(node),
+            LogicalRect::new(LogicalPosition::new(0.0, 0.0), LogicalSize::new(100.0, 100.0)),
+            LogicalSize::new(100.0, 1000.0),
+            now(),
+            ScrollbarPresence::None,
+            ScrollbarPresence::Classic { thickness: 16.0 },
+        );
+    }
+
+    fn thumb_y(manager: &GpuStateManager, node: usize) -> Option<f32> {
+        manager
+            .get_cache(DOM)
+            .and_then(|cache| {
+                cache.transform_value(TransformChannel::ScrollbarVertical, NodeId::new(node))
+            })
+            .map(|transform| transform.m[3][1])
+    }
+
+    /// A4-10(a) / A2-gpu-14, the count: a window of 1000 boxes, two of which
+    /// scroll. The walk the layout pass makes looks at all 1000; a frame
+    /// looks at the 2, whether something scrolled or not; a DOM without a
+    /// scroll box or a sticky box costs a frame no look at all.
+    ///
+    /// The thumb, by hand: track 100 px, two arrow buttons of 16 px, so
+    /// 100 - 2 * 16 = 68 px for the thumb to run in. Thumb length
+    /// 68 * (100 / 1000) = 6.8, not shorter than twice the bar's thickness:
+    /// 32. Scrolled by 450 of 900: (68 - 32) * 0.5 = 18.
+    ///
+    /// Mutations: `update_scrollbar_transforms` not keeping its list
+    /// (`self.scroll_driven.insert` removed) makes every frame a walk
+    /// (2000 instead of 1002); the early `return None` of
+    /// `update_scroll_driven_box` removed changes no count and no value
+    /// (it is the cost per box, not the number of boxes).
+    #[test]
+    fn a_frame_looks_at_the_scroll_boxes_and_the_walk_at_every_box() {
+        let tree = boxes(1000, &[10, 500]);
+        let mut scroll_manager = ScrollManager::new();
+        register(&mut scroll_manager, 10);
+        register(&mut scroll_manager, 500);
+        let mut manager = GpuStateManager::default();
+
+        let walked = manager.update_scrollbar_transforms(DOM, &scroll_manager, &tree);
+        assert_eq!(manager.scroll_boxes_looked_at, 1000, "the walk: every box");
+        assert_eq!(walked.transform_key_changes.len(), 2, "two thumbs were keyed");
+        assert_eq!(thumb_y(&manager, 10), Some(0.0));
+        assert_eq!(thumb_y(&manager, 500), Some(0.0));
+
+        // A frame in which nothing scrolled.
+        let idle = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &tree);
+        assert_eq!(manager.scroll_boxes_looked_at, 1002, "a frame: the two scroll boxes");
+        assert!(idle.is_empty(), "nothing scrolled, nothing moved");
+
+        // A frame after box 500 scrolled half its way.
+        scroll_manager.set_scroll_position(
+            DOM,
+            NodeId::new(500),
+            LogicalPosition::new(0.0, 450.0),
+            now(),
+        );
+        let scrolled = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &tree);
+        assert_eq!(manager.scroll_boxes_looked_at, 1004);
+        assert_eq!(scrolled.transform_key_changes.len(), 1, "one thumb moved");
+        match scrolled.transform_key_changes[0] {
+            GpuTransformKeyEvent::Changed(node, _, old, new) => {
+                assert_eq!(node, NodeId::new(500));
+                assert_eq!(old.m[3][1], 0.0);
+                assert_eq!(new.m[3][1], 18.0, "(68 - 32) * 450 / 900");
+            }
+            ref other => panic!("expected Changed, got {other:?}"),
+        }
+        assert_eq!(thumb_y(&manager, 500), Some(18.0));
+        assert_eq!(thumb_y(&manager, 10), Some(0.0), "the other box did not scroll");
+
+        // The walk finds the same values for the same state: no event.
+        let again = manager.update_scrollbar_transforms(DOM, &scroll_manager, &tree);
+        assert!(again.is_empty(), "the frame left what the walk computes");
+        assert_eq!(manager.scroll_boxes_looked_at, 2004);
+
+        // A DOM none of whose boxes follows a scroll offset.
+        let plain = boxes(1000, &[]);
+        let other = DomId { inner: 1 };
+        let mut manager = GpuStateManager::default();
+        let _ = manager.update_scrollbar_transforms(other, &scroll_manager, &plain);
+        assert_eq!(manager.scroll_boxes_looked_at, 1000);
+        for _ in 0..3 {
+            let frame = manager.refresh_scroll_driven_transforms(other, &scroll_manager, &plain);
+            assert!(frame.is_empty());
+        }
+        assert_eq!(manager.scroll_boxes_looked_at, 1000, "three frames, no box looked at");
+    }
+
+    /// A bar that appears between two layout passes is seen by the next
+    /// frame. `register_scroll_nodes` raises the flag of a box whose
+    /// content began to overflow (a `VirtualView`'s extent, a text edit)
+    /// in the tree, in place, and registers the node with that bar; the
+    /// frame finds a node with a bar that its list does not name and walks.
+    ///
+    /// Box 700, scrolled to its end: (68 - 32) * 900 / 900 = 36.
+    ///
+    /// Mutation: the `nodes_with_a_bar` clause removed from
+    /// `scroll_driven_boxes_hold` leaves the frame at 1 box looked at and
+    /// the new thumb without a key (`thumb_y` is `None`).
+    #[test]
+    fn a_bar_raised_after_the_pass_sends_the_frame_back_to_the_walk() {
+        let mut tree = boxes(1000, &[10]);
+        let mut scroll_manager = ScrollManager::new();
+        register(&mut scroll_manager, 10);
+        let mut manager = GpuStateManager::default();
+        let _ = manager.update_scrollbar_transforms(DOM, &scroll_manager, &tree);
+        let _ = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &tree);
+        assert_eq!(manager.scroll_boxes_looked_at, 1001);
+        assert_eq!(thumb_y(&manager, 700), None);
+
+        tree.warm[700].scrollbar_info = Some(requirements(true));
+        register(&mut scroll_manager, 700);
+        scroll_manager.set_scroll_position(
+            DOM,
+            NodeId::new(700),
+            LogicalPosition::new(0.0, 900.0),
+            now(),
+        );
+
+        let raised = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &tree);
+        assert_eq!(manager.scroll_boxes_looked_at, 2001, "the frame walked the tree");
+        assert_eq!(raised.transform_key_changes.len(), 1);
+        assert_eq!(thumb_y(&manager, 700), Some(36.0), "(68 - 32) * 900 / 900");
+
+        let _ = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &tree);
+        assert_eq!(manager.scroll_boxes_looked_at, 2003, "then the two scroll boxes again");
+    }
+
+    /// A frame that is handed a tree the walk has not seen walks it: a tree
+    /// with another number of boxes, a tree whose listed box belongs to
+    /// another node, the tree after a rebuild renamed the nodes, and a DOM
+    /// nothing was ever walked for.
+    ///
+    /// Mutation: `listed.tree_len == layout_tree.nodes.len()` removed from
+    /// `scroll_driven_boxes_hold` fails "another number of boxes" (1 box
+    /// looked at instead of 101).
+    #[test]
+    fn a_frame_handed_another_tree_walks_it() {
+        let mut scroll_manager = ScrollManager::new();
+        register(&mut scroll_manager, 10);
+        let mut manager = GpuStateManager::default();
+
+        // Nothing was walked for this DOM yet.
+        let tree = boxes(100, &[10]);
+        let first = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &tree);
+        assert_eq!(manager.scroll_boxes_looked_at, 100, "no list: the walk");
+        assert_eq!(first.transform_key_changes.len(), 1);
+        let _ = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &tree);
+        assert_eq!(manager.scroll_boxes_looked_at, 101);
+
+        // Another number of boxes.
+        let longer = boxes(101, &[10]);
+        let _ = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &longer);
+        assert_eq!(manager.scroll_boxes_looked_at, 202, "another number of boxes: the walk");
+        let _ = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &longer);
+        assert_eq!(manager.scroll_boxes_looked_at, 203);
+
+        // As many boxes, but box 10 is the box of another node now.
+        let mut shifted = boxes(101, &[10]);
+        shifted.nodes[10].dom_node_id = Some(NodeId::new(4000));
+        let _ = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &shifted);
+        assert_eq!(manager.scroll_boxes_looked_at, 304, "a listed box of another node: the walk");
+
+        // A rebuild renamed the nodes: the list is dropped with the old names.
+        let _ = manager.update_scrollbar_transforms(DOM, &scroll_manager, &longer);
+        let _ = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &longer);
+        assert_eq!(manager.scroll_boxes_looked_at, 406);
+        manager.remap_node_ids(DOM, &NodeIdMap::from_pairs([(NodeId::new(10), NodeId::new(10))]));
+        let _ = manager.refresh_scroll_driven_transforms(DOM, &scroll_manager, &longer);
+        assert_eq!(manager.scroll_boxes_looked_at, 507, "after a rebuild: the walk");
     }
 }

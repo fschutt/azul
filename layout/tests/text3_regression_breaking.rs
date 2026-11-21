@@ -14,7 +14,7 @@ use azul_layout::{
     font::parsed::ParsedFont,
     parsed_font_to_font_ref,
     text3::cache::{
-        create_logical_items, perform_fragment_layout, reorder_logical_items, shape_visual_items,
+        create_logical_items, perform_fragment_layout, split_into_bidi_runs, shape_bidi_runs,
         AvailableSpace, BidiDirection, BreakCursor, FontChainKey, FontStack, Hyphens,
         InlineContent, LineBreakStrictness, LoadedFonts, OverflowInfo, OverflowWrap, ShapedItem,
         StyleProperties, StyledRun, UnicodeBidi, UnifiedConstraints, UnifiedLayout, WhiteSpaceMode,
@@ -106,11 +106,11 @@ fn layout_cfg(text: &str, width: AvailableSpace, cfg: Cfg) -> UnifiedLayout {
         };
     }
     let visual =
-        reorder_logical_items(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
+        split_into_bidi_runs(&logical, BidiDirection::Ltr, UnicodeBidi::Normal, &mut None)
             .expect("bidi reorder");
     let chain: HashMap<FontChainKey, FontFallbackChain> = HashMap::new();
     let fc = FcFontCache::default();
-    let shaped = shape_visual_items(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
+    let shaped = shape_bidi_runs(&visual, &chain, &fc, &loaded, &mut None).expect("shape");
 
     let mut cursor = BreakCursor::new(&shaped);
     cursor.word_break = cfg.word_break;
@@ -297,13 +297,25 @@ fn zwsp_breaks_even_under_keep_all() {
 fn soft_hyphen_creates_break_with_manual_hyphens() {
     // UAX#14 class BA + CSS hyphens:manual (default): a U+00AD SOFT HYPHEN is a
     // conditional break opportunity, so "aaaa\u{00AD}aaaa" wraps in a 60px box.
+    // The line that breaks at it shows a hyphen (CSS Text), so line 0 is
+    // "aaaa-": 48px of letters and the 6px hyphen.
     let l = layout("aaaa\u{00AD}aaaa", AvailableSpace::Definite(60.0));
     assert_eq!(
         line_count(&l),
         2,
         "soft hyphen must offer a break under hyphens:manual"
     );
-    assert_px(line_width(&l, 0), 48.0);
+    assert_px(line_width(&l, 0), 54.0);
+}
+
+#[test]
+fn a_soft_hyphen_break_counts_its_hyphen_in_the_min_content() {
+    // The min-content takes every break, the soft hyphen's too, and a line
+    // broken there holds the hyphen: "aaaa-" (54px) is the widest line, as
+    // Chrome measures `width: min-content`.
+    let l = layout("aaaa\u{00AD}aaaa", AvailableSpace::MinContent);
+    assert_eq!(line_count(&l), 2, "min-content breaks at the soft hyphen");
+    assert_px(widest_line(&l), 54.0);
 }
 
 #[test]
@@ -338,14 +350,18 @@ fn breaks_at_last_hyphen_that_fits() {
 }
 
 #[test]
-fn slash_offers_a_soft_wrap_opportunity() {
-    // UAX#14 class SY: a break is allowed after U+002F SOLIDUS (non-numeric context).
-    // "aaaa/aaaa" (102px) should wrap after the slash in a 60px box, keeping "aaaa/"
-    // (54px) on line 0. The impl offers no break after '/', so it stays on one line
-    // (and the overflow is dropped by the positioner).
+fn a_solidus_between_ascii_letters_is_no_soft_wrap_opportunity() {
+    // UAX#14 class SY allows a break after U+002F SOLIDUS, but Chrome's line
+    // breaking table for ASCII text does not: "and/or", a path and a URL stay
+    // whole there (it breaks after a solidus only before a letter outside
+    // ASCII). "aaaa/aaaa" (102px) keeps to one line in a 60px box and
+    // overflows it, as in Chrome.
     let l = layout("aaaa/aaaa", AvailableSpace::Definite(60.0));
-    assert_eq!(line_count(&l), 2, "a break opportunity must follow '/'");
-    assert_px(line_width(&l, 0), 54.0);
+    assert_eq!(
+        line_count(&l),
+        1,
+        "a solidus between ASCII letters must not break"
+    );
 }
 
 #[test]

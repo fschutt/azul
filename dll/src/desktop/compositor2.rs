@@ -9,7 +9,8 @@
 //!
 //! - **clip_stack** – tracks nested clip chain IDs (`PushClip` / `PopClip`)
 //! - **spatial_stack** – tracks spatial nodes (`PushScrollFrame` / `PushReferenceFrame`)
-//! - **offset_stack** – converts absolute window coordinates to frame-relative coordinates
+//! - no offset stack: the items are in absolute window coordinates, which are a scroll frame's own
+//!   (it makes no new origin), so nothing is subtracted (`current_offset!()` is zero)
 //!
 //! Called from `generate_frame` in `wr_translate2.rs`.
 
@@ -26,6 +27,7 @@ use azul_css::props::{
     style::border_radius::StyleBorderRadius,
 };
 use azul_layout::{
+    cpurender::{text_halos_of_held_list, TextHalo},
     solver3::display_list::{BorderRadius, DisplayList},
     window::DomLayoutResult,
 };
@@ -37,11 +39,10 @@ use webrender::{
         AlphaType as WrAlphaType, BorderRadius as WrBorderRadius,
         BoxShadowClipMode as WrBoxShadowClipMode, BuiltDisplayList as WrBuiltDisplayList,
         ClipChainId as WrClipChainId, ClipMode as WrClipMode, ColorF, CommonItemProperties,
-        ComplexClipRegion as WrComplexClipRegion, ConicGradient as WrConicGradient,
-        DisplayListBuilder as WrDisplayListBuilder, ExtendMode as WrExtendMode, ExternalScrollId,
-        FilterOp as WrFilterOp, Gradient as WrGradient, GradientStop as WrGradientStop,
-        HasScrollLinkedEffect, ItemTag, PipelineId, PrimitiveFlags as WrPrimitiveFlags,
-        PropertyBinding, RadialGradient as WrRadialGradient, ReferenceFrameKind,
+        ComplexClipRegion as WrComplexClipRegion, DisplayListBuilder as WrDisplayListBuilder,
+        ExtendMode as WrExtendMode, ExternalScrollId, FilterOp as WrFilterOp,
+        GradientStop as WrGradientStop, HasScrollLinkedEffect, ItemTag, PipelineId,
+        PrimitiveFlags as WrPrimitiveFlags, PropertyBinding, ReferenceFrameKind,
         Shadow as WrShadow, SpaceAndClipInfo, SpatialId, SpatialTreeItemKey, TransformStyle,
     },
     render_api::ResourceUpdate as WrResourceUpdate,
@@ -56,6 +57,7 @@ use crate::{
         },
     },
     log_debug,
+    log_trace,
 };
 
 /// Convert logical pixel bounds to physical pixel LayoutRect for WebRender.
@@ -89,22 +91,6 @@ fn resolve_rect(
     )
 }
 
-/// Convert a [`WindowLogicalRect`]'s origin to a WebRender `LayoutPoint`
-/// (frame-relative physical pixels), combining DPI scaling and offset subtraction.
-///
-/// Used for Push* items that only need an origin point (e.g., stacking contexts).
-#[inline]
-fn resolve_point(
-    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
-    dpi: f32,
-    offset: (f32, f32),
-) -> LayoutPoint {
-    LayoutPoint::new(
-        bounds.0.origin.x * dpi - offset.0,
-        bounds.0.origin.y * dpi - offset.1,
-    )
-}
-
 /// Scale a single f32 value from logical to physical pixels
 #[inline]
 fn scale_px(val: f32, dpi: f32) -> f32 {
@@ -112,6 +98,36 @@ fn scale_px(val: f32, dpi: f32) -> f32 {
 }
 
 const DEFAULT_ROOT_FONT_SIZE_PX: f32 = 16.0;
+
+/// The second half of the `SpatialTreeItemKey` of the plain frame that brings
+/// a transformed box's items back to window coordinates; the transformed
+/// frame itself is `(transform key, 0)`. Scroll frames count their second
+/// half up from 0, so they never reach it.
+const WINDOW_SPACE_FRAME: u64 = u64::MAX;
+
+/// A solid rect, bound to its colour key when it has one
+/// (`DisplayList::color_bindings`): `WebRender` then paints it in the key's
+/// dynamic property, with `color` - the colour the list was built with - as
+/// the value it shows while the key has none.
+fn push_bound_rect(
+    builder: &mut WrDisplayListBuilder,
+    info: &CommonItemProperties,
+    rect: LayoutRect,
+    color: ColorF,
+    binding: Option<azul_core::resources::ColorKey>,
+) {
+    match binding {
+        Some(key) => builder.push_rect_with_animation(
+            info,
+            rect,
+            PropertyBinding::Binding(
+                webrender::api::PropertyBindingKey::new(key.id as u64),
+                color,
+            ),
+        ),
+        None => builder.push_rect(info, rect, color),
+    }
+}
 
 #[inline]
 fn color_u_to_wr(c: &ColorU) -> ColorF {
@@ -158,10 +174,7 @@ fn push_text_decoration_rect(
     builder.push_rect(&info, rect, color_f);
 }
 
-/// Translate an Azul DisplayList to WebRender DisplayList and resources
-/// Returns (resources, display_list, nested_pipelines) tuple that can be added to a transaction
-/// by caller. nested_pipelines contains all child virtualized view pipelines that were recursively
-/// built. Whether `AZ_OVERLAY=hit-test` asked for the hit-test overlay.
+/// Whether `AZ_OVERLAY=hit-test` asked for the hit-test overlay.
 ///
 /// Read ONCE per process: the environment cannot change under a running app,
 /// and this is consulted for every `HitTestArea` in every display list, so a
@@ -171,6 +184,305 @@ fn show_hit_test_overlay() -> bool {
     *ON.get_or_init(|| azul_core::window::DebugState::from_az_overlay_env().show_hit_test_areas)
 }
 
+/// Whether the hit-test areas of a display list are handed to WebRender
+/// (`AZ_WR_HIT_TEST=1`; off by default).
+///
+/// Nothing in azul asks WebRender's hit tester any more: every backend answers
+/// from the layout's own (`CommonWindowState::perform_hit_test`). The items
+/// were still translated - 3,703 of the 17,495 items of a map view - put into
+/// the scene's hit-testing scene, and they made the render backend build a new
+/// hit tester over every spatial node after each scroll offset or property
+/// value that changed (`Document::rebuild_hit_tester`): once per pan frame and
+/// per zoom step (audit A4-03). Read once per process, like the overlay switch.
+fn wr_hit_test_items() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_WR_HIT_TEST").map(|v| v == "1").unwrap_or(false))
+}
+
+/// The scroll id, and the first half of the spatial key, of the scroll frame a
+/// view's content is put under ([`view_content_scroll_frames`]). A node's scroll
+/// id is a hash and a transform key a counter from 1: neither is this.
+const VIEW_CONTENT_FRAME: u64 = u64::MAX - 1;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own answer to [`view_content_scroll_frames`], for its thread.
+    static VIEW_CONTENT_FRAMES: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether the content of a view - the display list of a DOM other than the
+/// window's own, which WebRender draws as an iframe - is put under an explicit
+/// scroll frame of its own. On unless the environment says `AZ_WR_VIEW_SLICE=0`
+/// (read once per process).
+///
+/// The frame does not scroll and moves nothing. It is there for WebRender's
+/// picture cache, which cuts its slices by SCROLL ROOT, and an iframe's own
+/// (pipeline root) frame is never one (`SceneSpatialTree::find_scroll_root`).
+/// Without a scroll frame inside it a view's content had the root of the
+/// document for its scroll root: the view scrolls on its pipeline's root
+/// frame, so to the cache every primitive of the view moved on every frame of
+/// a pan, and every tile under it was drawn again - a map's 17,495 items
+/// prepared, batched and rasterised per pan frame. With the frame the view's
+/// slice hangs on the frame, the pan is an offset ABOVE the slice's spatial
+/// node, and WebRender moves the tiles it has and draws the strip that came
+/// into view (audit A4-08). A transform inside the view (a zoom of the map) is
+/// below the frame: its steps draw the tiles again, as before.
+///
+/// This is the arrangement WebRender is made for (a page: a root iframe, in it
+/// an explicit scroll frame, in that the content). What it cannot be checked
+/// for without a window is the picture on the screen while a view pans; hence
+/// the switch. A view under a transformed box of its host gets no slice of its
+/// own (the fork looks above the root pipeline, A4-28).
+fn view_content_scroll_frames() -> bool {
+    #[cfg(test)]
+    if let Some(on) = VIEW_CONTENT_FRAMES.with(core::cell::Cell::get) {
+        return on;
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !std::env::var("AZ_WR_VIEW_SLICE").is_ok_and(|v| v == "0"))
+}
+
+/// The scroll id, and the first half of the spatial key, of the scroll frame
+/// the ZOOMED content of a view is put under (the zoom frame of
+/// [`translate_displaylist_with_zoom_frame`]).
+const VIEW_ZOOM_CONTENT_FRAME: u64 = u64::MAX - 2;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own answer to the `AZ_WR_ZOOM_TILES` half of
+    /// [`zoom_frames_enabled`], for its thread.
+    pub(crate) static ZOOM_FRAMES: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether a view's zoom - one transform over most of its list - is put ABOVE
+/// a picture cache slice of its own, so that a step of the zoom is served by
+/// the tiles the renderer has (audit A4-29). On unless the environment says
+/// `AZ_WR_ZOOM_TILES=0` (read once per process), and only with the view's own
+/// scroll frame ([`view_content_scroll_frames`]): without that there is no
+/// slice of the view to cut.
+///
+/// It decides two things that only work together: the renderer is created with
+/// `low_quality_pinch_zoom` (`wr_translate2::default_renderer_options`), and a
+/// view's list is translated with its zoom frame
+/// (`wr_translate2::submit_display_lists`).
+pub(crate) fn zoom_frames_enabled() -> bool {
+    #[cfg(test)]
+    if let Some(on) = ZOOM_FRAMES.with(core::cell::Cell::get) {
+        return on && view_content_scroll_frames();
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !std::env::var("AZ_WR_ZOOM_TILES").is_ok_and(|v| v == "0"))
+        && view_content_scroll_frames()
+}
+
+/// The scale of `m` when it is a uniform, positive scale and a 2D translation
+/// and nothing else - `[s 0 0 0 / 0 s 0 0 / 0 0 1 0 / tx ty 0 1]` - and `None`
+/// for every other matrix (a rotation, a skew, two different scales, a
+/// perspective, a shift in z, a value that is not finite).
+///
+/// It is the promise a zoom frame makes to WebRender
+/// (`is_2d_scale_translation`): below such a frame a picture cache is drawn at
+/// the frame's scale and placed at its offset. Exact zeros are asked for, not
+/// small numbers: a `translate()` and a `scale()` multiply to exact zeros, and
+/// what a rotation by a tiny angle leaves is not a promise kept. A uniform
+/// scale, because the renderer keeps ONE raster scale per cache.
+pub(crate) fn uniform_scale_translation(
+    m: &azul_core::transform::ComputedTransform3D,
+) -> Option<f32> {
+    let m = &m.m;
+    let s = m[0][0];
+    let plain = m[0][1] == 0.0
+        && m[0][2] == 0.0
+        && m[0][3] == 0.0
+        && m[1][0] == 0.0
+        && m[1][2] == 0.0
+        && m[1][3] == 0.0
+        && m[2][0] == 0.0
+        && m[2][1] == 0.0
+        && m[2][2] == 1.0
+        && m[2][3] == 0.0
+        && m[3][2] == 0.0
+        && m[3][3] == 1.0
+        && m[3][0].is_finite()
+        && m[3][1].is_finite();
+    (plain && s.is_finite() && s > 0.0 && (m[1][1] - s).abs() <= s * 1e-6).then_some(s)
+}
+
+/// The reference frame of a list that may be a view's zoom frame: where its
+/// `PushReferenceFrame` is, and its transform key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ZoomFrameCandidate {
+    /// The index of the frame's `PushReferenceFrame` in the list.
+    pub(crate) item: usize,
+    /// The id of its transform key.
+    pub(crate) key: usize,
+}
+
+/// The ONE reference frame of `display_list` that can be a view's zoom frame
+/// (audit A4-29), by the list alone: the first frame that
+///
+/// - is opened while nothing else of the list is open that places, clips or
+///   groups what is inside it - no other reference frame, no scroll frame, no
+///   clip or image mask, no opacity or filter group (a plain stacking context
+///   may be: it is no surface and no spatial node). Its parent is then the
+///   view's own scroll frame, and no clip of the list reaches into it from a
+///   space the zoom does not move;
+/// - holds at least half of the list's items (it is the picture, not a label);
+/// - is, as the list has it, a uniform scale and a translation
+///   ([`uniform_scale_translation`]);
+/// - and whose key opens no other frame of the list (the renderer finds the
+///   frame of a gesture by its key).
+///
+/// Whether the frame's value NOW still is such a matrix is the caller's to
+/// check (it has the window's bound values): `wr_translate2::zoom_frame_of`.
+pub(crate) fn zoom_frame_candidate(display_list: &DisplayList) -> Option<ZoomFrameCandidate> {
+    use azul_layout::solver3::display_list::DisplayListItem as I;
+
+    let items = &display_list.items;
+    // How many clips, scroll frames, groups and reference frames are open.
+    let mut depth = 0usize;
+    // The frame opened at depth 0 that is still open: its item, its key,
+    // whether its matrix is plain.
+    let mut open: Option<(usize, usize, bool)> = None;
+    let mut found: Option<ZoomFrameCandidate> = None;
+    for (index, item) in items.iter().enumerate() {
+        match item {
+            I::PushReferenceFrame {
+                transform_key,
+                initial_transform,
+                ..
+            } => {
+                if depth == 0 && found.is_none() {
+                    open = Some((
+                        index,
+                        transform_key.id,
+                        uniform_scale_translation(initial_transform).is_some(),
+                    ));
+                }
+                depth += 1;
+            }
+            I::PopReferenceFrame => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    if let Some((start, key, plain)) = open.take() {
+                        // Both of its markers count as its items.
+                        if plain && (index + 1 - start) * 2 >= items.len() {
+                            found = Some(ZoomFrameCandidate { item: start, key });
+                        }
+                    }
+                }
+            }
+            I::PushClip { .. }
+            | I::PushImageMaskClip { .. }
+            | I::PushScrollFrame { .. }
+            | I::PushFilter { .. }
+            | I::PushBackdropFilter { .. }
+            | I::PushOpacity { .. } => depth += 1,
+            I::PopClip
+            | I::PopImageMaskClip
+            | I::PopScrollFrame
+            | I::PopFilter
+            | I::PopBackdropFilter
+            | I::PopOpacity => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    let found = found?;
+    let frames_of_its_key = items
+        .iter()
+        .filter(|item| {
+            matches!(item, I::PushReferenceFrame { transform_key, .. } if transform_key.id == found.key)
+        })
+        .count();
+    (frames_of_its_key == 1).then_some(found)
+}
+
+/// `builder.push_hit_test` for the lists that still feed WebRender's hit
+/// tester ([`wr_hit_test_items`]); nothing otherwise.
+#[inline]
+fn push_wr_hit_test(
+    builder: &mut WrDisplayListBuilder,
+    rect: LayoutRect,
+    clip_chain_id: WrClipChainId,
+    spatial_id: SpatialId,
+    flags: WrPrimitiveFlags,
+    tag: ItemTag,
+) {
+    if wr_hit_test_items() {
+        builder.push_hit_test(rect, clip_chain_id, spatial_id, flags, tag);
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many display lists [`translate_displaylist_to_wr`] has translated on
+    /// this thread: what a test reads to say "this list was translated once".
+    /// Per thread, because the tests run in parallel.
+    pub(crate) static TRANSLATIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The radii of a radial gradient's ending shape (CSS Images 3, 3.2.1): the
+/// shape `shape` sized by `size` about `center` in a box of `extent`, all in
+/// the same units; `(rx, ry)`, equal for a circle.
+///
+/// A circle to a side takes the distance to that side, to a corner the
+/// distance to that corner. An ellipse to a side takes the two distances to
+/// the sides. An ellipse to a CORNER passes through that corner with the
+/// proportions it would have to the SIDE of the same kind: the side ellipse
+/// grown by sqrt(2), because the corner (dx, dy) lies on the ellipse
+/// (k dx, k dy) exactly when 1/k^2 + 1/k^2 = 1. The two corner arms used to
+/// hand WebRender the side distances themselves: `radial-gradient(ellipse
+/// farthest-corner, ..)` - the CSS default - in a centred 200 x 100 box ended
+/// at radii 100 x 50, at the sides, where it has to end at 141.4 x 70.7, in
+/// the corners (the CPU renderer's `radial_gradient_radii` has it since
+/// A1-51).
+pub(crate) fn radial_gradient_radii(
+    shape: &azul_css::props::style::background::Shape,
+    size: &azul_css::props::style::background::RadialGradientSize,
+    center: (f32, f32),
+    extent: (f32, f32),
+) -> (f32, f32) {
+    use azul_css::props::style::background::{RadialGradientSize, Shape};
+
+    let (center_x, center_y) = center;
+    let (width, height) = extent;
+    // The distances to the nearer and to the farther side, per axis.
+    let (near_x, near_y) = (center_x.min(width - center_x), center_y.min(height - center_y));
+    let (far_x, far_y) = (center_x.max(width - center_x), center_y.max(height - center_y));
+    match (shape, size) {
+        (Shape::Circle, RadialGradientSize::ClosestSide) => {
+            let r = near_x.min(near_y);
+            (r, r)
+        }
+        (Shape::Circle, RadialGradientSize::FarthestSide) => {
+            let r = far_x.max(far_y);
+            (r, r)
+        }
+        (Shape::Circle, RadialGradientSize::ClosestCorner) => {
+            let r = (near_x * near_x + near_y * near_y).sqrt();
+            (r, r)
+        }
+        (Shape::Circle, RadialGradientSize::FarthestCorner) => {
+            let r = (far_x * far_x + far_y * far_y).sqrt();
+            (r, r)
+        }
+        (Shape::Ellipse, RadialGradientSize::ClosestSide) => (near_x, near_y),
+        (Shape::Ellipse, RadialGradientSize::FarthestSide) => (far_x, far_y),
+        (Shape::Ellipse, RadialGradientSize::ClosestCorner) => (
+            near_x * core::f32::consts::SQRT_2,
+            near_y * core::f32::consts::SQRT_2,
+        ),
+        (Shape::Ellipse, RadialGradientSize::FarthestCorner) => (
+            far_x * core::f32::consts::SQRT_2,
+            far_y * core::f32::consts::SQRT_2,
+        ),
+    }
+}
+
+/// [`translate_displaylist_with_zoom_frame`] for a list without a zoom frame:
+/// every reference frame of the list is placed where the list opens it.
 pub fn translate_displaylist_to_wr(
     display_list: &DisplayList,
     pipeline_id: PipelineId,
@@ -180,14 +492,57 @@ pub fn translate_displaylist_to_wr(
     wr_resources: Vec<WrResourceUpdate>,
     layout_results: &BTreeMap<DomId, DomLayoutResult>,
     document_id: u32,
-) -> Result<
-    (
-        Vec<WrResourceUpdate>,
-        WrBuiltDisplayList,
-        Vec<(PipelineId, WrBuiltDisplayList)>,
-    ),
-    String,
-> {
+) -> Result<(Vec<WrResourceUpdate>, WrBuiltDisplayList), String> {
+    translate_displaylist_with_zoom_frame(
+        display_list,
+        pipeline_id,
+        viewport_size,
+        renderer_resources,
+        dpi,
+        wr_resources,
+        layout_results,
+        document_id,
+        None,
+    )
+}
+
+/// Translate ONE Azul `DisplayList` - a DOM's, the window's or a
+/// `VirtualView` child's - to a WebRender display list, to be put into a
+/// transaction as the pipeline `pipeline_id` by the caller.
+///
+/// `zoom_frame`: the index of the `PushReferenceFrame` that is the view's
+/// zoom frame, if the caller found one ([`zoom_frame_candidate`]) whose value
+/// is a uniform scale and a translation NOW and will be for as long as the
+/// renderer holds this list (the caller sends the list again, without it, in
+/// the transaction that carries another kind of value). That frame is not
+/// opened inside the view's own scroll frame but next to it, directly in the
+/// pipeline's root frame; it is declared a 2D scale / translation; and what
+/// is inside it gets a scroll frame of its own (it does not scroll either).
+/// WebRender then cuts a picture cache slice for the zoomed content whose
+/// spatial node is BELOW the zoom and below the view's pan: a step of the zoom
+/// is a new scale of the slice in the compositor, not new content of every
+/// tile (`TileCacheInstance::pre_update`; audit A4-29). Only for a view's list
+/// (`pipeline_id.0 != 0`), and only this one frame is declared: a declaration
+/// changes which scroll root WebRender finds below it.
+///
+/// A `VirtualView` item is only an iframe naming its child's pipeline
+/// (`document_id`, the child's DOM id): the child's own list is a DOM of its
+/// own in `layout_results`, translated by its own call
+/// (`wr_translate2::submit_display_lists`). `layout_results` is read to see
+/// that the child exists.
+pub fn translate_displaylist_with_zoom_frame(
+    display_list: &DisplayList,
+    pipeline_id: PipelineId,
+    viewport_size: DeviceIntSize,
+    renderer_resources: &azul_core::resources::RendererResources,
+    dpi: DpiScaleFactor,
+    wr_resources: Vec<WrResourceUpdate>,
+    layout_results: &BTreeMap<DomId, DomLayoutResult>,
+    document_id: u32,
+    zoom_frame: Option<usize>,
+) -> Result<(Vec<WrResourceUpdate>, WrBuiltDisplayList), String> {
+    #[cfg(test)]
+    TRANSLATIONS.with(|count| count.set(count.get() + 1));
     log_debug!(
         LogCategory::DisplayList,
         "[compositor2::translate_displaylist_to_wr] START - {} items, viewport={:?}, \
@@ -210,25 +565,43 @@ pub fn translate_displaylist_to_wr(
     // All display list coordinates are in logical CSS pixels
     let dpi_scale = dpi.inner.get();
 
-    // Collect nested virtualized view pipelines as we process them
-    let mut nested_pipelines: Vec<(PipelineId, WrBuiltDisplayList)> = Vec::new();
-
     // Create WebRender display list builder
     let mut builder = WrDisplayListBuilder::new(pipeline_id);
 
     // CRITICAL: Begin building the display list before pushing items
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[compositor2] Calling builder.begin()"
     );
     builder.begin();
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[compositor2] Builder started, translating {} items",
         display_list.items.len()
     );
 
-    let spatial_id = SpatialId::root_scroll_node(pipeline_id);
+    // The space every item of the list is in unless a frame of the list opens
+    // another: the pipeline's root scroll frame - or, for a view, a scroll frame
+    // of the view's own inside it ([`view_content_scroll_frames`]). It has no
+    // scroll range (content and frame are one rect) and never gets an offset.
+    let spatial_id = if pipeline_id.0 != 0 && view_content_scroll_frames() {
+        let extent = LayoutRect::from_origin_and_size(
+            LayoutPoint::zero(),
+            LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32),
+        );
+        builder.define_scroll_frame(
+            SpatialId::root_scroll_node(pipeline_id),
+            ExternalScrollId(VIEW_CONTENT_FRAME, pipeline_id),
+            extent,
+            extent,
+            LayoutVector2D::zero(),
+            0,
+            HasScrollLinkedEffect::No,
+            SpatialTreeItemKey::new(VIEW_CONTENT_FRAME, 0),
+        )
+    } else {
+        SpatialId::root_scroll_node(pipeline_id)
+    };
     let root_clip_chain_id = WrClipChainId::INVALID;
 
     // NOTE: We DON'T push a stacking context here anymore!
@@ -241,11 +614,48 @@ pub fn translate_displaylist_to_wr(
     // Spatial stack management (for PushScrollFrame/PopScrollFrame)
     let mut spatial_stack: Vec<SpatialId> = vec![spatial_id];
 
+    // One entry per open PushImageMaskClip: whether it opened a masked
+    // stacking context, which its PopImageMaskClip has to close. A mask
+    // whose image is not registered opens none.
+    let mut mask_contexts: Vec<bool> = Vec::new();
+
+    // How often each scroll id has been pushed so far. The display list
+    // closes a frame around a box painted outside it and reopens it after
+    // (`DisplayListGenerator::enter_scroll_chain` - a position:fixed header
+    // on a scrolled page, a translucent item inside a plain scroll box), so
+    // one id can open several frames. Each is a spatial node of its own, and
+    // WebRender asserts that no two nodes of a scene share a
+    // `SpatialTreeItemKey`; `set_scroll_offsets` moves every node carrying
+    // the id, so they still scroll as one.
+    let mut scroll_frame_pushes: BTreeMap<u64, u64> = BTreeMap::new();
+
+    // The same for the reference frames of a transform key: a node painted
+    // twice in one list (a box broken across regions, a fixed box repeated
+    // per page) opens its frame twice with the one key, and the scene builder
+    // PANICS on a spatial key it has seen (`SceneSpatialTree::add_spatial_node`:
+    // "duplicate key"), which takes the window with it - the UI thread waits
+    // for that thread in `flush_scene_builder`. Almost every key is pushed
+    // once, so only the ones seen before are counted (audit A4-06, A2-gpu-12).
+    let mut reference_frames_seen: std::collections::HashSet<u64> =
+        std::collections::HashSet::with_capacity(64);
+    let mut reference_frame_repeats: BTreeMap<u64, u64> = BTreeMap::new();
+
+    // One entry per open PushReferenceFrame: whether it is the view's zoom
+    // frame, whose PopReferenceFrame also leaves the scroll frame of the
+    // zoomed content.
+    let mut zoom_frames_open: Vec<bool> = Vec::new();
+    // A zoom frame is a view's: the window's own list has none.
+    let zoom_frame = zoom_frame.filter(|_| pipeline_id.0 != 0);
+
     // Coordinate offset stack - tracks the origin offset for each spatial context.
     // When we enter a scroll frame, items inside have absolute coordinates but
     // WebRender expects coordinates relative to the scroll frame's content_rect origin.
     // We push the scroll frame's origin when entering, and subtract it from all coordinates.
-    let offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    //
+    // There is no such stack any more (A2-gpu's row): nothing ever pushed to
+    // it, because a scroll frame makes no new origin (see `PushScrollFrame`),
+    // so the "current offset" is zero wherever it is asked for. The arms still
+    // pass it to `resolve_rect` and the text helpers, as a constant.
 
     // Helper to apply current offset to a rect
     let apply_offset = |rect: LayoutRect, offset: (f32, f32)| -> LayoutRect {
@@ -269,12 +679,26 @@ pub fn translate_displaylist_to_wr(
     }
     macro_rules! current_offset {
         () => {
-            offset_stack.last().copied().unwrap_or((0.0, 0.0))
+            (0.0_f32, 0.0_f32)
         };
     }
 
+    // The text shadows drawn as kept pictures (`text_halos`; their images
+    // were drawn and registered with the frame's resources), by the index of
+    // their PushTextShadow: a shadow's own picture, or for a spread shadow whose
+    // picture a later frame draws the one that stands in for it. Every other
+    // shadow goes to WebRender's own. (What the list's shadows are found by is
+    // kept from the scan of the frame's resources while the list is the same.)
+    let halos: BTreeMap<usize, TextHalo> = text_halos_of_held_list(display_list, dpi_scale, None)
+        .into_iter()
+        .map(|halo| (halo.push, halo))
+        .collect();
+    // One entry per open PushTextShadow: whether it went to WebRender's
+    // shadow stack, which its PopTextShadow has to pop.
+    let mut wr_shadows: Vec<bool> = Vec::new();
+
     // Translate display list items to WebRender
-    for item in &display_list.items {
+    for (item_index, item) in display_list.items.iter().enumerate() {
         match item {
             DisplayListItem::Rect {
                 bounds,
@@ -284,10 +708,14 @@ pub fn translate_displaylist_to_wr(
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                 let color_f = color_u_to_wr(color);
+                // A background whose colour fades is bound to its key: the
+                // frames of the fade are property values
+                // (`synchronize_gpu_values`), not new lists.
+                let binding = display_list.color_binding(item_index);
 
                 let current_clip_chain = current_clip!();
                 let current_spatial = current_spatial!();
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[CLIP DEBUG] Rect: adjusted={:?}, clip_chain={:?}, spatial={:?}",
                     rect,
@@ -295,7 +723,7 @@ pub fn translate_displaylist_to_wr(
                     current_spatial
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] Rect push: rect={:?}, clip_chain_id={:?}, spatial_id={:?}, \
                      clip_stack.len={}, spatial_stack.len={}",
@@ -325,7 +753,7 @@ pub fn translate_displaylist_to_wr(
                         scale_px(bounds.0.size.height, dpi_scale),
                     ),
                 );
-                let style_border_radius = convert_border_radius_to_style(border_radius);
+                let style_border_radius = convert_border_radius_to_style(border_radius, dpi_scale);
                 let wr_border_radius = wr_translate_border_radius(
                     style_border_radius,
                     azul_core::geom::LogicalSize::new(
@@ -350,21 +778,21 @@ pub fn translate_displaylist_to_wr(
                         flags: Default::default(),
                     };
 
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] push_rect (with clip): {:?}",
                         rect
                     );
-                    builder.push_rect(&info_clipped, rect, color_f);
+                    push_bound_rect(&mut builder, &info_clipped, rect, color_f, binding);
                     continue;
                 }
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] push_rect: {:?}",
                     rect
                 );
-                builder.push_rect(&info, rect, color_f);
+                push_bound_rect(&mut builder, &info, rect, color_f, binding);
             }
 
             DisplayListItem::SelectionRect {
@@ -469,7 +897,7 @@ pub fn translate_displaylist_to_wr(
 
                 let color_f = color_u_to_wr(color);
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] ScrollBar: bounds={:?}, rect={:?}",
                     bounds,
@@ -491,7 +919,7 @@ pub fn translate_displaylist_to_wr(
                         *scrollbar_hit_id,
                     );
 
-                    builder.push_hit_test(
+                    push_wr_hit_test(&mut builder,
                         rect,
                         current_clip_chain,
                         current_spatial_id,
@@ -511,7 +939,7 @@ pub fn translate_displaylist_to_wr(
                 let base_clip_chain_id = current_clip!();
                 let current_offset = current_offset!();
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] ScrollBarStyled: bounds={:?}, offset={:?}, track={:?}, \
                      thumb={:?}",
@@ -535,8 +963,7 @@ pub fn translate_displaylist_to_wr(
                     );
                     // Use zero origin: children use absolute coordinates already.
                     // Using the scrollbar's position would double-offset children
-                    // since WebRender offsets stacking context children by origin
-                    // when the context has filters (opacity).
+                    // since WebRender offsets stacking context children by origin.
                     builder.push_simple_stacking_context_with_filters(
                         LayoutPoint::zero(),
                         spatial_id,
@@ -549,47 +976,48 @@ pub fn translate_displaylist_to_wr(
 
                 // If clip_to_container_border is enabled and container has border-radius,
                 // create a clip chain for the container's rounded corners
-                let clip_chain_id =
-                    if info.clip_to_container_border && !info.container_border_radius.is_zero() {
-                        let style_border_radius =
-                            convert_border_radius_to_style(&info.container_border_radius);
-                        let wr_border_radius = wr_translate_border_radius(
-                            style_border_radius,
-                            azul_core::geom::LogicalSize::new(
-                                scale_px(info.bounds.0.size.width, dpi_scale),
-                                scale_px(info.bounds.0.size.height, dpi_scale),
-                            ),
-                        );
+                let clip_chain_id = if info.clip_to_container_border
+                    && !info.container_border_radius.is_zero()
+                {
+                    let style_border_radius =
+                        convert_border_radius_to_style(&info.container_border_radius, dpi_scale);
+                    let wr_border_radius = wr_translate_border_radius(
+                        style_border_radius,
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(info.bounds.0.size.width, dpi_scale),
+                            scale_px(info.bounds.0.size.height, dpi_scale),
+                        ),
+                    );
 
-                        // Apply offset to scaled bounds for clip definition
-                        let raw_scaled_bounds = LogicalRect::new(
-                            azul_core::geom::LogicalPosition::new(
-                                scale_px(info.bounds.0.origin.x, dpi_scale),
-                                scale_px(info.bounds.0.origin.y, dpi_scale),
-                            ),
-                            azul_core::geom::LogicalSize::new(
-                                scale_px(info.bounds.0.size.width, dpi_scale),
-                                scale_px(info.bounds.0.size.height, dpi_scale),
-                            ),
-                        );
-                        let scaled_bounds = LogicalRect::new(
-                            azul_core::geom::LogicalPosition::new(
-                                raw_scaled_bounds.origin.x - current_offset.0,
-                                raw_scaled_bounds.origin.y - current_offset.1,
-                            ),
-                            raw_scaled_bounds.size,
-                        );
+                    // Apply offset to scaled bounds for clip definition
+                    let raw_scaled_bounds = LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            scale_px(info.bounds.0.origin.x, dpi_scale),
+                            scale_px(info.bounds.0.origin.y, dpi_scale),
+                        ),
+                        azul_core::geom::LogicalSize::new(
+                            scale_px(info.bounds.0.size.width, dpi_scale),
+                            scale_px(info.bounds.0.size.height, dpi_scale),
+                        ),
+                    );
+                    let scaled_bounds = LogicalRect::new(
+                        azul_core::geom::LogicalPosition::new(
+                            raw_scaled_bounds.origin.x - current_offset.0,
+                            raw_scaled_bounds.origin.y - current_offset.1,
+                        ),
+                        raw_scaled_bounds.size,
+                    );
 
-                        define_border_radius_clip(
-                            &mut builder,
-                            scaled_bounds,
-                            wr_border_radius,
-                            spatial_id,
-                            base_clip_chain_id,
-                        )
-                    } else {
-                        base_clip_chain_id
-                    };
+                    define_border_radius_clip(
+                        &mut builder,
+                        scaled_bounds,
+                        wr_border_radius,
+                        spatial_id,
+                        base_clip_chain_id,
+                    )
+                } else {
+                    base_clip_chain_id
+                };
 
                 // Render track (background)
                 if info.track_color.a > 0 {
@@ -621,7 +1049,7 @@ pub fn translate_displaylist_to_wr(
                             crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
                                 track_hit_id,
                             );
-                        builder.push_hit_test(
+                        push_wr_hit_test(&mut builder,
                             track_rect,
                             clip_chain_id,
                             spatial_id,
@@ -691,7 +1119,23 @@ pub fn translate_displaylist_to_wr(
                         wr_transform,
                     );
 
-                    let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
+                    // The thumb's key is its NODE's: a scroll box painted twice in
+                    // one list (a box broken across regions, a fixed box
+                    // repeated per page) opens two thumb frames with it. The
+                    // rule of the transformed frames below: how often this list
+                    // has opened the key before (A2-gpu-15; thumb keys and
+                    // frame keys are both `TransformKey::unique()` ids, so the
+                    // two collections serve both).
+                    let push_index = if reference_frames_seen.insert(transform_key.id as u64) {
+                        0
+                    } else {
+                        let repeats = reference_frame_repeats
+                            .entry(transform_key.id as u64)
+                            .or_insert(0);
+                        *repeats += 1;
+                        *repeats
+                    };
+                    let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, push_index);
 
                     builder.push_reference_frame(
                         LayoutPoint::zero(),
@@ -716,18 +1160,8 @@ pub fn translate_displaylist_to_wr(
 
                     // Handle rounded thumb corners
                     if !info.thumb_border_radius.is_zero() {
-                        // Scale the border radius by DPI (border radius is in logical pixels)
-                        let scaled_border_radius = BorderRadius {
-                            top_left: scale_px(info.thumb_border_radius.top_left, dpi_scale),
-                            top_right: scale_px(info.thumb_border_radius.top_right, dpi_scale),
-                            bottom_left: scale_px(info.thumb_border_radius.bottom_left, dpi_scale),
-                            bottom_right: scale_px(
-                                info.thumb_border_radius.bottom_right,
-                                dpi_scale,
-                            ),
-                        };
                         let style_border_radius =
-                            convert_border_radius_to_style(&scaled_border_radius);
+                            convert_border_radius_to_style(&info.thumb_border_radius, dpi_scale);
                         let wr_border_radius = wr_translate_border_radius(
                             style_border_radius,
                             azul_core::geom::LogicalSize::new(
@@ -782,7 +1216,7 @@ pub fn translate_displaylist_to_wr(
                     let (tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
                         *scrollbar_hit_id,
                     );
-                    builder.push_hit_test(
+                    push_wr_hit_test(&mut builder,
                         thumb_rect,
                         clip_chain_id,
                         thumb_spatial_id,
@@ -811,7 +1245,7 @@ pub fn translate_displaylist_to_wr(
                 let current_spatial = current_spatial!();
                 let current_clip = current_clip!();
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushClip: bounds={:?} -> rect={:?}, spatial_stack.len={}, \
                      clip_stack.len={}, current_spatial={:?}, current_clip={:?}",
@@ -826,7 +1260,8 @@ pub fn translate_displaylist_to_wr(
                 // Handle rounded corners if border_radius is non-zero
                 if !border_radius.is_zero() {
                     // Convert layout BorderRadius to StyleBorderRadius for translation
-                    let style_border_radius = convert_border_radius_to_style(border_radius);
+                    let style_border_radius =
+                        convert_border_radius_to_style(border_radius, dpi_scale);
 
                     let wr_border_radius = wr_translate_border_radius(
                         style_border_radius,
@@ -856,7 +1291,7 @@ pub fn translate_displaylist_to_wr(
                         current_clip,
                     );
 
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PushClip (rounded): created new_clip_id={:?}, pushing to \
                          clip_stack",
@@ -875,7 +1310,7 @@ pub fn translate_displaylist_to_wr(
                     };
                     let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
 
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PushClip (rect): clip_id={:?}, parent={:?}, \
                          new_clip_chain_id={:?}, pushing to clip_stack",
@@ -887,7 +1322,7 @@ pub fn translate_displaylist_to_wr(
                     clip_stack.push(new_clip_chain_id);
                 }
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushClip DONE: clip_stack.len now = {}",
                     clip_stack.len()
@@ -898,7 +1333,7 @@ pub fn translate_displaylist_to_wr(
                 let before_len = clip_stack.len();
                 if clip_stack.len() > 1 {
                     let popped = clip_stack.pop();
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PopClip: popped {:?}, clip_stack.len {} -> {}",
                         popped,
@@ -906,7 +1341,7 @@ pub fn translate_displaylist_to_wr(
                         clip_stack.len()
                     );
                 } else {
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PopClip: SKIPPED (clip_stack.len={}, would underflow)",
                         before_len
@@ -937,6 +1372,12 @@ pub fn translate_displaylist_to_wr(
                 let current_clip = current_clip!();
                 let current_offset = current_offset!();
                 let external_scroll_id = ExternalScrollId(*scroll_id, pipeline_id);
+                let push_index = {
+                    let pushes = scroll_frame_pushes.entry(*scroll_id).or_insert(0);
+                    let index = *pushes;
+                    *pushes += 1;
+                    index
+                };
 
                 // Apply parent offset to frame_rect for correct positioning in parent space
                 let adjusted_frame_rect = apply_offset(frame_rect, current_offset);
@@ -953,7 +1394,7 @@ pub fn translate_displaylist_to_wr(
                     ),
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame START: frame_rect={:?}, content_rect={:?}, \
                      scroll_id={}, parent_space={:?}, current_clip={:?}, spatial_stack.len={}, \
@@ -967,7 +1408,7 @@ pub fn translate_displaylist_to_wr(
                     clip_stack.len()
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[CLIP DEBUG] PushScrollFrame: frame_rect={:?}, adjusted={:?}, \
                      content_rect={:?}",
@@ -984,10 +1425,10 @@ pub fn translate_displaylist_to_wr(
                     LayoutVector2D::zero(), // external_scroll_offset
                     0,                      // scroll_offset_generation (APZScrollGeneration)
                     HasScrollLinkedEffect::No,
-                    SpatialTreeItemKey::new(*scroll_id, 0),
+                    SpatialTreeItemKey::new(*scroll_id, push_index),
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: defined scroll_spatial_id={:?}",
                     scroll_spatial_id
@@ -1016,42 +1457,61 @@ pub fn translate_displaylist_to_wr(
                 // CRITICAL: The clip must be in parent space so it stays stationary while content
                 // scrolls! If we define it in scroll space, the clip would scroll
                 // with the content (wrong).
-                let scroll_clip_id = builder.define_clip_rect(parent_space, adjusted_frame_rect);
+                //
+                // A box's own scroll frame comes directly after the `PushClip`
+                // of the same box (the builder pushes the clip, then the
+                // frame, with one rect): that clip - this very rect, on this
+                // very parent node, or its rounded form - is already the top
+                // of the clip stack, and a second clip node saying the same
+                // was defined here for every scroll box (A2-gpu's row). Such
+                // a frame takes the chain that is there. A frame without that
+                // clip in front of it - the viewport's frame, a frame opened
+                // again around a box painted outside it - defines its own, as
+                // before: it is the only thing that clips its content.
+                let clipped_by_the_item_before = current_clip != WrClipChainId::INVALID
+                    && item_index
+                        .checked_sub(1)
+                        .and_then(|before| display_list.items.get(before))
+                        .is_some_and(|before| {
+                            matches!(
+                                before,
+                                DisplayListItem::PushClip { bounds, .. } if bounds.0 == clip_bounds.0
+                            )
+                        });
 
-                log_debug!(
-                    LogCategory::DisplayList,
-                    "[CLIP DEBUG] PushScrollFrame: scroll_clip_id={:?}, parent_space={:?}, \
-                     adjusted_frame_rect={:?}",
-                    scroll_clip_id,
-                    parent_space,
-                    adjusted_frame_rect
-                );
-
-                log_debug!(
-                    LogCategory::DisplayList,
-                    "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on \
-                     parent_space={:?} with frame_rect={:?}",
-                    scroll_clip_id,
-                    parent_space,
-                    frame_rect
-                );
-
-                // Create a clip chain with this clip, parented to the current clip chain
+                // The chain this frame's clip is parented to, if it defines one.
                 let parent_clip = if current_clip == WrClipChainId::INVALID {
                     None
                 } else {
                     Some(current_clip)
                 };
-                let scroll_clip_chain = builder.define_clip_chain(parent_clip, [scroll_clip_id]);
+                let scroll_clip_chain = if clipped_by_the_item_before {
+                    current_clip
+                } else {
+                    let scroll_clip_id =
+                        builder.define_clip_rect(parent_space, adjusted_frame_rect);
 
-                log_debug!(
+                    log_trace!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on \
+                         parent_space={:?} with frame_rect={:?}",
+                        scroll_clip_id,
+                        parent_space,
+                        frame_rect
+                    );
+
+                    // A clip chain with this clip, parented to the current clip chain
+                    builder.define_clip_chain(parent_clip, [scroll_clip_id])
+                };
+
+                log_trace!(
                     LogCategory::DisplayList,
                     "[CLIP DEBUG] PushScrollFrame: scroll_clip_chain={:?}, parent_clip={:?}",
                     scroll_clip_chain,
                     parent_clip
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: defined scroll_clip_chain={:?} with \
                      parent={:?}",
@@ -1065,7 +1525,7 @@ pub fn translate_displaylist_to_wr(
                 // during wheel/trackpad events. This uses TAG_TYPE_SCROLL_CONTAINER (0x0500).
                 // The tag encodes: tag.0 = scroll_id, tag.1 = 0x0500
                 let scroll_container_tag: ItemTag = (*scroll_id, TAG_TYPE_SCROLL_CONTAINER);
-                builder.push_hit_test(
+                push_wr_hit_test(&mut builder,
                     adjusted_frame_rect,
                     scroll_clip_chain, // Use the scroll clip chain we just created
                     parent_space,      // Push in parent space (stationary viewport)
@@ -1073,7 +1533,7 @@ pub fn translate_displaylist_to_wr(
                     scroll_container_tag,
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame: pushed scroll container hit-test tag=({}, \
                      0x{:04x})",
@@ -1081,7 +1541,7 @@ pub fn translate_displaylist_to_wr(
                     TAG_TYPE_SCROLL_CONTAINER
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushScrollFrame DONE: spatial_stack.len={}, clip_stack.len={}",
                     spatial_stack.len(),
@@ -1097,7 +1557,7 @@ pub fn translate_displaylist_to_wr(
                 let popped_clip = clip_stack.pop();
                 let popped_spatial = spatial_stack.pop();
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PopScrollFrame: popped_clip={:?}, popped_spatial={:?}, \
                      spatial_stack {} -> {}, clip_stack {} -> {}",
@@ -1151,7 +1611,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Use WebRender's push_hit_test to create a hittable area
                 // This is required for the hit tester to find items at cursor position
-                builder.push_hit_test(
+                push_wr_hit_test(&mut builder,
                     rect,
                     current_clip!(),
                     current_spatial!(),
@@ -1159,7 +1619,7 @@ pub fn translate_displaylist_to_wr(
                     item_tag,
                 );
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] HitTestArea: bounds={:?}, tag={:?}",
                     bounds,
@@ -1200,9 +1660,11 @@ pub fn translate_displaylist_to_wr(
                 font_hash,
                 color,
                 clip_rect,
+                // WebRender clips the run to `clip_rect`; the lines are layout's.
+                line_box: _,
                 source_node_index: _,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] Text item: {} glyphs, font_size={}, color={:?}, \
                      clip_rect={:?}, dpi={}",
@@ -1215,12 +1677,12 @@ pub fn translate_displaylist_to_wr(
 
                 // Log first few glyph positions for debugging
                 if !glyphs.is_empty() {
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] First 3 glyphs (before scaling):"
                     );
                     for (i, g) in glyphs.iter().take(3).enumerate() {
-                        log_debug!(
+                        log_trace!(
                             LogCategory::DisplayList,
                             "  [{}] index={}, pos=({}, {})",
                             i,
@@ -1261,6 +1723,7 @@ pub fn translate_displaylist_to_wr(
                     &info,
                     glyphs,
                     font_hash.font_hash,
+                    font_hash.synthetic_bold,
                     *color,
                     renderer_resources,
                     dpi,
@@ -1278,13 +1741,38 @@ pub fn translate_displaylist_to_wr(
                 // Get the ImageRefHash from the ImageRef
                 let image_ref_hash = image.get_hash();
 
-                if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
-                    let wr_image_key = translate_image_key(resolved_image.key);
+                // The picture's key and colour model - or, for a node that
+                // shows a null image, the key kept as the place of its picture
+                // to come (`wr_translate2::reserve_image_places`: one clear
+                // pixel until the picture arrives as an update of that key,
+                // with this list as it is).
+                let resolved = renderer_resources
+                    .get_image(&image_ref_hash)
+                    .map(|resolved| (resolved.key, resolved.descriptor.format))
+                    .or_else(|| {
+                        if !image.is_null_image() {
+                            return None;
+                        }
+                        let node = display_list.node_mapping.get(item_index).copied().flatten()?;
+                        let slot = azul_core::resources::ImageSlot::Node(
+                            DomId {
+                                inner: pipeline_id.0 as usize,
+                            },
+                            node,
+                        );
+                        let key = *renderer_resources.image_slots.get(&slot)?;
+                        (renderer_resources.image_key_map.get(&key)
+                            == Some(&azul_core::resources::ImageRefHash::PLACE))
+                        .then_some((key, azul_core::resources::RawImageFormat::RGBA8))
+                    });
+                if let Some((resolved_key, format)) = resolved {
+                    let wr_image_key = translate_image_key(resolved_key);
 
                     let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
                     // Handle border_radius by creating a clip region (same as Rect)
-                    let style_border_radius = convert_border_radius_to_style(border_radius);
+                    let style_border_radius =
+                        convert_border_radius_to_style(border_radius, dpi_scale);
                     let wr_border_radius = wr_translate_border_radius(
                         style_border_radius,
                         azul_core::geom::LogicalSize::new(
@@ -1326,7 +1814,7 @@ pub fn translate_displaylist_to_wr(
                         }
                     };
 
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] push_image: bounds={:?}, key={:?}",
                         bounds,
@@ -1337,14 +1825,51 @@ pub fn translate_displaylist_to_wr(
                     // ImageRendering::Auto and PremultipliedAlpha are reasonable defaults
                     use webrender::api::ImageRendering as WrImageRendering;
 
-                    builder.push_image(
-                        &info,
-                        rect,
-                        WrImageRendering::Auto,
-                        WrAlphaType::PremultipliedAlpha,
-                        wr_image_key,
-                        ColorF::WHITE, // No tint by default
-                    );
+                    // An NV12 frame (camera / decoder) is a YUV image: its two
+                    // planes (R8 luma + RG8 chroma, see
+                    // `wr_translate2::nv12_plane_descriptors`) are converted to
+                    // RGB in the shader, in the frame's own matrix and range.
+                    let chroma_key = if format.is_nv12() {
+                        renderer_resources
+                            .nv12_chroma_keys
+                            .get(&resolved_key)
+                            .copied()
+                    } else {
+                        None
+                    };
+                    match chroma_key {
+                        Some(chroma_key) => {
+                            use webrender::api::{
+                                ColorDepth as WrColorDepth, ColorRange as WrColorRange,
+                                YuvColorSpace as WrYuvColorSpace, YuvData as WrYuvData,
+                            };
+                            builder.push_yuv_image(
+                                &info,
+                                rect,
+                                WrYuvData::NV12(wr_image_key, translate_image_key(chroma_key)),
+                                WrColorDepth::Color8,
+                                if format.is_rec709() {
+                                    WrYuvColorSpace::Rec709
+                                } else {
+                                    WrYuvColorSpace::Rec601
+                                },
+                                if format.is_full_range() {
+                                    WrColorRange::Full
+                                } else {
+                                    WrColorRange::Limited
+                                },
+                                WrImageRendering::Auto,
+                            );
+                        }
+                        None => builder.push_image(
+                            &info,
+                            rect,
+                            WrImageRendering::Auto,
+                            WrAlphaType::PremultipliedAlpha,
+                            wr_image_key,
+                            ColorF::WHITE, // No tint by default
+                        ),
+                    }
                 } else {
                     log_debug!(
                         LogCategory::DisplayList,
@@ -1355,7 +1880,7 @@ pub fn translate_displaylist_to_wr(
             }
 
             DisplayListItem::PushStackingContext { z_index, bounds } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushStackingContext: z_index={}, bounds={:?}, dpi={}",
                     z_index,
@@ -1363,36 +1888,31 @@ pub fn translate_displaylist_to_wr(
                     dpi_scale
                 );
 
-                // Push a simple stacking context at the bounds origin
-                // (offset-corrected so it's relative to the current scroll frame)
+                // WebRender moves everything inside a stacking context by its
+                // origin, and the items inside are already in window
+                // coordinates: opened at the box's position, the box would be
+                // drawn that far off a second time. So the context opens at
+                // zero, like the opacity and filter groups below.
                 let current_spatial_id = current_spatial!();
-                let current_offset = current_offset!();
-                let scaled_origin = resolve_point(bounds, dpi_scale, current_offset);
-                log_debug!(
-                    LogCategory::DisplayList,
-                    "[compositor2] >>>>> push_simple_stacking_context at ({}, {}) <<<<<",
-                    scaled_origin.x,
-                    scaled_origin.y
-                );
                 builder.push_simple_stacking_context(
-                    scaled_origin,
+                    LayoutPoint::zero(),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
                 );
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] >>>>> push_simple_stacking_context RETURNED <<<<<"
                 );
             }
 
             DisplayListItem::PopStackingContext => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopStackingContext");
-                log_debug!(
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopStackingContext");
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] >>>>> pop_stacking_context <<<<<"
                 );
                 builder.pop_stacking_context();
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] >>>>> pop_stacking_context RETURNED <<<<<"
                 );
@@ -1408,25 +1928,38 @@ pub fn translate_displaylist_to_wr(
                 // allowing WebRender to animate the transform via append_dynamic_properties
                 // without rebuilding the display list.
 
-                let parent_spatial_id = current_spatial!();
+                // The view's zoom frame is opened next to the view's own
+                // scroll frame, not inside it: the slice of the zoomed
+                // content then has the zoom ABOVE its spatial node, as it
+                // has the view's pan (see the function's docs).
+                let is_zoom_frame = zoom_frame == Some(item_index);
+                let parent_spatial_id = if is_zoom_frame {
+                    SpatialId::root_scroll_node(pipeline_id)
+                } else {
+                    current_spatial!()
+                };
 
                 // Convert ComputedTransform3D (row-major [[f32;4];4]) to WR LayoutTransform.
                 // IMPORTANT: Scale the translation components (m[3][0], m[3][1], m[3][2]) by DPI
                 // because the transform operates in the same coordinate space as display list
                 // items, which are all scaled from CSS (logical) pixels to physical pixels.
+                // The perspective column (m[0][3], m[1][3], m[2][3]) multiplies a
+                // coordinate that is now dpi times as large, so it is divided by it:
+                // the matrix in device px is S^-1 * M * S with S = diag(dpi, dpi, dpi, 1)
+                // (audit A2-gpu-01).
                 let wr_transform = LayoutTransform::new(
                     initial_transform.m[0][0],
                     initial_transform.m[0][1],
                     initial_transform.m[0][2],
-                    initial_transform.m[0][3],
+                    initial_transform.m[0][3] / dpi_scale,
                     initial_transform.m[1][0],
                     initial_transform.m[1][1],
                     initial_transform.m[1][2],
-                    initial_transform.m[1][3],
+                    initial_transform.m[1][3] / dpi_scale,
                     initial_transform.m[2][0],
                     initial_transform.m[2][1],
                     initial_transform.m[2][2],
-                    initial_transform.m[2][3],
+                    initial_transform.m[2][3] / dpi_scale,
                     initial_transform.m[3][0] * dpi_scale,
                     initial_transform.m[3][1] * dpi_scale,
                     initial_transform.m[3][2] * dpi_scale,
@@ -1440,57 +1973,134 @@ pub fn translate_displaylist_to_wr(
                     wr_transform,
                 );
 
-                // Use the transform_key.id as the spatial tree item key
-                let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
+                // Use the transform_key.id as the spatial tree item key, with
+                // how often this list has opened the key's frame before (0
+                // for all but a node that is painted more than once).
+                let push_index = if reference_frames_seen.insert(transform_key.id as u64) {
+                    0
+                } else {
+                    let repeats = reference_frame_repeats
+                        .entry(transform_key.id as u64)
+                        .or_insert(0);
+                    *repeats += 1;
+                    *repeats
+                };
+                let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, push_index);
 
-                // Push reference frame at ZERO origin.
-                // The reference frame is purely for the dynamic transform (drag delta / CSS
-                // transform). Items inside keep their absolute (DPI-scaled)
-                // coordinates. We do NOT shift the coordinate origin - the
-                // transform handles all movement.
-                let new_spatial_id = builder.push_reference_frame(
-                    LayoutPoint::zero(),
+                // The transform works about the box's own top-left corner
+                // (`transform-origin` resolves against the box, and the CPU
+                // renderer applies it about `bounds`' origin); the items
+                // inside stay in window coordinates. WebRender draws a frame's
+                // content at `transform(p) + origin`, so the transformed frame
+                // opens at the box's corner and a plain frame inside it opens
+                // at minus that corner: the transform turns the box about its
+                // corner and the items keep their coordinates. The live value
+                // `synchronize_gpu_values` sends for the key replaces the
+                // outer frame's matrix as it is.
+                let corner = LayoutPoint::new(
+                    scale_px(bounds.0.origin.x, dpi_scale),
+                    scale_px(bounds.0.origin.y, dpi_scale),
+                );
+                let transformed = builder.push_reference_frame(
+                    corner,
                     parent_spatial_id,
                     TransformStyle::Flat,
                     binding,
                     ReferenceFrameKind::Transform {
-                        is_2d_scale_translation: false,
+                        // Declared for the zoom frame alone: the caller keeps
+                        // the promise (it sends the list again, undeclared,
+                        // with the first value that is not such a matrix).
+                        is_2d_scale_translation: is_zoom_frame,
                         should_snap: false,
                         paired_with_perspective: false,
                     },
                     spatial_key,
                 );
+                let window_space = builder.push_reference_frame(
+                    LayoutPoint::new(-corner.x, -corner.y),
+                    transformed,
+                    TransformStyle::Flat,
+                    PropertyBinding::Value(LayoutTransform::identity()),
+                    ReferenceFrameKind::Transform {
+                        is_2d_scale_translation: true,
+                        should_snap: false,
+                        paired_with_perspective: false,
+                    },
+                    SpatialTreeItemKey::new(
+                        transform_key.id as u64,
+                        WINDOW_SPACE_FRAME - push_index,
+                    ),
+                );
 
-                // Push the new spatial ID so all children use this transform space.
-                // NO offset push - origin is (0,0), items keep absolute coordinates.
-                spatial_stack.push(new_spatial_id);
+                // Children are placed in the window-space frame; the pop
+                // closes both.
+                spatial_stack.push(transformed);
+                spatial_stack.push(window_space);
+
+                // The zoomed content's own scroll frame: the scroll root of
+                // everything up to the frame's pop, so WebRender cuts a slice
+                // for it below the zoom. Like the view's own it has no scroll
+                // range and never gets an offset.
+                if is_zoom_frame {
+                    let extent = LayoutRect::from_origin_and_size(
+                        LayoutPoint::zero(),
+                        LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32),
+                    );
+                    let zoomed_content = builder.define_scroll_frame(
+                        window_space,
+                        ExternalScrollId(VIEW_ZOOM_CONTENT_FRAME, pipeline_id),
+                        extent,
+                        extent,
+                        LayoutVector2D::zero(),
+                        0,
+                        HasScrollLinkedEffect::No,
+                        SpatialTreeItemKey::new(VIEW_ZOOM_CONTENT_FRAME, 0),
+                    );
+                    spatial_stack.push(zoomed_content);
+                }
+                zoom_frames_open.push(is_zoom_frame);
             }
 
             DisplayListItem::PopReferenceFrame => {
-                builder.pop_reference_frame();
-                spatial_stack.pop();
-                // NO offset_stack.pop() - we didn't push one
+                // The scroll frame of a zoom frame's content is a spatial
+                // node of this translation only: nothing of the builder to pop.
+                if zoom_frames_open.pop() == Some(true) {
+                    spatial_stack.pop();
+                }
+                // The window-space frame and the transformed frame around it.
+                for _ in 0..2 {
+                    builder.pop_reference_frame();
+                    spatial_stack.pop();
+                }
             }
 
             DisplayListItem::VirtualView {
                 child_dom_id,
                 bounds,
                 clip_rect,
-                content_offset,
+                // The scroll is not baked in here: `scroll_all_nodes` moves
+                // the child pipeline's root scroll frame by the live offset
+                // every frame, so a scroll needs no new display list.
+                content_offset: _,
             } => {
-                // VirtualView rendering implementation:
-                // 1. Create PipelineId from child_dom_id
-                // 2. Look up child display list from layout_results
-                // 3. Recursively translate child display list
-                // 4. Store child pipeline for later registration
-                // 5. Push virtualized view to current display list
-
+                // A VirtualView is an iframe of ITS OWN pipeline: the child
+                // DOM's list is translated and submitted as a DOM of its own
+                // (`wr_translate2::submit_display_lists` walks every DOM of
+                // `layout_results`, and sends only the lists WebRender does
+                // not hold), so here the iframe only NAMES the pipeline.
+                //
+                // This arm used to translate the child's whole list again,
+                // inline, and hand it back as a nested pipeline - while the
+                // walk over `layout_results` translated the same list as a DOM
+                // of its own: every frame built a map's 5 000-item child
+                // twice, and a restyle of the host (a hover, the caret) built
+                // it once more although it had not changed.
                 let child_pipeline_id = wr_translate_pipeline_id(AzulPipelineId(
                     child_dom_id.inner as u32,
                     document_id,
                 ));
 
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] VirtualView: child_dom_id={:?}, child_pipeline_id={:?}, \
                      bounds={:?}, clip_rect={:?}",
@@ -1500,73 +2110,23 @@ pub fn translate_displaylist_to_wr(
                     clip_rect
                 );
 
-                // Look up child layout result
-                if let Some(child_layout_result) = layout_results.get(child_dom_id) {
-                    log_debug!(
-                        LogCategory::DisplayList,
-                        "[compositor2] Found child layout result with {} display list items",
-                        child_layout_result.display_list.items.len()
-                    );
+                if layout_results.contains_key(child_dom_id) {
+                    // Push virtualized view to current display list
+                    let space_and_clip = SpaceAndClipInfo {
+                        spatial_id: current_spatial!(),
+                        clip_chain_id: current_clip!(),
+                    };
 
-                    // Recursively translate child display list
-                    match translate_displaylist_to_wr(
-                        &child_layout_result.display_list,
+                    let wr_bounds = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
+                    let wr_clip_rect = scale_bounds_to_layout_rect(clip_rect.inner(), dpi_scale);
+
+                    builder.push_iframe(
+                        wr_bounds,
+                        wr_clip_rect,
+                        &space_and_clip,
                         child_pipeline_id,
-                        viewport_size,
-                        renderer_resources,
-                        dpi,
-                        Vec::new(), // No resources for child - they're already in parent
-                        layout_results,
-                        document_id,
-                    ) {
-                        Ok((_, child_dl, mut child_nested)) => {
-                            log_debug!(
-                                LogCategory::DisplayList,
-                                "[compositor2] Successfully translated child display list with {} \
-                                 nested pipelines",
-                                child_nested.len()
-                            );
-
-                            // Store this child pipeline
-                            nested_pipelines.push((child_pipeline_id, child_dl));
-
-                            // Store all deeply nested pipelines
-                            nested_pipelines.append(&mut child_nested);
-
-                            // Push virtualized view to current display list
-                            let space_and_clip = SpaceAndClipInfo {
-                                spatial_id: current_spatial!(),
-                                clip_chain_id: current_clip!(),
-                            };
-
-                            let wr_bounds = scale_bounds_to_layout_rect(bounds.inner(), dpi_scale);
-                            let wr_clip_rect =
-                                scale_bounds_to_layout_rect(clip_rect.inner(), dpi_scale);
-
-                            builder.push_iframe(
-                                wr_bounds,
-                                wr_clip_rect,
-                                &space_and_clip,
-                                child_pipeline_id,
-                                false, // ignore_missing_pipeline
-                            );
-
-                            log_debug!(
-                                LogCategory::DisplayList,
-                                "[compositor2] Pushed virtualized view for pipeline {:?}",
-                                child_pipeline_id
-                            );
-                        }
-                        Err(e) => {
-                            log_debug!(
-                                LogCategory::DisplayList,
-                                "[compositor2] Error translating child display list for \
-                                 dom_id={:?}: {}",
-                                child_dom_id,
-                                e
-                            );
-                        }
-                    }
+                        false, // ignore_missing_pipeline
+                    );
                 } else {
                     log_debug!(
                         LogCategory::DisplayList,
@@ -1586,9 +2146,14 @@ pub fn translate_displaylist_to_wr(
                 );
             }
 
+            // A `<webview>`'s rect: the native view is a child view the
+            // platform composites over the window (placed by the shell's
+            // web view pump), so WebRender draws nothing here.
+            DisplayListItem::WebView { .. } => {}
+
             DisplayListItem::TextLayout { .. } => {
                 // TextLayout items are handled elsewhere (via PushCachedTextRuns)
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] TextLayout item (handled via cached text runs)"
                 );
@@ -1600,7 +2165,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] LinearGradient: bounds={:?}",
                     bounds
@@ -1609,99 +2174,78 @@ pub fn translate_displaylist_to_wr(
                 // Convert CSS gradient to WebRender gradient
                 let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
-                // Create layout rect for computing gradient points (use scaled size)
-                use azul_css::props::basic::{
-                    LayoutPoint as CssLayoutPoint, LayoutRect as CssLayoutRect,
-                    LayoutSize as CssLayoutSize,
-                };
-                let scaled_width = scale_px(bounds.0.size.width, dpi_scale);
-                let scaled_height = scale_px(bounds.0.size.height, dpi_scale);
-                let layout_rect = CssLayoutRect {
-                    origin: CssLayoutPoint::new(0, 0),
-                    size: CssLayoutSize {
-                        width: scaled_width.round() as isize,
-                        height: scaled_height.round() as isize,
-                    },
-                };
-
-                // Get start and end points from direction
-                let (start, end) = gradient.direction.to_points(&layout_rect);
-                let start_point = LayoutPoint::new(start.x as f32, start.y as f32);
-                let end_point = LayoutPoint::new(end.x as f32, end.y as f32);
-
-                // Convert extend mode
+                // The gradient line and every stop on it, from the resolver the
+                // CPU renderer shares (CSS Images 3: `90deg` runs like `to right`,
+                // a stop at a length sits at that length, a hard stop is two stops
+                // at one offset - WebRender draws those as a hard change). It
+                // works in the box's CSS px; the line is scaled to device px.
+                use azul_css::props::style::background::{color_stops_on_the_line, ExtendMode};
+                let mut resolved =
+                    gradient.resolve_in_box(bounds.0.size.width, bounds.0.size.height);
                 let extend_mode = match gradient.extend_mode {
-                    azul_css::props::style::background::ExtendMode::Clamp => WrExtendMode::Clamp,
-                    azul_css::props::style::background::ExtendMode::Repeat => WrExtendMode::Repeat,
+                    ExtendMode::Clamp => WrExtendMode::Clamp,
+                    ExtendMode::Repeat => {
+                        // The first..last stop span is what repeats.
+                        resolved = resolved.to_repeat_period();
+                        WrExtendMode::Repeat
+                    }
                 };
+                let start_point = LayoutPoint::new(
+                    scale_px(resolved.start.0, dpi_scale),
+                    scale_px(resolved.start.1, dpi_scale),
+                );
+                let end_point = LayoutPoint::new(
+                    scale_px(resolved.end.0, dpi_scale),
+                    scale_px(resolved.end.1, dpi_scale),
+                );
 
-                // Convert gradient stops
-                let wr_stops: Vec<WrGradientStop> = gradient
+                // Convert gradient stops (a clamped gradient only samples the
+                // line itself, so its stops are cut to 0..=1 there, mixed in
+                // premultiplied space as WebRender mixes between them).
+                use azul_css::props::basic::color::ColorU as CssColorU;
+                let stops: Vec<(f32, CssColorU)> = resolved
                     .stops
-                    .as_ref()
                     .iter()
-                    .map(|stop| {
-                        WrGradientStop {
-                            offset: stop.offset.normalized(), // normalized() returns 0-1 range
-                            color: wr_translate_color_f(
-                                azul_css::props::basic::color::ColorF::from(
-                                    stop.color.to_color_u_default(),
-                                ),
-                            ),
-                        }
+                    .map(|(t, color)| (*t, color.to_color_u_default()))
+                    .collect();
+                let stops = match gradient.extend_mode {
+                    ExtendMode::Clamp => {
+                        color_stops_on_the_line(&stops, CssColorU::interpolate_premultiplied)
+                    }
+                    ExtendMode::Repeat => stops,
+                };
+                let wr_stops: Vec<WrGradientStop> = stops
+                    .iter()
+                    .map(|&(offset, color)| WrGradientStop {
+                        offset,
+                        color: wr_translate_color_f(azul_css::props::basic::color::ColorF::from(
+                            color,
+                        )),
                     })
                     .collect();
 
-                // Create WebRender gradient
-                let wr_gradient = WrGradient {
-                    start_point,
-                    end_point,
-                    extend_mode,
-                };
-
-                // Handle border-radius clipping
-                let style_border_radius = convert_border_radius_to_style(border_radius);
-                let wr_border_radius = wr_translate_border_radius(
-                    style_border_radius,
-                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                );
-
-                let tile_size = LayoutSize::new(scaled_width, scaled_height);
-                let tile_spacing = LayoutSize::zero();
-
-                if !wr_border_radius.is_zero() {
-                    let logical_rect = LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(
-                            scale_px(bounds.0.origin.x, dpi_scale),
-                            scale_px(bounds.0.origin.y, dpi_scale),
-                        ),
-                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                    );
-                    let new_clip_id = define_border_radius_clip(
+                if resolved.stops.len() >= 2 {
+                    let info = gradient_item_properties(
                         &mut builder,
-                        logical_rect,
-                        wr_border_radius,
+                        bounds,
+                        border_radius,
+                        rect,
+                        dpi_scale,
                         current_spatial!(),
                         current_clip!(),
                     );
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: new_clip_id,
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    // Push stops immediately before gradient to avoid clip items interleaving
-                    builder.push_stops(&wr_stops);
-                    builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
-                } else {
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: current_clip!(),
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    builder.push_stops(&wr_stops);
-                    builder.push_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                    // WebRender fills its gradient table from a stop at 0 to
+                    // one at 1 and paints white past the last stop it gets;
+                    // `create_gradient` moves the line onto the stops' span.
+                    let wr_gradient =
+                        builder.create_gradient(start_point, end_point, wr_stops, extend_mode);
+                    builder.push_gradient(
+                        &info,
+                        rect,
+                        wr_gradient,
+                        info.clip_rect.size(),
+                        LayoutSize::zero(),
+                    );
                 }
             }
 
@@ -1710,7 +2254,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] RadialGradient: bounds={:?}",
                     bounds
@@ -1744,82 +2288,15 @@ pub fn translate_displaylist_to_wr(
                 };
                 let center = LayoutPoint::new(center_x, center_y);
 
-                // Compute radius based on shape and size keyword (in DPI-scaled coordinates)
-                use azul_css::props::style::background::RadialGradientSize;
-                let radius = match (&gradient.shape, &gradient.size) {
-                    // Circle: same radius in both directions
-                    (
-                        azul_css::props::style::background::Shape::Circle,
-                        RadialGradientSize::ClosestSide,
-                    ) => {
-                        let r = center_x
-                            .min(center_y)
-                            .min(scaled_width - center_x)
-                            .min(scaled_height - center_y);
-                        LayoutSize::new(r, r)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Circle,
-                        RadialGradientSize::FarthestSide,
-                    ) => {
-                        let r = center_x
-                            .max(center_y)
-                            .max(scaled_width - center_x)
-                            .max(scaled_height - center_y);
-                        LayoutSize::new(r, r)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Circle,
-                        RadialGradientSize::ClosestCorner,
-                    ) => {
-                        let dx = center_x.min(scaled_width - center_x);
-                        let dy = center_y.min(scaled_height - center_y);
-                        let r = (dx * dx + dy * dy).sqrt();
-                        LayoutSize::new(r, r)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Circle,
-                        RadialGradientSize::FarthestCorner,
-                    ) => {
-                        let dx = center_x.max(scaled_width - center_x);
-                        let dy = center_y.max(scaled_height - center_y);
-                        let r = (dx * dx + dy * dy).sqrt();
-                        LayoutSize::new(r, r)
-                    }
-                    // Ellipse: different radius for x and y
-                    (
-                        azul_css::props::style::background::Shape::Ellipse,
-                        RadialGradientSize::ClosestSide,
-                    ) => {
-                        let rx = center_x.min(scaled_width - center_x);
-                        let ry = center_y.min(scaled_height - center_y);
-                        LayoutSize::new(rx, ry)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Ellipse,
-                        RadialGradientSize::FarthestSide,
-                    ) => {
-                        let rx = center_x.max(scaled_width - center_x);
-                        let ry = center_y.max(scaled_height - center_y);
-                        LayoutSize::new(rx, ry)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Ellipse,
-                        RadialGradientSize::ClosestCorner,
-                    ) => {
-                        let dx = center_x.min(scaled_width - center_x);
-                        let dy = center_y.min(scaled_height - center_y);
-                        LayoutSize::new(dx, dy)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Ellipse,
-                        RadialGradientSize::FarthestCorner,
-                    ) => {
-                        let dx = center_x.max(scaled_width - center_x);
-                        let dy = center_y.max(scaled_height - center_y);
-                        LayoutSize::new(dx, dy)
-                    }
-                };
+                // The radii of the ending shape, by its shape and size keyword
+                // (in DPI-scaled coordinates).
+                let (radius_x, radius_y) = radial_gradient_radii(
+                    &gradient.shape,
+                    &gradient.size,
+                    (center_x, center_y),
+                    (scaled_width, scaled_height),
+                );
+                let radius = LayoutSize::new(radius_x, radius_y);
 
                 // Convert extend mode
                 let extend_mode = match gradient.extend_mode {
@@ -1840,57 +2317,28 @@ pub fn translate_displaylist_to_wr(
                     })
                     .collect();
 
-                let wr_gradient = WrRadialGradient {
-                    center,
-                    radius,
-                    start_offset: 0.0,
-                    end_offset: 1.0,
-                    extend_mode,
-                };
-
-                // Handle border-radius clipping
-                let style_border_radius = convert_border_radius_to_style(border_radius);
-                let wr_border_radius = wr_translate_border_radius(
-                    style_border_radius,
-                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                );
-
-                let tile_size = LayoutSize::new(scaled_width, scaled_height);
-                let tile_spacing = LayoutSize::zero();
-
-                if !wr_border_radius.is_zero() {
-                    let logical_rect = LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(
-                            scale_px(bounds.0.origin.x, dpi_scale),
-                            scale_px(bounds.0.origin.y, dpi_scale),
-                        ),
-                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                    );
-                    let new_clip_id = define_border_radius_clip(
+                if wr_stops.len() >= 2 {
+                    let info = gradient_item_properties(
                         &mut builder,
-                        logical_rect,
-                        wr_border_radius,
+                        bounds,
+                        border_radius,
+                        rect,
+                        dpi_scale,
                         current_spatial!(),
                         current_clip!(),
                     );
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: new_clip_id,
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    // Push stops immediately before gradient to avoid clip items interleaving
-                    builder.push_stops(&wr_stops);
-                    builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
-                } else {
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: current_clip!(),
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    builder.push_stops(&wr_stops);
-                    builder.push_radial_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                    // Stops that end early (flora's bloom fades out at 45%) or
+                    // run past the ellipse reach WebRender as 0..1, mapped
+                    // through the gradient's start and end offsets.
+                    let wr_gradient =
+                        builder.create_radial_gradient(center, radius, wr_stops, extend_mode);
+                    builder.push_radial_gradient(
+                        &info,
+                        rect,
+                        wr_gradient,
+                        info.clip_rect.size(),
+                        LayoutSize::zero(),
+                    );
                 }
             }
 
@@ -1899,7 +2347,7 @@ pub fn translate_displaylist_to_wr(
                 gradient,
                 border_radius,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] ConicGradient: bounds={:?}",
                     bounds
@@ -1962,57 +2410,26 @@ pub fn translate_displaylist_to_wr(
                     })
                     .collect();
 
-                let wr_gradient = WrConicGradient {
-                    center,
-                    angle,
-                    start_offset: 0.0,
-                    end_offset: 1.0,
-                    extend_mode,
-                };
-
-                // Handle border-radius clipping
-                let style_border_radius = convert_border_radius_to_style(border_radius);
-                let wr_border_radius = wr_translate_border_radius(
-                    style_border_radius,
-                    azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                );
-
-                let tile_size = LayoutSize::new(scaled_width, scaled_height);
-                let tile_spacing = LayoutSize::zero();
-
-                if !wr_border_radius.is_zero() {
-                    let logical_rect = LogicalRect::new(
-                        azul_core::geom::LogicalPosition::new(
-                            scale_px(bounds.0.origin.x, dpi_scale),
-                            scale_px(bounds.0.origin.y, dpi_scale),
-                        ),
-                        azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
-                    );
-                    let new_clip_id = define_border_radius_clip(
+                if wr_stops.len() >= 2 {
+                    let info = gradient_item_properties(
                         &mut builder,
-                        logical_rect,
-                        wr_border_radius,
+                        bounds,
+                        border_radius,
+                        rect,
+                        dpi_scale,
                         current_spatial!(),
                         current_clip!(),
                     );
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: new_clip_id,
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    // Push stops immediately before gradient to avoid clip items interleaving
-                    builder.push_stops(&wr_stops);
-                    builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
-                } else {
-                    let info = CommonItemProperties {
-                        clip_rect: rect,
-                        clip_chain_id: current_clip!(),
-                        spatial_id: current_spatial!(),
-                        flags: Default::default(),
-                    };
-                    builder.push_stops(&wr_stops);
-                    builder.push_conic_gradient(&info, rect, wr_gradient, tile_size, tile_spacing);
+                    // As a radial gradient: stops mapped onto 0..1 of the turn.
+                    let wr_gradient =
+                        builder.create_conic_gradient(center, angle, wr_stops, extend_mode);
+                    builder.push_conic_gradient(
+                        &info,
+                        rect,
+                        wr_gradient,
+                        info.clip_rect.size(),
+                        LayoutSize::zero(),
+                    );
                 }
             }
 
@@ -2022,7 +2439,7 @@ pub fn translate_displaylist_to_wr(
                 shadow,
                 border_radius,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] BoxShadow: bounds={:?}, shadow={:?}",
                     bounds,
@@ -2070,7 +2487,7 @@ pub fn translate_displaylist_to_wr(
                     dpi_scale,
                 );
 
-                let style_border_radius = convert_border_radius_to_style(border_radius);
+                let style_border_radius = convert_border_radius_to_style(border_radius, dpi_scale);
                 let wr_border_radius = wr_translate_border_radius(
                     style_border_radius,
                     azul_core::geom::LogicalSize::new(scaled_width, scaled_height),
@@ -2119,7 +2536,7 @@ pub fn translate_displaylist_to_wr(
 
             // filter effects
             DisplayListItem::PushFilter { bounds, filters } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushFilter: bounds={:?}, {} filters",
                     bounds,
@@ -2138,12 +2555,12 @@ pub fn translate_displaylist_to_wr(
                 );
             }
             DisplayListItem::PopFilter => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopFilter");
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopFilter");
                 builder.pop_stacking_context();
             }
 
             DisplayListItem::PushBackdropFilter { bounds, filters } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushBackdropFilter: bounds={:?}, {} filters",
                     bounds,
@@ -2160,7 +2577,7 @@ pub fn translate_displaylist_to_wr(
                 builder.push_backdrop_filter(&info, &wr_filters, &[], &[]);
             }
             DisplayListItem::PopBackdropFilter => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopBackdropFilter");
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopBackdropFilter");
                 // backdrop_filter doesn't push a stacking context, no pop needed
             }
 
@@ -2168,8 +2585,9 @@ pub fn translate_displaylist_to_wr(
                 bounds,
                 opacity,
                 opacity_key,
+                mix_blend_mode,
             } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushOpacity: bounds={:?}, opacity={}, key={:?}",
                     bounds,
@@ -2190,26 +2608,72 @@ pub fn translate_displaylist_to_wr(
                     ),
                     None => WrFilterOp::Opacity(PropertyBinding::Value(*opacity), *opacity),
                 };
+                // A group at full opacity that only blends needs no
+                // opacity filter: the stacking context's blend is the effect.
+                let filters: &[WrFilterOp] = if *opacity >= 1.0 && opacity_key.is_none() {
+                    &[]
+                } else {
+                    core::slice::from_ref(&opacity_filter)
+                };
                 // Use zero origin: children use absolute coordinates.
-                builder.push_simple_stacking_context_with_filters(
+                builder.push_stacking_context(
                     LayoutPoint::zero(),
                     current_spatial_id,
                     WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
-                    &[opacity_filter],
+                    None,
+                    TransformStyle::Flat,
+                    translate_mix_blend_mode(*mix_blend_mode),
+                    filters,
                     &[],
                     &[],
+                    webrender::api::RasterSpace::Screen,
+                    webrender::api::StackingContextFlags::empty(),
                 );
             }
             DisplayListItem::PopOpacity => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopOpacity");
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopOpacity");
                 builder.pop_stacking_context();
             }
             DisplayListItem::PushTextShadow { shadow } => {
-                log_debug!(
+                log_trace!(
                     LogCategory::DisplayList,
                     "[compositor2] PushTextShadow: {:?}",
                     shadow
                 );
+                // A kept halo is painted as an image tinted with the shadow's
+                // colour, below the text that follows, as WebRender paints
+                // its own shadow: no surface and no blur pass this frame.
+                let halo = halos.get(&item_index).and_then(|halo| {
+                    renderer_resources
+                        .get_image(&halo.image.get_hash())
+                        .map(|resolved| (halo, resolved.key))
+                });
+                if let Some((halo, key)) = halo {
+                    let offset = current_offset!();
+                    let rect = LayoutRect::from_origin_and_size(
+                        LayoutPoint::new(halo.origin.0 - offset.0, halo.origin.1 - offset.1),
+                        // The picture's own size, texel for pixel - or, for one
+                        // that stands in for a halo not drawn yet, the size
+                        // that halo will have (`TextHalo::stand_in`).
+                        LayoutSize::new(halo.size.0, halo.size.1),
+                    );
+                    let info = CommonItemProperties {
+                        clip_rect: rect,
+                        clip_chain_id: current_clip!(),
+                        spatial_id: current_spatial!(),
+                        flags: Default::default(),
+                    };
+                    builder.push_image(
+                        &info,
+                        rect,
+                        webrender::api::ImageRendering::Auto,
+                        WrAlphaType::PremultipliedAlpha,
+                        translate_image_key(key),
+                        color_u_to_wr(&halo.color),
+                    );
+                    wr_shadows.push(false);
+                    continue;
+                }
                 let current_spatial_id = current_spatial!();
                 let current_clip_chain = current_clip!();
                 let offset_x = shadow.offset_x.inner.to_pixels_internal(
@@ -2237,10 +2701,13 @@ pub fn translate_displaylist_to_wr(
                     clip_chain_id: current_clip_chain,
                 };
                 builder.push_shadow(&space_and_clip, wr_shadow, true);
+                wr_shadows.push(true);
             }
             DisplayListItem::PopTextShadow => {
-                log_debug!(LogCategory::DisplayList, "[compositor2] PopTextShadow");
-                builder.pop_all_shadows();
+                log_trace!(LogCategory::DisplayList, "[compositor2] PopTextShadow");
+                if wr_shadows.pop() == Some(true) {
+                    builder.pop_all_shadows();
+                }
             }
 
             // A STROKED PATH. WebRender has no vector rasteriser, so the
@@ -2295,14 +2762,20 @@ pub fn translate_displaylist_to_wr(
                 bounds,
                 mask_image,
                 mask_rect,
+                // WebRender clips to the mask image, not to the path.
+                geometry: _,
             } => {
                 let current_spatial = current_spatial!();
                 let current_clip = current_clip!();
                 let current_offset = current_offset!();
 
                 // Resolve the mask image to a WebRender ImageKey
-                let image_ref_hash = mask_image.get_hash();
-                if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
+                // A mask without an image (a build with no rasteriser) resolves
+                // to nothing, like a mask whose image is not registered.
+                let resolved_mask = mask_image
+                    .as_ref()
+                    .and_then(|mask| renderer_resources.get_image(&mask.get_hash()));
+                if let Some(resolved_image) = resolved_mask {
                     let wr_image_key = translate_image_key(resolved_image.key);
 
                     // The mask rect in physical pixels
@@ -2338,18 +2811,43 @@ pub fn translate_displaylist_to_wr(
                     };
                     let new_clip_chain_id = builder.define_clip_chain(parent, vec![clip_id]);
 
-                    clip_stack.push(new_clip_chain_id);
+                    // WebRender masks a stacking context with an image mask:
+                    // it draws the context to a surface and masks that. In an
+                    // item's own clip chain the mask is skipped by every item
+                    // that takes the brush path (gradients, text, images), so
+                    // the content goes into a context that carries the mask,
+                    // and the items inside keep the clip around it. Opened at
+                    // zero, like every context here: the items are already in
+                    // frame coordinates.
+                    builder.push_stacking_context(
+                        LayoutPoint::zero(),
+                        current_spatial,
+                        WrPrimitiveFlags::IS_BACKFACE_VISIBLE,
+                        Some(new_clip_chain_id),
+                        TransformStyle::Flat,
+                        webrender::api::MixBlendMode::Normal,
+                        &[],
+                        &[],
+                        &[],
+                        webrender::api::RasterSpace::Screen,
+                        webrender::api::StackingContextFlags::empty(),
+                    );
+                    mask_contexts.push(true);
                 } else {
-                    // If mask image not found, push current clip to keep stack balanced
-                    clip_stack.push(current_clip);
+                    mask_contexts.push(false);
                 }
+                // Push the clip around the mask to keep the stack balanced.
+                clip_stack.push(current_clip);
             }
 
             DisplayListItem::PopImageMaskClip => {
+                if mask_contexts.pop() == Some(true) {
+                    builder.pop_stacking_context();
+                }
                 let before_len = clip_stack.len();
                 if clip_stack.len() > 1 {
                     let popped = clip_stack.pop();
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PopImageMaskClip: popped {:?}, clip_stack.len {} -> {}",
                         popped,
@@ -2357,7 +2855,7 @@ pub fn translate_displaylist_to_wr(
                         clip_stack.len()
                     );
                 } else {
-                    log_debug!(
+                    log_trace!(
                         LogCategory::DisplayList,
                         "[compositor2] PopImageMaskClip: SKIPPED (clip_stack.len={}, would \
                          underflow)",
@@ -2372,12 +2870,12 @@ pub fn translate_displaylist_to_wr(
     // The display list now includes PopStackingContext items that match the Push items.
 
     // Finalize and return display list
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[compositor2] >>>>> CALLING builder.end() <<<<<"
     );
     let (_, dl) = builder.end();
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[compositor2] >>>>> builder.end() RETURNED, dl.size_in_bytes()={} <<<<<",
         dl.size_in_bytes()
@@ -2385,39 +2883,46 @@ pub fn translate_displaylist_to_wr(
 
     log_debug!(
         LogCategory::DisplayList,
-        "[compositor2] Builder finished, returning ({} resources, display_list, {} nested \
-         pipelines)",
-        wr_resources.len(),
-        nested_pipelines.len()
+        "[compositor2] Builder finished, returning ({} resources, display_list)",
+        wr_resources.len()
     );
 
-    // Print detailed display list summary before returning
-    log_debug!(LogCategory::DisplayList, "Display List Summary:");
-    log_debug!(LogCategory::DisplayList, "  Pipeline: {:?}", pipeline_id);
-    log_debug!(LogCategory::DisplayList, "  Viewport: {:?}", viewport_size);
-    log_debug!(
+    // Print detailed display list summary before returning - at TRACE, and the
+    // gate is asked ONCE for the whole dump: one line per item is 5 000 lines for
+    // a map's list (3.4 million lines, 60 s of a 124 s session when this was at
+    // Debug and Debug was the default).
+    if crate::desktop::shell2::common::log_gate::should_log(
         LogCategory::DisplayList,
-        "  Total items in source: {}",
-        display_list.items.len()
-    );
-    for (idx, item) in display_list.items.iter().enumerate() {
-        log_debug!(LogCategory::DisplayList, "    Item {}: {:?}", idx + 1, item);
+        crate::desktop::shell2::common::log_gate::Level::Trace,
+    ) {
+        log_trace!(LogCategory::DisplayList, "Display List Summary:");
+        log_trace!(LogCategory::DisplayList, "  Pipeline: {:?}", pipeline_id);
+        log_trace!(LogCategory::DisplayList, "  Viewport: {:?}", viewport_size);
+        log_trace!(
+            LogCategory::DisplayList,
+            "  Total items in source: {}",
+            display_list.items.len()
+        );
+        for (idx, item) in display_list.items.iter().enumerate() {
+            log_trace!(LogCategory::DisplayList, "    Item {}: {:?}", idx + 1, item);
+        }
+        log_trace!(LogCategory::DisplayList, "");
     }
-    log_debug!(LogCategory::DisplayList, "");
 
-    Ok((wr_resources, dl, nested_pipelines))
+    Ok((wr_resources, dl))
 }
 
 // Helper Functions
 
-/// Convert DisplayList BorderRadius to StyleBorderRadius
+/// A display list `BorderRadius` (CSS px) as the device px radii of a
+/// WebRender clip, whose rect is in device px too.
 #[inline]
-fn convert_border_radius_to_style(br: &BorderRadius) -> StyleBorderRadius {
+fn convert_border_radius_to_style(br: &BorderRadius, dpi: f32) -> StyleBorderRadius {
     StyleBorderRadius {
-        top_left: PixelValue::px(br.top_left),
-        top_right: PixelValue::px(br.top_right),
-        bottom_left: PixelValue::px(br.bottom_left),
-        bottom_right: PixelValue::px(br.bottom_right),
+        top_left: PixelValue::px(scale_px(br.top_left, dpi)),
+        top_right: PixelValue::px(scale_px(br.top_right, dpi)),
+        bottom_left: PixelValue::px(scale_px(br.bottom_left, dpi)),
+        bottom_right: PixelValue::px(scale_px(br.bottom_right, dpi)),
     }
 }
 
@@ -2456,13 +2961,104 @@ fn define_border_radius_clip(
     builder.define_clip_chain(parent, vec![clip_id])
 }
 
+/// The clip chain for a box painted with rounded corners: `parent` plus a
+/// rounded rect at the box, or `parent` itself when the corners are square.
+fn rounded_box_clip(
+    builder: &mut WrDisplayListBuilder,
+    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
+    border_radius: &BorderRadius,
+    dpi_scale: f32,
+    spatial_id: SpatialId,
+    parent: WrClipChainId,
+) -> WrClipChainId {
+    let size = azul_core::geom::LogicalSize::new(
+        scale_px(bounds.0.size.width, dpi_scale),
+        scale_px(bounds.0.size.height, dpi_scale),
+    );
+    let wr_border_radius = wr_translate_border_radius(
+        convert_border_radius_to_style(border_radius, dpi_scale),
+        size,
+    );
+    if wr_border_radius.is_zero() {
+        return parent;
+    }
+    let rect = azul_core::geom::LogicalRect::new(
+        azul_core::geom::LogicalPosition::new(
+            scale_px(bounds.0.origin.x, dpi_scale),
+            scale_px(bounds.0.origin.y, dpi_scale),
+        ),
+        size,
+    );
+    define_border_radius_clip(builder, rect, wr_border_radius, spatial_id, parent)
+}
+
+/// The item properties of a gradient painted at `rect` (device px, relative
+/// to the current frame), clipped to its box's rounded corners.
+///
+/// This defines the corner clip, so call it before the gradient's stops are
+/// pushed: WebRender gives a stops marker to the item right after it, and a
+/// clip in between would take them.
+fn gradient_item_properties(
+    builder: &mut WrDisplayListBuilder,
+    bounds: &azul_layout::solver3::display_list::WindowLogicalRect,
+    border_radius: &BorderRadius,
+    rect: LayoutRect,
+    dpi_scale: f32,
+    spatial_id: SpatialId,
+    clip_chain_id: WrClipChainId,
+) -> CommonItemProperties {
+    CommonItemProperties {
+        clip_rect: rect,
+        clip_chain_id: rounded_box_clip(
+            builder,
+            bounds,
+            border_radius,
+            dpi_scale,
+            spatial_id,
+            clip_chain_id,
+        ),
+        spatial_id,
+        flags: Default::default(),
+    }
+}
+
+/// CSS `mix-blend-mode` as `WebRender`'s stacking-context blend.
+fn translate_mix_blend_mode(
+    mode: azul_css::props::style::effects::StyleMixBlendMode,
+) -> webrender::api::MixBlendMode {
+    use azul_css::props::style::effects::StyleMixBlendMode as M;
+    use webrender::api::MixBlendMode as W;
+    match mode {
+        M::Normal => W::Normal,
+        M::Multiply => W::Multiply,
+        M::Screen => W::Screen,
+        M::Overlay => W::Overlay,
+        M::Darken => W::Darken,
+        M::Lighten => W::Lighten,
+        M::ColorDodge => W::ColorDodge,
+        M::ColorBurn => W::ColorBurn,
+        M::HardLight => W::HardLight,
+        M::SoftLight => W::SoftLight,
+        M::Difference => W::Difference,
+        M::Exclusion => W::Exclusion,
+        M::Hue => W::Hue,
+        M::Saturation => W::Saturation,
+        M::Color => W::Color,
+        M::Luminosity => W::Luminosity,
+    }
+}
+
 /// Convert azul StyleFilter list to WebRender FilterOp list
 fn translate_style_filters_to_wr(
     filters: &[azul_css::props::style::filter::StyleFilter],
     dpi_scale: f32,
 ) -> Vec<WrFilterOp> {
-    use azul_css::props::style::filter::StyleFilter;
+    use azul_css::props::style::filter::{fold_flood_in, StyleFilter};
 
+    // WebRender's `Flood` REPLACES its input with the colour and it has no
+    // composite step, so `flood(c) composite(in)` - an icon tint - would paint
+    // a filled box (ledger E15). The pair is one colour matrix; fold it first.
+    let filters = fold_flood_in(filters);
     filters
         .iter()
         .filter_map(|f| match f {
@@ -2496,14 +3092,11 @@ fn translate_style_filters_to_wr(
             StyleFilter::Invert(v) => Some(WrFilterOp::Invert(v.normalized())),
             StyleFilter::Saturate(v) => Some(WrFilterOp::Saturate(v.normalized())),
             StyleFilter::Sepia(v) => Some(WrFilterOp::Sepia(v.normalized())),
-            StyleFilter::ColorMatrix(m) => {
-                let vals = m.to_array();
-                let mut arr = [0.0f32; 20];
-                for (i, v) in vals.iter().enumerate() {
-                    arr[i] = v.get();
-                }
-                Some(WrFilterOp::ColorMatrix(arr))
-            }
+            // The azul matrix is row-major (SVG order); WebRender takes the
+            // input-channel columns, then the offsets. Passed through as-is
+            // (as it was) the matrix was scrambled - the icon grayscale
+            // matrix came out as a different colour transform entirely.
+            StyleFilter::ColorMatrix(m) => Some(WrFilterOp::ColorMatrix(m.to_column_major())),
             StyleFilter::DropShadow(s) => {
                 let offset = LayoutVector2D::new(
                     scale_px(
@@ -2561,6 +3154,9 @@ fn push_text(
     info: &CommonItemProperties,
     glyphs: &[GlyphInstance],
     font_hash: u64,
+    // The run is drawn in synthetic bold: its face has no bold cut, so the
+    // glyph rasterizer thickens the outlines (WebRender's SYNTHETIC_BOLD).
+    synthetic_bold: bool,
     color: ColorU,
     renderer_resources: &azul_core::resources::RendererResources,
     dpi: DpiScaleFactor,
@@ -2626,7 +3222,7 @@ fn push_text(
         crate::desktop::wr_translate2::wr_translate_font_instance_key(font_instance_key);
     let wr_color = azul_css::props::basic::color::ColorF::from(color);
 
-    log_debug!(
+    log_trace!(
         LogCategory::DisplayList,
         "[push_text] Pushing {} glyphs with FontInstanceKey {:?}, color={:?}, \
          container_origin=({}, {}), dpi={}",
@@ -2645,6 +3241,2421 @@ fn push_text(
         &wr_glyphs,
         wr_font_instance_key,
         wr_translate_color_f(wr_color),
-        None, // glyph_options
+        synthetic_bold.then_some(webrender::api::GlyphOptions {
+            render_mode: webrender::api::FontRenderMode::Subpixel,
+            flags: webrender::api::FontInstanceFlags::SYNTHETIC_BOLD,
+        }),
     );
+}
+
+#[cfg(test)]
+mod stacking_context_tests {
+    //! What WebRender is handed for a box painted inside a stacking context.
+    //! The display list gives every item in window coordinates, and
+    //! WebRender moves everything inside a stacking context by the context's
+    //! origin, so the rects it ends up with are where the box is drawn.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{DpiScaleFactor, RendererResources, TransformKey},
+        transform::ComputedTransform3D,
+    };
+    use azul_css::props::basic::color::ColorU;
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem};
+    use webrender::api::{
+        units::{DeviceIntSize, LayoutPoint, LayoutRect, LayoutSize},
+        BuiltDisplayList, DisplayItem, PipelineId,
+    };
+
+    use super::translate_displaylist_to_wr;
+
+    pub(super) fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    fn device(r: LogicalRect, dpi: f32) -> LayoutRect {
+        LayoutRect::from_origin_and_size(
+            LayoutPoint::new(r.origin.x * dpi, r.origin.y * dpi),
+            LayoutSize::new(r.size.width * dpi, r.size.height * dpi),
+        )
+    }
+
+    fn fill(r: LogicalRect) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: r.into(),
+            color: ColorU::new(30, 60, 170, 255),
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// The WebRender display list built from `items` in a 400 x 100 window.
+    pub(super) fn built(items: Vec<DisplayListItem>, dpi: f32) -> BuiltDisplayList {
+        built_with(items, dpi, &RendererResources::default())
+    }
+
+    /// [`built`] with the images and fonts of `resources` registered.
+    pub(super) fn built_with(
+        items: Vec<DisplayListItem>,
+        dpi: f32,
+        resources: &RendererResources,
+    ) -> BuiltDisplayList {
+        let list = DisplayList {
+            items,
+            ..DisplayList::default()
+        };
+        let (_, built) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(400, 100),
+            resources,
+            DpiScaleFactor::new(dpi),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("a balanced list translates");
+        built
+    }
+
+    /// The rects and the clip rects WebRender is handed for `items`, each in
+    /// list order.
+    fn translated(items: Vec<DisplayListItem>, dpi: f32) -> (Vec<LayoutRect>, Vec<LayoutRect>) {
+        let built = built(items, dpi);
+        let (mut rects, mut clips) = (Vec::new(), Vec::new());
+        let mut iter = built.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::Rectangle(r) => rects.push(r.bounds),
+                DisplayItem::RectClip(c) => clips.push(c.clip_rect),
+                _ => {}
+            }
+        }
+        (rects, clips)
+    }
+
+    /// A selected tab is `position: relative; z-index: 1`, a stacking
+    /// context of its own. Its face and its clip are drawn where the layout
+    /// put them, as the CPU renderer and Chrome draw them, and not a second
+    /// time the tab's offset further right and down.
+    #[test]
+    fn a_box_inside_a_stacking_context_is_drawn_where_the_layout_put_it() {
+        let tab = rect(60.0, 4.0, 80.0, 28.0);
+        let label = rect(78.0, 8.0, 44.0, 20.0);
+        for dpi in [1.0, 2.0] {
+            let (rects, clips) = translated(
+                vec![
+                    DisplayListItem::PushStackingContext {
+                        z_index: 1,
+                        bounds: tab.into(),
+                    },
+                    fill(tab),
+                    DisplayListItem::PushClip {
+                        bounds: label.into(),
+                        border_radius: BorderRadius::default(),
+                    },
+                    fill(label),
+                    DisplayListItem::PopClip,
+                    DisplayListItem::PopStackingContext,
+                ],
+                dpi,
+            );
+            assert_eq!(
+                rects,
+                vec![device(tab, dpi), device(label, dpi)],
+                "dpi {dpi}"
+            );
+            assert_eq!(clips, vec![device(label, dpi)], "dpi {dpi}");
+        }
+    }
+
+    /// Stacking contexts nest (an icon with a tint filter inside the
+    /// selected tab): the inner one moves nothing either.
+    #[test]
+    fn a_box_inside_nested_stacking_contexts_is_drawn_where_the_layout_put_it() {
+        let tab = rect(60.0, 4.0, 80.0, 28.0);
+        let icon = rect(66.0, 10.0, 16.0, 16.0);
+        let (rects, _) = translated(
+            vec![
+                DisplayListItem::PushStackingContext {
+                    z_index: 1,
+                    bounds: tab.into(),
+                },
+                DisplayListItem::PushStackingContext {
+                    z_index: 0,
+                    bounds: icon.into(),
+                },
+                fill(icon),
+                DisplayListItem::PopStackingContext,
+                DisplayListItem::PopStackingContext,
+            ],
+            1.0,
+        );
+        assert_eq!(rects, vec![device(icon, 1.0)]);
+    }
+
+    /// A transformed box gets a reference frame at the window origin (the
+    /// transform does the moving) and its stacking context inside it: the box
+    /// under an identity transform is drawn where the layout put it.
+    #[test]
+    fn a_box_inside_a_transformed_stacking_context_is_drawn_where_the_layout_put_it() {
+        let card = rect(120.0, 30.0, 100.0, 40.0);
+        let (rects, _) = translated(
+            vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 1 },
+                    initial_transform: ComputedTransform3D::IDENTITY,
+                    bounds: card.into(),
+                },
+                DisplayListItem::PushStackingContext {
+                    z_index: 0,
+                    bounds: card.into(),
+                },
+                fill(card),
+                DisplayListItem::PopStackingContext,
+                DisplayListItem::PopReferenceFrame,
+            ],
+            1.0,
+        );
+        assert_eq!(rects, vec![device(card, 1.0)]);
+    }
+}
+
+#[cfg(test)]
+mod gradient_stop_tests {
+    //! The stops WebRender is handed for a gradient. WebRender fills its
+    //! gradient table from a first stop at 0 to a last stop at 1 and paints
+    //! white wherever the stops stop short. A gradient whose stops end early
+    //! reaches it mapped onto that range: a linear one through its line, a
+    //! radial or conic one through its start and end offsets. The CPU
+    //! renderer paints the stops where the CSS puts them, so the two draw the
+    //! same gradient.
+
+    use azul_css::props::{
+        basic::{angle::AngleValue, color::ColorU, direction::Direction, length::PercentageValue},
+        style::background::{
+            BackgroundPositionHorizontal, BackgroundPositionVertical, ConicGradient, ExtendMode,
+            LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+            NormalizedRadialColorStop, NormalizedRadialColorStopVec, RadialGradient,
+            RadialGradientSize, Shape, StyleBackgroundPosition,
+        },
+    };
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayListItem};
+    use webrender::api::DisplayItem;
+
+    use super::stacking_context_tests::{built, rect};
+
+    const GLOW: ColorU = ColorU::new(255, 253, 238, 82);
+    const CLEAR: ColorU = ColorU::new(255, 253, 238, 0);
+
+    fn linear_stops(stops: &[(f32, ColorU)]) -> NormalizedLinearColorStopVec {
+        NormalizedLinearColorStopVec::from_vec(
+            stops
+                .iter()
+                .map(|&(percent, color)| {
+                    NormalizedLinearColorStop::new(PercentageValue::new(percent), color)
+                })
+                .collect(),
+        )
+    }
+
+    fn conic_stops(stops: &[(f32, ColorU)]) -> NormalizedRadialColorStopVec {
+        NormalizedRadialColorStopVec::from_vec(
+            stops
+                .iter()
+                .map(|&(deg, color)| NormalizedRadialColorStop::new(AngleValue::deg(deg), color))
+                .collect(),
+        )
+    }
+
+    fn centre() -> StyleBackgroundPosition {
+        StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Center,
+            vertical: BackgroundPositionVertical::Center,
+        }
+    }
+
+    fn radial(extend_mode: ExtendMode, stops: &[(f32, ColorU)]) -> DisplayListItem {
+        DisplayListItem::RadialGradient {
+            bounds: rect(10.0, 10.0, 200.0, 40.0).into(),
+            gradient: RadialGradient {
+                shape: Shape::Ellipse,
+                size: RadialGradientSize::FarthestSide,
+                position: centre(),
+                extend_mode,
+                stops: linear_stops(stops),
+            },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    fn conic(extend_mode: ExtendMode, stops: &[(f32, ColorU)]) -> DisplayListItem {
+        DisplayListItem::ConicGradient {
+            bounds: rect(10.0, 10.0, 80.0, 80.0).into(),
+            gradient: ConicGradient {
+                extend_mode,
+                center: centre(),
+                angle: AngleValue::deg(0.0),
+                stops: conic_stops(stops),
+            },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    fn linear(
+        direction: Direction,
+        extend_mode: ExtendMode,
+        stops: &[(f32, ColorU)],
+    ) -> DisplayListItem {
+        DisplayListItem::LinearGradient {
+            bounds: rect(10.0, 10.0, 200.0, 40.0).into(),
+            gradient: LinearGradient {
+                direction,
+                extend_mode,
+                stops: linear_stops(stops),
+            },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// One gradient as WebRender is handed it: the offsets of its stops and,
+    /// for a radial or conic gradient, the start and end offsets its stops
+    /// are mapped from.
+    #[derive(Debug)]
+    struct Handed {
+        offsets: Vec<f32>,
+        range: Option<(f32, f32)>,
+    }
+
+    fn handed(item: DisplayListItem) -> Vec<Handed> {
+        let list = built(vec![item], 1.0);
+        let mut out = Vec::new();
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            let range = match item.item() {
+                DisplayItem::Gradient(_) => None,
+                DisplayItem::RadialGradient(g) => {
+                    Some((g.gradient.start_offset, g.gradient.end_offset))
+                }
+                DisplayItem::ConicGradient(g) => {
+                    Some((g.gradient.start_offset, g.gradient.end_offset))
+                }
+                _ => continue,
+            };
+            let offsets = item.gradient_stops().iter().map(|s| s.offset).collect();
+            out.push(Handed { offsets, range });
+        }
+        out
+    }
+
+    fn close(a: f32, b: f32) -> bool {
+        (a - b).abs() < 1e-4
+    }
+
+    /// flora's blue stone lays a bloom over its face that fades out 45% of
+    /// the way to the ellipse. WebRender is handed it as stops from 0 to 1
+    /// over the first 45% of the ray, so past that ring the bloom is
+    /// transparent, as the CPU renderer paints it, and not white.
+    #[test]
+    fn a_radial_gradient_that_fades_out_at_45_percent_reaches_webrender_as_stops_from_0_to_1() {
+        let got = handed(radial(ExtendMode::Clamp, &[(0.0, GLOW), (45.0, CLEAR)]));
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert_eq!(got[0].offsets, vec![0.0, 1.0], "{got:?}");
+        let (start, end) = got[0].range.expect("a radial gradient has a range");
+        assert!(close(start, 0.0) && close(end, 0.45), "{got:?}");
+    }
+
+    /// A radial gradient that runs on past its ellipse keeps changing out to
+    /// the last stop, so its stops are mapped from beyond 1, not cut there.
+    #[test]
+    fn a_radial_gradient_with_stops_past_its_ellipse_reaches_webrender_mapped_from_beyond_1() {
+        let got = handed(radial(ExtendMode::Clamp, &[(20.0, GLOW), (150.0, CLEAR)]));
+        assert_eq!(got[0].offsets, vec![0.0, 1.0], "{got:?}");
+        let (start, end) = got[0].range.expect("a radial gradient has a range");
+        assert!(close(start, 0.2) && close(end, 1.5), "{got:?}");
+    }
+
+    /// A conic gradient that ends half way round is mapped from 0..0.5 of
+    /// the turn.
+    #[test]
+    fn a_conic_gradient_that_ends_half_way_round_reaches_webrender_as_stops_from_0_to_1() {
+        let got = handed(conic(ExtendMode::Clamp, &[(0.0, GLOW), (180.0, CLEAR)]));
+        assert_eq!(got[0].offsets, vec![0.0, 1.0], "{got:?}");
+        let (start, end) = got[0].range.expect("a conic gradient has a range");
+        assert!(close(start, 0.0) && close(end, 0.5), "{got:?}");
+    }
+
+    /// Every kind of gradient, clamped and repeating, with stops that end
+    /// early, start late, or change hard: WebRender is handed stops that run
+    /// from 0 to 1 and never go back.
+    #[test]
+    fn every_gradient_reaches_webrender_with_stops_that_run_from_0_to_1() {
+        let hard = [(10.0, GLOW), (30.0, GLOW), (30.0, CLEAR), (45.0, CLEAR)];
+        let early = [(0.0, GLOW), (45.0, CLEAR)];
+        let late = [(30.0, GLOW), (80.0, CLEAR)];
+        let cases = [
+            (
+                "linear to bottom",
+                linear(Direction::default(), ExtendMode::Clamp, &early),
+            ),
+            (
+                "linear 135deg",
+                linear(
+                    Direction::Angle(AngleValue::deg(135.0)),
+                    ExtendMode::Clamp,
+                    &late,
+                ),
+            ),
+            (
+                "linear hard stops",
+                linear(Direction::default(), ExtendMode::Clamp, &hard),
+            ),
+            (
+                "repeating linear",
+                linear(Direction::default(), ExtendMode::Repeat, &late),
+            ),
+            ("radial", radial(ExtendMode::Clamp, &late)),
+            ("radial hard stops", radial(ExtendMode::Clamp, &hard)),
+            ("repeating radial", radial(ExtendMode::Repeat, &early)),
+            (
+                "conic",
+                conic(ExtendMode::Clamp, &[(90.0, GLOW), (270.0, CLEAR)]),
+            ),
+            (
+                "repeating conic",
+                conic(ExtendMode::Repeat, &[(0.0, GLOW), (60.0, CLEAR)]),
+            ),
+        ];
+        for (name, item) in cases {
+            let got = handed(item);
+            assert_eq!(got.len(), 1, "{name}: {got:?}");
+            let offsets = &got[0].offsets;
+            assert!(
+                offsets.len() >= 2
+                    && close(offsets[0], 0.0)
+                    && close(*offsets.last().unwrap(), 1.0)
+                    && offsets.windows(2).all(|w| w[0] <= w[1]),
+                "{name}: {got:?}"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod image_mask_tests {
+    //! What WebRender is handed for content clipped by an image mask: an SVG
+    //! path clip, such as the S-curves of flora's selected tab. WebRender
+    //! applies an image mask to a stacking context, which it draws to a
+    //! surface and masks as a whole (Gecko hands it `clip-path` that way).
+    //! An item that only carries the mask in its own clip chain is drawn
+    //! unmasked when it takes the brush path: a gradient, text, an image.
+
+    use azul_core::resources::{
+        IdNamespace, ImageDescriptor, ImageDescriptorFlags, ImageKey, ImageRef, RawImageFormat,
+        RendererResources, ResolvedImage,
+    };
+    use azul_css::props::{
+        basic::{color::ColorU, direction::Direction, length::PercentageValue},
+        style::background::{
+            ExtendMode, LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+        },
+    };
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayListItem};
+    use webrender::api::{ClipChainId, ClipId, DisplayItem};
+
+    use super::stacking_context_tests::{built_with, rect};
+
+    /// An R8 mask registered with the renderer, as `register_frame_resources`
+    /// registers one before the list is translated.
+    fn registered_mask() -> (ImageRef, RendererResources) {
+        let mask = ImageRef::null_image(18, 28, RawImageFormat::R8, Vec::new());
+        let mut resources = RendererResources::default();
+        resources.currently_registered_images.insert(
+            mask.get_hash(),
+            ResolvedImage {
+                key: ImageKey {
+                    namespace: IdNamespace(1),
+                    key: 7,
+                },
+                descriptor: ImageDescriptor {
+                    format: RawImageFormat::R8,
+                    width: 18,
+                    height: 28,
+                    stride: azul_css::OptionI32::None,
+                    offset: 0,
+                    flags: ImageDescriptorFlags {
+                        is_opaque: false,
+                        allow_mipmaps: false,
+                    },
+                },
+            },
+        );
+        (mask, resources)
+    }
+
+    /// The metal of a tab's curve: a gradient over the curve's whole box.
+    fn metal() -> DisplayListItem {
+        DisplayListItem::LinearGradient {
+            bounds: rect(42.0, 4.0, 18.0, 28.0).into(),
+            gradient: LinearGradient {
+                direction: Direction::default(),
+                extend_mode: ExtendMode::Clamp,
+                stops: NormalizedLinearColorStopVec::from_vec(vec![
+                    NormalizedLinearColorStop::new(
+                        PercentageValue::new(0.0),
+                        ColorU::new(236, 222, 180, 255),
+                    ),
+                    NormalizedLinearColorStop::new(
+                        PercentageValue::new(100.0),
+                        ColorU::new(198, 178, 121, 255),
+                    ),
+                ]),
+            },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// What happened to the image mask in a built list, in list order.
+    #[derive(Debug, PartialEq)]
+    enum Seen {
+        /// A stacking context whose clip chain holds the image mask.
+        MaskedContext,
+        /// Any other stacking context.
+        Context,
+        Pop,
+        Gradient,
+    }
+
+    fn seen(items: Vec<DisplayListItem>, resources: &RendererResources) -> Vec<Seen> {
+        let list = built_with(items, 1.0, resources);
+        let mut masks: Vec<ClipId> = Vec::new();
+        let mut masked_chains: Vec<ClipChainId> = Vec::new();
+        let mut out = Vec::new();
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::ImageMaskClip(m) => masks.push(m.id),
+                DisplayItem::ClipChain(chain) => {
+                    let holds_mask = item.clip_chain_items().iter().any(|c| masks.contains(c))
+                        || chain.parent.is_some_and(|p| masked_chains.contains(&p));
+                    if holds_mask {
+                        masked_chains.push(chain.id);
+                    }
+                }
+                DisplayItem::PushStackingContext(sc) => {
+                    out.push(match sc.stacking_context.clip_chain_id {
+                        Some(chain) if masked_chains.contains(&chain) => Seen::MaskedContext,
+                        _ => Seen::Context,
+                    })
+                }
+                DisplayItem::PopStackingContext => out.push(Seen::Pop),
+                DisplayItem::Gradient(_) => out.push(Seen::Gradient),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// The metal of flora's tab curve is cut to the S by the path's mask, as
+    /// the CPU renderer and Chrome cut it, not drawn as the curve's whole
+    /// box.
+    #[test]
+    fn a_gradient_under_an_image_mask_is_drawn_in_a_stacking_context_that_carries_the_mask() {
+        let (mask, resources) = registered_mask();
+        let curve = rect(42.0, 4.0, 18.0, 28.0);
+        let got = seen(
+            vec![
+                DisplayListItem::PushImageMaskClip {
+                    bounds: curve.into(),
+                    mask_image: Some(mask),
+                    mask_rect: curve.into(),
+                    geometry: None,
+                },
+                metal(),
+                DisplayListItem::PopImageMaskClip,
+                metal(),
+            ],
+            &resources,
+        );
+        assert_eq!(
+            got,
+            vec![
+                Seen::MaskedContext,
+                Seen::Gradient,
+                Seen::Pop,
+                Seen::Gradient
+            ]
+        );
+    }
+
+    /// The selected tab is a stacking context of its own and its curves are
+    /// masked inside it: the masked context opens and closes inside the
+    /// tab's.
+    #[test]
+    fn an_image_mask_inside_a_stacking_context_opens_and_closes_inside_it() {
+        let (mask, resources) = registered_mask();
+        let tab = rect(60.0, 4.0, 80.0, 28.0);
+        let curve = rect(42.0, 4.0, 18.0, 28.0);
+        let got = seen(
+            vec![
+                DisplayListItem::PushStackingContext {
+                    z_index: 1,
+                    bounds: tab.into(),
+                },
+                DisplayListItem::PushImageMaskClip {
+                    bounds: curve.into(),
+                    mask_image: Some(mask),
+                    mask_rect: curve.into(),
+                    geometry: None,
+                },
+                metal(),
+                DisplayListItem::PopImageMaskClip,
+                DisplayListItem::PopStackingContext,
+            ],
+            &resources,
+        );
+        assert_eq!(
+            got,
+            vec![
+                Seen::Context,
+                Seen::MaskedContext,
+                Seen::Gradient,
+                Seen::Pop,
+                Seen::Pop
+            ]
+        );
+    }
+
+    /// A mask whose image never reached the renderer clips nothing, and the
+    /// list stays balanced.
+    #[test]
+    fn an_unregistered_image_mask_leaves_its_content_unmasked_and_the_list_balanced() {
+        let mask = ImageRef::null_image(18, 28, RawImageFormat::R8, Vec::new());
+        let curve = rect(42.0, 4.0, 18.0, 28.0);
+        let got = seen(
+            vec![
+                DisplayListItem::PushImageMaskClip {
+                    bounds: curve.into(),
+                    mask_image: Some(mask),
+                    mask_rect: curve.into(),
+                    geometry: None,
+                },
+                metal(),
+                DisplayListItem::PopImageMaskClip,
+            ],
+            &RendererResources::default(),
+        );
+        assert_eq!(got, vec![Seen::Gradient]);
+    }
+}
+
+#[cfg(test)]
+mod rounded_corner_tests {
+    //! The corners WebRender is handed for a box with `border-radius`. The
+    //! display list gives radii in CSS px, as it gives every length;
+    //! WebRender works in device px, so at 2x a 6px corner is 12 device px,
+    //! as the CPU renderer draws it.
+
+    use azul_css::props::basic::pixel::PixelValue;
+    use azul_css::props::{
+        basic::{color::ColorU, direction::Direction, length::PercentageValue},
+        style::background::{
+            ExtendMode, LinearGradient, NormalizedLinearColorStop, NormalizedLinearColorStopVec,
+        },
+    };
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayListItem};
+    use webrender::api::DisplayItem;
+
+    use super::stacking_context_tests::{built, rect};
+
+    fn corners(r: f32) -> BorderRadius {
+        BorderRadius {
+            top_left: r,
+            top_right: r,
+            bottom_left: r,
+            bottom_right: r,
+        }
+    }
+
+    /// The top-left radius of every rounded clip WebRender is handed, in
+    /// list order.
+    fn radii(items: Vec<DisplayListItem>, dpi: f32) -> Vec<f32> {
+        let list = built(items, dpi);
+        let mut out = Vec::new();
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            if let DisplayItem::RoundedRectClip(c) = item.item() {
+                out.push(c.clip.radii.top_left.width);
+            }
+        }
+        out
+    }
+
+    /// A button face, a rounded overflow clip and a rounded gradient: each
+    /// one's corner is its radius times the scale factor.
+    #[test]
+    fn a_rounded_box_is_clipped_with_its_corners_in_device_pixels() {
+        let face = rect(20.0, 10.0, 120.0, 30.0);
+        for dpi in [1.0, 2.0] {
+            let got = radii(
+                vec![
+                    DisplayListItem::Rect {
+                        bounds: face.into(),
+                        color: ColorU::new(30, 60, 170, 255),
+                        border_radius: corners(6.0),
+                    },
+                    DisplayListItem::PushClip {
+                        bounds: face.into(),
+                        border_radius: corners(6.0),
+                    },
+                    DisplayListItem::PopClip,
+                    DisplayListItem::LinearGradient {
+                        bounds: face.into(),
+                        gradient: LinearGradient {
+                            direction: Direction::default(),
+                            extend_mode: ExtendMode::Clamp,
+                            stops: NormalizedLinearColorStopVec::from_vec(vec![
+                                NormalizedLinearColorStop::new(
+                                    PercentageValue::new(0.0),
+                                    ColorU::new(30, 60, 170, 255),
+                                ),
+                                NormalizedLinearColorStop::new(
+                                    PercentageValue::new(100.0),
+                                    ColorU::new(10, 20, 90, 255),
+                                ),
+                            ]),
+                        },
+                        border_radius: corners(6.0),
+                    },
+                ],
+                dpi,
+            );
+            assert_eq!(got, vec![6.0 * dpi; 3], "dpi {dpi}");
+        }
+    }
+
+    /// A 1px hairline with 4px corners: WebRender is handed 2 device px
+    /// and 8 device px corners at 2x, as the CPU renderer strokes it.
+    #[test]
+    fn a_border_is_drawn_with_its_widths_and_corners_in_device_pixels() {
+        use azul_css::{
+            css::CssPropertyValue,
+            props::style::{
+                border::{
+                    BorderStyle, LayoutBorderBottomWidth, LayoutBorderLeftWidth,
+                    LayoutBorderRightWidth, LayoutBorderTopWidth, StyleBorderBottomColor,
+                    StyleBorderBottomStyle, StyleBorderLeftColor, StyleBorderLeftStyle,
+                    StyleBorderRightColor, StyleBorderRightStyle, StyleBorderTopColor,
+                    StyleBorderTopStyle,
+                },
+                border_radius::StyleBorderRadius,
+            },
+        };
+        use azul_layout::solver3::display_list::{
+            StyleBorderColors, StyleBorderStyles, StyleBorderWidths,
+        };
+        use webrender::api::BorderDetails;
+
+        let ink = ColorU::new(120, 110, 90, 255);
+        let border = DisplayListItem::Border {
+            bounds: rect(20.0, 10.0, 18.0, 18.0).into(),
+            widths: StyleBorderWidths {
+                top: Some(CssPropertyValue::Exact(LayoutBorderTopWidth::const_px(1))),
+                right: Some(CssPropertyValue::Exact(LayoutBorderRightWidth::const_px(1))),
+                bottom: Some(CssPropertyValue::Exact(LayoutBorderBottomWidth::const_px(
+                    1,
+                ))),
+                left: Some(CssPropertyValue::Exact(LayoutBorderLeftWidth::const_px(1))),
+            },
+            colors: StyleBorderColors {
+                top: Some(CssPropertyValue::Exact(StyleBorderTopColor { inner: ink })),
+                right: Some(CssPropertyValue::Exact(StyleBorderRightColor {
+                    inner: ink,
+                })),
+                bottom: Some(CssPropertyValue::Exact(StyleBorderBottomColor {
+                    inner: ink,
+                })),
+                left: Some(CssPropertyValue::Exact(StyleBorderLeftColor { inner: ink })),
+            },
+            styles: StyleBorderStyles {
+                top: Some(CssPropertyValue::Exact(StyleBorderTopStyle {
+                    inner: BorderStyle::Solid,
+                })),
+                right: Some(CssPropertyValue::Exact(StyleBorderRightStyle {
+                    inner: BorderStyle::Solid,
+                })),
+                bottom: Some(CssPropertyValue::Exact(StyleBorderBottomStyle {
+                    inner: BorderStyle::Solid,
+                })),
+                left: Some(CssPropertyValue::Exact(StyleBorderLeftStyle {
+                    inner: BorderStyle::Solid,
+                })),
+            },
+            border_radius: StyleBorderRadius {
+                top_left: PixelValue::px(4.0),
+                top_right: PixelValue::px(4.0),
+                bottom_left: PixelValue::px(4.0),
+                bottom_right: PixelValue::px(4.0),
+            },
+        };
+        for dpi in [1.0, 2.0] {
+            let list = built(vec![border.clone()], dpi);
+            let mut got = Vec::new();
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                if let DisplayItem::Border(b) = item.item() {
+                    let BorderDetails::Normal(normal) = &b.details else {
+                        panic!("a solid border is a normal border");
+                    };
+                    got.push((b.widths.top, b.widths.left, normal.radius.top_left.width));
+                }
+            }
+            assert_eq!(got, vec![(dpi, dpi, 4.0 * dpi)], "dpi {dpi}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod reference_frame_tests {
+    //! Where WebRender draws a box under a CSS transform. The transform is
+    //! computed about the box's own top-left corner (`transform-origin`
+    //! resolves against the box, `GpuValueCache` keeps it that way), and the
+    //! CPU renderer applies it about that corner; the display list gives the
+    //! box itself in window coordinates.
+
+    use azul_core::{
+        resources::TransformKey,
+        transform::{ComputedTransform3D, RotationMode},
+    };
+    use azul_css::props::{
+        basic::{angle::AngleValue, color::ColorU},
+        style::{StyleTransform, StyleTransformOrigin},
+    };
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayListItem};
+    use webrender::api::{
+        units::{LayoutPoint, LayoutTransform},
+        DisplayItem, PropertyBinding, ReferenceTransformBinding, SpatialId, SpatialTreeItem,
+    };
+
+    use super::stacking_context_tests::{built, rect};
+
+    /// Where the WebRender list built from `items` at `dpi` draws `point`
+    /// (device px) of its first rect: through every reference frame the
+    /// rect sits in, out to the root.
+    fn drawn_at(items: Vec<DisplayListItem>, dpi: f32, point: LayoutPoint) -> LayoutPoint {
+        let list = built(items, dpi);
+        // (frame, its parent, its origin, its transform) of every frame.
+        let mut frames: Vec<(SpatialId, SpatialId, LayoutPoint, LayoutTransform)> = Vec::new();
+        list.iter_spatial_tree(|item| {
+            if let SpatialTreeItem::ReferenceFrame(f) = item {
+                let ReferenceTransformBinding::Static { binding } = &f.reference_frame.transform
+                else {
+                    panic!("compositor2 opens static frames");
+                };
+                let transform = match binding {
+                    PropertyBinding::Value(t) | PropertyBinding::Binding(_, t) => *t,
+                };
+                frames.push((
+                    f.reference_frame.id,
+                    f.parent_spatial_id,
+                    f.origin,
+                    transform,
+                ));
+            }
+        });
+        let mut iter = list.iter();
+        let mut spatial = None;
+        while let Some(item) = iter.next() {
+            if let DisplayItem::Rectangle(r) = item.item() {
+                spatial = Some(r.common.spatial_id);
+                break;
+            }
+        }
+        let mut at = point;
+        let mut id = spatial.expect("the rect reaches WebRender");
+        while let Some(&(_, parent, origin, transform)) = frames.iter().find(|f| f.0 == id) {
+            let moved = transform
+                .transform_point2d(at)
+                .expect("an affine transform maps every point");
+            at = LayoutPoint::new(moved.x + origin.x, moved.y + origin.y);
+            id = parent;
+        }
+        at
+    }
+
+    /// flora's tick: a 4 x 8 box with a right and a bottom border, turned
+    /// 45 degrees about its centre. Turned, its centre stays where it is, as
+    /// the CPU renderer and Chrome draw it - not swung round the window's
+    /// corner and out of its check box.
+    #[test]
+    fn a_rotated_box_turns_about_its_own_centre() {
+        let tick = rect(80.0, 190.0, 4.0, 8.0);
+        let turn = ComputedTransform3D::from_style_transform_vec(
+            &[StyleTransform::Rotate(AngleValue::deg(45.0))],
+            &StyleTransformOrigin::default(),
+            4.0,
+            8.0,
+            RotationMode::ForWebRender,
+        );
+        for dpi in [1.0, 2.0] {
+            let centre = LayoutPoint::new(82.0 * dpi, 194.0 * dpi);
+            let got = drawn_at(
+                vec![
+                    DisplayListItem::PushReferenceFrame {
+                        transform_key: TransformKey { id: 41 },
+                        initial_transform: turn,
+                        bounds: tick.into(),
+                    },
+                    DisplayListItem::Rect {
+                        bounds: tick.into(),
+                        color: ColorU::new(253, 250, 241, 255),
+                        border_radius: BorderRadius::default(),
+                    },
+                    DisplayListItem::PopReferenceFrame,
+                ],
+                dpi,
+                centre,
+            );
+            assert!(
+                (got.x - centre.x).abs() < 0.01 && (got.y - centre.y).abs() < 0.01,
+                "dpi {dpi}: the centre {centre:?} is drawn at {got:?}"
+            );
+        }
+    }
+
+    /// A drag moves a box by a translation alone: it lands that far off its
+    /// place, wherever the box is.
+    #[test]
+    fn a_translated_box_moves_by_its_translation() {
+        let card = rect(120.0, 30.0, 100.0, 40.0);
+        let got = drawn_at(
+            vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: TransformKey { id: 42 },
+                    initial_transform: ComputedTransform3D::new_translation(15.0, -5.0, 0.0),
+                    bounds: card.into(),
+                },
+                DisplayListItem::Rect {
+                    bounds: card.into(),
+                    color: ColorU::new(30, 60, 170, 255),
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::PopReferenceFrame,
+            ],
+            2.0,
+            LayoutPoint::new(240.0, 60.0),
+        );
+        assert!(
+            (got.x - 270.0).abs() < 0.01 && (got.y - 50.0).abs() < 0.01,
+            "{got:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod text_halo_tests {
+    //! What WebRender is handed for text under a blurred shadow, a map
+    //! label's halo. A map pans by drawing every label again where it moved,
+    //! on every frame; WebRender draws a blurred shadow as an offscreen
+    //! surface blurred in two passes, so a frame of a pan paid that for each
+    //! label. A halo is drawn once as a picture and painted as an image.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::{DpiScaleFactor, RendererResources},
+        styled_dom::StyledDom,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+    use webrender::{
+        api::{units::DeviceIntSize, BuiltDisplayList, DisplayItem, ImageKey, PipelineId},
+        render_api::Transaction,
+    };
+
+    use super::translate_displaylist_to_wr;
+    use crate::desktop::wr_translate2::register_frame_resources;
+
+    const LABELS: usize = 6;
+    /// Ink that leaves the labels' shadows as all that paints: at an alpha
+    /// of 0.01 it darkens white by three at most.
+    const FAINT_INK: &str = "rgba(0, 0, 0, 0.01)";
+
+    /// Six map labels as the map draws them (`label_dom`): absolutely placed,
+    /// each in its halo, every other one turned along its road when `turned`;
+    /// `dx` moves them all, as a pan does.
+    pub(super) fn labels(dx: f32, ink: &str, halo: &str, turned: bool) -> Dom {
+        let mut grid = Dom::create_div().with_css(
+            "position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; \
+             overflow: hidden; background: #ffffff;",
+        );
+        for i in 0..LABELS {
+            let turn = if turned && i % 2 == 1 { " transform: rotate(12.00deg);" } else { "" };
+            let style = format!(
+                "position: absolute; left: {:.1}px; top: {}px; width: 80px; height: 14px; \
+                 margin: 0px; font-size: 12px; line-height: 14px; color: {ink}; \
+                 text-align: center; white-space: nowrap; text-shadow: 0px 0px 2px {halo};{turn}",
+                20.0 + dx + 90.0 * i as f32,
+                40 + 20 * i,
+            );
+            grid = grid.with_child(
+                Dom::create_p()
+                    .with_css(style.as_str())
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        format!("Main St {i}"),
+                    )),
+            );
+        }
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div()
+                .with_css("position: relative; width: 600px; height: 200px;")
+                .with_child(grid),
+        )
+    }
+
+    /// The WebRender list of one frame of `dom` in `window`, at 2x, its fonts
+    /// and images registered as a frame registers them.
+    fn frame(window: &mut LayoutWindow, dom: Dom) -> BuiltDisplayList {
+        // These tests look at the halos of a frame, not at how a frame spends
+        // its time (`a_frame_draws_only_the_halos_its_budget_allows...` does).
+        crate::desktop::wr_translate2::draw_every_halo_in_this_thread();
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(600.0, 200.0);
+        state.size.dpi = 192;
+        window.current_window_state = state.clone();
+        let mut messages = None;
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(dom),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut messages,
+            )
+            .expect("the labels lay out");
+        let dpi = DpiScaleFactor::new(2.0);
+        register_frame_resources(window, &mut Transaction::new(), dpi);
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let (_, built) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(1200, 400),
+            &window.renderer_resources,
+            dpi,
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("the frame translates");
+        built
+    }
+
+    /// The shadows and the images of a built list, in list order.
+    fn shadows_and_images(list: &BuiltDisplayList) -> (usize, Vec<ImageKey>) {
+        let (mut shadows, mut images) = (0, Vec::new());
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::PushShadow(_) => shadows += 1,
+                DisplayItem::Image(image) => images.push(image.image_key),
+                _ => {}
+            }
+        }
+        (shadows, images)
+    }
+
+    /// A halo is a picture drawn once. The labels of a map move with every pan
+    /// and are laid out again, and a halo that was kept is found, not drawn
+    /// again: `collect_image_resource_updates` draws none for the frames after
+    /// the first.
+    #[test]
+    fn a_halo_is_drawn_once_and_found_kept_by_every_later_frame() {
+        use azul_layout::cpurender::halos_drawn;
+
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let start = halos_drawn();
+        drop(frame(&mut window, labels(0.0, "#333333", "#ffffff", true)));
+        assert_eq!(halos_drawn() - start, LABELS, "the first frame draws each label's halo");
+        for dx in [37.5, 80.0, -20.0] {
+            let before = halos_drawn();
+            drop(frame(&mut window, labels(dx, "#333333", "#ffffff", true)));
+            assert_eq!(
+                halos_drawn() - before,
+                0,
+                "the labels moved by {dx}: their halos are found kept, none is drawn again"
+            );
+        }
+    }
+
+    /// A frame that finds more new halos than its budget leaves the rest for a
+    /// later frame instead of drawing them all on the UI thread (25 new halos were
+    /// 5.0 s in one frame): they are found missing, then drawn by the next
+    /// scans, and once every one is kept a scan draws nothing.
+    #[test]
+    fn a_frame_draws_only_the_halos_its_budget_allows_and_the_rest_come_later() {
+        use azul_layout::cpurender::{halos_drawn, text_halos, within_halo_budget};
+
+        const MANY: usize = 24;
+        let mut grid = Dom::create_div().with_css("position: relative; width: 600px; height: 700px;");
+        for i in 0..MANY {
+            grid = grid.with_child(
+                Dom::create_p()
+                    .with_css(
+                        format!(
+                            "position: absolute; left: 20px; top: {}px; width: 160px; height: 14px; \
+                             margin: 0px; font-size: 12px; color: #333333; white-space: nowrap; \
+                             text-shadow: 0px 0px 2px #ffffff;",
+                            20 * i
+                        )
+                        .as_str(),
+                    )
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!(
+                        "Side Street {i}"
+                    ))),
+            );
+        }
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(600.0, 700.0);
+        state.size.dpi = 192;
+        window.current_window_state = state.clone();
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(Dom::create_body().with_css("margin: 0px;").with_child(grid)),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut None,
+            )
+            .expect("the labels lay out");
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let scan = |free: usize, time: std::time::Duration| {
+            within_halo_budget(free, time, || {
+                text_halos(
+                    &list.items,
+                    2.0,
+                    Some((&window.renderer_resources, &window.font_manager)),
+                )
+                .len()
+            })
+        };
+
+        // No time at all and three halos as of right: three are drawn.
+        let start = halos_drawn();
+        let (kept, left) = scan(3, std::time::Duration::ZERO);
+        assert_eq!(halos_drawn() - start, 3, "a frame draws what its budget allows");
+        assert_eq!((kept, left), (3, MANY - 3), "and leaves the others for later");
+
+        // Each later frame draws three more, finds those kept before.
+        let mut frames = 1;
+        let mut last = (kept, left);
+        while last.1 > 0 {
+            let before = halos_drawn();
+            last = scan(3, std::time::Duration::ZERO);
+            frames += 1;
+            assert!(halos_drawn() - before <= 3, "frame {frames}");
+            assert!(frames <= MANY, "the halos come: {last:?}");
+        }
+        assert_eq!(last.0, MANY, "every label has its halo at last");
+        assert_eq!(frames, MANY / 3, "three a frame");
+
+        // Everything kept: the next scan finds them all and draws none.
+        let before = halos_drawn();
+        assert_eq!(scan(3, std::time::Duration::ZERO), (MANY, 0));
+        assert_eq!(halos_drawn(), before, "no halo is drawn again");
+    }
+
+    #[test]
+    fn a_panned_maps_label_halos_reach_webrender_as_kept_pictures_not_blurs() {
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let first = frame(&mut window, labels(0.0, "#333333", "#ffffff", true));
+        let moved = frame(&mut window, labels(37.5, "#333333", "#ffffff", true));
+        let (shadows, halos) = shadows_and_images(&first);
+        assert_eq!(shadows, 0, "no label's halo is a WebRender shadow, a blurred surface");
+        assert_eq!(halos.len(), LABELS, "every label's halo is a picture");
+        assert_eq!(
+            shadows_and_images(&moved),
+            (0, halos),
+            "the labels moved, their halos did not change: the same pictures"
+        );
+    }
+
+    /// A halo tinted with its colour is the CPU renderer's text shadow, so the
+    /// GPU paints what the CPU paints. Upright labels in all but clear ink -
+    /// their shadows are what paints; clear text is not drawn at all, nor its
+    /// shadow - and black halos on white: each picture laid over
+    /// white where it lands holds the CPU frame's pixels.
+    #[test]
+    fn a_halo_tinted_with_its_colour_is_the_cpu_renderers_text_shadow() {
+        use azul_layout::{
+            cpurender::{render, text_halos, RenderOptions},
+            glyph_cache::GlyphCache,
+        };
+
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let _ = frame(&mut window, labels(0.0, FAINT_INK, "#000000", false));
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let cpu = render(
+            &list,
+            &window.renderer_resources,
+            &window.font_manager,
+            RenderOptions {
+                width: 600.0,
+                height: 200.0,
+                dpi_factor: 2.0,
+            },
+            &mut GlyphCache::new(),
+        )
+        .expect("the CPU renderer draws the frame");
+        let halos = text_halos(&list.items, 2.0, None);
+        assert_eq!(halos.len(), LABELS, "every label's halo is kept");
+        let mut worst = (0u8, (0, 0));
+        for halo in &halos {
+            let picture = halo.image.get_bytes().expect("a halo is a picture in memory");
+            let (x0, y0) = (halo.origin.0 as i64, halo.origin.1 as i64);
+            for y in 0..i64::from(halo.height) {
+                for x in 0..i64::from(halo.width) {
+                    let (px, py) = (x0 + x, y0 + y);
+                    if px < 0 || py < 0 || px >= i64::from(cpu.width) || py >= i64::from(cpu.height) {
+                        continue;
+                    }
+                    let coverage = picture[((y * i64::from(halo.width) + x) * 4 + 3) as usize];
+                    let over_white = 255 - coverage;
+                    let at = ((py * i64::from(cpu.width) + px) * 4) as usize;
+                    let difference = cpu.data()[at].abs_diff(over_white);
+                    if difference > worst.0 {
+                        worst = (difference, (px, py));
+                    }
+                }
+            }
+        }
+        assert!(
+            worst.0 <= 24,
+            "a halo laid over white differs from the CPU's shadow by {} at {:?}",
+            worst.0,
+            worst.1
+        );
+    }
+
+    /// The same frame drawn by WebRender: the GPU's halos are the CPU's.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_labels_halo_on_the_gpu_is_the_cpu_renderers_halo() {
+        use crate::desktop::shell2::macos::headless_gpu::{draw_both, keep, largest_difference};
+
+        let dom = labels(0.0, FAINT_INK, "#000000", false);
+        let Some(frames) = draw_both(dom, 600.0, 200.0, 2.0) else {
+            return;
+        };
+        keep("label-halos", &frames);
+        let (difference, at) = largest_difference(&frames.gpu, &frames.cpu, (0, 0, 1200, 400));
+        assert!(difference <= 24, "the GPU's halos differ from the CPU's by {difference} at {at:?}");
+    }
+}
+
+#[cfg(test)]
+mod flora_window_tests {
+    //! A whole flora window as WebRender is handed it: the ribbon's tab strip
+    //! (its selected tab's S-curves are SVG path masks over gradients), a tab
+    //! bar and the stone buttons, at 1x and 2x. The gradients and the masks
+    //! are what the GPU drew wrong; these hold every one of them to the rules
+    //! the single-item tests above pin.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::{DpiScaleFactor, RendererResources},
+        styled_dom::StyledDom,
+    };
+    use azul_css::{AzString, StringVec};
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks,
+        widgets::{
+            button::{Button, ButtonType},
+            ribbon::{Ribbon, RibbonAppButton, RibbonTab, RibbonTabVec},
+            tabs::TabHeader,
+            themes::UiTheme,
+        },
+        window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+    use webrender::{
+        api::{units::DeviceIntSize, BuiltDisplayList, ClipChainId, ClipId, DisplayItem, PipelineId},
+        render_api::Transaction,
+    };
+
+    use super::translate_displaylist_to_wr;
+    use crate::desktop::wr_translate2::register_frame_resources;
+
+    /// AzDrive's ribbon (the application button, the second tab selected), a
+    /// flora tab bar and a primary, a default and a danger button.
+    pub(super) fn flora_window() -> Dom {
+        let ribbon = Ribbon::new(RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("Computer")),
+            RibbonTab::new(AzString::from("Ansicht")),
+        ]))
+        .with_theme(UiTheme::Flora)
+        .with_app_button(RibbonAppButton::new(AzString::from("Datei")))
+        .with_active_tab(1)
+        .dom_desktop();
+        let tab_bar = TabHeader::create(StringVec::from_vec(vec![
+            AzString::from("Allgemein"),
+            AzString::from("Freigabe"),
+            AzString::from("Sicherheit"),
+        ]))
+        .with_theme(UiTheme::Flora)
+        .with_active_tab(1)
+        .dom();
+        let mut buttons = Dom::create_div().with_css("display: flex; column-gap: 8px; padding: 8px;");
+        for (label, kind) in [
+            ("OK", ButtonType::Primary),
+            ("Abbrechen", ButtonType::Default),
+            ("Entfernen", ButtonType::Danger),
+        ] {
+            buttons = buttons.with_child(
+                Button::create(AzString::from(label))
+                    .with_theme(UiTheme::Flora)
+                    .with_button_type(kind)
+                    .dom(),
+            );
+        }
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(ribbon)
+            .with_child(tab_bar)
+            .with_child(buttons)
+    }
+
+    /// The WebRender list of the flora window at `dpi`, its fonts and images
+    /// (the masks among them) registered as a frame registers them.
+    fn built(dpi: f32) -> BuiltDisplayList {
+        let mut window = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut state = FullWindowState::default();
+        state.size.dimensions = LogicalSize::new(500.0, 260.0);
+        state.size.dpi = (96.0 * dpi) as u32;
+        window.current_window_state = state.clone();
+        let mut messages = None;
+        window
+            .layout_and_generate_display_list(
+                StyledDom::create_from_dom(flora_window()),
+                &state,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut messages,
+            )
+            .expect("the window lays out");
+        register_frame_resources(&mut window, &mut Transaction::new(), DpiScaleFactor::new(dpi));
+        let list = window
+            .get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .clone();
+        let (_, built) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new((500.0 * dpi) as i32, (260.0 * dpi) as i32),
+            &window.renderer_resources,
+            DpiScaleFactor::new(dpi),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("the window translates");
+        built
+    }
+
+    /// WebRender fills its gradient table from a stop at 0 to a stop at 1
+    /// and logs "Gradient stops abruptly ..., auto-completing to white" for
+    /// a gradient whose stops end early - and paints that white. Every
+    /// gradient of the window reaches it with stops from 0 to 1, in order.
+    #[test]
+    fn every_gradient_of_a_flora_window_reaches_webrender_with_stops_from_0_to_1() {
+        for dpi in [1.0, 2.0] {
+            let list = built(dpi);
+            let mut gradients = 0;
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                let kind = match item.item() {
+                    DisplayItem::Gradient(_) => "linear",
+                    DisplayItem::RadialGradient(_) => "radial",
+                    DisplayItem::ConicGradient(_) => "conic",
+                    _ => continue,
+                };
+                gradients += 1;
+                let offsets: Vec<f32> = item.gradient_stops().iter().map(|s| s.offset).collect();
+                let ordered = offsets.windows(2).all(|pair| pair[0] <= pair[1]);
+                let (first, last) = (offsets.first().copied(), offsets.last().copied());
+                assert!(
+                    ordered
+                        && first.is_some_and(|f| f.abs() < 1e-4)
+                        && last.is_some_and(|l| (l - 1.0).abs() < 1e-4),
+                    "a {kind} gradient at {dpi}x reaches WebRender with stops {offsets:?}"
+                );
+            }
+            assert!(gradients > 20, "the flora window paints its gradients ({gradients} at {dpi}x)");
+        }
+    }
+
+    /// WebRender applies an image mask to a stacking context, which it draws
+    /// to a surface and masks as a whole; a gradient, text or image that only
+    /// carries the mask in its own clip chain is drawn unmasked - the selected
+    /// tab's curves were drawn as boxes. Every mask of the window's curves
+    /// clips a stacking context and no gradient, text or image. (A plain
+    /// colour is masked in its own chain: a stroke is painted that way.)
+    #[test]
+    fn every_image_mask_of_a_flora_window_clips_a_stacking_context_and_no_single_item() {
+        for dpi in [1.0, 2.0] {
+            let list = built(dpi);
+            let mut masks: Vec<ClipId> = Vec::new();
+            let mut masked_chains: Vec<ClipChainId> = Vec::new();
+            let mut masked_contexts = 0;
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                let masked = |chain: ClipChainId, chains: &[ClipChainId]| chains.contains(&chain);
+                match item.item() {
+                    DisplayItem::ImageMaskClip(mask) => masks.push(mask.id),
+                    DisplayItem::ClipChain(chain) => {
+                        if item.clip_chain_items().iter().any(|c| masks.contains(c))
+                            || chain.parent.is_some_and(|p| masked_chains.contains(&p))
+                        {
+                            masked_chains.push(chain.id);
+                        }
+                    }
+                    DisplayItem::PushStackingContext(sc) => {
+                        if sc
+                            .stacking_context
+                            .clip_chain_id
+                            .is_some_and(|c| masked(c, &masked_chains))
+                        {
+                            masked_contexts += 1;
+                        }
+                    }
+                    DisplayItem::Gradient(g) => {
+                        assert!(!masked(g.common.clip_chain_id, &masked_chains), "a gradient carries a mask at {dpi}x")
+                    }
+                    DisplayItem::RadialGradient(g) => {
+                        assert!(!masked(g.common.clip_chain_id, &masked_chains), "a radial gradient carries a mask")
+                    }
+                    DisplayItem::Text(t) => {
+                        assert!(!masked(t.common.clip_chain_id, &masked_chains), "text carries a mask at {dpi}x")
+                    }
+                    DisplayItem::Image(i) => {
+                        assert!(!masked(i.common.clip_chain_id, &masked_chains), "an image carries a mask at {dpi}x")
+                    }
+                    _ => {}
+                }
+            }
+            assert!(
+                masked_contexts >= 4,
+                "the selected tab's and the application button's curves are masked at {dpi}x \
+                 ({masked_contexts} masked contexts, {} masks)",
+                masks.len()
+            );
+        }
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tab_curve_pixel_tests {
+    //! The curves of flora's selected ribbon tab and application button as
+    //! the GPU draws them, held to the CPU renderer's frame. Each curve is a
+    //! stone and a band of metal, both cut by an SVG mask; a mask, clip or
+    //! border slice that WebRender is handed wrong shows inside the curve's
+    //! box as a block, a seam or a bar, where the two frames then part.
+
+    use azul_core::dom::Dom;
+    use azul_css::AzString;
+    use azul_layout::{
+        solver3::display_list::DisplayListItem,
+        widgets::{
+            ribbon::{Ribbon, RibbonAppButton, RibbonTab, RibbonTabVec},
+            themes::UiTheme,
+            titlebar::TabsInTitlebar,
+        },
+    };
+
+    use crate::desktop::shell2::macos::headless_gpu::{draw_both, keep, pixels_differing};
+
+    /// AzDrive's ribbon: the application button and the second tab
+    /// selected, the strip in the titlebar or below it.
+    fn ribbon(in_titlebar: bool) -> Dom {
+        let tabs = RibbonTabVec::from_vec(vec![
+            RibbonTab::new(AzString::from("Computer")),
+            RibbonTab::new(AzString::from("Ansicht")),
+        ]);
+        let mut ribbon = Ribbon::new(tabs)
+            .with_theme(UiTheme::Flora)
+            .with_app_button(RibbonAppButton::new(AzString::from("Datei")))
+            .with_active_tab(1);
+        if in_titlebar {
+            ribbon = ribbon.with_tabs_in_titlebar(TabsInTitlebar::platform());
+        }
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(ribbon.dom_desktop())
+    }
+
+    /// Inside every curve's box at most one pixel in twenty-five differs from
+    /// the CPU's frame by more than an edge's antialiasing (32 in a channel)
+    /// once the curve's edges may lie a device pixel apart; a bar three CSS
+    /// px wide down a curve is still ten in a hundred.
+    #[test]
+    fn the_ribbons_tab_curves_are_drawn_on_the_gpu_as_on_the_cpu() {
+        const DPI: f32 = 2.0;
+        for in_titlebar in [false, true] {
+            let Some(frames) = draw_both(ribbon(in_titlebar), 500.0, 140.0, DPI) else {
+                return;
+            };
+            keep(&format!("ribbon-curves-titlebar-{in_titlebar}"), &frames);
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let curves: Vec<(u32, u32, u32, u32)> = frames
+                .display_list
+                .items
+                .iter()
+                .filter_map(|item| match item {
+                    DisplayListItem::PushImageMaskClip { mask_rect, .. } => {
+                        let r = mask_rect.inner();
+                        let (x0, y0) = ((r.origin.x * DPI).floor(), (r.origin.y * DPI).floor());
+                        let x1 = ((r.origin.x + r.size.width) * DPI).ceil();
+                        let y1 = ((r.origin.y + r.size.height) * DPI).ceil();
+                        (x0 >= 0.0 && y0 >= 0.0 && x1 > x0 && y1 > y0).then(|| {
+                            (x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32)
+                        })
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                curves.len() >= 8,
+                "the application button's and the selected tab's curves are masked \
+                 ({} masks, titlebar {in_titlebar})",
+                curves.len()
+            );
+            for curve in curves {
+                let (differing, worst) = pixels_differing(&frames.gpu, &frames.cpu, curve, 32);
+                assert!(
+                    differing * 25 <= curve.2 * curve.3,
+                    "{differing} of the {} pixels of the curve at {curve:?} differ from the \
+                     CPU's (titlebar {in_titlebar}), the worst by {} at {:?}",
+                    curve.2 * curve.3,
+                    worst.0,
+                    worst.1
+                );
+            }
+        }
+    }
+}
+
+// The materials are a feature of their own (on in the shipped library, off in the default
+// test build), and these tests draw them.
+#[cfg(all(test, target_os = "macos", feature = "materials"))]
+mod material_gpu_tests {
+    //! The built-in materials as a GPU window draws them - the material
+    //! shader run with the window's GL context into a texture of its own -
+    //! held to the CPU renderer's frame of the same surfaces: the two
+    //! renderers share every formula, so their pictures match to the dither.
+
+    use azul_core::dom::Dom;
+
+    use crate::desktop::shell2::macos::headless_gpu::{
+        draw_gpu_materials, gl_state_around_materials, keep, pixels_differing,
+    };
+
+    /// A pillowed leather area with a golden line under it, a bevelled denim
+    /// button and a vellum leaf.
+    fn surfaces() -> Dom {
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_child(Dom::create_div().with_css(
+                "width: 240px; height: 60px; background: builtin(leather); \
+                 border-radius: 10px 10px 0px 0px; --azul-pillow: 76px .16;",
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_css("width: 240px; height: 4px; background: builtin(aluminium); --azul-bevel: 1px;"),
+            )
+            .with_child(Dom::create_div().with_css(
+                "width: 120px; height: 40px; margin: 8px; border-radius: 6px; \
+                 background: builtin(bluejeans); --azul-bevel: 3px;",
+            ))
+            .with_child(Dom::create_div().with_css("width: 120px; height: 40px; background: builtin(vellum-leaf);"))
+    }
+
+    /// The material shader draws in the middle of the GL frame path, between
+    /// an app's canvas callbacks and `WebRender`: whatever it binds or turns
+    /// off for its own draw it puts back.
+    #[test]
+    fn a_material_drawn_on_the_gpu_leaves_the_gl_state_it_found() {
+        let Some((before, after, on_gpu)) = gl_state_around_materials(surfaces) else {
+            return;
+        };
+        assert!(on_gpu, "the GPU drew the materials: the material shader compiled");
+        assert_eq!(after, before, "the state a renderer had set up is the state it finds");
+    }
+
+    #[test]
+    fn a_material_on_the_gpu_is_the_cpu_renderers_material() {
+        for dpi in [1.0_f32, 2.0] {
+            let Some((frames, on_gpu)) = draw_gpu_materials(surfaces, 260.0, 180.0, dpi) else {
+                return;
+            };
+            keep(&format!("materials-{dpi}x"), &frames);
+            assert!(on_gpu, "the GPU drew the materials: the material shader compiled ({dpi}x)");
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let (w, h) = ((260.0 * dpi) as u32, (180.0 * dpi) as u32);
+            let (differing, worst) = pixels_differing(&frames.gpu, &frames.cpu, (0, 0, w, h), 6);
+            assert!(
+                differing * 100 <= w * h,
+                "{differing} of {} pixels differ by more than 6 levels at {dpi}x, the worst by {} at {:?}",
+                w * h,
+                worst.0,
+                worst.1
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod log_volume_tests {
+    //! What building a display list writes to the log. At the default level it
+    //! must write NOTHING, and at Debug a handful of lines however long the
+    //! list is: the translation logged every item at Debug, plus about three
+    //! more lines per item, and Debug was the default - 3.4 million lines
+    //! (612 MB, 60 s of a 124 s session) from a two-minute session of the map
+    //! editor, 15 000 lines (0.27 s) for every frame of a 5 000-item map.
+
+    use alloc::collections::BTreeMap;
+
+    use azul_core::{
+        geom::{LogicalPosition, LogicalRect, LogicalSize},
+        resources::{DpiScaleFactor, RendererResources},
+    };
+    use azul_css::props::basic::color::ColorU;
+    use azul_layout::solver3::display_list::{BorderRadius, DisplayList, DisplayListItem};
+    use webrender::api::{units::DeviceIntSize, PipelineId};
+
+    use super::translate_displaylist_to_wr;
+    use crate::desktop::shell2::common::log_gate::records_emitted;
+
+    /// Items in the list the child translates.
+    const ITEMS: usize = 300;
+
+    /// The child re-runs THIS test; the name has to match `--exact`.
+    const CHILD_TEST: &str =
+        "desktop::compositor2::log_volume_tests::translate_a_list_and_count_its_records";
+
+    /// The child half: translate a list of [`ITEMS`] rects and print how many
+    /// log records that emitted (it prints nothing in the ordinary run).
+    #[test]
+    fn translate_a_list_and_count_its_records() {
+        if std::env::var_os("AZ_TRANSLATE_PROBE_CHILD").is_none() {
+            return;
+        }
+        let items = (0..ITEMS)
+            .map(|i| DisplayListItem::Rect {
+                bounds: LogicalRect::new(
+                    LogicalPosition::new((i % 20) as f32 * 10.0, (i / 20) as f32 * 10.0),
+                    LogicalSize::new(9.0, 9.0),
+                )
+                .into(),
+                color: ColorU::new(30, 60, 170, 255),
+                border_radius: BorderRadius::default(),
+            })
+            .collect();
+        let list = DisplayList {
+            items,
+            ..DisplayList::default()
+        };
+        let before = records_emitted();
+        let (_, built) = translate_displaylist_to_wr(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(400, 100),
+            &RendererResources::default(),
+            DpiScaleFactor::new(1.0),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+        )
+        .expect("a list of rects translates");
+        let emitted = records_emitted() - before;
+        let translated = {
+            let mut iter = built.iter();
+            let mut rects = 0;
+            while let Some(item) = iter.next() {
+                if matches!(item.item(), webrender::api::DisplayItem::Rectangle(_)) {
+                    rects += 1;
+                }
+            }
+            rects
+        };
+        println!("PROBE items={ITEMS} translated={translated} records={emitted}");
+    }
+
+    /// The `records` the child counted under exactly the environment `env`.
+    fn records_under(env: &[(&str, &str)]) -> usize {
+        let out = std::process::Command::new(
+            std::env::current_exe().expect("the test binary must have a path"),
+        )
+        .args([CHILD_TEST, "--exact", "--nocapture", "--test-threads=1"])
+        .env_clear()
+        .env("AZ_TRANSLATE_PROBE_CHILD", "1")
+        .env("NO_COLOR", "1")
+        .envs(env.iter().copied())
+        .output()
+        .expect("re-running the test binary must succeed");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let probe = stdout
+            .lines()
+            .find_map(|line| line.find("PROBE ").map(|at| line[at + 6..].to_string()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "the child printed no PROBE line (filter `{CHILD_TEST}` stale?)\n--- child \
+                     stdout ---\n{stdout}\n--- child stderr ---\n{}",
+                    String::from_utf8_lossy(&out.stderr)
+                )
+            });
+        assert!(
+            probe.starts_with(&format!("items={ITEMS} translated={ITEMS} ")),
+            "the child translated the list: {probe}"
+        );
+        probe
+            .rsplit("records=")
+            .next()
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no record count in {probe:?}"))
+    }
+
+    /// At the default settings (no variable that asks for logs) building a
+    /// display list emits no record at all; at Debug (`AZ_LOG=debug`) a few
+    /// per list, however many items it holds; the per-item dump is Trace's.
+    #[test]
+    fn building_a_display_list_at_the_default_settings_emits_no_record() {
+        assert_eq!(records_under(&[]), 0, "the default settings");
+        assert_eq!(
+            records_under(&[("AZ_PROFILE", "cpu")]),
+            0,
+            "variables that ask for nothing"
+        );
+        assert_eq!(records_under(&[("AZ_LOG", "off")]), 0, "AZ_LOG=off");
+        let debug = records_under(&[("AZ_LOG", "debug")]);
+        assert!(
+            (1..=8).contains(&debug),
+            "AZ_LOG=debug: a few records for a list of {ITEMS} items, got {debug}"
+        );
+        let trace = records_under(&[("AZ_LOG", "trace")]);
+        assert!(
+            trace >= ITEMS,
+            "AZ_LOG=trace keeps the per-item dump: at least {ITEMS} records, got {trace}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! A4-03: what the translation leaves out, counted in the built list.
+    use azul_layout::solver3::display_list::DisplayListItem;
+    use webrender::api::DisplayItem;
+
+    use super::stacking_context_tests::{built, rect};
+
+    /// The hit-test areas of a list are not WebRender's business: azul's own hit
+    /// tester answers every pointer, so a list of n hit areas reaches WebRender
+    /// with none (and a scene without hit-test items rebuilds no hit tester).
+    /// Mutation: `push_wr_hit_test` pushing unconditionally -> 64 items, not 0.
+    #[test]
+    fn a4_03_hit_test_areas_are_not_sent_to_webrender() {
+        let mut items = Vec::new();
+        for i in 0..64u16 {
+            let r = rect(f32::from(i) * 4.0, 10.0, 3.0, 12.0);
+            items.push(DisplayListItem::Rect {
+                bounds: r.into(),
+                color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                border_radius: Default::default(),
+            });
+            items.push(DisplayListItem::HitTestArea {
+                bounds: r.into(),
+                tag: (u64::from(i), 0x0100),
+            });
+        }
+        let list = built(items, 1.0);
+        let (mut rects, mut hit_tests) = (0usize, 0usize);
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::Rectangle(..) => rects += 1,
+                DisplayItem::HitTest(..) => hit_tests += 1,
+                _ => {}
+            }
+        }
+        assert_eq!(rects, 64, "what paints is translated");
+        assert_eq!(hit_tests, 0, "the hit areas stay with azul's hit tester");
+    }
+
+    /// The matrices of the reference frames of `items` as WebRender is handed
+    /// them at `dpi`, with their spatial keys, in list order.
+    fn frames(
+        items: Vec<DisplayListItem>,
+        dpi: f32,
+    ) -> Vec<(webrender::api::SpatialTreeItemKey, webrender::api::units::LayoutTransform)> {
+        use webrender::api::{PropertyBinding, ReferenceTransformBinding, SpatialTreeItem};
+
+        let list = built(items, dpi);
+        let mut out = Vec::new();
+        list.iter_spatial_tree(|item| {
+            if let SpatialTreeItem::ReferenceFrame(f) = item {
+                let ReferenceTransformBinding::Static { binding } = &f.reference_frame.transform
+                else {
+                    panic!("compositor2 opens static frames");
+                };
+                let transform = match binding {
+                    PropertyBinding::Value(t) | PropertyBinding::Binding(_, t) => *t,
+                };
+                out.push((f.reference_frame.key, transform));
+            }
+        });
+        out
+    }
+
+    fn framed(
+        key: azul_core::resources::TransformKey,
+        transform: azul_core::transform::ComputedTransform3D,
+    ) -> Vec<DisplayListItem> {
+        let r = rect(40.0, 20.0, 30.0, 10.0);
+        vec![
+            DisplayListItem::PushReferenceFrame {
+                transform_key: key,
+                initial_transform: transform,
+                bounds: r.into(),
+            },
+            DisplayListItem::Rect {
+                bounds: r.into(),
+                color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                border_radius: Default::default(),
+            },
+            DisplayListItem::PopReferenceFrame,
+        ]
+    }
+
+    /// A2-gpu-01 (applied by A4). `perspective(500px)` has m[2][3] = -1/500 in
+    /// CSS px. On a 2x window every coordinate is twice as large, so the same
+    /// picture needs -1/1000: a point 100 CSS px deep (200 device px) has
+    /// w = 1 - 200/1000 = 0.8, as at 1x (1 - 100/500). The translation row is
+    /// multiplied (10 px -> 20). Before: -1/500 at 2x, w = 0.6.
+    /// Mutation: dropping `/ dpi_scale` in the `PushReferenceFrame` arm fails this.
+    #[test]
+    fn a_perspective_reaches_webrender_in_device_pixels() {
+        let mut m = azul_core::transform::ComputedTransform3D::IDENTITY;
+        m.m[2][3] = -1.0 / 500.0;
+        m.m[3][0] = 10.0;
+        for (dpi, m34, m41) in [(1.0f32, -0.002f32, 10.0f32), (2.0, -0.001, 20.0)] {
+            let frames = frames(framed(azul_core::resources::TransformKey::unique(), m), dpi);
+            let (_, transform) = frames.first().copied().expect("the transformed frame");
+            assert!((transform.m34 - m34).abs() < 1e-7, "dpi {dpi}: m34 {}", transform.m34);
+            assert!((transform.m41 - m41).abs() < 1e-5, "dpi {dpi}: m41 {}", transform.m41);
+        }
+    }
+
+    /// A4-06. A transform key whose frame a list opens twice (a node painted in
+    /// two parts) gives WebRender four DIFFERENT spatial keys: the scene builder
+    /// panics on one it has seen. A key opened once keeps the keys it had.
+    /// Mutation: `push_index` fixed at 0 -> two of the four keys are equal.
+    #[test]
+    fn a4_06_a_transform_key_opened_twice_in_a_list_opens_distinct_frames() {
+        use azul_core::{resources::TransformKey, transform::ComputedTransform3D};
+
+        let key = TransformKey::unique();
+        let mut items = framed(key, ComputedTransform3D::IDENTITY);
+        items.extend(framed(key, ComputedTransform3D::IDENTITY));
+        items.extend(framed(TransformKey::unique(), ComputedTransform3D::IDENTITY));
+        let keys: Vec<_> = frames(items, 1.0).into_iter().map(|(key, _)| key).collect();
+        assert_eq!(keys.len(), 6, "two frames (transformed, window space) per push");
+        let distinct: std::collections::HashSet<_> = keys.iter().copied().collect();
+        assert_eq!(distinct.len(), 6, "every frame of the list has a key of its own: {keys:?}");
+
+        // Once: the keys every list before this change had.
+        let once = frames(framed(key, ComputedTransform3D::IDENTITY), 1.0);
+        assert_eq!(
+            (once[0].0, once[1].0),
+            (
+                webrender::api::SpatialTreeItemKey::new(key.id as u64, 0),
+                webrender::api::SpatialTreeItemKey::new(key.id as u64, u64::MAX),
+            )
+        );
+    }
+
+    /// A4-08. The content of a view (the list of a DOM other than the window's
+    /// own) is under an explicit scroll frame of the view's own, inside the
+    /// pipeline's root frame: the scroll root WebRender cuts the view's picture
+    /// cache by, so a pan of the view moves tiles (see
+    /// `view_content_scroll_frames`). The frame has no scroll range. The
+    /// window's own list has none, and `AZ_WR_VIEW_SLICE=0` (here per thread)
+    /// leaves a view without one, as before.
+    /// Mutation: `pipeline_id.0 != 0 &&` dropped gives the window's list a frame;
+    /// `spatial_id` left at the pipeline's root puts the rect outside the frame.
+    #[test]
+    fn a_views_content_is_under_a_scroll_frame_of_its_own() {
+        use std::collections::BTreeMap;
+
+        use azul_core::resources::{DpiScaleFactor, RendererResources};
+        use azul_layout::solver3::display_list::DisplayList;
+        use webrender::api::{
+            units::DeviceIntSize, ExternalScrollId, PipelineId, SpatialId, SpatialTreeItem,
+        };
+
+        // (the pipeline, its scroll frames as (parent, external id, id, content
+        // == frame), the space of its one rect)
+        let translate = |dom: u32| {
+            let list = DisplayList {
+                items: vec![DisplayListItem::Rect {
+                    bounds: rect(10.0, 10.0, 30.0, 20.0).into(),
+                    color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                    border_radius: Default::default(),
+                }],
+                ..DisplayList::default()
+            };
+            let pipeline = PipelineId(dom, 0);
+            let (_, built) = super::translate_displaylist_to_wr(
+                &list,
+                pipeline,
+                DeviceIntSize::new(800, 600),
+                &RendererResources::default(),
+                DpiScaleFactor::new(1.0),
+                Vec::new(),
+                &BTreeMap::new(),
+                0,
+            )
+            .expect("the list translates");
+            let mut frames = Vec::new();
+            built.iter_spatial_tree(|item| {
+                if let SpatialTreeItem::ScrollFrame(f) = item {
+                    frames.push((
+                        f.parent_space,
+                        f.external_id,
+                        f.scroll_frame_id,
+                        f.content_rect == f.frame_rect,
+                    ));
+                }
+            });
+            let mut spaces = Vec::new();
+            let mut iter = built.iter();
+            while let Some(item) = iter.next() {
+                if let DisplayItem::Rectangle(r) = item.item() {
+                    spaces.push(r.common.spatial_id);
+                }
+            }
+            (pipeline, frames, spaces)
+        };
+
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(Some(true)));
+        let (window, frames, spaces) = translate(0);
+        assert!(frames.is_empty(), "the window's own list: {frames:?}");
+        assert_eq!(spaces, vec![SpatialId::root_scroll_node(window)]);
+
+        let (view, frames, spaces) = translate(3);
+        assert_eq!(frames.len(), 1, "a view: one frame for its content");
+        let (parent, external, frame, without_a_range) = frames[0];
+        assert_eq!(parent, SpatialId::root_scroll_node(view));
+        assert_eq!(external, ExternalScrollId(super::VIEW_CONTENT_FRAME, view));
+        assert!(without_a_range, "it does not scroll");
+        assert_eq!(spaces, vec![frame], "the content is in it");
+
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(Some(false)));
+        let (view, frames, spaces) = translate(3);
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(None));
+        assert!(frames.is_empty(), "the switch: no frame");
+        assert_eq!(spaces, vec![SpatialId::root_scroll_node(view)]);
+    }
+
+    /// A scroll box's bar with a thumb that the GPU moves (`thumb_transform_key`).
+    fn bar(key: azul_core::resources::TransformKey) -> DisplayListItem {
+        use azul_layout::solver3::display_list::ScrollbarDrawInfo;
+
+        let colour = azul_css::props::basic::color::ColorU::new(90, 90, 90, 255);
+        DisplayListItem::ScrollBarStyled {
+            info: Box::new(ScrollbarDrawInfo {
+                bounds: rect(184.0, 0.0, 16.0, 100.0).into(),
+                orientation: azul_core::dom::ScrollbarOrientation::Vertical,
+                track_bounds: rect(184.0, 0.0, 16.0, 100.0).into(),
+                track_color: colour,
+                thumb_bounds: rect(186.0, 0.0, 12.0, 32.0).into(),
+                thumb_color: colour,
+                thumb_border_radius: Default::default(),
+                button_decrement_bounds: None,
+                button_increment_bounds: None,
+                button_color: colour,
+                opacity_key: None,
+                thumb_transform_key: Some(key),
+                thumb_initial_transform: azul_core::transform::ComputedTransform3D::IDENTITY,
+                hit_id: None,
+                clip_to_container_border: false,
+                container_border_radius: Default::default(),
+                visibility: Default::default(),
+            }),
+        }
+    }
+
+    /// A2-gpu-15 (found by A2-gpu reading A4-06, applied by A4). The thumb of a
+    /// scroll box's bar has its frame under the NODE's key, so a scroll box
+    /// that one list paints twice opened two frames with one spatial key, which
+    /// the scene builder panics on. The same bar twice: `(key, 0)` and
+    /// `(key, 1)`; once: `(key, 0)`, as every list before.
+    /// Mutation: `push_index` fixed at 0 in the `ScrollBarStyled` arm -> equal.
+    #[test]
+    fn a_scrollbar_painted_twice_in_a_list_opens_two_thumb_frames_with_two_keys() {
+        use webrender::api::SpatialTreeItemKey;
+
+        let key = azul_core::resources::TransformKey::unique();
+        let twice: Vec<_> = frames(vec![bar(key), bar(key)], 1.0)
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        assert_eq!(
+            twice,
+            vec![
+                SpatialTreeItemKey::new(key.id as u64, 0),
+                SpatialTreeItemKey::new(key.id as u64, 1),
+            ]
+        );
+        let once: Vec<_> = frames(vec![bar(key)], 1.0).into_iter().map(|(key, _)| key).collect();
+        assert_eq!(once, vec![SpatialTreeItemKey::new(key.id as u64, 0)]);
+    }
+
+    // ==== A4-29: a view's zoom frame is above a slice of its own ====
+
+    /// A uniform scale `s` and a shift.
+    fn zoom_matrix(s: f32, tx: f32, ty: f32) -> azul_core::transform::ComputedTransform3D {
+        let mut m = azul_core::transform::ComputedTransform3D::IDENTITY;
+        m.m[0][0] = s;
+        m.m[1][1] = s;
+        m.m[3][0] = tx;
+        m.m[3][1] = ty;
+        m
+    }
+
+    /// A quarter turn.
+    fn quarter_turn() -> azul_core::transform::ComputedTransform3D {
+        let mut m = azul_core::transform::ComputedTransform3D::IDENTITY;
+        m.m[0][0] = 0.0;
+        m.m[0][1] = 1.0;
+        m.m[1][0] = -1.0;
+        m.m[1][1] = 0.0;
+        m
+    }
+
+    fn blue_rect() -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: rect(10.0, 10.0, 30.0, 20.0).into(),
+            color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+            border_radius: Default::default(),
+        }
+    }
+
+    /// A view's list as a map makes it: a rect outside the picture (item 0),
+    /// the picture's root frame (item 1; key `zoom`, matrix `matrix`) with a
+    /// rect (2) and a turned label (3 to 5) in it, its pop (6), and a rect
+    /// after it (7).
+    fn zoomed_view(
+        zoom: azul_core::resources::TransformKey,
+        label: azul_core::resources::TransformKey,
+        matrix: azul_core::transform::ComputedTransform3D,
+    ) -> azul_layout::solver3::display_list::DisplayList {
+        let mut items = vec![
+            blue_rect(),
+            DisplayListItem::PushReferenceFrame {
+                transform_key: zoom,
+                initial_transform: matrix,
+                bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+            },
+            blue_rect(),
+        ];
+        items.extend(framed(label, quarter_turn()));
+        items.push(DisplayListItem::PopReferenceFrame);
+        items.push(blue_rect());
+        azul_layout::solver3::display_list::DisplayList {
+            items,
+            ..Default::default()
+        }
+    }
+
+    /// A4-29, which frame. The zoom frame of a list is the first reference
+    /// frame opened with nothing else open that holds half of the list and is
+    /// a uniform scale and a translation; a list without one has none.
+    /// Mutations: `depth == 0 &&` dropped finds the frame inside the clip;
+    /// `* 2 >= items.len()` dropped finds the small frame; the key count
+    /// dropped finds the frame whose key opens two.
+    #[test]
+    fn the_zoom_frame_of_a_list_is_its_one_plain_frame_over_most_of_it() {
+        use azul_core::resources::TransformKey;
+        use azul_layout::solver3::display_list::DisplayList;
+
+        use super::{uniform_scale_translation, zoom_frame_candidate, ZoomFrameCandidate};
+
+        let (zoom, label) = (TransformKey::unique(), TransformKey::unique());
+        let found = |list: &DisplayList| zoom_frame_candidate(list);
+
+        // The picture's root: found, at its push, by its key.
+        let list = zoomed_view(zoom, label, zoom_matrix(1.5, 12.0, -7.0));
+        assert_eq!(found(&list), Some(ZoomFrameCandidate { item: 1, key: zoom.id }));
+        // The identity a fresh picture carries is such a matrix too.
+        let list = zoomed_view(zoom, label, zoom_matrix(1.0, 0.0, 0.0));
+        assert_eq!(found(&list).map(|z| z.item), Some(1));
+
+        // A root that turns, or scales its axes differently: none (the turned
+        // label inside is not at the top, and holds 3 of 8 items).
+        assert_eq!(found(&zoomed_view(zoom, label, quarter_turn())), None);
+        let mut stretched = zoom_matrix(1.5, 0.0, 0.0);
+        stretched.m[1][1] = 1.25;
+        assert_eq!(found(&zoomed_view(zoom, label, stretched)), None);
+
+        // The same frame inside a clip of the list: none (the clip is in a
+        // space the zoom would not move).
+        let mut clipped = vec![DisplayListItem::PushClip {
+            bounds: rect(0.0, 0.0, 400.0, 300.0).into(),
+            border_radius: Default::default(),
+        }];
+        clipped.extend(zoomed_view(zoom, label, zoom_matrix(1.5, 0.0, 0.0)).items);
+        clipped.push(DisplayListItem::PopClip);
+        assert_eq!(found(&DisplayList { items: clipped, ..Default::default() }), None);
+
+        // A plain frame over 3 of 20 items: a label, not the picture.
+        let mut small = framed(zoom, zoom_matrix(2.0, 0.0, 0.0));
+        small.extend((0..17).map(|_| blue_rect()));
+        assert_eq!(found(&DisplayList { items: small, ..Default::default() }), None);
+
+        // A key that opens two frames (a box painted twice): none.
+        let mut twice = zoomed_view(zoom, label, zoom_matrix(1.5, 0.0, 0.0)).items;
+        twice.extend(framed(zoom, zoom_matrix(1.5, 0.0, 0.0)));
+        assert_eq!(found(&DisplayList { items: twice, ..Default::default() }), None);
+
+        // The matrix test itself, by hand: scale 1.5 with a shift is 1.5; a
+        // z shift, a perspective term, a negative or zero scale are not plain.
+        assert_eq!(uniform_scale_translation(&zoom_matrix(1.5, 12.0, -7.0)), Some(1.5));
+        for (row, col, value) in [(3, 2, 4.0), (0, 3, 0.001), (2, 2, 2.0), (0, 1, 1e-4)] {
+            let mut m = zoom_matrix(1.5, 0.0, 0.0);
+            m.m[row][col] = value;
+            assert_eq!(uniform_scale_translation(&m), None, "m[{row}][{col}] = {value}");
+        }
+        assert_eq!(uniform_scale_translation(&zoom_matrix(-1.5, 0.0, 0.0)), None);
+        assert_eq!(uniform_scale_translation(&zoom_matrix(0.0, 0.0, 0.0)), None);
+        assert_eq!(uniform_scale_translation(&zoom_matrix(f32::NAN, 0.0, 0.0)), None);
+    }
+
+    /// A4-29, where it is put. Translated with its zoom frame, a view's list
+    /// opens that frame directly in the pipeline's root frame (next to the
+    /// view's own scroll frame, not inside it), declares it a 2D scale /
+    /// translation, and puts what is inside under a second scroll frame
+    /// without a range. By WebRender's rule for a slice's scroll root
+    /// (`SceneSpatialTree::find_scroll_root`: the outermost explicit scroll
+    /// frame, forgotten at a reference frame that is not declared, up to the
+    /// pipeline's root frame - written out here over the built list) the
+    /// zoomed content, its turned label included, then has that second frame
+    /// for its scroll root, with nothing but declared frames between it and
+    /// the pipeline's root: the zoom and the view's pan are both ABOVE the
+    /// slice. What is outside the zoom keeps the view's own frame. Without a
+    /// zoom frame the list is translated as before: the zoom is BELOW the
+    /// one slice of the view.
+    /// Mutations: `parent_spatial_id` left at `current_spatial!()` fails the
+    /// parent; `is_2d_scale_translation: false` fails the declaration and the
+    /// scroll root of the zoomed rect; the second scroll frame not pushed
+    /// fails "the content is in it"; the extra `spatial_stack.pop()` dropped
+    /// leaves the rect after the frame in the zoomed space.
+    #[test]
+    fn a_views_zoom_frame_is_above_a_slice_of_its_own() {
+        use std::collections::BTreeMap;
+
+        use azul_core::resources::{DpiScaleFactor, RendererResources, TransformKey};
+        use webrender::api::{
+            units::DeviceIntSize, ExternalScrollId, PipelineId, ReferenceFrameKind, SpatialId,
+            SpatialTreeItem, SpatialTreeItemKey,
+        };
+
+        let (zoom, label) = (TransformKey::unique(), TransformKey::unique());
+        let list = zoomed_view(zoom, label, zoom_matrix(1.5, 12.0, -7.0));
+        let view = PipelineId(3, 0);
+        let pipeline_root = SpatialId::root_scroll_node(view);
+
+        // (reference frames as (key, id, parent, declared 2D), scroll frames
+        // as (external id, id, parent, content == frame), the rects' spaces)
+        let translate = |zoom_frame: Option<usize>| {
+            let (_, built) = super::translate_displaylist_with_zoom_frame(
+                &list,
+                view,
+                DeviceIntSize::new(800, 600),
+                &RendererResources::default(),
+                DpiScaleFactor::new(1.0),
+                Vec::new(),
+                &BTreeMap::new(),
+                0,
+                zoom_frame,
+            )
+            .expect("the list translates");
+            let mut frames = Vec::new();
+            let mut scrolls = Vec::new();
+            built.iter_spatial_tree(|item| match item {
+                SpatialTreeItem::ReferenceFrame(f) => frames.push((
+                    f.reference_frame.key,
+                    f.reference_frame.id,
+                    f.parent_spatial_id,
+                    matches!(
+                        f.reference_frame.kind,
+                        ReferenceFrameKind::Transform {
+                            is_2d_scale_translation: true,
+                            ..
+                        }
+                    ),
+                )),
+                SpatialTreeItem::ScrollFrame(f) => scrolls.push((
+                    f.external_id,
+                    f.scroll_frame_id,
+                    f.parent_space,
+                    f.content_rect == f.frame_rect,
+                )),
+                _ => {}
+            });
+            let mut spaces = Vec::new();
+            let mut iter = built.iter();
+            while let Some(item) = iter.next() {
+                if let DisplayItem::Rectangle(r) = item.item() {
+                    spaces.push(r.common.spatial_id);
+                }
+            }
+            (frames, scrolls, spaces)
+        };
+        // WebRender's scroll root of a primitive in `space`, over these nodes.
+        let scroll_root_of = |frames: &[(SpatialTreeItemKey, SpatialId, SpatialId, bool)],
+                              scrolls: &[(ExternalScrollId, SpatialId, SpatialId, bool)],
+                              mut space: SpatialId| {
+            let mut outermost = pipeline_root;
+            while space != pipeline_root {
+                if let Some(scroll) = scrolls.iter().find(|s| s.1 == space) {
+                    outermost = space;
+                    space = scroll.2;
+                } else {
+                    let frame = frames.iter().find(|f| f.1 == space).expect("a node of the list");
+                    if !frame.3 {
+                        outermost = pipeline_root;
+                    }
+                    space = frame.2;
+                }
+            }
+            outermost
+        };
+        let zoom_key = SpatialTreeItemKey::new(zoom.id as u64, 0);
+        let zoom_space_key = SpatialTreeItemKey::new(zoom.id as u64, u64::MAX);
+        let label_key = SpatialTreeItemKey::new(label.id as u64, 0);
+
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(Some(true)));
+        let (frames, scrolls, spaces) = translate(Some(1));
+        let (plain_frames, plain_scrolls, plain_spaces) = translate(None);
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(None));
+
+        let frame = |key| *frames.iter().find(|f| f.0 == key).expect("the frame");
+        let scroll = |id: u64| {
+            *scrolls
+                .iter()
+                .find(|s| s.0 == ExternalScrollId(id, view))
+                .expect("the scroll frame")
+        };
+        assert_eq!(scrolls.len(), 2, "the view's own frame and the zoomed content's");
+        let content = scroll(super::VIEW_CONTENT_FRAME);
+        let zoomed = scroll(super::VIEW_ZOOM_CONTENT_FRAME);
+        assert_eq!(content.2, pipeline_root);
+
+        let (_, zoom_frame, zoom_parent, zoom_declared) = frame(zoom_key);
+        assert_eq!(zoom_parent, pipeline_root, "next to the view's frame, not in it");
+        assert!(zoom_declared, "the zoom frame is declared a 2D scale / translation");
+        let (_, zoom_space, zoom_space_parent, zoom_space_declared) = frame(zoom_space_key);
+        assert_eq!(zoom_space_parent, zoom_frame);
+        assert!(zoom_space_declared);
+        assert_eq!(zoomed.2, zoom_space, "the zoomed content's frame is inside the zoom");
+        assert!(zoomed.3, "it does not scroll");
+        let (_, _, label_parent, label_declared) = frame(label_key);
+        assert_eq!(label_parent, zoomed.1, "a label of the picture is in the zoomed content");
+        assert!(!label_declared, "no other frame is declared");
+
+        assert_eq!(spaces.len(), 4);
+        assert_eq!(spaces[0], content.1, "before the zoom: the view's own frame");
+        assert_eq!(spaces[1], zoomed.1, "the content is in it");
+        assert_eq!(spaces[3], content.1, "after the zoom: the view's own frame again");
+        let root_of = |space| scroll_root_of(&frames, &scrolls, space);
+        assert_eq!(root_of(spaces[1]), zoomed.1, "the zoomed slice hangs BELOW the zoom");
+        assert_eq!(root_of(spaces[2]), zoomed.1, "the turned label is of that slice");
+        assert_eq!(root_of(spaces[0]), content.1);
+        assert_eq!(root_of(spaces[3]), content.1);
+
+        // Without a zoom frame: as A4-08 left it.
+        assert_eq!(plain_scrolls.len(), 1);
+        let content = plain_scrolls[0];
+        let plain = *plain_frames.iter().find(|f| f.0 == zoom_key).expect("the frame");
+        assert_eq!(plain.2, content.1, "the frame is inside the view's own scroll frame");
+        assert!(!plain.3, "and not declared");
+        assert_eq!(
+            scroll_root_of(&plain_frames, &plain_scrolls, plain_spaces[1]),
+            content.1,
+            "the zoom is below the view's one slice"
+        );
+
+        // The window's own list never has a zoom frame, whatever is asked.
+        let (_, built) = super::translate_displaylist_with_zoom_frame(
+            &list,
+            PipelineId(0, 0),
+            DeviceIntSize::new(800, 600),
+            &RendererResources::default(),
+            DpiScaleFactor::new(1.0),
+            Vec::new(),
+            &BTreeMap::new(),
+            0,
+            Some(1),
+        )
+        .expect("the list translates");
+        let mut scroll_frames = 0;
+        built.iter_spatial_tree(|item| {
+            if let SpatialTreeItem::ScrollFrame(_) = item {
+                scroll_frames += 1;
+            }
+        });
+        assert_eq!(scroll_frames, 0);
+    }
+
+    /// A1's row for A4. An ellipse to a CORNER passes through that corner with
+    /// the proportions of the ellipse to the side of the same kind: the side
+    /// radii times sqrt(2). By hand, a 200 x 100 box:
+    /// centred (100, 50): `ellipse farthest-corner` (the CSS default) has radii
+    /// 100 sqrt(2) x 50 sqrt(2) = 141.42 x 70.71 - the corner (100, 50) is on
+    /// it: (100 / 141.42)^2 + (50 / 70.71)^2 = 1/2 + 1/2. It was 100 x 50: the
+    /// gradient ended at the sides.
+    /// centre (50, 20): near sides 50, 20, far sides 150, 80: closest-corner
+    /// 70.71 x 28.28 (was 50 x 20), farthest-corner 212.13 x 113.14 (was
+    /// 150 x 80). The sides and the circles are what they were.
+    /// Mutation: `* SQRT_2` dropped from either corner arm.
+    #[test]
+    fn an_ellipse_to_a_corner_has_the_proportions_of_the_ellipse_to_the_side() {
+        use azul_css::props::style::background::{RadialGradientSize as Size, Shape};
+
+        use super::radial_gradient_radii;
+
+        let close = |got: (f32, f32), want: (f32, f32)| {
+            (got.0 - want.0).abs() < 0.01 && (got.1 - want.1).abs() < 0.01
+        };
+        let centred =
+            |shape, size| radial_gradient_radii(&shape, &size, (100.0, 50.0), (200.0, 100.0));
+        let got = centred(Shape::Ellipse, Size::FarthestCorner);
+        assert!(close(got, (141.42, 70.71)), "{got:?}");
+        let on_it = (100.0 / got.0).powi(2) + (50.0 / got.1).powi(2);
+        assert!((on_it - 1.0).abs() < 1e-4, "the corner is on the ellipse: {on_it}");
+        assert!(close(centred(Shape::Ellipse, Size::ClosestCorner), (141.42, 70.71)));
+        assert!(close(centred(Shape::Ellipse, Size::FarthestSide), (100.0, 50.0)));
+
+        let off = |shape, size| radial_gradient_radii(&shape, &size, (50.0, 20.0), (200.0, 100.0));
+        assert!(close(off(Shape::Ellipse, Size::ClosestCorner), (70.71, 28.28)));
+        assert!(close(off(Shape::Ellipse, Size::FarthestCorner), (212.13, 113.14)));
+        assert!(close(off(Shape::Ellipse, Size::ClosestSide), (50.0, 20.0)));
+        assert!(close(off(Shape::Ellipse, Size::FarthestSide), (150.0, 80.0)));
+        assert!(close(off(Shape::Circle, Size::ClosestSide), (20.0, 20.0)));
+        assert!(close(off(Shape::Circle, Size::FarthestSide), (150.0, 150.0)));
+        assert!(close(off(Shape::Circle, Size::ClosestCorner), (53.85, 53.85)));
+        assert!(close(off(Shape::Circle, Size::FarthestCorner), (170.0, 170.0)));
+    }
+
+    /// A2-gpu's row for A4. What clips an item under a scroll frame is the
+    /// frame's rect on the frame's parent node, once: a box's own scroll frame
+    /// comes directly after the `PushClip` of the same rect and takes that
+    /// clip's chain (it used to define a second clip node saying the same); a
+    /// scroll frame without that clip in front of it - or behind a clip of
+    /// another rect - still defines its own, the only thing that clips its
+    /// content to it.
+    /// Mutations: `clipped_by_the_item_before` forced true leaves the bare
+    /// frame's rect without a clip (0 clips, the rect unclipped); forced false
+    /// defines two clips for the box.
+    #[test]
+    fn an_item_under_a_scroll_frame_is_clipped_to_the_frames_rect_once() {
+        use webrender::api::{units::LayoutRect, ClipChainId};
+
+        let frame_rect = rect(20.0, 30.0, 200.0, 100.0);
+        let scroll_frame = || DisplayListItem::PushScrollFrame {
+            clip_bounds: frame_rect.into(),
+            content_size: azul_core::geom::LogicalSize::new(200.0, 400.0),
+            scroll_id: 77,
+        };
+        let clip_of = |r: azul_core::geom::LogicalRect| DisplayListItem::PushClip {
+            bounds: r.into(),
+            border_radius: Default::default(),
+        };
+        // (the rects of the clips the list defines, the clip chain of its one
+        // painted rect and that chain's parent)
+        let clips = |items: Vec<DisplayListItem>| {
+            let list = built(items, 1.0);
+            let mut rects: Vec<LayoutRect> = Vec::new();
+            let mut chains: Vec<(ClipChainId, Option<ClipChainId>, usize)> = Vec::new();
+            let mut painted = None;
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                match item.item() {
+                    DisplayItem::RectClip(clip) => rects.push(clip.clip_rect),
+                    DisplayItem::ClipChain(chain) => {
+                        chains.push((chain.id, chain.parent, item.clip_chain_items().iter().count()));
+                    }
+                    DisplayItem::Rectangle(r) => painted = Some(r.common.clip_chain_id),
+                    _ => {}
+                }
+            }
+            let painted = painted.expect("the rect is painted");
+            let chain = chains.iter().find(|c| c.0 == painted).copied();
+            (rects, chain)
+        };
+        let device = LayoutRect::from_origin_and_size(
+            webrender::api::units::LayoutPoint::new(20.0, 30.0),
+            webrender::api::units::LayoutSize::new(200.0, 100.0),
+        );
+
+        // A scroll box: its clip, then its frame.
+        let (rects, chain) = clips(vec![
+            clip_of(frame_rect),
+            scroll_frame(),
+            blue_rect(),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopClip,
+        ]);
+        assert_eq!(rects, vec![device], "the frame's rect, once");
+        let (_, parent, links) = chain.expect("the rect under the frame has a clip chain");
+        assert_eq!((parent, links), (None, 1), "the box's one clip and nothing above it");
+
+        // A frame with no clip in front of it (the viewport's): its own clip.
+        let (rects, chain) = clips(vec![scroll_frame(), blue_rect(), DisplayListItem::PopScrollFrame]);
+        assert_eq!(rects, vec![device]);
+        assert_eq!(chain.map(|c| (c.1, c.2)), Some((None, 1)));
+
+        // A frame behind a clip of ANOTHER rect: both clip.
+        let (rects, chain) = clips(vec![
+            clip_of(rect(0.0, 0.0, 300.0, 300.0)),
+            scroll_frame(),
+            blue_rect(),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopClip,
+        ]);
+        assert_eq!(rects.len(), 2);
+        assert_eq!(rects[1], device, "the frame's own clip");
+        assert!(chain.is_some_and(|c| c.1.is_some() && c.2 == 1), "chained to the clip above it");
+    }
 }

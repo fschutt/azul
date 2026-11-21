@@ -1,0 +1,17 @@
+# row: X-DELTA-W1S17A-3
+# why: `HeadPin::offer` no longer refuses a head signed in a restore epoch below the floor the device accepted: a validly signed head of the LOST timeline (epoch 0, position 10, above the survivor 6) advances a re-anchored pin again, so a restore is undone by replaying what it removed (5.13, 6.10 V3, 12 E4)
+# killers: azlin-chain:restore_epoch_tests::a_head_signed_before_the_restore_cannot_advance_the_pin_lib
+# replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-W1S17A-3.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
+# mutant: epoch_floor_off
+# guard: after a restore the pin's FLOOR is the record's epoch and `offer` refuses (`PinVerdict::Refused(HeadRefusal::BelowRestoreEpoch)`, class Alarm) any head of a lower epoch BEFORE it looks at the position; the committed guard is `chain_pin_epoch_floor_off`. The killer re-anchors a pin to the survivor 6 under the epoch 1 and offers heads of the epoch 0 at the positions 0, 3, 6, 7, 10, 11 and 500: each must be refused and the pin must not move.
+--- a/examples/azlin-chain/src/pin.rs
++++ b/examples/azlin-chain/src/pin.rs
+@@ -197,7 +197,7 @@
+         }
+         // The lost timeline: a head signed before the restore this device accepted. It may be
+         // newer than the position the restore re-anchored to; it is no way forward.
+-        if h.epoch < self.restore_epoch && !mutant!("chain_pin_epoch_floor_off") {
++        if h.epoch < self.restore_epoch && false {
+             return PinVerdict::Refused(HeadRefusal::BelowRestoreEpoch {
+                 head: h.epoch,
+                 floor: self.restore_epoch,

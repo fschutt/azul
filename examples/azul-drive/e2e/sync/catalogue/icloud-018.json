@@ -1,0 +1,46 @@
+[
+  {
+    "name": "a long Korean name in NFD goes up and comes down byte for byte, never shortened",
+    "description": "ICLOUD-018 (sync-chaos port-long-names): iCloud silently truncated long NFD Hangul names to a hidden byte limit and Zotero lost the files. Rules P2, P3 and P5: the drive stores the original bytes (here 244 bytes of NFD, 124 in NFC), compares in NFC, never renames; the name round-trips exactly.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161.txt", "text": "Korean paper" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "key": "\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161.txt", "text": "Korean paper" },
+      { "op": "drive_check", "check": "remote_count", "count": 1 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161\u1109\u1161\u110b\u1161\u110c\u1161\u110e\u1161.txt", "text": "Korean paper" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_list", "device": "b" },
+      { "op": "assert_response", "path": "result.files", "contains": "\u1100\u1161\u1102\u1161\u1103\u1161\u1105\u1161\u1106\u1161\u1107\u1161" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "count": 1 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a remote NFD name longer than this disk allows is listed, never cut short or silently renamed",
+    "description": "ICLOUD-018: an NFD name of 450 bytes (150 in NFC) from another system. Rules P3, P5 and O1: it stays on the drive and is listed here (bad-remote-name / portability); no shortened or re-normalised copy appears.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af.txt", "text": "too long here" },
+      { "op": "drive_tamper", "remote": "r2", "action": "put", "key": "fine.txt", "text": "fine" },
+      { "op": "drive_sync", "device": "c", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "c", "path": "fine.txt", "text": "fine" },
+      { "op": "drive_check", "check": "problem", "device": "c", "code_any": ["bad-remote-name", "portability", "invalid-here"] },
+      { "op": "drive_check", "check": "files_count", "device": "c", "count": 1 },
+      { "op": "drive_check", "check": "remote_count", "count": 2 },
+      { "op": "drive_check", "check": "remote_file", "key": "\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af\u1112\u1161\u11ab\u1100\u116e\u11a8\u1106\u1161\u11af\u1100\u1173\u11af\u110b\u116f\u11af.txt", "text": "too long here" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

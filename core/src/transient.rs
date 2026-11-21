@@ -54,6 +54,20 @@ pub enum TransientAnchor {
     /// At the pointer position rather than the anchor rect - what a context
     /// menu does.
     Cursor,
+    /// Covering the parent window's whole viewport, whatever the anchor
+    /// node's own rect: the window's origin is the parent's (0,0) and its
+    /// content is laid out at the viewport's size, following the parent as
+    /// it is resized. The TOP LAYER of a modal dialog - its `::backdrop`
+    /// fills the window and the dialog sits centred on it, so nothing in
+    /// the parent can be reached by the pointer while it is open.
+    Viewport,
+    /// Centred over the parent window, in a window of its own with the
+    /// system's title bar and close box, sized to its content: how every
+    /// desktop shows a modal dialog. The window stays above its parent (a
+    /// child window, an owned window, `WM_TRANSIENT_FOR`) but not above other
+    /// programs, the user moves it by its title bar, and the parent takes no
+    /// press while it is open.
+    Dialog,
 }
 
 /// What closes a transient window without the app asking.
@@ -69,6 +83,12 @@ pub enum TransientDismiss {
     Escape,
     /// Nothing closes it but the app. For palettes that stay up.
     None,
+    /// A press outside the window (or the window losing focus) closes it,
+    /// but Escape is left to the CONTENT. For a dialog: it answers Escape
+    /// itself, with a cancelable `cancel` step first (HTML `<dialog
+    /// closedby="any">`), which an engine-side Escape - decided before any
+    /// callback runs - would skip.
+    OutsideOnly,
 }
 
 /// Whether - and how - the user may drag a transient window away from its
@@ -348,6 +368,8 @@ impl TransientAnchor {
             Self::Left => "left",
             Self::Right => "right",
             Self::Cursor => "cursor",
+            Self::Viewport => "viewport",
+            Self::Dialog => "dialog",
         }
     }
 
@@ -361,6 +383,8 @@ impl TransientAnchor {
             "left" => Self::Left,
             "right" => Self::Right,
             "cursor" => Self::Cursor,
+            "viewport" => Self::Viewport,
+            "dialog" => Self::Dialog,
             _ => Self::Bottom,
         }
     }
@@ -373,6 +397,7 @@ impl TransientDismiss {
             Self::Outside => "outside",
             Self::Escape => "escape",
             Self::None => "none",
+            Self::OutsideOnly => "outside-only",
         }
     }
 
@@ -381,6 +406,7 @@ impl TransientDismiss {
         match s.trim() {
             "escape" => Self::Escape,
             "none" => Self::None,
+            "outside-only" => Self::OutsideOnly,
             _ => Self::Outside,
         }
     }
@@ -415,6 +441,8 @@ mod tests {
             TransientAnchor::Left,
             TransientAnchor::Right,
             TransientAnchor::Cursor,
+            TransientAnchor::Viewport,
+            TransientAnchor::Dialog,
         ] {
             assert_eq!(TransientAnchor::parse(a.as_str()), a);
         }
@@ -422,6 +450,7 @@ mod tests {
             TransientDismiss::Outside,
             TransientDismiss::Escape,
             TransientDismiss::None,
+            TransientDismiss::OutsideOnly,
         ] {
             assert_eq!(TransientDismiss::parse(d.as_str()), d);
         }
@@ -512,6 +541,15 @@ mod tests {
 ///
 /// Returns `None` if `root` is not a `TransientWindow` or has no subtree to
 /// show, so a caller cannot open a window onto nothing.
+///
+/// A node that carries a content callback
+/// (`NodeData::set_transient_content`) is ASKED for its content here
+/// (A3-solver-34): the callback is called with the node's data and the `Dom`
+/// it returns becomes the last child of the window's root - after the node's
+/// own children, if it has any. The callback is not carried into the copy.
+/// Both callers go through this: the measure of a window about to open
+/// (`LayoutWindow::layout_transient_content`) and the shell's sync after
+/// every layout of the parent while the window is open.
 #[must_use]
 pub fn extract_subtree_as_dom(
     styled_dom: &crate::styled_dom::StyledDom,
@@ -530,7 +568,168 @@ pub fn extract_subtree_as_dom(
     let mut dom = build_subtree(styled_dom, root, true, 0)?;
     // The container inside its own window is just a block.
     dom.root.set_node_type(NodeType::Div);
+    // Content the node builds when it is shown: asked for now.
+    if let Some(content) = dom.root.take_transient_content() {
+        dom.add_child(content.callback.invoke(content.refany));
+    }
     Some(dom)
+}
+
+/// A3-solver-34: the content callback of a transient node.
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use alloc::{
+        string::{String, ToString},
+        vec::Vec,
+    };
+
+    use crate::{
+        dom::{Dom, IdOrClass, NodeData, NodeType},
+        id::NodeId,
+        refany::RefAny,
+        styled_dom::StyledDom,
+    };
+
+    use super::{extract_subtree_as_dom, TransientWindowConfig};
+
+    /// How often the content was asked for, and what it is asked to say.
+    struct Panel {
+        asked: usize,
+        label: &'static str,
+    }
+
+    /// The content: a box of the class the data names, holding one box.
+    extern "C" fn panel(mut data: RefAny) -> Dom {
+        let label = match data.downcast_mut::<Panel>() {
+            Some(mut state) => {
+                state.asked += 1;
+                state.label
+            }
+            None => "no-data",
+        };
+        Dom::create_div()
+            .with_ids_and_classes(vec![IdOrClass::Class(label.into())].into())
+            .with_child(Dom::create_div())
+    }
+
+    fn classes_of(dom: &Dom) -> Vec<String> {
+        dom.root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .filter_map(|c| match c {
+                IdOrClass::Class(name) => Some(name.as_str().to_string()),
+                IdOrClass::Id(_) => None,
+            })
+            .collect()
+    }
+
+    /// A closed popup that builds its content when shown is ONE node of the
+    /// DOM around it; the window's content is what the callback returns for
+    /// the node's data, asked once per extraction, after the node's own
+    /// children. A node without a callback is its children, as before.
+    ///
+    /// Mutation: the call taken out of `extract_subtree_as_dom` leaves the
+    /// window empty (0 children, never asked).
+    #[test]
+    fn a_transient_node_is_asked_for_its_content_when_its_window_is_shown() {
+        let data = RefAny::new(Panel {
+            asked: 0,
+            label: "lazy-panel",
+        });
+        let asked = |data: &RefAny| {
+            let mut data = data.clone();
+            let asked = data.downcast_ref::<Panel>().map(|p| p.asked);
+            asked
+        };
+        let popup = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        )))
+        .with_transient_content(data.clone(), panel as crate::callbacks::TransientContentCallbackType);
+        // body > swatch > popup: three nodes, none of them the panel's.
+        let page = Dom::create_body().with_child(Dom::create_div().with_child(popup));
+        let styled = StyledDom::create_from_dom(page);
+        assert_eq!(styled.node_data.as_ref().len(), 3, "the closed popup is one node");
+        assert_eq!(asked(&data), Some(0), "building the DOM asks for nothing");
+
+        let content = extract_subtree_as_dom(&styled, NodeId::new(2)).expect("the popup's content");
+        assert_eq!(asked(&data), Some(1));
+        assert!(matches!(content.root.get_node_type(), NodeType::Div));
+        assert!(
+            content.root.get_transient_content().is_none(),
+            "the copy shows the content, it does not build it again"
+        );
+        assert_eq!(content.children.as_ref().len(), 1);
+        let shown = &content.children.as_ref()[0];
+        assert_eq!(classes_of(shown), vec!["lazy-panel".to_string()]);
+        assert_eq!(shown.children.as_ref().len(), 1);
+
+        // Asked again by every extraction: the content follows its data.
+        let _ = extract_subtree_as_dom(&styled, NodeId::new(2));
+        assert_eq!(asked(&data), Some(2));
+
+        // A node with children and a callback: the children, then the content.
+        let both = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        )))
+        .with_child(Dom::create_div().with_ids_and_classes(
+            vec![IdOrClass::Class("own-child".into())].into(),
+        ))
+        .with_transient_content(data.clone(), panel as crate::callbacks::TransientContentCallbackType);
+        let styled = StyledDom::create_from_dom(Dom::create_body().with_child(both));
+        let content = extract_subtree_as_dom(&styled, NodeId::new(1)).expect("content");
+        let shown: Vec<Vec<String>> = content.children.as_ref().iter().map(classes_of).collect();
+        assert_eq!(
+            shown,
+            vec![vec!["own-child".to_string()], vec!["lazy-panel".to_string()]]
+        );
+
+        // No callback: the children alone, nothing asked.
+        let plain = Dom::create_from_data(NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        )))
+        .with_child(Dom::create_div());
+        let styled = StyledDom::create_from_dom(Dom::create_body().with_child(plain));
+        let content = extract_subtree_as_dom(&styled, NodeId::new(1)).expect("content");
+        assert_eq!(content.children.as_ref().len(), 1);
+        assert_eq!(asked(&data), Some(3), "three extractions of nodes with a callback");
+    }
+
+    /// The dataset merge of a rebuild repoints the content's data like every
+    /// other `RefAny` of the node: the callback is called with the state the
+    /// widget kept, not with the one the rebuild made (a colour picker would
+    /// be built closed, its hue forgotten). The node's table of fields has a
+    /// row for it.
+    ///
+    /// Mutation: the `TransientContent` arm of `NodeField::for_each_refany`
+    /// visiting nothing leaves the content's data unvisited (0 for 1).
+    #[test]
+    fn the_data_of_a_transient_nodes_content_is_one_of_the_nodes_refanys() {
+        use crate::refany::RefAnyHolder;
+
+        let data = RefAny::new(Panel {
+            asked: 0,
+            label: "lazy-panel",
+        });
+        let mut node = NodeData::create_node(NodeType::TransientWindow(
+            TransientWindowConfig::closed(),
+        ));
+        node.set_transient_content(data.clone(), panel as crate::callbacks::TransientContentCallbackType);
+        let mut seen = 0;
+        node.for_each_refany(&mut |held: &mut RefAny| {
+            if held.sharing_info.ptr == data.sharing_info.ptr {
+                seen += 1;
+            }
+        });
+        assert_eq!(seen, 1, "the content's data is walked with the node's other data");
+        // A rebuild that keeps its DOM carries the fresh callback and data over.
+        let field = crate::layout_inputs::NodeField::TransientContent;
+        assert!(field.retained().carries() && field.holds_value(&node));
+        let mut held = NodeData::create_div();
+        field.carry(&node, &mut held);
+        assert!(held.get_transient_content().is_some());
+        assert!(!field.holds_value(&NodeData::create_div()));
+    }
 }
 
 /// Clones `id` and its descendants into a fresh `Dom`, styles baked in.
@@ -626,6 +825,99 @@ fn bake_resolved_style(
     }
     for p in cache.css_props.get_slice(i) {
         data.add_css_property(with_state(p));
+    }
+}
+
+/// Fits the root of a transient window's content into `cap`, the most room
+/// its window may take.
+///
+/// A root that does not scroll needs nothing: it is as
+/// big as its content, and the window, a viewport like a document's, scrolls
+/// what does not fit. A root that is its own scroll container on an axis
+/// (`overflow: auto | scroll`) scrolls only inside its box, so on that axis
+/// its border box is at most `cap` (its own `max-width` / `max-height` win
+/// when smaller); a box bigger than its window would leave its overflow out
+/// of reach.
+///
+/// The same cap goes in when the content is measured (the room on the
+/// screen) and when its window lays it out (the size it was measured at).
+pub fn fit_root_to(dom: &mut crate::dom::Dom, cap: LogicalSize) {
+    use azul_css::props::{
+        basic::pixel::PixelValue,
+        layout::{LayoutBoxSizing, LayoutMaxHeight, LayoutMaxWidth, LayoutOverflow},
+        property::CssProperty,
+    };
+
+    let root = &mut dom.root;
+    // The node's own unconditional values, the last one of each winning.
+    let mut own_max = (None::<PixelValue>, None::<PixelValue>);
+    let mut scrolls = (false, false);
+    let mut border_box = false;
+    let mut frame = (0.0f32, 0.0f32);
+    let px = |v: &PixelValue| v.to_pixels_absolute().into_option().unwrap_or(0.0).max(0.0);
+    let is_scroll_container = |o: Option<&LayoutOverflow>| {
+        matches!(o, Some(LayoutOverflow::Auto | LayoutOverflow::Scroll))
+    };
+    for (p, conditions) in root.style.iter_inline_properties() {
+        if !conditions.as_ref().is_empty() {
+            continue;
+        }
+        let side = |v: Option<f32>| v.unwrap_or(0.0);
+        match p {
+            CssProperty::MaxWidth(v) => own_max.0 = v.get_property().map(|m| m.inner),
+            CssProperty::MaxHeight(v) => own_max.1 = v.get_property().map(|m| m.inner),
+            CssProperty::OverflowX(v) => scrolls.0 = is_scroll_container(v.get_property()),
+            CssProperty::OverflowY(v) => scrolls.1 = is_scroll_container(v.get_property()),
+            CssProperty::BoxSizing(v) => {
+                border_box = v.get_property() == Some(&LayoutBoxSizing::BorderBox);
+            }
+            CssProperty::PaddingLeft(v) => frame.0 += side(v.get_property().map(|s| px(&s.inner))),
+            CssProperty::PaddingRight(v) => frame.0 += side(v.get_property().map(|s| px(&s.inner))),
+            CssProperty::BorderLeftWidth(v) => {
+                frame.0 += side(v.get_property().map(|s| px(&s.inner)));
+            }
+            CssProperty::BorderRightWidth(v) => {
+                frame.0 += side(v.get_property().map(|s| px(&s.inner)));
+            }
+            CssProperty::PaddingTop(v) => frame.1 += side(v.get_property().map(|s| px(&s.inner))),
+            CssProperty::PaddingBottom(v) => frame.1 += side(v.get_property().map(|s| px(&s.inner))),
+            CssProperty::BorderTopWidth(v) => {
+                frame.1 += side(v.get_property().map(|s| px(&s.inner)));
+            }
+            CssProperty::BorderBottomWidth(v) => {
+                frame.1 += side(v.get_property().map(|s| px(&s.inner)));
+            }
+            _ => {}
+        }
+    }
+    if border_box {
+        frame = (0.0, 0.0);
+    }
+    // The max a scrolling axis gets: the room less the box's frame, unless
+    // the node's own max in px is already tighter; a relative one resolves
+    // against the window, which is never bigger.
+    let fitted = |own: Option<PixelValue>, room: f32, frame: f32| -> Option<f32> {
+        let inner = (room - frame).max(0.0);
+        if !inner.is_finite() {
+            return None;
+        }
+        match own {
+            Some(v) if v.to_pixels_absolute().into_option().is_some() => {
+                (px(&v) > inner).then_some(inner)
+            }
+            Some(_) => None,
+            None => Some(inner),
+        }
+    };
+    if let Some(w) = fitted(own_max.0, cap.width, frame.0).filter(|_| scrolls.0) {
+        root.upsert_inline_css_property(CssProperty::const_max_width(LayoutMaxWidth {
+            inner: PixelValue::px(w),
+        }));
+    }
+    if let Some(h) = fitted(own_max.1, cap.height, frame.1).filter(|_| scrolls.1) {
+        root.upsert_inline_css_property(CssProperty::const_max_height(LayoutMaxHeight {
+            inner: PixelValue::px(h),
+        }));
     }
 }
 

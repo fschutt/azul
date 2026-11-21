@@ -1,0 +1,20 @@
+# row: X-DELTA-W1S9E-3
+# why: `check_placement` compares the metadata group whose identity key certified a credential key with the group the verifier says the account lives on; the patch drops the comparison, so a voter of ANOTHER group vouches for an account that is not its own (every credential and every assertion goes through this one function)
+# killers: azlin-creds:a_voter_of_another_group_cannot_vouch_for_the_account
+# replay: cg python3 scripts/mutants.py --patch mutants/X-DELTA-W1S9E-3.patch   (from inside the azul checkout; apply: git apply from the repository root; undo: git apply -R)
+# mutant: group_comparison_dropped
+# guard: after both signatures verified, `groups.group_of(account)` must equal the certificate's group (`GroupMismatch`, an alarm; an account the verifier does not know is `UnknownAccount`). The killer substring names two lib tests of src/groups.rs: a credential and an assertion certified by a voter of group 2 for an account placed on group 1 are refused GroupMismatch, while the owning group's own voucher verifies.
+#   The same guard is a `mutant!("creds_group_comparison_dropped")` of the committed code, killed in the one-hold round of the commit; tests/creds/placement.rs and the oracle of tests/creds/prop.rs hold it from outside the crate (they are no killers of this patch: the replay runs lib tests only).
+--- a/examples/azlin-creds/src/groups.rs
++++ b/examples/azlin-creds/src/groups.rs
+@@ -116,9 +116,7 @@
+     let Some(home) = groups.group_of(account) else {
+         return Err(Placement::UnknownAccount);
+     };
+-    if home != certified && !azlin_seams::mutant!("creds_group_comparison_dropped") {
+-        return Err(Placement::GroupMismatch);
+-    }
++    let _ = (home, certified);
+     Ok(())
+ }
+ 

@@ -126,6 +126,48 @@ public class HelloWorld {
 }
 ```
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is Java's own optional: a parameter takes the 
+value itself or `null` for "none", a field getter or a return value gives a 
+`java.util.Optional<T>`. A failed call (an `Err`) throws a `RuntimeException`; an 
+exception thrown inside a callback is logged and the callback does nothing.
+
+A folder picker. Before, `FileDialog` had no class (only the raw 
+`AzulNativeDialog.AzFileDialog_openDirectory(AzString.ByValue, AzOptionString.ByValue, ...)`), 
+and the picked path was a raw `AzOptionFilePath.ByValue`:
+
+```java
+static Update onPickFolder(Model model, CallbackInfo info, RefAny result) {
+    Optional<FileOpenResult> picked = FileOpenResult.downcast(result);
+    if (picked.isEmpty()) return Update.DoNothing;
+    AzFilePath path = picked.get().getPath().toNullable(); // a raw struct, or null
+    if (path == null) return Update.DoNothing;
+    ...
+}
+```
+
+Now:
+
+```java
+static Update onChooseFolder(Model model, CallbackInfo info) {
+    FileDialog.openDirectory("Choose a folder", null, model, HelloWorld::onPickFolder);
+    return Update.DoNothing;
+}
+
+static Update onPickFolder(Model model, CallbackInfo info, RefAny result) {
+    Optional<FilePath> path = FileOpenResult.downcast(result).flatMap(FileOpenResult::getPath);
+    if (path.isEmpty()) return Update.DoNothing; // not a folder pick, or cancelled
+    model.folder = path.get().getInner();
+    return Update.RefreshDom;
+}
+
+static Update onOpenLink(Model model, CallbackInfo info) {
+    Url url = Url.parse(model.link); // an Err throws: logged, the callback does nothing
+    return Update.RefreshDom;
+}
+```
+
 ## Build and run
 
 Each release ships with an example `pom.xml`, so you can use it directly as your 

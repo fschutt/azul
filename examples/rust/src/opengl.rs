@@ -4,7 +4,6 @@ use azul::{
     callbacks::RenderImageCallbackInfo,
     css::{
         AngleValue, ColorU, PhysicalSizeU32, PixelValue, StyleTransform, StyleTransformTranslate2D,
-        SvgFillStyle,
     },
     dom::RenderImageCallback,
     gl::Texture,

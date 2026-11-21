@@ -1,0 +1,26 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Table border resolution rules</title>
+<style>
+  table {
+    font-size: 2em;
+    border-collapse: collapse;
+    border: 5px solid green;
+  }
+</style>
+</head>
+<body><p>You should see no non-solid borders and no red.</p>
+
+<table>
+  <tbody><tr>
+    <td colspan="4" style="border: 5px solid purple;">hello</td>
+  </tr>
+  <tr>
+    <td style="border-top: 5px solid blue; border-right: 5px solid blue; border-bottom: 9px hidden red; border-left: 9px none;">one</td>
+    <td style="border-top: 5px dashed blue; border-right: 5px solid blue; border-bottom: 5px outset red;">two</td>
+    <td style="border-top: 5px ridge blue; border-right: 5px ridge red; border-bottom: 5px inset red;">three</td>
+    <td style="border-left: 5px solid blue; border-bottom: 5px dotted red;">four</td>
+  </tr>
+</tbody></table>
+</body>
+</html>

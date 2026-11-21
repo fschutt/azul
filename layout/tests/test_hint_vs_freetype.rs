@@ -299,7 +299,7 @@ fn hint_glyph(font: &ParsedFont, codepoint: u32, ppem: u16) -> Option<Vec<(i32, 
         .collect();
     let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
 
-    let hint_mutex = font.hint_instance.as_ref()?;
+    let hint_mutex = font.hint_instance()?;
     let mut hint = hint_mutex.lock().ok()?;
     hint.set_ppem(ppem, ppem as f64).ok()?;
 
@@ -340,7 +340,7 @@ fn hint_glyph_with_flags(
         .collect();
     let adv_f26dot6 = F26Dot6::from_funits(owned.horz_advance as i32, scale).to_bits();
 
-    let hint_mutex = font.hint_instance.as_ref()?;
+    let hint_mutex = font.hint_instance()?;
     let mut hint = hint_mutex.lock().ok()?;
     hint.set_ppem(ppem, ppem as f64).ok()?;
 
@@ -886,7 +886,7 @@ fn hint_glyph_any(font: &ParsedFont, codepoint: u32, ppem: u16) -> Option<Vec<(i
     let raw_contour_ends = owned.raw_contour_ends.as_ref()?;
     let instructions = owned.instructions.as_ref()?;
 
-    let hint_mutex = font.hint_instance.as_ref()?;
+    let hint_mutex = font.hint_instance()?;
     let mut hint = hint_mutex.lock().ok()?;
 
     let upem = font.font_metrics.units_per_em;
@@ -947,7 +947,7 @@ fn test_digit_8_vs_freetype() {
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
     let instructions = owned.instructions.as_ref().unwrap();
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(ppem, ppem as f64).unwrap();
     let scale = compute_scale(ppem, font.font_metrics.units_per_em);
@@ -2403,7 +2403,7 @@ fn test_trace_L_ppem12() {
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
     let instructions = owned.instructions.as_ref().unwrap();
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(ppem, ppem as f64).unwrap();
 
@@ -2574,7 +2574,7 @@ fn test_trace_o_ppem64() {
     let raw_contour_ends = owned.raw_contour_ends.as_ref().unwrap();
     let instructions = owned.instructions.as_ref().unwrap();
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(ppem, ppem as f64).unwrap();
     hint.interpreter.debug_trace_points = true;
@@ -2632,7 +2632,7 @@ fn test_trace_o_ppem12_iup() {
     };
 
     let ppem: u16 = 12;
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(ppem, ppem as f64).unwrap();
     hint.interpreter.debug_trace_points = true;
@@ -2774,7 +2774,7 @@ fn test_storage_values_by_ppem() {
         }
     };
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
 
     for ppem in [8u16, 10, 12, 14, 16, 18, 20, 24, 32, 48] {
         // Force re-run of prep by clearing cached ppem
@@ -2869,7 +2869,7 @@ fn test_trace_i_32px() {
     };
 
     let ppem: u16 = 32;
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(ppem, ppem as f64).unwrap();
     hint.interpreter.debug_trace_points = true;
@@ -2924,7 +2924,7 @@ fn test_cvt_values_by_ppem() {
         }
     };
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
 
     // Key CVT indices for Times New Roman (from fonttools):
     // CVT[0] = 1422 funits (ascender/dot height)
@@ -2978,7 +2978,7 @@ fn test_trace_prep_cvt0() {
         }
     };
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
 
     // Enable tracing for ppem=32 prep only
@@ -3015,7 +3015,7 @@ fn test_dump_all_storage() {
         }
     };
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(32, 32.0).ok();
 
@@ -3141,7 +3141,7 @@ fn test_cvt0_at_mismatch_ppem() {
         }
     };
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
 
     // Check CVT[0] at mismatched ppem values plus neighbors
     for ppem in [
@@ -3193,7 +3193,7 @@ fn test_default_gs_round_state() {
         }
     };
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.set_ppem(32, 32.0).ok();
 
@@ -3248,7 +3248,7 @@ fn test_trace_deltac_ppem14() {
         }
     };
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
     let mut hint = hint_mutex.lock().unwrap();
     hint.interpreter.debug_trace_points = true;
     hint.set_ppem(14, 14.0).ok();
@@ -3283,7 +3283,7 @@ fn test_stack_depth_at_calls() {
         }
     };
 
-    let hint_mutex = font.hint_instance.as_ref().unwrap();
+    let hint_mutex = font.hint_instance().unwrap();
 
     // Run at ppem=10 (correct) and ppem=14 (broken) and compare stack depths
     for ppem in [10u16, 14] {

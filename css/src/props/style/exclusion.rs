@@ -3,12 +3,14 @@
 //! Defines `StyleExclusionMargin` (spacing between text and shape exclusions)
 //! and `StyleHyphenationLanguage` (BCP 47 language code for automatic hyphenation).
 
-use std::num::ParseFloatError;
+use alloc::string::String;
+use core::num::ParseFloatError;
 
 #[cfg(feature = "parser")]
 use crate::macros::*;
+#[cfg(feature = "codegen")]
+use crate::codegen::format::FormatAsRustCode;
 use crate::{
-    codegen::format::FormatAsRustCode,
     corety::AzString,
     props::{
         basic::{length::parse_float_value, FloatValue},
@@ -55,11 +57,12 @@ impl PrintAsCssValue for StyleExclusionMargin {
 }
 
 impl FormatAsCssValue for StyleExclusionMargin {
-    fn format_as_css_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn format_as_css_value(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{}", self.inner.get())
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleExclusionMargin {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -170,11 +173,12 @@ impl PrintAsCssValue for StyleHyphenationLanguage {
 }
 
 impl FormatAsCssValue for StyleHyphenationLanguage {
-    fn format_as_css_value(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn format_as_css_value(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "\"{}\"", self.inner.as_str())
     }
 }
 
+#[cfg(feature = "codegen")]
 impl FormatAsRustCode for StyleHyphenationLanguage {
     fn format_as_rust_code(&self, _tabs: usize) -> String {
         format!(
@@ -356,7 +360,7 @@ mod autotest_generated {
     struct AsCss<'a, T: FormatAsCssValue>(&'a T);
 
     impl<T: FormatAsCssValue> std::fmt::Display for AsCss<'_, T> {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             self.0.format_as_css_value(f)
         }
     }
@@ -462,6 +466,7 @@ mod autotest_generated {
     // Formatting / round-trip of the value types
     // ---------------------------------------------------------------------
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn exclusion_margin_print_and_format_agree() {
         for v in [0.0_f32, 10.5, -3.25, 123.456, f32::INFINITY, f32::NAN] {
@@ -476,6 +481,7 @@ mod autotest_generated {
         }
     }
 
+    #[cfg(feature = "codegen")]
     #[test]
     fn hyphenation_print_and_format_agree() {
         for s in ["en-US", "", "a", "\u{1F600}", "quote\"inside"] {
@@ -756,6 +762,7 @@ mod autotest_generated {
         assert!(parse_style_exclusion_margin(&"-".repeat(10_000)).is_err());
     }
 
+    #[cfg(feature = "codegen")]
     #[cfg(feature = "parser")]
     #[test]
     fn parse_exclusion_margin_round_trips_through_css_and_rust_code() {
@@ -1012,6 +1019,7 @@ mod autotest_generated {
         assert!(parse_style_hyphenation_language(&nested_quotes).is_err());
     }
 
+    #[cfg(feature = "codegen")]
     #[cfg(feature = "parser")]
     #[test]
     fn parse_hyphenation_language_round_trips_through_css_and_rust_code() {

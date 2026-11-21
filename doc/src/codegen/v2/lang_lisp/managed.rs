@@ -182,7 +182,7 @@ fn emit_per_kind_invoker(
             Some(rt) => {
                 let trimmed = rt.trim();
                 if let Some(s) = ir.find_struct(trimmed) {
-                    let class_kebab = super::ident_to_kebab(&s.name); // e.g. "dom"
+                    let class_kebab = super::idiomatic_class_name(&s.name); // e.g. "dom"
                     let struct_kebab = super::to_kebab_case(&s.name); // e.g. "az-dom"
                     Some((class_kebab, struct_kebab))
                 } else {
@@ -196,13 +196,10 @@ fn emit_per_kind_invoker(
         builder.line("               (setf (cffi:mem-ref out :int32) ret))");
         if let Some((class_kebab, struct_kebab)) = ret_info {
             // Wrapper instance: the `<class>-ptr` accessor (e.g. `dom-ptr`)
-            // holds the CFFI-TRANSLATED struct value (a plist), NOT a raw
-            // foreign pointer — every `%az-*` constructor returns a
-            // `(:struct …)` by value, which CFFI translates to a plist and
-            // the CLOS wrapper stashes in its `:ptr` slot. So we can't
-            // memcpy from it (it isn't a pointer). Instead write it back
-            // through `out` with `setf mem-ref`, which translates the plist
-            // into the caller's return slot.
+            // holds a foreign pointer to the wrapper's own buffer (every
+            // by-value return of a wrapped class is boxed, see
+            // `wrappers::emit_internal_boxing`); `setf mem-ref` on the
+            // struct type copies those bytes into the caller's return slot.
             // The invoker is emitted in :azul-internal, but the CLOS
             // wrapper class and its `<class>-ptr` accessor live in :azul —
             // qualify both, else `(typep ret 'dom)` fails with "unknown
@@ -211,10 +208,13 @@ fn emit_per_kind_invoker(
                 "              ((and ret (typep ret 'azul::{}))",
                 class_kebab
             ));
+            // The bytes move into the engine's return slot: consume the
+            // wrapper so a later close on it cannot free them twice.
             builder.line(&format!(
-                "               (setf (cffi:mem-ref out '(:struct {})) (azul::{}-ptr ret)))",
+                "               (setf (cffi:mem-ref out '(:struct {})) (azul::{}-ptr ret))",
                 struct_kebab, class_kebab
             ));
+            builder.line("               (azul::%consume ret))");
         }
         builder.line("              (t nil)))");
     } else {
@@ -271,7 +271,21 @@ pub fn emit_user_facing_helpers(builder: &mut CodeBuilder, ir: &CodegenIR) {
     builder.line("   the shared handle table; the destructor clears it on last-clone drop.\"");
     builder.line("  (azul-internal::%azul-ensure-host-invoker-init)");
     builder.line("  (let ((id (azul-internal::%azul-alloc-handle value)))");
-    builder.line("    (azul-internal::%az-ref-any-new-host-handle id)))");
+    // The handle class is wrapped (it has a `_delete`): hand back a wrapper
+    // object, so passing it by value moves it like any other wrapper.
+    let refany_class = ir
+        .structs
+        .iter()
+        .find(|s| s.category == super::super::ir::TypeCategory::RefAny)
+        .filter(|s| super::super::managed_lang_helpers::has_delete_function(&s.name, ir))
+        .map(|s| super::idiomatic_class_name(&s.name));
+    match refany_class {
+        Some(c) => builder.line(&format!(
+            "    (make-instance '{} :ptr (azul-internal::%az-ref-any-new-host-handle id))))",
+            c
+        )),
+        None => builder.line("    (azul-internal::%az-ref-any-new-host-handle id)))"),
+    }
     builder.blank();
 
     builder.line("(defun refany-get (refany-ptr)");

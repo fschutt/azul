@@ -1,0 +1,60 @@
+[
+  {
+    "name": "the first download of a drive is cut short and the device's state is dropped: nothing is deleted on the drive, the rest comes down",
+    "description": "MAGENTA-010 (Nextcloud desktop 4.0.0, inherited by forks): switching virtual files off during the initial sync made the client treat the partial local tree as truth and delete every folder not yet here from the server. Rules D5, D6 and P13: a file never seen here is not a local delete; mode changes and state loss never delete anything. sync-chaos placeholder-write-back.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "big", "count": 40, "size": 4096, "seed": 10 },
+      { "op": "drive_write", "device": "a", "path": "folders/one/a.txt", "text": "a" },
+      { "op": "drive_write", "device": "a", "path": "folders/two/b.txt", "text": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_crash_at", "device": "b", "point": "after-rename" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle", "device": "b" },
+      { "op": "drive_status", "device": "b" },
+      { "op": "assert_response", "path": "result.crashes", "equals": 1 },
+      { "op": "drive_wipe_state", "device": "b" },
+      { "op": "drive_restart", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "big/*", "count": 40 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "folders/two/b.txt", "text": "b" },
+      { "op": "drive_check", "check": "remote_count", "glob": "big/*", "count": 40 },
+      { "op": "drive_check", "check": "remote_count", "count": 42 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "max_ops", "change": "trash", "device": "b", "max": 0 },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "on-demand files switched off in the middle of the first sync: zero remote deletes, the rest downloads",
+    "description": "MAGENTA-010, the trigger itself. Rule P13: toggling on-demand files deletes nothing.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "big", "count": 40, "size": 4096, "seed": 10 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_pair", "device": "b", "on_demand": true },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "late.txt", "text": "arrives after the switch" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b", "pause_at": "after-scan", "expect": "any" },
+      { "op": "drive_on_demand", "device": "b", "on": false },
+      { "op": "drive_cont", "device": "b" },
+      { "op": "drive_wait", "device": "b", "expect": "any" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "glob": "big/*", "count": 40 },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "big/*", "count": 40 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "late.txt", "text": "arrives after the switch" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

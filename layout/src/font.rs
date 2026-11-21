@@ -18,17 +18,174 @@ pub mod loading {
     use std::io::Error as IoError;
 
     use azul_css::{AzString, StringVec, U8Vec};
-    use rust_fontconfig::FcFontCache;
+    use rust_fontconfig::{FcFallbackConfig, FcFontCache, GenericFamily, OperatingSystem};
 
     #[cfg(not(miri))]
     #[must_use]
     pub fn build_font_cache() -> FcFontCache {
-        FcFontCache::build()
+        let cache = FcFontCache::build();
+        use_browser_generic_families(&cache);
+        cache
     }
 
     #[cfg(miri)]
     pub fn build_font_cache() -> FcFontCache {
         FcFontCache::default()
+    }
+
+    /// The generic families as Chrome resolves them, where rust-fontconfig's
+    /// per-OS tables say otherwise (user ruling 2026-10-03: Chrome is the
+    /// reference - azul changes, the widgets' CSS keeps their look).
+    ///
+    /// - macOS / iOS: `sans-serif` is Helvetica (Blink's default font
+    ///   settings); the crate lists Helvetica Neue first. Helvetica moves to
+    ///   the front, the rest keep their order behind it.
+    ///
+    /// - every OS: `system-ui` is the font the OS draws its own UI in (user,
+    ///   SYSUI8: "the fonts in the System Settings panel"), the ONE list
+    ///   azul's `system:ui` role draws with too - `SystemFontType::Ui`'s
+    ///   chain (css/src/system.rs): "System Font" (San Francisco, SFNS.ttf)
+    ///   on macOS / iOS, Segoe UI Variable on Windows (the Windows 11
+    ///   Settings font; Chrome's `system-ui` is the older message font
+    ///   "Segoe UI"), Roboto on Android. On Linux a `system-ui` alias of the
+    ///   desktop's fontconfig stays first and the list follows it; the
+    ///   desktop's own font setting goes before both at runtime
+    ///   ([`use_system_ui_font`]).
+    ///
+    /// - every OS: a named family the machine lacks draws in a
+    ///   metric-compatible face, as Chrome does through fontconfig's metric
+    ///   aliases: Arial in Liberation Sans or Arimo, Times New Roman in
+    ///   Liberation Serif or Tinos, Courier New in Liberation Mono or Cousine
+    ///   ([`METRIC_COMPATIBLE`]). They share their advances and line
+    ///   heights, so a page set in Arial keeps its line breaks and its line
+    ///   heights on Linux. A substitution the system configured stays first.
+    ///
+    /// Everything else stays: `serif` and `monospace` already resolve to
+    /// Chrome's faces on macOS (Times, Menlo - measured), and on Linux the
+    /// desktop's fontconfig `<alias>` decides for both engines. Idempotent.
+    pub fn browser_generic_families(config: &mut FcFallbackConfig, os: OperatingSystem) {
+        for (family, twins) in METRIC_COMPATIBLE {
+            let substitutes = config
+                .substitutions
+                .entry(rust_fontconfig::utils::normalize_family_name(family))
+                .or_default();
+            for twin in *twins {
+                if !substitutes.iter().any(|f| f.eq_ignore_ascii_case(twin)) {
+                    substitutes.push((*twin).to_string());
+                }
+            }
+        }
+        if matches!(os, OperatingSystem::MacOS | OperatingSystem::IOS) {
+            let sans = config
+                .generic_families
+                .entry(GenericFamily::SansSerif)
+                .or_default();
+            sans.retain(|family| !family.eq_ignore_ascii_case("Helvetica"));
+            sans.insert(0, String::from("Helvetica"));
+        }
+        if let Some(platform) = platform_of(os) {
+            let ui = azul_css::system::SystemFontType::Ui.get_fallback_chain(&platform);
+            let system_ui = config
+                .generic_families
+                .entry(GenericFamily::SystemUi)
+                .or_default();
+            if os == OperatingSystem::Linux {
+                for family in ui {
+                    if !system_ui.iter().any(|f| f.eq_ignore_ascii_case(family)) {
+                        system_ui.push(family.to_string());
+                    }
+                }
+            } else {
+                *system_ui = ui.into_iter().map(String::from).collect();
+            }
+        }
+    }
+
+    /// The faces drawn in place of a family that is not installed, each
+    /// with the family's advances and vertical metrics (fontconfig's
+    /// `30-metric-aliases.conf`, which is what Chrome on Linux follows).
+    pub const METRIC_COMPATIBLE: &[(&str, &[&str])] = &[
+        ("Arial", &["Liberation Sans", "Arimo", "Albany AMT"]),
+        ("Arial Narrow", &["Liberation Sans Narrow"]),
+        (
+            "Helvetica",
+            &["Arial", "Nimbus Sans", "Nimbus Sans L", "TeX Gyre Heros", "Liberation Sans", "Arimo"],
+        ),
+        ("Times New Roman", &["Liberation Serif", "Tinos", "Thorndale AMT"]),
+        (
+            "Times",
+            &["Times New Roman", "Nimbus Roman", "TeX Gyre Termes", "Liberation Serif", "Tinos"],
+        ),
+        ("Courier New", &["Liberation Mono", "Cousine", "Cumberland AMT"]),
+        (
+            "Courier",
+            &["Courier New", "Nimbus Mono PS", "TeX Gyre Cursor", "Liberation Mono", "Cousine"],
+        ),
+        ("Calibri", &["Carlito"]),
+        ("Cambria", &["Caladea"]),
+        ("Georgia", &["Gelasio"]),
+    ];
+
+    /// The css crate's `Platform` whose system font chains describe `os`
+    /// (the Linux desktop does not change the UI font chain). `None` for
+    /// wasm: no OS UI font there.
+    const fn platform_of(os: OperatingSystem) -> Option<azul_css::system::Platform> {
+        use azul_css::system::{DesktopEnvironment, Platform};
+        Some(match os {
+            OperatingSystem::MacOS => Platform::MacOs,
+            OperatingSystem::IOS => Platform::Ios,
+            OperatingSystem::Windows => Platform::Windows,
+            OperatingSystem::Linux => Platform::Linux(DesktopEnvironment::Gnome),
+            OperatingSystem::Android => Platform::Android,
+            OperatingSystem::Wasm => return None,
+        })
+    }
+
+    /// `family` - the desktop's own UI font setting, azul's detected
+    /// `SystemStyle::fonts.ui_font` (GNOME's / KDE's font) - first in the
+    /// `system-ui` list of `config`, once; the rest keep their order. A
+    /// blank name changes nothing.
+    pub fn prefer_system_ui_font(config: &mut FcFallbackConfig, family: &str) {
+        let family = family.trim();
+        if family.is_empty() {
+            return;
+        }
+        let inherited = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+        let system_ui = config
+            .generic_families
+            .entry(GenericFamily::SystemUi)
+            .or_insert(inherited);
+        system_ui.retain(|f| !f.eq_ignore_ascii_case(family));
+        system_ui.insert(0, family.to_string());
+    }
+
+    /// [`prefer_system_ui_font`] applied to `cache` (shared state, as
+    /// [`use_browser_generic_families`]); a no-op when the font is first
+    /// already, so the memoized chains survive. The dll calls it on Linux
+    /// with the detected desktop font at the first layout.
+    pub fn use_system_ui_font(cache: &FcFontCache, family: &str) {
+        let current = cache.fallback_config();
+        let mut config = current.clone();
+        prefer_system_ui_font(&mut config, family);
+        if config != current {
+            let _ = cache.set_fallback_config(config);
+        }
+    }
+
+    /// [`browser_generic_families`] for this platform, applied to `cache`
+    /// (its state is shared: every clone and a registry's snapshots see
+    /// it). A no-op where the cache already resolves that way, so building
+    /// a window over a shared cache does not drop its memoized chains
+    /// (`set_fallback_config` clears them). THE one call: `build_font_cache`,
+    /// every `FontManager` (so every `LayoutWindow`), and the dll's font
+    /// registry (`App::create`).
+    pub fn use_browser_generic_families(cache: &FcFontCache) {
+        let current = cache.fallback_config();
+        let mut config = current.clone();
+        browser_generic_families(&mut config, OperatingSystem::current());
+        if config != current {
+            let _ = cache.set_fallback_config(config);
+        }
     }
 
     #[derive(Debug)]
@@ -171,6 +328,23 @@ pub mod parsed {
     /// shaping/decode/PDF needed.
     #[must_use]
     pub fn read_wght_axis(bytes: &[u8], index: usize) -> Option<(f32, f32, f32)> {
+        read_variation_axis(bytes, index, tag::WGHT)
+    }
+
+    /// The `wght` (weight) axis tag, for [`bake_instance`].
+    pub const WGHT_AXIS: u32 = tag::WGHT;
+    /// The `opsz` (optical size) axis tag, for [`bake_instance`].
+    pub const OPSZ_AXIS: u32 = tag::OPSZ;
+
+    /// The variation axis `axis_tag` (`tag::WGHT`, `tag::OPSZ`, ...) of the
+    /// face `index` in `bytes`: `(min, default, max)` in user units. `None`
+    /// when the face is not variable along that axis.
+    #[must_use]
+    pub fn read_variation_axis(
+        bytes: &[u8],
+        index: usize,
+        axis_tag: u32,
+    ) -> Option<(f32, f32, f32)> {
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
         let fvar_data = provider.read_table_data(tag::FVAR).ok()?;
@@ -179,7 +353,7 @@ pub mod parsed {
             .ok()?;
         // Bind before returning so the (borrowing) axes() iterator is dropped at
         // the end of this statement, not after `provider`/`fvar` at block end.
-        let axis = fvar.axes().find(|a| a.axis_tag == tag::WGHT);
+        let axis = fvar.axes().find(|a| a.axis_tag == axis_tag);
         axis.map(|a| {
             (
                 f32::from(a.min_value),
@@ -196,6 +370,21 @@ pub mod parsed {
     /// not a bakeable variable font.
     #[must_use]
     pub fn bake_weight_instance(bytes: &[u8], index: usize, wght: f32) -> Option<Vec<u8>> {
+        bake_instance(bytes, index, &[(tag::WGHT, wght)])
+    }
+
+    /// Bake a self-contained STATIC instance of a variable font with each
+    /// axis of `coordinates` (`(axis tag, user value)`, e.g. `wght` 700 and
+    /// `opsz` 17) set, every other axis at its default. Fresh TTF bytes that
+    /// parse and embed exactly like any static font, or `None` if the font is
+    /// not a bakeable variable font. THE bake: weights
+    /// ([`bake_weight_instance`]) and optical sizes go through it.
+    #[must_use]
+    pub fn bake_instance(
+        bytes: &[u8],
+        index: usize,
+        coordinates: &[(u32, f32)],
+    ) -> Option<Vec<u8>> {
         use allsorts::tables::Fixed;
         let font_file = ReadScope::new(bytes).read::<FontData<'_>>().ok()?;
         let provider = font_file.table_provider(index).ok()?;
@@ -206,16 +395,101 @@ pub mod parsed {
         let user: Vec<Fixed> = fvar
             .axes()
             .map(|a| {
-                if a.axis_tag == tag::WGHT {
-                    Fixed::from(wght)
-                } else {
-                    a.default_value
-                }
+                coordinates
+                    .iter()
+                    .find(|(axis_tag, _)| *axis_tag == a.axis_tag)
+                    .map_or(a.default_value, |(_, value)| Fixed::from(*value))
             })
             .collect();
         allsorts::variations::instance(&provider, &user)
             .ok()
             .map(|(baked, _tuple)| baked)
+    }
+
+    /// A face's AAT `trak` table, its NORMAL track (track value 0): how far
+    /// the face's designer opens or closes the spacing at each point size.
+    ///
+    /// Apple's system faces carry one (`SFNS.ttf` - San Francisco - and its
+    /// italic, SF Compact / Rounded / Hebrew / ..., New York, Apple Color
+    /// Emoji). CoreText adds the value at the font size to every glyph's
+    /// advance, and Chrome's `system-ui` measures the same: SF at 16px is -40
+    /// units per glyph, at 28px +28 (SYSUI8, "Hello world agenda" 139.15px
+    /// in both). Helvetica, Helvetica Neue, Menlo and every other face
+    /// without the table are untouched (CoreText's width = their advances).
+    #[derive(Debug, Clone, PartialEq)]
+    pub struct Tracking {
+        /// `(point size, tracking in font units)`, by ascending size.
+        pub sizes: Vec<(f32, i16)>,
+    }
+
+    impl Tracking {
+        /// The normal track of a `trak` table's horizontal data. `None` when
+        /// the table has no horizontal data or no track 0, or does not parse.
+        /// (Offsets count from the start of the table: Apple's TrueType
+        /// Reference, `trak`.)
+        #[allow(clippy::cast_precision_loss)] // a 16.16 point size into f32
+        #[must_use]
+        pub fn parse(trak: &[u8]) -> Option<Self> {
+            let table = ReadScope::new(trak);
+            let mut header = table.ctxt();
+            let _version = header.read_u32be().ok()?;
+            let _format = header.read_u16be().ok()?;
+            let horiz_offset = usize::from(header.read_u16be().ok()?);
+            if horiz_offset == 0 {
+                return None;
+            }
+            let mut data = table.offset(horiz_offset).ctxt();
+            let n_tracks = data.read_u16be().ok()?;
+            let n_sizes = usize::from(data.read_u16be().ok()?);
+            let size_table_offset = usize::try_from(data.read_u32be().ok()?).ok()?;
+            if n_sizes == 0 {
+                return None;
+            }
+            let mut normal_values = None;
+            for _ in 0..n_tracks {
+                let track = data.read_i32be().ok()?;
+                let _name_index = data.read_u16be().ok()?;
+                let values_offset = usize::from(data.read_u16be().ok()?);
+                if track == 0 {
+                    normal_values = Some(values_offset);
+                }
+            }
+            let mut size_table = table.offset(size_table_offset).ctxt();
+            let mut values = table.offset(normal_values?).ctxt();
+            let mut sizes = Vec::with_capacity(n_sizes);
+            for _ in 0..n_sizes {
+                let size = size_table.read_i32be().ok()? as f32 / 65536.0;
+                let value = values.read_i16be().ok()?;
+                sizes.push((size, value));
+            }
+            sizes.sort_by(|a, b| a.0.total_cmp(&b.0));
+            Some(Self { sizes })
+        }
+
+        /// The tracking at `size` (CSS px, which are CoreText's points) in
+        /// font units: linear between the two table sizes around it, the end
+        /// value beyond the first or last size.
+        #[must_use]
+        pub fn at(&self, size: f32) -> f32 {
+            let Some(&(first_size, first)) = self.sizes.first() else {
+                return 0.0;
+            };
+            if size.is_nan() || size <= first_size {
+                return f32::from(first);
+            }
+            for pair in self.sizes.windows(2) {
+                let (s0, v0) = pair[0];
+                let (s1, v1) = pair[1];
+                if size <= s1 {
+                    if s1 <= s0 {
+                        return f32::from(v1);
+                    }
+                    let t = (size - s0) / (s1 - s0);
+                    return f32::from(v0) + t * (f32::from(v1) - f32::from(v0));
+                }
+            }
+            self.sizes.last().map_or(0.0, |&(_, v)| f32::from(v))
+        }
     }
 
     /// Monotonic-clock nanos since process start. Used to timestamp
@@ -246,6 +520,38 @@ pub mod parsed {
         use std::sync::atomic::{AtomicU64, Ordering};
         static TICK: AtomicU64 = AtomicU64::new(1);
         TICK.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Where a font table's raw bytes are kept (A8-37): a range of the face's
+    /// source bytes (`ParsedFont::original_bytes`), which every constructor
+    /// attaches and which hold the very bytes the face was parsed from, or -
+    /// where the table provider hands out a copy (a WOFF font's tables are
+    /// unpacked) - that copy. GSUB and GPOS were copied out of the source for
+    /// every face loaded (tens of KiB to megabytes for a CJK face) and kept
+    /// for the face's life, next to the source they came from.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) enum TableBytes {
+        InSource { offset: usize, len: usize },
+        Owned(Vec<u8>),
+    }
+
+    impl TableBytes {
+        /// Where `table`, as a table provider over `source` handed it out,
+        /// is kept: its range of `source` when it is borrowed from it,
+        /// otherwise the copy.
+        fn of(table: std::borrow::Cow<'_, [u8]>, source: &[u8]) -> Self {
+            if let std::borrow::Cow::Borrowed(slice) = &table {
+                let offset = (slice.as_ptr() as usize).checked_sub(source.as_ptr() as usize);
+                let fits = |o: &usize| o.checked_add(slice.len()).is_some_and(|end| end <= source.len());
+                if let Some(offset) = offset.filter(fits) {
+                    return Self::InSource {
+                        offset,
+                        len: slice.len(),
+                    };
+                }
+            }
+            Self::Owned(table.into_owned())
+        }
     }
 
     /// Glyph-outline decoder state. See the
@@ -364,6 +670,32 @@ pub mod parsed {
         }
     }
 
+    /// Whether a face of the family `family_name` (the name table's family,
+    /// ID 16 else ID 1) gets the browsers' macOS ascent boost
+    /// ([`LayoutFontMetrics::browser_ascent_boost`]).
+    ///
+    /// Chrome and Safari on Apple platforms add `floor((A + D) * 0.15 +
+    /// 0.5)` to the rounded ascent of EXACTLY the families Times, Helvetica
+    /// and Courier, "to closely match the vertical metrics of their Microsoft
+    /// counterparts that are the de facto web standard" (Blink
+    /// `FontMetrics::AscentDescentWithHacks` under `IS_APPLE`, comparing
+    /// `FontFamilyName()` with `kTimes` / `kHelvetica` / `kCourier`; `WebKit`
+    /// `SimpleFontData::platformInit`). It is a name list in both engines,
+    /// not a metrics rule standing in for one: Apple's Helvetica (hhea 1577
+    /// / -471 / 0, no `USE_TYPO_METRICS`) has a `normal` line of exactly 1em
+    /// otherwise, and a mail written for `Helvetica, Arial` lost 2px per
+    /// 16px line against Chrome. Helvetica Neue, Times New Roman and Courier
+    /// New are other families and keep their metrics; on other platforms
+    /// Chrome does not do it, and neither does azul. The boost itself is
+    /// applied to the ROUNDED pixel metrics
+    /// ([`LayoutFontMetrics::line_metrics_px`]): in font units it rounds
+    /// differently (16px Helvetica 18.4px instead of Chrome's 18px).
+    #[must_use]
+    pub fn browser_ascent_boost(family_name: Option<&str>) -> bool {
+        cfg!(any(target_os = "macos", target_os = "ios"))
+            && matches!(family_name, Some("Times" | "Helvetica" | "Courier"))
+    }
+
     /// Parsed font data with all required tables for text layout and PDF generation.
     ///
     /// This struct holds the parsed representation of a TrueType/OpenType font,
@@ -391,20 +723,21 @@ pub mod parsed {
         pub vhea_table: Option<HheaTable>,
         /// Maximum profile table (maxp) containing glyph count and memory hints.
         pub maxp_table: MaxpTable,
-        /// Raw GSUB table bytes, kept as a `Vec<u8>` (tens to low-hundreds
-        /// of KiB) so the parsed `GsubCache` can be built on first shape
-        /// call instead of up-front. Access via [`ParsedFont::gsub`] —
-        /// that getter populates `gsub_cache_lazy` via `OnceLock` and
-        /// returns a borrow.
-        pub(crate) gsub_bytes: Option<Vec<u8>>,
+        /// Where the raw GSUB table is (tens of KiB to megabytes), so the
+        /// parsed `GsubCache` can be built on first shape call instead of
+        /// up-front. Access via [`ParsedFont::gsub`] — that getter populates
+        /// `gsub_cache_lazy` via `OnceLock` and returns a borrow. A range of
+        /// the source bytes where the table provider hands out a borrowed
+        /// slice ([`TableBytes`]).
+        pub(crate) gsub_bytes: Option<TableBytes>,
         /// Lazy GSUB cache: populated on first [`ParsedFont::gsub`] call.
         /// `None` means "font has no GSUB table" *after* init attempt;
         /// the `OnceLock` wrapper distinguishes "not yet initialised"
         /// from "initialised to None".
         pub(crate) gsub_cache_lazy: std::sync::OnceLock<Option<GsubCache>>,
-        /// Raw GPOS table bytes. Same lazy-parse arrangement as
+        /// Where the raw GPOS table is. Same lazy-parse arrangement as
         /// `gsub_bytes` — see [`ParsedFont::gpos`].
-        pub(crate) gpos_bytes: Option<Vec<u8>>,
+        pub(crate) gpos_bytes: Option<TableBytes>,
         /// Lazy GPOS cache, populated on first [`ParsedFont::gpos`] call.
         pub(crate) gpos_cache_lazy: std::sync::OnceLock<Option<GposCache>>,
         /// Glyph definition table (GDEF) for glyph classification.
@@ -424,6 +757,10 @@ pub mod parsed {
         /// application requires the source bytes to be retained,
         /// so it only fires on the `LocaGlyfState::Deferred` path.
         pub(crate) is_variable_font: bool,
+        /// The face's `trak` normal track ([`Tracking`]), added to every
+        /// glyph's advance at the font size when shaping. `None` for the
+        /// faces without the table (all but Apple's system faces).
+        pub tracking: Option<Arc<Tracking>>,
         /// Lazy outline cache. Populated on first
         /// [`ParsedFont::get_or_decode_glyph`] call per `gid`; entries
         /// are wrapped in `Arc` so callers can hold them without
@@ -482,10 +819,18 @@ pub mod parsed {
         pub font_type: FontType,
         /// PostScript font name from the NAME table.
         pub font_name: Option<String>,
-        /// TrueType bytecode hinting instance (mutable interpreter state).
-        /// Wrapped in Mutex because hinting mutates internal state.
-        /// None for CFF fonts or fonts without hinting data.
-        pub hint_instance: Option<std::sync::Mutex<allsorts::hinting::HintInstance>>,
+        /// TrueType bytecode hinting instance (mutable interpreter state),
+        /// read through [`ParsedFont::hint_instance`]. Wrapped in Mutex
+        /// because hinting mutates internal state. Holds `None` for CFF
+        /// fonts or fonts without hinting data.
+        ///
+        /// Built on first use from the retained source bytes, not at load:
+        /// `HintInstance::new` copies `cvt`/`fpgm`/`prep`, allocates the
+        /// interpreter and executes `fpgm`, and a face is only ever hinted
+        /// when `text_hinting_enabled()` (off by default on macOS), so a load
+        /// paid that for every face of every chain for nothing.
+        pub(crate) hint_slot:
+            std::sync::OnceLock<Option<std::sync::Mutex<allsorts::hinting::HintInstance>>>,
     }
 
     impl Clone for ParsedFont {
@@ -515,6 +860,7 @@ pub mod parsed {
                 // same face.
                 last_used: Arc::clone(&self.last_used),
                 is_variable_font: self.is_variable_font,
+                tracking: self.tracking.clone(),
                 glyph_cache: Arc::clone(&self.glyph_cache),
                 // `LocaGlyfState` is `Clone` — for `Loaded` this is an
                 // `Arc::clone`; for `Deferred` it's an `Arc::clone` of
@@ -532,8 +878,9 @@ pub mod parsed {
                 font_type: self.font_type.clone(),
                 font_name: self.font_name.clone(),
                 // HintInstance has mutable interpreter state and is not Clone.
-                // Clones are used for PDF/serialization where hinting isn't needed.
-                hint_instance: None,
+                // Clones are used for PDF/serialization where hinting isn't needed:
+                // the slot is filled with `None`, so a clone never builds one.
+                hint_slot: std::sync::OnceLock::from(None),
             }
         }
     }
@@ -597,6 +944,20 @@ pub mod parsed {
         pub y_strikeout_size: i16,
         /// Vertical position of strikeout stroke.
         pub y_strikeout_position: i16,
+        /// `fsSelection`: bit 7 (`USE_TYPO_METRICS`) says the typographic
+        /// metrics below are the ones to set lines with.
+        pub fs_selection: u16,
+        /// `sTypoAscender`, `sTypoDescender`, `sTypoLineGap`, `usWinAscent`
+        /// and `usWinDescent` (OS/2 version 0; `None` without an OS/2 table
+        /// or in a shortened legacy one).
+        pub s_typo_ascender: Option<i16>,
+        pub s_typo_descender: Option<i16>,
+        pub s_typo_line_gap: Option<i16>,
+        pub us_win_ascent: Option<u16>,
+        pub us_win_descent: Option<u16>,
+        /// `sxHeight` and `sCapHeight` (OS/2 version 2 and later).
+        pub sx_height: Option<i16>,
+        pub s_cap_height: Option<i16>,
     }
 
     impl Default for PdfFontMetrics {
@@ -628,7 +989,23 @@ pub mod parsed {
                 us_width_class: 0,
                 y_strikeout_size: 0,
                 y_strikeout_position: 0,
+                fs_selection: 0,
+                s_typo_ascender: None,
+                s_typo_descender: None,
+                s_typo_line_gap: None,
+                us_win_ascent: None,
+                us_win_descent: None,
+                sx_height: None,
+                s_cap_height: None,
             }
+        }
+
+        /// Whether the font's `fsSelection` sets `USE_TYPO_METRICS` (bit 7):
+        /// lines are to be set with the typographic ascender, descender and
+        /// line gap rather than the `hhea` ones.
+        #[must_use]
+        pub const fn use_typo_metrics(&self) -> bool {
+            self.fs_selection & 0x0080 != 0
         }
     }
 
@@ -917,6 +1294,7 @@ pub mod parsed {
                     font_bytes.to_vec(),
                 ))));
             }
+            font.measure_space();
             Some(font)
         }
 
@@ -1036,17 +1414,31 @@ pub mod parsed {
             // encoding_rs::Decoder::decode_to_utf8). font_name is OPTIONAL metadata (NOT used
             // for layout/metrics/shaping — those are binary head/hhea/maxp/cmap/glyf), so skip
             // the NAME-string decode on the web backend to avoid encoding_rs entirely.
+            // The FAMILY name (ID 16, else ID 1) decides the browsers' macOS
+            // ascent boost (`browser_ascent_boost`); without a name table
+            // (and on the web backend) a face gets none.
             #[cfg(feature = "web_lift")]
-            let font_name: Option<String> = None;
+            let (font_name, family_name): (Option<String>, Option<String>) = (None, None);
             #[cfg(not(feature = "web_lift"))]
-            let font_name = provider.table_data(tag::NAME).ok().and_then(|name_data| {
-                ReadScope::new(&name_data?)
-                    .read::<allsorts::tables::NameTable<'_>>()
-                    .ok()
-                    .and_then(|name_table| {
-                        name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME)
-                    })
-            });
+            let (font_name, family_name) = provider
+                .table_data(tag::NAME)
+                .ok()
+                .flatten()
+                .and_then(|name_data| {
+                    let name_table = ReadScope::new(&name_data)
+                        .read::<allsorts::tables::NameTable<'_>>()
+                        .ok()?;
+                    Some((
+                        name_table.string_for_id(allsorts::tables::NameTable::POSTSCRIPT_NAME),
+                        name_table
+                            .string_for_id(allsorts::tables::NameTable::TYPOGRAPHIC_FAMILY_NAME)
+                            .or_else(|| {
+                                name_table
+                                    .string_for_id(allsorts::tables::NameTable::FONT_FAMILY_NAME)
+                            }),
+                    ))
+                })
+                .unwrap_or((None, None));
 
             // DIAG (2026-06-02, REVERT): pinpoint the web font-parse-fails root — does HEAD
             // fail because table_data can't find/return the table (directory mis-lift) or
@@ -1211,6 +1603,27 @@ pub mod parsed {
                 .ok()
                 .and_then(|hhea_data| ReadScope::new(&hhea_data?).read::<HheaTable>().ok())?;
 
+            // The OS/2 x-height and cap height (`sxHeight` / `sCapHeight`,
+            // version 2 and later; 0 means "not given"): the strut's
+            // `vertical-align: middle` and `text-box-edge: ex / cap` read
+            // them, with 0.5em / 0.7em only for a face without them.
+            let (x_height, cap_height) = provider
+                .table_data(tag::OS_2)
+                .ok()
+                .flatten()
+                .and_then(|os2_data| {
+                    ReadScope::new(&os2_data)
+                        .read_dep::<allsorts::tables::os2::Os2>(os2_data.len())
+                        .ok()
+                })
+                .and_then(|os2| os2.version2to4)
+                .map_or((None, None), |v| {
+                    (
+                        (v.s_x_height > 0).then(|| f32::from(v.s_x_height)),
+                        (v.s_cap_height > 0).then(|| f32::from(v.s_cap_height)),
+                    )
+                });
+
             // Build layout-specific font metrics
             let font_metrics = LayoutFontMetrics {
                 units_per_em: if head_table.units_per_em == 0 {
@@ -1221,9 +1634,9 @@ pub mod parsed {
                 ascent: f32::from(hhea_table.ascender),
                 descent: f32::from(hhea_table.descender),
                 line_gap: f32::from(hhea_table.line_gap),
-                x_height: None, /* will be populated from OS/2 table via from_font_metrics if
-                                 * available */
-                cap_height: None,
+                x_height,
+                cap_height,
+                browser_ascent_boost: browser_ascent_boost(family_name.as_deref()),
             };
 
             // Build PDF-specific font metrics
@@ -1253,6 +1666,14 @@ pub mod parsed {
             // avoids the borrow-after-move that a later
             // `provider.has_table(tag::GVAR)` would incur.
             let has_gvar = provider.has_table(tag::GVAR);
+            // The AAT tracking table (Apple's system faces), read before
+            // `provider` moves too.
+            let tracking = provider
+                .table_data(tag::TRAK)
+                .ok()
+                .flatten()
+                .and_then(|data| Tracking::parse(&data))
+                .map(Arc::new);
             let loca_glyf_opt: Option<Arc<std::sync::Mutex<LocaGlyf>>> =
                 if has_glyf && !defer_loca_glyf {
                     match LocaGlyf::load(&provider) {
@@ -1275,25 +1696,8 @@ pub mod parsed {
 
             let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
-            // Create TrueType hinting instance from font tables.
-            // [az-web-lift] Skip on the web build. The lifted layout never grid-fits glyphs to a
-            // pixel raster (it measures + ships a display list to JS), so hinting is never used.
-            // Building it (HintInstance::new) runs the allsorts bytecode Interpreter
-            // (Interpreter::new + ::dispatch — a large un-devirt'd opcode jump table the remill
-            // lift can't resolve, plus ~700 op_* fns of closure bloat). This is INDEPENDENT of the
-            // lift's jump-table devirt: even with a perfect lift, web has no use for hinting, and
-            // hinted advances are lower-quality output than the plain scaled advance. Native keeps
-            // real hinting unchanged.
-            #[cfg(feature = "web_lift")]
-            let hint_instance: Option<
-                std::sync::Mutex<allsorts::hinting::HintInstance>,
-            > = None;
-            #[cfg(not(feature = "web_lift"))]
-            let hint_instance =
-                allsorts::hinting::HintInstance::new(&font_data_impl.font_table_provider)
-                    .ok()
-                    .flatten()
-                    .map(std::sync::Mutex::new);
+            // The TrueType hinting instance is built on first use, from the
+            // source bytes the constructors attach (`ParsedFont::hint_instance`).
 
             // Stash raw GSUB/GPOS bytes for lazy parse. Typical fonts
             // have ~tens of KiB of GSUB + a few-to-tens of KiB of GPOS —
@@ -1307,13 +1711,13 @@ pub mod parsed {
                 .table_data(tag::GSUB)
                 .ok()
                 .flatten()
-                .map(std::borrow::Cow::into_owned);
+                .map(|table| TableBytes::of(table, font_bytes));
             let gpos_bytes = font_data_impl
                 .font_table_provider
                 .table_data(tag::GPOS)
                 .ok()
                 .flatten()
-                .map(std::borrow::Cow::into_owned);
+                .map(|table| TableBytes::of(table, font_bytes));
             let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
             let num_glyphs = font_data_impl.num_glyphs();
 
@@ -1349,7 +1753,7 @@ pub mod parsed {
             font_index.hash(&mut hasher);
             let hash = hasher.finish();
 
-            let mut font = Self {
+            let font = Self {
                 hash,
                 font_metrics,
                 pdf_font_metrics,
@@ -1368,6 +1772,7 @@ pub mod parsed {
                 cmap_subtable,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 is_variable_font: has_gvar,
+                tracking,
                 glyph_cache: Arc::new(rust_fontconfig::StLock::new(BTreeMap::new())),
                 // Eager path: `from_bytes` loaded LocaGlyf immediately
                 // (or set None if the font has no loca+glyf). Lazy
@@ -1385,64 +1790,54 @@ pub mod parsed {
                 index_to_cid: BTreeMap::new(), // Will be filled for CFF fonts
                 font_type: FontType::TrueType, // Default, will be updated if CFF
                 font_name,
-                hint_instance,
+                hint_slot: std::sync::OnceLock::new(),
             };
 
-            // Calculate space width
-            let space_width = font.get_space_width_internal();
-
-            // Pre-decode the space glyph straight into the lazy
-            // `glyph_cache`. Space typically has no outline, so the
-            // decoder's outline visitor returns nothing useful and
-            // we'd spin re-decoding it every shape — short-circuit
-            // here with a hand-rolled record carrying the hmtx
-            // advance.
-            let _ = (|| {
-                let space_gid = font.lookup_glyph_index(' ' as u32)?;
-                {
-                    // StLock::read() is infallible (Result<_, Infallible>);
-                    // kept in a tight block so the guard drops at scope end.
-                    let Ok(cache) = font.glyph_cache.read();
-                    if cache.contains_key(&space_gid) {
-                        return None;
-                    }
-                }
-                let space_width_val = space_width?;
-                // Only pre-cache when we actually know a non-zero advance. During
-                // `from_bytes_internal` the source bytes are not attached yet, so
-                // `hmtx` is unreadable and `get_space_width_internal` reads back 0;
-                // caching that would pin every space to a 0 advance for the life of
-                // the face. Skip it and let the space decode lazily once bytes are
-                // attached (mock fonts that carry a real space width still cache).
-                if space_width_val == 0 {
-                    return None;
-                }
-                let space_record = OwnedGlyph {
-                    bounding_box: OwnedGlyphBoundingBox {
-                        max_x: 0,
-                        max_y: 0,
-                        min_x: 0,
-                        min_y: 0,
-                    },
-                    horz_advance: space_width_val as u16,
-                    outline: Vec::new(),
-                    phantom_points: None,
-                    raw_points: None,
-                    raw_on_curve: None,
-                    raw_contour_ends: None,
-                    instructions: None,
-                };
-                {
-                    // StLock::write() is infallible (Result<_, Infallible>).
-                    let Ok(mut cache) = font.glyph_cache.write();
-                    cache.insert(space_gid, Arc::new(space_record));
-                }
-                Some(())
-            })();
-
-            font.space_width = space_width;
-
+            // The space's advance is measured by the constructors once the source
+            // bytes are attached (`measure_space`): `hmtx` is read from them, so
+            // here every advance still reads back 0.
             Some(font)
+        }
+
+        /// Measures the space (`space_width`, [`ParsedFont::get_space_width`]) and
+        /// pre-decodes its glyph into the lazy `glyph_cache`, from the `hmtx` of the
+        /// attached source bytes. Every constructor calls it once the bytes are
+        /// attached (and [`ParsedFont::with_source_bytes`] again): measured before,
+        /// in `from_bytes_internal`, every advance read back 0 and every font's
+        /// space was 0 wide.
+        ///
+        /// Space typically has no outline, so the decoder's outline visitor returns
+        /// nothing useful and we'd spin re-decoding it every shape — short-circuit
+        /// with a hand-rolled record carrying the hmtx advance.
+        fn measure_space(&mut self) {
+            let space_width = self.get_space_width_internal();
+            self.space_width = space_width;
+            let Some(space_gid) = self.lookup_glyph_index(' ' as u32) else {
+                return;
+            };
+            // A space of 0 advance (or none) decodes lazily, as any glyph.
+            let Some(space_width_val) = space_width.filter(|w| *w > 0) else {
+                return;
+            };
+            let space_record = OwnedGlyph {
+                bounding_box: OwnedGlyphBoundingBox {
+                    max_x: 0,
+                    max_y: 0,
+                    min_x: 0,
+                    min_y: 0,
+                },
+                horz_advance: u16::try_from(space_width_val).unwrap_or(u16::MAX),
+                outline: Vec::new(),
+                phantom_points: None,
+                raw_points: None,
+                raw_on_curve: None,
+                raw_contour_ends: None,
+                instructions: None,
+            };
+            // StLock::write() is infallible (Result<_, Infallible>). Replaces a record
+            // decoded from the bytes attached before (`with_source_bytes`).
+            let Ok(mut cache) = self.glyph_cache.write();
+            cache.insert(space_gid, Arc::new(space_record));
         }
 
         /// Attach the source font bytes to this `ParsedFont`, enabling
@@ -1457,6 +1852,7 @@ pub mod parsed {
         #[must_use]
         pub fn with_source_bytes(mut self, bytes: Arc<rust_fontconfig::FontBytes>) -> Self {
             self.original_bytes = Some(bytes);
+            self.measure_space();
             self
         }
 
@@ -1495,6 +1891,7 @@ pub mod parsed {
                 font_index,
                 loaded: Arc::new(std::sync::Mutex::new(None)),
             };
+            font.measure_space();
             Some(font)
         }
 
@@ -1587,6 +1984,14 @@ pub mod parsed {
             self.last_used.load(std::sync::atomic::Ordering::Relaxed)
         }
 
+        /// Stamps this face as used now, as [`Self::get_or_decode_glyph`]
+        /// does: for a renderer that draws a run from cached glyph paths
+        /// without decoding any of its glyphs, once per run.
+        pub fn touch(&self) {
+            self.last_used
+                .store(monotonic_now_nanos(), std::sync::atomic::Ordering::Relaxed);
+        }
+
         /// Drop the cached `LocaGlyf` for this face if it's
         /// `Deferred`-with-bytes-retained — so the next
         /// [`get_or_decode_glyph`] re-parses from `bytes`. No-op for
@@ -1626,13 +2031,31 @@ pub mod parsed {
                         binary::read::ReadScope,
                         layout::{new_layout_cache, LayoutTable, GSUB},
                     };
-                    let bytes = self.gsub_bytes.as_ref()?;
+                    let bytes = self.table_bytes(self.gsub_bytes.as_ref()?)?;
                     ReadScope::new(bytes)
                         .read::<LayoutTable<GSUB>>()
                         .ok()
                         .map(new_layout_cache)
                 })
                 .as_ref()
+        }
+
+        /// Whether the GSUB table offers the feature `feature_tag` in the
+        /// default language system of `script_tag` (the `DFLT` script when
+        /// the face has no table for that script).
+        #[must_use]
+        pub fn has_gsub_feature_tag(&self, script_tag: u32, feature_tag: u32) -> bool {
+            let Some(gsub) = self.gsub() else {
+                return false;
+            };
+            let table = &gsub.layout_table;
+            let Ok(Some(script)) = table.find_script_or_default(script_tag) else {
+                return false;
+            };
+            let Ok(Some(langsys)) = script.find_langsys_or_default(None) else {
+                return false;
+            };
+            matches!(table.find_langsys_feature(langsys, feature_tag, None), Ok(Some(_)))
         }
 
         /// Fetch the parsed GPOS cache if this font has one, parsing
@@ -1645,7 +2068,7 @@ pub mod parsed {
                         binary::read::ReadScope,
                         layout::{new_layout_cache, LayoutTable, GPOS},
                     };
-                    let bytes = self.gpos_bytes.as_ref()?;
+                    let bytes = self.table_bytes(self.gpos_bytes.as_ref()?)?;
                     ReadScope::new(bytes)
                         .read::<LayoutTable<GPOS>>()
                         .ok()
@@ -1767,6 +2190,20 @@ pub mod parsed {
         /// chain fails, falls back to an empty-outline record with the
         /// `hmtx` advance. This mirrors the pre-lazy behaviour where
         /// every gid ended up in `glyph_records_decoded`.
+        /// The bytes of a table kept as `table` ([`TableBytes`]): its range of
+        /// the source bytes, or its copy. `None` for a range when the source
+        /// bytes are not attached or do not reach that far.
+        fn table_bytes<'a>(&'a self, table: &'a TableBytes) -> Option<&'a [u8]> {
+            match table {
+                TableBytes::InSource { offset, len } => self
+                    .original_bytes
+                    .as_ref()?
+                    .as_slice()
+                    .get(*offset..offset.checked_add(*len)?),
+                TableBytes::Owned(bytes) => Some(bytes.as_slice()),
+            }
+        }
+
         fn hmtx_bytes(&self) -> &[u8] {
             let (off, len) = self.hmtx_range;
             if len == 0 {
@@ -2016,6 +2453,14 @@ pub mod parsed {
                 us_width_class: os2.us_width_class,
                 y_strikeout_size: os2.y_strikeout_size,
                 y_strikeout_position: os2.y_strikeout_position,
+                fs_selection: os2.fs_selection.bits(),
+                s_typo_ascender: os2.version0.as_ref().map(|v| v.s_typo_ascender),
+                s_typo_descender: os2.version0.as_ref().map(|v| v.s_typo_descender),
+                s_typo_line_gap: os2.version0.as_ref().map(|v| v.s_typo_line_gap),
+                us_win_ascent: os2.version0.as_ref().map(|v| v.us_win_ascent),
+                us_win_descent: os2.version0.as_ref().map(|v| v.us_win_descent),
+                sx_height: os2.version2to4.as_ref().map(|v| v.s_x_height),
+                s_cap_height: os2.version2to4.as_ref().map(|v| v.s_cap_height),
                 ..base
             })
         }
@@ -2083,6 +2528,58 @@ pub mod parsed {
             }
         }
 
+        /// The face's TrueType hinting instance: `None` for CFF fonts, fonts
+        /// without hinting data, clones, and faces with no source bytes.
+        ///
+        /// Built on the first call from the source bytes (`original_bytes`),
+        /// through the same table provider the parse uses, so it is the
+        /// instance the eager build at load produced; later calls return it.
+        ///
+        /// [az-web-lift] Never built on the web build. The lifted layout never
+        /// grid-fits glyphs to a pixel raster (it measures + ships a display list
+        /// to JS), so hinting is never used. Building it (`HintInstance::new`)
+        /// runs the allsorts bytecode Interpreter (`Interpreter::new` +
+        /// `::dispatch` — a large un-devirt'd opcode jump table the remill lift
+        /// can't resolve, plus ~700 `op_*` fns of closure bloat). This is
+        /// INDEPENDENT of the lift's jump-table devirt: even with a perfect lift,
+        /// web has no use for hinting, and hinted advances are lower-quality
+        /// output than the plain scaled advance. Native keeps real hinting.
+        pub fn hint_instance(&self) -> Option<&std::sync::Mutex<allsorts::hinting::HintInstance>> {
+            #[cfg(feature = "web_lift")]
+            {
+                None
+            }
+            #[cfg(not(feature = "web_lift"))]
+            {
+                self.hint_slot
+                    .get_or_init(|| self.build_hint_instance())
+                    .as_ref()
+            }
+        }
+
+        /// Builds the hinting instance from `original_bytes`, choosing the table
+        /// provider as `from_bytes_internal` does (the hand-rolled provider for
+        /// OpenType, allsorts' otherwise).
+        #[cfg(not(feature = "web_lift"))]
+        fn build_hint_instance(&self) -> Option<std::sync::Mutex<allsorts::hinting::HintInstance>> {
+            use allsorts::{binary::read::ReadScope, font_data::FontData, hinting::HintInstance};
+            #[cfg(test)]
+            audit_a8_tests::HINT_BUILDS.with(|c| c.set(c.get() + 1));
+            let bytes = self.original_bytes.as_ref()?.as_slice();
+            let index = self.original_index;
+            let built = match ReadScope::new(bytes).read::<FontData<'_>>().ok()? {
+                FontData::OpenType(otf) => {
+                    if let Some(mp) = ManualTableProvider::new(bytes, index) {
+                        HintInstance::new(&mp)
+                    } else {
+                        HintInstance::new(&otf.table_provider(index).ok()?)
+                    }
+                }
+                other => HintInstance::new(&other.table_provider(index).ok()?),
+            };
+            built.ok().flatten().map(std::sync::Mutex::new)
+        }
+
         /// Get the hinted advance width in pixels for a glyph at the given ppem.
         ///
         /// For glyphs with outlines, runs TrueType bytecode hinting to get the
@@ -2116,7 +2613,7 @@ pub mod parsed {
                 }
 
                 // Check if we even have a hint instance
-                let hint_mutex = self.hint_instance.as_ref()?;
+                let hint_mutex = self.hint_instance()?;
 
                 let scale = compute_scale(ppem, upem);
                 // Round the LIVE hmtx advance, not the decoded glyph's cached
@@ -2129,25 +2626,16 @@ pub mod parsed {
                 let hmtx_advance = self.get_horizontal_advance(glyph_index);
                 let adv_f26dot6 = F26Dot6::from_funits(i32::from(hmtx_advance), scale);
 
-                // For glyphs with outline data, run bytecode hinting
-                if let (Some(raw_points), Some(raw_on_curve), Some(raw_contour_ends)) = (
-                    glyph.raw_points.as_ref(),
-                    glyph.raw_on_curve.as_ref(),
-                    glyph.raw_contour_ends.as_ref(),
-                ) {
-                    let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
+                // A glyph with outline data prepares the interpreter for this ppem
+                // (scales the CVT, runs `prep`). The advance itself is not hinted
+                // (below), so its points are not scaled here: that Vec was built
+                // per glyph and dropped unread.
+                if glyph.raw_points.is_some()
+                    && glyph.raw_on_curve.is_some()
+                    && glyph.raw_contour_ends.is_some()
+                {
                     let mut hint = hint_mutex.lock().ok()?;
                     hint.set_ppem(ppem, f64::from(ppem)).ok()?;
-                    drop(hint);
-
-                    let points_f26dot6: Vec<(i32, i32)> = raw_points
-                        .iter()
-                        .map(|&(x, y)| {
-                            let sx = F26Dot6::from_funits(i32::from(x), scale);
-                            let sy = F26Dot6::from_funits(i32::from(y), scale);
-                            (sx.to_bits(), sy.to_bits())
-                        })
-                        .collect();
                 }
 
                 // Use the scaled advance rounded to pixel grid, NOT the hinted
@@ -2236,6 +2724,7 @@ pub mod parsed {
                 units_per_em: self.font_metrics.units_per_em,
                 x_height: self.font_metrics.x_height,
                 cap_height: self.font_metrics.cap_height,
+                browser_ascent_boost: self.font_metrics.browser_ascent_boost,
             }
         }
 
@@ -2501,6 +2990,21 @@ pub mod parsed {
             })
         }
 
+        fn glyph_ink_box(&self, glyph_id: u16) -> Option<[i16; 4]> {
+            // As `FontRef` answers (`text3/default.rs`): the box of the decoded outline; a
+            // glyph without an outline paints nothing. A build that decodes no outlines
+            // (`web_lift`) does not know.
+            if cfg!(feature = "web_lift") {
+                return None;
+            }
+            let glyph = self.get_or_decode_glyph(glyph_id)?;
+            if glyph.outline.is_empty() {
+                return Some([0; 4]);
+            }
+            let b = &glyph.bounding_box;
+            Some([b.min_x, b.min_y, b.max_x, b.max_y])
+        }
+
         fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
             let glyph_id = self.lookup_glyph_index('-' as u32)?;
             let advance_units = self.get_horizontal_advance(glyph_id);
@@ -2546,6 +3050,13 @@ pub mod parsed {
 
         fn get_space_width(&self) -> Option<usize> {
             self.space_width
+        }
+
+        fn has_gsub_feature(&self, script: crate::font_traits::Script, tag: [u8; 4]) -> bool {
+            self.has_gsub_feature_tag(
+                crate::text3::default::to_opentype_script_tag(script),
+                u32::from_be_bytes(tag),
+            )
         }
     }
 
@@ -2653,6 +3164,7 @@ pub mod parsed {
                 units_per_em: 1000,
                 x_height: None,
                 cap_height: None,
+                browser_ascent_boost: false,
             }
         }
 
@@ -2697,6 +3209,7 @@ pub mod parsed {
                 opt_kern_table: None,
                 last_used: Arc::new(std::sync::atomic::AtomicU64::new(0)),
                 is_variable_font: false,
+                tracking: None,
                 glyph_cache: Arc::new(rust_fontconfig::StLock::new(BTreeMap::new())),
                 loca_glyf: LocaGlyfState::Loaded(None),
                 space_width: None,
@@ -2708,7 +3221,7 @@ pub mod parsed {
                 index_to_cid: BTreeMap::new(),
                 font_type: FontType::TrueType,
                 font_name: None,
-                hint_instance: None,
+                hint_slot: std::sync::OnceLock::from(None),
             }
         }
 
@@ -3107,6 +3620,7 @@ pub mod parsed {
                 units_per_em: 0,
                 x_height: Some(f32::MAX),
                 cap_height: None,
+                browser_ascent_boost: false,
             });
             assert!(extreme.font_metrics.ascent.is_infinite());
             assert!(extreme.font_metrics.descent.is_nan());
@@ -3377,9 +3891,9 @@ pub mod parsed {
         #[test]
         fn prime_glyph_cache_decodes_every_glyph_and_is_idempotent() {
             let mut font = parse_mock();
-            // the lazy cache starts empty (the space stub is skipped while the source
-            // bytes are still unattached)
-            assert!(font.glyph_cache_snapshot().is_empty());
+            // the lazy cache starts with the space's stub only (`measure_space`)
+            let space = font.lookup_glyph_index(' ' as u32).expect("a space");
+            assert_eq!(font.glyph_cache_snapshot().keys().copied().collect::<Vec<_>>(), [space]);
 
             font.prime_glyph_cache();
             let snap = font.glyph_cache_snapshot();
@@ -3461,9 +3975,13 @@ pub mod parsed {
             assert!(font.source_bytes_for_subset().is_some());
 
             // nothing is loaded until the first decode, so there is nothing to evict yet
+            // (the space's stub comes from hmtx, not from loca+glyf)
             assert!(!font.evict_loca_glyf());
 
-            let g1 = font.get_or_decode_glyph(1).expect("gid 1 must decode");
+            // glyphs with outlines (the space's is pre-decoded: it loads nothing)
+            let a = font.lookup_glyph_index('A' as u32).expect("A is mapped");
+            let b = font.lookup_glyph_index('B' as u32).expect("B is mapped");
+            let g1 = font.get_or_decode_glyph(a).expect("A must decode");
             assert!(
                 font.evict_loca_glyf(),
                 "a loaded Deferred slot is evictable"
@@ -3472,11 +3990,11 @@ pub mod parsed {
 
             // after eviction the face still decodes: it re-parses from the retained bytes
             let g2 = font
-                .get_or_decode_glyph(2)
-                .expect("gid 2 decodes after eviction");
-            assert_eq!(g2.horz_advance, font.get_horizontal_advance(2));
+                .get_or_decode_glyph(b)
+                .expect("B decodes after eviction");
+            assert_eq!(g2.horz_advance, font.get_horizontal_advance(b));
             // and already-decoded glyphs still come from the glyph cache
-            assert!(Arc::ptr_eq(&g1, &font.get_or_decode_glyph(1).unwrap()));
+            assert!(Arc::ptr_eq(&g1, &font.get_or_decode_glyph(a).unwrap()));
         }
 
         #[test]
@@ -3507,6 +4025,102 @@ pub mod parsed {
             assert_eq!(a.bounding_box.min_y, b.bounding_box.min_y);
             assert_eq!(a.bounding_box.max_x, b.bounding_box.max_x);
             assert_eq!(a.bounding_box.max_y, b.bounding_box.max_y);
+        }
+
+        /// `get_space_width` is the space glyph's `hmtx` advance, from every
+        /// constructor: it was measured in `from_bytes_internal`, before the
+        /// source bytes were attached, where every advance reads back 0 - so
+        /// every real font's space was 0 wide (m4p's map labels lost their word
+        /// gaps: "Im Wyl" became "ImWyl").
+        #[test]
+        fn the_space_width_is_the_space_glyphs_advance() {
+            let eager = parse_mock();
+            let space = eager.lookup_glyph_index(' ' as u32).expect("Mock Mono has a space");
+            let advance = eager.get_horizontal_advance(space);
+            assert!(advance > 0, "the space glyph advances the pen in hmtx");
+            assert_eq!(eager.get_space_width(), Some(usize::from(advance)));
+
+            let shared = mock_shared();
+            assert_eq!(shared.get_space_width(), Some(usize::from(advance)));
+
+            let attached = eager.with_source_bytes(Arc::new(rust_fontconfig::FontBytes::Owned(
+                Arc::from(MOCK_MONO.to_vec()),
+            )));
+            assert_eq!(attached.get_space_width(), Some(usize::from(advance)));
+
+            // the pre-decoded space glyph carries the same advance
+            let glyph = shared.get_or_decode_glyph(space).expect("the space decodes");
+            assert_eq!(glyph.horz_advance, advance);
+        }
+
+        /// A glyph of a CID-keyed CFF font (no `glyf`: Noto Sans CJK, Source Han
+        /// Sans) decodes from the `CFF ` table with its outline and that
+        /// outline's box, as a TrueType glyph does - from either constructor.
+        /// printpdf's mock: gid 2 is "A", a rectangle 300 wide and 700 high.
+        #[test]
+        fn a_cid_keyed_cff_glyph_has_its_outlines_box() {
+            const CFF_CID: &[u8] = include_bytes!("../assets/fonts/test/printpdf-mock-cff-cid.otf");
+            let eager = ParsedFont::from_bytes(CFF_CID, 0, &mut Vec::new()).expect("parses");
+            let shared = ParsedFont::from_bytes_shared(
+                Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(CFF_CID.to_vec()))),
+                0,
+                &mut Vec::new(),
+            )
+            .expect("parses");
+            for font in [eager, shared] {
+                let a = font.lookup_glyph_index('A' as u32).expect("A is mapped");
+                let glyph = font.get_or_decode_glyph(a).expect("A decodes");
+                assert!(!glyph.outline.is_empty(), "A has its outline");
+                let b = &glyph.bounding_box;
+                assert_eq!((b.min_x, b.min_y, b.max_x, b.max_y), (0, 0, 300, 700));
+                assert_eq!(glyph.horz_advance, 300);
+            }
+        }
+
+        /// The OS/2 table's line metrics reach `pdf_font_metrics` and the full
+        /// `FontMetrics` (`get_full_font_metrics` left them `None`, so an app
+        /// that sets lines by `USE_TYPO_METRICS` read the table itself).
+        #[test]
+        fn the_os2_typographic_metrics_are_read() {
+            use allsorts::{
+                binary::read::ReadScope,
+                font_data::FontData,
+                tables::{os2::Os2, FontTableProvider},
+                tag,
+            };
+
+            use crate::text3::default::FontRefExt;
+
+            let font = parse_mock();
+            let data = ReadScope::new(MOCK_MONO).read::<FontData<'_>>().unwrap();
+            let provider = data.table_provider(0).unwrap();
+            let os2_data = provider.table_data(tag::OS_2).unwrap().expect("Mock Mono has OS/2");
+            let os2 = ReadScope::new(&os2_data).read_dep::<Os2>(os2_data.len()).unwrap();
+            let v0 = os2.version0.as_ref().expect("a full OS/2 table");
+
+            let m = font.pdf_font_metrics;
+            assert_eq!(m.fs_selection, os2.fs_selection.bits());
+            assert_eq!(m.use_typo_metrics(), os2.fs_selection.bits() & 0x80 != 0);
+            assert_eq!(m.s_typo_ascender, Some(v0.s_typo_ascender));
+            assert_eq!(m.s_typo_descender, Some(v0.s_typo_descender));
+            assert_eq!(m.s_typo_line_gap, Some(v0.s_typo_line_gap));
+            assert_eq!(m.us_win_ascent, Some(v0.us_win_ascent));
+            assert_eq!(m.us_win_descent, Some(v0.us_win_descent));
+            assert_eq!(m.sx_height, os2.version2to4.as_ref().map(|v| v.s_x_height));
+            assert_eq!(m.s_cap_height, os2.version2to4.as_ref().map(|v| v.s_cap_height));
+            assert_ne!(m.s_typo_ascender, Some(0), "a real ascender: {m:?}");
+
+            let full = crate::parsed_font_to_font_ref(font).get_full_font_metrics();
+            assert_eq!(full.fs_selection, m.fs_selection);
+            assert_eq!(full.use_typo_metrics(), m.use_typo_metrics());
+            assert_eq!(full.s_typo_ascender.as_option().copied(), m.s_typo_ascender);
+            assert_eq!(full.s_typo_descender.as_option().copied(), m.s_typo_descender);
+            assert_eq!(full.us_win_descent.as_option().copied(), m.us_win_descent);
+            assert_eq!(full.s_cap_height.as_option().copied(), m.s_cap_height);
+
+            // no OS/2 table: nothing
+            assert_eq!(PdfFontMetrics::zero().s_typo_ascender, None);
+            assert!(!PdfFontMetrics::zero().use_typo_metrics());
         }
 
         #[test]
@@ -3543,7 +4157,7 @@ pub mod parsed {
             let _ = clone.get_or_decode_glyph(1);
             assert!(font.glyph_cache_snapshot().contains_key(&1));
             // HintInstance is not Clone: it is deliberately dropped
-            assert!(clone.hint_instance.is_none());
+            assert!(clone.hint_instance().is_none());
         }
 
         #[test]
@@ -3835,6 +4449,198 @@ pub mod parsed {
             let _cache = crate::font::loading::build_font_cache();
         }
 
+        #[test]
+        fn sans_serif_puts_helvetica_first_on_macos_and_nothing_else_moves() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::browser_generic_families;
+
+            let crate_table = FcFallbackConfig::os_defaults(OperatingSystem::MacOS);
+            let mut mac = crate_table.clone();
+            browser_generic_families(&mut mac, OperatingSystem::MacOS);
+            let sans = mac.generic_candidates(GenericFamily::SansSerif);
+            assert_eq!(
+                sans.first().map(String::as_str),
+                Some("Helvetica"),
+                "{sans:?}"
+            );
+            assert_eq!(
+                sans.iter()
+                    .filter(|f| f.eq_ignore_ascii_case("Helvetica"))
+                    .count(),
+                1,
+                "Helvetica once: {sans:?}"
+            );
+            let rest: Vec<&String> = crate_table
+                .generic_candidates(GenericFamily::SansSerif)
+                .iter()
+                .filter(|f| !f.eq_ignore_ascii_case("Helvetica"))
+                .collect();
+            assert_eq!(
+                sans[1..].iter().collect::<Vec<_>>(),
+                rest,
+                "the rest keep their order"
+            );
+            for generic in [GenericFamily::Serif, GenericFamily::Monospace] {
+                assert_eq!(
+                    mac.generic_candidates(generic),
+                    crate_table.generic_candidates(generic),
+                    "{generic:?} does not move"
+                );
+            }
+
+            // Elsewhere the platform's own generic families stay as they are,
+            // but for `system-ui` (the OS UI font, see the next test); the
+            // named families' metric twins are the test after it.
+            for os in [OperatingSystem::Windows, OperatingSystem::Linux] {
+                let mut config = FcFallbackConfig::os_defaults(os);
+                browser_generic_families(&mut config, os);
+                config.generic_families.remove(&GenericFamily::SystemUi);
+                let mut table = FcFallbackConfig::os_defaults(os);
+                table.generic_families.remove(&GenericFamily::SystemUi);
+                assert_eq!(config.generic_families, table.generic_families, "{os:?}");
+                assert_eq!(config.script_fallbacks, table.script_fallbacks, "{os:?}");
+                assert_eq!(config.last_resort, table.last_resort, "{os:?}");
+            }
+        }
+
+        /// A named family the machine lacks draws in its metric-compatible
+        /// face, as in Chrome (fontconfig's metric aliases): Arial in
+        /// Liberation Sans or Arimo, on every OS, after any substitute the
+        /// system configured. Applying it twice changes nothing.
+        #[test]
+        fn a_missing_family_is_substituted_by_its_metric_compatible_twin() {
+            use rust_fontconfig::{FcFallbackConfig, OperatingSystem};
+
+            use crate::font::loading::browser_generic_families;
+
+            for os in [OperatingSystem::MacOS, OperatingSystem::Windows, OperatingSystem::Linux] {
+                let mut config = FcFallbackConfig::os_defaults(os);
+                browser_generic_families(&mut config, os);
+                assert_eq!(
+                    config.substitutions_for("Arial"),
+                    ["Liberation Sans", "Arimo", "Albany AMT"],
+                    "{os:?}"
+                );
+                assert_eq!(
+                    &config.substitutions_for("times new roman")[..2],
+                    ["Liberation Serif", "Tinos"],
+                    "{os:?}: the lookup ignores case"
+                );
+                assert_eq!(
+                    &config.substitutions_for("Courier New")[..2],
+                    ["Liberation Mono", "Cousine"],
+                    "{os:?}"
+                );
+                let once = config.clone();
+                browser_generic_families(&mut config, os);
+                assert_eq!(config, once, "{os:?}: idempotent");
+            }
+
+            let mut configured = FcFallbackConfig::empty();
+            configured.substitutions.insert(
+                rust_fontconfig::utils::normalize_family_name("Arial"),
+                vec!["Arimo".to_string()],
+            );
+            browser_generic_families(&mut configured, OperatingSystem::Linux);
+            assert_eq!(
+                configured.substitutions_for("Arial"),
+                ["Arimo", "Liberation Sans", "Albany AMT"],
+                "the system's substitute stays first"
+            );
+            assert_eq!(
+                configured.expand_family("Arial", &[]),
+                ["Arial", "Arimo", "Liberation Sans", "Albany AMT"],
+                "the family itself comes first: an installed Arial draws"
+            );
+        }
+
+        /// `system-ui` is the font the OS draws its own UI in, the ONE list
+        /// azul's `system:ui` role draws with too (`SystemFontType::Ui`'s
+        /// chain, css/src/system.rs): San Francisco ("System Font") on
+        /// macOS, Segoe UI Variable on Windows (the Windows 11 Settings
+        /// font; Chrome's system-ui is the older message font "Segoe UI"),
+        /// on Linux the desktop's fontconfig `system-ui` alias when it has
+        /// one, then the usual desktop UI faces (SYSUI8).
+        #[test]
+        fn system_ui_is_the_os_ui_font_on_every_platform() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::browser_generic_families;
+
+            let first = |os: OperatingSystem, config: &mut FcFallbackConfig| {
+                browser_generic_families(config, os);
+                config
+                    .generic_candidates(GenericFamily::SystemUi)
+                    .first()
+                    .cloned()
+            };
+            for (os, expected) in [
+                (OperatingSystem::MacOS, "System Font"),
+                (OperatingSystem::IOS, "System Font"),
+                (OperatingSystem::Windows, "Segoe UI Variable Text"),
+                (OperatingSystem::Linux, "Cantarell"),
+                (OperatingSystem::Android, "Roboto"),
+            ] {
+                let mut config = FcFallbackConfig::os_defaults(os);
+                assert_eq!(first(os, &mut config).as_deref(), Some(expected), "{os:?}");
+            }
+
+            // A desktop whose fontconfig names a `system-ui` keeps it first.
+            let mut linux = FcFallbackConfig::os_defaults(OperatingSystem::Linux);
+            linux
+                .generic_families
+                .insert(GenericFamily::SystemUi, vec![String::from("Inter")]);
+            assert_eq!(
+                first(OperatingSystem::Linux, &mut linux).as_deref(),
+                Some("Inter")
+            );
+            let list = linux.generic_candidates(GenericFamily::SystemUi);
+            assert!(
+                list.iter().any(|f| f == "Cantarell"),
+                "the desktop faces follow it: {list:?}"
+            );
+
+            // Idempotent: a second pass changes nothing.
+            let mut once = FcFallbackConfig::os_defaults(OperatingSystem::MacOS);
+            browser_generic_families(&mut once, OperatingSystem::MacOS);
+            let mut twice = once.clone();
+            browser_generic_families(&mut twice, OperatingSystem::MacOS);
+            assert_eq!(once, twice);
+        }
+
+        /// The desktop's own UI font (azul's detected
+        /// `SystemStyle::fonts.ui_font`: GNOME's or KDE's font setting) goes
+        /// first in `system-ui`, once, and the rest keep their order.
+        #[test]
+        fn the_desktops_ui_font_goes_first_in_system_ui() {
+            use rust_fontconfig::{FcFallbackConfig, GenericFamily, OperatingSystem};
+
+            use crate::font::loading::{browser_generic_families, prefer_system_ui_font};
+
+            let mut config = FcFallbackConfig::os_defaults(OperatingSystem::Linux);
+            browser_generic_families(&mut config, OperatingSystem::Linux);
+            let before = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+            prefer_system_ui_font(&mut config, "Noto Sans");
+            let after = config.generic_candidates(GenericFamily::SystemUi).to_vec();
+            assert_eq!(after.first().map(String::as_str), Some("Noto Sans"));
+            assert_eq!(
+                after.iter().filter(|f| f.as_str() == "Noto Sans").count(),
+                1,
+                "once: {after:?}"
+            );
+            let rest: Vec<&String> = before
+                .iter()
+                .filter(|f| f.as_str() != "Noto Sans")
+                .collect();
+            assert_eq!(after[1..].iter().collect::<Vec<_>>(), rest);
+
+            // Blank names change nothing.
+            let mut blank = config.clone();
+            prefer_system_ui_font(&mut blank, "  ");
+            assert_eq!(blank, config);
+        }
+
         #[cfg(feature = "cpurender")]
         #[test]
         fn build_glyph_path_needs_at_least_one_operation() {
@@ -3897,6 +4703,372 @@ pub mod parsed {
                 ..empty
             };
             assert!(build_glyph_path(&full).is_some());
+        }
+
+        // ---------------------------------------------------------------
+        // the browsers' Times / Helvetica / Courier ascent adjustment
+        // ---------------------------------------------------------------
+
+        /// Apple's Helvetica (hhea 1577 / -471 / 0 at 2048 upem) has a
+        /// `line-height: normal` of exactly 1em. Chrome and Safari on Apple
+        /// platforms grow the rounded ascent of EXACTLY the families Times,
+        /// Helvetica and Courier (Blink `FontMetrics::AscentDescentWithHacks`
+        /// compares `FontFamilyName()`, WebKit `SimpleFontData::platformInit`)
+        /// so that they line up with the Microsoft fonts the web was made
+        /// with: a 16px Helvetica line is 18px in Chrome. Matched by the name
+        /// table's FAMILY (every Apple face of the three says exactly that,
+        /// Helvetica Light included); other platforms' Chrome does not boost.
+        #[test]
+        fn exactly_times_helvetica_and_courier_get_the_browsers_ascent_boost_on_apple_platforms() {
+            let apple = cfg!(any(target_os = "macos", target_os = "ios"));
+            for family in ["Times", "Helvetica", "Courier"] {
+                assert_eq!(
+                    browser_ascent_boost(Some(family)),
+                    apple,
+                    "{family} is boosted exactly where Chrome boosts it (Apple platforms)"
+                );
+            }
+            // Other families keep their metrics - Helvetica Neue, Times New
+            // Roman and Courier New included, and PostScript names are not
+            // family names.
+            for family in [
+                "Helvetica Neue",
+                "Times New Roman",
+                "Courier New",
+                "Arial",
+                "Nimbus Sans",
+                "helvetica",
+                "Helvetica-Bold",
+                "Times-Roman",
+            ] {
+                assert!(
+                    !browser_ascent_boost(Some(family)),
+                    "{family} is not boosted"
+                );
+            }
+            assert!(!browser_ascent_boost(None));
+        }
+
+        /// The boost reaches the metrics a parsed face lays text out with:
+        /// Apple's Helvetica, where the machine has it (macOS), keeps its own
+        /// hhea ascent and carries the flag, and its 16px / 22px `normal`
+        /// lines are Chrome's 18px / 25px (12 + 2 + 4 + 0 and 17 + 3 + 5 + 0).
+        /// Helvetica Neue does not carry it. Elsewhere there is no such face
+        /// to parse, and the test has nothing to check.
+        #[test]
+        fn apples_helvetica_parses_with_the_browsers_ascent_boost() {
+            let Ok(bytes) = std::fs::read("/System/Library/Fonts/Helvetica.ttc") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let font = ParsedFont::from_bytes(&bytes, 0, &mut warnings)
+                .expect("the system Helvetica parses");
+            let m = font.font_metrics;
+            assert!(m.browser_ascent_boost, "Apple's Helvetica is boosted");
+            assert!(
+                (m.ascent - 1577.0).abs() < 0.01,
+                "the font-unit ascent stays the hhea one: {}",
+                m.ascent
+            );
+            for (size, chrome) in [(16.0, 18.0), (22.0, 25.0)] {
+                let got = crate::text3::cache::LineHeight::Normal.resolve_with_metrics(size, &m);
+                assert!(
+                    (got - chrome).abs() < 0.01,
+                    "Helvetica {size}px: Chrome {chrome}px, azul {got}px"
+                );
+            }
+            if let Ok(neue) = std::fs::read("/System/Library/Fonts/HelveticaNeue.ttc") {
+                let font = ParsedFont::from_bytes(&neue, 0, &mut warnings)
+                    .expect("the system Helvetica Neue parses");
+                assert!(
+                    !font.font_metrics.browser_ascent_boost,
+                    "Helvetica Neue is another family"
+                );
+            }
+        }
+
+        /// A parsed face carries its OS/2 x-height and cap height (version 2+:
+        /// `sxHeight`, `sCapHeight`), which the strut's `vertical-align:
+        /// middle` and `text-box-edge: ex / cap` read; they were always
+        /// `None`, so every face fell back to 0.5em / 0.7em (MAILENG6 item 6).
+        /// Arial: 1062 and 1467 at 2048 upem, where the machine has it.
+        #[test]
+        fn a_parsed_face_carries_its_os2_x_height_and_cap_height() {
+            let Ok(bytes) = std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let m = ParsedFont::from_bytes(&bytes, 0, &mut warnings)
+                .expect("the system Arial parses")
+                .font_metrics;
+            assert_eq!(m.x_height, Some(1062.0), "Arial's OS/2 sxHeight");
+            assert_eq!(m.cap_height, Some(1467.0), "Arial's OS/2 sCapHeight");
+        }
+
+        // ---------------------------------------------------------------
+        // Tracking (the AAT `trak` table, SYSUI8)
+        // ---------------------------------------------------------------
+
+        /// A `trak` table built by hand (Apple's TrueType Reference layout,
+        /// offsets from the table's start): sizes 10 and 20, three tracks;
+        /// only the normal one (track 0: +10 at 10pt, -10 at 20pt) is read.
+        #[test]
+        fn tracking_reads_the_normal_track_and_interpolates_between_sizes() {
+            let mut t: Vec<u8> = Vec::new();
+            // header: version 1.0, format 0, horizOffset 12, vertOffset 0, reserved
+            t.extend_from_slice(&[0, 1, 0, 0, 0, 0, 0, 12, 0, 0, 0, 0]);
+            // track data: nTracks 3, nSizes 2, sizeTableOffset 44
+            t.extend_from_slice(&[0, 3, 0, 2, 0, 0, 0, 44]);
+            // tracks: (-1.0, name 256, values at 52), (0.0, 257, 56), (1.0, 258, 60)
+            t.extend_from_slice(&[0xFF, 0xFF, 0, 0, 1, 0, 0, 52]);
+            t.extend_from_slice(&[0, 0, 0, 0, 1, 1, 0, 56]);
+            t.extend_from_slice(&[0, 1, 0, 0, 1, 2, 0, 60]);
+            // size table: 10.0, 20.0 (16.16)
+            t.extend_from_slice(&[0, 10, 0, 0, 0, 20, 0, 0]);
+            // values: track -1 (-30, -40), track 0 (+10, -10), track 1 (50, 60)
+            t.extend_from_slice(&(-30i16).to_be_bytes());
+            t.extend_from_slice(&(-40i16).to_be_bytes());
+            t.extend_from_slice(&10i16.to_be_bytes());
+            t.extend_from_slice(&(-10i16).to_be_bytes());
+            t.extend_from_slice(&50i16.to_be_bytes());
+            t.extend_from_slice(&60i16.to_be_bytes());
+
+            let tracking = Tracking::parse(&t).expect("the table parses");
+            assert_eq!(tracking.sizes, vec![(10.0, 10), (20.0, -10)]);
+            assert_eq!(tracking.at(10.0), 10.0);
+            assert_eq!(tracking.at(15.0), 0.0, "halfway between the two sizes");
+            assert_eq!(tracking.at(20.0), -10.0);
+            assert_eq!(tracking.at(4.0), 10.0, "below the table: its first value");
+            assert_eq!(tracking.at(200.0), -10.0, "above the table: its last value");
+            assert_eq!(tracking.at(f32::NAN), 10.0);
+
+            // No horizontal data, a truncated table, no table at all.
+            let mut vertical_only = t.clone();
+            vertical_only[6] = 0;
+            vertical_only[7] = 0;
+            assert_eq!(Tracking::parse(&vertical_only), None);
+            assert_eq!(Tracking::parse(&t[..30]), None);
+            assert_eq!(Tracking::parse(&[]), None);
+        }
+
+        /// San Francisco (`SFNS.ttf`) tracks its glyphs by the values
+        /// CoreText applies: -40 units at 16px, -50 at 18 (between 17's -52
+        /// and 20's -46), +28 at 28. Helvetica has no `trak` table.
+        #[test]
+        fn the_system_font_carries_coretexts_tracking() {
+            let Ok(sf) = std::fs::read("/System/Library/Fonts/SFNS.ttf") else {
+                return;
+            };
+            let mut warnings = Vec::new();
+            let font = ParsedFont::from_bytes(&sf, 0, &mut warnings).expect("SFNS.ttf parses");
+            let tracking = font.tracking.as_ref().expect("SF has a trak table");
+            assert_eq!(tracking.at(16.0), -40.0);
+            assert_eq!(tracking.at(18.0), -50.0);
+            assert_eq!(tracking.at(28.0), 28.0);
+            if let Ok(helvetica) = std::fs::read("/System/Library/Fonts/Helvetica.ttc") {
+                let font =
+                    ParsedFont::from_bytes(&helvetica, 0, &mut warnings).expect("Helvetica parses");
+                assert!(font.tracking.is_none(), "Helvetica is not tracked");
+            }
+        }
+    }
+
+    #[cfg(all(test, not(feature = "web_lift")))]
+    mod audit_a8_tests {
+        use std::cell::Cell;
+
+        use super::*;
+
+        thread_local! {
+            /// `ParsedFont::build_hint_instance` calls on this thread.
+            pub(super) static HINT_BUILDS: Cell<usize> = const { Cell::new(0) };
+        }
+
+        fn hint_builds() -> usize {
+            HINT_BUILDS.with(Cell::get)
+        }
+
+        const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
+
+        fn shared(bytes: &[u8]) -> Option<ParsedFont> {
+            let arc = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(bytes.to_vec())));
+            ParsedFont::from_bytes_shared(arc, 0, &mut Vec::new())
+        }
+
+        /// What the load built before A8-24: `HintInstance::new` over the
+        /// provider `from_bytes_internal` hands an OpenType face's `from_provider`.
+        fn eager_reference(bytes: &[u8]) -> Option<allsorts::hinting::HintInstance> {
+            let provider = ManualTableProvider::new(bytes, 0)?;
+            allsorts::hinting::HintInstance::new(&provider).ok().flatten()
+        }
+
+        /// Hints `ch` at `ppem` with `hint`, as `build_hinted_path` scales it.
+        fn hint_char(
+            font: &ParsedFont,
+            hint: &mut allsorts::hinting::HintInstance,
+            ch: char,
+            ppem: u16,
+        ) -> Option<Vec<(i32, i32)>> {
+            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
+            let glyph = font.get_or_decode_glyph(font.lookup_glyph_index(u32::from(ch))?)?;
+            let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+            let points: Vec<(i32, i32)> = glyph
+                .raw_points
+                .as_ref()?
+                .iter()
+                .map(|&(x, y)| {
+                    (
+                        F26Dot6::from_funits(i32::from(x), scale).to_bits(),
+                        F26Dot6::from_funits(i32::from(y), scale).to_bits(),
+                    )
+                })
+                .collect();
+            let advance = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale).to_bits();
+            hint.set_ppem(ppem, f64::from(ppem)).ok()?;
+            hint.hint_glyph(
+                &points,
+                glyph.raw_on_curve.as_ref()?,
+                glyph.raw_contour_ends.as_ref()?,
+                glyph.instructions.as_deref().unwrap_or(&[]),
+                advance,
+            )
+            .ok()
+        }
+
+        #[test]
+        fn a_load_builds_no_hint_instance_and_its_first_use_builds_one() {
+            let before = hint_builds();
+            let font = shared(MOCK_MONO).expect("Azul Mock Mono parses");
+            let eager = ParsedFont::from_bytes(MOCK_MONO, 0, &mut Vec::new()).expect("parses");
+            assert_eq!(hint_builds(), before, "a load runs no HintInstance::new");
+            assert!(font.hint_slot.get().is_none(), "the slot is still unbuilt");
+            // Mock Mono has a version-1 maxp and no fpgm: the eager build made one.
+            assert!(eager_reference(MOCK_MONO).is_some());
+            assert!(font.hint_instance().is_some());
+            assert!(font.hint_instance().is_some());
+            assert!(eager.hint_instance().is_some());
+            assert_eq!(hint_builds(), before + 2, "one build per face, on its first use");
+            // a clone dropped hinting before, and builds none now
+            let clone = font.clone();
+            assert!(clone.hint_instance().is_none());
+            assert_eq!(hint_builds(), before + 2);
+            // a face without source bytes has nothing to build from
+            let bare = ParsedFont::from_bytes_internal(MOCK_MONO, 0, &mut Vec::new(), true)
+                .expect("parses");
+            assert!(bare.hint_instance().is_none());
+        }
+
+        #[test]
+        fn the_instance_built_on_first_use_hints_as_the_eager_one_did() {
+            // Mock Mono (no fpgm) everywhere, plus one face with real fpgm/prep
+            // programs where the platform has it.
+            let candidates = [
+                "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+            ];
+            let mut faces = vec![MOCK_MONO.to_vec()];
+            faces.extend(candidates.iter().find_map(|p| std::fs::read(p).ok()));
+            for bytes in &faces {
+                let font = shared(bytes).expect("parses");
+                let Some(mut reference) = eager_reference(bytes) else {
+                    assert!(font.hint_instance().is_none(), "no instance before, none now");
+                    continue;
+                };
+                let mut lazy = font.hint_instance().expect("built on first use").lock().unwrap();
+                for ppem in [11, 16, 23] {
+                    for ch in ['a', 'g', 'H', '0'] {
+                        assert_eq!(
+                            hint_char(&font, &mut lazy, ch, ppem),
+                            hint_char(&font, &mut reference, ch, ppem),
+                            "{ch:?} at {ppem} ppem"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn a_hinted_advance_is_the_rounded_scaled_hmtx_advance_of_every_glyph() {
+            // A8-25 dropped the per-glyph points Vec the function built and never
+            // read; what it returns is unchanged: Some(round(scaled hmtx)) for every
+            // glyph that decodes, with the interpreter set to the ppem.
+            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
+            let font = shared(MOCK_MONO).expect("parses");
+            for ppem in [9u16, 16, 31] {
+                let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+                for gid in 0..font.num_glyphs() {
+                    let expected = font.get_or_decode_glyph(gid).map(|_| {
+                        let adv = F26Dot6::from_funits(
+                            i32::from(font.get_horizontal_advance(gid)),
+                            scale,
+                        );
+                        ((adv.to_bits() + 32) & !63) as f32 / 64.0
+                    });
+                    assert_eq!(font.get_hinted_advance_px(gid, ppem), expected, "gid {gid}");
+                }
+            }
+        }
+
+        /// A8-37: a face keeps its GSUB and GPOS as ranges of its source bytes,
+        /// not as copies, and they are the very bytes the table provider hands
+        /// out; the layout tables parsed from them answer as the ones parsed
+        /// from a copy do (a system face with real features where there is one).
+        /// Mutation: `TableBytes::Owned(table.into_owned())` for every table
+        /// fails the `InSource` assertions.
+        #[test]
+        fn layout_tables_are_kept_as_ranges_of_the_source() {
+            use allsorts::{
+                binary::read::ReadScope,
+                layout::{new_layout_cache, LayoutTable, GSUB},
+                tables::FontTableProvider,
+                tag,
+            };
+            let candidates = [
+                "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+            ];
+            let mut faces = vec![MOCK_MONO.to_vec()];
+            faces.extend(candidates.iter().find_map(|p| std::fs::read(p).ok()));
+            for bytes in &faces {
+                let font = shared(bytes).expect("parses");
+                let provider = ManualTableProvider::new(bytes, 0).expect("an sfnt");
+                for (kept, table) in [(&font.gsub_bytes, tag::GSUB), (&font.gpos_bytes, tag::GPOS)] {
+                    let Some(expected) = provider.table_data(table).ok().flatten() else {
+                        assert!(kept.is_none());
+                        continue;
+                    };
+                    let kept = kept.as_ref().expect("the table is kept");
+                    assert!(matches!(kept, TableBytes::InSource { .. }), "{kept:?}");
+                    assert_eq!(font.table_bytes(kept), Some(&expected[..]));
+                }
+                let Some(copy) = provider.table_data(tag::GSUB).ok().flatten() else {
+                    continue;
+                };
+                let from_copy = ReadScope::new(&copy.into_owned())
+                    .read::<LayoutTable<GSUB>>()
+                    .ok()
+                    .map(new_layout_cache);
+                assert_eq!(font.gsub().is_some(), from_copy.is_some());
+                let Some(from_copy) = from_copy else {
+                    continue;
+                };
+                for script in [tag::LATN, tag::DFLT, tag::ARAB] {
+                    for feature in [tag::LIGA, tag::KERN, tag::SMCP, tag::CCMP, tag::LOCL] {
+                        let table = &from_copy.layout_table;
+                        let reference = table
+                            .find_script_or_default(script)
+                            .ok()
+                            .flatten()
+                            .and_then(|s| s.find_langsys_or_default(None).ok().flatten())
+                            .is_some_and(|langsys| {
+                                matches!(table.find_langsys_feature(langsys, feature, None), Ok(Some(_)))
+                            });
+                        assert_eq!(font.has_gsub_feature_tag(script, feature), reference);
+                    }
+                }
+            }
         }
     }
 }

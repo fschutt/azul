@@ -3,7 +3,7 @@ extern crate alloc;
 use azul_core::{
     diff::{
         create_migration_map, reconcile_cursor_position, reconcile_dom, transfer_states,
-        DiffResult, NodeMove,
+        DiffResult, NodeIdentityConfig, NodeMove,
     },
     dom::{DomId, NodeData},
     geom::LogicalRect,
@@ -33,6 +33,7 @@ fn reconcile_dom_flat(
         new_layout,
         dom_id,
         timestamp,
+        NodeIdentityConfig::default(),
     )
 }
 

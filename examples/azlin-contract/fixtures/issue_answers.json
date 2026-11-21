@@ -1,0 +1,26 @@
+[
+  {
+    "tier": "100GB",
+    "key_id": "100GB/2026",
+    "public_key_pem": "-----BEGIN PUBLIC KEY-----\n...\n",
+    "blind_signatures": [
+      "c2ln"
+    ],
+    "schedule": {
+      "months": 12,
+      "issued": 1,
+      "next_issue_at": "2026-11-21T08:00:00Z"
+    }
+  },
+  {
+    "tier": "1TB",
+    "key_id": "1TB/2026",
+    "blind_signatures": [
+      "c2ln"
+    ],
+    "schedule": {
+      "months": 1,
+      "issued": 1
+    }
+  }
+]

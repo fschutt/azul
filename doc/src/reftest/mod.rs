@@ -35,9 +35,12 @@ pub mod apply_midlevel;
 pub mod autodebug;
 pub mod autodoc;
 pub mod autoreview;
+pub mod comment_context;
+pub mod style_guard;
 pub mod debug;
 pub mod pipeline;
 pub mod regression;
+pub mod rewrite_source;
 pub mod telegram;
 
 /// Create a ureq Agent with pure-Rust TLS (rustls + rustls-rustcrypto)
@@ -1413,6 +1416,8 @@ impl CssWarningCollector {
                     CssDeclaration::Dynamic(dynamic) => {
                         self.validate_property(&dynamic.default_value);
                     }
+                    // A definition is typed only where a `var()` reads it.
+                    CssDeclaration::CustomProperty(_) => {}
                 }
             }
         }
@@ -1563,6 +1568,11 @@ impl CssStats {
                         stats
                             .properties
                             .push(format!("{:?}", dynamic.default_value));
+                    }
+                    CssDeclaration::CustomProperty(custom) => {
+                        stats
+                            .properties
+                            .push(format!("--{}: {}", custom.name, custom.value));
                     }
                 }
             }

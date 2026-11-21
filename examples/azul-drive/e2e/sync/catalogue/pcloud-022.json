@@ -1,0 +1,72 @@
+[
+  {
+    "name": "a reinstall re-attaches to the existing drive folder: no 'Pictures (1)', no second copy, nothing sent again",
+    "description": "PCLOUD-022 (pCloud): after a reinstall the backup was re-created as 'Pictures (1)' and copied again into the root (388 GB became 777 GB); deleting the apparent duplicates erased 400 GB of originals. Rules D5/C4: a fresh pairing of a folder already on the drive is a union of equal bytes: nothing duplicated, nothing deleted.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Pictures", "count": 30, "size": 20000, "seed": 22 },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_wipe_state", "device": "a" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "assert_response", "path": "result.conflicts", "equals": 0 },
+      { "op": "drive_check", "check": "remote_count", "count": 30 },
+      { "op": "drive_check", "check": "remote_count", "glob": "*(1)*", "count": 0 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 30 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "*conflict*", "count": 0 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the user then deletes the copies on the drive: the plan is held, the local originals stay",
+    "description": "PCLOUD-022 (pCloud): the two-way 'backup' propagated the server-side delete and erased the originals. Rules D1/D2 (sync-chaos delete-mass-delete-held): held for the user; even after confirming, the files go to the trash.",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Pictures", "count": 30, "text_prefix": "picture" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 30 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_answer", "device": "a", "question": "mass_delete", "delete_too": true },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "trash_has", "device": "a", "text": "picture 0" },
+      { "op": "drive_check", "check": "trash_has", "device": "a", "text": "picture 29" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "in a backup pair, deleting the remote copy never deletes the local originals",
+    "description": "PCLOUD-022 (pCloud): backup mode was two-way. Rules D1/D2 (sync-chaos delete-backup-mode).",
+    "steps": [
+      { "op": "drive_harness" },
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a", "mode": "backup" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "Pictures", "count": 30, "text_prefix": "picture" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_answer", "device": "a", "question": "mass_delete", "delete_too": true },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "Pictures/*", "count": 30 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

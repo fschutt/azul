@@ -1,0 +1,93 @@
+# The fuzz targets of azlin-content (planning/architecture.md section 1.4 rule 3: "every parser has a
+# fuzz target"): bytes that other devices, other people and the network wrote. `panic = "abort"`
+# is the shipped profile, so every panic these find is an abort of the app.
+#
+# cargo-fuzz project of its own (its own workspace and lock, like examples/azul-storage/fuzz and
+# examples/azlin-cbor/fuzz): `cargo install cargo-fuzz`, then from this folder
+#
+#     cargo +nightly fuzz build                   # what CI does; it never runs them
+#     cargo +nightly fuzz run chunk_open          # an hour on a quiet machine
+#
+# Seven targets, one per parser of the crate, PRE-DECLARED by lane W1-S14b so that no later lane edits
+# this file; each lane creates only its own target file under `fuzz_targets/`:
+#
+#     chunk_open         W1-S14b  `open_chunk` on a blob, `SealedChunk::from_stored`, `Chunker::feed`
+#     pack_header        W1-S14c  `PackHeader::parse`, `check_new_pack`
+#     pack_trailer       W1-S14c  `read_trailer`, `rebuild_entries`
+#     pointer_decode     W1-S14d  `PointerV2::from_cbor`, `verify`
+#     chunk_list_decode  W1-S14d  `decode_chunk_list`
+#     index_shard        W1-S14e1 `ChunkIndex::from_shards`
+#     prune_journal      W1-S14e2 the prune journal's decoder
+#
+# The entry points are the same the lanes' unit tests run on a few thousand fixed inputs. A target whose
+# file does not exist yet makes `cargo fuzz build` fail until its lane lands; `corpus/` is not
+# committed. The dependencies below are those the seven targets need (azlin-cbor for the decoders'
+# limits, azlin-keys for ids, keys and the test doubles).
+[package]
+name = "azlin-content-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+azlin-content = { path = ".." }
+azlin-cbor = { path = "../../azlin-cbor" }
+azlin-keys = { path = "../../azlin-keys", default-features = false, features = ["test-support"] }
+zeroize = { version = "1.8", features = ["alloc"] }
+
+# Not a member of azul's workspace: it needs nightly and libfuzzer, and keeps both out of the
+# lockfile of the apps.
+[workspace]
+
+[[bin]]
+name = "chunk_open"
+path = "fuzz_targets/chunk_open.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pack_header"
+path = "fuzz_targets/pack_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pack_trailer"
+path = "fuzz_targets/pack_trailer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pointer_decode"
+path = "fuzz_targets/pointer_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "chunk_list_decode"
+path = "fuzz_targets/chunk_list_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "index_shard"
+path = "fuzz_targets/index_shard.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "prune_journal"
+path = "fuzz_targets/prune_journal.rs"
+test = false
+doc = false
+bench = false

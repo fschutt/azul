@@ -1,0 +1,32 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "geometry": {"coordinates": [13.3777041, 52.5162746], "type": "Point"},
+      "properties": {
+        "date": "2025-06-01T10:00:00Z",
+        "google_maps_url": "http://maps.google.com/?cid=10001",
+        "location": {"address": "Pariser Platz, 10117 Berlin, Germany", "country_code": "DE", "name": "Brandenburger Tor"}
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {"coordinates": [13.4010, 52.5191], "type": "Point"},
+      "properties": {
+        "date": "2025-06-02T10:00:00Z",
+        "google_maps_url": "http://maps.google.com/?cid=10002",
+        "location": {"address": "Am Lustgarten, 10178 Berlin, Germany", "country_code": "DE", "name": "Berliner Dom"}
+      },
+      "type": "Feature"
+    },
+    {
+      "geometry": {"coordinates": [0, 0], "type": "Point"},
+      "properties": {
+        "date": "2025-06-03T10:00:00Z",
+        "google_maps_url": "http://maps.google.com/?cid=10003",
+        "location": {"name": "Museumsinsel"}
+      },
+      "type": "Feature"
+    }
+  ]
+}

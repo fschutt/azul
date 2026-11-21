@@ -1,18 +1,18 @@
 //! Unified `Zip` handle. See [`crate::unified`].
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use core::ffi::c_void;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 use azul_css::{AzString, U8Vec};
 
-#[cfg(all(feature = "cabi_internal", not(target_arch = "wasm32")))]
+#[cfg(az_desktop)]
 pub use crate::desktop::extra::zip::*;
 
 /// wasm stub of the desktop `Zip` handle (no compressor on wasm).
 /// Identical `#[repr(C)]` layout to the real type — the C-ABI transmutes
 /// between the two.
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 #[repr(C)]
 #[derive(Debug)]
 pub struct Zip {
@@ -20,7 +20,7 @@ pub struct Zip {
     pub run_destructor: bool,
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Clone for Zip {
     fn clone(&self) -> Self {
         Zip {
@@ -30,7 +30,7 @@ impl Clone for Zip {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Default for Zip {
     fn default() -> Self {
         Zip {
@@ -40,12 +40,12 @@ impl Default for Zip {
     }
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Drop for Zip {
     fn drop(&mut self) {}
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_arch = "wasm32", az_engine_stubs))]
 impl Zip {
     /// No ZIP backend on wasm: always an invalid handle.
     pub fn new() -> Zip {

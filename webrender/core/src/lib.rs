@@ -74,6 +74,7 @@ mod profiler;
 mod telemetry;
 
 mod api_resources;
+pub mod azul_counters;
 mod batch;
 mod border;
 mod box_shadow;

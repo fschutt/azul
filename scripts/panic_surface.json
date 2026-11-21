@@ -1,0 +1,48 @@
+{
+  "azlin-preflate": {
+    "total": {
+      "assert": 19,
+      "unwrap": 1
+    },
+    "files": {
+      "deflate/deflate_constants.rs": {
+        "unwrap": 1
+      },
+      "deflate/deflate_reader.rs": {
+        "assert": 1
+      },
+      "hash_algorithm.rs": {
+        "assert": 6
+      },
+      "hash_chain.rs": {
+        "assert": 6
+      },
+      "hash_chain_holder.rs": {
+        "assert": 2
+      },
+      "statistical_codec.rs": {
+        "assert": 2
+      },
+      "token_predictor.rs": {
+        "assert": 1
+      },
+      "tree_predictor.rs": {
+        "assert": 1
+      }
+    }
+  },
+  "azlin-compress": {
+    "total": {},
+    "files": {}
+  },
+  "azul-storage": {
+    "total": {
+      "expect": 2
+    },
+    "files": {
+      "meta/seal.rs": {
+        "expect": 2
+      }
+    }
+  }
+}

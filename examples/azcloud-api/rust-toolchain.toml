@@ -1,0 +1,7 @@
+# The iso crates this links (azlin-proto: rust-version 1.99) pin the toolchain
+# of azul-apps/iso/rust-toolchain.toml; the azul workspace's 1.91.0 cannot
+# build them. Run cargo from this folder so rustup picks this file.
+[toolchain]
+channel = "1.99.0"
+components = ["clippy", "rustfmt"]
+profile = "minimal"

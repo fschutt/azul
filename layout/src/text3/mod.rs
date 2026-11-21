@@ -6,18 +6,25 @@
 //! - `cache`: unified text layout cache (`UnifiedLayout`)
 //! - `default`: default text shaping and line-breaking
 //! - `edit`: text editing operations
+//! - `fontreg`: fonts an app registers by family name while it runs
 //! - `glyphs`: glyph positioning and cluster mapping
 //! - `knuth_plass`: Knuth-Plass line-breaking algorithm
 //! - `mock_fonts`: built-in test fonts with exactly known metrics
 //! - `script`: Unicode script detection
 //! - `selection`: text selection and cursor utilities
+//! - `ui_fonts`: the fonts azul bundles for its widget themes (EB Garamond)
+//! - `api`: the public text module (api.json `text`): lay a text out in a font stack and read
+//!   its glyphs, from outside the DOM
 
+pub mod api;
 pub mod cache;
 pub mod default;
 pub mod dense;
 pub mod edit;
+pub mod fontreg;
 pub mod glyphs;
 pub mod knuth_plass;
 pub mod mock_fonts;
 pub mod script;
 pub mod selection;
+pub mod ui_fonts;

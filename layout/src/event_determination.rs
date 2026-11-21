@@ -155,7 +155,7 @@ fn detect_window_state_events(
     }
 
     // Theme changed
-    if current.theme != previous.theme {
+    if current.mode != previous.mode {
         events.push(SyntheticEvent::new(
             EventType::ThemeChange,
             EventSource::User,
@@ -893,7 +893,13 @@ pub fn determine_all_events(
     // ========================================================================
     // Compare FULL hover chains between current and previous frames.
     // Nodes that gained hover get MouseEnter, nodes that lost hover get MouseLeave.
-    {
+    //
+    // ONCE per hit test: the two frames are a delta, and they stay the two
+    // newest frames until the pointer's next hit test. A pass that runs
+    // without one (a key, a window event, the re-run after a callback
+    // rebuilt the DOM) found the same two frames and sent the same enter /
+    // leave / over / out again (`HoverManager::hover_change_pending`).
+    if hover_manager.hover_change_pending(&crate::managers::hover::InputPointId::Mouse) {
         let current_hovered = get_all_hovered_nodes(hover_manager, 0);
         let previous_hovered = get_all_hovered_nodes(hover_manager, 1);
 
@@ -920,13 +926,27 @@ pub fn determine_all_events(
                 timestamp.clone(),
                 EventData::None,
             ));
-            events.push(SyntheticEvent::new(
-                EventType::MouseOut,
-                EventSource::User,
-                target,
-                timestamp.clone(),
-                EventData::None,
-            ));
+        }
+        // MouseOut / MouseOver go to the TOPMOST node only, once, when it
+        // changes (UI Events s4.3.3: "mouseover ... when a pointing device is
+        // moved onto the boundaries of an element", dispatched to the hit
+        // target, and they bubble). One per node of the chain that changed,
+        // each bubbling, told an ancestor the same entry once per node below
+        // it: entering a label inside a VirtualView was six MouseOvers at the
+        // map around the view, and a page whose nodes were rebuilt under a
+        // still pointer sent them again.
+        let previous_top = hover_manager.previous_hover_node_full();
+        let current_top = hover_manager.current_hover_node_full();
+        if previous_top != current_top {
+            if let Some(out) = previous_top {
+                events.push(SyntheticEvent::new(
+                    EventType::MouseOut,
+                    EventSource::User,
+                    out,
+                    timestamp.clone(),
+                    EventData::None,
+                ));
+            }
         }
 
         // Nodes that gained hover -> MouseEnter, and its bubbling twin
@@ -950,13 +970,17 @@ pub fn determine_all_events(
                 timestamp.clone(),
                 EventData::None,
             ));
-            events.push(SyntheticEvent::new(
-                EventType::MouseOver,
-                EventSource::User,
-                target,
-                timestamp.clone(),
-                EventData::None,
-            ));
+        }
+        if previous_top != current_top {
+            if let Some(over) = current_top {
+                events.push(SyntheticEvent::new(
+                    EventType::MouseOver,
+                    EventSource::User,
+                    over,
+                    timestamp.clone(),
+                    EventData::None,
+                ));
+            }
         }
     }
 
@@ -1225,7 +1249,7 @@ pub fn determine_all_events(
     }
 
     // Theme changed
-    if current_state.theme != previous_state.theme {
+    if current_state.mode != previous_state.mode {
         events.push(SyntheticEvent::new(
             EventType::ThemeChange,
             EventSource::User,
@@ -1272,14 +1296,18 @@ pub fn determine_all_events(
     // falls back to the root when nothing is hovered). Targeting the root
     // unconditionally made per-node drop targets impossible — a DroppedFile
     // callback registered on any non-root node could never fire.
+    // Each drag move and each drop is ONE event: a re-run of the pass after a
+    // callback rebuilt the DOM finds them delivered (`mark_events_delivered`).
     if file_drop_manager.get_hovered_file().is_some() {
-        events.push(SyntheticEvent::new(
-            EventType::FileHover,
-            EventSource::User,
-            mouse_target,
-            timestamp.clone(),
-            EventData::None,
-        ));
+        if file_drop_manager.hover_is_undelivered() {
+            events.push(SyntheticEvent::new(
+                EventType::FileHover,
+                EventSource::User,
+                mouse_target,
+                timestamp.clone(),
+                EventData::None,
+            ));
+        }
     } else if file_drop_manager.hover_was_cancelled() {
         events.push(SyntheticEvent::new(
             EventType::FileHoverCancel,
@@ -1290,7 +1318,7 @@ pub fn determine_all_events(
         ));
     }
 
-    if file_drop_manager.get_dropped_file().is_some() {
+    if file_drop_manager.drop_is_undelivered() && file_drop_manager.get_dropped_file().is_some() {
         events.push(SyntheticEvent::new(
             EventType::FileDrop,
             EventSource::User,
@@ -1477,7 +1505,10 @@ pub fn determine_all_events(
         let drag_source = manager.drag_source_node().unwrap_or(mouse_target);
 
         // Detect DragStart (on the drag source)
-        if manager.detect_drag().is_some() && !manager.is_dragging() {
+        // `is_dragging()` first: once the drag has started, the detection (a
+        // walk over every sample of the session for its total distance) is
+        // not asked again on every move of it.
+        if !manager.is_dragging() && manager.detect_drag().is_some() {
             events.push(SyntheticEvent::new(
                 EventType::DragStart,
                 EventSource::User,
@@ -1622,7 +1653,9 @@ pub fn determine_all_events(
         }
 
         // Detect Swipe gestures (targeted at hovered node)
-        if let Some(direction) = manager.detect_swipe_direction() {
+        // At the release only (or an injected native swipe): the session
+        // of a fast drag answers "swipe" for as long as it is kept.
+        if let Some(direction) = manager.swipe_to_tell(event_was_mouse_release) {
             use crate::managers::gesture::GestureDirection;
             let event_type = match direction {
                 GestureDirection::Left => EventType::SwipeLeft,
@@ -2078,7 +2111,7 @@ mod autotest_generated {
     use azul_core::{
         geom::{LogicalSize, PhysicalPositionI32},
         hit_test::{FullHitTest, HitTest, HitTestItem},
-        window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec, WindowTheme},
+        window::{OptionVirtualKeyCode, VirtualKeyCode, VirtualKeyCodeVec, DarkLightMode},
     };
     use azul_css::{corety::OptionU32, AzString};
 
@@ -2477,7 +2510,7 @@ mod autotest_generated {
     #[test]
     fn window_theme_change_emits_exactly_one_theme_event() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         let events = detect_window_state_events(&current, &state(), ts(0));
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, EventType::ThemeChange);
@@ -2513,7 +2546,7 @@ mod autotest_generated {
         let mut current = cursor_at(10.0, 10.0);
         current.size.dimensions = LogicalSize::new(800.0, 600.0);
         current.position = WindowPosition::Initialized(PhysicalPositionI32 { x: 1, y: 2 });
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
 
         let events = detect_window_state_events(&current, &state(), ts(7));
         assert_eq!(events.len(), 4, "resize + move + theme + mouse-enter");
@@ -2600,7 +2633,7 @@ mod autotest_generated {
     #[test]
     fn from_managers_provider_event_dedups_against_the_window_event() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         // The provider claims the exact same (root, ThemeChange) slot.
         let provider = StaticProvider(vec![ev(EventType::ThemeChange, root(), 3)]);
         let providers: Vec<&dyn EventProvider> = vec![&provider];
@@ -2991,6 +3024,30 @@ mod autotest_generated {
             let ev = only(&events, ty);
             assert_eq!(ev.target, expected, "{ty:?} went to the wrong node");
         }
+    }
+
+    /// Entering a node three levels down gains the whole chain: one
+    /// MouseEnter per node, but ONE MouseOver, at the topmost node (it
+    /// bubbles to the rest) - not one per node, each bubbling to every
+    /// ancestor. Leaving is the mirror: one MouseOut at the old topmost node.
+    #[test]
+    fn mouseover_and_mouseout_fire_once_at_the_topmost_node() {
+        let s = state();
+        let hm = hover_with(hits(&[(0, 0)]), hits(&[(0, 0), (0, 1), (0, 2), (0, 3)]));
+        let events = run(&s, &s, &hm, None, None);
+        assert_eq!(count(&events, EventType::MouseEnter), 3);
+        let over = only(&events, EventType::MouseOver);
+        assert_eq!(over.target, node(0, 3), "the topmost (deepest) node");
+        let out = only(&events, EventType::MouseOut);
+        assert_eq!(out.target, node(0, 0), "the topmost node before");
+
+        // The topmost node is unchanged (a node behind it appeared): no
+        // MouseOver, no MouseOut.
+        let hm = hover_with(hits(&[(0, 0), (0, 3)]), hits(&[(0, 0), (0, 2), (0, 3)]));
+        let events = run(&s, &s, &hm, None, None);
+        assert_eq!(count(&events, EventType::MouseEnter), 1);
+        assert_eq!(count(&events, EventType::MouseOver), 0);
+        assert_eq!(count(&events, EventType::MouseOut), 0);
     }
 
     #[test]
@@ -3545,7 +3602,7 @@ mod autotest_generated {
     #[test]
     fn determine_all_events_accepts_a_u64_max_timestamp() {
         let mut current = state();
-        current.theme = WindowTheme::DarkMode;
+        current.mode = DarkLightMode::Dark;
         let hover = HoverManager::new();
         let focus = FocusManager::new();
         let file_drop = FileDropManager::new();
@@ -3650,6 +3707,28 @@ mod autotest_generated {
         );
         let events = run_with_file_drop(&fd);
         assert_eq!(count(&events, EventType::FileDrop), 1);
+    }
+
+    /// A drop handler that rebuilds the page makes the pass run again for the
+    /// new DOM; that re-run reads the same manager and must not see the drop
+    /// (or the drag move) a second time.
+    #[test]
+    fn a_re_run_of_the_pass_emits_no_second_drop_or_hover() {
+        let mut fd = FileDropManager::new();
+        fd.set_hovered_file(Some(AzString::from(String::from("/tmp/a.png"))));
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHover), 1);
+        fd.mark_events_delivered();
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHover), 0);
+        assert_eq!(count(&run_with_file_drop(&fd), EventType::FileHoverCancel), 0);
+
+        fd.set_dropped_file(Some(AzString::from(String::from("/tmp/a.png"))));
+        let first = run_with_file_drop(&fd);
+        assert_eq!(count(&first, EventType::FileDrop), 1);
+        assert_eq!(count(&first, EventType::FileHover), 0, "the drop ended the drag");
+        fd.mark_events_delivered();
+        let again = run_with_file_drop(&fd);
+        assert_eq!(count(&again, EventType::FileDrop), 0);
+        assert_eq!(count(&again, EventType::FileHoverCancel), 0);
     }
 
     #[test]
@@ -3862,6 +3941,8 @@ mod autotest_generated {
             initial_distance: 0.0,
             current_distance: 0.0,
             duration_ms: 0,
+            began: true,
+            ended: false,
         }));
         g
     }
@@ -4377,5 +4458,115 @@ mod autotest_generated {
             ts(0),
         );
         assert!(events.is_empty(), "got {events:?}");
+    }
+}
+
+/// Guards of audit area A6 (`audit/A6.md`).
+#[cfg(test)]
+mod audit_a6_tests {
+    use azul_core::hit_test::{FullHitTest, HitTest, HitTestItem};
+
+    use super::*;
+    use crate::managers::{
+        file_drop::FileDropManager,
+        focus_cursor::FocusManager,
+        hover::{HoverManager, InputPointId},
+    };
+
+    /// A hit test over `node` of the root dom.
+    fn over(node: usize) -> FullHitTest {
+        let mut ht = FullHitTest::empty(None);
+        ht.hovered_nodes
+            .entry(DomId { inner: 0 })
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(
+                NodeId::new(node),
+                HitTestItem {
+                    point_in_viewport: LogicalPosition::new(0.0, 0.0),
+                    point_relative_to_item: Default::default(),
+                    is_focusable: false,
+                    is_virtual_view_hit: None,
+                    hit_depth: 0,
+                },
+            );
+        ht
+    }
+
+    /// One event pass over a window whose state did not change (a key pass
+    /// would add its key events; the hover part is the same).
+    fn pass(hover: &HoverManager) -> Vec<SyntheticEvent> {
+        let state = FullWindowState::default();
+        let focus = FocusManager::new();
+        let file_drop = FileDropManager::new();
+        let providers: Vec<&dyn EventProvider> = Vec::new();
+        determine_all_events(
+            &state,
+            &state,
+            hover,
+            &focus,
+            &file_drop,
+            None,
+            &providers,
+            None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            Instant::Tick(SystemTick::new(0)),
+        )
+    }
+
+    /// The four events of a hover change: enter, leave, over, out.
+    fn hover_events(events: &[SyntheticEvent]) -> usize {
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_type,
+                    EventType::MouseEnter
+                        | EventType::MouseLeave
+                        | EventType::MouseOver
+                        | EventType::MouseOut
+                )
+            })
+            .count()
+    }
+
+    /// A6-09: the pointer moved from node 3 to node 7 (two hit tests). The
+    /// pass of that move is told (enter 7, leave 3, over 7, out 3) and takes
+    /// it; a pass that follows without a new hit test - a key, a window
+    /// event, the re-run after a callback rebuilt the DOM - is told nothing,
+    /// where it used to get the same four events again, every time. The next
+    /// hit test is news again.
+    /// Mutation: the `hover_change_pending` gate removed from
+    /// `determine_all_events` (or `push_hit_test` not marking the point)
+    /// fails the second (the third) assertion.
+    #[test]
+    fn a_hover_change_is_told_once_per_hit_test() {
+        let mut hover = HoverManager::new();
+        hover.push_hit_test(InputPointId::Mouse, over(3));
+        hover.push_hit_test(InputPointId::Mouse, over(7));
+        assert_eq!(hover_events(&pass(&hover)), 4, "the move's own pass");
+
+        hover.mark_hover_changes_delivered();
+        assert_eq!(hover_events(&pass(&hover)), 0, "a pass without a new hit test");
+        assert_eq!(hover_events(&pass(&hover)), 0, "and the one after it");
+
+        hover.push_hit_test(InputPointId::Mouse, over(3));
+        assert_eq!(hover_events(&pass(&hover)), 4, "back over node 3: news again");
+        hover.mark_hover_changes_delivered();
+        // A hit test that finds the same node is a new frame and no change.
+        hover.push_hit_test(InputPointId::Mouse, over(3));
+        assert_eq!(hover_events(&pass(&hover)), 0);
+    }
+
+    /// A manager whose host never marks a delivery (one fed by hand, the
+    /// e2e runner) is told about its two newest frames on every ask, as it
+    /// was.
+    #[test]
+    fn a_manager_nobody_marks_answers_as_before() {
+        let mut hover = HoverManager::new();
+        hover.push_hit_test(InputPointId::Mouse, over(3));
+        hover.push_hit_test(InputPointId::Mouse, over(7));
+        assert_eq!(hover_events(&pass(&hover)), 4);
+        assert_eq!(hover_events(&pass(&hover)), 4);
     }
 }

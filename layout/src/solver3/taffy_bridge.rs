@@ -342,9 +342,7 @@ use crate::{
             LayoutConstraints, TextAlign as FcTextAlign,
         },
         getters::{
-            get_align_content, get_align_items, get_css_border_bottom_width,
-            get_css_border_left_width, get_css_border_right_width, get_css_border_top_width,
-            get_css_bottom, get_css_box_sizing, get_css_height, get_css_left,
+            get_align_content, get_align_items, get_css_bottom, get_css_box_sizing, get_css_height, get_css_left,
             get_css_margin_bottom, get_css_margin_left, get_css_margin_right, get_css_margin_top,
             get_css_max_height, get_css_max_width, get_css_min_height, get_css_min_width,
             get_css_padding_bottom, get_css_padding_left, get_css_padding_right,
@@ -366,6 +364,14 @@ enum ContentSizeOrigin {
     BorderBox,
     /// Our own BFC/IFC `overflow_size`, already relative to the content box.
     ContentBox,
+}
+
+/// Whether a box's own `min-width` / `max-width` can move its width away from
+/// the width its content was laid out at: a `max-width`, or a `min-width`
+/// above zero. An auto or zero `min-width` clamps nothing.
+fn width_can_be_clamped(style: &Style) -> bool {
+    !style.max_size.width.is_auto()
+        || !(style.min_size.width.is_auto() || style.min_size.width == Dimension::length(0.0))
 }
 
 /// Shared scrollbar detection for Taffy-managed flex/grid nodes.
@@ -630,6 +636,14 @@ fn pixel_to_lp(pv: PixelValue) -> LengthPercentage {
         .unwrap_or(LengthPercentage::ZERO)
 }
 
+/// [`pixel_to_lp`] with the node's font sizes for `em` / `rem`.
+fn pixel_to_lp_ctx(pv: PixelValue, em_size: f32, rem_size: f32) -> LengthPercentage {
+    pixel_value_to_pixels_ctx(&pv, em_size, rem_size)
+        .map(LengthPercentage::length)
+        .or_else(|| pv.to_percent().map(|p| LengthPercentage::percent(p.get())))
+        .unwrap_or(LengthPercentage::ZERO)
+}
+
 /// Slow path for flex-basis: full property cache lookup + decode.
 /// Extracted to avoid duplicating the logic in the compact fast-path fallback.
 #[allow(clippy::trivially_copy_pass_by_ref)] // <=8B Copy param kept by-ref intentionally (hot
@@ -677,20 +691,316 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// SAFETY: This pointer is only valid for the lifetime of the `TaffyBridge`
     /// and must only be used within `compute_child_layout` callbacks
     text_cache: *mut crate::font_traits::TextLayoutCache,
+    /// The style of a node without a DOM node (anonymous boxes).
+    default_style: Style,
+    /// Flex ROWS whose width alone is being measured, innermost last (see
+    /// `compute_child_layout`): their items' heights are not laid out.
+    width_only_rows: Vec<usize>,
+    /// The nodes whose width-only answers (`NodeCache::taffy_width_only`)
+    /// THIS bridge started while their taffy cache was empty: everything
+    /// kept for such a node was answered by this bridge, after whatever
+    /// emptied the cache. See [`Self::width_only_answer_kept`].
+    width_only_fresh: std::collections::HashSet<usize>,
+}
+
+/// What a layout pass keeps for its taffy bridges (`solver3::PassMemo::taffy`):
+/// the taffy styles of the styled DOM's nodes.
+///
+/// A bridge is made for every flex or grid container a block, an inline or
+/// the positioning pass lays out (`layout_taffy_subtree`) - hundreds per
+/// layout of a node graph - and each bridge held these memos itself: a cell
+/// per node of the WHOLE document (and one per layout box) initialised and
+/// dropped with every bridge, and the style of every node a bridge reached
+/// converted again (`translate_style_to_taffy`, some 36 cascade getters per
+/// node). The styles are a function of the styled DOM alone, and a
+/// `LayoutContext` holds one styled DOM for its whole life: the pass keeps
+/// them, sized by its first bridge.
+///
+/// Reached through `&self` of a bridge (`self.ctx.pass_memo.taffy`), so a
+/// lent `&Style` ends before any `&mut self` call, as when the bridge owned
+/// the memos; a bridge made inside another one (a flex container in a block
+/// in a flex item) reads and fills the same cells.
+#[derive(Default)]
+pub struct TaffyPassMemo {
     /// Heap-pinned `CalcResolveContext`s whose addresses are passed into taffy
-    /// `Dimension::calc(ptr)`. Kept alive for the duration of the layout pass.
+    /// `Dimension::calc(ptr)`. Kept alive for the duration of the layout pass,
+    /// with the styles that hold those pointers ([`Self::dom_styles`]):
+    /// nothing is ever taken out of it.
     /// Uses `RefCell` because `get_core_container_style` takes `&self`.
     // Box gives each CalcResolveContext a stable heap address for the `*const` handed to
     // taffy `Dimension::calc()`; a plain Vec<T> would invalidate those pointers on realloc.
     #[allow(clippy::vec_box)]
     calc_storage: std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
-    /// Memoised `translate_style_to_taffy` results, keyed by DOM node id
-    /// (`usize` = `NodeId::index`). Taffy calls
-    /// `get_core_container_style` and `should_suppress_cross_intrinsic`
-    /// many times per node during a single layout pass; each call
-    /// triggers ~13 `cache.get_property` cascade walks for grid/flex
-    /// props. Caching the built `Style` cuts this to one build per node.
-    style_memo: std::cell::RefCell<HashMap<usize, Style>>,
+    /// Memoised `translate_style_to_taffy` results, indexed by DOM node id
+    /// (`NodeId::index`). Taffy calls `get_core_container_style` many times
+    /// per node during a single layout pass; each build is ~13
+    /// `cache.get_property` cascade walks.
+    /// Built once per node and LENT, never cloned: a hashed memo that handed
+    /// out clones (a `Style` holds Vecs) was 8% of a 300-contact list's layout
+    /// (`AzContacts`, 2026-10-06).
+    ///
+    /// Each cell holds its style BOXED: there is one cell per node of the
+    /// WHOLE document, and a `Style` is several hundred bytes. A pointer per
+    /// node is 8 bytes.
+    dom_styles: Vec<std::cell::OnceCell<Box<Style>>>,
+    /// The style of a layout box WITHOUT A PARENT (the root of the layout
+    /// tree): its DOM node's with the margin zeroed
+    /// ([`TaffyBridge::root_style`]), indexed by DOM node id like
+    /// [`Self::dom_styles`]. Its cells are made when the first such box is
+    /// asked for its style - a pass whose root is no flex or grid container
+    /// never makes them.
+    root_styles: std::cell::OnceCell<Vec<std::cell::OnceCell<Box<Style>>>>,
+    /// The measurement this pass last stored into a slot class of a node's
+    /// taffy cache, by (layout node, slot class), for the nodes that keep no
+    /// second way yet (`NodeCache::taffy_measure_spill`): what that class of
+    /// the cache holds until the next store into it. That store evicts it and
+    /// makes the node's second way, which takes the evicted measurement in
+    /// from here ([`TaffyBridge::cache_store`]) - the second way keeps every
+    /// measurement stored from then on, and this was the one it missed.
+    last_measures: HashMap<(usize, usize), SpilledMeasure>,
+    /// `Some` while a measure is computed whose writes are taken back when it
+    /// is done ([`MeasureJournal`]): the measurements stored for the nodes
+    /// below it meanwhile, by any bridge of the pass, to be stored again
+    /// once the nodes hold what they held before.
+    measure_journal: Option<Vec<KeptMeasure>>,
+    /// How many computations of this pass wrote into the tree and left what
+    /// they wrote: a final layout, a measure that is not journaled, a
+    /// cleared taffy cache. A flex or grid container whose measure moved
+    /// this number by nothing holds what its last final layout wrote
+    /// ([`TaffyBridge::compute_child_layout`]).
+    unrestored_writes: u64,
+}
+
+/// A measurement the nodes below a journaled measure answered while it was
+/// computed ([`MeasureJournal`]): taken back with everything else those nodes
+/// held, and stored again, through the function that stored it, on what they
+/// held before.
+#[derive(Debug, Clone, Copy)]
+enum KeptMeasure {
+    /// [`TaffyBridge::cache_store`] of a `RunMode::ComputeSize` answer.
+    Stored {
+        node_idx: usize,
+        input: LayoutInput,
+        output: LayoutOutput,
+    },
+    /// A pure content measure (`LayoutNodeWarm::measured_content_sizes`), at
+    /// min-content or at max-content.
+    Pure {
+        node_idx: usize,
+        min_content: bool,
+        output: LayoutOutput,
+    },
+    /// [`TaffyBridge::keep_width_only_answer`].
+    WidthOnly {
+        node_idx: usize,
+        input: LayoutInput,
+        width: f32,
+    },
+}
+
+/// What one node held before a journaled measure.
+struct JournaledNode {
+    index: usize,
+    hot: crate::solver3::layout_tree::LayoutNodeHot,
+    warm: crate::solver3::layout_tree::LayoutNodeWarm,
+    cold: Option<crate::solver3::layout_tree::LayoutNodeCold>,
+    cache: Option<crate::solver3::cache::NodeCache>,
+}
+
+/// A3-solver-17c: what the subtree of a block or inline box held before a
+/// MEASURE of it was computed, to be put back when the measure is done.
+///
+/// A measure of such a box lays its content out at the measure's constraints
+/// (`compute_non_flex_layout`): the lines of its text, the sizes and offsets
+/// of its children, their scrollbars and per-node caches then describe that
+/// question, not the box's last final layout. The final layout taffy's cache
+/// holds was therefore marked stale by every computed measure
+/// (`NodeCache::final_layout_current`) and computed again - a second layout of
+/// the subtree for every question a warm pass had to compute.
+///
+/// With the journal a measure leaves the subtree as it found it: every node
+/// of it is copied before (hot, warm and cold data, its `NodeCache`), moved
+/// back after, and the final layout stays current. Only the OUTERMOST measure
+/// of a pass keeps a journal (`TaffyPassMemo::measure_journal`): what is
+/// computed inside it - by this bridge or one made below it - is put back
+/// with the rest. The measurements the nodes below answered meanwhile are
+/// answers, not layout: they are stored again afterwards ([`KeptMeasure`]),
+/// and the lines a measure flowed at the min- or max-content width stay in
+/// their node ([`keep_inline_answers`]).
+///
+/// Opened only for a box whose final layout is current (a first layout pays
+/// nothing), and for a subtree of at most [`JOURNALED_NODES_AT_MOST`] boxes.
+/// `AZ_NO_TAFFY_MEASURE_JOURNAL` in the environment turns it off: every
+/// computed measure then marks the final layout stale, as before.
+struct MeasureJournal {
+    nodes: Vec<JournaledNode>,
+    /// `TaffyPassMemo::unrestored_writes` when the journal was opened.
+    writes: u64,
+}
+
+/// Keeps on `restored` - a node as it was before a journaled measure
+/// ([`MeasureJournal`]) - what the measure answered about the node's text,
+/// from `measured`, the node as the measure left it.
+///
+/// A measure of an inline formatting context at the min- or the max-content
+/// width flows its text and keeps the lines in a slot of their own, beside the
+/// final layout (`LayoutNodeWarm::inline_measure_layouts`): the next measure
+/// at that width flows nothing. Like a stored taffy answer ([`KeptMeasure`])
+/// that slot is an answer, not layout - but it sits in the node, and the
+/// journal put the node back as it was: the slot was gone, and every later
+/// measure of the node flowed its text again (a label measured twice and laid
+/// out at a new width flowed three times,
+/// `a_hovered_label_flows_its_text_once_however_often_it_is_measured`).
+///
+/// Kept: a slot the measure filled, when its lines are of the content the
+/// node's final layout is of (or the node holds no final layout) and the node
+/// holds no measure of that content at that width already - its own stays.
+/// The slots of other content go, as where a layout is stored
+/// (`InlineMeasureLayouts::retain_content`). And the collection of the inline
+/// content, when the node held none: it names what it is valid for itself
+/// (`CachedInlineContent`).
+///
+/// The same for a measure at a DEFINITE width - "how tall at this width?",
+/// what a flex container asks of an item before it lays it out. Its lines
+/// took the place of the node's final layout (a layout at a definite width
+/// is the final one to `layout_ifc`), and the journal put the old final
+/// layout back: the measure's lines were gone, the container's next question
+/// at that width flowed the text again, and so did the final layout it then
+/// gave the item at that width - a hover that narrows a label by 12 px
+/// flowed it three times for one. They are kept in the slot of their own
+/// (`InlineMeasureLayouts::definite`), where `layout_ifc` finds them for a
+/// visit at their width and makes them the final layout. Not kept when the
+/// node's final layout answers that width itself (the measure found it).
+fn keep_inline_answers(
+    restored: &mut crate::solver3::layout_tree::LayoutNodeWarm,
+    measured: crate::solver3::layout_tree::LayoutNodeWarm,
+) {
+    use crate::solver3::layout_tree::InlineMeasureLayouts;
+
+    if restored.inline_content_cache.is_none() {
+        restored.inline_content_cache = measured.inline_content_cache;
+    }
+    // The content the node's layouts are of: its final layout's.
+    let content = restored
+        .inline_layout_result
+        .as_deref()
+        .map(|laid_out| laid_out.inline_content_hash);
+    // The lines the measure kept at the min- and at the max-content width.
+    // (What it holds in the slot of a definite width is the node's own, from
+    // before: the node has it.)
+    if let Some(measures) = measured.inline_measure_layouts {
+        let InlineMeasureLayouts {
+            min_content,
+            max_content,
+            definite: _,
+        } = *measures;
+        for layout in [min_content, max_content].into_iter().flatten() {
+            let hash = layout.inline_content_hash;
+            if content.is_some_and(|of_final| of_final != hash) {
+                continue;
+            }
+            let kept = restored
+                .inline_measure_layouts
+                .get_or_insert_with(Box::default);
+            let held = kept
+                .get(layout.available_width)
+                .is_some_and(|own| own.inline_content_hash == hash);
+            if !held {
+                kept.retain_content(hash);
+                kept.keep(layout);
+            }
+        }
+    }
+    // The lines the measure left as the node's layout, at a definite width.
+    if let Some(lines) = measured.inline_layout_result {
+        let hash = lines.inline_content_hash;
+        let at = lines.available_width;
+        let floats = lines.has_floats;
+        let answers = |held: &crate::solver3::layout_tree::CachedInlineLayout| {
+            held.inline_content_hash == hash && held.is_valid_for(at, floats)
+        };
+        let definite = matches!(at, crate::text3::cache::AvailableSpace::Definite(_));
+        let of_this_content = content.is_none_or(|of_final| of_final == hash);
+        let final_answers = restored.inline_layout_result.as_deref().is_some_and(answers);
+        if definite && of_this_content && !final_answers {
+            let kept = restored
+                .inline_measure_layouts
+                .get_or_insert_with(Box::default);
+            if !kept.definite.as_ref().is_some_and(answers) {
+                kept.retain_content(hash);
+                kept.definite = Some(*lines);
+            }
+        }
+    }
+    if restored
+        .inline_measure_layouts
+        .as_deref()
+        .is_some_and(InlineMeasureLayouts::is_empty)
+    {
+        restored.inline_measure_layouts = None;
+    }
+}
+
+/// The largest subtree a [`MeasureJournal`] copies. A measure lays the whole
+/// subtree out, so the copy is the smaller part of it - unless the layout is
+/// served from the per-node caches of a very large subtree, which this bounds.
+const JOURNALED_NODES_AT_MOST: usize = 2048;
+
+/// Whether measures are journaled ([`MeasureJournal`]): unless
+/// `AZ_NO_TAFFY_MEASURE_JOURNAL` is set.
+fn measure_journal_on() -> bool {
+    !env_flag!("AZ_NO_TAFFY_MEASURE_JOURNAL")
+}
+
+/// How many measures were journaled on this thread ([`MeasureJournal`]), and
+/// how many layouts of a box were computed in `RunMode::PerformLayout` by a
+/// bridge (`TaffyBridge::compute_child_layout`: a final layout served from
+/// taffy's cache is not one).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MEASURES_JOURNALED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static FINAL_LAYOUTS_COMPUTED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+impl core::fmt::Debug for TaffyPassMemo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Not the styles themselves: a context printed for a log would carry
+        // several hundred bytes of text per node.
+        f.debug_struct("TaffyPassMemo")
+            .field("dom_nodes", &self.dom_styles.len())
+            .field(
+                "styles",
+                &self.dom_styles.iter().filter(|c| c.get().is_some()).count(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+/// How many bridges were made on this thread, and how many bytes one cell of
+/// their style memos takes (`audit_tests::a3_solver`: a bridge costs a pointer
+/// per node of the document, not a `Style` per node).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BRIDGES_MADE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static STYLE_CELL_BYTES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many width-only runs of a flex row were computed on this thread
+/// (`TaffyBridge::compute_child_layout`: the row algorithm run over the row's
+/// items to answer how wide the row is; an answer found again is not a run).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static WIDTH_ONLY_ROW_RUNS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many DOM node styles were converted for taffy on this thread
+/// (`TaffyBridge::translate_style_to_taffy`), and how many cells of the style
+/// memos were made (`audit_tests::a3_solver`: once per node and pass, however
+/// many bridges the pass makes).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STYLE_CONVERSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static STYLE_CELLS_MADE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
@@ -699,31 +1009,50 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         tree: &'a mut LayoutTree,
         text_cache: *mut crate::font_traits::TextLayoutCache,
     ) -> Self {
+        #[cfg(test)]
+        BRIDGES_MADE.with(|n| n.set(n.get() + 1));
+        // The pass's style memo gets its cells from the first bridge: one per
+        // node of the styled DOM, which every later bridge of the pass finds
+        // again (a context holds one styled DOM for its whole life, so the
+        // lengths differ only while the memo is still empty). No `&Style` is
+        // lent here: `ctx` is held mutably.
+        let dom_nodes = ctx.styled_dom.node_data.len();
+        let memo = &mut ctx.pass_memo.taffy;
+        if memo.dom_styles.len() != dom_nodes {
+            #[cfg(test)]
+            STYLE_CELLS_MADE.with(|n| n.set(n.get() + dom_nodes));
+            memo.dom_styles = core::iter::repeat_with(std::cell::OnceCell::new)
+                .take(dom_nodes)
+                .collect();
+            memo.root_styles = std::cell::OnceCell::new();
+        }
         Self {
             ctx,
             tree,
             text_cache,
-            calc_storage: std::cell::RefCell::new(Vec::new()),
-            style_memo: std::cell::RefCell::new(HashMap::new()),
+            default_style: Style::DEFAULT,
+            width_only_rows: Vec::new(),
+            width_only_fresh: std::collections::HashSet::new(),
         }
     }
 
-    /// Cache-backed wrapper for `translate_style_to_taffy`. Returns a
-    /// clone of the memoised `Style` on cache hit, builds + inserts on
-    /// miss. Keyed by DOM node index (not tree index) because the
-    /// result depends only on the styled DOM, not on the transient
-    /// layout tree.
-    fn translate_style_to_taffy_cached(&self, dom_id: Option<NodeId>) -> Style {
+    /// Cache-backed wrapper for `translate_style_to_taffy`: built on the
+    /// first ask of the pass (`TaffyPassMemo::dom_styles`), lent after.
+    /// Indexed by DOM node (not tree index) because the result depends only
+    /// on the styled DOM, not on the transient layout tree.
+    fn translate_style_to_taffy_cached(&self, dom_id: Option<NodeId>) -> &Style {
         let Some(id) = dom_id else {
-            return Style::default();
+            return &self.default_style;
         };
-        let key = id.index();
-        if let Some(style) = self.style_memo.borrow().get(&key) {
-            return style.clone();
+        match self.ctx.pass_memo.taffy.dom_styles.get(id.index()) {
+            Some(cell) => {
+                #[cfg(test)]
+                STYLE_CELL_BYTES.with(|n| n.set(core::mem::size_of_val(cell)));
+                &**cell.get_or_init(|| Box::new(self.translate_style_to_taffy(dom_id)))
+            }
+            // A node the styled DOM does not have: nothing to memoise.
+            None => &self.default_style,
         }
-        let style = self.translate_style_to_taffy(dom_id);
-        self.style_memo.borrow_mut().insert(key, style.clone());
-        style
     }
 
     /// Translates CSS properties from the `StyledDom` into a `taffy::Style` struct.
@@ -735,6 +1064,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let Some(id) = dom_id else {
             return Style::default();
         };
+        #[cfg(test)]
+        STYLE_CONVERSIONS.with(|n| n.set(n.get() + 1));
         let styled_dom = &self.ctx.styled_dom;
         let node_data = &styled_dom.node_data.as_ref()[id.index()];
         let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
@@ -756,12 +1087,26 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.position =
             from_layout_position(get_position(styled_dom, id, node_state).unwrap_or_default());
 
-        // Inset (top, left, bottom, right)
-        taffy_style.inset = Rect {
-            left: multi_value_to_lpa(get_css_left(styled_dom, id, node_state)),
-            right: multi_value_to_lpa(get_css_right(styled_dom, id, node_state)),
-            top: multi_value_to_lpa(get_css_top(styled_dom, id, node_state)),
-            bottom: multi_value_to_lpa(get_css_bottom(styled_dom, id, node_state)),
+        // Inset (top, left, bottom, right) - for a box taffy POSITIONS (an
+        // absolutely positioned child of a flex or grid container). A
+        // relatively positioned (or sticky) item is shifted where it is
+        // painted by `positioning::adjust_relative_positions`, the one pass
+        // that shifts every kind of box: handed to taffy as well, a flex item
+        // with `top: 10px` moved 20 px.
+        taffy_style.inset = if taffy_style.position == Position::Absolute {
+            Rect {
+                left: multi_value_to_lpa(get_css_left(styled_dom, id, node_state)),
+                right: multi_value_to_lpa(get_css_right(styled_dom, id, node_state)),
+                top: multi_value_to_lpa(get_css_top(styled_dom, id, node_state)),
+                bottom: multi_value_to_lpa(get_css_bottom(styled_dom, id, node_state)),
+            }
+        } else {
+            Rect {
+                left: LengthPercentageAuto::auto(),
+                right: LengthPercentageAuto::auto(),
+                top: LengthPercentageAuto::auto(),
+                bottom: LengthPercentageAuto::auto(),
+            }
         };
 
         // Size
@@ -778,13 +1123,13 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
         let taffy_width = from_layout_width(
             width.unwrap_or_default(),
-            &self.calc_storage,
+            &self.ctx.pass_memo.taffy.calc_storage,
             em_size,
             rem_size,
         );
         let taffy_height = from_layout_height(
             height.unwrap_or_default(),
-            &self.calc_storage,
+            &self.ctx.pass_memo.taffy.calc_storage,
             em_size,
             rem_size,
         );
@@ -839,11 +1184,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.min_size = Size {
             width: match min_width_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => Dimension::auto(),
-                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+                MultiValue::Exact(v) => pixel_to_lp_ctx(v.inner, em_size, rem_size).into(),
             },
             height: match min_height_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => Dimension::auto(),
-                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+                MultiValue::Exact(v) => pixel_to_lp_ctx(v.inner, em_size, rem_size).into(),
             },
         };
 
@@ -856,11 +1201,11 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style.max_size = Size {
             width: match max_width_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => Dimension::auto(),
-                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+                MultiValue::Exact(v) => pixel_to_lp_ctx(v.inner, em_size, rem_size).into(),
             },
             height: match max_height_css {
                 MultiValue::Auto | MultiValue::Initial | MultiValue::Inherit => Dimension::auto(),
-                MultiValue::Exact(v) => pixel_to_lp(v.inner).into(),
+                MultiValue::Exact(v) => pixel_to_lp_ctx(v.inner, em_size, rem_size).into(),
             },
         };
 
@@ -903,65 +1248,96 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             ),
         };
 
+        // The USED widths (`getters::used_border_width` via `get_border_info`):
+        // 0 for a side whose style is none, `medium` for a style without a
+        // width - the same box the block layout and the painter see. The
+        // declared widths alone gave a flex item a border its painter did
+        // not draw (a width without a style) or none it did (a style alone).
+        let used_border = crate::solver3::getters::get_border_info(styled_dom, id, node_state);
+        let used = |w: Option<PixelValue>| w.map_or(MultiValue::Auto, MultiValue::Exact);
         taffy_style.border = Rect {
             left: multi_value_to_lp_ctx(
-                get_css_border_left_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .left
+                        .and_then(CssPropertyValue::get_property_owned)
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             right: multi_value_to_lp_ctx(
-                get_css_border_right_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .right
+                        .and_then(CssPropertyValue::get_property_owned)
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             top: multi_value_to_lp_ctx(
-                get_css_border_top_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .top
+                        .and_then(CssPropertyValue::get_property_owned)
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
             bottom: multi_value_to_lp_ctx(
-                get_css_border_bottom_width(styled_dom, id, node_state),
+                used(
+                    used_border
+                        .widths
+                        .bottom
+                        .and_then(CssPropertyValue::get_property_owned)
+                        .map(|w| w.inner),
+                ),
                 em_size,
                 rem_size,
             ),
         };
 
-        // Grid & gap properties — COMPACT FAST PATH: row_gap/column_gap are
-        // i16 px × 10 in tier2_dims. The slow-path lookup would walk the
-        // cascade for every node even though the answer is already encoded.
+        // Gaps. COMPACT FAST PATH: row_gap / column_gap are px slots (thousandths) in tier2_dims, which
+        // spares a cascade walk per node. A gap the compact cache could not keep (em, rem, a
+        // percentage: the sentinel) and every gap without a compact cache come from the
+        // cascade, the longhand first, then `gap`, resolved with the node's font sizes.
+        let gap_from_cascade = |longhand: CssPropertyType| -> LengthPercentage {
+            let get = |ty: &CssPropertyType| cache.get_property(node_data, &id, node_state, ty);
+            let gap = match get(&longhand) {
+                Some(CssProperty::RowGap(v)) => v.get_property().map(|g| g.inner),
+                Some(CssProperty::ColumnGap(v)) => v.get_property().map(|g| g.inner),
+                _ => None,
+            }
+            .or_else(|| match get(&CssPropertyType::Gap) {
+                Some(CssProperty::Gap(v)) => v.get_property().map(|g| g.inner),
+                _ => None,
+            });
+            gap.map_or(LengthPercentage::ZERO, |pv| {
+                pixel_to_lp_ctx(pv, em_size, rem_size)
+            })
+        };
         taffy_style.gap = cache.compact_cache.as_ref().map_or_else(
-            || {
-                cache
-                    .get_property(node_data, &id, node_state, &CssPropertyType::Gap)
-                    .and_then(|p| {
-                        if let CssProperty::Gap(v) = p {
-                            Some(v)
-                        } else {
-                            None
-                        }
-                    })
-                    .map_or_else(Size::zero, |v| {
-                        let val = v.get_property_or_default().unwrap_or_default().inner;
-                        let gap_lp = pixel_to_lp(val);
-                        Size {
-                            width: gap_lp,
-                            height: gap_lp,
-                        }
-                    })
+            || Size {
+                width: gap_from_cascade(CssPropertyType::ColumnGap),
+                height: gap_from_cascade(CssPropertyType::RowGap),
             },
             |cc| {
                 let row = cc.tier2_dims[id.index()].row_gap;
                 let col = cc.tier2_dims[id.index()].column_gap;
-                let decode = |raw: i16| -> LengthPercentage {
-                    if raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                        LengthPercentage::length(0.0)
-                    } else {
-                        LengthPercentage::length(f32::from(raw) / 10.0)
-                    }
+                let decode = |raw: azul_css::compact_cache::PxSlot,
+                              longhand: CssPropertyType|
+                 -> LengthPercentage {
+                    azul_css::compact_cache::decode_px_slot(raw)
+                        .map_or_else(|| gap_from_cascade(longhand), LengthPercentage::length)
                 };
                 Size {
-                    width: decode(col),
-                    height: decode(row),
+                    width: decode(col, CssPropertyType::ColumnGap),
+                    height: decode(row, CssPropertyType::RowGap),
                 }
             },
         );
@@ -1289,7 +1665,10 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     .get_property(node_data, &id, node_state, &CssPropertyType::FlexGrow)
                     .and_then(|p| {
                         if let CssProperty::FlexGrow(v) = p {
-                            Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                            // (as the slot gives it at rest: hundredths)
+                            Some(azul_css::compact_cache::flex_as_its_slot_reads_it(
+                                v.get_property_or_default().unwrap_or_default().inner.get(),
+                            ))
                         } else {
                             None
                         }
@@ -1313,7 +1692,9 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                     .get_property(node_data, &id, node_state, &CssPropertyType::FlexShrink)
                     .and_then(|p| {
                         if let CssProperty::FlexShrink(v) = p {
-                            Some(v.get_property_or_default().unwrap_or_default().inner.get())
+                            Some(azul_css::compact_cache::flex_as_its_slot_reads_it(
+                                v.get_property_or_default().unwrap_or_default().inner.get(),
+                            ))
                         } else {
                             None
                         }
@@ -1432,56 +1813,85 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style
     }
 
-    /// Gets or computes the Taffy style for a given node index.
-    fn get_taffy_style(&self, node_idx: usize) -> Style {
-        let dom_id = self
-            .tree
-            .get(LayoutNodeId::new(node_idx))
-            .and_then(|n| n.dom_node_id);
-        let mut style = self.translate_style_to_taffy_cached(dom_id);
-
-        // CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
-        //
-        // The root element's margin is already resolved and subtracted from
-        // available_size by calculate_used_size_for_node() (sizing.rs). The
-        // resulting margin-adjusted size is passed to Taffy as known_dimensions.
-        //
-        // Taffy's layout algorithm reads margin from the style and subtracts it
-        // from known_dimensions internally. If we also pass the margin through
-        // the style, it gets subtracted twice:
-        //   1. calculate_used_size_for_node: viewport - margin → available_size
-        //   2. Taffy: known_dimensions - style.margin → content_area
-        //
-        // Zeroing the style margin for root nodes prevents this double-subtraction.
-        // This is NOT a hack — it's the correct integration point between Azul's
-        // BFC-level sizing and Taffy's Flex/Grid algorithm.
-        let is_root = self
-            .tree
-            .get(LayoutNodeId::new(node_idx))
-            .is_some_and(|n| n.parent.is_none());
-        if is_root {
-            style.margin = Rect::zero();
+    /// The Taffy style of a layout node: its DOM node's
+    /// ([`Self::translate_style_to_taffy_cached`]), and for a box without a
+    /// parent that style with the margin zeroed ([`Self::root_style`]).
+    ///
+    /// Both are kept by DOM node for the whole pass (`TaffyPassMemo`), so no
+    /// bridge builds a style of its own. A bridge used to clone each node's
+    /// style into a memo per LAYOUT box (a cell per box of the whole tree,
+    /// made and dropped with every bridge) to adjust two things in the clone:
+    /// the root's margin, and the cross size of a stretched flex item, which
+    /// it set to `auto` - only where `should_suppress_cross_intrinsic` had
+    /// found it `auto` already. That second adjustment never changed a style
+    /// (asserted below), which leaves the root's margin.
+    fn get_taffy_style(&self, node_idx: usize) -> &Style {
+        let Some(node) = self.tree.get(LayoutNodeId::new(node_idx)) else {
+            return &self.default_style;
+        };
+        let style = self.translate_style_to_taffy_cached(node.dom_node_id);
+        debug_assert!(
+            self.cross_suppression_changes_nothing(node_idx, style),
+            "a stretched item's cross size is suppressed only where it is `auto` already"
+        );
+        if node.parent.is_none() {
+            return self.root_style(node.dom_node_id, style);
         }
-
-        // FIX: Apply cross-axis intrinsic size suppression for stretch alignment.
-        // This enables align-self: stretch to work correctly by ensuring Taffy
-        // sees the cross-axis size as Auto (allowing stretch) rather than a definite value.
-        let (suppress_width, suppress_height) =
-            self.should_suppress_cross_intrinsic(node_idx, &style);
-
-        if suppress_width {
-            // Force width to Auto and set min-width to 0 to allow stretching.
-            // Taffy treats Auto size + Stretch alignment as a signal to fill the container.
-            style.size.width = Dimension::auto();
-            style.min_size.width = Dimension::length(0.0);
-        }
-
-        if suppress_height {
-            style.size.height = Dimension::auto();
-            style.min_size.height = Dimension::length(0.0);
-        }
-
         style
+    }
+
+    /// Whether setting the cross sizes [`Self::should_suppress_cross_intrinsic`]
+    /// names to `auto` would leave `style` as it is: it names a cross size
+    /// only where that size is `auto`. What lets [`Self::get_taffy_style`]
+    /// hand the DOM node's style out unchanged.
+    fn cross_suppression_changes_nothing(&self, node_idx: usize, style: &Style) -> bool {
+        let (suppress_width, suppress_height) =
+            self.should_suppress_cross_intrinsic(node_idx, style);
+        (!suppress_width || style.size.width == Dimension::auto())
+            && (!suppress_height || style.size.height == Dimension::auto())
+    }
+
+    /// `style` - the style of DOM node `dom_id` - as the box at the root of
+    /// the layout tree hands it to taffy: with the margin zeroed, built on
+    /// the first ask of the pass (`TaffyPassMemo::root_styles`), lent after.
+    ///
+    /// CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
+    ///
+    /// The root element's margin is already resolved and subtracted from
+    /// available_size by calculate_used_size_for_node() (sizing.rs). The
+    /// resulting margin-adjusted size is passed to Taffy as known_dimensions.
+    ///
+    /// Taffy's layout algorithm reads margin from the style and subtracts it
+    /// from known_dimensions internally. If we also pass the margin through
+    /// the style, it gets subtracted twice:
+    ///   1. calculate_used_size_for_node: viewport - margin → available_size
+    ///   2. Taffy: known_dimensions - style.margin → content_area
+    ///
+    /// Zeroing the style margin for root nodes prevents this double-subtraction.
+    /// This is NOT a hack — it's the correct integration point between Azul's
+    /// BFC-level sizing and Taffy's Flex/Grid algorithm.
+    fn root_style<'s>(&'s self, dom_id: Option<NodeId>, style: &'s Style) -> &'s Style {
+        // A box without a DOM node has the default style, whose margin is zero.
+        let Some(id) = dom_id else {
+            return style;
+        };
+        let memo = &self.ctx.pass_memo.taffy;
+        let cells = memo.root_styles.get_or_init(|| {
+            #[cfg(test)]
+            STYLE_CELLS_MADE.with(|n| n.set(n.get() + memo.dom_styles.len()));
+            core::iter::repeat_with(std::cell::OnceCell::new)
+                .take(memo.dom_styles.len())
+                .collect()
+        });
+        match cells.get(id.index()) {
+            Some(cell) => &**cell.get_or_init(|| {
+                let mut zeroed = style.clone();
+                zeroed.margin = Rect::zero();
+                Box::new(zeroed)
+            }),
+            // A node the styled DOM does not have: `style` is the default.
+            None => style,
+        }
     }
 
     /// The node's explicit PIXEL `min-height` / `max-height` in BORDER-BOX terms
@@ -1509,6 +1919,52 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .then(|| raw.value() + extra)
         };
         (px(style.min_size.height), px(style.max_size.height))
+    }
+
+    /// The BORDER-BOX width the node's own style fixes: its `width` - a
+    /// length, or a percentage of a known `parent_width` - clamped by its
+    /// `min-width` / `max-width` of the same kinds, content-box sizing adding
+    /// `padding_border_width`. `None` for `auto` and every width that depends
+    /// on the content (min-/max-/fit-content, calc) or on an unknown parent.
+    ///
+    /// taffy's own leaf algorithm resolves exactly this into the known width
+    /// before it measures anything; the bridge's non-flex path must too, or a
+    /// min-content query lays a `width: 140px` box's text out at its longest
+    /// word while answering "140 wide" - and taffy serves that entry for the
+    /// box's real 140 px query
+    /// (`tests/flex_items_keep_the_size_their_container_gave_them.rs`, B).
+    fn own_definite_width(
+        &self,
+        node_idx: usize,
+        parent_width: Option<f32>,
+        padding_border_width: f32,
+    ) -> Option<f32> {
+        let style = self.get_taffy_style(node_idx);
+        let resolve = |d: Dimension| -> Option<f32> {
+            let raw = d.into_raw();
+            let value = raw.value();
+            let resolved = if raw.tag() == CompactLength::LENGTH_TAG {
+                Some(value)
+            } else if raw.tag() == CompactLength::PERCENT_TAG {
+                parent_width.map(|w| w * value)
+            } else {
+                None
+            };
+            resolved.filter(|v| v.is_finite())
+        };
+        let extra = if style.box_sizing == BoxSizing::ContentBox {
+            padding_border_width
+        } else {
+            0.0
+        };
+        let mut width = resolve(style.size.width)? + extra;
+        if let Some(max) = resolve(style.max_size.width) {
+            width = width.min(max + extra);
+        }
+        if let Some(min) = resolve(style.min_size.width) {
+            width = width.max(min + extra);
+        }
+        Some(width.max(padding_border_width))
     }
 
     /// Determines if cross-axis intrinsic size should be suppressed for stretching.
@@ -1598,31 +2054,46 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
     /// Helper to get children that participate in layout (i.e., not `display: none`).
     fn get_layout_children(&self, node_idx: usize) -> Vec<usize> {
-        use crate::solver3::getters::{get_display_property, MultiValue};
-        let Some(node) = self.tree.get(LayoutNodeId::new(node_idx)) else {
+        #[cfg(test)]
+        CHILD_LISTS_BUILT.with(|n| n.set(n.get() + 1));
+        // No children for a node the tree does not have.
+        if self.tree.get(LayoutNodeId::new(node_idx)).is_none() {
             return Vec::new();
-        };
-
+        }
         self.tree
             .children(node_idx)
             .iter()
-            .filter(|&&child_idx| {
-                let Some(child_node) = self.tree.get(LayoutNodeId::new(child_idx)) else {
-                    return false;
-                };
-                let Some(child_dom_id) = child_node.dom_node_id else {
-                    return true;
-                };
-
-                // Check if child has display: none
-                let display = get_display_property(self.ctx.styled_dom, Some(child_dom_id));
-                let is_display_none = matches!(display, MultiValue::Exact(LayoutDisplay::None));
-
-                !is_display_none
-            })
             .copied()
+            .filter(|&child_idx| self.is_layout_child(child_idx))
             .collect()
     }
+
+    /// Whether the layout box `child_idx` is laid out by taffy as a child of
+    /// its parent: every box but one of a `display: none` node.
+    // (CHILD_LISTS_BUILT, below the impl, counts `get_layout_children`.)
+    fn is_layout_child(&self, child_idx: usize) -> bool {
+        use crate::solver3::getters::{get_display_property, MultiValue};
+        let Some(child_node) = self.tree.get(LayoutNodeId::new(child_idx)) else {
+            return false;
+        };
+        let Some(child_dom_id) = child_node.dom_node_id else {
+            return true;
+        };
+
+        // Check if child has display: none
+        let display = get_display_property(self.ctx.styled_dom, Some(child_dom_id));
+        let is_display_none = matches!(display, MultiValue::Exact(LayoutDisplay::None));
+
+        !is_display_none
+    }
+}
+
+/// How many child lists [`TaffyBridge::get_layout_children`] built on this
+/// thread (`audit_tests::a3_solver`: one per run of a container, not one per
+/// child asked for).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CHILD_LISTS_BUILT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// Main entry point for laying out a Flexbox or Grid container using Taffy.
@@ -1729,20 +2200,43 @@ impl<T: ParsedFontTrait> TraversePartialTree for TaffyBridge<'_, '_, T> {
             .into_iter()
     }
 
+    // `child_count` and `get_child_id` count and step through the children
+    // `get_layout_children` lists, without the list: they built it for every
+    // ask, and taffy's final pass asks `get_child_id` for every child of a
+    // container twice (2 n + 4 lists of n per container and run).
     fn child_count(&self, node_id: taffy::NodeId) -> usize {
         let node_idx: usize = node_id.into();
-
-        self.get_layout_children(node_idx).len()
+        if self.tree.get(LayoutNodeId::new(node_idx)).is_none() {
+            return 0;
+        }
+        self.tree
+            .children(node_idx)
+            .iter()
+            .filter(|&&child_idx| self.is_layout_child(child_idx))
+            .count()
     }
 
     fn get_child_id(&self, node_id: taffy::NodeId, index: usize) -> taffy::NodeId {
-        self.get_layout_children(node_id.into())[index].into()
+        let node_idx: usize = node_id.into();
+        let child = if self.tree.get(LayoutNodeId::new(node_idx)).is_some() {
+            self.tree
+                .children(node_idx)
+                .iter()
+                .copied()
+                .filter(|&child_idx| self.is_layout_child(child_idx))
+                .nth(index)
+        } else {
+            None
+        };
+        child
+            .expect("taffy asks for a child below child_count")
+            .into()
     }
 }
 
 impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
     type CoreContainerStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
     type CustomIdent = String;
@@ -1756,6 +2250,8 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 
     fn set_unrounded_layout(&mut self, node_id: taffy::NodeId, layout: &Layout) {
         let node_idx: usize = node_id.into();
+        // A child is placed: a write that stays.
+        self.note_unrestored_write();
 
         // FIX: Retrieve parent border/padding to adjust position.
         // Taffy positions are relative to the parent's Border Box origin.
@@ -1823,8 +2319,9 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 
     fn resolve_calc_value(&self, val: *const (), basis: f32) -> f32 {
         // SAFETY: `val` came from `store_calc_and_make_dimension` which stored
-        // a `Box<CalcResolveContext>` in `self.calc_storage`. The Box is alive for
-        // the lifetime of this TaffyBridge, and taffy only clears the low 3 bits.
+        // a `Box<CalcResolveContext>` in the pass's `TaffyPassMemo::calc_storage`,
+        // beside the style that holds the pointer. The Box is alive as long as
+        // the `LayoutContext` this bridge borrows, and taffy only clears the low 3 bits.
         let ctx = unsafe { &*val.cast::<CalcResolveContext>() };
         crate::solver3::calc::evaluate_calc(ctx, basis)
     }
@@ -1835,6 +2332,25 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
         inputs: LayoutInput,
     ) -> LayoutOutput {
         let node_idx: usize = node_id.into();
+
+        // The block axis has ONE intrinsic size, as in Chrome: a box is as
+        // tall as its content laid out at its width, whether the question is
+        // asked at min-content or at max-content height. taffy asks a
+        // column's items for their min-content height to find how far they
+        // may shrink, and a wrapping column answered with every item in a
+        // column of its own: a page of cards in a scroller was squeezed to
+        // that height instead of scrolling, and every card with it.
+        let inputs = if inputs.available_space.height == AvailableSpace::MinContent {
+            LayoutInput {
+                available_space: Size {
+                    width: inputs.available_space.width,
+                    height: AvailableSpace::MaxContent,
+                },
+                ..inputs
+            }
+        } else {
+            inputs
+        };
 
         // DEBUG: Log the style being used for this child
         if self.ctx.debug_messages.is_some() {
@@ -1859,6 +2375,118 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             .get(LayoutNodeId::new(node_idx))
             .map(|s| s.formatting_context)
             .unwrap_or_default();
+
+        // A WIDTH-ONLY measure of a flex ROW (a parent asking for its
+        // min-/max-content width, or its width at a known height): taffy runs
+        // the whole row algorithm, and every item is laid out to find the
+        // height the line would have - which the width does not depend on. The
+        // items' height measures are stubbed while the row answers, and the
+        // answer is not cached (taffy's cache key ignores the axis). AzContacts'
+        // split panes were laid out at widths 0, 49, 79, 190 for these
+        // questions, every name in the list with them (2026-10-06).
+        //
+        // That includes the BASELINE layouts: in a row with `align-items:
+        // baseline` taffy lays every baseline item out - `RunMode::PerformLayout`,
+        // even inside a measure - to read its first baseline, at the item's
+        // target width and the stubbed height 0. Those wrote the item's final
+        // layout (its text, its used size, its memo, flagged current) at the
+        // measure's width; once the row's own final layout was served from
+        // taffy's cache, nothing laid the items out again: AzCtl's facts rows
+        // beside the one a poll changed kept a 0 px high label and an ungrown
+        // value (tests/a_facts_row_in_a_card_keeps_its_words.rs).
+        let item_of_width_only_row = self.width_only_rows.last().is_some_and(|&row| {
+            self.tree.get(LayoutNodeId::new(node_idx)).and_then(|n| n.parent) == Some(row)
+        });
+        if item_of_width_only_row
+            && (inputs.run_mode == RunMode::PerformLayout
+                || inputs.axis == taffy::RequestedAxis::Vertical)
+        {
+            drop(crate::probe::Probe::span("taffy_width_only_row_item"));
+            return LayoutOutput::from_outer_size(Size {
+                width: inputs.known_dimensions.width.unwrap_or(0.0),
+                height: inputs.known_dimensions.height.unwrap_or(0.0),
+            });
+        }
+        if inputs.run_mode == RunMode::ComputeSize
+            && inputs.axis == taffy::RequestedAxis::Horizontal
+            && fc == FormattingContext::Flex
+            && inputs.known_dimensions.width.is_none()
+            && matches!(
+                self.get_taffy_style(node_idx).flex_direction,
+                FlexDirection::Row | FlexDirection::RowReverse
+            )
+        {
+            // Asked before: the answer, and nothing in the subtree is touched
+            // - the row's last final layout still describes it.
+            if let Some(width) = self.width_only_answer_kept(node_idx, &inputs) {
+                drop(crate::probe::Probe::span("taffy_width_only_row_hit"));
+                return LayoutOutput::from_outer_size(Size { width, height: 0.0 });
+            }
+            drop(crate::probe::Probe::span("taffy_width_only_row"));
+            #[cfg(test)]
+            WIDTH_ONLY_ROW_RUNS.with(|n| n.set(n.get() + 1));
+            self.width_only_rows.push(node_idx);
+            let was_current = self.final_layout_current(node_idx);
+            let writes_before = self.unrestored_writes();
+            let output = compute_flexbox_layout(self, node_id, inputs);
+            self.width_only_rows.pop();
+            // This bypasses `compute_cached_layout`, which marks what it
+            // computes stale; the row's items still answered their width
+            // questions in it (an item's min-content measure lays its text out
+            // at that width), so the row's last final layout no longer
+            // describes its subtree and the next one runs again - unless every
+            // one of those answers was found or taken back
+            // (`MeasureJournal`): then the row holds what it held.
+            let untouched = was_current
+                && measure_journal_on()
+                && self.unrestored_writes() == writes_before;
+            self.set_final_layout_current(node_idx, untouched);
+            self.keep_width_only_answer(node_idx, &inputs, output.size.width);
+            return LayoutOutput::from_outer_size(Size {
+                width: output.size.width,
+                height: 0.0,
+            });
+        }
+
+        // A WIDTH-ONLY measure of a block-level item (taffy's
+        // `measure_child_size` for a flex basis or a min-content contribution
+        // reads nothing but the width): answered from the intrinsic widths the
+        // sizing pass computed, which is what the full layout below returns
+        // for it anyway. That layout - the whole subtree, every paragraph
+        // shaped and broken at the probe's width - only produced a height
+        // nobody read: AzContacts' list was laid out at every probe of its
+        // split pane, 47 visits per paragraph (2026-10-06). NOT stored in
+        // taffy's cache: its key ignores the axis, and a both-axes query must
+        // not be served a width-only answer.
+        if inputs.run_mode == RunMode::ComputeSize
+            && inputs.axis == taffy::RequestedAxis::Horizontal
+            && !matches!(fc, FormattingContext::Flex | FormattingContext::Grid)
+        {
+            if let Some(width) = self.width_only_answer(node_idx, &inputs) {
+                drop(crate::probe::Probe::span("taffy_width_only_answer"));
+                return LayoutOutput::from_outer_size(Size { width, height: 0.0 });
+            }
+        }
+
+        // A WIDTH-ONLY measure of a flex COLUMN (a row returned above) whose
+        // width does not follow the height it is given
+        // (`cache::answers_its_width_alike_at_every_given_height`): kept like
+        // a row's (`TaffyWidthOnlyAnswers`) and found again at any height. A
+        // ribbon group's flex basis is asked with the height the ribbon
+        // stretches it to as a known height, a new one on every frame of the
+        // ribbon opening: taffy's cache, keyed by it, missed each time and the
+        // column ran its algorithm over its items again.
+        let free_column_width_query = inputs.run_mode == RunMode::ComputeSize
+            && inputs.axis == taffy::RequestedAxis::Horizontal
+            && fc == FormattingContext::Flex
+            && inputs.known_dimensions.width.is_none()
+            && self.answers_its_width_alike_at_every_given_height(node_idx);
+        if free_column_width_query {
+            if let Some(width) = self.width_only_answer_kept(node_idx, &inputs) {
+                drop(crate::probe::Probe::span("taffy_width_only_column_hit"));
+                return LayoutOutput::from_outer_size(Size { width, height: 0.0 });
+            }
+        }
 
         // PURE CONTENT MEASURE cache (min-/max-content, no known dimensions).
         // These answers are viewport-independent, but taffy's own cache
@@ -1902,7 +2530,44 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             drop(crate::probe::Probe::span("taffy_pure_measure_miss"));
         }
 
-        let mut result = compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
+        // A WIDTH-ONLY measure of a flex COLUMN (a flex row's basis for it, a
+        // min-/max-content contribution) stays out of taffy's cache. taffy
+        // lays a column's items out at the column's content width BEFORE it
+        // caps the column by its max-width, so the height of this answer
+        // belongs to a width the column never has. Cached as (capped width,
+        // that height), it would answer the next question - the height at
+        // the capped width - because taffy's cache matches a known width
+        // against a stored result's width: a modal's panel would stay a
+        // wrapped line short, its button row hanging out of it. Its width is
+        // right, and the pure-measure cache above keys by the width question
+        // only.
+        //
+        // Only a column its own min-/max-width can clamp: every other column
+        // is laid out at the width it ends up with, so its answer is safe to
+        // cache. Measuring every column uncached laid out every card of a
+        // settings page again on each frame of an animation beside them.
+        let width_only_column = inputs.run_mode == RunMode::ComputeSize
+            && inputs.axis == taffy::RequestedAxis::Horizontal
+            && fc == FormattingContext::Flex
+            && inputs.known_dimensions.width.is_none()
+            && width_can_be_clamped(self.get_taffy_style(node_idx));
+        let mut result = if width_only_column {
+            drop(crate::probe::Probe::span("taffy_width_only_column"));
+            // What `compute_cached_layout` would mark: the measure rewrote
+            // the subtree, its last final layout no longer describes it -
+            // unless every answer of its items was found or taken back
+            // (`MeasureJournal`).
+            let was_current = self.final_layout_current(node_idx);
+            let writes_before = self.unrestored_writes();
+            self.set_final_layout_current(node_idx, false);
+            let output = compute_flexbox_layout(self, node_id, inputs);
+            if was_current && measure_journal_on() && self.unrestored_writes() == writes_before
+            {
+                self.set_final_layout_current(node_idx, true);
+            }
+            output
+        } else {
+            compute_cached_layout(self, node_id, inputs, |tree, node_id, inputs| {
             let node_idx: usize = node_id.into();
             let fc = tree
                 .tree
@@ -1910,14 +2575,62 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                 .map(|s| s.formatting_context)
                 .unwrap_or_default();
 
-            match fc {
+            // Whatever this computes - a measure or the final layout - it
+            // rewrites the subtree's state (children's used sizes and
+            // offsets, inline layout, scrollbars) for THESE inputs, so the
+            // memoised final layout no longer describes it until a final
+            // computation has run again (`NodeCache::final_layout_current`).
+            //
+            // A MEASURE need not leave that behind (A3-solver-17c). Of a block
+            // or inline box it is journaled: the subtree is copied before and
+            // put back after (`MeasureJournal`), flag included. Of a flex or
+            // grid container it writes nothing itself - its items' answers do
+            // - so the container holds what it held when none of them left a
+            // write (`TaffyPassMemo::unrestored_writes`).
+            let is_measure = inputs.run_mode == RunMode::ComputeSize;
+            let container = matches!(fc, FormattingContext::Flex | FormattingContext::Grid);
+            let journal = if is_measure && !container {
+                tree.begin_measure_journal(node_idx)
+            } else {
+                None
+            };
+            let was_current = tree.final_layout_current(node_idx);
+            let writes_before = tree.unrestored_writes();
+            tree.set_final_layout_current(node_idx, false);
+            let output = match fc {
                 FormattingContext::Flex => compute_flexbox_layout(tree, node_id, inputs),
                 FormattingContext::Grid => compute_grid_layout(tree, node_id, inputs),
                 // For Block, Inline, Table, InlineBlock - delegate to layout_formatting_context
                 // This ensures proper recursive layout of all formatting contexts
-                _ => tree.compute_non_flex_layout(node_idx, inputs),
+                _ => tree.compute_non_flex_layout_inside_its_gutter(node_idx, inputs),
+            };
+            if !is_measure {
+                // A final layout: its writes are the subtree's state.
+                tree.note_unrestored_write();
+                #[cfg(test)]
+                FINAL_LAYOUTS_COMPUTED.with(|n| n.set(n.get() + 1));
+                if inputs.run_mode == RunMode::PerformLayout {
+                    tree.set_final_layout_current(node_idx, true);
+                }
+            } else if let Some(journal) = journal {
+                // Put back, with the flag the node had: current.
+                tree.end_measure_journal(journal);
+            } else if container {
+                if was_current
+                    && measure_journal_on()
+                    && tree.unrestored_writes() == writes_before
+                {
+                    tree.set_final_layout_current(node_idx, true);
+                }
+            } else {
+                // A measure of a block or inline box that is not journaled
+                // (its final layout was not current, it is computed inside a
+                // journaled one, or the journal is off): what it wrote stays.
+                tree.note_unrestored_write();
             }
-        });
+            output
+            })
+        };
 
         // Populate the pure-measure cache from the result we just computed.
         if let Some(slot) = pure_measure_slot {
@@ -1927,12 +2640,33 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
                     _ => warm.measured_content_sizes.1 = Some(result),
                 }
             }
+            if let Some(kept) = self.ctx.pass_memo.taffy.measure_journal.as_mut() {
+                kept.push(KeptMeasure::Pure {
+                    node_idx,
+                    min_content: slot == 0,
+                    output: result,
+                });
+            }
+        }
+        if free_column_width_query {
+            self.keep_width_only_answer(node_idx, &inputs, result.size.width);
         }
 
-        // Store layout for container nodes - Taffy only calls set_unrounded_layout for leaf nodes
-        if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
-            let size = translate_taffy_size_back(result.size);
-            node.used_size = Some(size);
+        // Store the FINAL layout's size on the node. Only a final layout
+        // (`RunMode::PerformLayout`) may write it: a MEASURE answers a
+        // question ("how tall at this width?", "how wide at min-content?")
+        // and must leave the node as the last final layout left it. Writing
+        // every answer here - cache hits included - let a block parent's
+        // second measure of a flex row overwrite a stretched item with its
+        // measured size; the item's column then served its own final layout
+        // from taffy's cache, so the item's final layout never ran again and
+        // a 260 px capacity bar stayed 2 px wide
+        // (tests/flex_items_keep_the_size_their_container_gave_them.rs, A).
+        if inputs.run_mode == RunMode::PerformLayout {
+            if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                let size = translate_taffy_size_back(result.size);
+                node.used_size = Some(size);
+            }
         }
 
         // CRITICAL FIX: For Flex/Grid children with overflow:auto/scroll,
@@ -1952,6 +2686,14 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
             // scrollbar_info computed from zero content would be wrong anyway.
             if taffy_content_width <= 0.0 && taffy_content_height <= 0.0 {
                 return result;
+            }
+            // A measure of a flex or grid container carries no content size
+            // (taffy answers `LayoutOutput::from_outer_size`), so this is a
+            // final layout. Should a measure ever get here, what it writes
+            // below is not the final layout's: say so.
+            if inputs.run_mode == RunMode::ComputeSize {
+                self.note_unrestored_write();
+                self.set_final_layout_current(node_idx, false);
             }
 
             let (scrollbar_info, eff_content_w, eff_content_h) = compute_taffy_scrollbar_info(
@@ -1980,6 +2722,339 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 }
 
 impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
+    /// Does the subtree of `node_idx` still hold what its last final layout
+    /// wrote? See `NodeCache::final_layout_current`. `false` for a node the
+    /// per-node cache does not cover (a context without one): its final
+    /// layout is then always computed.
+    fn final_layout_current(&self, node_idx: usize) -> bool {
+        self.ctx
+            .cache_map
+            .entries
+            .get(node_idx)
+            .is_some_and(|c| c.final_layout_current)
+    }
+
+    fn set_final_layout_current(&mut self, node_idx: usize, current: bool) {
+        if let Some(c) = self.ctx.cache_map.entries.get_mut(node_idx) {
+            c.final_layout_current = current;
+        }
+    }
+
+    /// `TaffyPassMemo::unrestored_writes`.
+    fn unrestored_writes(&self) -> u64 {
+        self.ctx.pass_memo.taffy.unrestored_writes
+    }
+
+    /// A computation wrote into the tree and leaves what it wrote.
+    fn note_unrestored_write(&mut self) {
+        let memo = &mut self.ctx.pass_memo.taffy;
+        memo.unrestored_writes = memo.unrestored_writes.wrapping_add(1);
+    }
+
+    /// Opens a [`MeasureJournal`] for a measure of `node_idx` that is about
+    /// to be computed: a copy of what every node of its subtree holds. `None`
+    /// - and the measure's writes stay - when the node's final layout is not
+    /// current, when a journal is open already (this measure is computed
+    /// inside a journaled one), for a subtree above
+    /// [`JOURNALED_NODES_AT_MOST`], or when journals are off.
+    fn begin_measure_journal(&mut self, node_idx: usize) -> Option<MeasureJournal> {
+        if !measure_journal_on()
+            || self.ctx.pass_memo.taffy.measure_journal.is_some()
+            || !self.final_layout_current(node_idx)
+        {
+            return None;
+        }
+        let mut nodes: Vec<JournaledNode> = Vec::new();
+        let mut walk = vec![node_idx];
+        while let Some(index) = walk.pop() {
+            if nodes.len() >= JOURNALED_NODES_AT_MOST {
+                return None;
+            }
+            let (Some(hot), Some(warm)) = (self.tree.nodes.get(index), self.tree.warm.get(index))
+            else {
+                return None;
+            };
+            nodes.push(JournaledNode {
+                index,
+                hot: hot.clone(),
+                warm: warm.clone(),
+                cold: self.tree.cold.get(index).cloned(),
+                cache: self.ctx.cache_map.entries.get(index).cloned(),
+            });
+            walk.extend_from_slice(self.tree.children(index));
+        }
+        #[cfg(test)]
+        MEASURES_JOURNALED.with(|n| n.set(n.get() + 1));
+        self.ctx.pass_memo.taffy.measure_journal = Some(Vec::new());
+        Some(MeasureJournal {
+            nodes,
+            writes: self.unrestored_writes(),
+        })
+    }
+
+    /// Closes `journal`: every node of the subtree holds again what it held
+    /// when the journal was opened - its sizes and offsets, its lines, its
+    /// scrollbars, its per-node caches and the flag that says its final
+    /// layout is current - and the measurements the nodes below answered
+    /// meanwhile are stored again on top ([`KeptMeasure`]).
+    fn end_measure_journal(&mut self, journal: MeasureJournal) {
+        let kept = self
+            .ctx
+            .pass_memo
+            .taffy
+            .measure_journal
+            .take()
+            .unwrap_or_default();
+        for node in journal.nodes {
+            let JournaledNode {
+                index,
+                hot,
+                warm,
+                cold,
+                cache,
+            } = node;
+            if let Some(slot) = self.tree.nodes.get_mut(index) {
+                *slot = hot;
+            }
+            if let Some(slot) = self.tree.warm.get_mut(index) {
+                // What the measure flowed of the node's text is an answer
+                // too: it stays beside what the node held.
+                let measured = core::mem::replace(slot, warm);
+                keep_inline_answers(slot, measured);
+            }
+            if let (Some(slot), Some(cold)) = (self.tree.cold.get_mut(index), cold) {
+                *slot = cold;
+            }
+            if let (Some(slot), Some(cache)) = (self.ctx.cache_map.entries.get_mut(index), cache)
+            {
+                *slot = cache;
+            }
+        }
+        // What was written since the journal opened is taken back ...
+        self.ctx.pass_memo.taffy.unrestored_writes = journal.writes;
+        // ... but it was written: a visit that keeps an absolutely positioned
+        // box's interior by the tree's write count (A3-solver-14) must see a
+        // write it cannot take for the box's own.
+        self.ctx.cache_map.tree_writes = self.ctx.cache_map.tree_writes.wrapping_add(1);
+        for measure in kept {
+            match measure {
+                KeptMeasure::Stored {
+                    node_idx,
+                    input,
+                    output,
+                } => self.cache_store(node_idx.into(), &input, output),
+                KeptMeasure::Pure {
+                    node_idx,
+                    min_content,
+                    output,
+                } => {
+                    if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                        if min_content {
+                            warm.measured_content_sizes.0 = Some(output);
+                        } else {
+                            warm.measured_content_sizes.1 = Some(output);
+                        }
+                    }
+                }
+                KeptMeasure::WidthOnly {
+                    node_idx,
+                    input,
+                    width,
+                } => self.keep_width_only_answer(node_idx, &input, width),
+            }
+        }
+    }
+
+    /// The key taffy's cache keeps `input` of `node_idx` under. A measure
+    /// asked in a definite height, the node's own height unknown, of a node
+    /// whose layout comes out alike at every definite height it is given
+    /// (`cache::lays_out_alike_at_every_given_height`) is kept under one
+    /// height for all of them: its answer is the same. A ribbon group asked
+    /// how tall it is in a row a few pixels taller on every frame of the
+    /// ribbon opening finds what it answered on the frame before. An
+    /// indefinite height keeps a key of its own (a column sizes itself
+    /// differently in an indefinite space), and so does every other input.
+    ///
+    /// Reads the decision only (`cache_get` cannot make it); `cache_store`
+    /// makes it first, so a node's answers are stored under the key the next
+    /// lookup asks for.
+    fn measure_key(&self, node_idx: usize, input: &LayoutInput) -> LayoutInput {
+        let free = self
+            .ctx
+            .cache_map
+            .entries
+            .get(node_idx)
+            .and_then(|c| c.free_of_given_height)
+            == Some(true);
+        if free && asked_in_a_definite_height(input) {
+            LayoutInput {
+                available_space: Size {
+                    width: input.available_space.width,
+                    height: AvailableSpace::Definite(ANY_GIVEN_HEIGHT),
+                },
+                ..*input
+            }
+        } else {
+            *input
+        }
+    }
+
+    /// The width `node_idx` (a flex row) answered to this width-only question
+    /// before, while its taffy cache still holds what it measured since -
+    /// see [`TaffyWidthOnlyAnswers`].
+    ///
+    /// An EMPTY taffy cache says the subtree changed since anything kept was
+    /// answered, with one exception: answers this bridge started itself
+    /// ([`Self::width_only_fresh`]) were all given after that change. A
+    /// width-only run of a row never stores into the row's taffy cache, and
+    /// inside a width-only run of its parent the row is asked for nothing
+    /// else - so on a cold pass (and under every dirty subtree) a row asked
+    /// its width again, by the next run of its parent, ran again, and each of
+    /// its runs asked its own rows twice or three times (basis, min-content,
+    /// content contribution): 2 to 3 runs per run of the parent, to the power
+    /// of the nesting.
+    fn width_only_answer_kept(&mut self, node_idx: usize, inputs: &LayoutInput) -> Option<f32> {
+        if !self.width_only_answers_keep() {
+            return None;
+        }
+        let primary_empty = self
+            .tree
+            .warm(LayoutNodeId::new(node_idx))?
+            .taffy_cache
+            .is_empty();
+        if primary_empty && !self.width_only_fresh.contains(&node_idx) {
+            return None;
+        }
+        let free_of_height = self.answers_its_width_alike_at_every_given_height(node_idx);
+        self.ctx
+            .cache_map
+            .entries
+            .get(node_idx)?
+            .taffy_width_only
+            .as_deref()?
+            .get(inputs, free_of_height)
+    }
+
+    /// Keep the width `node_idx` answered to a width-only question. An empty
+    /// taffy cache means the subtree changed since anything kept was
+    /// answered: that goes first - once per bridge. The first answer of this
+    /// bridge drops what was kept and marks the node
+    /// ([`Self::width_only_fresh`]); its later answers join the first.
+    fn keep_width_only_answer(&mut self, node_idx: usize, inputs: &LayoutInput, width: f32) {
+        if !self.width_only_answers_keep() {
+            return;
+        }
+        if let Some(kept) = self.ctx.pass_memo.taffy.measure_journal.as_mut() {
+            kept.push(KeptMeasure::WidthOnly {
+                node_idx,
+                input: *inputs,
+                width,
+            });
+        }
+        let primary_empty = self
+            .tree
+            .warm(LayoutNodeId::new(node_idx))
+            .is_none_or(|w| w.taffy_cache.is_empty());
+        let free_of_height = self.answers_its_width_alike_at_every_given_height(node_idx);
+        let starts_anew = primary_empty && !self.width_only_fresh.contains(&node_idx);
+        let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
+            return;
+        };
+        if starts_anew {
+            cache.taffy_width_only = None;
+        }
+        cache
+            .taffy_width_only
+            .get_or_insert_with(Box::default)
+            .store(inputs, width, free_of_height);
+        if starts_anew {
+            self.width_only_fresh.insert(node_idx);
+        }
+    }
+
+    /// Whether width-only answers are kept at all: not in a document that
+    /// uses viewport units, where a resize moves a width without emptying
+    /// any cache (the same gate as the pure-measure cache above).
+    fn width_only_answers_keep(&self) -> bool {
+        self.ctx
+            .styled_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .is_some_and(|cc| !cc.uses_viewport_units)
+    }
+
+    /// Whether the width `node_idx` answers when asked how wide it is comes
+    /// out the same at every height it is given
+    /// (`cache::answers_its_width_alike_at_every_given_height`, memoised in
+    /// the node's `NodeCache`).
+    fn answers_its_width_alike_at_every_given_height(&mut self, node_idx: usize) -> bool {
+        let styled_dom = self.ctx.styled_dom;
+        crate::solver3::cache::answers_its_width_alike_at_every_given_height(
+            &mut self.ctx.cache_map,
+            &*self.tree,
+            styled_dom,
+            node_idx,
+        )
+    }
+
+    /// Whether `node_idx`'s subtree lays out alike at every height it is
+    /// given (`cache::lays_out_alike_at_every_given_height`, memoised in the
+    /// node's `NodeCache`).
+    fn lays_out_alike_at_every_given_height(&mut self, node_idx: usize) -> bool {
+        let styled_dom = self.ctx.styled_dom;
+        crate::solver3::cache::lays_out_alike_at_every_given_height(
+            &mut self.ctx.cache_map,
+            &*self.tree,
+            styled_dom,
+            node_idx,
+        )
+    }
+
+    /// The border-box width [`Self::compute_non_flex_layout`] answers for
+    /// `inputs`, when it follows without laying anything out: a known width,
+    /// the node's own definite width, or (a min-/max-content query) the
+    /// intrinsic width plus padding and border. `None` when only the layout
+    /// knows: a definite available width, a replaced element, a content-size
+    /// query of a box with its own width, an intrinsic width of 0.
+    fn width_only_answer(&self, node_idx: usize, inputs: &LayoutInput) -> Option<f32> {
+        if let Some(width) = inputs.known_dimensions.width {
+            return Some(width);
+        }
+        let node = self.tree.get(LayoutNodeId::new(node_idx))?;
+        let bp = node.box_props.unpack();
+        let padding_border = bp.padding.left + bp.padding.right + bp.border.left + bp.border.right;
+        let content_size_query = inputs.sizing_mode == taffy::SizingMode::ContentSize;
+        let own = self.own_definite_width(node_idx, inputs.parent_size.width, padding_border);
+        if !content_size_query {
+            if let Some(width) = own {
+                return Some(width);
+            }
+        }
+        let min_content = match inputs.available_space.width {
+            AvailableSpace::MinContent => true,
+            AvailableSpace::MaxContent => false,
+            AvailableSpace::Definite(_) => return None,
+        };
+        if content_size_query && min_content && own.is_some() {
+            return None;
+        }
+        if let Some(dom_id) = node.dom_node_id {
+            let nd = &self.ctx.styled_dom.node_data.as_container()[dom_id];
+            if nd.is_sized_replaced_node() {
+                return None;
+            }
+        }
+        let intrinsic = self.tree.warm(LayoutNodeId::new(node_idx))?.intrinsic_sizes?;
+        let content = if min_content {
+            intrinsic.min_content_width
+        } else {
+            intrinsic.max_content_width
+        };
+        (content > 0.0).then_some(content + padding_border)
+    }
+
     /// Compute layout for non-flex/grid nodes by delegating to `layout_formatting_context`.
     /// This handles Block, Inline, Table, `InlineBlock` formatting contexts recursively.
     #[allow(clippy::match_same_arms)]
@@ -1987,6 +3062,31 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     // can't merge)
     #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse
                                      // routine (one branch per case)
+    /// [`Self::compute_non_flex_layout`], once more when the final layout
+    /// decided a vertical scrollbar whose gutter it did not reserve, or
+    /// dropped one it did. An `overflow: auto` box reserves the gutter its
+    /// last layout's bar asked for (`layout_bfc`), and only its layout finds
+    /// whether it overflows: in block flow the bar's first appearance asks
+    /// the pass for a reflow, but a flex or grid item lays itself out here,
+    /// and its children stayed as wide as the box beside the bar.
+    fn compute_non_flex_layout_inside_its_gutter(
+        &mut self,
+        node_idx: usize,
+        inputs: LayoutInput,
+    ) -> LayoutOutput {
+        let reserves = |tree: &LayoutTree| {
+            tree.warm(LayoutNodeId::new(node_idx))
+                .and_then(|w| w.scrollbar_info.as_ref())
+                .is_some_and(|s| s.needs_vertical && s.scrollbar_width > 0.0)
+        };
+        let before = reserves(&*self.tree);
+        let output = self.compute_non_flex_layout(node_idx, inputs);
+        if inputs.run_mode == RunMode::PerformLayout && reserves(&*self.tree) != before {
+            return self.compute_non_flex_layout(node_idx, inputs);
+        }
+        output
+    }
+
     fn compute_non_flex_layout(&mut self, node_idx: usize, inputs: LayoutInput) -> LayoutOutput {
         // Taffy's known_dimensions are BORDER-BOX sizes (the child's outer size
         // as determined by the parent flex/grid algorithm, e.g. via stretch alignment).
@@ -2007,18 +3107,69 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     bp.border.top + bp.border.bottom,
                 )
             });
+        // The item's horizontal margins: an available width (no known one) is
+        // the space for its MARGIN box.
+        let node_margin_width = self
+            .tree
+            .get(LayoutNodeId::new(node_idx))
+            .map_or(0.0, |node| {
+                let bp = node.box_props.unpack();
+                (bp.margin.left + bp.margin.right).max(0.0)
+            });
+
+        // A box whose own style fixes its width lays its content out at that
+        // width, whatever the query's available space says: taffy resolves it
+        // into the known width in its own leaf algorithm (`own_definite_width`).
+        // The answer then describes one box - "140 wide, as tall as the text at
+        // 140" - not "140 wide, as tall as the text at its longest word", which
+        // taffy's cache served for the real 140 px query and a whole flex row
+        // came out four times too tall. The cache entry keeps the original
+        // inputs as its key (this runs inside `compute_cached_layout`).
+        // EXCEPT under `SizingMode::ContentSize`: that query asks for the
+        // CONTENT's size with the node's own size styles ignored - taffy's
+        // automatic minimum size of a flex item is min(specified size,
+        // content size) (CSS Flexbox 4.5), and answering it with the item's
+        // own `width` kept every `width: 32px` cell at 32 however narrow its
+        // row was (Chrome shrinks a date picker's columns to fit its pane).
+        let content_size_query = inputs.sizing_mode == taffy::SizingMode::ContentSize;
+        let inputs = match inputs.known_dimensions.width {
+            Some(_) => inputs,
+            None if content_size_query => inputs,
+            None => match self.own_definite_width(
+                node_idx,
+                inputs.parent_size.width,
+                node_padding_width + node_border_width,
+            ) {
+                Some(width) => LayoutInput {
+                    known_dimensions: Size {
+                        width: Some(width),
+                        height: inputs.known_dimensions.height,
+                    },
+                    ..inputs
+                },
+                None => inputs,
+            },
+        };
 
         // Determine available size from Taffy's inputs.
         // When known_dimensions is set (e.g. flex stretch), subtract the child's own
         // padding+border to convert from border-box to content-box available space.
         // For MinContent/MaxContent, use INFINITY and let the text layout calculate
         // its actual intrinsic width.
+        // An available width (no known one) is the space for the item's margin
+        // box: its content gets what its margins, border and padding leave. A
+        // fit-content measure (a column's `align-items: flex-start` item) broke
+        // its text at the full width and came out wider than the column by its
+        // own padding.
+        let available_content_width = |w: f32| {
+            (w - node_margin_width - node_padding_width - node_border_width).max(0.0)
+        };
         let available_width = inputs
             .known_dimensions
             .width
             .map(|kw| (kw - node_padding_width - node_border_width).max(0.0))
-            .or(match inputs.available_space.width {
-                AvailableSpace::Definite(w) => Some(w),
+            .or_else(|| match inputs.available_space.width {
+                AvailableSpace::Definite(w) => Some(available_content_width(w)),
                 AvailableSpace::MinContent => None, // Use infinity, return intrinsic min-content
                 AvailableSpace::MaxContent => None, // Use infinity for max-content
             })
@@ -2055,11 +3206,12 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 },
             };
             crate::solver3::geometry::ContainingBlock::from_axes(
-                axis(
-                    inputs.known_dimensions.width,
-                    node_padding_width + node_border_width,
-                    inputs.available_space.width,
-                ),
+                match (inputs.known_dimensions.width, inputs.available_space.width) {
+                    (None, AvailableSpace::Definite(w)) => {
+                        crate::text3::cache::AvailableSpace::Definite(available_content_width(w))
+                    }
+                    (known, avail) => axis(known, node_padding_width + node_border_width, avail),
+                },
                 axis(
                     inputs.known_dimensions.height,
                     node_padding_height + node_border_height,
@@ -2082,7 +3234,9 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             crate::text3::cache::AvailableSpace::Definite(available_width)
         } else {
             match inputs.available_space.width {
-                AvailableSpace::Definite(w) => crate::text3::cache::AvailableSpace::Definite(w),
+                AvailableSpace::Definite(_) => {
+                    crate::text3::cache::AvailableSpace::Definite(available_width)
+                }
                 AvailableSpace::MinContent => crate::text3::cache::AvailableSpace::MinContent,
                 AvailableSpace::MaxContent => crate::text3::cache::AvailableSpace::MaxContent,
             }
@@ -2127,6 +3281,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
             containing_block_size: available_size,
             available_width_type,
             fragmentainer: None,
+            column_flow: None,
         };
 
         // A prior Taffy measurement pass (e.g. the min-content pass Taffy runs to
@@ -2140,6 +3295,15 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
         // content). Reset `used_size` to the border-box dims Taffy fixed for THIS
         // measure. When width is unknown (an intrinsic pass), clear it so layout_bfc
         // falls back to `constraints.available_size` (INFINITY → true intrinsic).
+        //
+        // A MEASURE hands the size back afterwards: what the node held before
+        // (its last FINAL layout) is restored below, so a measure leaves no
+        // size behind (see `compute_child_layout`, and
+        // tests/flex_items_keep_the_size_their_container_gave_them.rs, A).
+        let used_size_before_measure = self
+            .tree
+            .get(LayoutNodeId::new(node_idx))
+            .and_then(|n| n.used_size);
         if let Some(n) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
             n.used_size = match (
                 inputs.known_dimensions.width,
@@ -2226,6 +3390,23 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     && inputs.known_dimensions.width.is_none();
 
                 let effective_content_width = match inputs.available_space.width {
+                    // A content-size query of a box with its own width: the
+                    // stored min-content is that width (its css-sizing
+                    // contribution); the content's own is what this layout
+                    // at min-content just measured.
+                    AvailableSpace::MinContent
+                        if content_size_query
+                            && content_width > 0.0
+                            && self
+                                .own_definite_width(
+                                    node_idx,
+                                    inputs.parent_size.width,
+                                    node_padding_width + node_border_width,
+                                )
+                                .is_some() =>
+                    {
+                        content_width
+                    }
                     AvailableSpace::MinContent => {
                         if intrinsic.min_content_width > 0.0 {
                             intrinsic.min_content_width
@@ -2266,9 +3447,7 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                         .get(LayoutNodeId::new(node_idx))
                         .and_then(|n| n.dom_node_id);
                     let is_replaced = dom_id.is_some_and(|id| {
-                        let nd = &self.ctx.styled_dom.node_data.as_container()[id];
-                        matches!(nd.get_node_type(), azul_core::dom::NodeType::Image(_))
-                            || nd.is_virtual_view_node()
+                        self.ctx.styled_dom.node_data.as_container()[id].is_sized_replaced_node()
                     });
                     match (is_replaced, dom_id) {
                         (true, Some(id)) => {
@@ -2356,48 +3535,58 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                     max_h.map_or(clamped, |m| clamped.min(m.max(min_h.unwrap_or(0.0))))
                 };
 
-                // CRITICAL: Transfer positions from layout_formatting_context to child nodes.
-                // Without this, children of flex items won't have their relative_position set,
-                // causing them to all render at (0,0) relative to their parent.
-                for (child_idx, child_pos) in &output.positions {
-                    if let Some(child_warm) = self.tree.warm_mut(LayoutNodeId::new(*child_idx)) {
-                        child_warm.relative_position = Some(*child_pos);
+                if inputs.run_mode == RunMode::PerformLayout {
+                    // CRITICAL: Transfer positions from layout_formatting_context to child
+                    // nodes. Without this, children of flex items won't have their
+                    // relative_position set, causing them to all render at (0,0) relative to
+                    // their parent.
+                    for (child_idx, child_pos) in &output.positions {
+                        if let Some(child_warm) = self.tree.warm_mut(LayoutNodeId::new(*child_idx))
+                        {
+                            child_warm.relative_position = Some(*child_pos);
+                        }
                     }
-                }
 
-                // Compute scrollbar_info for this node (it's a child of a Flex/Grid container,
-                // so calculate_layout_for_subtree won't be called for it).
-                // Uses the unified compute_scrollbar_info_core path.
-                //
-                // content_width/height come from our own BFC/IFC overflow_size,
-                // which is already content-box relative — unlike Taffy's
-                // border-box-origin content_size.
-                let (scrollbar_info, _, _) = compute_taffy_scrollbar_info(
-                    self.ctx,
-                    self.tree,
-                    node_idx,
-                    final_width,
-                    final_height,
-                    content_width,
-                    content_height,
-                    ContentSizeOrigin::ContentBox,
-                );
+                    // Compute scrollbar_info for this node (it's a child of a Flex/Grid
+                    // container, so calculate_layout_for_subtree won't be called for it).
+                    // Uses the unified compute_scrollbar_info_core path.
+                    //
+                    // content_width/height come from our own BFC/IFC overflow_size,
+                    // which is already content-box relative — unlike Taffy's
+                    // border-box-origin content_size.
+                    let (scrollbar_info, _, _) = compute_taffy_scrollbar_info(
+                        self.ctx,
+                        self.tree,
+                        node_idx,
+                        final_width,
+                        final_height,
+                        content_width,
+                        content_height,
+                        ContentSizeOrigin::ContentBox,
+                    );
 
-                // Store the border-box size and scrollbar_info on the node for display list
-                // generation
-                if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
-                    node.used_size = Some(LogicalSize {
-                        width: final_width,
-                        height: final_height,
-                    });
-                }
-                if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
-                    warm.scrollbar_info = Some(scrollbar_info);
-                    // Store the actual content size for scroll calculations
-                    warm.overflow_content_size = Some(LogicalSize {
-                        width: content_width,
-                        height: content_height,
-                    });
+                    // Store the border-box size and scrollbar_info on the node for display
+                    // list generation
+                    if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                        node.used_size = Some(LogicalSize {
+                            width: final_width,
+                            height: final_height,
+                        });
+                    }
+                    if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                        warm.scrollbar_info = Some(scrollbar_info);
+                        // Store the actual content size for scroll calculations
+                        warm.overflow_content_size = Some(LogicalSize {
+                            width: content_width,
+                            height: content_height,
+                        });
+                    }
+                } else if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                    // A MEASURE: its children's positions, the scroll bars of a box
+                    // this tall and the size are the answer to a question, not the
+                    // node's layout - hand the size the last final layout left back
+                    // (taken before the reset above) and write nothing else.
+                    node.used_size = used_size_before_measure;
                 }
 
                 // Return the same size to Taffy for correct positioning
@@ -2420,6 +3609,12 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
                 }
             }
             Err(_e) => {
+                // A measure leaves no size behind, as on the success path.
+                if inputs.run_mode != RunMode::PerformLayout {
+                    if let Some(node) = self.tree.get_mut(LayoutNodeId::new(node_idx)) {
+                        node.used_size = used_size_before_measure;
+                    }
+                }
                 // Fallback to intrinsic sizes if layout fails
                 let intrinsic = self
                     .tree
@@ -2449,14 +3644,266 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     }
 }
 
+/// The second way of taffy's measurement cache for one node.
+///
+/// taffy's `Cache` keeps ONE measurement per slot class (nine classes: which
+/// of width and height are known, and whether an unknown axis is asked at
+/// min-content). A flex container measured twice in one pass with different
+/// available main sizes - its basis at max-content and its automatic minimum
+/// at min-content, as every flex item with a visible overflow is - asks each
+/// of its items for its cross size at the main size the item got in THAT
+/// run. An item whose size depends on that (anything holding wrapping lines)
+/// is asked several keys of one class: each run evicts the other's entry,
+/// and every pass misses them all, the item's whole subtree with it - and
+/// the levels below repeat it with keys of their own. `AzWidgets`' page column
+/// asked its form section `(None, 938)` and `(None, 906)`, the section's
+/// descendants up to four keys of one class and up to seven in all per pass:
+/// 173 of a switch-knob frame's 184 taffy misses and its 76 text re-flows.
+///
+/// Keeps the last `SPILL_ENTRIES` distinct measurements of such a node, of
+/// any class, matched by taffy's own rule; a pass that asks a node no more
+/// keys than that hits every one of them from the second pass on. It lives
+/// in the node's `NodeCache` (which follows the node across passes) and is
+/// allocated at the node's first eviction, beginning with the measurement
+/// that was evicted and the one that evicted it. It is part of the taffy cache for
+/// validity: never read while that cache is empty, dropped by the first
+/// store after it was emptied (a dirty subtree, a restyle, a clone that
+/// could not keep it all empty it).
+#[derive(Debug, Clone, Default)]
+pub struct TaffyMeasureSpill {
+    /// A ring, oldest overwritten first.
+    entries: [Option<SpilledMeasure>; SPILL_ENTRIES],
+    next: usize,
+}
+
+/// How many measurements a [`TaffyMeasureSpill`] keeps: above the seven
+/// distinct keys per pass the busiest `AzWidgets` node is asked.
+const SPILL_ENTRIES: usize = 12;
+
+/// One measurement in a [`TaffyMeasureSpill`]: the key taffy keys it by and
+/// the outer size it answered.
+#[derive(Debug, Clone, Copy)]
+struct SpilledMeasure {
+    known_dimensions: Size<Option<f32>>,
+    available_space: Size<AvailableSpace>,
+    size: Size<f32>,
+}
+
+impl SpilledMeasure {
+    /// taffy's own rule for a measurement answering a query (`Cache::get`,
+    /// `RunMode::ComputeSize`): a known axis matches the stored known value
+    /// or the stored result; an unknown axis matches the stored available
+    /// space.
+    fn answers(&self, input: &LayoutInput) -> bool {
+        let known = input.known_dimensions;
+        let avail = input.available_space;
+        (known.width == self.known_dimensions.width || known.width == Some(self.size.width))
+            && (known.height == self.known_dimensions.height
+                || known.height == Some(self.size.height))
+            && (known.width.is_some() || self.available_space.width.is_roughly_equal(avail.width))
+            && (known.height.is_some()
+                || self.available_space.height.is_roughly_equal(avail.height))
+    }
+
+    fn same_key(&self, other: &Self) -> bool {
+        self.known_dimensions == other.known_dimensions
+            && self
+                .available_space
+                .width
+                .is_roughly_equal(other.available_space.width)
+            && self
+                .available_space
+                .height
+                .is_roughly_equal(other.available_space.height)
+    }
+}
+
+impl TaffyMeasureSpill {
+    /// Any kept measurement that answers the query - taffy's `Cache::get`
+    /// searches all its measurement slots the same way.
+    fn get(&self, input: &LayoutInput) -> Option<Size<f32>> {
+        self.entries
+            .iter()
+            .flatten()
+            .find(|m| m.answers(input))
+            .map(|m| m.size)
+    }
+
+    /// Record a measurement: the same key again is refreshed where it is, a
+    /// new one overwrites the oldest.
+    fn keep(&mut self, new: SpilledMeasure) {
+        if let Some(same) = self.entries.iter_mut().flatten().find(|m| m.same_key(&new)) {
+            *same = new;
+            return;
+        }
+        self.entries[self.next] = Some(new);
+        self.next = (self.next + 1) % SPILL_ENTRIES;
+    }
+}
+
+/// The widths one flex row answered to width-only questions
+/// (`TaffyBridge::compute_child_layout`): a parent asking for its min- or
+/// max-content width, or for its width at a known height. Such a question
+/// runs the row algorithm over every item with the items' heights stubbed,
+/// and its answer stays out of taffy's own cache, whose key ignores the
+/// axis: a both-axes query must never be served a width-only answer. Kept
+/// here, keyed by what the question gives the row, the next ask of the same
+/// question is a lookup - a ribbon group re-laid out by a tween asked each of
+/// its button rows how wide it is on every frame. A flex column whose width
+/// does not follow its height keeps its width-only answers here too.
+///
+/// Lives in the node's `NodeCache` (`taffy_width_only`) and is valid exactly
+/// as long as the node's taffy cache: never read while that cache is empty,
+/// dropped by the first store into it after it was emptied (a dirty subtree,
+/// a restyle, a clone that could not keep its measurements all empty it).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TaffyWidthOnlyAnswers {
+    /// A ring, oldest overwritten first.
+    entries: [Option<WidthOnlyAnswer>; WIDTH_ONLY_ENTRIES],
+    next: usize,
+}
+
+/// How many width-only answers a row keeps: its parent asks for its
+/// max-content and min-content widths, and its width at a height or two.
+const WIDTH_ONLY_ENTRIES: usize = 4;
+
+/// One answer in a [`TaffyWidthOnlyAnswers`]: what the question gave the row
+/// and the border-box width the row answered.
+#[derive(Debug, Clone, Copy)]
+struct WidthOnlyAnswer {
+    known_height: Option<f32>,
+    available_space: Size<AvailableSpace>,
+    parent_width: Option<f32>,
+    sizing_mode: taffy::SizingMode,
+    width: f32,
+}
+
+impl WidthOnlyAnswer {
+    /// taffy's rule for a measurement answering a query (`Cache::get`), for
+    /// a question whose width is never known: the known height matches, an
+    /// unknown height's available space matches, and so does the available
+    /// width. The parent's width and the sizing mode match too: an item's
+    /// percentage width resolves against the first, and the second says
+    /// whether the row's own size styles count.
+    ///
+    /// `free_of_height`: the row answers its width alike at every height it
+    /// is given (`cache::answers_its_width_alike_at_every_given_height`) - a
+    /// row of ribbon groups stretched taller on every frame of the ribbon
+    /// opening, a row of scroll containers whose bars come and go with their
+    /// height. Its heights are no part of the question then.
+    fn answers(&self, input: &LayoutInput, free_of_height: bool) -> bool {
+        (free_of_height
+            || (input.known_dimensions.height == self.known_height
+                && (self.known_height.is_some()
+                    || self
+                        .available_space
+                        .height
+                        .is_roughly_equal(input.available_space.height))))
+            && self
+                .available_space
+                .width
+                .is_roughly_equal(input.available_space.width)
+            && input.parent_size.width == self.parent_width
+            && input.sizing_mode == self.sizing_mode
+    }
+}
+
+impl TaffyWidthOnlyAnswers {
+    /// The width kept for this question, if any (`free_of_height`: see
+    /// [`WidthOnlyAnswer::answers`]).
+    fn get(&self, input: &LayoutInput, free_of_height: bool) -> Option<f32> {
+        self.entries
+            .iter()
+            .flatten()
+            .find(|a| a.answers(input, free_of_height))
+            .map(|a| a.width)
+    }
+
+    /// Record an answer: the same question again is refreshed where it is,
+    /// a new one overwrites the oldest.
+    fn store(&mut self, input: &LayoutInput, width: f32, free_of_height: bool) {
+        let new = WidthOnlyAnswer {
+            known_height: input.known_dimensions.height,
+            available_space: input.available_space,
+            parent_width: input.parent_size.width,
+            sizing_mode: input.sizing_mode,
+            width,
+        };
+        if let Some(same) = self
+            .entries
+            .iter_mut()
+            .flatten()
+            .find(|a| a.answers(input, free_of_height))
+        {
+            *same = new;
+            return;
+        }
+        self.entries[self.next] = Some(new);
+        self.next = (self.next + 1) % WIDTH_ONLY_ENTRIES;
+    }
+}
+
+/// Whether `input` is a measure asked in a definite height with the node's
+/// own height unknown - the questions [`TaffyBridge::measure_key`] keeps
+/// under one height for a node free of the height it is given.
+fn asked_in_a_definite_height(input: &LayoutInput) -> bool {
+    input.run_mode == RunMode::ComputeSize
+        && input.known_dimensions.height.is_none()
+        && matches!(input.available_space.height, AvailableSpace::Definite(_))
+}
+
+/// The available height every such measure is kept under
+/// ([`TaffyBridge::measure_key`]). Negative: no space a node is really given.
+const ANY_GIVEN_HEIGHT: f32 = -1.0;
+
+/// taffy's measurement slot class of a key (`Cache::compute_cache_slot`,
+/// private there): 0 both axes known; 1 / 2 only the width, the height asked
+/// at max-content-or-definite / min-content; 3 / 4 only the height, likewise
+/// for the width; 5 - 8 neither, by which of the two are asked at
+/// min-content.
+fn measure_slot(
+    known_dimensions: Size<Option<f32>>,
+    available_space: Size<AvailableSpace>,
+) -> usize {
+    let min = |a: AvailableSpace| usize::from(a == AvailableSpace::MinContent);
+    match (known_dimensions.width, known_dimensions.height) {
+        (Some(_), Some(_)) => 0,
+        (Some(_), None) => 1 + min(available_space.height),
+        (None, Some(_)) => 3 + min(available_space.width),
+        (None, None) => 5 + 2 * min(available_space.width) + min(available_space.height),
+    }
+}
+
 impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
     fn cache_get(&self, node_id: taffy::NodeId, input: &LayoutInput) -> Option<LayoutOutput> {
         let node_idx: usize = node_id.into();
-        let hit = self
-            .tree
-            .warm(LayoutNodeId::new(node_idx))?
-            .taffy_cache
-            .get(input);
+        // A final layout is memoised by its inputs, but its side effects are
+        // not in the memo: a measure computed since then rewrote them. Serve
+        // it only while the subtree still holds what it wrote
+        // (`NodeCache::final_layout_current`), else lay it out again.
+        if input.run_mode == RunMode::PerformLayout && !self.final_layout_current(node_idx) {
+            drop(crate::probe::Probe::span("taffy_final_layout_stale"));
+            return None;
+        }
+        let input = &self.measure_key(node_idx, input);
+        let primary = &self.tree.warm(LayoutNodeId::new(node_idx))?.taffy_cache;
+        let mut hit = primary.get(input);
+        // A measurement taffy's one entry per slot class evicted lives on in
+        // the node's second way (`TaffyMeasureSpill`). Never read past an
+        // empty primary: everything in the spill then predates its clear.
+        if hit.is_none() && input.run_mode == RunMode::ComputeSize && !primary.is_empty() {
+            hit = self
+                .ctx
+                .cache_map
+                .entries
+                .get(node_idx)
+                .and_then(|c| c.taffy_measure_spill.as_deref())
+                .and_then(|spill| spill.get(input))
+                .map(LayoutOutput::from_outer_size);
+            if hit.is_some() {
+                drop(crate::probe::Probe::span("taffy_cache_get_spill_hit"));
+            }
+        }
         drop(crate::probe::Probe::span(if hit.is_some() {
             "taffy_cache_get_hit"
         } else {
@@ -2466,7 +3913,7 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         // Diffing two passes' lines for the same node names WHICH component
         // (known_dimensions / available_space / run_mode) moved and broke
         // the key — aggregates can't tell that.
-        if std::env::var_os("AZ_TAFFY_DEBUG").is_some() {
+        if env_flag!("AZ_TAFFY_DEBUG") {
             eprintln!(
                 "[taffy] {} n{} kd=({:?},{:?}) avail=({:?},{:?}) mode={:?}",
                 if hit.is_some() { "HIT " } else { "MISS" },
@@ -2488,9 +3935,92 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
         layout_output: LayoutOutput,
     ) {
         let node_idx: usize = node_id.into();
+        // Inside a journaled measure the nodes below are put back as they
+        // were: what they answer meanwhile is stored again afterwards.
+        if input.run_mode == RunMode::ComputeSize {
+            if let Some(kept) = self.ctx.pass_memo.taffy.measure_journal.as_mut() {
+                kept.push(KeptMeasure::Stored {
+                    node_idx,
+                    input: *input,
+                    output: layout_output,
+                });
+            }
+        }
+        // Decide what the key reads, so the answer is stored under the key
+        // the next `cache_get` looks for.
+        if asked_in_a_definite_height(input) {
+            self.lays_out_alike_at_every_given_height(node_idx);
+        }
+        let input = &self.measure_key(node_idx, input);
+        let mut primary_was_empty = true;
         if let Some(warm) = self.tree.warm_mut(LayoutNodeId::new(node_idx)) {
+            primary_was_empty = warm.taffy_cache.is_empty();
             warm.taffy_cache.store(input, layout_output);
         }
+        let width_only_fresh = self.width_only_fresh.contains(&node_idx);
+        let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
+            return;
+        };
+        // The first store after the primary was emptied: whatever the second
+        // way and the width-only answers hold was measured before that clear
+        // - but for the width-only answers this bridge started while the
+        // primary was empty (`width_only_fresh`), which were all given after
+        // it: they stay, and the row's parent finds them at its next run.
+        if primary_was_empty {
+            cache.taffy_measure_spill = None;
+            cache.taffy_slots_stored = 0;
+            if !width_only_fresh {
+                cache.taffy_width_only = None;
+            }
+        }
+        if input.run_mode != RunMode::ComputeSize {
+            return;
+        }
+        // A store is only ever made after a miss, so a second store into a
+        // slot class is an eviction: from then on this node keeps a second
+        // way for every measurement it stores.
+        let slot = measure_slot(input.known_dimensions, input.available_space);
+        let bit = 1u16 << slot;
+        let evicts = cache.taffy_slots_stored & bit != 0 && cache.taffy_measure_spill.is_none();
+        let has_second_way = cache.taffy_measure_spill.is_some();
+        cache.taffy_slots_stored |= bit;
+        let measured = SpilledMeasure {
+            known_dimensions: input.known_dimensions,
+            available_space: input.available_space,
+            size: layout_output.size,
+        };
+        if !evicts && !has_second_way {
+            // The class holds this measurement until its next store: the
+            // pass remembers it for the second way that store makes.
+            self.ctx
+                .pass_memo
+                .taffy
+                .last_measures
+                .insert((node_idx, slot), measured);
+            return;
+        }
+        // The measurement an eviction evicts goes into the second way it
+        // makes, where this pass stored it itself (`last_measures`: it was in
+        // the primary until the store above). The second way began with the
+        // evicting measurement alone: the first key of the class was in
+        // neither cache, and its next ask computed it a second time.
+        let evicted = if evicts {
+            self.ctx
+                .pass_memo
+                .taffy
+                .last_measures
+                .remove(&(node_idx, slot))
+        } else {
+            None
+        };
+        let Some(cache) = self.ctx.cache_map.entries.get_mut(node_idx) else {
+            return;
+        };
+        let spill = cache.taffy_measure_spill.get_or_insert_with(Box::default);
+        if let Some(evicted) = evicted {
+            spill.keep(evicted);
+        }
+        spill.keep(measured);
     }
 
     fn cache_clear(&mut self, node_id: taffy::NodeId) {
@@ -2500,16 +4030,20 @@ impl<T: ParsedFontTrait> CacheTree for TaffyBridge<'_, '_, T> {
             warm.taffy_cache.clear();
             warm.measured_content_sizes = (None, None);
         }
+        // What this bridge kept for the node was answered before this clear.
+        self.width_only_fresh.remove(&node_idx);
+        // The node's memo is gone: a write that stays.
+        self.note_unrestored_write();
     }
 }
 
 impl<T: ParsedFontTrait> LayoutFlexboxContainer for TaffyBridge<'_, '_, T> {
     type FlexboxContainerStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
     type FlexboxItemStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
 
@@ -2527,11 +4061,11 @@ impl<T: ParsedFontTrait> LayoutFlexboxContainer for TaffyBridge<'_, '_, T> {
 
 impl<T: ParsedFontTrait> LayoutGridContainer for TaffyBridge<'_, '_, T> {
     type GridContainerStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
     type GridItemStyle<'c>
-        = Style
+        = &'c Style
     where
         Self: 'c;
 
@@ -2558,7 +4092,7 @@ fn from_layout_width(
 ) -> Dimension {
     match val {
         LayoutWidth::Auto => Dimension::auto(),
-        LayoutWidth::Px(px) => pixel_value_to_pixels_fallback(&px).map_or_else(
+        LayoutWidth::Px(px) => pixel_value_to_pixels_ctx(&px, em_size, rem_size).map_or_else(
             || {
                 px.to_percent()
                     .map_or_else(Dimension::auto, |p| Dimension::percent(p.get()))
@@ -2586,7 +4120,7 @@ fn from_layout_height(
 ) -> Dimension {
     match val {
         LayoutHeight::Auto => Dimension::auto(),
-        LayoutHeight::Px(px) => pixel_value_to_pixels_fallback(&px).map_or_else(
+        LayoutHeight::Px(px) => pixel_value_to_pixels_ctx(&px, em_size, rem_size).map_or_else(
             || {
                 px.to_percent()
                     .map_or_else(Dimension::auto, |p| Dimension::percent(p.get()))
@@ -4078,19 +5612,22 @@ mod autotest_generated {
     }
 
     #[test]
-    fn from_layout_width_ignores_the_font_sizes_for_non_calc_values() {
-        // em_size/rem_size are only wired into the calc() context; the Px path uses
-        // the hard-coded 16px fallback. Passing NaN font sizes must therefore not
-        // corrupt a plain `width: 2em`.
+    fn from_layout_width_resolves_em_and_rem_against_the_nodes_font_sizes() {
+        // Chrome resolves `em` against the element's own font size and `rem`
+        // against the root's, not against a 16px default.
         let storage = empty_calc_storage();
         assert_eq!(
-            from_layout_width(
-                LayoutWidth::Px(PixelValue::em(2.0)),
-                &storage,
-                f32::NAN,
-                f32::INFINITY
-            ),
-            Dimension::length(32.0)
+            from_layout_width(LayoutWidth::Px(PixelValue::em(2.0)), &storage, 11.0, 20.0),
+            Dimension::length(22.0)
+        );
+        assert_eq!(
+            from_layout_width(LayoutWidth::Px(PixelValue::rem(2.0)), &storage, 11.0, 20.0),
+            Dimension::length(40.0)
+        );
+        assert_eq!(
+            from_layout_width(LayoutWidth::Px(PixelValue::px(30.0)), &storage, 11.0, 20.0),
+            Dimension::length(30.0),
+            "a px width does not depend on the font"
         );
     }
 
@@ -4183,7 +5720,7 @@ mod autotest_generated {
     // ==================================================================
 
     #[cfg(all(feature = "text_layout", feature = "font_loading"))]
-    mod with_layout_context {
+    pub(super) mod with_layout_context {
         use azul_core::{
             dom::{Dom, DomId},
             selection::TextSelection,
@@ -4197,7 +5734,7 @@ mod autotest_generated {
         };
 
         /// Owns everything a `LayoutContext` borrows.
-        struct Env {
+        pub(in crate::solver3::taffy_bridge) struct Env {
             styled_dom: StyledDom,
             font_manager: FontManager<FontRef>,
             text_selections: BTreeMap<DomId, TextSelection>,
@@ -4208,7 +5745,18 @@ mod autotest_generated {
 
         impl Env {
             fn new() -> Self {
-                let mut dom = Dom::create_body();
+                Self::of(Dom::create_body())
+            }
+
+            /// `body > div`, for the laws that are about an ORDINARY box:
+            /// the root element's overflow belongs to the viewport (CSS
+            /// Overflow 3 3.3), so a law tested on the root tests the
+            /// viewport instead.
+            fn with_a_child() -> Self {
+                Self::of(Dom::create_body().with_child(Dom::create_div()))
+            }
+
+            pub(in crate::solver3::taffy_bridge) fn of(mut dom: Dom) -> Self {
                 let (css, _warnings) = azul_css::parser2::new_from_str("");
                 Self {
                     styled_dom: StyledDom::create(&mut dom, css),
@@ -4221,7 +5769,7 @@ mod autotest_generated {
                 }
             }
 
-            fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
+            pub(in crate::solver3::taffy_bridge) fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
                 LayoutContext {
                     owner_colors: Default::default(),
                     seat_focus_rings: Vec::new(),
@@ -4230,12 +5778,14 @@ mod autotest_generated {
                     style_cache: Default::default(),
                     virtual_view_sizes: None,
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    pass_memo: Default::default(),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,
                     text_selections: &self.text_selections,
                     debug_messages: &mut self.debug_messages,
                     counters: &mut self.counters,
                     viewport_size: LogicalSize::new(800.0, 600.0),
+                    canvas_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), LogicalSize::new(800.0, 600.0)),
                     fragmentation_context: None,
                     cursor_is_visible: true,
                     cursor_locations: Vec::new(),
@@ -4316,18 +5866,19 @@ mod autotest_generated {
         }
 
         #[test]
-        fn compute_taffy_scrollbar_info_needs_no_scrollbars_for_an_overflow_visible_body() {
-            let mut env = Env::new();
+        fn compute_taffy_scrollbar_info_needs_no_scrollbars_for_an_overflow_visible_box() {
+            let mut env = Env::with_a_child();
             let mut ctx = env.ctx();
-            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
-            let root = tree.root;
+            let tree = generate_layout_tree(&mut ctx).expect("a body with a div builds");
+            let div = tree.children(tree.root)[0];
 
             // Content far larger than the box: `overflow: visible` still must not
-            // ask for scrollbars (only `auto`/`scroll` do).
+            // ask for scrollbars (only `auto`/`scroll` do). An ORDINARY box -
+            // the root's own `visible` belongs to the viewport, which scrolls.
             let (info, w, h) = compute_taffy_scrollbar_info(
                 &ctx,
                 &tree,
-                root,
+                div,
                 100.0,
                 100.0,
                 10_000.0,
@@ -4340,5 +5891,986 @@ mod autotest_generated {
             assert_eq!(info.scrollbar_height, 0.0);
             assert!(w > 0.0 && h > 0.0, "the taffy content size is passed back");
         }
+
+        #[test]
+        fn compute_taffy_scrollbar_info_scrolls_the_viewport_for_an_overflow_visible_root() {
+            let mut env = Env::new();
+            let mut ctx = env.ctx();
+            let tree = generate_layout_tree(&mut ctx).expect("a plain body dom builds");
+            let root = tree.root;
+
+            // CSS Overflow 3 3.3: on the ROOT element `visible` is applied to
+            // the viewport as `auto`, which is what scrolls a page taller than
+            // the window. The bar is an overlay, so it reserves no gutter.
+            let (info, _w, _h) = compute_taffy_scrollbar_info(
+                &ctx,
+                &tree,
+                root,
+                100.0,
+                100.0,
+                10_000.0,
+                10_000.0,
+                ContentSizeOrigin::BorderBox,
+            );
+            assert!(info.needs_vertical, "the page is taller than the window");
+            assert!(info.needs_horizontal, "and wider than it");
+            assert_eq!(
+                (info.scrollbar_width, info.scrollbar_height),
+                (0.0, 0.0),
+                "the viewport's bar is an overlay: it takes no space from the page"
+            );
+        }
+
+        // ==============================================================
+        // The per-node cache of a block measured under min- and
+        // max-content constraints
+        // ==============================================================
+
+        /// The width block `node` measures to in containing block `cb`,
+        /// through the per-node cache `ctx` keeps.
+        fn measured_width(
+            ctx: &mut LayoutContext<'_, FontRef>,
+            tree: &mut LayoutTree,
+            node: usize,
+            cb: &crate::solver3::geometry::ContainingBlock,
+        ) -> f32 {
+            let mut text_cache = crate::font_traits::TextLayoutCache::new();
+            let mut positions = Vec::new();
+            let mut scrollbar_reflow = false;
+            let mut floats = HashMap::new();
+            cache::calculate_layout_for_subtree(
+                ctx,
+                tree,
+                &mut text_cache,
+                node,
+                azul_core::geom::LogicalPosition::zero(),
+                cb,
+                &mut positions,
+                &mut scrollbar_reflow,
+                &mut floats,
+                cache::ComputeMode::ComputeSize,
+            )
+            .expect("the block is measured");
+            tree.get(LayoutNodeId::new(node))
+                .and_then(|n| n.used_size)
+                .expect("the measure sizes the block")
+                .width
+        }
+
+        /// A block's auto width is its min-content width under a
+        /// min-content constraint and its max-content width under a
+        /// max-content one. Both constraints leave the width indefinite, and
+        /// the per-node cache must still tell the two measures apart: one
+        /// answered with the other's width gives a shrink-to-fit box its
+        /// widest line as its narrowest.
+        #[test]
+        fn a_min_content_and_a_max_content_measure_of_a_block_are_cached_apart() {
+            use crate::{
+                solver3::geometry::{ContainingBlock, IntrinsicSizes},
+                text3::cache::AvailableSpace as Constraint,
+            };
+            let indefinite = LogicalSize::new(f32::INFINITY, f32::INFINITY);
+            let min_content = ContainingBlock::from_axes(
+                Constraint::MinContent,
+                Constraint::MaxContent,
+                indefinite,
+            );
+            let max_content = ContainingBlock::from_axes(
+                Constraint::MaxContent,
+                Constraint::MaxContent,
+                indefinite,
+            );
+
+            let mut env = Env::with_a_child();
+            let mut ctx = env.ctx();
+            let mut tree = generate_layout_tree(&mut ctx).expect("a body with a div builds");
+            let div = tree.children(tree.root)[0];
+            // What the div holds is 120 px wide at its narrowest and 420 px
+            // on one line.
+            if let Some(warm) = tree.warm_mut(LayoutNodeId::new(div)) {
+                warm.intrinsic_sizes = Some(IntrinsicSizes {
+                    min_content_width: 120.0,
+                    max_content_width: 420.0,
+                    ..IntrinsicSizes::default()
+                });
+            }
+            let nodes = tree.nodes.len();
+
+            // Each measure on a cache of its own.
+            ctx.cache_map = cache::LayoutCacheMap::default();
+            ctx.cache_map.resize_to_tree(nodes);
+            let min_alone = measured_width(&mut ctx, &mut tree, div, &min_content);
+            ctx.cache_map = cache::LayoutCacheMap::default();
+            ctx.cache_map.resize_to_tree(nodes);
+            let max_alone = measured_width(&mut ctx, &mut tree, div, &max_content);
+            assert!(
+                min_alone < max_alone,
+                "harness: the div is narrower at min-content ({min_alone} px) than at \
+                 max-content ({max_alone} px)"
+            );
+
+            // Then in turn on the cache that holds the max-content measure.
+            for (cb, alone, constraint) in [
+                (&max_content, max_alone, "max-content"),
+                (&min_content, min_alone, "min-content"),
+                (&max_content, max_alone, "max-content again"),
+                (&min_content, min_alone, "min-content again"),
+            ] {
+                let width = measured_width(&mut ctx, &mut tree, div, cb);
+                assert!(
+                    (width - alone).abs() < 0.01,
+                    "measured at {constraint}, the div is {width} px wide; on a cache of its \
+                     own, {alone} px"
+                );
+            }
+        }
+    }
+}
+
+/// How often a split pane's paragraphs are laid out. A width-only measure of
+/// a block-level flex item is answered from the intrinsic widths
+/// (`TaffyBridge::width_only_answer`); it used to lay the whole subtree out at
+/// every probe of the pane - 47 visits per paragraph of AzContacts' list
+/// (2026-10-06).
+#[cfg(test)]
+mod a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times_tests {
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks,
+        probe::{Event, Probe},
+        window::LayoutWindow,
+        window_state::FullWindowState,
+    };
+
+    const PARAGRAPHS: usize = 40;
+
+    /// `body > row(flex) > [half(block, grow 1) > column of 40 paragraphs,
+    /// half(block, grow 2) > column of 40 paragraphs]`: an Office-shell split.
+    fn split_page() -> Dom {
+        let column = |side: &str| {
+            let mut col = Dom::create_div().with_css("display: flex; flex-direction: column;");
+            for i in 0..PARAGRAPHS {
+                col.add_child(
+                    Dom::create_div().with_css("padding: 4px 8px;").with_child(
+                        Dom::create_span_with_text(alloc::format!("{side} contact number {i}")),
+                    ),
+                );
+            }
+            col
+        };
+        let half = |grow: u32, side: &str| {
+            Dom::create_div()
+                .with_css(&alloc::format!(
+                    "display: block; flex-grow: {grow}; min-width: 0px; overflow: hidden;"
+                ))
+                .with_child(column(side))
+        };
+        Dom::create_body()
+            .with_css("display: flex; flex-direction: column; margin: 0px; height: 100%;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row; flex-grow: 1;")
+                    .with_child(half(1, "left"))
+                    .with_child(half(2, "right")),
+            )
+    }
+
+    fn count(events: &[Event], name: &str) -> usize {
+        events.iter().filter(|e| e.name == name).count()
+    }
+
+    #[test]
+    fn a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times() {
+        if !Probe::enabled() {
+            return;
+        }
+        let mut dom = split_page();
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::build()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(1000.0, 700.0);
+        lw.current_window_state = ws.clone();
+
+        Probe::set_recording(true);
+        let _ = Probe::drain();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the page lays out");
+        let events = Probe::drain();
+        Probe::set_recording(false);
+
+        assert!(lw.layout_results.contains_key(&DomId::ROOT_ID));
+        let paragraphs = 2 * PARAGRAPHS;
+        let flows = count(&events, "text_layout_flow");
+        let visits = count(&events, "fc_inline");
+        assert!(
+            flows <= 4 * paragraphs && visits <= 8 * paragraphs,
+            "{paragraphs} paragraphs: {flows} text layouts, {visits} inline-context visits - a \
+             measure of a pane's width laid the pane's whole text out again"
+        );
+    }
+}
+
+/// The A3-solver guards that need the bridge's private items (the others are
+/// in `audit_tests::a3_solver::taffy`). No layout is run here: a bridge is
+/// made over a context and a tree and asked directly.
+#[cfg(all(test, feature = "text_layout", feature = "font_loading"))]
+mod audit_a3_solver_tests {
+    use azul_core::dom::Dom;
+
+    use super::{autotest_generated::with_layout_context::Env, *};
+    use crate::solver3::layout_tree::generate_layout_tree;
+
+    /// A3-solver-18. Every bridge held its own memo of taffy styles, so two
+    /// bridges of one pass converted the style of every node they both
+    /// reached twice (`translate_style_to_taffy`, some 36 cascade getters),
+    /// and each made a cell per node of the document and per box of the tree.
+    /// The memo is the pass's (`TaffyPassMemo`): the second bridge converts
+    /// nothing and makes no cell.
+    ///
+    /// Mutation: a memo per bridge (`*memo = TaffyPassMemo::default()` in
+    /// `TaffyBridge::new`) converts every style again in the second bridge.
+    #[test]
+    fn two_bridges_of_one_pass_convert_each_nodes_style_once() {
+        // body > div > 3 x div.
+        let mut env = Env::of(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div())
+                    .with_child(Dom::create_div())
+                    .with_child(Dom::create_div()),
+            ),
+        );
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        let dom_nodes = ctx.styled_dom.node_data.len();
+        let boxes = tree.nodes.len();
+        // The DOM nodes that have a box: each one's style is asked for.
+        let styled: std::collections::BTreeSet<usize> = tree
+            .nodes
+            .iter()
+            .filter_map(|n| n.dom_node_id)
+            .map(|id| id.index())
+            .collect();
+        assert!(
+            styled.len() >= 5 && boxes >= 5,
+            "harness: the body, the div and its three children have boxes ({boxes} boxes of {} \
+             DOM nodes)",
+            styled.len()
+        );
+
+        STYLE_CONVERSIONS.with(|n| n.set(0));
+        STYLE_CELLS_MADE.with(|n| n.set(0));
+        let mut first: Vec<Style> = Vec::new();
+        {
+            let bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            for idx in 0..boxes {
+                first.push(bridge.get_taffy_style(idx).clone());
+            }
+        }
+        let converted_by_the_first = STYLE_CONVERSIONS.with(core::cell::Cell::get);
+        {
+            let bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            for (idx, style) in first.iter().enumerate() {
+                assert!(
+                    bridge.get_taffy_style(idx) == style,
+                    "box {idx} hands the second bridge another style than the first"
+                );
+            }
+        }
+        let converted = STYLE_CONVERSIONS.with(core::cell::Cell::get);
+        let cells = STYLE_CELLS_MADE.with(core::cell::Cell::get);
+        assert_eq!(
+            converted_by_the_first,
+            styled.len(),
+            "the first bridge converts the style of each DOM node with a box once"
+        );
+        assert_eq!(
+            converted, converted_by_the_first,
+            "the second bridge of the pass converted styles again"
+        );
+        assert!(
+            cells >= dom_nodes && cells <= 2 * dom_nodes,
+            "two bridges over a document of {dom_nodes} nodes made {cells} memo cells: the \
+             pass's, by DOM node, and the root's"
+        );
+    }
+
+    /// A3-solver-18, the result: a box hands taffy the style of its DOM node,
+    /// and the box at the root of the tree that style with its margin zeroed
+    /// (the root's margin is taken off before taffy is asked) - what the
+    /// bridge's per-box clones held.
+    ///
+    /// Mutation: `root_style` handing `style` back keeps the body's margin.
+    #[test]
+    fn a_box_hands_taffy_its_nodes_style_and_the_root_box_zeroes_the_margin() {
+        let mut env = Env::of(
+            Dom::create_body().with_css("margin: 20px;").with_child(
+                Dom::create_div()
+                    .with_css("display: flex; margin-left: 7px;")
+                    .with_child(Dom::create_div().with_css("width: 30px; height: 10px;")),
+            ),
+        );
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        let root = tree.root;
+        let boxes = tree.nodes.len();
+        let bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+        for idx in 0..boxes {
+            let node = bridge.tree.get(LayoutNodeId::new(idx)).expect("a box of the tree");
+            let (dom_id, parentless) = (node.dom_node_id, node.parent.is_none());
+            let mut expected = bridge.translate_style_to_taffy(dom_id);
+            if parentless {
+                expected.margin = Rect::zero();
+            }
+            assert!(
+                *bridge.get_taffy_style(idx) == expected,
+                "box {idx} (parentless: {parentless}) hands taffy another style than its DOM \
+                 node's"
+            );
+        }
+        assert!(
+            bridge.get_taffy_style(root).margin == Rect::zero(),
+            "the root box hands taffy a margin"
+        );
+    }
+
+    /// A parent's width-only question to a flex row: how wide at this
+    /// available width, nothing known, a max-content height.
+    fn width_question(width: AvailableSpace) -> LayoutInput {
+        LayoutInput {
+            run_mode: RunMode::ComputeSize,
+            sizing_mode: taffy::SizingMode::ContentSize,
+            axis: taffy::RequestedAxis::Horizontal,
+            known_dimensions: Size {
+                width: None,
+                height: None,
+            },
+            parent_size: Size {
+                width: None,
+                height: None,
+            },
+            available_space: Size {
+                width,
+                height: AvailableSpace::MaxContent,
+            },
+            vertical_margins_are_collapsible: Line {
+                start: false,
+                end: false,
+            },
+        }
+    }
+
+    /// The row's first measure on both axes: how tall at 60 px wide.
+    fn height_question() -> LayoutInput {
+        LayoutInput {
+            axis: taffy::RequestedAxis::Vertical,
+            known_dimensions: Size {
+                width: Some(60.0),
+                height: None,
+            },
+            ..width_question(AvailableSpace::MaxContent)
+        }
+    }
+
+    /// `body > row > row > item`.
+    fn rows() -> Env {
+        Env::of(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row;")
+                    .with_child(
+                        Dom::create_div()
+                            .with_css("display: flex; flex-direction: row;")
+                            .with_child(Dom::create_div().with_css("width: 30px; height: 10px;")),
+                    ),
+            ),
+        )
+    }
+
+    /// A3-solver-17. While a row's taffy cache is empty - a first layout, a
+    /// dirty subtree - the widths it answered were not found again: the
+    /// answers a `NodeCache` keeps may be older than the clear, and nothing
+    /// told the ones just given apart. A bridge now finds the answers it gave
+    /// itself, and they stay when the row's first measure fills its cache.
+    ///
+    /// Mutation: `width_only_answer_kept` refusing every node whose taffy
+    /// cache is empty finds nothing after the two answers; `cache_store`
+    /// dropping the answers at the first store finds nothing after it.
+    #[test]
+    fn a_bridge_finds_the_width_only_answers_it_gave_a_row_with_an_empty_taffy_cache() {
+        let mut env = rows();
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let row = tree.children(tree.root)[0];
+        let max = width_question(AvailableSpace::MaxContent);
+        let min = width_question(AvailableSpace::MinContent);
+        {
+            let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            assert_eq!(
+                bridge.width_only_answer_kept(row, &max),
+                None,
+                "harness: nothing is kept for a row nobody asked"
+            );
+            bridge.keep_width_only_answer(row, &max, 60.0);
+            bridge.keep_width_only_answer(row, &min, 50.0);
+            assert_eq!(
+                (
+                    bridge.width_only_answer_kept(row, &max),
+                    bridge.width_only_answer_kept(row, &min)
+                ),
+                (Some(60.0), Some(50.0)),
+                "the bridge does not find the two widths it just kept for the row"
+            );
+            bridge.cache_store(
+                row.into(),
+                &height_question(),
+                LayoutOutput::from_outer_size(Size {
+                    width: 60.0,
+                    height: 10.0,
+                }),
+            );
+            assert_eq!(
+                (
+                    bridge.width_only_answer_kept(row, &max),
+                    bridge.width_only_answer_kept(row, &min)
+                ),
+                (Some(60.0), Some(50.0)),
+                "the row's first measure dropped the widths the bridge had kept for it"
+            );
+        }
+        // The next bridge finds them as it always did: the taffy cache holds
+        // a measurement.
+        let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+        assert_eq!(bridge.width_only_answer_kept(row, &max), Some(60.0));
+    }
+
+    /// A3-solver-17, what must not change: an answer kept for a row whose
+    /// taffy cache is empty is served by the bridge that gave it only. For
+    /// every other bridge it may be older than whatever emptied the cache (a
+    /// dirty subtree, a restyle): it is not served, the bridge's first
+    /// answer drops it, and so does the first store into the taffy cache.
+    ///
+    /// Mutation: `width_only_answer_kept` serving what is kept whatever the
+    /// taffy cache holds answers 70 in the second bridge; `cache_store`
+    /// keeping the answers at the first store whoever gave them answers 40
+    /// in the third.
+    #[test]
+    fn a_width_only_answer_from_before_a_bridge_is_not_served_while_the_taffy_cache_is_empty() {
+        let mut env = rows();
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let row = tree.children(tree.root)[0];
+        let max = width_question(AvailableSpace::MaxContent);
+        let min = width_question(AvailableSpace::MinContent);
+        {
+            let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            bridge.keep_width_only_answer(row, &max, 70.0);
+            assert_eq!(
+                bridge.width_only_answer_kept(row, &max),
+                Some(70.0),
+                "harness: the first bridge finds its own answer"
+            );
+        }
+        {
+            let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            assert_eq!(
+                bridge.width_only_answer_kept(row, &max),
+                None,
+                "a bridge served an answer it did not give, the row's taffy cache being empty"
+            );
+            bridge.keep_width_only_answer(row, &min, 40.0);
+            assert_eq!(
+                (
+                    bridge.width_only_answer_kept(row, &max),
+                    bridge.width_only_answer_kept(row, &min)
+                ),
+                (None, Some(40.0)),
+                "the bridge's first answer keeps company with one from before it"
+            );
+        }
+        let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+        bridge.cache_store(
+            row.into(),
+            &height_question(),
+            LayoutOutput::from_outer_size(Size {
+                width: 60.0,
+                height: 10.0,
+            }),
+        );
+        assert_eq!(
+            bridge.width_only_answer_kept(row, &min),
+            None,
+            "the first store into an empty taffy cache kept an answer from before the bridge"
+        );
+    }
+
+    /// A3-solver-17b. taffy's cache keeps one measurement per slot class, and
+    /// a node's second way (`TaffyMeasureSpill`) was made by the second store
+    /// into a class - after that store had overwritten the first measurement
+    /// of the class, and holding the second alone. The first key was in
+    /// neither cache: its next ask (a flex item measured for its container's
+    /// max-content run, its min-content run, and again at the first width)
+    /// computed it once more. The second way now begins with both.
+    ///
+    /// Mutation: the second way made without the evicted measurement
+    /// (`cache_store` not taking it from `TaffyPassMemo::last_measures`) does
+    /// not find the first width again.
+    #[test]
+    fn the_measurement_a_second_store_evicts_is_found_in_the_second_way() {
+        let mut env = rows();
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let item = tree.children(tree.root)[0];
+        // Two keys of one slot class: how tall at 100 px wide, how tall at 200.
+        let how_tall_at = |width: f32| LayoutInput {
+            axis: taffy::RequestedAxis::Vertical,
+            known_dimensions: Size {
+                width: Some(width),
+                height: None,
+            },
+            ..width_question(AvailableSpace::MaxContent)
+        };
+        let answer = |width: f32, height: f32| LayoutOutput::from_outer_size(Size { width, height });
+        let mut bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+
+        bridge.cache_store(item.into(), &how_tall_at(100.0), answer(100.0, 30.0));
+        assert_eq!(
+            bridge
+                .cache_get(item.into(), &how_tall_at(100.0))
+                .map(|o| o.size),
+            Some(Size {
+                width: 100.0,
+                height: 30.0
+            }),
+            "harness: taffy's cache holds the first measurement"
+        );
+        bridge.cache_store(item.into(), &how_tall_at(200.0), answer(200.0, 20.0));
+        assert_eq!(
+            bridge
+                .cache_get(item.into(), &how_tall_at(200.0))
+                .map(|o| o.size),
+            Some(Size {
+                width: 200.0,
+                height: 20.0
+            }),
+            "harness: taffy's cache holds the second measurement"
+        );
+        assert_eq!(
+            bridge
+                .cache_get(item.into(), &how_tall_at(100.0))
+                .map(|o| o.size),
+            Some(Size {
+                width: 100.0,
+                height: 30.0
+            }),
+            "the first measurement of the class is in neither cache once the second evicted it"
+        );
+    }
+
+    /// The final layout of a flex item: `width` px wide, in a row 400 px wide.
+    fn final_layout_at(width: f32) -> LayoutInput {
+        LayoutInput {
+            run_mode: RunMode::PerformLayout,
+            sizing_mode: taffy::SizingMode::InherentSize,
+            axis: taffy::RequestedAxis::Both,
+            known_dimensions: Size {
+                width: Some(width),
+                height: None,
+            },
+            parent_size: Size {
+                width: Some(400.0),
+                height: None,
+            },
+            available_space: Size {
+                width: AvailableSpace::Definite(400.0),
+                height: AvailableSpace::MaxContent,
+            },
+            vertical_margins_are_collapsible: Line {
+                start: false,
+                end: false,
+            },
+        }
+    }
+
+    /// A measure of a flex item: how tall at `width` px wide.
+    fn how_tall_at(width: f32) -> LayoutInput {
+        LayoutInput {
+            run_mode: RunMode::ComputeSize,
+            axis: taffy::RequestedAxis::Vertical,
+            ..final_layout_at(width)
+        }
+    }
+
+    /// A3-solver-17c, the count. A flex item that is a block - `body > row >
+    /// item > inner`, the inner box half as wide as the item - is laid out,
+    /// asked how tall it is at another width, and laid out again as before.
+    /// The measure lays the item's content out at its own width; it used to
+    /// leave that behind and mark the final layout stale, so the second
+    /// final layout was computed although taffy's cache held it. Now the
+    /// measure is journaled: the subtree holds afterwards what the final
+    /// layout wrote, the final layout is found, and the same measure asked
+    /// again computes nothing.
+    ///
+    /// Mutations: `begin_measure_journal` answering `None` (no journal) ->
+    /// the final layout is computed a second time (2 computed, not 1), and
+    /// the inner box keeps the width of the measure; `end_measure_journal`
+    /// not moving the hot nodes back -> the inner box keeps the measure's
+    /// width; not moving the `NodeCache`s back -> the final layout is not
+    /// current and is computed again.
+    #[test]
+    fn a_measure_of_a_block_item_leaves_its_subtree_as_the_final_layout_wrote_it() {
+        let mut env = Env::of(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("display: flex; flex-direction: row;")
+                    .with_child(
+                        Dom::create_div()
+                            .with_child(Dom::create_div().with_css("width: 50%; height: 20px;")),
+                    ),
+            ),
+        );
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let row = tree.children(tree.root)[0];
+        let item = tree.children(row)[0];
+        let inner = tree.children(item)[0];
+        let mut text_cache = crate::font_traits::TextLayoutCache::new();
+        let text_cache = core::ptr::from_mut(&mut text_cache);
+        let held = |tree: &LayoutTree, ctx: &LayoutContext<'_, _>, node: usize| {
+            format!(
+                "{:?} {:?} {:?}",
+                tree.nodes[node], tree.warm[node], ctx.cache_map.entries[node]
+            )
+        };
+        MEASURES_JOURNALED.with(|n| n.set(0));
+        FINAL_LAYOUTS_COMPUTED.with(|n| n.set(0));
+
+        let laid_out = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(item.into(), final_layout_at(200.0));
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            1,
+            "harness: the item's first final layout is computed"
+        );
+        assert!(
+            tree.nodes[inner].used_size.is_some(),
+            "harness: the final layout sized the inner box"
+        );
+        let inner_as_laid_out = held(&tree, &ctx, inner);
+        let item_size = tree.nodes[item].used_size;
+
+        let measured = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(item.into(), how_tall_at(120.0));
+        assert_eq!(
+            MEASURES_JOURNALED.with(core::cell::Cell::get),
+            1,
+            "the measure of an item whose final layout is current is journaled"
+        );
+        assert_eq!(measured.size.width, 120.0, "the measure answers for its own width");
+        assert_eq!(
+            held(&tree, &ctx, inner),
+            inner_as_laid_out,
+            "the measure left something behind on the inner box"
+        );
+        assert_eq!(tree.nodes[item].used_size, item_size);
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            1,
+            "harness: a measure is no final layout"
+        );
+
+        let again = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(item.into(), final_layout_at(200.0));
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            1,
+            "the final layout taffy's cache holds was computed a second time after a measure"
+        );
+        assert_eq!(again.size, laid_out.size);
+        assert_eq!(held(&tree, &ctx, inner), inner_as_laid_out);
+
+        // The same question again: found, nothing computed and nothing copied.
+        let measured_again = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(item.into(), how_tall_at(120.0));
+        assert_eq!(measured_again.size, measured.size);
+        assert_eq!(
+            MEASURES_JOURNALED.with(core::cell::Cell::get),
+            1,
+            "a measure repeated at the same constraints was computed again"
+        );
+    }
+
+    /// A3-solver-17c for a flex CONTAINER (`body > row > row > item`, the
+    /// inner row asked): its measure writes nothing itself, its items'
+    /// answers do. When every one of those is found or journaled the
+    /// container holds what its final layout wrote, and that layout is found
+    /// again after the measure.
+    ///
+    /// Mutation: the container's flag left cleared after its measure (the
+    /// `was_current && .. unrestored_writes() == writes_before` arm removed)
+    /// -> the inner row's final layout is computed again: 3 computed, not 2.
+    #[test]
+    fn a_measure_of_a_flex_container_whose_items_leave_no_write_keeps_its_final_layout() {
+        let mut env = rows();
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        ctx.cache_map.resize_to_tree(tree.nodes.len());
+        let outer = tree.children(tree.root)[0];
+        let inner_row = tree.children(outer)[0];
+        let mut text_cache = crate::font_traits::TextLayoutCache::new();
+        let text_cache = core::ptr::from_mut(&mut text_cache);
+        FINAL_LAYOUTS_COMPUTED.with(|n| n.set(0));
+
+        let laid_out = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(inner_row.into(), final_layout_at(200.0));
+        let computed_first = FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get);
+        assert!(
+            computed_first >= 1,
+            "harness: the inner row's first final layout is computed"
+        );
+
+        let _ = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(inner_row.into(), how_tall_at(120.0));
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            computed_first,
+            "harness: the measure of the row computed no final layout"
+        );
+
+        let again = TaffyBridge::new(&mut ctx, &mut tree, text_cache)
+            .compute_child_layout(inner_row.into(), final_layout_at(200.0));
+        assert_eq!(again.size, laid_out.size);
+        assert_eq!(
+            FINAL_LAYOUTS_COMPUTED.with(core::cell::Cell::get),
+            computed_first,
+            "the row's final layout was computed again after a measure that left no write"
+        );
+    }
+
+    /// A kept inline layout of no items: at `width`, of the content `hash`,
+    /// told apart from another of the same slot by `has_floats`.
+    fn lines_at(
+        width: crate::text3::cache::AvailableSpace,
+        hash: u64,
+        has_floats: bool,
+    ) -> crate::solver3::layout_tree::CachedInlineLayout {
+        let mut lines = crate::solver3::layout_tree::CachedInlineLayout::new(
+            std::sync::Arc::new(crate::font_traits::UnifiedLayout {
+                items: Vec::new(),
+                overflow: Default::default(),
+            }),
+            width,
+            has_floats,
+        );
+        lines.inline_content_hash = hash;
+        lines
+    }
+
+    /// A node's warm data: its final layout (at 200 px, of the content
+    /// `final_of`) and its kept measures.
+    fn node_holding(
+        final_of: Option<u64>,
+        measures: Vec<crate::solver3::layout_tree::CachedInlineLayout>,
+    ) -> crate::solver3::layout_tree::LayoutNodeWarm {
+        use crate::{
+            solver3::layout_tree::{InlineMeasureLayouts, LayoutNodeWarm},
+            text3::cache::AvailableSpace as Width,
+        };
+        let mut kept = InlineMeasureLayouts::default();
+        for measure in measures {
+            kept.keep(measure);
+        }
+        LayoutNodeWarm {
+            inline_layout_result: final_of
+                .map(|hash| Box::new(lines_at(Width::Definite(200.0), hash, false))),
+            inline_measure_layouts: (!kept.is_empty()).then(|| Box::new(kept)),
+            ..LayoutNodeWarm::default()
+        }
+    }
+
+    /// The measures a node keeps: per slot (min-content, max-content) the
+    /// content its lines are of and their `has_floats` mark.
+    fn measures_of(
+        node: &crate::solver3::layout_tree::LayoutNodeWarm,
+    ) -> [Option<(u64, bool)>; 2] {
+        let slot = |width| {
+            node.inline_measure_layouts
+                .as_deref()
+                .and_then(|kept| kept.get(width))
+                .map(|lines| (lines.inline_content_hash, lines.has_floats))
+        };
+        [
+            slot(crate::text3::cache::AvailableSpace::MinContent),
+            slot(crate::text3::cache::AvailableSpace::MaxContent),
+        ]
+    }
+
+    /// A3-solver-17c, the text a journaled measure flowed. The journal puts a
+    /// node back as it was before the measure; the lines the measure flowed at
+    /// the min- or max-content width are an answer, kept in the node
+    /// (`inline_measure_layouts`), and went with the rest: every later measure
+    /// of the node flowed its text again
+    /// (`a_hovered_label_flows_its_text_once_however_often_it_is_measured`:
+    /// 3 flows for 1). They stay.
+    ///
+    /// Four nodes, each as the journal restores it and as the measure left it:
+    /// 1. a final layout of content 7, no measure; the measure flowed the
+    ///    min-content lines of content 7: kept, the final layout untouched;
+    /// 2. the same node, the measure's lines of content 9 (not what the final
+    ///    layout shows): not kept;
+    /// 3. the node held min-content lines of content 7 already (marked), the
+    ///    measure made its own of content 7 and max-content ones: the node's
+    ///    own min stays, the max is kept;
+    /// 4. no final layout, max-content lines of content 5 held; the measure
+    ///    flowed min-content lines of content 9: kept, and the lines of the
+    ///    other content go (a node keeps the layouts of one content).
+    ///
+    /// Mutations: `keep_inline_answers` keeping nothing (returning at once)
+    /// leaves case 1 without its measure; its call taken out of
+    /// `end_measure_journal` fails the hover test named above (`layout/tests`).
+    #[test]
+    fn a_journaled_measure_leaves_the_lines_it_flowed_in_their_node() {
+        use crate::text3::cache::AvailableSpace as Width;
+
+        // 1.
+        let mut restored = node_holding(Some(7), Vec::new());
+        let measured = node_holding(Some(7), vec![lines_at(Width::MinContent, 7, false)]);
+        keep_inline_answers(&mut restored, measured);
+        assert_eq!(measures_of(&restored), [Some((7, false)), None]);
+        let final_layout = restored.inline_layout_result.as_deref().expect("the final layout");
+        assert!(
+            matches!(final_layout.available_width, Width::Definite(w) if w == 200.0)
+                && final_layout.inline_content_hash == 7,
+            "the final layout is the one the node held"
+        );
+
+        // 2.
+        let mut restored = node_holding(Some(7), Vec::new());
+        let measured = node_holding(Some(9), vec![lines_at(Width::MinContent, 9, false)]);
+        keep_inline_answers(&mut restored, measured);
+        assert_eq!(measures_of(&restored), [None, None]);
+        assert!(restored.inline_measure_layouts.is_none(), "no empty box is left behind");
+
+        // 3.
+        let mut restored = node_holding(Some(7), vec![lines_at(Width::MinContent, 7, true)]);
+        let measured = node_holding(
+            Some(7),
+            vec![
+                lines_at(Width::MinContent, 7, false),
+                lines_at(Width::MaxContent, 7, false),
+            ],
+        );
+        keep_inline_answers(&mut restored, measured);
+        assert_eq!(measures_of(&restored), [Some((7, true)), Some((7, false))]);
+
+        // 4.
+        let mut restored = node_holding(None, vec![lines_at(Width::MaxContent, 5, false)]);
+        let measured = node_holding(None, vec![lines_at(Width::MinContent, 9, false)]);
+        keep_inline_answers(&mut restored, measured);
+        assert_eq!(measures_of(&restored), [Some((9, false)), None]);
+    }
+
+    /// The width of the lines a node keeps from a journaled measure at a
+    /// definite width, and the content they are of.
+    fn definite_of(node: &crate::solver3::layout_tree::LayoutNodeWarm) -> Option<(f32, u64)> {
+        let lines = node.inline_measure_layouts.as_deref()?.definite.as_ref()?;
+        match lines.available_width {
+            crate::text3::cache::AvailableSpace::Definite(width) => {
+                Some((width, lines.inline_content_hash))
+            }
+            _ => None,
+        }
+    }
+
+    /// A node as a measure at `width` px left it: its lines at that width, of
+    /// the content `hash`, where its final layout was.
+    fn node_measured_at(width: f32, hash: u64) -> crate::solver3::layout_tree::LayoutNodeWarm {
+        crate::solver3::layout_tree::LayoutNodeWarm {
+            inline_layout_result: Some(Box::new(lines_at(
+                crate::text3::cache::AvailableSpace::Definite(width),
+                hash,
+                false,
+            ))),
+            ..Default::default()
+        }
+    }
+
+    /// A3-solver-17c, a journaled measure at a definite width. A flex
+    /// container asks an item "how tall at 188 px?" before it lays it out at
+    /// 188 px; the item's final layout, current, is at 200 px. The measure
+    /// flows the text at 188 px, the journal puts the layout at 200 px back -
+    /// and the lines at 188 px were lost: the next question at 188 px and the
+    /// final layout at 188 px each flowed the text again (3 flows for 1).
+    /// They are kept beside the final layout.
+    ///
+    /// 1. final at 200 px of content 7; the measure left lines at 188 px of
+    ///    content 7: kept as (188, 7), the final layout still at 200 px;
+    /// 2. the measure was at 200 px (it found the final layout): nothing kept;
+    /// 3. the measure's lines are of content 9: nothing kept;
+    /// 4. the node keeps (188, 7) already and the measure left lines at 150 px:
+    ///    the last ones are kept, (150, 7); at 188 px again: its own stay.
+    ///
+    /// Mutation: the definite arm of `keep_inline_answers` removed keeps
+    /// nothing in case 1 (and the hover test of `layout/tests` flows 3 times).
+    #[test]
+    fn a_journaled_measure_at_a_definite_width_keeps_its_lines_beside_the_final_layout() {
+        use crate::text3::cache::AvailableSpace as Width;
+
+        // 1.
+        let mut restored = node_holding(Some(7), Vec::new());
+        keep_inline_answers(&mut restored, node_measured_at(188.0, 7));
+        assert_eq!(definite_of(&restored), Some((188.0, 7)));
+        let final_layout = restored.inline_layout_result.as_deref().expect("the final layout");
+        assert!(
+            matches!(final_layout.available_width, Width::Definite(w) if w == 200.0),
+            "the final layout is the one the node held, at 200 px"
+        );
+
+        // 2.
+        let mut restored = node_holding(Some(7), Vec::new());
+        keep_inline_answers(&mut restored, node_measured_at(200.0, 7));
+        assert_eq!(definite_of(&restored), None);
+        assert!(restored.inline_measure_layouts.is_none(), "no empty box is left behind");
+
+        // 3.
+        let mut restored = node_holding(Some(7), Vec::new());
+        keep_inline_answers(&mut restored, node_measured_at(188.0, 9));
+        assert_eq!(definite_of(&restored), None);
+
+        // 4.
+        let mut restored = node_holding(Some(7), Vec::new());
+        keep_inline_answers(&mut restored, node_measured_at(188.0, 7));
+        keep_inline_answers(&mut restored, node_measured_at(150.0, 7));
+        assert_eq!(definite_of(&restored), Some((150.0, 7)));
+        let kept_lines = |node: &crate::solver3::layout_tree::LayoutNodeWarm| {
+            node.inline_measure_layouts
+                .as_deref()
+                .and_then(|kept| kept.definite.as_ref())
+                .map(|lines| lines.layout.clone())
+                .expect("the kept lines")
+        };
+        let own = kept_lines(&restored);
+        keep_inline_answers(&mut restored, node_measured_at(150.0, 7));
+        assert!(
+            std::sync::Arc::ptr_eq(&kept_lines(&restored), &own),
+            "the node's own lines at that width stay"
+        );
     }
 }

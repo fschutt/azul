@@ -86,6 +86,28 @@ fn main() {
         }
     }
 
+    // `az_desktop`: the desktop module (the window shells, the GPU renderer, clipboard, dialogs,
+    // devices) is compiled in - an internal build (`cabi_internal`) with the `desktop` feature
+    // (part of `_internal_deps`: build-dll, link-static), off wasm. `az_engine_stubs`: an
+    // internal build off wasm without it - the `engine` profile of servers and command-line
+    // tools - where `crate::unified` gives the C ABI the repr-C-identical stub handles it has on
+    // wasm (`any(target_arch = "wasm32", az_engine_stubs)`), so the whole generated API compiles
+    // without the desktop crates. One definition for every gate.
+    println!("cargo:rustc-check-cfg=cfg(az_desktop)");
+    println!("cargo:rustc-check-cfg=cfg(az_engine_stubs)");
+    {
+        let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+        let internal = env::var("CARGO_FEATURE_CABI_INTERNAL").is_ok();
+        let desktop = env::var("CARGO_FEATURE_DESKTOP").is_ok();
+        if internal && arch != "wasm32" {
+            if desktop {
+                println!("cargo:rustc-cfg=az_desktop");
+            } else {
+                println!("cargo:rustc-cfg=az_engine_stubs");
+            }
+        }
+    }
+
     println!("cargo:rustc-check-cfg=cfg(az_db_engine)");
     {
         let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -93,6 +115,25 @@ fn main() {
         let engine_target = !(os == "linux" && width == "32");
         if env::var("CARGO_FEATURE_DB_SQLITE").is_ok() && engine_target {
             println!("cargo:rustc-cfg=az_db_engine");
+        }
+    }
+
+    // `az_x11`: the X11 windowing backend is compiled in - `shell2/linux`
+    // minus Wayland (the X11 backend, the window registry, the shared
+    // resources, the timers), the window loop in `run.rs` that drives it,
+    // and the X11 halves of the eyedropper, the monitor list and the native
+    // screenshot. Always on Linux. On macOS with the `x11-macos` feature (part
+    // of build-dll), which runs that same backend against XQuartz so an X11 bug
+    // reproduces on a Mac (`AZ_BACKEND=x11`). Wayland, the D-Bus desktop
+    // settings and AT-SPI stay `target_os = "linux"`: they are the Linux
+    // DESKTOP, not the X protocol. One definition for every gate, for the
+    // same reason as the two above - a condition stated twice drifts.
+    println!("cargo:rustc-check-cfg=cfg(az_x11)");
+    {
+        let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+        let x11_on_macos = os == "macos" && env::var("CARGO_FEATURE_X11_MACOS").is_ok();
+        if os == "linux" || x11_on_macos {
+            println!("cargo:rustc-cfg=az_x11");
         }
     }
 
@@ -126,14 +167,16 @@ fn main() {
         // --release -p azul-dll --features build-dll` puts libazul there).
         let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
         let workspace_root = Path::new(&manifest_dir).parent().unwrap().to_path_buf();
-        configure_dynamic_linking(
-            &target,
-            &workspace_root,
-            &[
-                workspace_root.join("target/release"),
-                workspace_root.join("target/debug"),
-            ],
-        );
+        // `target/azul-lib` is where the README copies a built library for apps to
+        // link; with a shared CARGO_TARGET_DIR (worktrees) that folder lives there,
+        // not under this checkout.
+        let mut candidates = vec![workspace_root.join("target/azul-lib")];
+        if let Ok(shared) = env::var("CARGO_TARGET_DIR") {
+            candidates.push(workspace_root.join(shared).join("azul-lib"));
+        }
+        candidates.push(workspace_root.join("target/release"));
+        candidates.push(workspace_root.join("target/debug"));
+        configure_dynamic_linking(&target, &workspace_root, &candidates);
     }
 
     // Restrict the cdylib's exported symbols to the azul C API. Without this
@@ -148,8 +191,13 @@ fn main() {
     // and — on Linux python builds — Py*/_Py* so libpython can still interpose
     // the weak stubs at import. Audit §2.1. Only affects the cdylib; the
     // staticlib keeps all symbols for static consumers of db-sqlite.
-    if env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
+    // `dist` is the shipped libazul (build-dll, the python and the PHP extension imply it, but
+    // a `--features dist` build is the one that ships and does not imply any of them): the
+    // restriction is for every cdylib of the azul C API (X-DELTA-AZDRIVE-KEYS-39).
+    if env::var("CARGO_FEATURE_DIST").is_ok()
+        || env::var("CARGO_FEATURE_BUILD_DLL").is_ok()
         || env::var("CARGO_FEATURE_PYTHON_EXTENSION").is_ok()
+        || env::var("CARGO_FEATURE_PHP_EXTENSION").is_ok()
     {
         restrict_cdylib_exports(&target);
     }
@@ -631,6 +679,12 @@ fn check_generated_files() {
         Ok(dir) if !dir.is_empty() => PathBuf::from(dir),
         _ => Path::new(&manifest_dir).join("../target/codegen"),
     };
+    // The `include!`s of the generated sources (lib.rs, material_icons.rs, web/classify.rs,
+    // php_extension.rs) read this, so AZ_CODEGEN_DIR reaches them: they used to hard-code
+    // `CARGO_MANIFEST_DIR/../target/codegen`, which a git dependency cannot write into.
+    // Absolute: `include!` resolves a relative path against the including file.
+    let resolved = std::fs::canonicalize(&codegen_dir).unwrap_or_else(|_| codegen_dir.clone());
+    println!("cargo:rustc-env=AZ_CODEGEN_DIR_RESOLVED={}", resolved.display());
 
     let checks: &[(&str, &str)] = &[
         ("CARGO_FEATURE_CABI_INTERNAL", "dll_api_internal.rs"),
@@ -726,8 +780,12 @@ fn compress_debugger_assets() {
     let debugger_dir = Path::new(&manifest_dir).join("src/desktop/shell2/common/debugger");
 
     let assets = &[
+        // AzBuilder's project tree + editor (B4).
+        ("debugger-project.js", "debugger-project.js.br"),
         ("debugger.css", "debugger.css.br"),
         ("debugger.js", "debugger.js.br"),
+        ("debugger-dnd.js", "debugger-dnd.js.br"),
+        ("debugger-export.js", "debugger-export.js.br"),
         ("debugger.html", "debugger.html.br"),
     ];
 

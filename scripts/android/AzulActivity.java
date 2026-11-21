@@ -30,12 +30,14 @@ import android.view.MotionEvent;
 import android.view.View;
 
 import com.azul.a11y.AzulAccessibilityBridge;
+import com.azul.auth.AzulAuthSession;
 import com.azul.gesture.NativeGestureBridge;
 import com.azul.picker.AzulFilePicker;
 import com.azul.text.NativeTextBridge;
 import com.azul.gamepad.AzulGamepad;
 import com.azul.permission.AzulPermissions;
 import com.azul.media.AzulMediaSession;
+import com.azul.notify.AzulNotifications;
 import com.azul.sensors.AzulSensors;
 
 public class AzulActivity extends NativeActivity {
@@ -62,12 +64,23 @@ public class AzulActivity extends NativeActivity {
                 : null;
             if (lib != null) {
                 System.loadLibrary(lib);
+                AzulNotifications.markNativeReady();
             }
         } catch (Exception e) {
             // Fall through: if the lib is truly unloadable, NativeActivity's
             // own load in super.onCreate produces the canonical error.
         }
         super.onCreate(savedInstanceState);
+        // A tap on a notification of an app that was not running started
+        // this activity: its intent carries the notification. Forwarded now
+        // (Rust queues it until android_main's loop routes it to the
+        // app-level handler). Only on a FRESH creation - a recreated activity
+        // holds the same intent, and the tap must not be reported twice.
+        if (savedInstanceState == null) {
+            AzulNotifications.onIntent(this, getIntent(), true);
+        }
+        // Dismissals a receiver kept while the app was not running.
+        AzulNotifications.drainPersisted(this);
         // android_main is starting on its own thread — but the
         // ANDROID_WINDOW_PTR may not be set yet. We attach lazily in
         // onWindowFocusChanged so the AndroidWindow* is guaranteed to
@@ -124,6 +137,23 @@ public class AzulActivity extends NativeActivity {
     }
 
     /**
+     * A notification tap while the app runs. The activity is
+     * launchMode="singleTop", so the tap lands HERE instead of starting a
+     * second NativeActivity (which would start a second android_main).
+     */
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        // A sign-in's redirect (AzulAuthSession$RedirectActivity forwards it here): the waiting
+        // AuthSession takes it; anything else may be a notification tap.
+        if (AzulAuthSession.onIntent(intent)) {
+            return;
+        }
+        AzulNotifications.onIntent(this, intent, false);
+    }
+
+    /**
      * Runtime-permission results.
      *
      * Rust calls Activity.requestPermissions directly, but the ANSWER is a Java
@@ -163,7 +193,18 @@ public class AzulActivity extends NativeActivity {
         // Sensors and location keep draining the battery behind a backgrounded
         // app unless something stops them; nothing did.
         AzulSensors.stop(this);
+        // A sign-in's Custom Tab covers the app: noted, so a return without the
+        // redirect reads as a cancel (onResume).
+        AzulAuthSession.onPause();
         super.onPause();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Back from a sign-in's Custom Tab without its redirect (that arrives in
+        // onNewIntent, before onResume): the user closed the tab.
+        AzulAuthSession.onResume();
     }
 
     @Override

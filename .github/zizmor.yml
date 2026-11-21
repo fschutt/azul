@@ -1,0 +1,64 @@
+# Configuration of zizmor, the static analysis for GitHub Actions (https://docs.zizmor.sh/configuration/).
+# The `zizmor` job in workflows/supply-chain.yml reads it (there with --min-severity low); so does a local
+# run of `zizmor .github`.
+#
+# What is NOT fixed yet is listed below, each with its reason, so that the job is green today and turns red on
+# anything new. Every entry is a decision for the owner (fixing it changes how a release or deploy job runs):
+# delete an entry when its finding is fixed. `zizmor --no-ignores .github` shows all of them again.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # Every action is pinned to a full commit SHA, the actions/* ones too: a tag can be moved.
+        "*": hash-pin
+
+  # `uses: ./.github/actions/...` stays (32 findings in rust.yml). The new `$/...` form resolves the action at the
+  # workflow's own commit instead of in the workspace; that is a change to how rust.yml finds its composite actions.
+  self-repository:
+    disable: true
+
+  # rust.yml is a release workflow (a release tag runs it) and reads caches (actions/cache, setup-node, setup-go,
+  # setup-zig, ...); supply-chain.yml caches the cargo-vet and cargo-audit binaries. zizmor's remedy is `cache-mode: none`
+  # or a step-level opt-out on tag runs, which changes the release builds.
+  cache-poisoning:
+    ignore:
+      - rust.yml
+      - supply-chain.yml
+
+  # issue_comment (ci-command.yml: starts CI for a "ci run" comment, only for owner, member or collaborator) and
+  # workflow_run (ci-report.yml, post-release.yml: read the result of a finished run). Deliberate.
+  dangerous-triggers:
+    ignore:
+      - ci-command.yml
+      - ci-report.yml
+      - post-release.yml
+
+  # Not in this file, but next to the code, so that they move with it (a `# zizmor: ignore[...]` comment):
+  #  - excessive-permissions: the workflow-level `pages: write` and `id-token: write` of rust.yml (GitHub Pages deploy,
+  #    OIDC publishing) and `packages: write` of dockery.yml (push to ghcr.io). Moving them into the jobs that need them
+  #    changes the token of every other job of the file.
+  #  - known-vulnerable-actions: pypa/gh-action-pypi-publish v1.14.2 had GHSA-5xjx-3w67-w9x9 (critical, published
+  #    2026-10-30: the CA of Sigstore's chain used by trusted publishing and attestations was revoked); the `pypi` job
+  #    of rust.yml is bumped to v1.14.3 (commit 7245906f, an annotated tag verified through the GitHub API), so this
+  #    needs no ignore any more.
+  #  - artipacked: 21 checkouts of jobs that publish, deploy, sign or talk to a git remote carry an explicit
+  #    `persist-credentials: true # kept as it was ...` (the default, so nothing changed); the owner decides per job
+  #    whether it can be `false` like every other checkout.
+  # `grep -rn 'zizmor: ignore\|persist-credentials: true' .github` finds them all.
+
+  # `echo ... >> $GITHUB_PATH` in the Windows install job of post-release.yml.
+  github-env:
+    ignore:
+      - post-release.yml
+
+  # `shell: cmd` (post-release.yml, rust.yml): the Windows steps are written for it.
+  misfeature:
+    ignore:
+      - post-release.yml
+      - rust.yml
+
+  # `gem install azul --source http://127.0.0.1:...` in rust.yml: the verify job installs the project's own gem from the
+  # mirror it has just built, locally.
+  adhoc-packages:
+    ignore:
+      - rust.yml

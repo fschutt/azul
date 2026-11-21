@@ -1,0 +1,22 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Test: Baseline alignment with a table-cell element parent</title>
+<meta name="assert" content="The baseline of a table cell element is aligned with the baseline of its child inline element when 'vertical-align: baseline' is specified on the child."/>
+<style>
+span
+            {
+                font-size: 2em;
+                vertical-align: baseline;
+            }
+</style>
+</head>
+<body>
+        <p>Test passes if the bottoms of all the 'X's are aligned.</p>
+        <table>
+            <tr>
+                <td>XXXXX<span>XXXXX</span></td>
+            </tr>
+        </table>
+    
+</body>
+</html>

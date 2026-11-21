@@ -1,0 +1,22 @@
+{
+  "drive": "d_k3f9x2mq7a",
+  "checkout": "ck_4n2v8r6tqe",
+  "family": "f7m3k9q2",
+  "member": "recovery-pending",
+  "bucket": "azlin-d-k3f9x2mq7a",
+  "tier": "1TB",
+  "months": [
+    1,
+    3,
+    6,
+    12,
+    24
+  ],
+  "stored": 107374182400,
+  "logical": 131072,
+  "price": {
+    "amount": 499,
+    "currency": "EUR"
+  },
+  "at": "2026-10-21T08:00:00Z"
+}

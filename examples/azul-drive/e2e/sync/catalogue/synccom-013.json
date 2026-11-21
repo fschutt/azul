@@ -1,0 +1,60 @@
+[
+  {
+    "name": "SYNCCOM-013: files and folders named 'core' (and CORE) sync like any other file",
+    "description": "SYNCCOM-013 (Sync.com): a file or folder named 'core' silently never synced (a built-in exclusion meant for core dumps). Rules P11 (only the systems' bookkeeping, temp and lock files and .git/ are ignored), O1 (no silent skips).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "core", "text": "core file" },
+      { "op": "drive_write", "device": "a", "path": "sub/CORE", "text": "upper core" },
+      { "op": "drive_write", "device": "a", "path": "sub2/core/inside.txt", "text": "in a core folder" },
+      { "op": "drive_write", "device": "a", "path": "core.txt", "text": "core.txt" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "core", "text": "core file" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "sub/CORE", "text": "upper core" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "sub2/core/inside.txt", "text": "in a core folder" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "core", "text": "core file" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "sub/CORE", "text": "upper core" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "sub2/core/inside.txt", "text": "in a core folder" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "core.txt", "text": "core.txt" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 4 },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "SYNCCOM-013: the systems' own files (.DS_Store, Thumbs.db, desktop.ini, ._*, .Trashes) and temp files never go up, nor come down from a device that sent them",
+    "description": "SYNCCOM-013 (Sync.com): the built-in exclusion list. Rule P11: exactly the systems' bookkeeping and temp/lock files are ignored. sync-chaos port-ignored-system-files.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": ".DS_Store", "text": "finder" },
+      { "op": "drive_write", "device": "a", "path": "pics/Thumbs.db", "text": "thumbs" },
+      { "op": "drive_write", "device": "a", "path": "pics/desktop.ini", "text": "ini" },
+      { "op": "drive_write", "device": "a", "path": "pics/._holiday.jpg", "text": "apple double" },
+      { "op": "drive_write", "device": "a", "path": "pics/holiday.jpg", "text": "the photo" },
+      { "op": "drive_write", "device": "a", "path": "build.tmp", "text": "tmp" },
+      { "op": "drive_write", "device": "a", "path": ".~lock.sheet.ods#", "text": "lock" },
+      { "op": "drive_write", "device": "a", "path": ".Trashes/501/old.txt", "text": "trashed" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "pics/.DS_Store", "text": "from a careless client", "writer": "other-mac" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "pics/holiday.jpg", "count": 1 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 2 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "pics/holiday.jpg", "text": "the photo" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 1 },
+      { "op": "drive_check", "check": "file", "device": "a", "path": ".DS_Store", "text": "finder" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "pics/Thumbs.db", "text": "thumbs" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

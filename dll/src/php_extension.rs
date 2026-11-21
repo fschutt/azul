@@ -76,6 +76,6 @@ extern "C" {
 // macro calls qualified through `::ext_php_rs::...` paths, so no
 // `use ext_php_rs::prelude::*` is required at the include site.
 include!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../target/codegen/php_api.rs"
+    env!("AZ_CODEGEN_DIR_RESOLVED"),
+    "/php_api.rs"
 ));

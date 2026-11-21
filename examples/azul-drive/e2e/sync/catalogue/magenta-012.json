@@ -1,0 +1,120 @@
+[
+  {
+    "name": "the drive lists nothing at all: the folder here is not emptied",
+    "description": "MAGENTA-012 (Nextcloud desktop 3.10 and macOS File Provider, inherited risk): the server's external storage went offline and the client deleted the whole local folder; a stalled folder's weeks of local work were removed on a reset without an error. Rules D1 and D6: an empty listing is no evidence of deletes; the plan is held (mass-delete-held). sync-chaos delete-remote-emptied.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 12, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the drive answers 503 for everything: nothing is deleted, the status is not 'up to date'",
+    "description": "MAGENTA-012 (Nextcloud desktop 3.10 and macOS File Provider, inherited risk): the server's external storage went offline and the client deleted the whole local folder; a stalled folder's weeks of local work were removed on a reset without an error. Rules D6, E6 and O1: an unreachable store is listed (transient) and the folder here stays as it is.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 12, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_fault", "device": "a", "error_rate": 1.0, "seed": 1 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["transient", "remote-offline"], "when": "last" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 12 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "up-to-date" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 12 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the drive's index cannot be read: nothing here is deleted, the pass says why",
+    "description": "MAGENTA-012 (Nextcloud desktop 3.10 and macOS File Provider, inherited risk): the server's external storage went offline and the client deleted the whole local folder; a stalled folder's weeks of local work were removed on a reset without an error. Rules D6 and M2: a corrupt index is an incomplete read (remote-index-unreadable). sync-chaos delete-remote-index-corrupt.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "a" },
+      { "op": "drive_write", "device": "a", "path": "b.txt", "text": "b" },
+      { "op": "drive_write", "device": "a", "path": "c.txt", "text": "c" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "corrupt_index" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "remote-index-unreadable" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 3 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "remote entries that cannot be read are unknown, the local copies stay",
+    "description": "MAGENTA-012 (Nextcloud desktop 3.10 and macOS File Provider, inherited risk): the server's external storage went offline and the client deleted the whole local folder; a stalled folder's weeks of local work were removed on a reset without an error. Rules D6, M1 and O1: an entry that names no content is listed (remote-entry-unreadable), never a delete. sync-chaos delete-remote-entry-unreadable.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "x.txt", "text": "x" },
+      { "op": "drive_write", "device": "a", "path": "y.txt", "text": "y" },
+      { "op": "drive_write", "device": "a", "path": "z.txt", "text": "z" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "raw_entry", "key": "x.txt", "entry_json": "{\"hash\": \"bad tag\", \"size\": -1}" },
+      { "op": "drive_tamper", "remote": "r", "action": "raw_entry", "key": "y.txt", "entry_json": "\"not even an object\"" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "x.txt", "text": "x" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "y.txt", "text": "y" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "remote-entry-unreadable", "key": "x.txt" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "remote-entry-unreadable", "key": "y.txt" },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "a folder that cannot sync for a while says so, and resetting the pairing keeps the local work and sends it",
+    "description": "MAGENTA-012 (Nextcloud desktop 3.10 and macOS File Provider, inherited risk): the server's external storage went offline and the client deleted the whole local folder; a stalled folder's weeks of local work were removed on a reset without an error. Rules O1, D5 and C4: a device that cannot reach the drive says so at once (remote-offline, not 'up to date'); unpairing and pairing again never discards a local file, and a first sync that differs keeps both versions.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "work/plan.txt", "text": "v1" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_fault", "device": "a", "partition": true },
+      { "op": "drive_write", "device": "a", "path": "work/plan.txt", "text": "weeks of local work" },
+      { "op": "drive_write", "device": "a", "path": "work/new-chapter.txt", "text": "a new chapter" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["remote-offline", "transient"], "when": "last" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "not_contains": "up-to-date" },
+      { "op": "drive_unpair", "device": "a" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "kept_live", "texts": ["weeks of local work", "a new chapter", "v1"] },
+      { "op": "drive_check", "check": "remote_file", "key": "work/new-chapter.txt", "text": "a new chapter" },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "work/new-chapter.txt", "text": "a new chapter" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

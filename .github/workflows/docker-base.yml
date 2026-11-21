@@ -59,6 +59,8 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: true # kept as it was: this job publishes, deploys, signs or talks to a git remote; the owner decides (zizmor artipacked)
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
@@ -67,15 +69,21 @@ jobs:
       - name: Resolve build parameters
         id: params
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          INPUT_REF: ${{ github.event.inputs.ref }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_PUSH: ${{ github.event.inputs.push }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            ref="${{ github.event.release.tag_name }}"
-            tag="${{ github.event.release.tag_name }}"
+          if [ "$EVENT_NAME" = "release" ]; then
+            ref="$RELEASE_TAG"
+            tag="$RELEASE_TAG"
             push=true
           else
-            ref="${{ github.event.inputs.ref }}"
-            tag="${{ github.event.inputs.tag }}"
-            push="${{ github.event.inputs.push }}"
+            ref="$INPUT_REF"
+            tag="$INPUT_TAG"
+            push="$INPUT_PUSH"
           fi
           echo "ref=$ref"   >> "$GITHUB_OUTPUT"
           echo "tag=$tag"   >> "$GITHUB_OUTPUT"

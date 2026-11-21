@@ -1,0 +1,43 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Gradient test: gradients to/from transparent</title>
+<meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-200"/>
+<meta name="assert" content="Gradient to/from transparent ignores the color components of the transparent stop"/>
+<style>
+.test {
+  display: inline-block;
+  width: 25px;
+  height: 100px;
+  margin: 10px;
+}
+.a {
+  background: linear-gradient(transparent, 75%, red);
+}
+.b {
+  background: linear-gradient(rgba(255 0 0 / 0), 75%, red);
+}
+.c {
+  background: linear-gradient(rgba(0 0 255 / 0), 75%, red);
+}
+.d {
+  background: linear-gradient(blue, 75%, transparent);
+}
+.e {
+  background: linear-gradient(blue, 75%, rgba(0 0 255 / 0));
+}
+.f {
+  background: linear-gradient(blue, 75%, rgba(0 255 0 / 0));
+}
+</style>
+</head>
+<body><p>All three gradients should look the same:</p>
+<div class="test a"></div>
+<div class="test b"></div>
+<div class="test c"></div>
+
+<p>All three gradients should look the same:</p>
+<div class="test d"></div>
+<div class="test e"></div>
+<div class="test f"></div>
+</body>
+</html>

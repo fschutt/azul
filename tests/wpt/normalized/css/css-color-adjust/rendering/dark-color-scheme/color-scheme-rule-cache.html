@@ -1,0 +1,19 @@
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>Dependencies from color-scheme to non-inherited properties</title>
+<style>
+div {
+  background-color: Canvas;
+  color: CanvasText;
+  border: 2px solid light-dark(blue, purple);
+}
+</style>
+</head>
+<body><div style="color-scheme: light">
+  Always light
+</div>
+<div style="color-scheme: dark">
+  Always dark
+</div>
+</body>
+</html>

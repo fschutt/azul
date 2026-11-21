@@ -11,6 +11,17 @@
 //! 2. **The runtime filter passes** — [`azul_core::log_filter`], atomics for level and category,
 //!    changeable while the process runs.
 //!
+//! # What a run that asked for nothing gets
+//!
+//! At most the errors, each once. In the lean build [`super::debug_server::log_active`]
+//! is on unless `AZ_LOG=off`, so the sink check above always passes there; the level
+//! decides: `azul_core::log_filter` starts at Error unless one of its
+//! `LOG_REQUEST_VARS` (`AZ_LOG`, `AZ_LOG_FILE`, `AZ_LOG_STDERR`, `AZ_DEBUG`,
+//! `AZ_E2E`, `AZ_RECORD`) is set, and the `log` facade's built-in logger takes
+//! its level from the same function (`log_filter::level_from_env`). It used to
+//! start at Debug: an ordinary run of an app printed every Debug record to stderr,
+//! 3.4 million lines (612 MB, half the wall time) in two minutes of the map editor.
+//!
 //! Logging is NEVER gated by a cargo feature here. That is a standing user
 //! ruling, and it exists because a compile-time gate silently deleted azul's
 //! dead-connection diagnosis during the 2026-08-07 Wayland investigation: the
@@ -300,39 +311,141 @@ pub fn emit(level: LogLevel, category: LogCategory, message: String) {
     emit_at(level, category, message, None);
 }
 
+/// Records handed to [`emit_at`] since the process started, whatever sink took
+/// them: what a test reads to say "this ran and logged nothing" (a run that
+/// asked for no logs must emit none below Error) without capturing a file
+/// descriptor.
+static RECORDS_EMITTED: core::sync::atomic::AtomicUsize = core::sync::atomic::AtomicUsize::new(0);
+
+/// How many records [`emit_at`] has been handed so far ([`RECORDS_EMITTED`]).
+#[must_use]
+pub fn records_emitted() -> usize {
+    RECORDS_EMITTED.load(core::sync::atomic::Ordering::Relaxed)
+}
+
+/// One record as its line: the clock, the level and category, the message and
+/// the newline, in ONE string - what [`write_line`] and [`write_stderr_line`]
+/// then write with ONE `write_all`.
+#[must_use]
+pub fn format_record(us: u128, level: LogLevel, category: LogCategory, message: &str) -> String {
+    format!("[{us:>12}us][{level:?}][{category:?}] {message}\n")
+}
+
+/// Write a finished line to `sink` with ONE `write_all`.
+///
+/// stderr and a `File` are unbuffered: `writeln!(sink, "[{}]..", ..)` made a
+/// `write(2)` of its own for every piece of the format string, about nine per
+/// record - 19 us a record into a file against 1.5 us for one write (measured,
+/// 200 000 records). At Debug a 5 000-item display list is 15 000 records: 0.27
+/// s of system calls per frame. NOT `writeln!`/`eprintln!` for a second reason:
+/// `eprintln!` panics when the write fails, and a closed stderr is ordinary
+/// (piping a running app into `head` closes the pipe the moment `head` has its
+/// lines). A log line is advisory: failing to deliver one must never take the
+/// process down.
+pub fn write_line<W: std::io::Write>(sink: &mut W, line: &str) {
+    drop(sink.write_all(line.as_bytes()));
+}
+
+/// The one way a record reaches stderr, for the gate's own writer and the `log`
+/// facade's `StderrLogger` alike: the finished line, written once under the
+/// stderr lock (so lines of concurrent threads do not interleave).
+pub fn write_stderr_line(line: &str) {
+    #[cfg(test)]
+    if stderr_capture::offer(line) {
+        return;
+    }
+    write_line(&mut std::io::stderr().lock(), line);
+}
+
 /// [`emit`] with the optional window id the two-argument `log_*!` arms carry.
 ///
 /// This is what every `log_*!` call site lands in once the gate passes. It
-/// writes to BOTH sinks: stderr (on by default — see
+/// writes to BOTH sinks: stderr (when the run asked for logs: see
 /// `azul_core::log_filter::STDERR_ECHO`) and the debug server's queue, so
 /// `AZ_DEBUG=<port>` gives you a terminal log AND a populated debugger UI
 /// rather than a silent one and an invisible other.
 pub fn emit_at(level: LogLevel, category: LogCategory, message: String, window_id: Option<&str>) {
+    RECORDS_EMITTED.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
     // Timestamp FIRST. A log without one cannot answer "why was it slow",
     // which is the question these traces exist for: the 2026-08-07 mouse-resize
     // capture recorded 373 configures and 4 258 lines and could not say how
     // long anything took, because the lines had no clock on them.
     let us = micros_since_start();
-    if let Some(file) = log_file() {
-        use std::io::Write;
-        if let Ok(mut f) = file.lock() {
-            let _ = writeln!(f, "[{us:>12}us][{level:?}][{category:?}] {message}");
-        }
-    }
     // EXACTLY ONE stderr writer per record. `debug_server::log` forwards to the
     // `log` facade in the lean build, which lands in azul's own StderrLogger —
     // so printing here unconditionally duplicated every single line.
-    if gate_writes_stderr(level) {
-        // NOT `eprintln!`: it panics when the write fails, and a closed stderr
-        // is ordinary - piping a running app into `head` closes the pipe the
-        // moment `head` has its lines. A log line is advisory; failing to
-        // deliver one must never take the process down. `StderrLogger` already
-        // writes with `let _ = writeln!(..)` for the same reason.
-        use std::io::Write as _;
-        let mut err = std::io::stderr().lock();
-        let _ = writeln!(err, "[{us:>12}us][{level:?}][{category:?}] {message}");
+    let to_stderr = gate_writes_stderr(level);
+    let file = log_file();
+    if to_stderr || file.is_some() {
+        // The record is formatted ONCE and written with ONE `write_all` per
+        // sink (see `write_line`).
+        let line = format_record(us, level, category, &message);
+        if let Some(file) = file {
+            if let Ok(mut f) = file.lock() {
+                write_line(&mut *f, &line);
+            }
+        }
+        if to_stderr {
+            write_stderr_line(&line);
+        }
     }
     super::debug_server::log(level, category, message, window_id);
+}
+
+/// What the tests see of stderr: a thread-local sink that takes the place of the
+/// real one while a [`stderr_capture::Capture`] is alive, counting the writes.
+#[cfg(test)]
+pub(crate) mod stderr_capture {
+    use std::{cell::RefCell, rc::Rc};
+
+    /// The writes one capture saw.
+    #[derive(Default)]
+    pub(crate) struct Seen {
+        /// How many times a line was handed to stderr.
+        pub(crate) writes: usize,
+        /// What was handed over, in order.
+        pub(crate) text: String,
+    }
+
+    thread_local! {
+        static SINK: RefCell<Option<Rc<RefCell<Seen>>>> = const { RefCell::new(None) };
+    }
+
+    /// Whether a capture took `line` (it did not reach the real stderr).
+    pub(crate) fn offer(line: &str) -> bool {
+        SINK.with(|sink| match &*sink.borrow() {
+            Some(seen) => {
+                let mut seen = seen.borrow_mut();
+                seen.writes += 1;
+                seen.text.push_str(line);
+                true
+            }
+            None => false,
+        })
+    }
+
+    /// Captures this thread's stderr until it is dropped.
+    pub(crate) struct Capture(Rc<RefCell<Seen>>);
+
+    impl Capture {
+        pub(crate) fn start() -> Self {
+            let seen = Rc::new(RefCell::new(Seen::default()));
+            SINK.with(|sink| *sink.borrow_mut() = Some(Rc::clone(&seen)));
+            Self(seen)
+        }
+
+        /// The writes so far, and what they wrote.
+        pub(crate) fn seen(&self) -> (usize, String) {
+            let seen = self.0.borrow();
+            (seen.writes, seen.text.clone())
+        }
+    }
+
+    impl Drop for Capture {
+        fn drop(&mut self) {
+            SINK.with(|sink| *sink.borrow_mut() = None);
+        }
+    }
 }
 
 /// Microseconds since the first log record. Monotonic, cheap, and stable across
@@ -600,5 +713,174 @@ mod tests {
             );
         }
         log_filter::set_stderr_echo(false);
+    }
+
+    // ==================================================================
+    // REGRESSION (2026-11-20): one write per record, and an unset AZ_LOG
+    // is quiet
+    // ==================================================================
+
+    /// A sink that counts the `write` calls it gets, as the unbuffered stderr
+    /// and a `File` turn each of them into a `write(2)`.
+    #[derive(Default)]
+    struct CountingSink {
+        calls: usize,
+        bytes: Vec<u8>,
+    }
+
+    impl std::io::Write for CountingSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.calls += 1;
+            self.bytes.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A record's line is ONE `write` of the whole line, however long. `emit_at`
+    /// wrote it with `writeln!(sink, "[{us}]..", ..)` on the unbuffered stderr
+    /// and the `AZ_LOG_FILE` file: a `write(2)` for every piece of the format
+    /// string (about nine), 19 us a record against 1.5 us for one write.
+    #[test]
+    fn a_line_is_written_with_one_write() {
+        for message in ["short", &"x".repeat(5_000), "two\nlines"] {
+            let line = format_record(
+                1_234_567,
+                LogLevel::Debug,
+                LogCategory::DisplayList,
+                message,
+            );
+            let mut sink = CountingSink::default();
+            write_line(&mut sink, &line);
+            assert_eq!(sink.calls, 1, "a record of {} bytes", line.len());
+            assert_eq!(sink.bytes, line.as_bytes());
+            assert!(line.starts_with("[     1234567us][Debug][DisplayList] "), "{line}");
+            assert!(line.ends_with('\n'));
+        }
+    }
+
+    /// REGRESSION: `emit_at` hands each record to stderr ONCE, as the finished
+    /// line - through the gate's own writer or the `log` facade's, whichever
+    /// owns the record - and counts it.
+    #[test]
+    fn a_record_is_handed_to_stderr_as_one_line() {
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        crate::desktop::logging::init_default_logger();
+        log_filter::set_min_level(Some(Level::Trace));
+        log_filter::set_stderr_echo(true);
+        let capture = stderr_capture::Capture::start();
+        let before = records_emitted();
+        for level in [
+            LogLevel::Trace,
+            LogLevel::Debug,
+            LogLevel::Info,
+            LogLevel::Warn,
+            LogLevel::Error,
+        ] {
+            emit(level, LogCategory::Layout, format!("one record at {level:?}"));
+        }
+        let (writes, text) = capture.seen();
+        drop(capture);
+        log_filter::set_stderr_echo(false);
+        assert_eq!(records_emitted() - before, 5);
+        // The facade prints only what its level lets through (Error unless the
+        // run asked for more), the gate prints the rest: five records, ONE
+        // write each, each its own complete line.
+        assert_eq!(writes, text.lines().count(), "one write per line:\n{text}");
+        assert_eq!(writes, 5, "five records, five writes:\n{text}");
+        for level in ["Trace", "Debug", "Info", "Warn", "Error"] {
+            let needle = format!("one record at {level}");
+            assert_eq!(
+                text.lines().filter(|l| l.contains(&needle)).count(),
+                1,
+                "{level} must reach stderr exactly once:\n{text}"
+            );
+        }
+    }
+
+    /// The child of [`a_run_that_asked_for_nothing_prints_its_errors_and_no_more`]:
+    /// installs the logger as `App::create` does and logs one record per level.
+    const QUIET_PROBE: &str = "AZ-QUIET-LOG-PROBE-5b1c";
+    const QUIET_TEST_PATH: &str = "desktop::shell2::common::log_gate::tests::\
+         a_run_that_asked_for_nothing_prints_its_errors_and_no_more";
+
+    /// REGRESSION (2026-11-20, a 612 MB log of a two-minute editor session):
+    /// with `AZ_LOG` unset an ordinary run printed every Debug record. A run
+    /// that asked for no logs prints its errors, once each, and nothing else;
+    /// `AZ_LOG=debug` / `trace` / `warn` / `off` and `AZ_LOG_STDERR` still do
+    /// what they say. This captures REAL stderr (it re-runs the test binary), so
+    /// it cannot pass by agreeing with the implementation's own bookkeeping.
+    #[test]
+    fn a_run_that_asked_for_nothing_prints_its_errors_and_no_more() {
+        // --- child half: the logger as App::create installs it, one record per level ---
+        if std::env::var_os("AZ_QUIET_PROBE_CHILD").is_some() {
+            crate::desktop::logging::init_default_logger();
+            crate::log_trace!(LogCategory::Layout, "{QUIET_PROBE} trace");
+            crate::log_debug!(LogCategory::Layout, "{QUIET_PROBE} debug");
+            crate::log_info!(LogCategory::Layout, "{QUIET_PROBE} info");
+            crate::log_warn!(LogCategory::Layout, "{QUIET_PROBE} warn");
+            crate::log_error!(LogCategory::Layout, "{QUIET_PROBE} error");
+            return;
+        }
+
+        // --- parent half: run the child under each environment and read its stderr ---
+        let run = |env: &[(&str, &str)]| -> String {
+            let out = std::process::Command::new(
+                std::env::current_exe().expect("the test binary must have a path"),
+            )
+            .args([QUIET_TEST_PATH, "--exact", "--nocapture", "--test-threads=1"])
+            .env_clear()
+            .env("AZ_QUIET_PROBE_CHILD", "1")
+            .env("NO_COLOR", "1")
+            .envs(env.iter().copied())
+            .output()
+            .expect("re-running the test binary must succeed");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                stdout.contains("1 passed"),
+                "the child did not run the probe test (filter `{QUIET_TEST_PATH}` stale?)\n--- \
+                 child stdout ---\n{stdout}\n--- child stderr ---\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stderr).into_owned()
+        };
+        let levels = |stderr: &str| -> Vec<&'static str> {
+            ["trace", "debug", "info", "warn", "error"]
+                .into_iter()
+                .filter(|level| {
+                    let needle = format!("{QUIET_PROBE} {level}");
+                    let hits = stderr.lines().filter(|l| l.contains(&needle)).count();
+                    assert!(hits <= 1, "{level} printed {hits} times:\n{stderr}");
+                    hits == 1
+                })
+                .collect()
+        };
+
+        let cases: &[(&[(&str, &str)], &[&str])] = &[
+            // Asked for nothing: the error, once.
+            (&[], &["error"]),
+            (&[("AZ_PROFILE", "cpu")], &["error"]),
+            // AZ_LOG at a level: that level and above.
+            (&[("AZ_LOG", "error")], &["error"]),
+            (&[("AZ_LOG", "warn")], &["warn", "error"]),
+            (&[("AZ_LOG", "debug")], &["debug", "info", "warn", "error"]),
+            (&[("AZ_LOG", "1")], &["debug", "info", "warn", "error"]),
+            (&[("AZ_LOG", "trace")], &["trace", "debug", "info", "warn", "error"]),
+            // AZ_LOG_STDERR asks for logs too.
+            (&[("AZ_LOG_STDERR", "1")], &["debug", "info", "warn", "error"]),
+            // Off is off.
+            (&[("AZ_LOG", "off")], &[]),
+        ];
+        for (env, want) in cases {
+            let stderr = run(env);
+            assert_eq!(
+                levels(&stderr),
+                *want,
+                "environment {env:?}; the child's stderr:\n{stderr}"
+            );
+        }
     }
 }

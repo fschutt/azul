@@ -473,13 +473,13 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
     let tc_fields = format!(
         r#""tc_logical_items":{},"tc_visual_items":{},"tc_shaped_items":{},"tc_shaped_glyphs":{},"tc_shaped_clusters":{},"tc_per_item":{},"tc_logical_entries":{},"tc_visual_entries":{},"tc_shaped_entries":{},"tc_per_item_entries":{}"#,
         tc.logical_items_bytes,
-        tc.visual_items_bytes,
+        tc.bidi_runs_bytes,
         tc.shaped_items_bytes,
         tc.shaped_glyph_bytes,
         tc.shaped_cluster_text_bytes,
         tc.per_item_shaped_bytes,
         tc.logical_items_entries,
-        tc.visual_items_entries,
+        tc.bidi_runs_entries,
         tc.shaped_items_entries,
         tc.per_item_shaped_entries,
     );
@@ -564,7 +564,11 @@ fn breakdown_line(iter: u32, window: &HeadlessWindow) -> Option<String> {
     ) = (0usize, 0u64, 0usize, 0usize, 0usize, 0usize);
 
     let prev_ws = window.common.previous_window_state.is_some() as usize;
-    let hit_test_entries: usize = window.cpu_backend.hit_tester.node_rects_total();
+    let hit_test_entries: usize = window
+        .common
+        .cpu_hit_tester
+        .as_ref()
+        .map_or(0, azul_layout::headless::CpuHitTester::node_rects_total);
 
     let mgr_fields = format!(
         r#""mgr_layout_results":{},"mgr_gpu_caches":{},"mgr_gpu_transform_keys":{},"mgr_gpu_opacity_keys":{},"mgr_gpu_css_transform_keys":{},"mgr_gpu_scrollbar_opacity_keys":{},"mgr_gpu_fade_states":{},"mgr_font_parsed":{},"mgr_font_chain":{},"mgr_font_hash_families":{},"mgr_renderer_fonts":{},"mgr_renderer_images":{},"mgr_renderer_image_key_map":{},"mgr_renderer_last_frame_fonts":{},"mgr_renderer_font_families":{},"mgr_renderer_font_id_map":{},"mgr_renderer_font_hash_map":{},"mgr_scroll_states":{},"mgr_scrollbar_states":{},"mgr_hover_points":{},"mgr_hover_history_total":{},"mgr_vv_states":{},"mgr_gesture_sessions":{},"mgr_gesture_long_press":{},"mgr_dirty_text_nodes":{},"mgr_timers":{},"mgr_threads":{},"probe_events":{},"cpu_layers":{},"cpu_next_layer_id":{},"cpu_last_frame_bytes":{},"cpu_prev_dl_items":{},"cpu_glyph_paths":{},"cpu_glyph_cells":{},"cpu_hit_rects":{},"prev_window_state":{}"#,

@@ -138,6 +138,55 @@ first argument and logs an error (returning `DoNothing`) if the downcast fails. 
 raised inside a callback is caught and logged the same way, so that the app keeps running, 
 even if a callback fails.
 
+## Missing values and errors in callbacks
+
+Pascal has no optional type that every compiler the unit supports shares 
+(FPC 3.2's `TNullable` is missing from 3.0), so an Option keeps its variant 
+record: build one with `AzOptionString_none` / `AzOptionString_some(..)`, and 
+read one with `AzTryGetSome(Option, Value)`, which answers whether there is a 
+value and copies it into `Value`. `AzTryGetOk` / `AzTryGetErr` do the same for 
+the two sides of a Result. The copy is a view: the record still owns the value, 
+so delete the record, not the copy. An exception raised inside a callback is 
+caught and logged, and the callback does nothing.
+
+A folder picker. Before, reading the answer meant comparing the tag with bare 
+numbers:
+
+```pascal
+Picked := AzFileOpenResult_downcast(AzRefAny_clone(@Result_));
+if (Picked.Tag = 1) and (Picked.Payload_Some.path.Tag = 1) then
+  Model.Folder := azul_string_to(Picked.Payload_Some.path.Payload_Some.inner);
+```
+
+Now:
+
+```pascal
+function OnPickFolder(Model: TMyModel; Info: TAzCallbackInfo; Result_: TAzRefAny): TAzUpdate;
+var
+  Picked: TAzOptionFileOpenResult;
+  Opened: TAzFileOpenResult;
+  Path: TAzFilePath;
+begin
+  Result := azDoNothing;
+  { The result is lent to the callback: downcast a clone of it. }
+  Picked := AzFileOpenResult_downcast(AzRefAny_clone(@Result_));
+  if AzTryGetSome(Picked, Opened) and AzTryGetSome(Opened.path, Path) then
+  begin
+    Model.Folder := azul_string_to(Path.inner);
+    Result := azRefreshDom;
+  end;
+  AzOptionFileOpenResult_delete(@Picked);
+end;
+
+function OnChooseFolder(Model: TMyModel; Info: TAzCallbackInfo): TAzUpdate;
+begin
+  AzFileDialog_openDirectory(azul_string_from('Choose a folder'), AzOptionString_none,
+    azul_refany_create(Model),
+    azul_register_resumecallback(TAzResumeCallbackTypedWrapper<TMyModel>.Create(OnPickFolder)));
+  Result := azDoNothing;
+end;
+```
+
 ## Supported Compilers
 
 The example uses `{$mode delphi}`. In `{$mode objfpc}{$H+}`, generics

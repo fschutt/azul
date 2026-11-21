@@ -1,0 +1,602 @@
+=== a flat stack of blocks (slicer, 400 x 300 pages)
+n0 root d0 Block { establishes_new_context: true } @0,0 400x900 ov=400x900 bl=763 ic=0/0
+n1 p0 d1 Block { establishes_new_context: false } @0,0 400x900 ov=400x900 mt=0 mb=0 bl=763 rel=0,0
+n2 p1 d2 Inline @0,0 400x150 ov=24x16 bl=13 rel=0,0
+n3 p2 d3 Inline @0,0 -x-
+n4 p1 d4 Inline @0,150 400x150 ov=30.40625x16 bl=13 rel=0,150
+n5 p4 d5 Inline @0,150 -x-
+n6 p1 d6 Inline @0,300 400x150 ov=40x16 bl=13 rel=0,300
+n7 p6 d7 Inline @0,300 -x-
+n8 p1 d8 Inline @0,450 400x150 ov=32x16 bl=13 rel=0,450
+n9 p8 d9 Inline @0,450 -x-
+n10 p1 d10 Inline @0,600 400x150 ov=27.203125x16 bl=13 rel=0,600
+n11 p10 d11 Inline @0,600 -x-
+n12 p1 d12 Inline @0,750 400x150 ov=19.203125x16 bl=13 rel=0,750
+n13 p12 d13 Inline @0,750 -x-
+page 0
+  dl0 PushStackingContext 0,0 400x300
+  dl1 HitTestArea 0,0 400x150
+  dl2 TextLayout 0,0 24x16
+  dl3 Text -16,0 432x150 glyphs=3 fs=16
+  dl4 HitTestArea 0,0.203125 24x16
+  dl5 HitTestArea 0,150 400x150
+  dl6 TextLayout 0,150 30.40625x16
+  dl7 Text -16,150 432x150 glyphs=3 fs=16
+  dl8 HitTestArea 0,150.20313 30.40625x16
+  dl9 PopStackingContext
+page 1
+  dl0 PushStackingContext 0,0 400x300
+  dl1 HitTestArea 0,0 400x150
+  dl2 TextLayout 0,0 40x16
+  dl3 Text -16,0 432x150 glyphs=5 fs=16
+  dl4 HitTestArea 0,0.203125 40x16
+  dl5 HitTestArea 0,150 400x150
+  dl6 TextLayout 0,150 32x16
+  dl7 Text -16,150 432x150 glyphs=4 fs=16
+  dl8 HitTestArea 0,150.20313 32x16
+  dl9 PopStackingContext
+page 2
+  dl0 PushStackingContext 0,0 400x300
+  dl1 HitTestArea 0,0 400x150
+  dl2 TextLayout 0,0 27.203125x16
+  dl3 Text -16,0 432x150 glyphs=4 fs=16
+  dl4 HitTestArea 0,0.203125 27.203125x16
+  dl5 HitTestArea 0,150 400x150
+  dl6 TextLayout 0,150 19.203125x16
+  dl7 Text -16,150 432x150 glyphs=3 fs=16
+  dl8 HitTestArea 0,150.20313 19.203125x16
+  dl9 PopStackingContext
+=== a flat stack of blocks (break tokens, 400 x 200 pages)
+token page 0 content=150 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 150.0, children: [BreakBefore { child: 4, forced: false }, BreakBefore { child: 6, forced: false }, BreakBefore { child: 8, forced: false }, BreakBefore { child: 10, forced: false }, BreakBefore { child: 12, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x150
+  dl1 HitTestArea 0,0 400x150
+  dl2 Text -16,0 432x150 glyphs=3 fs=16
+  dl3 HitTestArea 0,0.203125 24x16
+  dl4 PopStackingContext
+token page 1 content=150 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 150.0, children: [BreakBefore { child: 6, forced: false }, BreakBefore { child: 8, forced: false }, BreakBefore { child: 10, forced: false }, BreakBefore { child: 12, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x150
+  dl1 HitTestArea 0,0 400x150
+  dl2 Text -16,0 432x150 glyphs=3 fs=16
+  dl3 HitTestArea 0,0.203125 30.40625x16
+  dl4 PopStackingContext
+token page 2 content=150 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 150.0, children: [BreakBefore { child: 8, forced: false }, BreakBefore { child: 10, forced: false }, BreakBefore { child: 12, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x150
+  dl1 HitTestArea 0,0 400x150
+  dl2 Text -16,0 432x150 glyphs=5 fs=16
+  dl3 HitTestArea 0,0.203125 40x16
+  dl4 PopStackingContext
+token page 3 content=150 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 150.0, children: [BreakBefore { child: 10, forced: false }, BreakBefore { child: 12, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x150
+  dl1 HitTestArea 0,0 400x150
+  dl2 Text -16,0 432x150 glyphs=4 fs=16
+  dl3 HitTestArea 0,0.203125 32x16
+  dl4 PopStackingContext
+token page 4 content=150 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 150.0, children: [BreakBefore { child: 12, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x150
+  dl1 HitTestArea 0,0 400x150
+  dl2 Text -16,0 432x150 glyphs=4 fs=16
+  dl3 HitTestArea 0,0.203125 27.203125x16
+  dl4 PopStackingContext
+token page 5 content=150 outgoing=None
+  dl0 PushStackingContext 0,0 400x150
+  dl1 HitTestArea 0,0 400x150
+  dl2 Text -16,0 432x150 glyphs=3 fs=16
+  dl3 HitTestArea 0,0.203125 19.203125x16
+  dl4 PopStackingContext
+=== a paragraph taller than a page (slicer, 400 x 300 pages)
+n0 root d0 Block { establishes_new_context: true } @0,0 400x880 ov=300x880 bl=875 ic=0/0
+n1 p0 d1 Block { establishes_new_context: false } @0,0 300x880 ov=300x880 mt=0 mb=0 bl=875 rel=0,0
+n2 p1 d2 Inline @0,0 300x20 ov=40x20 bl=15 rel=0,0
+n3 p2 d3 Inline @0,0 -x-
+n4 p1 d4 Inline @0,20 300x860 ov=292.79688x860 bl=855 rel=0,20
+n5 p4 d5 Inline @0,20 -x-
+page 0
+  dl0 PushStackingContext 0,0 400x300
+  dl1 HitTestArea 0,0 300x20
+  dl2 TextLayout 0,0 40x20
+  dl3 Text -16,0 332x20 glyphs=5 fs=16
+  dl4 HitTestArea 0,2.203125 40x16
+  dl5 HitTestArea 0,20 300x280
+  dl6 TextLayout 0,20 292.79688x280
+  dl7 Text -16,20 332x860 glyphs=34 fs=16
+  dl8 Text -16,20 332x860 glyphs=34 fs=16
+  dl9 Text -16,20 332x860 glyphs=34 fs=16
+  dl10 Text -16,20 332x860 glyphs=34 fs=16
+  dl11 Text -16,20 332x860 glyphs=34 fs=16
+  dl12 Text -16,20 332x860 glyphs=34 fs=16
+  dl13 Text -16,20 332x860 glyphs=34 fs=16
+  dl14 Text -16,20 332x860 glyphs=34 fs=16
+  dl15 Text -16,20 332x860 glyphs=34 fs=16
+  dl16 Text -16,20 332x860 glyphs=34 fs=16
+  dl17 Text -16,20 332x860 glyphs=34 fs=16
+  dl18 Text -16,20 332x860 glyphs=34 fs=16
+  dl19 Text -16,20 332x860 glyphs=34 fs=16
+  dl20 Text -16,20 332x860 glyphs=34 fs=16
+  dl21 HitTestArea 0,22.203125 292.79688x16
+  dl22 HitTestArea 0,42.203125 292.79688x16
+  dl23 HitTestArea 0,62.203125 292.79688x16
+  dl24 HitTestArea 0,82.203125 292.79688x16
+  dl25 HitTestArea 0,102.203125 292.79688x16
+  dl26 HitTestArea 0,122.203125 292.79688x16
+  dl27 HitTestArea 0,142.20313 292.79688x16
+  dl28 HitTestArea 0,162.20313 292.79688x16
+  dl29 HitTestArea 0,182.20313 292.79688x16
+  dl30 HitTestArea 0,202.20313 292.79688x16
+  dl31 HitTestArea 0,222.20313 292.79688x16
+  dl32 HitTestArea 0,242.20313 292.79688x16
+  dl33 HitTestArea 0,262.20313 292.79688x16
+  dl34 HitTestArea 0,282.20313 292.79688x16
+  dl35 PopStackingContext
+page 1
+  dl0 PushStackingContext 0,0 400x300
+  dl1 HitTestArea 0,0 300x300
+  dl2 TextLayout 0,0 292.79688x300
+  dl3 Text -16,-280 332x860 glyphs=34 fs=16
+  dl4 Text -16,-280 332x860 glyphs=34 fs=16
+  dl5 Text -16,-280 332x860 glyphs=34 fs=16
+  dl6 Text -16,-280 332x860 glyphs=34 fs=16
+  dl7 Text -16,-280 332x860 glyphs=34 fs=16
+  dl8 Text -16,-280 332x860 glyphs=34 fs=16
+  dl9 Text -16,-280 332x860 glyphs=34 fs=16
+  dl10 Text -16,-280 332x860 glyphs=34 fs=16
+  dl11 Text -16,-280 332x860 glyphs=34 fs=16
+  dl12 Text -16,-280 332x860 glyphs=34 fs=16
+  dl13 Text -16,-280 332x860 glyphs=34 fs=16
+  dl14 Text -16,-280 332x860 glyphs=34 fs=16
+  dl15 Text -16,-280 332x860 glyphs=34 fs=16
+  dl16 Text -16,-280 332x860 glyphs=34 fs=16
+  dl17 Text -16,-280 332x860 glyphs=34 fs=16
+  dl18 HitTestArea 0,2.203125 292.79688x16
+  dl19 HitTestArea 0,22.203125 292.79688x16
+  dl20 HitTestArea 0,42.203125 292.79688x16
+  dl21 HitTestArea 0,62.203125 292.79688x16
+  dl22 HitTestArea 0,82.203125 292.79688x16
+  dl23 HitTestArea 0,102.203125 292.79688x16
+  dl24 HitTestArea 0,122.203125 292.79688x16
+  dl25 HitTestArea 0,142.20313 292.79688x16
+  dl26 HitTestArea 0,162.20313 292.79688x16
+  dl27 HitTestArea 0,182.20313 292.79688x16
+  dl28 HitTestArea 0,202.20313 292.79688x16
+  dl29 HitTestArea 0,222.20313 292.79688x16
+  dl30 HitTestArea 0,242.20313 292.79688x16
+  dl31 HitTestArea 0,262.20313 292.79688x16
+  dl32 HitTestArea 0,282.20313 292.79688x16
+  dl33 PopStackingContext
+page 2
+  dl0 PushStackingContext 0,0 400x280
+  dl1 HitTestArea 0,0 300x280
+  dl2 TextLayout 0,0 292.79688x280
+  dl3 Text -16,-580 332x860 glyphs=34 fs=16
+  dl4 Text -16,-580 332x860 glyphs=34 fs=16
+  dl5 Text -16,-580 332x860 glyphs=34 fs=16
+  dl6 Text -16,-580 332x860 glyphs=34 fs=16
+  dl7 Text -16,-580 332x860 glyphs=34 fs=16
+  dl8 Text -16,-580 332x860 glyphs=34 fs=16
+  dl9 Text -16,-580 332x860 glyphs=34 fs=16
+  dl10 Text -16,-580 332x860 glyphs=34 fs=16
+  dl11 Text -16,-580 332x860 glyphs=34 fs=16
+  dl12 Text -16,-580 332x860 glyphs=34 fs=16
+  dl13 Text -16,-580 332x860 glyphs=34 fs=16
+  dl14 Text -16,-580 332x860 glyphs=34 fs=16
+  dl15 Text -16,-580 332x860 glyphs=34 fs=16
+  dl16 Text -16,-580 332x860 glyphs=29 fs=16
+  dl17 HitTestArea 0,2.203125 292.79688x16
+  dl18 HitTestArea 0,22.203125 292.79688x16
+  dl19 HitTestArea 0,42.203125 292.79688x16
+  dl20 HitTestArea 0,62.203125 292.79688x16
+  dl21 HitTestArea 0,82.203125 292.79688x16
+  dl22 HitTestArea 0,102.203125 292.79688x16
+  dl23 HitTestArea 0,122.203125 292.79688x16
+  dl24 HitTestArea 0,142.20313 292.79688x16
+  dl25 HitTestArea 0,162.20313 292.79688x16
+  dl26 HitTestArea 0,182.20313 292.79688x16
+  dl27 HitTestArea 0,202.20313 292.79688x16
+  dl28 HitTestArea 0,222.20313 292.79688x16
+  dl29 HitTestArea 0,242.20313 292.79688x16
+  dl30 HitTestArea 0,262.20313 250.40625x16
+  dl31 PopStackingContext
+=== a paragraph taller than a page (break tokens, 400 x 200 pages)
+token page 0 content=20 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 20.0, children: [BreakBefore { child: 4, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x20
+  dl1 HitTestArea 0,0 300x20
+  dl2 Text -16,0 332x20 glyphs=5 fs=16
+  dl3 HitTestArea 0,2.203125 40x16
+  dl4 PopStackingContext
+token page 1 content=20 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 20.0, children: [BreakBefore { child: 4, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x20
+  dl1 HitTestArea 0,0 300x20
+  dl2 Text -16,0 332x20 glyphs=5 fs=16
+  dl3 HitTestArea 0,2.203125 40x16
+  dl4 PopStackingContext
+=== forced breaks (slicer, 400 x 300 pages)
+n0 root d0 Block { establishes_new_context: true } @0,0 400x130 ov=400x130 bl=127 ic=0/0
+n1 p0 d1 Block { establishes_new_context: false } @0,10 400x120 ov=400x120 mt=10 mb=10 bl=117 rel=0,10
+n2 p1 d2 Inline @0,10 400x16 ov=35.203125x16 bl=13 rel=0,0
+n3 p2 d3 Inline @0,10 -x-
+n4 p1 d4 Inline @0,36 400x16 ov=148x16 bl=13 rel=0,26
+n5 p4 d5 Inline @0,36 -x-
+n6 p1 d6 Inline @0,62 400x16 ov=35.203125x16 bl=13 rel=0,52
+n7 p6 d7 Inline @0,62 -x-
+n8 p1 d8 Block { establishes_new_context: false } @0,88 400x42 ov=400x42 mt=10 mb=10 bl=39 rel=0,78
+n9 p8 d9 Inline @0,88 400x16 ov=62.40625x16 bl=13 rel=0,0
+n10 p9 d10 Inline @0,88 -x-
+n11 p8 d11 Inline @0,114 400x16 ov=168.79688x16 bl=13 rel=0,26
+n12 p11 d12 Inline @0,114 -x-
+page 0
+  dl0 PushStackingContext 0,0 400x36
+  dl1 HitTestArea 0,10 400x16
+  dl2 TextLayout 0,10 35.203125x16
+  dl3 Text -16,10 432x16 glyphs=5 fs=16
+  dl4 HitTestArea 0,10.203125 35.203125x16
+  dl5 PopStackingContext
+page 1
+  dl0 PushStackingContext 0,0 400x78
+  dl1 HitTestArea 0,0 400x16
+  dl2 TextLayout 0,0 148x16
+  dl3 Text -16,0 432x16 glyphs=20 fs=16
+  dl4 HitTestArea 0,0.203125 148x16
+  dl5 HitTestArea 0,26 400x16
+  dl6 TextLayout 0,26 35.203125x16
+  dl7 Text -16,26 432x16 glyphs=5 fs=16
+  dl8 HitTestArea 0,26.203125 35.203125x16
+  dl9 HitTestArea 0,52 400x16
+  dl10 TextLayout 0,52 62.40625x16
+  dl11 Text -16,52 432x16 glyphs=7 fs=16
+  dl12 HitTestArea 0,52.203125 62.40625x16
+  dl13 PopStackingContext
+page 2
+  dl0 PushStackingContext 0,0 400x16
+  dl1 HitTestArea 0,0 400x16
+  dl2 TextLayout 0,0 168.79688x16
+  dl3 Text -16,0 432x16 glyphs=23 fs=16
+  dl4 HitTestArea 0,0.203125 168.79688x16
+  dl5 PopStackingContext
+=== forced breaks (break tokens, 400 x 200 pages)
+token page 0 content=26 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 16.0, children: [BreakBefore { child: 4, forced: true }, BreakBefore { child: 6, forced: false }, BreakBefore { child: 8, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x26
+  dl1 HitTestArea 0,10 400x16
+  dl2 Text -16,10 432x16 glyphs=5 fs=16
+  dl3 HitTestArea 0,10.203125 35.203125x16
+  dl4 PopStackingContext
+token page 1 content=78 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 52.0, children: [ResumeIn { child: 8, token: Block(BlockBreakToken { node: 8, consumed_block_size: 16.0, children: [BreakBefore { child: 11, forced: true }], generation: 0 }) }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x78
+  dl1 HitTestArea 0,0 400x16
+  dl2 Text -16,0 432x16 glyphs=20 fs=16
+  dl3 HitTestArea 0,0.203125 148x16
+  dl4 HitTestArea 0,26 400x16
+  dl5 Text -16,26 432x16 glyphs=5 fs=16
+  dl6 HitTestArea 0,26.203125 35.203125x16
+  dl7 HitTestArea 0,52 400x16
+  dl8 Text -16,52 432x16 glyphs=7 fs=16
+  dl9 HitTestArea 0,52.203125 62.40625x16
+  dl10 PopStackingContext
+token page 2 content=26 outgoing=None
+  dl0 PushStackingContext 0,0 400x26
+  dl1 HitTestArea 0,0 400x16
+  dl2 Text -16,0 432x16 glyphs=23 fs=16
+  dl3 HitTestArea 0,0.203125 168.79688x16
+  dl4 PopStackingContext
+=== nested wrappers split and resume (slicer, 400 x 300 pages)
+n0 root d0 Block { establishes_new_context: true } @0,0 400x460 ov=400x460 bl=382 ic=0/0
+n1 p0 d1 Block { establishes_new_context: false } @0,0 400x460 ov=400x460 mt=0 mb=0 bl=382 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 400x368 ov=400x368 mt=0 mb=0 bl=290 rel=0,0
+n3 p2 d3 Block { establishes_new_context: false } @0,0 400x276 ov=400x276 mt=0 mb=0 bl=198 rel=0,0
+n4 p3 d4 Inline @0,0 400x92 ov=8x16 bl=13 rel=0,0
+n5 p4 d5 Inline @1,1 -x-
+n6 p3 d6 Inline @0,92 400x92 ov=8x16 bl=13 rel=0,92
+n7 p6 d7 Inline @1,93 -x-
+n8 p3 d8 Inline @0,184 400x92 ov=8x16 bl=13 rel=0,184
+n9 p8 d9 Inline @1,185 -x-
+n10 p2 d10 Inline @0,276 400x92 ov=8x16 bl=13 rel=0,276
+n11 p10 d11 Inline @1,277 -x-
+n12 p1 d12 Inline @0,368 400x92 ov=8x16 bl=13 rel=0,368
+n13 p12 d13 Inline @1,369 -x-
+page 0
+  dl0 PushStackingContext 0,0 400x300
+  dl1 Border 0,0 400x92
+  dl2 HitTestArea 0,0 400x92
+  dl3 TextLayout 1,1 8x16
+  dl4 Text -15,1 430x90 glyphs=1 fs=16
+  dl5 HitTestArea 1,1.203125 8x16
+  dl6 Border 0,92 400x92
+  dl7 HitTestArea 0,92 400x92
+  dl8 TextLayout 1,93 8x16
+  dl9 Text -15,93 430x90 glyphs=1 fs=16
+  dl10 HitTestArea 1,93.203125 8x16
+  dl11 Border 0,184 400x92
+  dl12 HitTestArea 0,184 400x92
+  dl13 TextLayout 1,185 8x16
+  dl14 Text -15,185 430x90 glyphs=1 fs=16
+  dl15 HitTestArea 1,185.20313 8x16
+  dl16 Border 0,276 400x24
+  dl17 HitTestArea 0,276 400x24
+  dl18 TextLayout 1,277 8x16
+  dl19 Text -15,277 430x90 glyphs=1 fs=16
+  dl20 HitTestArea 1,277.20313 8x16
+  dl21 PopStackingContext
+page 1
+  dl0 PushStackingContext 0,0 400x160
+  dl1 Border 0,0 400x68
+  dl2 HitTestArea 0,0 400x68
+  dl3 Border 0,68 400x92
+  dl4 HitTestArea 0,68 400x92
+  dl5 TextLayout 1,69 8x16
+  dl6 Text -15,69 430x90 glyphs=1 fs=16
+  dl7 HitTestArea 1,69.203125 8x16
+  dl8 PopStackingContext
+=== nested wrappers split and resume (break tokens, 400 x 200 pages)
+token page 0 content=184 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 0.0, children: [ResumeIn { child: 2, token: Block(BlockBreakToken { node: 2, consumed_block_size: 0.0, children: [ResumeIn { child: 3, token: Block(BlockBreakToken { node: 3, consumed_block_size: 184.0, children: [BreakBefore { child: 8, forced: false }], generation: 0 }) }, BreakBefore { child: 10, forced: false }], generation: 0 }) }, BreakBefore { child: 12, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x184
+  dl1 Border 0,0 400x92
+  dl2 HitTestArea 0,0 400x92
+  dl3 Text -15,1 430x90 glyphs=1 fs=16
+  dl4 HitTestArea 1,1.203125 8x16
+  dl5 Border 0,92 400x92
+  dl6 HitTestArea 0,92 400x92
+  dl7 Text -15,93 430x90 glyphs=1 fs=16
+  dl8 HitTestArea 1,93.203125 8x16
+  dl9 PopStackingContext
+token page 1 content=184 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 184.0, children: [BreakBefore { child: 12, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x184
+  dl1 Border 0,0 400x92
+  dl2 HitTestArea 0,0 400x92
+  dl3 Text -15,1 430x90 glyphs=1 fs=16
+  dl4 HitTestArea 1,1.203125 8x16
+  dl5 Border 0,92 400x92
+  dl6 HitTestArea 0,92 400x92
+  dl7 Text -15,93 430x90 glyphs=1 fs=16
+  dl8 HitTestArea 1,93.203125 8x16
+  dl9 PopStackingContext
+token page 2 content=92 outgoing=None
+  dl0 PushStackingContext 0,0 400x92
+  dl1 Border 0,0 400x92
+  dl2 HitTestArea 0,0 400x92
+  dl3 Text -15,1 430x90 glyphs=1 fs=16
+  dl4 HitTestArea 1,1.203125 8x16
+  dl5 PopStackingContext
+=== floats, tables and lists across pages (slicer, 400 x 300 pages)
+n0 root d0 Block { establishes_new_context: true } @0,0 400x956 ov=400x956 bl=945 ic=80/80
+n1 p0 d1 Block { establishes_new_context: false } @0,8 400x940 ov=400x940 mt=8 mb=16 bl=937 ic=80/80 rel=0,8
+n2 p1 d2 Inline @0,8 80x120 ov=35.203125x16 bl=13 ic=80/80 rel=0,0
+n3 p2 d3 Inline @0,8 -x- ic=35.203125/35.203125
+n4 p1 d4 Inline @0,8 400x544 ov=377.59375x544 bl=573 ic=0/0 rel=0,0
+n5 p4 d5 Inline @0,8 -x-
+n6 p1 d6 Table @0,560 46.40625x204 ov=44.40625x202 ic=44.40625/44.40625 rel=0,552
+n7 p6 d7 TableRow @3,563 40.40625x20 ic=12/12 rel=2,2
+n8 p7 d8 TableCell @3,563 26.40625x20 bl=13 ic=8/8 rel=0,0
+n9 p8 d9 Inline @5,565 -x- ic=8/8
+n10 p7 d10 TableCell @31.40625,563 12x20 bl=13 ic=8/8 rel=28.40625,0
+n11 p10 d11 Inline @33.40625,565 -x- ic=8/8
+n12 p6 d12 TableRow @3,585 40.40625x154 ic=26.40625/26.40625 rel=2,24
+n13 p12 d13 TableCell @3,585 26.40625x154 bl=13 ic=22.40625/22.40625 rel=0,0
+n14 p13 d14 Inline @5,587 -x- ic=22.40625/22.40625
+n15 p12 d15 TableCell @31.40625,585 12x154 bl=13 ic=8/8 rel=28.40625,0
+n16 p15 d16 Inline @33.40625,587 -x- ic=8/8
+n17 p6 d17 TableRow @3,741 40.40625x20 ic=12/12 rel=2,180
+n18 p17 d18 TableCell @3,741 26.40625x20 bl=13 ic=8/8 rel=0,0
+n19 p18 d19 Inline @5,743 -x- ic=8/8
+n20 p17 d20 TableCell @31.40625,741 12x20 bl=13 ic=8/8 rel=28.40625,0
+n21 p20 d21 Inline @33.40625,743 -x- ic=8/8
+n22 p1 d22 Block { establishes_new_context: false } @0,780 400x168 ov=360x168 mt=16 mb=16 bl=165 ic=0/0 rel=0,772
+n23 p22 d23 Inline @40,780 360x16 ov=43.203125x16 bl=13 rel=0,0
+n24 p23 d23 Inline pseudo=Marker @40,780 -x-
+n25 p23 d24 Inline @40,780 -x-
+n26 p22 d25 Inline @40,796 360x16 ov=49.59375x16 bl=13 rel=0,16
+n27 p26 d25 Inline pseudo=Marker @40,796 -x-
+n28 p26 d26 Inline @40,796 -x-
+n29 p22 d27 Inline @40,812 360x120 ov=59.203125x16 bl=13 rel=0,32
+n30 p29 d27 Inline pseudo=Marker @40,812 -x-
+n31 p29 d28 Inline @40,812 -x-
+n32 p22 d29 Inline @40,932 360x16 ov=51.203125x16 bl=13 rel=0,152
+n33 p32 d29 Inline pseudo=Marker @40,932 -x-
+n34 p32 d30 Inline @40,932 -x-
+page 0
+  dl0 PushStackingContext 0,0 400x300
+  dl1 HitTestArea 0,8 400x292
+  dl2 TextLayout 0,8 377.59375x288
+  dl3 Text -16,8 432x576 glyphs=34 fs=16
+  dl4 Text -16,8 432x576 glyphs=34 fs=16
+  dl5 Text -16,8 432x576 glyphs=34 fs=16
+  dl6 Text -16,8 432x576 glyphs=34 fs=16
+  dl7 Text -16,8 432x576 glyphs=34 fs=16
+  dl8 Text -16,8 432x576 glyphs=34 fs=16
+  dl9 Text -16,8 432x576 glyphs=34 fs=16
+  dl10 Text -16,8 432x576 glyphs=34 fs=16
+  dl11 Text -16,8 432x576 glyphs=44 fs=16
+  dl12 Text -16,8 432x576 glyphs=44 fs=16
+  dl13 Text -16,8 432x576 glyphs=44 fs=16
+  dl14 Text -16,8 432x576 glyphs=44 fs=16
+  dl15 Text -16,8 432x576 glyphs=44 fs=16
+  dl16 Text -16,8 432x576 glyphs=44 fs=16
+  dl17 Text -16,8 432x576 glyphs=44 fs=16
+  dl18 Text -16,8 432x576 glyphs=44 fs=16
+  dl19 Text -16,8 432x576 glyphs=44 fs=16
+  dl20 Text -16,8 432x576 glyphs=44 fs=16
+  dl21 HitTestArea 80,8.203125 292.79688x16
+  dl22 HitTestArea 80,24.203125 292.79688x16
+  dl23 HitTestArea 80,40.203125 292.79688x16
+  dl24 HitTestArea 80,56.203125 292.79688x16
+  dl25 HitTestArea 80,72.203125 292.79688x16
+  dl26 HitTestArea 80,88.203125 292.79688x16
+  dl27 HitTestArea 80,104.203125 292.79688x16
+  dl28 HitTestArea 80,120.203125 292.79688x16
+  dl29 HitTestArea 0,136.20313 377.59375x16
+  dl30 HitTestArea 0,152.20313 377.59375x16
+  dl31 HitTestArea 0,168.20313 377.59375x16
+  dl32 HitTestArea 0,184.20313 377.59375x16
+  dl33 HitTestArea 0,200.20313 377.59375x16
+  dl34 HitTestArea 0,216.20313 377.59375x16
+  dl35 HitTestArea 0,232.20313 377.59375x16
+  dl36 HitTestArea 0,248.20313 377.59375x16
+  dl37 HitTestArea 0,264.20313 377.59375x16
+  dl38 HitTestArea 0,280.20313 377.59375x16
+  dl39 HitTestArea 0,296.20313 377.59375x3.796875
+  dl40 HitTestArea 0,8 80x120
+  dl41 TextLayout 0,8 35.203125x16
+  dl42 Text -16,8 112x120 glyphs=5 fs=16
+  dl43 HitTestArea 0,8.203125 35.203125x16
+  dl44 PopStackingContext
+page 1
+  dl0 PushStackingContext 0,0 400x300
+  dl1 HitTestArea 0,0 400x252
+  dl2 TextLayout 0,0 377.59375x288
+  dl3 Text -16,-292 432x576 glyphs=44 fs=16
+  dl4 Text -16,-292 432x576 glyphs=44 fs=16
+  dl5 Text -16,-292 432x576 glyphs=44 fs=16
+  dl6 Text -16,-292 432x576 glyphs=44 fs=16
+  dl7 Text -16,-292 432x576 glyphs=44 fs=16
+  dl8 Text -16,-292 432x576 glyphs=44 fs=16
+  dl9 Text -16,-292 432x576 glyphs=44 fs=16
+  dl10 Text -16,-292 432x576 glyphs=44 fs=16
+  dl11 Text -16,-292 432x576 glyphs=44 fs=16
+  dl12 Text -16,-292 432x576 glyphs=44 fs=16
+  dl13 Text -16,-292 432x576 glyphs=44 fs=16
+  dl14 Text -16,-292 432x576 glyphs=44 fs=16
+  dl15 Text -16,-292 432x576 glyphs=44 fs=16
+  dl16 Text -16,-292 432x576 glyphs=44 fs=16
+  dl17 Text -16,-292 432x576 glyphs=44 fs=16
+  dl18 Text -16,-292 432x576 glyphs=44 fs=16
+  dl19 Text -16,-292 432x576 glyphs=44 fs=16
+  dl20 Text -16,-292 432x576 glyphs=4 fs=16
+  dl21 HitTestArea 0,0 377.59375x12.203125
+  dl22 HitTestArea 0,12.203125 377.59375x16
+  dl23 HitTestArea 0,28.203125 377.59375x16
+  dl24 HitTestArea 0,44.203125 377.59375x16
+  dl25 HitTestArea 0,60.203125 377.59375x16
+  dl26 HitTestArea 0,76.203125 377.59375x16
+  dl27 HitTestArea 0,92.203125 377.59375x16
+  dl28 HitTestArea 0,108.203125 377.59375x16
+  dl29 HitTestArea 0,124.203125 377.59375x16
+  dl30 HitTestArea 0,140.20313 377.59375x16
+  dl31 HitTestArea 0,156.20313 377.59375x16
+  dl32 HitTestArea 0,172.20313 377.59375x16
+  dl33 HitTestArea 0,188.20313 377.59375x16
+  dl34 HitTestArea 0,204.20313 377.59375x16
+  dl35 HitTestArea 0,220.20313 377.59375x16
+  dl36 HitTestArea 0,236.20313 377.59375x16
+  dl37 HitTestArea 0,252.20313 377.59375x16
+  dl38 HitTestArea 0,268.20313 38.40625x16
+  dl39 Border 0,260 46.40625x40
+  dl40 Border 3,263 26.40625x20
+  dl41 HitTestArea 3,263 26.40625x20
+  dl42 TextLayout 5,265 8x16
+  dl43 Text -11,265 54.40625x16 glyphs=1 fs=16
+  dl44 HitTestArea 5,265.20313 8x16
+  dl45 Border 31.40625,263 12x20
+  dl46 HitTestArea 31.40625,263 12x20
+  dl47 TextLayout 33.40625,265 8x16
+  dl48 Text 17.40625,265 40x16 glyphs=1 fs=16
+  dl49 HitTestArea 33.40625,265.20313 8x16
+  dl50 Border 3,285 26.40625x15
+  dl51 HitTestArea 3,285 26.40625x15
+  dl52 Border 31.40625,285 12x15
+  dl53 HitTestArea 31.40625,285 12x15
+  dl54 PopStackingContext
+page 2
+  dl0 PushStackingContext 0,0 400x300
+  dl1 Border 0,0 46.40625x164
+  dl2 Border 3,0 26.40625x139
+  dl3 HitTestArea 3,0 26.40625x139
+  dl4 TextLayout 5,0 22.40625x70
+  dl5 Text -11,-13 54.40625x150 glyphs=4 fs=16
+  dl6 HitTestArea 5,54.203125 22.40625x16
+  dl7 Border 31.40625,0 12x139
+  dl8 HitTestArea 31.40625,0 12x139
+  dl9 TextLayout 33.40625,0 8x70
+  dl10 Text 17.40625,-13 40x150 glyphs=1 fs=16
+  dl11 HitTestArea 33.40625,54.203125 8x16
+  dl12 Border 3,141 26.40625x20
+  dl13 HitTestArea 3,141 26.40625x20
+  dl14 TextLayout 5,143 8x16
+  dl15 Text -11,143 54.40625x16 glyphs=1 fs=16
+  dl16 HitTestArea 5,143.20313 8x16
+  dl17 Border 31.40625,141 12x20
+  dl18 HitTestArea 31.40625,141 12x20
+  dl19 TextLayout 33.40625,143 8x16
+  dl20 Text 17.40625,143 40x16 glyphs=1 fs=16
+  dl21 HitTestArea 33.40625,143.20313 8x16
+  dl22 HitTestArea 40,180 360x16
+  dl23 TextLayout 40,180 24x16
+  dl24 Text 4.796875,180 411.20313x16 glyphs=3 fs=16
+  dl25 Text 4.796875,180 411.20313x16 glyphs=3 fs=16
+  dl26 HitTestArea 40,180.20313 24x16
+  dl27 HitTestArea 40,180 0x0
+  dl28 HitTestArea 40,196 360x16
+  dl29 TextLayout 40,196 30.40625x16
+  dl30 Text 4.796875,196 411.20313x16 glyphs=3 fs=16
+  dl31 Text 4.796875,196 411.20313x16 glyphs=3 fs=16
+  dl32 HitTestArea 40,196.20313 30.40625x16
+  dl33 HitTestArea 40,196 0x0
+  dl34 HitTestArea 40,212 360x88
+  dl35 TextLayout 40,212 40x16
+  dl36 Text 4.796875,212 411.20313x120 glyphs=3 fs=16
+  dl37 Text 4.796875,212 411.20313x120 glyphs=5 fs=16
+  dl38 HitTestArea 40,212.20313 40x16
+  dl39 HitTestArea 40,212 0x0
+  dl40 PopStackingContext
+page 3
+  dl0 PushStackingContext 0,0 400x56
+  dl1 HitTestArea 40,0 360x32
+  dl2 HitTestArea 40,32 360x16
+  dl3 TextLayout 40,32 32x16
+  dl4 Text 4.796875,32 411.20313x16 glyphs=3 fs=16
+  dl5 Text 4.796875,32 411.20313x16 glyphs=4 fs=16
+  dl6 HitTestArea 40,32.203125 32x16
+  dl7 HitTestArea 40,32 0x0
+  dl8 PopStackingContext
+=== floats, tables and lists across pages (break tokens, 400 x 200 pages)
+token page 0 content=16 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 0.0, children: [BreakBefore { child: 4, forced: false }, BreakBefore { child: 6, forced: false }, BreakBefore { child: 22, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x16
+  dl1 HitTestArea 0,8 80x120
+  dl2 Text -16,8 112x120 glyphs=5 fs=16
+  dl3 HitTestArea 0,8.203125 35.203125x16
+  dl4 PopStackingContext
+token page 1 content=8 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 0.0, children: [BreakBefore { child: 4, forced: false }, BreakBefore { child: 6, forced: false }, BreakBefore { child: 22, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x8
+  dl1 HitTestArea 0,0 80x120
+  dl2 Text -16,0 112x120 glyphs=5 fs=16
+  dl3 HitTestArea 0,0.203125 35.203125x16
+  dl4 PopStackingContext
+=== a monolith taller than a page (slicer, 400 x 300 pages)
+n0 root d0 Block { establishes_new_context: true } @0,0 400x520 ov=400x520 bl=513 ic=0/0
+n1 p0 d1 Block { establishes_new_context: false } @0,0 400x520 ov=400x520 mt=0 mb=0 bl=513 rel=0,0
+n2 p1 d2 Inline @0,0 400x500 ov=8x16 bl=13 rel=0,0
+n3 p2 d3 Inline @0,0 -x-
+n4 p1 d4 Inline @0,500 400x20 ov=40x16 bl=13 rel=0,500
+n5 p4 d5 Inline @0,500 -x-
+page 0
+  dl0 PushStackingContext 0,0 400x300
+  dl1 PushClip 0,0 400x300
+  dl2 HitTestArea 0,0 400x300
+  dl3 TextLayout 0,0 8x16
+  dl4 Text 0,0 400x500 glyphs=1 fs=16
+  dl5 HitTestArea 0,0.203125 8x16
+  dl6 PopClip
+  dl7 PopStackingContext
+page 1
+  dl0 PushStackingContext 0,0 400x220
+  dl1 PushClip 0,0 400x200
+  dl2 HitTestArea 0,0 400x200
+  dl3 PopClip
+  dl4 HitTestArea 0,200 400x20
+  dl5 TextLayout 0,200 40x16
+  dl6 Text -16,200 432x20 glyphs=5 fs=16
+  dl7 HitTestArea 0,200.20313 40x16
+  dl8 PopStackingContext
+=== a monolith taller than a page (break tokens, 400 x 200 pages)
+token page 0 content=500 outgoing=Some(Block(BlockBreakToken { node: 0, consumed_block_size: 0.0, children: [ResumeIn { child: 1, token: Block(BlockBreakToken { node: 1, consumed_block_size: 500.0, children: [BreakBefore { child: 4, forced: false }], generation: 0 }) }], generation: 0 }))
+  dl0 PushStackingContext 0,0 400x500
+  dl1 PushClip 0,0 400x500
+  dl2 HitTestArea 0,0 400x500
+  dl3 Text 0,0 400x500 glyphs=1 fs=16
+  dl4 HitTestArea 0,0.203125 8x16
+  dl5 PopClip
+  dl6 PopStackingContext
+  dl7 ScrollBarStyled 388,0 12x200
+token page 1 content=20 outgoing=None
+  dl0 PushStackingContext 0,0 400x20
+  dl1 PopClip
+  dl2 HitTestArea 0,0 400x20
+  dl3 Text -16,0 432x20 glyphs=5 fs=16
+  dl4 HitTestArea 0,0.203125 40x16
+  dl5 PopStackingContext

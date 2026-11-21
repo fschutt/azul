@@ -49,6 +49,11 @@
     unsafe_op_in_unsafe_fn,
     let_underscore_drop,
 ))]
+// `redundant_pub_crate` (nursery) wants `pub(crate)` items in private modules
+// spelled `pub`, which is exactly what the `unreachable_pub` rustc lint above
+// flags - the two fight each other (clippy documents the conflict). The crate
+// keeps `unreachable_pub` and `pub(crate)`.
+#![allow(clippy::redundant_pub_crate)]
 #![allow(
     // `unknown_lints` lets the two forward-compat lints below be listed even on
     // the CI toolchain (1.90), where they may not be known yet, without emitting an
@@ -147,6 +152,23 @@ extern crate core;
 // self-alias makes those ~80 `azul_layout::…` paths resolve without editing them.
 extern crate self as azul_layout;
 
+/// Whether the debugging environment variable `$name` is set, read ONCE per
+/// call site. A `std::env::var_os` takes the process-wide environment lock
+/// (~100 ns on macOS), and these checks sat in layout's innermost loops - the
+/// taffy cache lookup, the scrollbar painter, the shaper - about 4% of a
+/// 300-contact list's layout (`AzContacts`, 2026-10-06).
+#[cfg(feature = "std")]
+macro_rules! env_flag {
+    ($name:literal) => {{
+        static FLAG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *FLAG.get_or_init(|| std::env::var_os($name).is_some())
+    }};
+    ($name:literal == $value:literal) => {{
+        static FLAG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *FLAG.get_or_init(|| std::env::var($name).as_deref() == Ok($value))
+    }};
+}
+
 // Dependencies kept for downstream/feature-plumbing use but not referenced
 // directly in this crate's source — marked intentionally linked so
 // unused_crate_dependencies stays quiet (the lint's own suggested fix).
@@ -238,6 +260,8 @@ pub const unsafe fn az_mark_read(_addr: u32) -> u32 {
 /// updater and the system dialogs.
 #[cfg(feature = "std")]
 pub mod appenv;
+#[cfg(feature = "std")]
+pub mod data_uri;
 /// Built-in system dialogs (`SysDialogType`): report-a-problem, update
 /// checker with Markdown changelog, crash reporter. ALWAYS CPU-rendered.
 #[cfg(all(feature = "std", feature = "widgets", feature = "text_layout"))]
@@ -250,7 +274,9 @@ pub mod image;
 /// Pure-functional image resampling (area downscale / bilinear upscale): the
 /// golden-reference scaler shared by the CPU rasterizer, the capture pipeline
 /// and any `RawImage` resize. No `image`-crate or platform dependency.
-pub mod image_scale;
+/// Image scaling lives in core (`RawImage::thumbnail` needs it); re-exported
+/// here so `azul_layout::image_scale::*` keeps working.
+pub use azul_core::image_scale;
 /// The ACTION JOURNAL: a bounded breadcrumb trail of dispatched callbacks,
 /// for problem reports and crash dumps. Off until enabled.
 #[cfg(feature = "std")]
@@ -262,6 +288,7 @@ pub mod journal;
 pub mod managers;
 /// Optional probe instrumentation. With the `probe` feature off this
 /// is a tiny module of no-op stubs and pays zero cost.
+pub mod pgo;
 pub mod probe;
 pub mod resource_handles;
 /// CSS layout solver: block, inline, flex, grid, and table formatting.
@@ -278,6 +305,9 @@ pub mod resource_handles;
     unused_assignments
 )]
 pub mod solver3;
+/// Built-in textures (the CC0 vellum grain): `ImageRef::create_builtin_texture`
+/// and the CSS names every window knows (`url(azul-texture-vellum)`).
+pub mod texture;
 /// Opt-in telemetry client: consent tiers, OTLP/HTTP JSON encoding, a
 /// disk-backed ping queue and an uploader. Requires the `telemetry`
 /// feature (std-only); collection stays *off* at runtime until a consent
@@ -350,9 +380,10 @@ pub use azul_core::url::{ResultUrlUrlParseError, Url, UrlParseError};
 #[cfg(feature = "fluent")]
 pub use fluent::{
     check_fluent_syntax, check_fluent_syntax_bytes, create_fluent_zip,
-    create_fluent_zip_from_strings, export_to_zip, FluentError, FluentLanguageInfo,
-    FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec, FluentLocalizerHandle,
-    FluentSyntaxCheckResult, FluentZipLoadResult,
+    create_fluent_zip_from_strings, export_to_zip, AppConfigFluentExt, FluentError,
+    FluentLanguageInfo, FluentLanguageInfoVec, FluentLoadError, FluentLoadErrorVec,
+    FluentLocalizerHandle, FluentSyntaxCheckResult, FluentZipLoadResult,
+    TranslationCompletenessReport,
 };
 
 /// File system operations (C-compatible wrappers for `std::fs`).
@@ -376,6 +407,13 @@ pub use file::{
 /// a bare path, or `http(s)://` through [`http`].
 pub mod fetch;
 pub mod http;
+/// Throwaway certificate authorities and a loopback TLS server, for tests only.
+#[cfg(all(
+    any(test, feature = "tls-testing"),
+    feature = "http",
+    not(target_arch = "wasm32")
+))]
+pub use azul_core::tls_testing;
 pub use http::{
     download_bytes, download_bytes_with_config, http_get, http_get_with_config, http_post,
     http_post_with_config, http_put_with_config, http_request_with_config, is_url_reachable,
@@ -409,34 +447,63 @@ pub use zip::{
 
 /// Icon provider: resolves icons from Material Icons font, images, or ZIP packs.
 pub mod icon;
+/// The user's icon rules on disk (`~/.azul/icons/remap.json`, one table per
+/// theme directory) and the walk of a `.azul` theme tree.
+#[cfg(feature = "std")]
+pub mod icon_remap;
 // Re-export core icon types
 pub use azul_core::icon::{
-    resolve_icons_in_dom, styled_dom_resolving_icons, IconProviderHandle, IconResolverCallbackType,
-    IconViewState, OptionIconProviderHandle,
+    parse_icon_apply_if, resolve_icons_in_dom, resolve_icons_in_dom_with_context,
+    styled_dom_resolving_icons, IconColorMapping, IconColorMappingVec, IconDesignedFor, IconMeta,
+    IconModeColors, IconProviderHandle, IconRecolor, IconRemapRule, IconResolverCallbackType,
+    IconRuleCondition, IconVariants, IconViewState, OptionIconProviderHandle,
 };
 pub use icon::{
     create_default_icon_provider,
     // Resolver
     default_icon_resolver,
+    default_svg_icon_meta,
     register_embedded_material_icons,
     register_font_icon,
     register_icons_from_zip,
     // Helpers
     register_image_icon,
+    register_image_icon_with_meta,
+    register_hvif_icon,
     register_material_icons,
+    register_svg_icon,
     FontIconData,
     // Data types for RefAny
     ImageIconData,
+    SvgIconData,
+    HvifIconData,
 };
 
 /// Callback handling for layout events (invocation, result processing).
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
+/// What a CPU frame did, counted.
+#[cfg(feature = "cpurender")]
+pub mod cpu_counters;
 /// CPU-based software rendering (no GPU required).
 #[cfg(feature = "cpurender")]
 // Scoped (was crate-wide): complex rasterizer signatures.
 #[allow(clippy::type_complexity)]
 pub mod cpurender;
+#[cfg(feature = "cpurender")]
+pub mod cpu_backend;
+pub mod window_background;
+/// Geometry made safe for the AGG rasterizer, for every path that feeds it:
+/// the CPU renderer, the SVG clip and stroke masks, the SVG module.
+#[cfg(any(feature = "cpurender", feature = "svg"))]
+mod geometry_guard;
+/// A bounded memo for pictures drawn again and again from the same inputs.
+#[cfg(feature = "cpurender")]
+pub mod image_memo;
+/// Which context menu a secondary click opens - the one pick every shell
+/// presents.
+#[cfg(feature = "text_layout")]
+pub mod context_menu;
 /// Default keyboard actions (copy, paste, select-all, undo, etc.).
 #[cfg(feature = "text_layout")]
 pub mod default_actions;
@@ -468,6 +535,11 @@ pub mod font;
 /// `regex-lite` declares `compile_error!` without its own `std` feature.
 #[cfg(all(feature = "text_layout", feature = "std"))]
 pub mod form;
+/// Raw `<input>` / `<select>` / `<textarea>` nodes become the matching widget
+/// (`<input type="range">` -> `Slider`), before the cascade - the way `<icon>`
+/// nodes are resolved. Run by `LayoutWindow::style_user_dom*`.
+#[cfg(feature = "widgets")]
+pub mod form_controls;
 /// Glyph path and cell cache for CPU text rendering.
 #[cfg(feature = "cpurender")]
 pub mod glyph_cache;
@@ -475,10 +547,14 @@ pub mod glyph_cache;
 /// callbacks until the runtime delivers the result as a fresh activation.
 #[cfg(feature = "text_layout")]
 pub mod request;
+/// Sign-in sessions (OAuth 2.0 for native apps, RFC 8252): PKCE, the state, the redirect
+/// checks and the loopback listener - the platform-free half of azul-dll's `AuthSession`.
+#[cfg(feature = "auth_session")]
+pub mod auth_session;
 
 /// Headless backend for CPU-only rendering without a display server.
 ///
-/// Used with `AZUL_HEADLESS=1` for E2E testing, CI, and screenshot capture.
+/// Used with `AZ_BACKEND=headless` for E2E testing, CI, and screenshot capture.
 #[cfg(feature = "text_layout")]
 pub mod headless;
 // Re-export allsorts types needed by printpdf
@@ -505,6 +581,10 @@ pub use azul_core::paged;
 /// text/structural next).
 #[cfg(feature = "text_layout")]
 pub mod overlay;
+/// The pointer-press arbiter: scrollbar first, then content - the one
+/// decision the shells, the scripted path and the E2E runner share.
+#[cfg(feature = "text_layout")]
+pub mod press_router;
 /// Scroll physics timer for momentum-based smooth scrolling.
 #[cfg(feature = "text_layout")]
 pub mod scroll_timer;
@@ -514,6 +594,22 @@ pub mod scroll_timer;
 // shaping loop, and complex shaping/cache signatures.
 #[allow(private_interfaces, unused_labels, clippy::type_complexity)]
 pub mod text3;
+/// What a caret indexes (a text block's content in the layout's run
+/// numbering) and the flat byte offsets into a block's text.
+#[cfg(feature = "text_layout")]
+pub mod block_content;
+/// Text blocks rebuilt as DOM subtrees from their styled runs - the payload
+/// of a structural edit that joins blocks or pastes a fragment.
+#[cfg(feature = "text_layout")]
+pub mod rich_blocks;
+/// The HTML flavour of a paste, sanitized into formatted text, links and
+/// blocks.
+#[cfg(feature = "text_layout")]
+pub mod paste_html;
+/// Text blocks: which inline formatting context a node, a caret or a
+/// selection end lives in - the one resolver.
+#[cfg(feature = "text_layout")]
+pub mod text_block;
 /// Thread callback wrappers for the C API.
 #[cfg(feature = "text_layout")]
 pub mod thread;
@@ -523,6 +619,8 @@ pub mod thread;
 #[allow(clippy::non_canonical_partial_ord_impl)]
 pub mod timer;
 pub mod transient;
+/// Where a floating surface (tooltip, menu, popover) opens against its anchor and screen.
+pub mod placement;
 /// Render an icon-registry entry to RGBA pixels, for the system tray.
 /// Goes through the same `<icon>` resolution + CPU renderer, so every icon
 /// kind (and any future DOM-expressible one) works without a special case --
@@ -618,6 +716,31 @@ pub fn parse_font_fn(
 }
 
 #[cfg(feature = "text_layout")]
+/// The font an `@font-face`'s `src` names - a base64 `data:` URI, the form
+/// an SVG (a PDF page's) embeds its fonts in - parsed ONCE per distinct URI
+/// and remembered for the last [`FONT_URI_MEMO`]: the markup loaders'
+/// [`azul_core::xml::element::FontSourceFn`]. `None` for another URL or bytes
+/// that are not a font.
+#[must_use]
+pub fn font_from_url(url: &str) -> Option<azul_css::props::basic::FontRef> {
+    static MEMO: data_uri::UriMemo<azul_css::props::basic::FontRef> =
+        data_uri::UriMemo::new(FONT_URI_MEMO);
+    MEMO.get_or_make(url, |bytes| {
+        parse_font_fn(azul_core::resources::LoadedFontSource {
+            data: bytes.into(),
+            index: 0,
+            load_outlines: true,
+        })
+    })
+}
+
+#[cfg(feature = "text_layout")]
+/// How many `@font-face` fonts [`font_from_url`] remembers: a page in view
+/// keeps its own alive (its text nodes hold them); this keeps the pages just
+/// scrolled past from parsing theirs again.
+pub const FONT_URI_MEMO: usize = 16;
+
+#[cfg(feature = "text_layout")]
 /// Wraps a [`ParsedFont`] in a [`FontRef`](azul_css::props::basic::FontRef),
 /// transferring ownership to the returned handle.
 pub fn parsed_font_to_font_ref(parsed_font: ParsedFont) -> azul_css::props::basic::FontRef {
@@ -647,6 +770,46 @@ pub const fn font_ref_to_parsed_font(font_ref: &azul_css::props::basic::FontRef)
     // via `Box::into_raw`, so it points to a valid, aligned `ParsedFont`.
     unsafe { &*font_ref.parsed.cast::<ParsedFont>() }
 }
+
+// A callback's write of `transform` / `opacity`, and a hover that moves them, is a value under a
+// key, not a display-list rebuild.
+#[cfg(test)]
+mod gpu_path_tests;
+
+// A pan of a `VirtualView` is a scroll offset: written into the host's display list in place when
+// only the layout cache and the renderer's record hold it, copied first when a backend holds it.
+#[cfg(test)]
+mod virtual_view_pan_tests;
+
+// A view rendered again shows what its callback drew this time, a style that lives only in a
+// `Dom::with_css` sheet included.
+#[cfg(test)]
+mod virtual_view_rerender_tests;
+
+// A block of many out-of-flow children is looked at once per child (no k^2 scan for the first in-flow one).
+#[cfg(test)]
+mod in_flow_probe_tests;
+
+// The reference frames of a display list are found in one walk, kept with the list.
+#[cfg(test)]
+mod frame_index_tests;
+
+// A hover over a label's text is a repaint of that label.
+#[cfg(test)]
+mod hover_text_tests;
+
+// A scrolled container goes idle after its scrollbar has faded: the time left counts down by the
+// clock, not by frames.
+#[cfg(test)]
+mod scrollbar_fade_tests;
+
+// The caret blink is a patch of the display list, not a rebuild of it.
+#[cfg(test)]
+mod caret_blink_tests;
+
+// The guards of the 2026-11-21 audit, one module per area.
+#[cfg(test)]
+mod audit_tests;
 
 #[cfg(test)]
 mod autotest_generated {

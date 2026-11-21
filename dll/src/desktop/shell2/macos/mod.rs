@@ -48,8 +48,10 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSAppKitVersionNumber, NSAppKitVersionNumber10_12, NSApplication,
-    NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBitmapImageRep,
-    NSColor, NSCompositingOperation, NSDragOperation, NSDraggingInfo, NSEvent, NSEventMask,
+    NSApplicationActivationPolicy, NSApplicationDelegate, NSApplicationTerminateReply,
+    NSBackingStoreType, NSBitmapImageRep,
+    NSColor, NSCompositingOperation, NSDragOperation, NSDraggingContext, NSDraggingInfo,
+    NSDraggingSession, NSDraggingSource, NSEvent, NSEventMask,
     NSEventType, NSFilenamesPboardType, NSMenu, NSMenuItem, NSOpenGLContext, NSOpenGLPixelFormat,
     NSOpenGLPixelFormatAttribute, NSOpenGLView, NSResponder, NSScreen, NSTextInputClient,
     NSTrackingArea, NSTrackingAreaOptions, NSView, NSVisualEffectView, NSWindow, NSWindowDelegate,
@@ -85,14 +87,28 @@ use crate::{impl_platform_window_getters, log_debug, log_error, log_info, log_tr
 
 pub mod accessibility;
 pub mod clipboard;
+mod color_space;
 mod coregraphics;
 mod corevideo;
 mod events;
 mod gl;
+#[cfg(test)]
+pub(crate) mod headless_gpu;
+/// What the active keyboard layout prints on a key: the meaning of a keycode.
+pub(crate) mod keyboard_layout;
+/// The layer-backed present of the CPU view (A10-06, `AZ_CPU_PRESENT=layer`).
+#[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+pub(crate) mod layer_present;
+/// A node drag that leaves the window runs on as the system's drag session.
+mod os_drag;
 pub(crate) mod menu;
 pub mod registry;
 pub(crate) mod system_style;
 mod tooltip;
+pub mod vsync_ticks;
+pub mod after_turn;
+/// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
+mod webview;
 
 use coregraphics::CoreGraphicsFunctions;
 use corevideo::CoreVideoFunctions;
@@ -123,9 +139,6 @@ extern "C" {
 }
 
 const K_IOPMASSERTION_LEVEL_ON: u32 = 255;
-
-/// Timer interval for ~60 FPS tick callbacks (16ms).
-const TIMER_INTERVAL_60FPS: f64 = 0.016;
 
 /// Base DPI value (1x scale = 96 DPI on macOS/Windows).
 const BASE_DPI: f32 = 96.0;
@@ -170,6 +183,33 @@ define_class!(
         #[unsafe(method(canBecomeKeyWindow))]
         fn can_become_key_window(&self) -> bool {
             true
+        }
+
+        #[unsafe(method(canBecomeMainWindow))]
+        fn can_become_main_window(&self) -> bool {
+            false
+        }
+    }
+);
+
+define_class!(
+    // A popup that LEAVES focus on its invoker - a combobox's list (WAI-ARIA
+    // combobox: DOM focus stays on the field). It must never become the key
+    // window: as an `AzulPopupWindow` it did, and every key typed while the
+    // list was open went to the list and was lost. Answering NO here makes
+    // `makeKeyAndOrderFront` merely order it front, and a click in it does
+    // not take the keyboard either; the parent keeps every key and forwards
+    // the list's navigation keys through the mailbox
+    // (`common::transient::parent_key_route`).
+    #[unsafe(super(NSWindow, NSResponder, NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "AzulListPopupWindow"]
+    pub struct ListPopupWindow;
+
+    impl ListPopupWindow {
+        #[unsafe(method(canBecomeKeyWindow))]
+        fn can_become_key_window(&self) -> bool {
+            false
         }
 
         #[unsafe(method(canBecomeMainWindow))]
@@ -246,6 +286,116 @@ pub fn wake_all_windows() {
     }
 }
 
+/// A worker sent its window something, or ended (`azul_layout::thread::set_thread_wake`).
+/// It runs on the worker's thread, so it only queues [`poll_threads_on_main`] on the
+/// main queue. This replaces a 16 ms poll timer per window with live workers: an app
+/// with a permanent worker (AzMonitor's sampler) woke sixty times a second for it.
+extern "C" fn wake_main_for_threads() {
+    extern "C" {
+        static _dispatch_main_q: std::ffi::c_void;
+        fn dispatch_async_f(
+            queue: *const std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            work: extern "C" fn(*mut std::ffi::c_void),
+        );
+    }
+    // SAFETY: libdispatch's main queue lives for the whole process, and the work
+    // function takes no context.
+    unsafe {
+        dispatch_async_f(
+            std::ptr::addr_of!(_dispatch_main_q),
+            std::ptr::null_mut(),
+            poll_threads_on_main,
+        );
+    }
+}
+
+/// The main queue's half of [`wake_main_for_threads`]: every window with workers runs
+/// their write-backs now, as its poll timer's tick does.
+extern "C" fn poll_threads_on_main(_context: *mut std::ffi::c_void) {
+    use crate::desktop::shell2::common::event::PlatformWindow;
+
+    // Taken first: a worker that sends while the windows are polled wakes again.
+    let _ = azul_layout::thread::take_thread_wake();
+    for wptr in registry::get_all_window_ptrs() {
+        if wptr.is_null() {
+            continue;
+        }
+        // SAFETY: the registry holds live windows only, and this runs on the main
+        // thread from the run loop, outside every window method.
+        let window = unsafe { &mut *wptr };
+        let has_threads = window
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| !lw.threads.is_empty());
+        if !has_threads {
+            continue;
+        }
+        if window.process_timers_and_threads() {
+            window.request_redraw();
+        }
+        window.request_frame_if_pending();
+    }
+}
+
+/// A window sent a scene without waiting for it (audit A4-31,
+/// `common::frame_schedule`): the frame is drawn by the pass the renderer's
+/// wake brings. Should that wake not come, [`open_scene_valves_on_main`] runs on
+/// the main queue once the valve's time has gone by and has the window make a
+/// pass by itself, which then waits for the scene as every pass used to. One
+/// timer per scene sent that way (a settle, not a frame), and nothing while no
+/// scene is in flight.
+fn arm_scene_valve() {
+    extern "C" {
+        static _dispatch_main_q: std::ffi::c_void;
+        /// `dispatch_time_t dispatch_time(dispatch_time_t when, int64_t delta)`
+        fn dispatch_time(when: u64, delta: i64) -> u64;
+        fn dispatch_after_f(
+            when: u64,
+            queue: *const std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            work: extern "C" fn(*mut std::ffi::c_void),
+        );
+    }
+    /// `DISPATCH_TIME_NOW`
+    const NOW: u64 = 0;
+    // A little past the valve's time, so that the valve is due when this runs.
+    let delay = crate::desktop::shell2::common::frame_schedule::FrameSchedule::VALVE
+        + std::time::Duration::from_millis(50);
+    let delay_ns = i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX);
+    // SAFETY: libdispatch's main queue lives for the whole process, and the work
+    // function takes no context.
+    unsafe {
+        dispatch_after_f(
+            dispatch_time(NOW, delay_ns),
+            std::ptr::addr_of!(_dispatch_main_q),
+            std::ptr::null_mut(),
+            open_scene_valves_on_main,
+        );
+    }
+}
+
+/// The main queue's half of [`arm_scene_valve`]: every window whose scene has
+/// been in flight for the valve's time is asked for a pass (as the renderer's
+/// wake would have asked: `drain_loop_work`). A window whose scene landed
+/// meanwhile is not touched.
+extern "C" fn open_scene_valves_on_main(_context: *mut std::ffi::c_void) {
+    let now = std::time::Instant::now();
+    for wptr in registry::get_all_window_ptrs() {
+        if wptr.is_null() {
+            continue;
+        }
+        // SAFETY: the registry holds live windows only, and this runs on the main
+        // thread from the run loop, outside every window method.
+        let window = unsafe { &mut *wptr };
+        if window.frame_schedule.valve_due(now) {
+            window.frame_waiting = true;
+            window.request_redraw();
+        }
+    }
+}
+
 fn primary_screen_height() -> Option<f64> {
     let mtm = MainThreadMarker::new()?;
     unsafe {
@@ -266,7 +416,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseDown] LEFT at ({:.1}, {:.1})",
+            "[mouseDown] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -275,9 +425,15 @@ mod view_handlers {
             // view without a `menuForEvent:` menu as a LEFT mouseDown with the
             // Control flag. Route it to the right-button handlers (a context
             // menu, not a paint stroke) and latch so the release follows,
-            // whether or not Control is still held by then.
-            let ctrl_click = unsafe { event.modifierFlags() }
+            // whether or not Control is still held by then. The rule itself
+            // is the engine's (`azul_layout::context_menu::is_secondary_press`).
+            let control_held = unsafe { event.modifierFlags() }
                 .contains(objc2_app_kit::NSEventModifierFlags::Control);
+            let ctrl_click = azul_layout::context_menu::is_secondary_press(
+                &azul_css::system::Platform::MacOs,
+                azul_core::events::MouseButton::Left,
+                control_held,
+            );
             if ctrl_click {
                 unsafe {
                     (*(window_ptr as *mut MacOSWindow)).ctrl_click_as_right = true;
@@ -326,7 +482,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseUp] LEFT at ({:.1}, {:.1})",
+            "[mouseUp] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -373,6 +529,7 @@ mod view_handlers {
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                 let result = macos_window.handle_mouse_move(event);
+                macos_window.start_os_drag_if_it_left(event);
                 match result {
                     EventProcessResult::RegenerateDisplayList => {
                         macos_window
@@ -427,6 +584,31 @@ mod view_handlers {
         }
     }
 
+    /// A native menu returned. Its tracking loop took every mouse event while it was up, so a
+    /// button the window saw go down but not up (a dropdown opens its menu on the press that
+    /// focuses it) is released now, through the window's own release pass - or the window
+    /// keeps it down and the next move drags a text selection.
+    pub(super) fn release_buttons_after_menu(window_ptr: Option<*mut std::ffi::c_void>) {
+        let Some(window_ptr) = window_ptr else {
+            return;
+        };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let held = macos_window.common.current_window_state().mouse_state;
+            let pressed = NSEvent::pressedMouseButtons() as u64;
+            let released =
+                crate::desktop::shell2::common::event::buttons_released_meanwhile(&held, pressed);
+            if released.is_empty() {
+                return;
+            }
+            for button in released {
+                let result = macos_window.release_button_taken_by_menu(button);
+                route_result(macos_window, result);
+            }
+            macos_window.sync_window_state();
+        }
+    }
+
     pub(super) fn right_mouse_up(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         if let Some(window_ptr) = window_ptr {
             // The `&mut MacOSWindow` lives in this block ONLY. A native context
@@ -451,6 +633,7 @@ mod view_handlers {
                 unsafe {
                     (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                 }
+                release_buttons_after_menu(Some(window_ptr));
             }
         }
     }
@@ -518,32 +701,53 @@ mod view_handlers {
         Redo,
     }
 
-    /// MWA-B14: route an Edit-menu command into the SAME SystemChange path
-    /// the keyboard shortcuts use, then run an event pass.
-    pub(super) fn edit_command(window_ptr: Option<*mut std::ffi::c_void>, cmd: EditCommand) {
-        use azul_core::events::SystemChange;
+    impl EditCommand {
+        /// The keystroke the command stands for - its key equivalent in the
+        /// Edit menu - with the platform's primary modifier (Cmd, or Ctrl
+        /// when the app asked for the other platforms' shortcuts on a Mac):
+        /// modifiers first, the key last.
+        pub(super) fn keys(self) -> Vec<azul_core::window::VirtualKeyCode> {
+            use azul_core::window::VirtualKeyCode as K;
+            let primary = if azul_core::window::mac_shortcut_conventions() {
+                K::LWin
+            } else {
+                K::LControl
+            };
+            match self {
+                Self::Undo => vec![primary, K::Z],
+                Self::Redo => vec![primary, K::LShift, K::Z],
+                Self::Cut => vec![primary, K::X],
+                Self::Copy => vec![primary, K::C],
+                Self::Paste => vec![primary, K::V],
+                Self::SelectAll => vec![primary, K::A],
+            }
+        }
+    }
 
+    /// MWA-B14 / EVENTS7: an Edit-menu command runs as the KEYSTROKE it
+    /// stands for, through the same key passes as the key itself: the app's
+    /// key handlers first, then the key's default action - the engine's text
+    /// undo, copy, paste ... - unless a handler called `prevent_default`
+    /// (WRITER6's rule for the keys).
+    ///
+    /// It used to apply the SystemChange directly. AppKit hands a key
+    /// equivalent to the menu BEFORE the view's `keyDown:`, so with the Undo
+    /// item enabled Cmd+Z never reached a key handler: the rich-text editor,
+    /// which owns its undo history, lost Undo to the engine's text undo on
+    /// native macOS, and an app's own Cmd+C on a non-editable focus never ran.
+    ///
+    /// One path whether the item was picked with the pointer or by its key
+    /// equivalent: the engine never saw the letter key go down (the menu took
+    /// the key event), so the keystroke is pressed and released here; a Cmd
+    /// the user holds stays held. Pressing it here also releases it: AppKit
+    /// sends no `keyUp:` for a key released while Cmd is held.
+    pub(super) fn edit_command(window_ptr: Option<*mut std::ffi::c_void>, cmd: EditCommand) {
         let Some(window_ptr) = window_ptr else { return };
         unsafe {
             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-            let focused = macos_window
-                .common
-                .layout_window
-                .as_ref()
-                .and_then(|lw| lw.focus_manager.get_focused_node().copied());
-            let change = match cmd {
-                EditCommand::Copy => Some(SystemChange::CopyToClipboard),
-                EditCommand::Paste => Some(SystemChange::PasteFromClipboard),
-                EditCommand::SelectAll => Some(SystemChange::SelectAllText),
-                // Target-carrying commands need a focused node.
-                EditCommand::Cut => focused.map(|target| SystemChange::CutToClipboard { target }),
-                EditCommand::Undo => focused.map(|target| SystemChange::UndoTextEdit { target }),
-                EditCommand::Redo => focused.map(|target| SystemChange::RedoTextEdit { target }),
-            };
-            let Some(change) = change else { return };
-            macos_window.snapshot_window_state_baseline("macos.edit_command");
-            let result = macos_window.apply_system_change(&change);
+            let result = macos_window.press_shortcut_keys(&cmd.keys(), "macos.edit_command");
             macos_window.apply_activation_pass_result(result);
+            macos_window.sync_window_state();
         }
     }
 
@@ -551,12 +755,31 @@ mod view_handlers {
     /// gesture manager's native-override slot — which was designed for
     /// exactly this and never called from macOS — then runs an event pass so
     /// detect_pinch consumers fire in the same frame.
+    ///
+    /// An NSEvent's `magnification` is that EVENT's own change, not the
+    /// gesture's: the manager adds the deltas up over the event's phase
+    /// (`trackpad_magnify`), so the injected `DetectedPinch` is cumulative
+    /// since the fingers came down, as on every other source. Injecting the
+    /// raw `1 + magnification` read +2 % then +1 % as a zoom OUT to every
+    /// consumer comparing successive updates - the AzMaps jitter.
     pub(super) fn magnify(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
         let Some(window_ptr) = window_ptr else { return };
         unsafe {
+            use azul_layout::managers::gesture::{NativeGestureEvent, TrackpadGesturePhase};
             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
             let magnification = event.magnification() as f32;
-            let scale = 1.0 + magnification;
+            let phase = event.phase();
+            let phase = if phase == objc2_app_kit::NSEventPhase::Began {
+                TrackpadGesturePhase::Began
+            } else if phase == objc2_app_kit::NSEventPhase::Ended
+                || phase == objc2_app_kit::NSEventPhase::Cancelled
+            {
+                TrackpadGesturePhase::Ended
+            } else {
+                // Changed, Stationary - and a device that reports no phase,
+                // whose updates then add up into one long gesture.
+                TrackpadGesturePhase::Changed
+            };
             let center = macos_window
                 .common
                 .current_window_state()
@@ -565,22 +788,55 @@ mod view_handlers {
                 .get_position()
                 .unwrap_or(azul_core::geom::LogicalPosition { x: 0.0, y: 0.0 });
             if let Some(lw) = macos_window.common.layout_window.as_mut() {
-                use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
-                // Synthesized distances: only the RATIO is meaningful for a
-                // native recognizer (a trackpad magnify event carries no
-                // real touch points).
-                lw.gesture_drag_manager
-                    .inject_native_gesture(NativeGestureEvent::Pinch(DetectedPinch {
-                        scale,
-                        center,
-                        initial_distance: 100.0,
-                        current_distance: 100.0 * scale,
-                        // Trackpad magnify events are deltas without a
-                        // gesture clock; consumers key off scale/center.
-                        duration_ms: 0,
-                    }));
+                if let Some(pinch) =
+                    lw.gesture_drag_manager
+                        .trackpad_magnify(phase, magnification, center)
+                {
+                    lw.gesture_drag_manager
+                        .inject_native_gesture(NativeGestureEvent::Pinch(pinch));
+                }
             }
             macos_window.snapshot_window_state_baseline("macos.magnify");
+            let result = macos_window.process_window_events(0);
+            macos_window.apply_activation_pass_result(result);
+        }
+    }
+
+    /// `swipeWithEvent:` - a page swipe when the user set "swipe between
+    /// pages" to three fingers (the two-finger default arrives as scroll
+    /// events, see `handle_scroll_wheel`). One event per swipe, `deltaX` /
+    /// `deltaY` +-1 in the same direction convention as the scroll deltas,
+    /// so the natural-scrolling inversion is taken out the same way.
+    pub(super) fn swipe(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            use azul_layout::managers::gesture::{GestureDirection, NativeGestureEvent};
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let to_fingers = if event.isDirectionInvertedFromDevice() {
+                1.0
+            } else {
+                -1.0
+            };
+            let (dx, dy) = (event.deltaX() * to_fingers, event.deltaY() * to_fingers);
+            if dx == 0.0 && dy == 0.0 {
+                return;
+            }
+            let dir = if dx.abs() >= dy.abs() {
+                if dx > 0.0 {
+                    GestureDirection::Right
+                } else {
+                    GestureDirection::Left
+                }
+            } else if dy > 0.0 {
+                GestureDirection::Down
+            } else {
+                GestureDirection::Up
+            };
+            if let Some(lw) = macos_window.common.layout_window.as_mut() {
+                lw.gesture_drag_manager
+                    .inject_native_gesture(NativeGestureEvent::Swipe(dir));
+            }
+            macos_window.snapshot_window_state_baseline("macos.swipe");
             let result = macos_window.process_window_events(0);
             macos_window.apply_activation_pass_result(result);
         }
@@ -651,6 +907,28 @@ mod view_handlers {
             macos_window.snapshot_window_state_baseline("macos.pressure_change");
             let result = macos_window.process_window_events(0);
             macos_window.apply_activation_pass_result(result);
+        }
+    }
+
+    /// `tabletPoint:` - see `MacOSWindow::handle_tablet_point`.
+    pub(super) fn tablet_point(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let result = macos_window.handle_tablet_point(event);
+            route_result(macos_window, result);
+            macos_window.sync_window_state();
+        }
+    }
+
+    /// `tabletProximity:` - see `MacOSWindow::handle_tablet_proximity`.
+    pub(super) fn tablet_proximity(window_ptr: Option<*mut std::ffi::c_void>, event: &NSEvent) {
+        let Some(window_ptr) = window_ptr else { return };
+        unsafe {
+            let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+            let result = macos_window.handle_tablet_proximity(event);
+            route_result(macos_window, result);
+            macos_window.sync_window_state();
         }
     }
 
@@ -898,10 +1176,20 @@ mod view_handlers {
         }
     }
 
+    /// Whether the system's drag session over this window is the one this
+    /// window started for its own node drag. Dropped back where it came from
+    /// it is no file drop: the in-app drag ended where it left.
+    unsafe fn own_os_drag(window_ptr: Option<*mut std::ffi::c_void>) -> bool {
+        window_ptr.is_some_and(|ptr| (*(ptr as *const MacOSWindow)).os_drag_running)
+    }
+
     pub(super) fn dragging_entered(
         window_ptr: Option<*mut std::ffi::c_void>,
         info: &ProtocolObject<dyn NSDraggingInfo>,
     ) -> NSDragOperation {
+        if unsafe { own_os_drag(window_ptr) } {
+            return NSDragOperation::None;
+        }
         let paths = extract_dragged_paths(info);
         if paths.is_empty() {
             return NSDragOperation::None;
@@ -943,6 +1231,9 @@ mod view_handlers {
         window_ptr: Option<*mut std::ffi::c_void>,
         info: &ProtocolObject<dyn NSDraggingInfo>,
     ) -> bool {
+        if unsafe { own_os_drag(window_ptr) } {
+            return false;
+        }
         let paths = extract_dragged_paths(info);
         if paths.is_empty() {
             return false;
@@ -965,6 +1256,31 @@ mod view_handlers {
             return true;
         }
         false
+    }
+
+    /// What the window's node drag lets the drop do, for the system's drag
+    /// session it runs as (`draggingSession:sourceOperationMaskForDraggingContext:`).
+    pub(super) fn os_drag_operations(window_ptr: Option<*mut std::ffi::c_void>) -> NSDragOperation {
+        let Some(window_ptr) = window_ptr else {
+            return NSDragOperation::None;
+        };
+        // SAFETY: the view's back-pointer, valid while the view lives.
+        let macos_window = unsafe { &*(window_ptr as *const MacOSWindow) };
+        macos_window.os_drag_operations()
+    }
+
+    /// The system's drag session ended (dropped on Finder or another app,
+    /// refused, or cancelled with Escape): the node drag ends with what the
+    /// drop did.
+    pub(super) fn os_drag_ended(window_ptr: Option<*mut std::ffi::c_void>, operation: NSDragOperation) {
+        if let Some(window_ptr) = window_ptr {
+            unsafe {
+                let macos_window = &mut *(window_ptr as *mut MacOSWindow);
+                let result = macos_window.os_drag_ended(operation);
+                route_result(macos_window, result);
+                macos_window.sync_window_state();
+            }
+        }
     }
 
     /// AppKit announced that this view's effective appearance changed.
@@ -990,10 +1306,7 @@ mod view_handlers {
         };
         unsafe {
             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-            let Some(new_style) =
-                system_style::adopt_announced_theme(
-                    &mut macos_window.common,
-                )
+            let Some(new_style) = system_style::adopt_announced_theme(&mut macos_window.common)
             else {
                 return;
             };
@@ -1012,10 +1325,15 @@ pub struct GLViewIvars {
     needs_reshape: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker,
-    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
+    window_ptr: Cell<Option<*mut std::ffi::c_void>>,
     /// Set to true by setMarkedText / insertText to prevent handle_key_down
     /// from double-processing the same key event during IME composition.
     ime_key_handled: Cell<bool>,
+    /// The window's background material is not `Opaque`: the view reports
+    /// itself non-opaque, so AppKit composites the alpha the GL surface
+    /// leaves (see-through pixels show what lies behind, not black). Set
+    /// with the surface's opacity in `set_gl_surface_see_through`.
+    transparent: Cell<bool>,
 }
 
 define_class!(
@@ -1035,13 +1353,14 @@ define_class!(
             let window_ptr = match self.get_window_ptr() {
                 Some(ptr) => ptr,
                 None => {
-                    log_warn!(LogCategory::Rendering, "[GLView] drawRect: No window pointer set yet, skipping render");
+                    log_debug!(LogCategory::Rendering, "[GLView] drawRect: no window (not set up yet, or closed), nothing to draw");
                     return;
                 }
             };
 
-            // SAFETY: We trust that the window pointer is valid and points to a MacOSWindow
-            // The window owns the view, so the window outlives the view
+            // SAFETY: the pointer is set while its MacOSWindow lives: the window
+            // takes it back (`forget_window`) before it closes or is freed,
+            // since AppKit may keep the view alive longer.
             unsafe {
                 let macos_window = &mut *(window_ptr as *mut MacOSWindow);
 
@@ -1055,6 +1374,8 @@ define_class!(
                 if let Err(e) = macos_window.render_and_present_in_draw_rect() {
                     log_error!(LogCategory::Rendering, "[GLView] drawRect: Error during rendering: {:?}", e);
                 }
+                let shows_document = macos_window.gpu_shows_document();
+                macos_window.reveal_after_first_frame(shows_document);
             }
         }
 
@@ -1094,6 +1415,11 @@ define_class!(
             self.ivars().needs_reshape.set(false);
         }
 
+        #[unsafe(method(isOpaque))]
+        fn is_opaque(&self) -> bool {
+            !self.ivars().transparent.get()
+        }
+
         // Event Handling
 
         #[unsafe(method(acceptsFirstResponder))]
@@ -1103,27 +1429,27 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            view_handlers::mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            view_handlers::mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            view_handlers::right_mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::right_mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            view_handlers::right_mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::right_mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         // Middle / extra buttons and non-left drags. `process_event` routes
@@ -1133,22 +1459,22 @@ define_class!(
         // engine side (handle_mouse_down/up with MouseButton::Middle) exists.
         #[unsafe(method(otherMouseDown:))]
         fn other_mouse_down(&self, event: &NSEvent) {
-            view_handlers::other_mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::other_mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(otherMouseUp:))]
         fn other_mouse_up(&self, event: &NSEvent) {
-            view_handlers::other_mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::other_mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(otherMouseDragged:))]
         fn other_mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::non_left_mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseDragged:))]
         fn right_mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::non_left_mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         /// A runtime light/dark switch, as AppKit reports it.
@@ -1160,12 +1486,12 @@ define_class!(
         /// (GL and CPU) owe it identically.
         #[unsafe(method(viewDidChangeEffectiveAppearance))]
         fn view_did_change_effective_appearance(&self) {
-            view_handlers::effective_appearance_changed(*self.ivars().window_ptr.borrow());
+            view_handlers::effective_appearance_changed(self.ivars().window_ptr.get());
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::scroll_wheel(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B4: trackpad pinch / rotate — injected into the gesture
@@ -1173,17 +1499,36 @@ define_class!(
         // report OS-quality results (previously never wired on macOS).
         #[unsafe(method(magnifyWithEvent:))]
         fn magnify_with_event(&self, event: &NSEvent) {
-            view_handlers::magnify(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::magnify(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
-            view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::rotate(self.ivars().window_ptr.get(), event);
+        }
+
+        #[unsafe(method(swipeWithEvent:))]
+        fn swipe_with_event(&self, event: &NSEvent) {
+            view_handlers::swipe(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(pressureChangeWithEvent:))]
         fn pressure_change_with_event(&self, event: &NSEvent) {
-            view_handlers::pressure_change(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::pressure_change(self.ivars().window_ptr.get(), event);
+        }
+
+        // A pen's samples that come as no mouse event (pressure, tilt or
+        // rotation changing while it holds still) and its proximity (in and
+        // out of the tablet's range): see `handle_tablet_point` /
+        // `handle_tablet_proximity`.
+        #[unsafe(method(tabletPoint:))]
+        fn tablet_point(&self, event: &NSEvent) {
+            view_handlers::tablet_point(self.ivars().window_ptr.get(), event);
+        }
+
+        #[unsafe(method(tabletProximity:))]
+        fn tablet_proximity(&self, event: &NSEvent) {
+            view_handlers::tablet_proximity(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B14: standard Edit-menu selectors. The native Edit menu's
@@ -1193,7 +1538,7 @@ define_class!(
         #[unsafe(method(copy:))]
         fn edit_copy(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Copy,
             );
         }
@@ -1201,7 +1546,7 @@ define_class!(
         #[unsafe(method(cut:))]
         fn edit_cut(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Cut,
             );
         }
@@ -1209,7 +1554,7 @@ define_class!(
         #[unsafe(method(paste:))]
         fn edit_paste(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Paste,
             );
         }
@@ -1217,7 +1562,7 @@ define_class!(
         #[unsafe(method(selectAll:))]
         fn edit_select_all(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::SelectAll,
             );
         }
@@ -1225,7 +1570,7 @@ define_class!(
         #[unsafe(method(undo:))]
         fn edit_undo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Undo,
             );
         }
@@ -1233,7 +1578,7 @@ define_class!(
         #[unsafe(method(redo:))]
         fn edit_redo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Redo,
             );
         }
@@ -1242,22 +1587,22 @@ define_class!(
 
         #[unsafe(method(draggingEntered:))]
         fn dragging_entered(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::dragging_entered(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(draggingUpdated:))]
         fn dragging_updated(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::dragging_entered(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(draggingExited:))]
         fn dragging_exited(&self, _info: Option<&ProtocolObject<dyn NSDraggingInfo>>) {
-            view_handlers::dragging_exited(*self.ivars().window_ptr.borrow());
+            view_handlers::dragging_exited(self.ivars().window_ptr.get());
         }
 
         #[unsafe(method(performDragOperation:))]
         fn perform_drag_operation(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
-            view_handlers::perform_drag(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::perform_drag(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(keyDown:))]
@@ -1265,12 +1610,12 @@ define_class!(
             let key_code = unsafe { event.keyCode() };
             let chars = unsafe { event.characters() }.map(|s| s.to_string()).unwrap_or_default();
             log_trace!(LogCategory::Input, "[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
-                self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                self.ivars().window_ptr.get().and_then(|ptr| unsafe {
                     let w = &*(ptr as *const MacOSWindow);
                     w.common.layout_window.as_ref()
                 }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false));
 
-            let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+            let has_editing = self.ivars().window_ptr.get().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
             }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false);
@@ -1298,7 +1643,7 @@ define_class!(
                 let ime_consumed = self.ivars().ime_key_handled.get();
                 log_trace!(LogCategory::Input, "[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
                 if ime_consumed {
-                    if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                    if let Some(window_ptr) = self.ivars().window_ptr.get() {
                         unsafe {
                             use crate::desktop::shell2::common::event::PlatformWindow;
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -1322,7 +1667,7 @@ define_class!(
             }
 
             log_trace!(LogCategory::Input, "[IME keyDown] falling through to handle_key_down");
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -1354,20 +1699,20 @@ define_class!(
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            view_handlers::key_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::key_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            view_handlers::flags_changed(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::flags_changed(self.ivars().window_ptr.get(), event);
         }
 
         // NSResponder Cmd+Z / Cmd+Shift+Z arrive via the `undo:`/`redo:`
         // selectors registered ABOVE (`edit_undo`/`edit_redo`, MWA-B14 Edit
         // menu) — registering them a second time here made objc2's
         // class_addMethod abort at first view creation ("failed to add
-        // method undo:"). perform_undo/perform_redo delegate to the same
-        // UndoTextEdit/RedoTextEdit arms, so one registration serves both.
+        // method undo:"). One registration: `edit_command` runs the
+        // command as its keystroke (the key handlers first, EVENTS7).
 
         #[unsafe(method(validateUserInterfaceItem:))]
         fn validate_user_interface_item(&self, item: &ProtocolObject<dyn NSObjectProtocol>) -> Bool {
@@ -1382,7 +1727,7 @@ define_class!(
             };
 
             if action == Some(sel!(undo:)) {
-                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                if let Some(window_ptr) = self.ivars().window_ptr.get() {
                     unsafe {
                         let macos_window = &*(window_ptr as *const MacOSWindow);
                         return Bool::from(macos_window.can_undo());
@@ -1390,7 +1735,7 @@ define_class!(
                 }
                 return Bool::from(false);
             } else if action == Some(sel!(redo:)) {
-                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                if let Some(window_ptr) = self.ivars().window_ptr.get() {
                     unsafe {
                         let macos_window = &*(window_ptr as *const MacOSWindow);
                         return Bool::from(macos_window.can_redo());
@@ -1408,7 +1753,7 @@ define_class!(
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use crate::desktop::shell2::common::event::PlatformWindow;
 
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // The BACKSTOP for a system-appearance change. The switch
@@ -1442,6 +1787,9 @@ define_class!(
                         // early-return there otherwise.
                         macos_window.request_redraw();
                     }
+                    // Whatever else the pass left owed (the display link no
+                    // longer polls for it).
+                    macos_window.request_frame_if_pending();
                 }
             }
             // Note: NSTimer with repeats:true automatically reschedules itself
@@ -1459,7 +1807,7 @@ define_class!(
         #[unsafe(method(presentPendingMenu:))]
         fn present_pending_menu(&self, _sender: Option<&NSObject>) {
             let pending = {
-                let window_ptr = *self.ivars().window_ptr.borrow();
+                let window_ptr = self.ivars().window_ptr.get();
                 window_ptr.and_then(|window_ptr| unsafe {
                     (*(window_ptr as *mut MacOSWindow)).take_pending_context_menu()
                 })
@@ -1475,12 +1823,13 @@ define_class!(
                 // borrow (the presenting borrow ended above), so the item's
                 // callback runs and its redraw is scheduled immediately
                 // instead of on the next unrelated event.
-                let window_ptr = *self.ivars().window_ptr.borrow();
+                let window_ptr = self.ivars().window_ptr.get();
                 if let Some(window_ptr) = window_ptr {
                     unsafe {
                         (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                     }
                 }
+                view_handlers::release_buttons_after_menu(window_ptr);
             }
         }
 
@@ -1498,8 +1847,9 @@ define_class!(
                 needs_reshape: Cell::new(true),
                 tracking_area: RefCell::new(None),
                 mtm,
-                window_ptr: RefCell::new(None),
+                window_ptr: Cell::new(None),
                 ime_key_handled: Cell::new(false),
+                transparent: Cell::new(false),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame, pixelFormat: pixel_format]
@@ -1517,9 +1867,21 @@ define_class!(
 
             // Create new tracking area for mouse enter/exit/move events
             let bounds = unsafe { self.bounds() };
+            // A combobox's list popup (`ListPopupWindow`) is never the key
+            // window, so under `ActiveInKeyWindow` it would never see a mouse
+            // move and its rows could not hover: it tracks while the app is
+            // active instead.
+            let list_popup = self
+                .window()
+                .is_some_and(|w| w.isKindOfClass(ListPopupWindow::class()));
+            let activity = if list_popup {
+                NSTrackingAreaOptions::ActiveInActiveApp
+            } else {
+                NSTrackingAreaOptions::ActiveInKeyWindow
+            };
             let options = NSTrackingAreaOptions::MouseEnteredAndExited
                 | NSTrackingAreaOptions::MouseMoved
-                | NSTrackingAreaOptions::ActiveInKeyWindow
+                | activity
                 | NSTrackingAreaOptions::InVisibleRect;
 
             let tracking_area = unsafe {
@@ -1541,17 +1903,17 @@ define_class!(
 
         #[unsafe(method(mouseEntered:))]
         fn mouse_entered(&self, event: &NSEvent) {
-            view_handlers::mouse_entered(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_entered(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, event: &NSEvent) {
-            view_handlers::mouse_exited(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_exited(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseMoved:))]
         fn mouse_moved(&self, event: &NSEvent) {
-            view_handlers::mouse_moved(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_moved(self.ivars().window_ptr.get(), event);
         }
 
     }
@@ -1692,6 +2054,33 @@ define_class!(
             // still fall through to handle_key_down for processing.
         }
     }
+
+    // NSDraggingSource: a node drag that left the window runs as the system's
+    // drag session with this view as its source (`start_os_drag_if_it_left`).
+    // Thin, as above: the bodies are shared `view_handlers::os_drag_*`.
+    // The drag source protocol extends NSObjectProtocol, which NSObject already implements.
+    unsafe impl NSObjectProtocol for GLView {}
+
+    unsafe impl NSDraggingSource for GLView {
+        #[unsafe(method(draggingSession:sourceOperationMaskForDraggingContext:))]
+        fn dragging_source_operations(
+            &self,
+            _session: &NSDraggingSession,
+            _context: NSDraggingContext,
+        ) -> NSDragOperation {
+            view_handlers::os_drag_operations(self.ivars().window_ptr.get())
+        }
+
+        #[unsafe(method(draggingSession:endedAtPoint:operation:))]
+        fn dragging_session_ended(
+            &self,
+            _session: &NSDraggingSession,
+            _screen_point: NSPoint,
+            operation: NSDragOperation,
+        ) {
+            view_handlers::os_drag_ended(self.ivars().window_ptr.get(), operation);
+        }
+    }
 );
 
 // CPUView - CPU rendering view
@@ -1714,7 +2103,7 @@ pub struct CPUViewIvars {
     needs_redraw: Cell<bool>,
     tracking_area: RefCell<Option<Retained<NSTrackingArea>>>,
     mtm: MainThreadMarker,
-    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
+    window_ptr: Cell<Option<*mut std::ffi::c_void>>,
     /// Set to true by setMarkedText / insertText during IME composition.
     ime_key_handled: Cell<bool>,
     /// Cached NSBitmapImageRep reused across frames (only reallocated on resize).
@@ -1731,6 +2120,71 @@ pub struct CPUViewIvars {
     /// and the frame is drawn with the Copy operation so stale pixels never
     /// accumulate under transparent regions.
     transparent: Cell<bool>,
+    /// The window's background (its clear colour, RGB) that a resized
+    /// framebuffer is filled with before the frame at the new size is in it
+    /// (`blank_frame_pixel`); kept by every render.
+    blank_rgb: Cell<[u8; 3]>,
+    /// The framebuffer holds the blank fill, not a frame: `drawRect:` made it
+    /// anew without a frame to keep (the first one, a resize over content
+    /// that was not a frame, another backing scale). Whatever the next
+    /// present's damage says, the whole frame has to be copied in, or the
+    /// fill is what the window shows (`CPUView::shows_blank`). Cleared by
+    /// every full copy.
+    fb_blank: Cell<bool>,
+    /// Backing pixels per point the framebuffer was last sized with (`0.0`
+    /// before the first `drawRect:`): pixels kept across a resize are only
+    /// the frame before while this stays the same.
+    backing_scale: Cell<f64>,
+    /// The spans (top-down `(x0, x1, y0, y1)`) the `drawRect:` that is
+    /// running right now draws; empty outside one. A frame rendered inside
+    /// that `drawRect:` does not mark what lies in them as needing display
+    /// again (A10-13, `rects_left_to_invalidate`).
+    drawing_spans: RefCell<Vec<(usize, usize, usize, usize)>>,
+    /// The `cgimage` present (A10-06) found Core Graphics holding on to the
+    /// image of the framebuffer after the draw: it is off for this view from
+    /// then on (the bitmap path copies, and nothing can read the framebuffer
+    /// late).
+    cg_tripped: Cell<bool>,
+    /// The two layers of the layer-backed present and what they show
+    /// (A10-06, `layer_present`); nothing is in it unless
+    /// `AZ_CPU_PRESENT=layer` asked for it and a frame reported a layer.
+    layer_host: RefCell<layer_present::LayerHost>,
+}
+
+/// The RGBA a CPU view's framebuffer is filled with when its size changes,
+/// before a frame is rendered into it. It reaches the screen when a
+/// `drawRect` blits before that render, so a see-through window gets clear
+/// pixels: what lies behind it shows, as it will once the frame is in.
+fn blank_frame_pixel(transparent: bool, clear: [u8; 3]) -> [u8; 4] {
+    if transparent {
+        [0, 0, 0, 0]
+    } else {
+        [clear[0], clear[1], clear[2], 255]
+    }
+}
+
+#[cfg(test)]
+mod blank_frame_tests {
+    use super::blank_frame_pixel;
+
+    /// A see-through window (a popup with rounded corners) shows what lies
+    /// behind it until its first frame is in: a white fill would flash a
+    /// white box where the popup opens.
+    #[test]
+    fn a_see_through_windows_blank_frame_is_clear_not_white() {
+        assert_eq!(blank_frame_pixel(true, [32, 33, 36]), [0, 0, 0, 0]);
+    }
+
+    /// The area a resize uncovers shows the window's background, not
+    /// white: when the window grows back from smaller, AppKit can blit the
+    /// grown framebuffer before the frame at the new size is in it, and a
+    /// white fill flashed there in a dark window (and in a light one whose
+    /// background is not white).
+    #[test]
+    fn an_opaque_windows_blank_frame_is_its_background() {
+        assert_eq!(blank_frame_pixel(false, [32, 33, 36]), [32, 33, 36, 255]);
+        assert_eq!(blank_frame_pixel(false, [255, 255, 255]), [255, 255, 255, 255]);
+    }
 }
 
 /// The framebuffer rows + columns a `drawRect` must copy into the cached
@@ -1751,18 +2205,1081 @@ fn dirty_rows_to_copy(
     width: usize,
     height: usize,
 ) -> (usize, usize, usize, usize) {
-    let (x, y, w, h) = dirty;
-    if full || !(w > 0.0 && h > 0.0) || width == 0 || height == 0 {
-        return (0, width, 0, height);
+    // bottom-left origin -> top-down rows: the arithmetic is shared (and
+    // tested on every platform) in `present_geometry`.
+    azul_layout::window::present_geometry::rows_of_bottom_left_rect(full, dirty, width, height)
+}
+
+/// The size in backing pixels of the framebuffer of a CPU view whose bounds
+/// are `bounds_pt` (points) at `scale` backing pixels per point.
+///
+/// THE renderer's formula ([`frame_size_px`]: `ceil(points * scale)` in
+/// `f32`), on the same numbers the window state holds (`bounds as f32`,
+/// `handle_resize`): the frame the renderer hands over and the buffer
+/// `drawRect:` keeps for it are the same size by construction. The view used
+/// to truncate the `f64` product, which is one pixel short of the frame for
+/// bounds that are not whole pixels (1280.3 pt at 2x: 2560 against 2561), and
+/// a frame of another size than the buffer takes the rescaling copy path on
+/// every present.
+///
+/// [`frame_size_px`]: azul_layout::window::present_geometry::frame_size_px
+pub(crate) fn cpu_view_framebuffer_size(bounds_pt: (f64, f64), scale: f64) -> (usize, usize) {
+    let (w, h) = azul_layout::window::present_geometry::frame_size_px(
+        bounds_pt.0 as f32,
+        bounds_pt.1 as f32,
+        scale as f32,
+    );
+    (w as usize, h as usize)
+}
+
+/// Where the present rect `rect` (buffer px: top-left origin, y down) of a
+/// framebuffer `fb_h` pixels high lies in the CPU view, in the view's own
+/// coordinates (points, BOTTOM-left origin: the view is not `isFlipped`), at
+/// `scale` backing pixels per point: what `setNeedsDisplayInRect:` takes.
+///
+/// `x' = x / s`, `y' = (fb_h - (y + h)) / s`, `w' = w / s`, `h' = h / s`. The
+/// exact inverse of what `drawRect:` does with the dirty rect it is handed
+/// (`convertRectToBacking:` = times `s`, then [`dirty_rows_to_copy`]), so the
+/// rows that are invalidated are the rows that are copied and drawn.
+pub(crate) fn present_rect_in_view_points(
+    rect: (u32, u32, u32, u32),
+    fb_h: usize,
+    scale: f64,
+) -> (f64, f64, f64, f64) {
+    let fb_h = u32::try_from(fb_h).unwrap_or(u32::MAX);
+    let (x, y, w, h) = azul_layout::window::present_geometry::flip_rect_y(rect, fb_h);
+    let s = if scale > 0.0 { scale } else { 1.0 };
+    (
+        f64::from(x) / s,
+        f64::from(y) / s,
+        f64::from(w) / s,
+        f64::from(h) / s,
+    )
+}
+
+/// The rect of the bitmap that holds the rows `y0..y1` and the columns
+/// `x0..x1` (top-down, half-open, what [`dirty_rows_to_copy`] returns) of a
+/// frame `height` pixels high, in the bitmap's own space: pixels with the
+/// origin at the BOTTOM-left, although its bytes are stored top row first.
+pub(crate) fn bitmap_source_rect(
+    span: (usize, usize, usize, usize),
+    height: usize,
+) -> (f64, f64, f64, f64) {
+    let (x0, x1, y0, y1) = span;
+    (
+        x0 as f64,
+        height.saturating_sub(y1) as f64,
+        x1.saturating_sub(x0) as f64,
+        y1.saturating_sub(y0) as f64,
+    )
+}
+
+/// How the CPU view presents, from `AZ_CPU_PRESENT` (words separated by
+/// commas; unknown words are ignored). Everything here changes what AppKit is
+/// asked to do, which no headless test sees: so each has a word, and the
+/// defaults are stated with their reasons in `audit/A10.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct CpuPresentOptions {
+    /// Draw the dirty part straight from the framebuffer through a `CGImage`
+    /// over its memory (A10-06, A10-25): the view keeps ONE copy of the frame
+    /// and copies no row to present. Default ON; the word `bitmap` turns it
+    /// off: the rows are then copied into an `NSBitmapImageRep` (a second
+    /// buffer of the frame's size) and that is drawn, as before.
+    pub cgimage: bool,
+    /// `twice`: mark the frame's rects as needing display even when the
+    /// `drawRect:` that rendered the frame draws them itself, as before
+    /// A10-13 (every frame rendered inside `drawRect:` presented twice).
+    /// Default OFF (present once).
+    pub twice: bool,
+    /// `layer`: the layer-backed present (A10-06, `layer_present`): the
+    /// picture of one reference frame of the window (a map view's) is shown
+    /// by a Core Animation layer of its own over the window's frame, and a
+    /// pan or a zoom step of it moves or scales that layer instead of
+    /// painting and presenting the view. Default OFF: nothing of it can be
+    /// seen before it runs on a real window, and a mistake in it is a
+    /// misplaced or missing map. The window's frame is presented as the
+    /// other words say, with it on and off.
+    pub layer: bool,
+}
+
+impl Default for CpuPresentOptions {
+    fn default() -> Self {
+        Self {
+            cgimage: true,
+            twice: false,
+            layer: false,
+        }
+    }
+}
+
+/// `AZ_CPU_PRESENT=bitmap,twice,layer` as options.
+pub(crate) fn parse_cpu_present_options(value: &str) -> CpuPresentOptions {
+    let mut options = CpuPresentOptions::default();
+    for word in value.split(',') {
+        match word.trim() {
+            "bitmap" => options.cgimage = false,
+            "cgimage" => options.cgimage = true,
+            "twice" => options.twice = true,
+            "layer" => options.layer = true,
+            _ => {}
+        }
+    }
+    options
+}
+
+/// How many buffers of the frame's size the CPU view itself holds: the
+/// framebuffer, and with `bitmap` the `NSBitmapImageRep` its rows are copied
+/// into. (AppKit's backing store of the view's layer is one more, in every
+/// mode.) On the user's display, 2940 x 1912 px = 22.5 MB each.
+pub(crate) fn view_frame_buffers(options: CpuPresentOptions) -> usize {
+    if options.cgimage {
+        1
+    } else {
+        2
+    }
+}
+
+/// The process's [`CpuPresentOptions`], read once.
+fn cpu_present_options() -> CpuPresentOptions {
+    static OPTIONS: std::sync::OnceLock<CpuPresentOptions> = std::sync::OnceLock::new();
+    *OPTIONS.get_or_init(|| {
+        std::env::var("AZ_CPU_PRESENT")
+            .map(|value| parse_cpu_present_options(&value))
+            .unwrap_or_default()
+    })
+}
+
+/// The rows and columns that lie WHOLLY inside a rect in backing pixels
+/// (bottom-left origin), as a top-down span `(x0, x1, y0, y1)` of a `width` x
+/// `height` frame: the inward twin of [`dirty_rows_to_copy`]. What AppKit
+/// certainly lets a `drawRect:` draw of one of its rects being drawn.
+pub(crate) fn rows_inside_backing_rect(
+    rect: (f64, f64, f64, f64),
+    width: usize,
+    height: usize,
+) -> (usize, usize, usize, usize) {
+    let (x, y, w, h) = rect;
+    if !(w > 0.0 && h > 0.0) || width == 0 || height == 0 {
+        return (0, 0, 0, 0);
     }
     let fw = width as f64;
     let fh = height as f64;
-    let x0 = x.floor().clamp(0.0, fw) as usize;
-    let x1 = (x + w).ceil().clamp(0.0, fw) as usize;
-    // bottom-left origin -> top-down rows
-    let y0 = (fh - (y + h)).floor().clamp(0.0, fh) as usize;
-    let y1 = (fh - y).ceil().clamp(0.0, fh) as usize;
-    (x0.min(x1), x1, y0.min(y1), y1)
+    let x0 = x.ceil().clamp(0.0, fw) as usize;
+    let x1 = (x + w).floor().clamp(0.0, fw) as usize;
+    let y0 = (fh - (y + h)).ceil().clamp(0.0, fh) as usize;
+    let y1 = (fh - y).floor().clamp(0.0, fh) as usize;
+    (x0, x1.max(x0), y0, y1.max(y0))
+}
+
+/// The present rects (buffer px) that still have to be marked as needing
+/// display while a `drawRect:` runs that draws the spans `being_drawn`
+/// (top-down `(x0, x1, y0, y1)`): those that no single span contains whole.
+///
+/// A frame rendered INSIDE `drawRect:` (no display link, a live resize) used
+/// to mark all its rects: the running `drawRect:` drew them, and the next
+/// pass drew them again (A10-13). A rect inside one of the rects AppKit is
+/// having drawn right now is presented by this pass; one that is only
+/// covered by several of them together is kept, to stay on the proven side.
+pub(crate) fn rects_left_to_invalidate(
+    rects: &[(u32, u32, u32, u32)],
+    being_drawn: &[(usize, usize, usize, usize)],
+) -> Vec<(u32, u32, u32, u32)> {
+    rects
+        .iter()
+        .copied()
+        .filter(|&(x, y, w, h)| {
+            let (x0, y0) = (x as usize, y as usize);
+            let (x1, y1) = (x0 + w as usize, y0 + h as usize);
+            !being_drawn
+                .iter()
+                .any(|&(dx0, dx1, dy0, dy1)| dx0 <= x0 && x1 <= dx1 && dy0 <= y0 && y1 <= dy1)
+        })
+        .collect()
+}
+
+/// Give the view's framebuffer (RGBA8, tight rows, top row first) the size
+/// `new` (pixels), in place.
+///
+/// With `keep`, the top-left part both sizes share stays where it is on
+/// screen (the window's content is top-left anchored); everything else is
+/// `blank`. Without, all of it is `blank`.
+///
+/// In place: the rows are moved inside the one allocation (towards the start
+/// when the rows get shorter, from the last row backwards when they get
+/// longer), so a drag that stays inside the buffer's capacity allocates
+/// nothing, and a kept pixel is written once. It used to be a new zeroed
+/// buffer, a `blank` fill of ALL of it, and the copy of the kept part on top:
+/// one allocation of the frame's size and up to three writes per pixel, per
+/// step of a live resize (A10-14).
+pub(crate) fn resize_framebuffer(
+    fb: &mut Vec<u8>,
+    old: (usize, usize),
+    new: (usize, usize),
+    keep: bool,
+    blank: [u8; 4],
+) {
+    fn fill(pixels: &mut [u8], blank: [u8; 4]) {
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.copy_from_slice(&blank);
+        }
+    }
+    let (old_w, old_h) = old;
+    let (new_w, new_h) = new;
+    let new_len = new_w * new_h * 4;
+    if !(keep && old_w > 0 && old_h > 0 && fb.len() >= old_w * old_h * 4) {
+        fb.clear();
+        fb.resize(new_len, 0);
+        fill(fb, blank);
+        return;
+    }
+    let (kept_w, kept_h) = (old_w.min(new_w), old_h.min(new_h));
+    let (old_stride, new_stride) = (old_w * 4, new_w * 4);
+    let kept_bytes = kept_w * 4;
+    if new_w <= old_w {
+        // Shorter (or equal) rows: every row moves towards the start, and a
+        // row's new place ends before the next row's old place begins.
+        if new_w < old_w {
+            for row in 0..kept_h {
+                fb.copy_within(row * old_stride..row * old_stride + kept_bytes, row * new_stride);
+            }
+        }
+        fb.resize(new_len, 0);
+    } else {
+        // Longer rows: grow first, then move from the last row backwards, so
+        // a row's new place never covers a row that has not moved yet.
+        if fb.len() < new_len {
+            fb.resize(new_len, 0);
+        }
+        for row in (0..kept_h).rev() {
+            fb.copy_within(row * old_stride..row * old_stride + kept_bytes, row * new_stride);
+        }
+        fb.truncate(new_len);
+    }
+    // What the kept part does not cover: right of it, and below it.
+    if kept_w < new_w {
+        for row in 0..kept_h {
+            fill(&mut fb[row * new_stride + kept_bytes..(row + 1) * new_stride], blank);
+        }
+    }
+    fill(&mut fb[kept_h * new_stride..], blank);
+}
+
+/// The pixel size of the bitmap to make for a `width` x `height` frame, or
+/// `None` when the bitmap the view has (`have`, its pixel size) still serves.
+///
+/// The bitmap is a staging buffer: only the span drawn in a `drawRect:` is
+/// read from it, so it may be larger than the frame. It is made in steps of
+/// 256 px and kept while the frame fits and it is not more than twice the
+/// size a new one would be. A live resize made a new one per step (two
+/// allocations of the frame's size: the bitmap and its sRGB twin); dragging
+/// an edge by 300 px now makes two or three (A10-14).
+pub(crate) fn bitmap_size_to_allocate(
+    width: usize,
+    height: usize,
+    have: Option<(usize, usize)>,
+) -> Option<(usize, usize)> {
+    const STEP: usize = 256;
+    let want = (
+        width.div_ceil(STEP).max(1) * STEP,
+        height.div_ceil(STEP).max(1) * STEP,
+    );
+    match have {
+        Some((w, h)) if w >= width && h >= height && w * h <= 2 * want.0 * want.1 => None,
+        _ => Some(want),
+    }
+}
+
+/// How many bytes the view copies out of the framebuffer to present the span
+/// `(x0, x1, y0, y1)`: all of the span's with the bitmap in between, none
+/// when AppKit draws from the framebuffer itself (`cgimage`).
+pub(crate) fn present_copy_bytes(options: CpuPresentOptions, span: (usize, usize, usize, usize)) -> usize {
+    let (x0, x1, y0, y1) = span;
+    if options.cgimage {
+        0
+    } else {
+        x1.saturating_sub(x0) * y1.saturating_sub(y0) * 4
+    }
+}
+
+/// Why a window gives its regenerable memory back (A9-09, A10-26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MemoryRelease {
+    /// Nobody sees the window: it is in the Dock, or the app is hidden (Cmd-H).
+    NotShown,
+    /// The system warns that memory is getting short (the window may be on
+    /// screen).
+    PressureWarn,
+    /// The system is critically short of memory.
+    PressureCritical,
+}
+
+/// What one release gives back. Everything in it is made again by the frames
+/// that follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReleasePlan {
+    /// What the CPU backend keeps only to make frames cheaper
+    /// (`CpuBackend::release_caches`): the kept group surfaces, the kept text
+    /// halos and turned text pictures, the compositor's layers. The frames
+    /// that follow make again what they show.
+    pub compositor: bool,
+    /// The glyph cache's older generation.
+    pub glyph_generation: bool,
+    /// The CPU view's staging bitmap (only there with `AZ_CPU_PRESENT=bitmap`).
+    pub staging_bitmap: bool,
+    /// WebRender's caches (textures, glyphs, GPU cache: uploaded again from
+    /// the templates it keeps).
+    pub webrender_caches: bool,
+    /// The allocator's free pages, back to the system.
+    pub free_pages: bool,
+}
+
+/// What a window gives back for `reason`. `keep` is the user's switch
+/// (`AZ_KEEP_CACHES_MINIMIZED=1`): nothing.
+///
+/// A window nobody sees, and any window when memory is critical, gives back
+/// everything. On a WARNING a window that may be on screen keeps WebRender's
+/// caches: flushing them makes the next frame upload every texture again (a
+/// visible hitch, and more memory for its duration), which is the right price
+/// only when the system is about to kill something.
+pub(crate) fn release_plan(reason: MemoryRelease, keep: bool) -> ReleasePlan {
+    if keep {
+        return ReleasePlan {
+            compositor: false,
+            glyph_generation: false,
+            staging_bitmap: false,
+            webrender_caches: false,
+            free_pages: false,
+        };
+    }
+    ReleasePlan {
+        compositor: true,
+        glyph_generation: true,
+        staging_bitmap: true,
+        webrender_caches: reason != MemoryRelease::PressureWarn,
+        free_pages: true,
+    }
+}
+
+/// The release a memory-pressure event asks for, from the flags the dispatch
+/// source reports (`DISPATCH_MEMORYPRESSURE_WARN` 0x02, `_CRITICAL` 0x04;
+/// `_NORMAL` 0x01 is not asked for and asks for nothing).
+pub(crate) fn memory_release_for_pressure(flags: usize) -> Option<MemoryRelease> {
+    if flags & memory_pressure::CRITICAL != 0 {
+        Some(MemoryRelease::PressureCritical)
+    } else if flags & memory_pressure::WARN != 0 {
+        Some(MemoryRelease::PressureWarn)
+    } else {
+        None
+    }
+}
+
+/// `AZ_KEEP_CACHES_MINIMIZED=1`: A9-09's switch, for every release (the Dock,
+/// Cmd-H, memory pressure).
+fn keep_caches() -> bool {
+    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *KEEP.get_or_init(|| std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0"))
+}
+
+/// `AZ_HALO_RELEASE=lists`: a window nobody sees keeps the text halo pictures
+/// its display lists paint (A5-18's release: only what no list paints goes).
+/// Anything else, or unset: such a window gives those back too - the renderer's
+/// keys are deleted - and gets them again when it is shown (A5-20). Read once.
+fn halo_release_is_full() -> bool {
+    static FULL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FULL.get_or_init(|| !std::env::var("AZ_HALO_RELEASE").is_ok_and(|v| v == "lists"))
+}
+
+/// Every open window gives back what `reason` asks for. Main thread.
+fn release_memory_of_every_window(reason: MemoryRelease) {
+    for window in registry::get_all_window_ptrs() {
+        // SAFETY: a registered window is alive; this runs on the main thread,
+        // from an AppKit delegate callback or from the main queue (the
+        // precedent of `windowDidMiniaturize:` and of the vsync tick).
+        unsafe { (*window).release_regenerable_memory(reason) };
+    }
+}
+
+/// The system's memory-pressure events, delivered on the main queue (A10-26).
+mod memory_pressure {
+    use std::ffi::c_void;
+
+    /// `DISPATCH_MEMORYPRESSURE_WARN`.
+    pub const WARN: usize = 0x02;
+    /// `DISPATCH_MEMORYPRESSURE_CRITICAL`.
+    pub const CRITICAL: usize = 0x04;
+
+    extern "C" {
+        static _dispatch_source_type_memorypressure: c_void;
+        static _dispatch_main_q: c_void;
+        fn dispatch_source_create(
+            source_type: *const c_void,
+            handle: usize,
+            mask: usize,
+            queue: *const c_void,
+        ) -> *mut c_void;
+        fn dispatch_set_context(object: *mut c_void, context: *mut c_void);
+        fn dispatch_source_set_event_handler_f(
+            source: *mut c_void,
+            handler: Option<extern "C" fn(*mut c_void)>,
+        );
+        fn dispatch_source_get_data(source: *mut c_void) -> usize;
+        fn dispatch_resume(object: *mut c_void);
+    }
+
+    /// The handler: its context is the source itself, which says the level.
+    extern "C" fn on_memory_pressure(source: *mut c_void) {
+        // SAFETY: `source` is the live source this handler was installed on.
+        let flags = unsafe { dispatch_source_get_data(source) };
+        if let Some(reason) = super::memory_release_for_pressure(flags) {
+            // A panic must not cross into libdispatch.
+            let _ = crate::desktop::recoverable_panic::catch(|| {
+                super::release_memory_of_every_window(reason);
+            });
+        }
+    }
+
+    /// Ask the system, once per process, to say when memory gets short
+    /// (warning and critical). The source lives as long as the process.
+    pub fn install() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            // SAFETY: the documented way to make and start a dispatch source;
+            // the type and the main queue are process-wide statics.
+            unsafe {
+                let source = dispatch_source_create(
+                    core::ptr::addr_of!(_dispatch_source_type_memorypressure),
+                    0,
+                    WARN | CRITICAL,
+                    core::ptr::addr_of!(_dispatch_main_q),
+                );
+                if source.is_null() {
+                    return;
+                }
+                dispatch_set_context(source, source);
+                dispatch_source_set_event_handler_f(source, Some(on_memory_pressure));
+                dispatch_resume(source);
+            }
+        });
+    }
+}
+
+/// Whether the accessibility tree is built eagerly, after every layout, as
+/// before A10-19: asked for with `AZ_A11Y_EAGER=1`, and always with the debug
+/// server or an E2E script attached (they read the layout side's tree,
+/// `a11y_manager.full_tree()`, without an adapter).
+#[cfg(feature = "a11y")]
+fn a11y_eager() -> bool {
+    a11y_eager_for(
+        std::env::var("AZ_A11Y_EAGER").ok().as_deref(),
+        crate::desktop::shell2::common::debug_server::is_debug_enabled(),
+    )
+}
+
+/// The rule of [`a11y_eager`]: `AZ_A11Y_EAGER` set to anything but `0`, or a
+/// debug / E2E reader attached.
+#[cfg(feature = "a11y")]
+pub(crate) fn a11y_eager_for(env: Option<&str>, debug_reader: bool) -> bool {
+    debug_reader || env.is_some_and(|value| value != "0" && !value.is_empty())
+}
+
+/// What the frame report says of a GPU frame that was rendered and flushed:
+/// `(paint, present)`.
+///
+/// `dirty` are WebRender's dirty rects of the frame (logical px). The fork
+/// only computes them when it is given a partial-present budget, and the
+/// macOS shell gives it none (`max_partial_present_rects` is 0): the list is
+/// always empty here, and "empty" was recorded as `FrameDamage::None`, so the
+/// report said "nothing was drawn" for every GPU frame that drew (audit
+/// A10-18, from A4). Without rects the truth is that WebRender composited the
+/// whole framebuffer; and whatever was painted, `flushBuffer` presents the
+/// whole surface: the present damage of a GPU frame is `Full`.
+fn gpu_frame_damage(
+    dirty: &[azul_core::geom::LogicalRect],
+) -> (
+    crate::desktop::shell2::headless::FrameDamage,
+    crate::desktop::shell2::headless::FrameDamage,
+) {
+    use crate::desktop::shell2::headless::FrameDamage;
+    let paint = if dirty.is_empty() {
+        FrameDamage::Full
+    } else {
+        FrameDamage::Rects(dirty.to_vec())
+    };
+    (paint, FrameDamage::Full)
+}
+
+/// A frame that is not the size of the view's framebuffer cannot be rendered
+/// into it, nor copied into it 1:1: it is rendered into a pixmap of its own
+/// and rescaled into the view (`CPUView::update_framebuffer`), the whole
+/// frame, on every present. One such frame is normal (a tick that renders at
+/// the new size before `drawRect:` resized the buffer, a move to a display of
+/// another scale); the same mismatch frame after frame means the two sizes are
+/// computed from numbers that disagree, and every frame is slow and soft. That
+/// is said once it has lasted three frames, at the error level so that a plain
+/// run shows it, and again every 600 frames.
+fn note_cpu_frame_size(frame: (usize, usize), view: (usize, usize)) {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static MISMATCHED_IN_A_ROW: AtomicU32 = AtomicU32::new(0);
+    if frame == view {
+        MISMATCHED_IN_A_ROW.store(0, Ordering::Relaxed);
+        return;
+    }
+    let n = MISMATCHED_IN_A_ROW.fetch_add(1, Ordering::Relaxed).wrapping_add(1);
+    if n == 3 || n % 600 == 0 {
+        log_error!(
+            LogCategory::Rendering,
+            "[CPUView] the frame is {}x{} px and the view's framebuffer {}x{} px, {} frames in a \
+             row: every present rescales the whole frame (slow, and not pixel-exact)",
+            frame.0,
+            frame.1,
+            view.0,
+            view.1,
+            n
+        );
+    }
+}
+
+/// Copy the rows `y0..y1` and the columns `x0..x1` of `framebuffer` (`width` x
+/// `height` pixels of RGBA8, top row first, tight rows) into `bitmap` and draw
+/// exactly that part of the bitmap, 1:1, into `to` of the current graphics
+/// context: the whole present of a `drawRect:`.
+///
+/// `from` is the span in the bitmap's space ([`bitmap_source_rect`]) and `to`
+/// its twin in the destination's coordinates (the view's points). Returns
+/// whether AppKit drew.
+///
+/// Nothing is read or written outside either buffer: a span that leaves the
+/// frame, a bitmap of another size than the frame and a framebuffer shorter
+/// than the frame draw nothing (and say so) instead of copying garbage.
+///
+/// # Safety
+/// Runs on the main thread with a current `NSGraphicsContext` (inside
+/// `drawRect:`, or with a bitmap context made current by a test).
+pub(crate) unsafe fn draw_framebuffer_span(
+    bitmap: &NSBitmapImageRep,
+    framebuffer: &[u8],
+    width: usize,
+    height: usize,
+    span: (usize, usize, usize, usize),
+    from: NSRect,
+    to: NSRect,
+) -> bool {
+    let (x0, x1, y0, y1) = span;
+    if x1 <= x0 || y1 <= y0 {
+        return false;
+    }
+    // The rep's stride is read back rather than assumed: AppKit allocated
+    // the buffer, and the sRGB copy of the bitmap may pad its rows. A padded
+    // `bytesPerRow` copied with the framebuffer's stride would shear every
+    // row, which on screen looks exactly like squashed, doubled text.
+    let stride = width * 4;
+    let dst_stride = usize::try_from(bitmap.bytesPerRow()).unwrap_or(0);
+    let dst_rows = usize::try_from(bitmap.pixelsHigh()).unwrap_or(0);
+    let dst = bitmap.bitmapData();
+    let fits = x1 <= width
+        && y1 <= height
+        && height <= dst_rows
+        && stride <= dst_stride
+        && framebuffer.len() >= stride * height;
+    if dst.is_null() || !fits {
+        log_error!(
+            LogCategory::Rendering,
+            "[CPUView] not presenting rows {}..{} x columns {}..{} of a {}x{} frame: framebuffer \
+             {} bytes, bitmap {} rows of {} bytes (null: {})",
+            y0,
+            y1,
+            x0,
+            x1,
+            width,
+            height,
+            framebuffer.len(),
+            dst_rows,
+            dst_stride,
+            dst.is_null()
+        );
+        return false;
+    }
+    {
+        // Our own part of a present: the framebuffer rows into the bitmap.
+        let _rows = azul_layout::probe::Probe::span("draw_rect_cpu_rows");
+        let n = (x1 - x0) * 4;
+        for row in y0..y1 {
+            // In bounds: `row < height`, `x1 <= width`, so the source ends at
+            // most at `stride * height <= framebuffer.len()` and the
+            // destination at most at `dst_stride * dst_rows`.
+            std::ptr::copy_nonoverlapping(
+                framebuffer.as_ptr().add(row * stride + x0 * 4),
+                dst.add(row * dst_stride + x0 * 4),
+                n,
+            );
+        }
+    }
+    // AppKit's part: the bitmap's span into the view's backing store.
+    let _draw = azul_layout::probe::Probe::span("draw_rect_cpu_appkit");
+    bitmap.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
+        to,
+        from,
+        NSCompositingOperation::Copy,
+        1.0,
+        false,
+        None,
+    )
+}
+
+/// Core Graphics and Core Foundation, as far as the `cgimage` present needs
+/// them (A10-06). Opaque pointers: the types are never looked into.
+mod cg_present {
+    use std::ffi::c_void;
+
+    use objc2_foundation::NSRect;
+
+    /// `kCGImageAlphaPremultipliedLast | kCGBitmapByteOrderDefault`: the bytes
+    /// of a pixel in memory are R, G, B, A, alpha premultiplied: the
+    /// renderer's layout.
+    pub const RGBA8_PREMULTIPLIED: u32 = 1;
+    /// `kCGRenderingIntentDefault`.
+    pub const INTENT_DEFAULT: i32 = 0;
+    /// `kCGBlendModeCopy`: the source replaces the destination, alpha and all
+    /// (what `NSCompositingOperation::Copy` is on the bitmap path).
+    pub const BLEND_COPY: i32 = 17;
+    /// `kCGInterpolationNone`: one frame pixel is one backing pixel.
+    pub const INTERPOLATION_NONE: i32 = 1;
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        pub static kCGColorSpaceSRGB: *const c_void;
+        pub fn CGColorSpaceCreateWithName(name: *const c_void) -> *mut c_void;
+        pub fn CGColorSpaceRelease(space: *mut c_void);
+        pub fn CGDataProviderCreateWithData(
+            info: *mut c_void,
+            data: *const c_void,
+            size: usize,
+            release: Option<extern "C" fn(*mut c_void, *const c_void, usize)>,
+        ) -> *mut c_void;
+        pub fn CGDataProviderRelease(provider: *mut c_void);
+        pub fn CGImageCreate(
+            width: usize,
+            height: usize,
+            bits_per_component: usize,
+            bits_per_pixel: usize,
+            bytes_per_row: usize,
+            space: *mut c_void,
+            bitmap_info: u32,
+            provider: *mut c_void,
+            decode: *const f64,
+            should_interpolate: bool,
+            intent: i32,
+        ) -> *mut c_void;
+        pub fn CGImageCreateWithImageInRect(image: *mut c_void, rect: NSRect) -> *mut c_void;
+        pub fn CGImageRelease(image: *mut c_void);
+        pub fn CGContextSaveGState(context: *mut c_void);
+        pub fn CGContextRestoreGState(context: *mut c_void);
+        pub fn CGContextSetBlendMode(context: *mut c_void, mode: i32);
+        pub fn CGContextSetInterpolationQuality(context: *mut c_void, quality: i32);
+        pub fn CGContextDrawImage(context: *mut c_void, rect: NSRect, image: *mut c_void);
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        pub fn CFGetRetainCount(object: *const c_void) -> isize;
+    }
+}
+
+/// What [`draw_framebuffer_span_cg`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CgDraw {
+    /// The span is drawn, and nothing holds the framebuffer's image any more.
+    Drawn,
+    /// The span is drawn, but something kept the image's data provider after
+    /// our own references were released: it may read the framebuffer later.
+    DrawnButHeld,
+    /// Nothing was drawn (no graphics context, a span outside the frame, an
+    /// image that could not be made): the caller presents another way.
+    NotDrawn,
+}
+
+/// Draw the rows `y0..y1` and the columns `x0..x1` of `framebuffer` (`width` x
+/// `height` pixels of RGBA8 premultiplied, top row first, tight rows) into
+/// `to` of the current graphics context, 1:1, WITHOUT copying them first: a
+/// `CGImage` is laid over the framebuffer's memory, the span is cut out of it
+/// (`CGImageCreateWithImageInRect`: a view into the same memory) and drawn
+/// with `CGContextDrawImage` in copy mode (A10-06; the default,
+/// `AZ_CPU_PRESENT=bitmap` turns it off).
+///
+/// The rect an image is cut by is in the image's own pixels, origin at its
+/// TOP-left (the first row of its bytes), so the span needs no flip there;
+/// `to` is the destination in the context's coordinates (the view's points,
+/// y up), where `CGContextDrawImage` lays the image's first row at the top.
+///
+/// The image only references the framebuffer. Drawing into a bitmap context
+/// reads it during the call; to notice a context that does not, the provider's
+/// retain count is read after every reference of ours but one is released: 1
+/// means nothing else holds it ([`CgDraw::Drawn`]).
+///
+/// # Safety
+/// Main thread, with a current `NSGraphicsContext` (inside `drawRect:`, or a
+/// bitmap context made current by a test). `framebuffer` must not be written
+/// during the call.
+pub(crate) unsafe fn draw_framebuffer_span_cg(
+    framebuffer: &[u8],
+    width: usize,
+    height: usize,
+    span: (usize, usize, usize, usize),
+    to: NSRect,
+) -> CgDraw {
+    use std::ffi::c_void;
+
+    let (x0, x1, y0, y1) = span;
+    let stride = width * 4;
+    if x1 <= x0 || y1 <= y0 || x1 > width || y1 > height || framebuffer.len() < stride * height {
+        return CgDraw::NotDrawn;
+    }
+    let Some(ns_context) = objc2_app_kit::NSGraphicsContext::currentContext() else {
+        return CgDraw::NotDrawn;
+    };
+    // The context as an opaque pointer (whatever smart pointer holds it).
+    let cg_context = ns_context.CGContext();
+    let context = (&*cg_context) as *const _ as *mut c_void;
+
+    let _draw = azul_layout::probe::Probe::span("draw_rect_cpu_cgimage");
+    let space = cg_present::CGColorSpaceCreateWithName(cg_present::kCGColorSpaceSRGB);
+    if space.is_null() {
+        return CgDraw::NotDrawn;
+    }
+    let provider = cg_present::CGDataProviderCreateWithData(
+        std::ptr::null_mut(),
+        framebuffer.as_ptr().cast::<c_void>(),
+        stride * height,
+        None,
+    );
+    if provider.is_null() {
+        cg_present::CGColorSpaceRelease(space);
+        return CgDraw::NotDrawn;
+    }
+    let image = cg_present::CGImageCreate(
+        width,
+        height,
+        8,
+        32,
+        stride,
+        space,
+        cg_present::RGBA8_PREMULTIPLIED,
+        provider,
+        std::ptr::null(),
+        false,
+        cg_present::INTENT_DEFAULT,
+    );
+    let part = if image.is_null() {
+        std::ptr::null_mut()
+    } else {
+        cg_present::CGImageCreateWithImageInRect(
+            image,
+            NSRect::new(
+                NSPoint::new(x0 as f64, y0 as f64),
+                NSSize::new((x1 - x0) as f64, (y1 - y0) as f64),
+            ),
+        )
+    };
+    let drawn = !part.is_null();
+    if drawn {
+        cg_present::CGContextSaveGState(context);
+        cg_present::CGContextSetBlendMode(context, cg_present::BLEND_COPY);
+        cg_present::CGContextSetInterpolationQuality(context, cg_present::INTERPOLATION_NONE);
+        cg_present::CGContextDrawImage(context, to, part);
+        cg_present::CGContextRestoreGState(context);
+        cg_present::CGImageRelease(part);
+    }
+    if !image.is_null() {
+        cg_present::CGImageRelease(image);
+    }
+    cg_present::CGColorSpaceRelease(space);
+    // Ours is the one reference left, unless the context kept the image.
+    let held = cg_present::CFGetRetainCount(provider.cast_const()) > 1;
+    cg_present::CGDataProviderRelease(provider);
+    match (drawn, held) {
+        (true, false) => CgDraw::Drawn,
+        (true, true) => CgDraw::DrawnButHeld,
+        (false, false) => CgDraw::NotDrawn,
+        // Not drawn and still held: treated as held, the caller keeps the
+        // framebuffer alive either way.
+        (false, true) => CgDraw::DrawnButHeld,
+    }
+}
+
+/// The safe-area insets (`top, left, bottom, right`, points) the ROOT is laid
+/// out inside, from the ones the content view reports.
+///
+/// `titlebar_band` is how much of the content view the titlebar covers.
+/// `NSView::safeAreaInsets` counts it as unsafe, but a window whose content
+/// runs under its titlebar (`FullSizeContentView`: `NoTitle`,
+/// `NoTitleAutoInject`) asked for exactly that band to draw its own title row
+/// in, so it is not an inset for layout. Whatever is left is real: the camera
+/// housing in fullscreen, where the titlebar is hidden and the band is zero.
+fn layout_safe_area_insets(
+    view: (f64, f64, f64, f64),
+    titlebar_band: f64,
+) -> (f64, f64, f64, f64) {
+    let (top, left, bottom, right) = view;
+    ((top - titlebar_band).max(0.0), left, bottom, right)
+}
+
+/// Where AppKit's close / minimize / zoom buttons go for a window's
+/// `MacWindowOptions::traffic_light_position` (Electron's
+/// `trafficLightPosition`): `position` is the close button's top-left corner,
+/// in points from the window's top-left; minimize and zoom follow at AppKit's
+/// own `pitch` (the minimize button's x minus the close button's).
+///
+/// AppKit lays the buttons out inside the titlebar container
+/// (`NSTitlebarContainerView`, the close button's grandparent), a view with
+/// the bottom-left origin of every non-flipped `NSView`, pinned to the top of
+/// the window's frame view. The container becomes `button.1 + 2 * y` tall -
+/// the buttons sit `y` below its top and `y` above its bottom, so the strip
+/// around them stays titlebar - and every origin is `(x + i * pitch, y)` in
+/// it. A position above or left of the window is its corner.
+///
+/// Returns the container's frame `(x, y, width, height)` in window
+/// coordinates (`window_height` is the window frame's height,
+/// `container_width` the container's own, kept) and the three button
+/// origins in container coordinates. Left-to-right windows only, as azul's
+/// title rows are.
+fn traffic_light_frames(
+    window_height: f64,
+    container_width: f64,
+    position: (f64, f64),
+    button: (f64, f64),
+    pitch: f64,
+) -> ((f64, f64, f64, f64), [(f64, f64); 3]) {
+    let x = position.0.max(0.0);
+    let y = position.1.max(0.0);
+    let height = button.1 + 2.0 * y;
+    let container = (0.0, window_height - height, container_width, height);
+    let origins = [(x, y), (x + pitch, y), (x + 2.0 * pitch, y)];
+    (container, origins)
+}
+
+/// What a window's title bar is to its content, from what AppKit reports.
+///
+/// `band` is how much of the content view the title bar covers (the view's
+/// height less `contentLayoutRect`'s), `content` the content view's size and
+/// `buttons` the frames of the window's visible standard buttons in the
+/// content view's own coordinates (bottom-left origin, as it is not
+/// `isFlipped`). No band - a standard title bar above the content, or full
+/// screen, where it is hidden - is no area; otherwise the buttons' box is
+/// the room their row takes ([`TitlebarGeometry::around_controls`]).
+///
+/// [`TitlebarGeometry::around_controls`]: azul_css::system::TitlebarGeometry::around_controls
+fn titlebar_report(
+    band: f64,
+    content: (f64, f64),
+    buttons: &[(f64, f64, f64, f64)],
+) -> azul_css::system::TitlebarReport {
+    use azul_css::system::{TitlebarControls, TitlebarGeometry, TitlebarReport};
+
+    if band < 0.5 {
+        return TitlebarReport::NoArea;
+    }
+    let (width, height) = content;
+    let controls = buttons.iter().fold(None, |all: Option<TitlebarControls>, &(x, y, w, h)| {
+        // From the content's top, as CSS measures.
+        let top = (height - (y + h)) as f32;
+        let button = TitlebarControls {
+            left: x as f32,
+            top,
+            right: (x + w) as f32,
+            bottom: top + h as f32,
+        };
+        Some(all.map_or(button, |all| TitlebarControls {
+            left: all.left.min(button.left),
+            top: all.top.min(button.top),
+            right: all.right.max(button.right),
+            bottom: all.bottom.max(button.bottom),
+        }))
+    });
+    let band = band as f32;
+    TitlebarReport::Measured(controls.map_or(
+        TitlebarGeometry {
+            height: band,
+            left: 0.0,
+            right: 0.0,
+        },
+        |controls| TitlebarGeometry::around_controls(band, width as f32, controls),
+    ))
+}
+
+/// Whether a window of this background material shows what is behind it
+/// through its GL surface: every material but Opaque clears the frame to
+/// transparent, and the surface has to composite that alpha (a blur
+/// material's effect view, or the desktop and the parent window under a
+/// transparent one).
+fn gl_surface_see_through(material: WindowBackgroundMaterial) -> bool {
+    material != WindowBackgroundMaterial::Opaque
+}
+
+#[cfg(test)]
+mod gl_surface_tests {
+    //! Which windows let the desktop show through their GL surface. Every
+    //! window whose material is not Opaque clears to transparent
+    //! (`clear_color`) and its CPU view composites that alpha; a GL surface
+    //! that stays opaque lays a popup's see-through pixels over black
+    //! instead of over the app beneath.
+
+    use azul_core::window::WindowBackgroundMaterial as Material;
+
+    use super::gl_surface_see_through;
+
+    #[test]
+    fn every_window_that_is_not_opaque_shows_the_desktop_through_its_gl_surface() {
+        for material in [
+            Material::Opaque,
+            Material::Transparent,
+            Material::Sidebar,
+            Material::Menu,
+            Material::HUD,
+            Material::Titlebar,
+            Material::MicaAlt,
+        ] {
+            assert_eq!(
+                gl_surface_see_through(material),
+                material != Material::Opaque,
+                "{material:?}"
+            );
+        }
+    }
+
+    /// A non-modal `Dialog` is a popup window with the Transparent
+    /// material, so its rounded corners are real corners. (A modal one is an
+    /// opaque framed dialog window.)
+    #[test]
+    fn a_popup_dialogs_window_shows_the_app_through_its_corners_on_the_gpu() {
+        assert!(gl_surface_see_through(Material::Transparent));
+        assert!(!gl_surface_see_through(Material::Opaque));
+    }
+}
+
+#[cfg(test)]
+mod traffic_light_tests {
+    use super::traffic_light_frames;
+
+    /// A 600pt-tall window, AppKit's 14x16 buttons 20pt apart, the lights
+    /// asked at (20, 18) - the close button's top-left, from the window's
+    /// top-left. The titlebar container is pinned to the window's top and
+    /// made `16 + 2 * 18` tall, so the buttons sit 18pt below its top and
+    /// above its bottom; their origins are in its bottom-left coordinates.
+    #[test]
+    fn the_traffic_lights_sit_where_the_window_option_puts_them() {
+        let (container, origins) =
+            traffic_light_frames(600.0, 800.0, (20.0, 18.0), (14.0, 16.0), 20.0);
+        assert_eq!(
+            container,
+            (0.0, 548.0, 800.0, 52.0),
+            "the container: pinned to the window's top, 16 + 2 * 18 tall, as wide as it was"
+        );
+        assert_eq!(
+            origins,
+            [(20.0, 18.0), (40.0, 18.0), (60.0, 18.0)],
+            "close at x 20, minimize and zoom at AppKit's own pitch"
+        );
+        let close_top_from_window_top = container.3 - (origins[0].1 + 16.0);
+        assert_eq!(close_top_from_window_top, 18.0, "the close button's top is 18pt down");
+    }
+
+    /// The lights cannot leave the window: a position above or left of its
+    /// corner is the corner.
+    #[test]
+    fn a_traffic_light_position_outside_the_window_is_its_corner() {
+        let (container, origins) =
+            traffic_light_frames(600.0, 800.0, (-5.0, -3.0), (14.0, 16.0), 20.0);
+        assert_eq!(container, (0.0, 584.0, 800.0, 16.0));
+        assert_eq!(origins, [(0.0, 0.0), (20.0, 0.0), (40.0, 0.0)]);
+    }
+}
+
+#[cfg(test)]
+mod titlebar_report_tests {
+    use azul_css::system::{TitlebarGeometry, TitlebarReport};
+
+    use super::titlebar_report;
+
+    /// The lights moved to (20, 18) in an 800 x 600 content view under a
+    /// 28pt band: their frames as AppKit reports them (bottom-left origin)
+    /// make the same room the engine models for that position - 20pt
+    /// before, 54pt of buttons, 20pt after - and the 52pt row they are
+    /// centred in.
+    #[test]
+    fn measured_traffic_lights_take_the_room_the_engine_models_for_them() {
+        let buttons = [
+            (20.0, 566.0, 14.0, 16.0),
+            (40.0, 566.0, 14.0, 16.0),
+            (60.0, 566.0, 14.0, 16.0),
+        ];
+        assert_eq!(
+            titlebar_report(28.0, (800.0, 600.0), &buttons),
+            TitlebarReport::Measured(TitlebarGeometry {
+                height: 52.0,
+                left: 94.0,
+                right: 0.0,
+            })
+        );
+    }
+
+    /// Full screen hides the title bar, and a standard one sits above the
+    /// content: no band, no area.
+    #[test]
+    fn no_band_is_no_area() {
+        let buttons = [(12.0, 578.0, 14.0, 16.0)];
+        assert_eq!(
+            titlebar_report(0.0, (800.0, 600.0), &buttons),
+            TitlebarReport::NoArea
+        );
+    }
+
+    /// A title bar whose buttons are all hidden is the band alone.
+    #[test]
+    fn a_band_without_buttons_takes_no_room() {
+        assert_eq!(
+            titlebar_report(28.0, (800.0, 600.0), &[]),
+            TitlebarReport::Measured(TitlebarGeometry {
+                height: 28.0,
+                left: 0.0,
+                right: 0.0,
+            })
+        );
+    }
+}
+
+#[cfg(test)]
+mod safe_area_tests {
+    use super::layout_safe_area_insets;
+
+    /// `NoTitle` and `NoTitleAutoInject` run the content under a transparent
+    /// titlebar so the app can draw its own title row there; the content
+    /// view reports that 28pt band as its top safe-area inset.
+    #[test]
+    fn a_window_drawn_under_its_titlebar_is_not_inset_by_it() {
+        assert_eq!(
+            layout_safe_area_insets((28.0, 0.0, 0.0, 0.0), 28.0),
+            (0.0, 0.0, 0.0, 0.0)
+        );
+    }
+
+    /// Fullscreen on a MacBook with a camera housing: the titlebar is hidden,
+    /// so nothing of the reported inset is titlebar - it is the notch.
+    #[test]
+    fn the_camera_housing_still_insets_a_fullscreen_window() {
+        assert_eq!(
+            layout_safe_area_insets((32.0, 0.0, 0.0, 0.0), 0.0),
+            (32.0, 0.0, 0.0, 0.0)
+        );
+    }
+
+    /// A band can never make an inset negative.
+    #[test]
+    fn a_band_larger_than_the_inset_leaves_zero() {
+        assert_eq!(
+            layout_safe_area_insets((10.0, 0.0, 0.0, 0.0), 28.0),
+            (0.0, 0.0, 0.0, 0.0)
+        );
+    }
 }
 
 #[cfg(test)]
@@ -1817,13 +3334,29 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, dirty_rect: NSRect) {
             pace_trace("drawrect-cpu-enter");
+            // The whole draw of a CPU frame (AZ_PROFILE=cpu), next to its relayout.
+            let _probe = azul_layout::probe::Probe::span("draw_rect_cpu");
             let bounds = unsafe { self.bounds() };
             // Convert to backing pixels (2x on Retina)
             let backing = unsafe { self.convertRectToBacking(bounds) };
-            let width = backing.size.width as usize;
-            let height = backing.size.height as usize;
+            // Backing pixels per point, and the framebuffer's size from it:
+            // the renderer's own rounding (`cpu_view_framebuffer_size`).
+            let scale = if bounds.size.width > 0.0 {
+                backing.size.width / bounds.size.width
+            } else {
+                1.0
+            };
+            let (width, height) =
+                cpu_view_framebuffer_size((bounds.size.width, bounds.size.height), scale);
 
             let ivars = self.ivars();
+
+            // Another backing scale (the window is on another display now):
+            // what the framebuffer holds is a frame at the old scale, and
+            // its top-left part is not the top-left part of the next frame.
+            let previous_scale = ivars.backing_scale.get();
+            let scale_changed = previous_scale > 0.0 && (previous_scale - scale).abs() > 1e-6;
+            ivars.backing_scale.set(scale);
 
             // Resize framebuffer if view bounds changed
             let current_width = ivars.width.get();
@@ -1839,16 +3372,45 @@ define_class!(
             if size_changed {
                 ivars.width.set(width);
                 ivars.height.set(height);
+                let blank = blank_frame_pixel(ivars.transparent.get(), ivars.blank_rgb.get());
                 let mut fb = ivars.framebuffer.borrow_mut();
-                fb.resize(width * height * 4, 255);
-                // Fill with white (opaque) so the window isn't transparent
-                for chunk in fb.chunks_exact_mut(4) {
-                    chunk[0] = 255; chunk[1] = 255; chunk[2] = 255; chunk[3] = 255;
+                // The frame on screen stays where it is, top-left anchored as
+                // the window's content is: what the new size still shows is
+                // the frame before, and only a strip a side gained is blank.
+                // So the next frame repaints what its relayout changed plus
+                // that strip (`CpuBackend::render_frame`); a framebuffer
+                // blanked whole made every step of an edge drag a full
+                // repaint.
+                let kept = current_width > 0
+                    && current_height > 0
+                    && fb.len() >= current_width * current_height * 4
+                    && ivars.fb_content_valid.get()
+                    && !scale_changed;
+                // In place, each kept pixel written once (A10-14).
+                resize_framebuffer(
+                    &mut fb,
+                    (current_width, current_height),
+                    (width, height),
+                    kept,
+                    blank,
+                );
+                // Without a frame to keep (none drawn yet), a partial present
+                // against this buffer would leave everything outside its rects
+                // blank: the next present goes through a full copy.
+                ivars.fb_content_valid.set(kept);
+                if !kept {
+                    // And a present that says "nothing changed" would leave
+                    // ALL of it blank: the next present copies the frame in
+                    // whatever its damage is (`shows_blank`).
+                    ivars.fb_blank.set(true);
                 }
-                // The retained frame is GONE - a partial present against this
-                // buffer would leave everything outside its rects white. Force
-                // the next present through a full copy.
-                ivars.fb_content_valid.set(false);
+            }
+
+            // What this very pass draws (A10-13): a frame rendered below does
+            // not have to mark it as needing display again.
+            let present = cpu_present_options();
+            if !present.twice {
+                *ivars.drawing_spans.borrow_mut() = self.spans_being_drawn(dirty_rect, width, height);
             }
 
             // CPU render on every drawRect that needs it (first frame, after
@@ -1857,7 +3419,7 @@ define_class!(
             // `redraw_requested` covers frames whose only change is invisible to
             // the dirty flags — above all scroll offsets moved by the physics
             // timer (request_redraw() raised it; render_and_present consumes it).
-            if let Some(window_ptr) = *ivars.window_ptr.borrow() {
+            if let Some(window_ptr) = ivars.window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut std::ffi::c_void as *mut MacOSWindow);
                     // A resize WHITENED the framebuffer above, so this frame
@@ -1889,36 +3451,80 @@ define_class!(
             // dirty rect AppKit hands us is the damage; the bitmap's other
             // rows still hold the previous frame, which is exactly what the
             // framebuffer holds there too.
+            // The frame's rects are drawn below: from here on a rect marked
+            // as needing display is a new one.
+            ivars.drawing_spans.borrow_mut().clear();
+
+            // A10-06 (the default; `AZ_CPU_PRESENT=bitmap` is the other): AppKit draws the dirty part
+            // straight from the framebuffer (a `CGImage` over its memory): no
+            // rows are copied, and no bitmap is kept beside the framebuffer.
+            let mut drawn_from_framebuffer = false;
+            if present.cgimage && !ivars.cg_tripped.get() {
+                let framebuffer = ivars.framebuffer.borrow();
+                let dirty_px = unsafe { self.convertRectToBacking(dirty_rect) };
+                let span = dirty_rows_to_copy(
+                    false,
+                    (
+                        dirty_px.origin.x,
+                        dirty_px.origin.y,
+                        dirty_px.size.width,
+                        dirty_px.size.height,
+                    ),
+                    width,
+                    height,
+                );
+                let (fx, fy, fw, fh) = bitmap_source_rect(span, height);
+                let to_pt = unsafe {
+                    self.convertRectFromBacking(NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh)))
+                };
+                match unsafe { draw_framebuffer_span_cg(&framebuffer, width, height, span, to_pt) } {
+                    CgDraw::Drawn => drawn_from_framebuffer = true,
+                    CgDraw::DrawnButHeld => {
+                        drawn_from_framebuffer = true;
+                        ivars.cg_tripped.set(true);
+                    }
+                    CgDraw::NotDrawn => {}
+                }
+            }
+            if ivars.cg_tripped.get() && drawn_from_framebuffer {
+                // Core Graphics kept the image of the framebuffer: whoever
+                // holds it may read that memory later. It stays alive for
+                // good (one buffer, once), the view goes on with a copy, and
+                // the bitmap path presents from now on.
+                let mut fb = ivars.framebuffer.borrow_mut();
+                let copy = fb.clone();
+                core::mem::forget(core::mem::replace(&mut *fb, copy));
+                log_error!(
+                    LogCategory::Rendering,
+                    "[CPUView] present from the framebuffer: Core Graphics held the framebuffer's image \
+                     after the draw; presenting through the bitmap from now on"
+                );
+            }
+
+            if !drawn_from_framebuffer {
             unsafe {
                 let framebuffer = ivars.framebuffer.borrow();
 
-                // Reuse cached bitmap if size matches, otherwise allocate new
+                // Reuse the cached bitmap while the frame fits it (it may be
+                // larger: `bitmap_size_to_allocate`, A10-14), otherwise
+                // allocate a new one.
                 let mut cached = ivars.cached_bitmap.borrow_mut();
-                let cached_w = ivars.cached_bitmap_w.get();
-                let cached_h = ivars.cached_bitmap_h.get();
-
-                if cached.is_none() || cached_w != width || cached_h != height {
-                    *cached = NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
-                        NSBitmapImageRep::alloc(),
-                        std::ptr::null_mut(),
-                        width as isize,
-                        height as isize,
-                        8,
-                        4,
-                        true,
-                        false,
-                        ns_string!("NSCalibratedRGBColorSpace"),
-                        (width * 4) as isize,
-                        32,
-                    );
-                    ivars.cached_bitmap_w.set(width);
-                    ivars.cached_bitmap_h.set(height);
+                let have = cached
+                    .is_some()
+                    .then(|| (ivars.cached_bitmap_w.get(), ivars.cached_bitmap_h.get()));
+                if let Some((bitmap_w, bitmap_h)) = bitmap_size_to_allocate(width, height, have) {
+                    *cached = color_space::cpu_frame_bitmap(bitmap_w, bitmap_h);
+                    ivars.cached_bitmap_w.set(bitmap_w);
+                    ivars.cached_bitmap_h.set(bitmap_h);
                     ivars.cached_bitmap_stale.set(true);
                 }
+                // The bitmap's own height: its space is measured from ITS
+                // bottom edge, and the frame's rows are its top rows.
+                let bitmap_h = ivars.cached_bitmap_h.get();
 
                 if let Some(ref bitmap) = *cached {
                     let dirty_px = self.convertRectToBacking(dirty_rect);
-                    let (x0, x1, y0, y1) = dirty_rows_to_copy(
+                    let span = dirty_rows_to_copy(
                         ivars.cached_bitmap_stale.get(),
                         (
                             dirty_px.origin.x,
@@ -1932,51 +3538,39 @@ define_class!(
                     ivars.cached_bitmap_stale.set(false);
 
                     // Copy the dirty rows (or everything, once, after a
-                    // (re)allocation) into the bitmap's pixel buffer. The
-                    // rep's stride is read back rather than assumed: AppKit
-                    // allocated the buffer (null planes), and a padded
-                    // `bytesPerRow` copied with the framebuffer's stride
-                    // would shear every row — which on screen looks exactly
-                    // like horizontally squashed, doubled text.
-                    let stride = width * 4;
-                    let dst_stride = bitmap.bytesPerRow() as usize;
-                    debug_assert_eq!(
-                        dst_stride, stride,
-                        "NSBitmapImageRep padded bytesPerRow ({dst_stride}) past the requested {stride}"
-                    );
-                    let dst = bitmap.bitmapData();
-                    let span = (x1 - x0) * 4;
-                    if !dst.is_null() && span > 0 {
-                        for row in y0..y1 {
-                            let src_off = row * stride + x0 * 4;
-                            let dst_off = row * dst_stride + x0 * 4;
-                            if src_off + span <= framebuffer.len() {
-                                std::ptr::copy_nonoverlapping(
-                                    framebuffer.as_ptr().add(src_off),
-                                    dst.add(dst_off),
-                                    span,
-                                );
-                            }
-                        }
-                    }
-
-                    // Draw just that region, 1:1. The rep's coordinate space
-                    // is bottom-left-origin pixels, like the view's backing
+                    // (re)allocation) into the bitmap's pixel buffer and draw
+                    // just that region, 1:1. The rep's coordinate space is
+                    // bottom-left-origin pixels, like the view's backing
                     // space, so the source rect is the copied span flipped
-                    // back, and the destination is its point-space twin.
-                    let from_px = NSRect::new(
-                        NSPoint::new(x0 as f64, (height - y1) as f64),
-                        NSSize::new((x1 - x0) as f64, (y1 - y0) as f64),
-                    );
-                    let to_pt = self.convertRectFromBacking(from_px);
-                    let _drawn: bool = bitmap.drawInRect_fromRect_operation_fraction_respectFlipped_hints(
-                        to_pt,
+                    // back (`bitmap_source_rect`), and the destination is its
+                    // point-space twin.
+                    // Where the span lies in the VIEW (the frame's rows are
+                    // the view's rows) and where in the BITMAP (which may be
+                    // taller than the frame).
+                    let (vx, vy, vw, vh) = bitmap_source_rect(span, height);
+                    let to_pt = self.convertRectFromBacking(NSRect::new(
+                        NSPoint::new(vx, vy),
+                        NSSize::new(vw, vh),
+                    ));
+                    let (fx, fy, fw, fh) = bitmap_source_rect(span, bitmap_h);
+                    let from_px = NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh));
+                    let _drawn: bool = draw_framebuffer_span(
+                        bitmap,
+                        &framebuffer,
+                        width,
+                        height,
+                        span,
                         from_px,
-                        NSCompositingOperation::Copy,
-                        1.0,
-                        false,
-                        None,
+                        to_pt,
                     );
+                }
+            }
+            }
+
+            if let Some(window_ptr) = ivars.window_ptr.get() {
+                unsafe {
+                    // The CPU renderer drew the document in this very pass.
+                    (*(window_ptr as *mut MacOSWindow)).reveal_after_first_frame(true);
                 }
             }
         }
@@ -1995,27 +3589,27 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
-            view_handlers::mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseUp:))]
         fn mouse_up(&self, event: &NSEvent) {
-            view_handlers::mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseDragged:))]
         fn mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseDown:))]
         fn right_mouse_down(&self, event: &NSEvent) {
-            view_handlers::right_mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::right_mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseUp:))]
         fn right_mouse_up(&self, event: &NSEvent) {
-            view_handlers::right_mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::right_mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         // Middle / extra buttons and non-left drags. `process_event` routes
@@ -2025,22 +3619,22 @@ define_class!(
         // engine side (handle_mouse_down/up with MouseButton::Middle) exists.
         #[unsafe(method(otherMouseDown:))]
         fn other_mouse_down(&self, event: &NSEvent) {
-            view_handlers::other_mouse_down(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::other_mouse_down(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(otherMouseUp:))]
         fn other_mouse_up(&self, event: &NSEvent) {
-            view_handlers::other_mouse_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::other_mouse_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(otherMouseDragged:))]
         fn other_mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::non_left_mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rightMouseDragged:))]
         fn right_mouse_dragged(&self, event: &NSEvent) {
-            view_handlers::non_left_mouse_dragged(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::non_left_mouse_dragged(self.ivars().window_ptr.get(), event);
         }
 
         /// A runtime light/dark switch, as AppKit reports it.
@@ -2052,12 +3646,12 @@ define_class!(
         /// (GL and CPU) owe it identically.
         #[unsafe(method(viewDidChangeEffectiveAppearance))]
         fn view_did_change_effective_appearance(&self) {
-            view_handlers::effective_appearance_changed(*self.ivars().window_ptr.borrow());
+            view_handlers::effective_appearance_changed(self.ivars().window_ptr.get());
         }
 
         #[unsafe(method(scrollWheel:))]
         fn scroll_wheel(&self, event: &NSEvent) {
-            view_handlers::scroll_wheel(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::scroll_wheel(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B4: trackpad pinch / rotate — injected into the gesture
@@ -2065,17 +3659,36 @@ define_class!(
         // report OS-quality results (previously never wired on macOS).
         #[unsafe(method(magnifyWithEvent:))]
         fn magnify_with_event(&self, event: &NSEvent) {
-            view_handlers::magnify(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::magnify(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(rotateWithEvent:))]
         fn rotate_with_event(&self, event: &NSEvent) {
-            view_handlers::rotate(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::rotate(self.ivars().window_ptr.get(), event);
+        }
+
+        #[unsafe(method(swipeWithEvent:))]
+        fn swipe_with_event(&self, event: &NSEvent) {
+            view_handlers::swipe(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(pressureChangeWithEvent:))]
         fn pressure_change_with_event(&self, event: &NSEvent) {
-            view_handlers::pressure_change(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::pressure_change(self.ivars().window_ptr.get(), event);
+        }
+
+        // A pen's samples that come as no mouse event (pressure, tilt or
+        // rotation changing while it holds still) and its proximity (in and
+        // out of the tablet's range): see `handle_tablet_point` /
+        // `handle_tablet_proximity`.
+        #[unsafe(method(tabletPoint:))]
+        fn tablet_point(&self, event: &NSEvent) {
+            view_handlers::tablet_point(self.ivars().window_ptr.get(), event);
+        }
+
+        #[unsafe(method(tabletProximity:))]
+        fn tablet_proximity(&self, event: &NSEvent) {
+            view_handlers::tablet_proximity(self.ivars().window_ptr.get(), event);
         }
 
         // MWA-B14: standard Edit-menu selectors. The native Edit menu's
@@ -2085,7 +3698,7 @@ define_class!(
         #[unsafe(method(copy:))]
         fn edit_copy(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Copy,
             );
         }
@@ -2093,7 +3706,7 @@ define_class!(
         #[unsafe(method(cut:))]
         fn edit_cut(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Cut,
             );
         }
@@ -2101,7 +3714,7 @@ define_class!(
         #[unsafe(method(paste:))]
         fn edit_paste(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Paste,
             );
         }
@@ -2109,7 +3722,7 @@ define_class!(
         #[unsafe(method(selectAll:))]
         fn edit_select_all(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::SelectAll,
             );
         }
@@ -2117,7 +3730,7 @@ define_class!(
         #[unsafe(method(undo:))]
         fn edit_undo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Undo,
             );
         }
@@ -2125,7 +3738,7 @@ define_class!(
         #[unsafe(method(redo:))]
         fn edit_redo(&self, _sender: Option<&objc2::runtime::AnyObject>) {
             view_handlers::edit_command(
-                *self.ivars().window_ptr.borrow(),
+                self.ivars().window_ptr.get(),
                 view_handlers::EditCommand::Redo,
             );
         }
@@ -2134,22 +3747,22 @@ define_class!(
 
         #[unsafe(method(draggingEntered:))]
         fn dragging_entered(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::dragging_entered(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(draggingUpdated:))]
         fn dragging_updated(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
-            view_handlers::dragging_entered(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::dragging_entered(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(draggingExited:))]
         fn dragging_exited(&self, _info: Option<&ProtocolObject<dyn NSDraggingInfo>>) {
-            view_handlers::dragging_exited(*self.ivars().window_ptr.borrow());
+            view_handlers::dragging_exited(self.ivars().window_ptr.get());
         }
 
         #[unsafe(method(performDragOperation:))]
         fn perform_drag_operation(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
-            view_handlers::perform_drag(*self.ivars().window_ptr.borrow(), info)
+            view_handlers::perform_drag(self.ivars().window_ptr.get(), info)
         }
 
         #[unsafe(method(keyDown:))]
@@ -2157,12 +3770,12 @@ define_class!(
             let key_code = unsafe { event.keyCode() };
             let chars = unsafe { event.characters() }.map(|s| s.to_string()).unwrap_or_default();
             log_trace!(LogCategory::Input, "[IME keyDown] keyCode={} chars='{}' has_editing={}", key_code, chars,
-                self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+                self.ivars().window_ptr.get().and_then(|ptr| unsafe {
                     let w = &*(ptr as *const MacOSWindow);
                     w.common.layout_window.as_ref()
                 }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false));
 
-            let has_editing = self.ivars().window_ptr.borrow().and_then(|ptr| unsafe {
+            let has_editing = self.ivars().window_ptr.get().and_then(|ptr| unsafe {
                 let w = &*(ptr as *const MacOSWindow);
                 w.common.layout_window.as_ref()
             }).map(|lw| lw.text_edit_manager.has_active_editing()).unwrap_or(false);
@@ -2190,7 +3803,7 @@ define_class!(
                 let ime_consumed = self.ivars().ime_key_handled.get();
                 log_trace!(LogCategory::Input, "[IME keyDown] inputContext returned, ime_handled_by_context={}, ime_key_handled={}", ime_handled_by_context, ime_consumed);
                 if ime_consumed {
-                    if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                    if let Some(window_ptr) = self.ivars().window_ptr.get() {
                         unsafe {
                             use crate::desktop::shell2::common::event::PlatformWindow;
                             let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -2214,7 +3827,7 @@ define_class!(
             }
 
             log_trace!(LogCategory::Input, "[IME keyDown] falling through to handle_key_down");
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -2246,12 +3859,12 @@ define_class!(
 
         #[unsafe(method(keyUp:))]
         fn key_up(&self, event: &NSEvent) {
-            view_handlers::key_up(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::key_up(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(flagsChanged:))]
         fn flags_changed(&self, event: &NSEvent) {
-            view_handlers::flags_changed(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::flags_changed(self.ivars().window_ptr.get(), event);
         }
 
         // NSResponder Cmd+Z / Cmd+Shift+Z arrive via the `undo:`/`redo:`
@@ -2265,7 +3878,7 @@ define_class!(
         fn tick_timers(&self, _sender: Option<&NSObject>) {
             use crate::desktop::shell2::common::event::PlatformWindow;
 
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // The BACKSTOP for a system-appearance change. The switch
@@ -2304,6 +3917,9 @@ define_class!(
                     if needs_redraw || macos_window.common.regeneration_pending() {
                         macos_window.request_redraw();
                     }
+                    // Whatever else the pass left owed (the display link no
+                    // longer polls for it).
+                    macos_window.request_frame_if_pending();
                 }
             }
             // Note: NSTimer with repeats:true automatically reschedules itself
@@ -2317,7 +3933,7 @@ define_class!(
         #[unsafe(method(presentPendingMenu:))]
         fn present_pending_menu(&self, _sender: Option<&NSObject>) {
             let pending = {
-                let window_ptr = *self.ivars().window_ptr.borrow();
+                let window_ptr = self.ivars().window_ptr.get();
                 window_ptr.and_then(|window_ptr| unsafe {
                     (*(window_ptr as *mut MacOSWindow)).take_pending_context_menu()
                 })
@@ -2327,12 +3943,13 @@ define_class!(
                 // Same as the GLView twin: the selected item's tag is queued by
                 // the time the pop-up returns — drain it now so the callback
                 // and its redraw do not wait for the next unrelated event.
-                let window_ptr = *self.ivars().window_ptr.borrow();
+                let window_ptr = self.ivars().window_ptr.get();
                 if let Some(window_ptr) = window_ptr {
                     unsafe {
                         (*(window_ptr as *mut MacOSWindow)).drain_loop_work();
                     }
                 }
+                view_handlers::release_buttons_after_menu(window_ptr);
             }
         }
 
@@ -2349,7 +3966,7 @@ define_class!(
             };
 
             if action == Some(sel!(undo:)) {
-                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                if let Some(window_ptr) = self.ivars().window_ptr.get() {
                     unsafe {
                         let macos_window = &*(window_ptr as *const MacOSWindow);
                         return Bool::from(macos_window.can_undo());
@@ -2357,7 +3974,7 @@ define_class!(
                 }
                 return Bool::from(false);
             } else if action == Some(sel!(redo:)) {
-                if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+                if let Some(window_ptr) = self.ivars().window_ptr.get() {
                     unsafe {
                         let macos_window = &*(window_ptr as *const MacOSWindow);
                         return Bool::from(macos_window.can_redo());
@@ -2385,13 +4002,19 @@ define_class!(
                 needs_redraw: Cell::new(true),
                 tracking_area: RefCell::new(None),
                 mtm,
-                window_ptr: RefCell::new(None),
+                window_ptr: Cell::new(None),
                 ime_key_handled: Cell::new(false),
                 cached_bitmap: RefCell::new(None),
                 cached_bitmap_w: Cell::new(0),
                 cached_bitmap_h: Cell::new(0),
             cached_bitmap_stale: Cell::new(true),
                 transparent: Cell::new(false),
+                blank_rgb: Cell::new([255, 255, 255]),
+                fb_blank: Cell::new(true),
+                backing_scale: Cell::new(0.0),
+                drawing_spans: RefCell::new(Vec::new()),
+                cg_tripped: Cell::new(false),
+                layer_host: RefCell::new(layer_present::LayerHost::default()),
             });
             unsafe {
                 msg_send_id![super(this), initWithFrame: frame]
@@ -2409,9 +4032,21 @@ define_class!(
 
             // Create new tracking area for mouse enter/exit/move events
             let bounds = unsafe { self.bounds() };
+            // A combobox's list popup (`ListPopupWindow`) is never the key
+            // window, so under `ActiveInKeyWindow` it would never see a mouse
+            // move and its rows could not hover: it tracks while the app is
+            // active instead.
+            let list_popup = self
+                .window()
+                .is_some_and(|w| w.isKindOfClass(ListPopupWindow::class()));
+            let activity = if list_popup {
+                NSTrackingAreaOptions::ActiveInActiveApp
+            } else {
+                NSTrackingAreaOptions::ActiveInKeyWindow
+            };
             let options = NSTrackingAreaOptions::MouseEnteredAndExited
                 | NSTrackingAreaOptions::MouseMoved
-                | NSTrackingAreaOptions::ActiveInKeyWindow
+                | activity
                 | NSTrackingAreaOptions::InVisibleRect;
 
             let tracking_area = unsafe {
@@ -2433,17 +4068,17 @@ define_class!(
 
         #[unsafe(method(mouseEntered:))]
         fn mouse_entered(&self, event: &NSEvent) {
-            view_handlers::mouse_entered(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_entered(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseExited:))]
         fn mouse_exited(&self, event: &NSEvent) {
-            view_handlers::mouse_exited(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_exited(self.ivars().window_ptr.get(), event);
         }
 
         #[unsafe(method(mouseMoved:))]
         fn mouse_moved(&self, event: &NSEvent) {
-            view_handlers::mouse_moved(*self.ivars().window_ptr.borrow(), event);
+            view_handlers::mouse_moved(self.ivars().window_ptr.get(), event);
         }
 
     }
@@ -2586,7 +4221,51 @@ define_class!(
             // still fall through to handle_key_down for processing.
         }
     }
+
+    // NSDraggingSource: a node drag that left the window runs as the system's
+    // drag session with this view as its source (`start_os_drag_if_it_left`).
+    // Thin, as above: the bodies are shared `view_handlers::os_drag_*`.
+    // The drag source protocol extends NSObjectProtocol, which NSObject already implements.
+    unsafe impl NSObjectProtocol for CPUView {}
+
+    unsafe impl NSDraggingSource for CPUView {
+        #[unsafe(method(draggingSession:sourceOperationMaskForDraggingContext:))]
+        fn dragging_source_operations(
+            &self,
+            _session: &NSDraggingSession,
+            _context: NSDraggingContext,
+        ) -> NSDragOperation {
+            view_handlers::os_drag_operations(self.ivars().window_ptr.get())
+        }
+
+        #[unsafe(method(draggingSession:endedAtPoint:operation:))]
+        fn dragging_session_ended(
+            &self,
+            _session: &NSDraggingSession,
+            _screen_point: NSPoint,
+            operation: NSDragOperation,
+        ) {
+            view_handlers::os_drag_ended(self.ivars().window_ptr.get(), operation);
+        }
+    }
 );
+
+/// A render view lets go of the window it draws for. AppKit keeps a closed window and its views
+/// alive past the `MacOSWindow` that owns them - the autorelease pool of the turn that closed it,
+/// a display-link tick that retained it, a layer display it had queued - and every later call
+/// into the view (a `drawRect:`, a tracking area's exit, a `tickTimers:` on its way) goes
+/// through this back-pointer. Cleared, such a call finds no window and does nothing instead of
+/// reading the freed one; the `performSelector:` requests still queued for the view (the first
+/// `tickTimers:`, a context menu waiting to pop up) are dropped with it.
+fn forget_window(view: &NSView, window_ptr: &Cell<Option<*mut std::ffi::c_void>>) {
+    window_ptr.set(None);
+    unsafe {
+        let _: () = msg_send![
+            objc2::class!(NSObject),
+            cancelPreviousPerformRequestsWithTarget: view
+        ];
+    }
+}
 
 // GLView Helper Methods (outside define_class!)
 
@@ -2594,43 +4273,64 @@ impl GLView {
     /// Set the back-pointer to the owning MacOSWindow
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
-        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        self.ivars().window_ptr.set(Some(window_ptr));
 
         // One-shot initial tickTimers: kick (performSelector:afterDelay: fires
         // ONCE — it does not reschedule). It drains timers/threads registered
         // during window creation; ongoing ticking is driven by the repeating
         // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
-        let delay: f64 = TIMER_INTERVAL_60FPS;
+        // The next run-loop turn: window creation has finished by then. (Not
+        // a frame length - this is no pacing, and the window behind
+        // `window_ptr` is still borrowed by the caller.)
+        let delay: f64 = 0.0;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
     /// Get the back-pointer to the owning MacOSWindow
     fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
-        *self.ivars().window_ptr.borrow()
+        self.ivars().window_ptr.get()
+    }
+
+    /// The window this view draws for is going away: see [`forget_window`].
+    pub fn forget_window(&self) {
+        forget_window(self, &self.ivars().window_ptr);
+    }
+
+    /// Whether the view composites the GL surface's alpha (see the ivar).
+    pub fn set_transparent(&self, transparent: bool) {
+        self.ivars().transparent.set(transparent);
     }
 }
 
 // CPUView Helper Methods (outside define_class!)
 
 impl CPUView {
+    /// The window this view draws for is going away: see [`forget_window`].
+    pub fn forget_window(&self) {
+        forget_window(self, &self.ivars().window_ptr);
+    }
+
     /// Set the back-pointer to the owning MacOSWindow
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the view
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
-        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        self.ivars().window_ptr.set(Some(window_ptr));
 
         // One-shot initial tickTimers: kick (performSelector:afterDelay: fires
         // ONCE — it does not reschedule). It drains timers/threads registered
         // during window creation; ongoing ticking is driven by the repeating
         // NSTimers that start_timer / start_thread_poll_timer create.
         use objc2::sel;
-        let delay: f64 = TIMER_INTERVAL_60FPS;
+        // The next run-loop turn: window creation has finished by then. (Not
+        // a frame length - this is no pacing, and the window behind
+        // `window_ptr` is still borrowed by the caller.)
+        let delay: f64 = 0.0;
         let _: () = msg_send![self, performSelector: sel!(tickTimers:), withObject: std::ptr::null::<NSObject>(), afterDelay: delay];
     }
 
     /// Get the back-pointer to the owning MacOSWindow
     fn get_window_ptr(&self) -> Option<*mut std::ffi::c_void> {
-        *self.ivars().window_ptr.borrow()
+        self.ivars().window_ptr.get()
     }
 
     /// Copy an RGBA pixmap into the CPUView's framebuffer and request redraw.
@@ -2703,33 +4403,28 @@ impl CPUView {
                     }
                 }
                 drop(fb);
-                let bounds = self.bounds();
-                let scale_x = view_w as f64 / bounds.size.width.max(1.0);
-                let scale_y = view_h as f64 / bounds.size.height.max(1.0);
-                for (rx, ry, rw, rh) in rects {
-                    let x_pt = f64::from(*rx) / scale_x;
-                    let w_pt = f64::from(*rw) / scale_x;
-                    let h_pt = f64::from(*rh) / scale_y;
-                    // flip: physical top-left origin → view bottom-left origin
-                    let y_pt = bounds.size.height - (f64::from(*ry) + f64::from(*rh)) / scale_y;
-                    let dirty = NSRect::new(
-                        NSPoint::new(x_pt, y_pt),
-                        NSSize::new(w_pt, h_pt),
-                    );
-                    unsafe {
-                        let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
-                    }
-                }
+                self.invalidate_px_rects(rects, view_w, view_h);
                 return;
             }
         }
 
         // Every branch below rewrites the whole buffer.
-        self.ivars().fb_content_valid.set(true);
+        note_cpu_frame_size((pixmap_w, pixmap_h), (view_w, view_h));
         if pixmap_w == view_w && pixmap_h == view_h {
             let len = (view_w * view_h * 4).min(pixmap_data.len()).min(fb.len());
             fb[..len].copy_from_slice(&pixmap_data[..len]);
+            // The framebuffer is this frame, pixel for pixel: the next one
+            // may be rendered into it, or copied into it rect by rect.
+            self.ivars().fb_content_valid.set(true);
+            self.ivars().fb_blank.set(false);
         } else if pixmap_w > 0 && pixmap_h > 0 {
+            // It shows this frame, but STRETCHED: no pixel of it is a pixel
+            // of the frame. It is no base for an incremental frame (a frame
+            // rendered into it, or rects copied into it, would stand next to
+            // stretched pixels for good): the next present of a frame of the
+            // view's size is a full copy, which revalidates.
+            self.ivars().fb_content_valid.set(false);
+            self.ivars().fb_blank.set(false);
             // Nearest-neighbor scale for DPI mismatch
             let sx = pixmap_w as f32 / view_w as f32;
             let sy = pixmap_h as f32 / view_h as f32;
@@ -2750,8 +4445,13 @@ impl CPUView {
         }
 
         drop(fb);
-        unsafe {
-            self.setNeedsDisplay(true);
+        // The whole view, unless the `drawRect:` that is running draws the
+        // whole frame itself (A10-13).
+        let whole = [(0_u32, 0_u32, view_w as u32, view_h as u32)];
+        if !rects_left_to_invalidate(&whole, &self.ivars().drawing_spans.borrow()).is_empty() {
+            unsafe {
+                self.setNeedsDisplay(true);
+            }
         }
     }
 
@@ -2768,6 +4468,11 @@ impl CPUView {
         self.ivars().transparent.set(transparent);
     }
 
+    /// The window's background, for the fill of a resized framebuffer.
+    pub fn set_blank_fill(&self, rgb: [u8; 3]) {
+        self.ivars().blank_rgb.set(rgb);
+    }
+
     pub fn native_target_ptr(&self, w: usize, h: usize) -> Option<*mut u8> {
         if w == 0 || h == 0 {
             return None;
@@ -2778,6 +4483,7 @@ impl CPUView {
         // copy path (which also handles DPI-mismatch rescaling).
         let (vw, vh) = (ivars.width.get(), ivars.height.get());
         if (vw != 0 || vh != 0) && (vw != w || vh != h) {
+            // Counted in `update_framebuffer`, where this frame ends up.
             return None;
         }
         // A resize just white-filled the buffer: the engine would render only
@@ -2790,9 +4496,142 @@ impl CPUView {
         }
         ivars.width.set(w);
         ivars.height.set(h);
+        note_cpu_frame_size((w, h), (w, h));
         let mut fb = ivars.framebuffer.borrow_mut();
         fb.resize(w * h * 4, 255);
         Some(fb.as_mut_ptr())
+    }
+
+    /// The spans of the `width` x `height` frame that the `drawRect:` running
+    /// right now draws: the rects AppKit reports as being drawn
+    /// (`getRectsBeingDrawn:count:`: the area the view is asked to draw, and
+    /// what its drawing is clipped to), each cut INWARD to whole pixels; the
+    /// dirty rect itself when AppKit reports none.
+    fn spans_being_drawn(
+        &self,
+        dirty_rect: NSRect,
+        width: usize,
+        height: usize,
+    ) -> Vec<(usize, usize, usize, usize)> {
+        let mut rects: *const NSRect = std::ptr::null();
+        let mut count: isize = 0;
+        // SAFETY: both are valid out-pointers; AppKit owns the list it
+        // returns, which lives for the duration of this `drawRect:`.
+        unsafe { self.getRectsBeingDrawn_count(&mut rects, &mut count) };
+        let being_drawn: Vec<NSRect> = if rects.is_null() || count <= 0 {
+            vec![dirty_rect]
+        } else {
+            // SAFETY: `rects` points at `count` rects (above).
+            (0..count as usize).map(|i| unsafe { *rects.add(i) }).collect()
+        };
+        being_drawn
+            .into_iter()
+            .map(|rect| {
+                let px = unsafe { self.convertRectToBacking(rect) };
+                rows_inside_backing_rect(
+                    (px.origin.x, px.origin.y, px.size.width, px.size.height),
+                    width,
+                    height,
+                )
+            })
+            .filter(|&(x0, x1, y0, y1)| x1 > x0 && y1 > y0)
+            .collect()
+    }
+
+    /// Let go of the staging bitmap (A10-26). It is only a copy of rows of
+    /// the framebuffer on their way to AppKit: the next `drawRect:` that
+    /// needs one makes it again.
+    pub fn release_staging_bitmap(&self) {
+        let ivars = self.ivars();
+        if let Ok(mut cached) = ivars.cached_bitmap.try_borrow_mut() {
+            *cached = None;
+            ivars.cached_bitmap_w.set(0);
+            ivars.cached_bitmap_h.set(0);
+            ivars.cached_bitmap_stale.set(true);
+        }
+    }
+
+    /// Whether the framebuffer holds the blank fill instead of a frame (see
+    /// the ivar): the next present has to copy the whole frame in, even one
+    /// whose damage says that nothing changed.
+    pub fn shows_blank(&self) -> bool {
+        self.ivars().fb_blank.get()
+    }
+
+    /// (A10-06) Whether a frame of `w` x `h` px may be presented with a
+    /// layer over it (`layer_present_fits`): the view's framebuffer is that
+    /// size, and the layers did not fail to be made. Asked BEFORE the frame
+    /// is rendered: the renderer leaves the layer's picture out of the frame
+    /// only when the answer is yes.
+    #[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+    pub(crate) fn layer_present_usable(&self, w: usize, h: usize) -> bool {
+        let ivars = self.ivars();
+        let failed = ivars.layer_host.try_borrow().map_or(true, |host| host.failed);
+        !failed && layer_present::layer_present_fits((w, h), (ivars.width.get(), ivars.height.get()))
+    }
+
+    /// (A10-06) Show `layer` (a frame's `PresentLayer`; `None`: no layer)
+    /// over the frame of `frame_h` px height that was just rendered:
+    /// `layer_present::layer_transaction` says what changes,
+    /// `LayerHost::apply` changes it in one transaction. `surface` yields a
+    /// copy of the layer's surface and its size, and is called only when the
+    /// picture layer needs new contents. `false`: the layers could not be
+    /// made or filled; they are gone, and the caller presents without them.
+    ///
+    /// Cannot be tested without a window (it calls AppKit); what it decides
+    /// is `layer_transaction`'s, which is.
+    #[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+    pub(crate) fn present_layer(
+        &self,
+        layer: Option<layer_present::LayerInput>,
+        frame_h: u32,
+        surface: impl FnOnce() -> Option<(Vec<u8>, usize, usize)>,
+    ) -> bool {
+        let ivars = self.ivars();
+        let Ok(mut host) = ivars.layer_host.try_borrow_mut() else {
+            return false;
+        };
+        // The scale `drawRect:` sized the framebuffer with; before the first
+        // one, the frame's own pixels per point.
+        let mut scale = ivars.backing_scale.get();
+        if !(scale > 0.0) {
+            scale = f64::from(frame_h) / unsafe { self.bounds() }.size.height.max(1.0);
+        }
+        let (ops, next) = layer_present::layer_transaction(&host.shown, layer.as_ref(), frame_h, scale);
+        let view: &NSView = self;
+        // SAFETY: the CPU view is main-thread-only.
+        unsafe { host.apply(view, &ops, next, surface) }
+    }
+
+    /// (A10-06) Hide the layers and let go of the copy of the surface they
+    /// hold (a window that is not shown, memory pressure, the view going
+    /// away). The next frame that reports a layer shows them again.
+    #[cfg_attr(not(feature = "cpurender"), allow(dead_code))]
+    pub(crate) fn hide_present_layer(&self) {
+        let _ = self.present_layer(None, 0, || None);
+    }
+
+    /// Mark the present rects `rects` (buffer px of the `fb_w` x `fb_h`
+    /// framebuffer: top-left origin, y down) as needing display: each one
+    /// flipped to the view's bottom-left origin and divided by the backing
+    /// scale ([`present_rect_in_view_points`]).
+    fn invalidate_px_rects(&self, rects: &[(u32, u32, u32, u32)], fb_w: usize, fb_h: usize) {
+        // The scale `drawRect:` sized the framebuffer with; before the first
+        // one, the framebuffer's own pixels per point.
+        let mut scale = self.ivars().backing_scale.get();
+        if !(scale > 0.0) {
+            scale = fb_w as f64 / self.bounds().size.width.max(1.0);
+        }
+        // Inside a `drawRect:` that draws them itself, nothing is marked
+        // (A10-13); outside one, `drawing_spans` is empty and all are.
+        let rects = rects_left_to_invalidate(rects, &self.ivars().drawing_spans.borrow());
+        for rect in &rects {
+            let (x, y, w, h) = present_rect_in_view_points(*rect, fb_h, scale);
+            let dirty = NSRect::new(NSPoint::new(x, y), NSSize::new(w, h));
+            unsafe {
+                let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
+            }
+        }
     }
 
     /// #27: invalidate-only present — the frame was rendered DIRECTLY into
@@ -2805,23 +4644,7 @@ impl CPUView {
         if view_w == 0 || view_h == 0 {
             return;
         }
-        let bounds = self.bounds();
-        let scale_x = view_w as f64 / bounds.size.width.max(1.0);
-        let scale_y = view_h as f64 / bounds.size.height.max(1.0);
-        for (rx, ry, rw, rh) in rects {
-            let x_pt = f64::from(*rx) / scale_x;
-            let w_pt = f64::from(*rw) / scale_x;
-            let h_pt = f64::from(*rh) / scale_y;
-            // flip: physical top-left origin → view bottom-left origin
-            let y_pt = bounds.size.height - (f64::from(*ry) + f64::from(*rh)) / scale_y;
-            let dirty = NSRect::new(
-                NSPoint::new(x_pt, y_pt),
-                NSSize::new(w_pt, h_pt),
-            );
-            unsafe {
-                let _: () = objc2::msg_send![self, setNeedsDisplayInRect: dirty];
-            }
-        }
+        self.invalidate_px_rects(rects, view_w, view_h);
     }
 }
 
@@ -2831,7 +4654,7 @@ impl CPUView {
 pub struct WindowDelegateIvars {
     /// Back-pointer to the owning MacOSWindow for handling close callbacks
     /// This is set after window creation via set_window_ptr()
-    window_ptr: RefCell<Option<*mut std::ffi::c_void>>,
+    window_ptr: Cell<Option<*mut std::ffi::c_void>>,
 }
 
 /// Set up the main menu bar with a Quit item bound to Cmd+Q.
@@ -2867,6 +4690,56 @@ define_class!(
         #[unsafe(method(applicationDidBecomeActive:))]
         fn application_did_become_active(&self, _notification: Option<&objc2::runtime::AnyObject>) {
             Self::order_front_registered_windows();
+            // The user may have turned this app's notifications on or off in
+            // System Settings while it was in the background.
+            crate::desktop::notifications::app_became_active();
+        }
+
+        /// Launching finished. If a notification click launched the app, the
+        /// userInfo names it (`NSApplicationLaunchUserNotificationKey`); its
+        /// response - delivered to the UN delegate installed before this - is
+        /// then reported with `launched_app`.
+        #[unsafe(method(applicationDidFinishLaunching:))]
+        fn application_did_finish_launching(
+            &self,
+            notification: Option<&objc2::runtime::AnyObject>,
+        ) {
+            let ptr = notification.map_or(core::ptr::null_mut(), |n| {
+                (n as *const objc2::runtime::AnyObject)
+                    .cast_mut()
+                    .cast::<core::ffi::c_void>()
+            });
+            // SAFETY: null or the live NSNotification AppKit hands this method.
+            unsafe { crate::desktop::notifications::note_launch_notification(ptr) };
+            // A10-26: from here on the system can say when memory gets short.
+            memory_pressure::install();
+        }
+
+        /// The app was hidden (Cmd-H, "Hide" in the app menu): none of its
+        /// windows shows anything until it is shown again. Each gives back
+        /// what a window in the Dock gives back (A9-09, A10-26).
+        #[unsafe(method(applicationDidHide:))]
+        fn application_did_hide(&self, _notification: Option<&objc2::runtime::AnyObject>) {
+            release_memory_of_every_window(MemoryRelease::NotShown);
+        }
+
+        /// The app is asked to quit: the app menu's Quit (Cmd+Q), the Dock's
+        /// Quit, a logout. Unanswered, AppKit ends the process at once and
+        /// asks no window, so a "Save changes?" guard never sees the quit. A
+        /// quit is the title bar's close request sent to every window: the
+        /// app ends only when every window agreed. Otherwise the quit is
+        /// cancelled; the windows that agreed close in the loop's next turn,
+        /// the others stay with their question.
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn application_should_terminate(
+            &self,
+            _sender: Option<&objc2::runtime::AnyObject>,
+        ) -> NSApplicationTerminateReply {
+            if Self::ask_every_window_to_close() {
+                NSApplicationTerminateReply::TerminateNow
+            } else {
+                NSApplicationTerminateReply::TerminateCancel
+            }
         }
 
         /// Dock icon clicked while the app runs with no visible window:
@@ -2892,6 +4765,37 @@ impl AppDelegate {
     pub fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let result: Option<Retained<Self>> = unsafe { msg_send_id![Self::alloc(mtm), init] };
         result.expect("Failed to initialize AppDelegate")
+    }
+
+    /// Asks every top-level window to close exactly as its title bar's close
+    /// button does (`windowShouldClose:`), and returns whether all of them
+    /// agreed. A popup (a menu, a modal's own window) is left to its owner:
+    /// it goes when the owner goes. Every window is asked, also after one
+    /// held, so each shows its question at once.
+    fn ask_every_window_to_close() -> bool {
+        let mut all_agreed = true;
+        for wptr in registry::get_all_window_ptrs() {
+            // SAFETY: registered pointers are valid until windowWillClose
+            // unregisters them; AppKit calls the delegate on the main thread,
+            // between events, as it calls windowShouldClose:.
+            let window = unsafe { &mut *wptr };
+            if !window.is_open || window.child_of != 0 {
+                continue;
+            }
+            match window.handle_window_should_close() {
+                Ok(true) => {}
+                Ok(false) => {
+                    all_agreed = false;
+                    // The vetoing callback rebuilt the window: the question.
+                    window.request_redraw();
+                }
+                Err(e) => {
+                    // As windowShouldClose: an error lets the window close.
+                    log_error!(LogCategory::Window, "[AppDelegate] quit: closing a window failed: {}", e);
+                }
+            }
+        }
+        all_agreed
     }
 
     /// Order every registered window front; the LAST one becomes key
@@ -2928,13 +4832,13 @@ define_class!(
     impl WindowDelegate {
         #[unsafe(method(windowShouldClose:))]
         fn window_should_close(&self, _sender: Option<&NSWindow>) -> Bool {
-            let window_ptr = *self.ivars().window_ptr.borrow();
+            let window_ptr = self.ivars().window_ptr.get();
 
             if let Some(window_ptr) = window_ptr {
                 log_debug!(LogCategory::Window, "[WindowDelegate] Close requested, invoking callback");
 
-                // SAFETY: window_ptr points to MacOSWindow which owns this delegate
-                // The window outlives the delegate, so this pointer is always valid
+                // SAFETY: set while the MacOSWindow that owns this delegate lives;
+                // it takes the pointer back (`forget_window`) before it goes.
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
 
@@ -2963,42 +4867,37 @@ define_class!(
             }
         }
 
-        /// Called when the window is about to close
-        /// This is where we unregister the window from the global registry
+        /// AppKit closes the window (its title bar's close button, once
+        /// `windowShouldClose:` agreed): the window lets go of everything native
+        /// and leaves the registry. The box is PARKED, not freed: this runs
+        /// inside the window's own delegate, which the `MacOSWindow` owns, and
+        /// the event loop frees it at its safe point (`drain_closed_windows`).
+        /// A close of our own (`close_window`) let the delegate go first, so it
+        /// finds no window here.
         #[unsafe(method(windowWillClose:))]
         fn window_will_close(&self, _notification: &NSNotification) {
-            log_debug!(LogCategory::Window, "[WindowDelegate] Window will close, unregistering from registry");
-
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
-                    // AppKit is about to release this NSWindow; the display
-                    // link must not retain it from its own thread any more
-                    // (see DisplayLinkTarget). Idempotent after close_window().
-                    macos_window.retire_display_link();
-                    let ns_window = macos_window.get_ns_window_ptr();
-
-                    // Unregister from the global registry and PARK the box for
-                    // deferred drop. We are executing inside this window's own
-                    // WindowDelegate (owned by the MacOSWindow), so dropping the
-                    // box here would free `self` out from under us — the event
-                    // loop reclaims it via drain_closed_windows() instead.
-                    if let Some(freed) = registry::unregister_window(ns_window) {
-                        queue_window_free(freed);
-                    }
-                    log_debug!(LogCategory::Window, "[WindowDelegate] Window unregistered, remaining windows: {}", registry::window_count());
+                    macos_window.closed_by_appkit();
                 }
+                log_debug!(LogCategory::Window, "[WindowDelegate] Window closed by AppKit, remaining windows: {}", registry::window_count());
             }
         }
 
         /// Called when the window is minimized to the Dock
         #[unsafe(method(windowDidMiniaturize:))]
         fn window_did_miniaturize(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Minimized);
                     macos_window.set_display_link_paused(true);
+                    // A9-09: a window in the Dock shows nothing until it comes back, and what
+                    // it gives back is drawn again then. The one release every reason goes
+                    // through (`release_regenerable_memory`: what, and the switch
+                    // `AZ_KEEP_CACHES_MINIMIZED=1`).
+                    macos_window.release_regenerable_memory(MemoryRelease::NotShown);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window minimized");
             }
@@ -3007,11 +4906,14 @@ define_class!(
         /// Called when the window is restored from the Dock
         #[unsafe(method(windowDidDeminiaturize:))]
         fn window_did_deminiaturize(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Normal);
                     macos_window.set_display_link_paused(false);
+                    // A5-20: the pass this asks for finds the window shown and
+                    // brings back the text halos it gave back in the Dock.
+                    macos_window.request_redraw();
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window deminiaturized");
             }
@@ -3023,7 +4925,7 @@ define_class!(
         /// work) for a window nobody could see.
         #[unsafe(method(windowDidChangeOcclusionState:))]
         fn window_did_change_occlusion_state(&self, notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     use objc2::msg_send;
                     let ns_window: *mut NSObject = msg_send![notification, object];
@@ -3032,6 +4934,16 @@ define_class!(
                     let visible = occlusion & (1 << 1) != 0;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     macos_window.set_display_link_paused(!visible);
+                    // A covered window shows nothing: every animation in it
+                    // is culled (asks for no frames) until it is uncovered,
+                    // and the uncovering re-arms the ones that can be seen.
+                    if let Some(lw) = macos_window.common.layout_window.as_mut() {
+                        lw.window_occluded = !visible;
+                    }
+                    {
+                        use crate::desktop::shell2::common::event::PlatformWindow;
+                        macos_window.arm_animation_drivers_if_needed();
+                    }
                     if visible {
                         // Content may be stale after a Space switch — repaint.
                         macos_window.request_redraw();
@@ -3043,10 +4955,12 @@ define_class!(
         /// Called when the window enters fullscreen mode
         #[unsafe(method(windowDidEnterFullScreen:))]
         fn window_did_enter_fullscreen(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Fullscreen);
+                    // Full screen hides the title bar.
+                    macos_window.sync_titlebar_report();
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window entered fullscreen");
             }
@@ -3055,11 +4969,14 @@ define_class!(
         /// Called when the window exits fullscreen mode
         #[unsafe(method(windowDidExitFullScreen:))]
         fn window_did_exit_fullscreen(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // Return to normal frame, will be updated by resize check if maximized
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Normal);
+                    // AppKit put the traffic lights back in its own place.
+                    macos_window.apply_traffic_light_position();
+                    macos_window.sync_titlebar_report();
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window exited fullscreen");
             }
@@ -3068,7 +4985,7 @@ define_class!(
         /// Called when the window is resized
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     use crate::desktop::shell2::macos::events::EventProcessResult;
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
@@ -3142,6 +5059,11 @@ define_class!(
                     if frame != WindowFrame::Fullscreen {
                         // Check maximized state will be done in event loop
                     }
+
+                    // A resize lays the titlebar out again: the traffic
+                    // lights back where the window's options put them.
+                    macos_window.apply_traffic_light_position();
+                    macos_window.sync_titlebar_report();
                 }
             }
         }
@@ -3149,7 +5071,7 @@ define_class!(
         /// Called when the window becomes the key window (receives focus)
         #[unsafe(method(windowDidBecomeKey:))]
         fn window_did_become_key(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // MWA-A3d: snapshot BEFORE mutating (same fix as the X11
@@ -3159,10 +5081,21 @@ define_class!(
                     // styling never repainted.
                     macos_window.snapshot_window_state_baseline("macos.window_did_become_key");
                     macos_window.common.update_unsynced_state(|ws| ws.window_focused = true);
+                    macos_window.common.note_focus_gained();
+                    // The user may have changed the wallpaper while away: the
+                    // metals read it again (one `stat` when it is the same)
+                    // and the window redraws when it changed.
+                    if crate::desktop::wallpaper::refresh() {
+                        macos_window.request_redraw();
+                    }
                     macos_window.dynamic_selector_context.window_focused = true;
 
                     // Phase 2: OnFocus callback - sync IME position after focus
                     macos_window.sync_ime_position_to_os();
+
+                    // A key change can lay the titlebar out again.
+                    macos_window.apply_traffic_light_position();
+                    macos_window.sync_titlebar_report();
 
                     // Notify accessibility adapter that the view is focused
                     #[cfg(feature = "a11y")]
@@ -3185,7 +5118,7 @@ define_class!(
         /// Called when the window resigns key window status (loses focus)
         #[unsafe(method(windowDidResignKey:))]
         fn window_did_resign_key(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     // MWA-A3d: snapshot BEFORE mutating — see
@@ -3255,7 +5188,7 @@ define_class!(
         /// Called when the window is moved
         #[unsafe(method(windowDidMove:))]
         fn window_did_move(&self, _notification: &NSNotification) {
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     let frame = macos_window.window.frame();
@@ -3289,6 +5222,16 @@ define_class!(
                     }
                     // GL surface may have moved to a different screen
                     macos_window.surface_needs_update = true;
+                    // Under a point light, or reflecting the wallpaper behind
+                    // it, the window's materials change as it moves.
+                    let relight = macos_window
+                        .common
+                        .layout_window
+                        .as_ref()
+                        .is_some_and(azul_layout::window::LayoutWindow::materials_follow_window_position);
+                    if relight {
+                        macos_window.request_redraw();
+                    }
                     // Dispatch the move and consume the delta in THIS handler.
                     let result = macos_window.process_window_events(0);
                     macos_window.apply_activation_pass_result(result);
@@ -3299,7 +5242,7 @@ define_class!(
         #[unsafe(method(windowDidChangeBackingProperties:))]
         fn window_did_change_backing_properties(&self, _notification: &NSNotification) {
             // DPI/scale factor changed (e.g., moved to different display)
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Err(e) = window.handle_dpi_change() {
@@ -3318,7 +5261,7 @@ define_class!(
             // somebody dragged a window across a bezel. The count diff lives
             // in `windowDidChangeScreenProfile:`, which is what AppKit sends
             // when the screen CONFIGURATION changes.
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
                     window.surface_needs_update = true;
@@ -3326,6 +5269,20 @@ define_class!(
                         if let Ok(mut guard) = lw.monitors.lock() {
                             *guard = crate::desktop::display::refresh_monitors();
                         }
+                    }
+                    // The window is on ANOTHER monitor now: say which (its
+                    // refresh rate is the window's frame interval), move the
+                    // display link to that display, and dispatch the monitor
+                    // change - whose pass ends by re-pacing the running
+                    // frame drivers (`repace_frame_drivers`). Only the
+                    // backing-properties notification did this, and AppKit
+                    // sends that one only when the SCALE changes: a move
+                    // between two 2x displays (a 60 Hz panel, a 120 Hz one)
+                    // kept the old monitor, its vsync and its frame interval.
+                    // A second call for a move that also changed the scale
+                    // finds nothing left to do.
+                    if let Err(e) = window.handle_dpi_change() {
+                        log_error!(LogCategory::Platform, "[macOS] monitor change error: {}", e);
                     }
                 }
             }
@@ -3338,7 +5295,7 @@ define_class!(
             // which of those happened, so the before/after monitor count is
             // the only thing that separates a hotplug from a mode change —
             // equal counts emit nothing.
-            if let Some(window_ptr) = *self.ivars().window_ptr.borrow() {
+            if let Some(window_ptr) = self.ivars().window_ptr.get() {
                 unsafe {
                     let window = &mut *(window_ptr as *mut MacOSWindow);
                     if let Some(ref mut lw) = window.common.layout_window {
@@ -3358,7 +5315,7 @@ define_class!(
         #[unsafe(method_id(init))]
         fn init(this: Allocated<Self>) -> Option<Retained<Self>> {
             let this = this.set_ivars(WindowDelegateIvars {
-                window_ptr: RefCell::new(None),
+                window_ptr: Cell::new(None),
             });
             unsafe { msg_send_id![super(this), init] }
         }
@@ -3382,7 +5339,12 @@ impl WindowDelegate {
     ///
     /// SAFETY: Caller must ensure the pointer remains valid for the lifetime of the delegate
     pub unsafe fn set_window_ptr(&self, window_ptr: *mut std::ffi::c_void) {
-        *self.ivars().window_ptr.borrow_mut() = Some(window_ptr);
+        self.ivars().window_ptr.set(Some(window_ptr));
+    }
+
+    /// The window is going away: a notification AppKit still sends finds no window.
+    pub fn forget_window(&self) {
+        self.ivars().window_ptr.set(None);
     }
 }
 
@@ -3529,115 +5491,316 @@ fn ime_explicit_replacement(document: &str, range: NSRange) -> Option<(usize, us
 }
 
 /// The IME document and its marked byte range for this window.
-unsafe fn ime_document_of(window: *const MacOSWindow) -> (String, Option<(usize, usize)>) { unsafe {
-    let w = &*window;
-    w.common
-        .layout_window
-        .as_ref()
-        .map_or((String::new(), None), |lw| lw.ime_document())
-}}
-
-unsafe fn ime_has_marked_text(window: *const MacOSWindow) -> bool { unsafe {
-    let w = &*window;
-    w.common
-        .layout_window
-        .as_ref()
-        .is_some_and(|lw| lw.text_edit_manager.preedit_text.is_some())
-}}
-
-unsafe fn ime_marked_range(window: *const MacOSWindow) -> NSRange { unsafe {
-    let (doc, marked) = ime_document_of(window);
-    match marked {
-        Some(range) => {
-            let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, range);
-            NSRange { location, length }
-        }
-        None => ns_range_not_found(),
+unsafe fn ime_document_of(window: *const MacOSWindow) -> (String, Option<(usize, usize)>) {
+    unsafe {
+        let w = &*window;
+        w.common
+            .layout_window
+            .as_ref()
+            .map_or((String::new(), None), |lw| lw.ime_document())
     }
-}}
+}
+
+unsafe fn ime_has_marked_text(window: *const MacOSWindow) -> bool {
+    unsafe {
+        let w = &*window;
+        w.common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.text_edit_manager.preedit_text.is_some())
+    }
+}
+
+unsafe fn ime_marked_range(window: *const MacOSWindow) -> NSRange {
+    unsafe {
+        let (doc, marked) = ime_document_of(window);
+        match marked {
+            Some(range) => {
+                let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, range);
+                NSRange { location, length }
+            }
+            None => ns_range_not_found(),
+        }
+    }
+}
 
 /// See `azul_layout::window::ime_selected_byte_range` for the rule.
-unsafe fn ime_selected_range(window: *const MacOSWindow) -> NSRange { unsafe {
-    let w = &*window;
-    let (doc, marked) = ime_document_of(window);
-    let (preedit_selection, committed_selection) =
-        w.common.layout_window.as_ref().map_or((None, None), |lw| {
-            let te = &lw.text_edit_manager;
-            let preedit_selection = (te.preedit_cursor_begin >= 0).then(|| {
-                let begin = te.preedit_cursor_begin as usize;
-                let end = te.preedit_cursor_end.max(te.preedit_cursor_begin) as usize;
-                (begin, end)
+unsafe fn ime_selected_range(window: *const MacOSWindow) -> NSRange {
+    unsafe {
+        let w = &*window;
+        let (doc, marked) = ime_document_of(window);
+        let (preedit_selection, committed_selection) =
+            w.common.layout_window.as_ref().map_or((None, None), |lw| {
+                let te = &lw.text_edit_manager;
+                let preedit_selection = (te.preedit_cursor_begin >= 0).then(|| {
+                    let begin = te.preedit_cursor_begin as usize;
+                    let end = te.preedit_cursor_end.max(te.preedit_cursor_begin) as usize;
+                    (begin, end)
+                });
+                (preedit_selection, lw.focused_selection_byte_range())
             });
-            (preedit_selection, lw.focused_selection_byte_range())
-        });
-    let bytes = azul_layout::window::ime_selected_byte_range(
-        doc.len(),
-        marked,
-        preedit_selection,
-        committed_selection,
-    );
-    let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, bytes);
-    NSRange { location, length }
-}}
+        let bytes = azul_layout::window::ime_selected_byte_range(
+            doc.len(),
+            marked,
+            preedit_selection,
+            committed_selection,
+        );
+        let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, bytes);
+        NSRange { location, length }
+    }
+}
 
 unsafe fn ime_set_marked_text(
     window: *mut MacOSWindow,
     string: &NSObject,
     selected_range: NSRange,
     replacement_range: NSRange,
-) { unsafe {
-    let preedit = ns_object_to_string(string);
-    log_trace!(
-        LogCategory::Input,
-        "[IME setMarkedText] text='{}' selectedRange=({},{})",
-        preedit,
-        selected_range.location,
-        selected_range.length
-    );
-    let (doc, marked) = ime_document_of(window);
-    let macos_window = &mut *window;
-    // COMPOSING OVER COMMITTED TEXT (10b-i-b-i-a). The header: the receiver
-    // inserts the marked string "replacing the content specified by
-    // replacementRange", and "if there is no marked text, the current
-    // selection is replaced". The engine shapes a preedit AT THE CARET and
-    // leaves committed text alone, so "replacing" is spelled out as: select
-    // the range, delete it (the caret lands at its start), then compose
-    // there - the same three steps a reconversion is made of in every
-    // reference client. On a cancel the IME re-inserts the original through
-    // `insertText:`, and on `unmarkText` the composition is accepted (below),
-    // so the deleted text is never simply lost.
-    if !preedit.is_empty() {
+) {
+    unsafe {
+        let preedit = ns_object_to_string(string);
+        log_trace!(
+            LogCategory::Input,
+            "[IME setMarkedText] text='{}' selectedRange=({},{})",
+            preedit,
+            selected_range.location,
+            selected_range.length
+        );
+        let (doc, marked) = ime_document_of(window);
+        let macos_window = &mut *window;
+        // COMPOSING OVER COMMITTED TEXT (10b-i-b-i-a). The header: the receiver
+        // inserts the marked string "replacing the content specified by
+        // replacementRange", and "if there is no marked text, the current
+        // selection is replaced". The engine shapes a preedit AT THE CARET and
+        // leaves committed text alone, so "replacing" is spelled out as: select
+        // the range, delete it (the caret lands at its start), then compose
+        // there - the same three steps a reconversion is made of in every
+        // reference client. On a cancel the IME re-inserts the original through
+        // `insertText:`, and on `unmarkText` the composition is accepted (below),
+        // so the deleted text is never simply lost.
+        if !preedit.is_empty() {
+            if let Some(ref mut lw) = macos_window.common.layout_window {
+                let selection = lw.focused_selection_byte_range();
+                let action = azul_layout::window::ime_replacement_action(
+                    ime_explicit_replacement(&doc, replacement_range),
+                    marked,
+                    selection,
+                );
+                let to_delete = match action {
+                    azul_layout::window::ImeReplacement::ReplaceCommitted { start, end } => {
+                        Some((start, end))
+                    }
+                    // No composition open and a live selection: the composition
+                    // replaces it, whether the IME named it or not.
+                    azul_layout::window::ImeReplacement::Implicit => {
+                        selection.filter(|(a, b)| a != b && marked.is_none())
+                    }
+                    azul_layout::window::ImeReplacement::NotHonoured { start, end } => {
+                        // HONOURED NOW (10b-i-b-i-b). The offsets index the IME
+                        // document WITH the preedit spliced in, so: (a) un-shape
+                        // the current preedit - the composition stays OPEN in the
+                        // manager, since the IME is replacing its marked text
+                        // rather than ending it, and `set_preedit` below records
+                        // an Update; (b) rebase the range onto the committed text;
+                        // (c) delete it (below) so the caret lands at its start;
+                        // (d) compose there (below). ORDER: replacement first,
+                        // then the new composition - the reading WebKit's
+                        // `WebPage::setCompositionAsync` implies, where the
+                        // replacement selection is set on the document before
+                        // `Editor::setComposition` runs; a range overlapping the
+                        // preedit rebases to the composition's own place and is
+                        // treated as the caret (see the rebase function).
+                        lw.end_preedit_shaping();
+                        let rebased =
+                            azul_layout::managers::text_edit::rebase_ime_range_onto_committed(
+                                Some((start, end)),
+                                marked,
+                            )
+                            .filter(|(a, b)| a != b);
+                        log_debug!(
+                        LogCategory::Input,
+                        "[IME setMarkedText] replacementRange {}..{} (bytes) during a composition \
+                         rebased onto the committed text as {:?} (10b-i-b-i-b)",
+                        start,
+                        end,
+                        rebased
+                    );
+                        rebased
+                    }
+                };
+                if let Some((start, end)) = to_delete {
+                    if lw.set_focused_selection_from_byte_range(start, end) {
+                        if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
+                            lw.delete_selection(focused, false);
+                        }
+                    } else {
+                        log_debug!(
+                            LogCategory::Input,
+                            "[IME setMarkedText] replacementRange {}..{}: no focused editable to \
+                         select in",
+                            start,
+                            end
+                        );
+                    }
+                }
+            }
+        }
+        if preedit.is_empty() {
+            // AppKit clears marked text by marking the empty string. That is a
+            // cancel, not a composition of nothing: the composed glyphs have to
+            // leave the inline layout, exactly as on `unmarkText`.
+            if let Some(ref mut lw) = macos_window.common.layout_window {
+                lw.text_edit_manager.clear_preedit();
+                lw.end_preedit_shaping();
+            }
+            macos_window.request_redraw();
+            return;
+        }
+        // `selectedRange` is in UTF-16 units RELATIVE TO THE MARKED STRING;
+        // `set_preedit` wants bytes within the preedit. On ASCII the two agree,
+        // which is how passing units as bytes survived; on the first kana it put
+        // the composition caret a third of the way into the wrong syllable.
+        let (begin, end) = azul_layout::window::utf16_range_to_bytes(
+            &preedit,
+            selected_range.location,
+            selected_range.length,
+        );
+        // Get the editing node before borrowing layout_window mutably
+        let editing_info = macos_window.common.layout_window.as_ref().and_then(|lw| {
+            let dom_id = lw.text_edit_manager.get_editing_dom_id()?;
+            let node_id = lw.text_edit_manager.get_editing_node_id()?;
+            Some((dom_id, node_id))
+        });
         if let Some(ref mut lw) = macos_window.common.layout_window {
-            let selection = lw.focused_selection_byte_range();
-            let action = azul_layout::window::ime_replacement_action(
+            lw.text_edit_manager.set_preedit(
+                preedit,
+                i32::try_from(begin).unwrap_or(i32::MAX),
+                i32::try_from(end).unwrap_or(i32::MAX),
+            );
+            // Inject preedit into text cache and re-shape
+            if let Some((dom_id, node_id)) = editing_info {
+                lw.apply_preedit_to_text_cache(dom_id, node_id);
+            }
+        }
+        macos_window.sync_ime_position_to_os();
+        macos_window.request_redraw();
+    }
+}
+
+unsafe fn ime_unmark_text(window: *mut MacOSWindow) {
+    unsafe {
+        let macos_window = &mut *window;
+        // ACCEPT, NOT DISCARD (10b-i-b-i-a). AppKit's contract: "the text view
+        // should accept the marked text as if it had been inserted normally" -
+        // and Flutter's embedder, WebKit and Chromium all commit here. This used
+        // to treat `unmarkText` as a cancel and drop the composition, which is
+        // what AppKit sends when FOCUS LEAVES mid-composition (a click into
+        // another field, Cmd-Tab): the half-typed word vanished. A real cancel
+        // arrives as `setMarkedText:` with the empty string, handled there.
+        //
+        // With a composition that replaced committed text (reconversion, above),
+        // accepting is also what keeps the document from losing that text.
+        let preedit = macos_window
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.text_edit_manager.preedit_text.clone())
+            .unwrap_or_default();
+        if preedit.is_empty() {
+            if let Some(ref mut lw) = macos_window.common.layout_window {
+                lw.text_edit_manager.clear_preedit();
+                lw.end_preedit_shaping();
+            }
+            macos_window.request_redraw();
+            return;
+        }
+        if let Some(ref mut lw) = macos_window.common.layout_window {
+            // The same two steps `insertText:` takes before inserting: un-shape
+            // the composed glyphs (or the commit lands beside them) and end the
+            // composition with the committed string on the `CompositionEnd`.
+            lw.text_edit_manager.commit_composition(preedit.clone());
+            lw.end_preedit_shaping();
+        }
+        macos_window.handle_text_input(&preedit);
+    }
+}
+
+/// The document's text for a proposed range - what a Japanese IME reads for
+/// reconversion and what the spell checker reads for context. Was `nil`
+/// ("I have no text"), which every consumer treats as "nothing to work with".
+unsafe fn ime_attributed_substring(
+    window: *const MacOSWindow,
+    range: NSRange,
+    actual_range: *mut NSRange,
+) -> Option<Retained<NSAttributedString>> {
+    unsafe {
+        if ns_range_is_not_found(range) {
+            return None;
+        }
+        let (doc, _) = ime_document_of(window);
+        let (start, end) =
+            azul_layout::window::utf16_range_to_bytes(&doc, range.location, range.length);
+        if start >= end {
+            return None;
+        }
+        if !actual_range.is_null() {
+            let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, (start, end));
+            *actual_range = NSRange { location, length };
+        }
+        Some(NSAttributedString::from_nsstring(&NSString::from_str(
+            &doc[start..end],
+        )))
+    }
+}
+
+unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replacement_range: NSRange) {
+    unsafe {
+        let committed_text = ns_object_to_string(string);
+        log_trace!(
+            LogCategory::Input,
+            "[IME insertText] text='{}'",
+            committed_text
+        );
+        if committed_text.is_empty() {
+            return;
+        }
+        let (doc, marked) = ime_document_of(window);
+        let macos_window = &mut *window;
+        if let Some(ref mut lw) = macos_window.common.layout_window {
+            // AN EXPLICIT REPLACEMENT that is neither the composition nor the
+            // current selection: autocorrect swapping a committed word, or a
+            // dictation edit. It used to be reported and dropped, so the
+            // correction was inserted at the caret NEXT TO the word it replaced.
+            // Now it is the iOS rule: select the range, delete, insert - in that
+            // order, since inserting first would put the new text beside the old
+            // and then delete the wrong span.
+            // ONE rule with `setMarkedText:` (10b-i-b-i-a):
+            // `azul_layout::window::ime_replacement_action`.
+            let to_delete = match azul_layout::window::ime_replacement_action(
                 ime_explicit_replacement(&doc, replacement_range),
                 marked,
-                selection,
-            );
-            let to_delete = match action {
+                lw.focused_selection_byte_range(),
+            ) {
+                azul_layout::window::ImeReplacement::Implicit => None,
                 azul_layout::window::ImeReplacement::ReplaceCommitted { start, end } => {
                     Some((start, end))
                 }
-                // No composition open and a live selection: the composition
-                // replaces it, whether the IME named it or not.
-                azul_layout::window::ImeReplacement::Implicit => {
-                    selection.filter(|(a, b)| a != b && marked.is_none())
-                }
                 azul_layout::window::ImeReplacement::NotHonoured { start, end } => {
                     // HONOURED NOW (10b-i-b-i-b). The offsets index the IME
-                    // document WITH the preedit spliced in, so: (a) un-shape
-                    // the current preedit - the composition stays OPEN in the
-                    // manager, since the IME is replacing its marked text
-                    // rather than ending it, and `set_preedit` below records
-                    // an Update; (b) rebase the range onto the committed text;
-                    // (c) delete it (below) so the caret lands at its start;
-                    // (d) compose there (below). ORDER: replacement first,
-                    // then the new composition - the reading WebKit's
-                    // `WebPage::setCompositionAsync` implies, where the
-                    // replacement selection is set on the document before
-                    // `Editor::setComposition` runs; a range overlapping the
-                    // preedit rebases to the composition's own place and is
-                    // treated as the caret (see the rebase function).
+                    // document WITH the preedit spliced in, so the composition is
+                    // ENDED FIRST - committed with this text, exactly the tail
+                    // below, which is idempotent and runs again harmlessly - and
+                    // the range is rebased onto the committed text before it is
+                    // selected and deleted below. ORDER: composition ended, then
+                    // the replacement applied to the committed text, then the
+                    // insert at the caret it leaves - the reading WebKit's
+                    // `WebPage::insertTextAsync` implies, where the replacement
+                    // selection is set on the document and
+                    // `Editor::confirmComposition` resolves the composition
+                    // before the text lands. A range overlapping the preedit
+                    // rebases to the composition's own place, an empty span, and
+                    // so inserts at the caret (see the rebase function).
+                    lw.text_edit_manager
+                        .commit_composition(committed_text.clone());
                     lw.end_preedit_shaping();
                     let rebased =
                         azul_layout::managers::text_edit::rebase_ime_range_onto_committed(
@@ -3647,8 +5810,8 @@ unsafe fn ime_set_marked_text(
                         .filter(|(a, b)| a != b);
                     log_debug!(
                         LogCategory::Input,
-                        "[IME setMarkedText] replacementRange {}..{} (bytes) during a composition \
-                         rebased onto the committed text as {:?} (10b-i-b-i-b)",
+                        "[IME insertText] replacementRange {}..{} (bytes) during a composition \
+                     rebased onto the committed text as {:?} (10b-i-b-i-b)",
                         start,
                         end,
                         rebased
@@ -3663,212 +5826,28 @@ unsafe fn ime_set_marked_text(
                     }
                 } else {
                     log_debug!(
-                        LogCategory::Input,
-                        "[IME setMarkedText] replacementRange {}..{}: no focused editable to \
-                         select in",
-                        start,
-                        end
-                    );
-                }
-            }
-        }
-    }
-    if preedit.is_empty() {
-        // AppKit clears marked text by marking the empty string. That is a
-        // cancel, not a composition of nothing: the composed glyphs have to
-        // leave the inline layout, exactly as on `unmarkText`.
-        if let Some(ref mut lw) = macos_window.common.layout_window {
-            lw.text_edit_manager.clear_preedit();
-            lw.end_preedit_shaping();
-        }
-        macos_window.request_redraw();
-        return;
-    }
-    // `selectedRange` is in UTF-16 units RELATIVE TO THE MARKED STRING;
-    // `set_preedit` wants bytes within the preedit. On ASCII the two agree,
-    // which is how passing units as bytes survived; on the first kana it put
-    // the composition caret a third of the way into the wrong syllable.
-    let (begin, end) = azul_layout::window::utf16_range_to_bytes(
-        &preedit,
-        selected_range.location,
-        selected_range.length,
-    );
-    // Get the editing node before borrowing layout_window mutably
-    let editing_info = macos_window.common.layout_window.as_ref().and_then(|lw| {
-        let dom_id = lw.text_edit_manager.get_editing_dom_id()?;
-        let node_id = lw.text_edit_manager.get_editing_node_id()?;
-        Some((dom_id, node_id))
-    });
-    if let Some(ref mut lw) = macos_window.common.layout_window {
-        lw.text_edit_manager.set_preedit(
-            preedit,
-            i32::try_from(begin).unwrap_or(i32::MAX),
-            i32::try_from(end).unwrap_or(i32::MAX),
-        );
-        // Inject preedit into text cache and re-shape
-        if let Some((dom_id, node_id)) = editing_info {
-            lw.apply_preedit_to_text_cache(dom_id, node_id);
-        }
-    }
-    macos_window.sync_ime_position_to_os();
-    macos_window.request_redraw();
-}}
-
-unsafe fn ime_unmark_text(window: *mut MacOSWindow) { unsafe {
-    let macos_window = &mut *window;
-    // ACCEPT, NOT DISCARD (10b-i-b-i-a). AppKit's contract: "the text view
-    // should accept the marked text as if it had been inserted normally" -
-    // and Flutter's embedder, WebKit and Chromium all commit here. This used
-    // to treat `unmarkText` as a cancel and drop the composition, which is
-    // what AppKit sends when FOCUS LEAVES mid-composition (a click into
-    // another field, Cmd-Tab): the half-typed word vanished. A real cancel
-    // arrives as `setMarkedText:` with the empty string, handled there.
-    //
-    // With a composition that replaced committed text (reconversion, above),
-    // accepting is also what keeps the document from losing that text.
-    let preedit = macos_window
-        .common
-        .layout_window
-        .as_ref()
-        .and_then(|lw| lw.text_edit_manager.preedit_text.clone())
-        .unwrap_or_default();
-    if preedit.is_empty() {
-        if let Some(ref mut lw) = macos_window.common.layout_window {
-            lw.text_edit_manager.clear_preedit();
-            lw.end_preedit_shaping();
-        }
-        macos_window.request_redraw();
-        return;
-    }
-    if let Some(ref mut lw) = macos_window.common.layout_window {
-        // The same two steps `insertText:` takes before inserting: un-shape
-        // the composed glyphs (or the commit lands beside them) and end the
-        // composition with the committed string on the `CompositionEnd`.
-        lw.text_edit_manager.commit_composition(preedit.clone());
-        lw.end_preedit_shaping();
-    }
-    macos_window.handle_text_input(&preedit);
-}}
-
-/// The document's text for a proposed range - what a Japanese IME reads for
-/// reconversion and what the spell checker reads for context. Was `nil`
-/// ("I have no text"), which every consumer treats as "nothing to work with".
-unsafe fn ime_attributed_substring(
-    window: *const MacOSWindow,
-    range: NSRange,
-    actual_range: *mut NSRange,
-) -> Option<Retained<NSAttributedString>> { unsafe {
-    if ns_range_is_not_found(range) {
-        return None;
-    }
-    let (doc, _) = ime_document_of(window);
-    let (start, end) =
-        azul_layout::window::utf16_range_to_bytes(&doc, range.location, range.length);
-    if start >= end {
-        return None;
-    }
-    if !actual_range.is_null() {
-        let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, (start, end));
-        *actual_range = NSRange { location, length };
-    }
-    Some(NSAttributedString::from_nsstring(&NSString::from_str(
-        &doc[start..end],
-    )))
-}}
-
-unsafe fn ime_insert_text(window: *mut MacOSWindow, string: &NSObject, replacement_range: NSRange) { unsafe {
-    let committed_text = ns_object_to_string(string);
-    log_trace!(
-        LogCategory::Input,
-        "[IME insertText] text='{}'",
-        committed_text
-    );
-    if committed_text.is_empty() {
-        return;
-    }
-    let (doc, marked) = ime_document_of(window);
-    let macos_window = &mut *window;
-    if let Some(ref mut lw) = macos_window.common.layout_window {
-        // AN EXPLICIT REPLACEMENT that is neither the composition nor the
-        // current selection: autocorrect swapping a committed word, or a
-        // dictation edit. It used to be reported and dropped, so the
-        // correction was inserted at the caret NEXT TO the word it replaced.
-        // Now it is the iOS rule: select the range, delete, insert - in that
-        // order, since inserting first would put the new text beside the old
-        // and then delete the wrong span.
-        // ONE rule with `setMarkedText:` (10b-i-b-i-a):
-        // `azul_layout::window::ime_replacement_action`.
-        let to_delete = match azul_layout::window::ime_replacement_action(
-            ime_explicit_replacement(&doc, replacement_range),
-            marked,
-            lw.focused_selection_byte_range(),
-        ) {
-            azul_layout::window::ImeReplacement::Implicit => None,
-            azul_layout::window::ImeReplacement::ReplaceCommitted { start, end } => {
-                Some((start, end))
-            }
-            azul_layout::window::ImeReplacement::NotHonoured { start, end } => {
-                // HONOURED NOW (10b-i-b-i-b). The offsets index the IME
-                // document WITH the preedit spliced in, so the composition is
-                // ENDED FIRST - committed with this text, exactly the tail
-                // below, which is idempotent and runs again harmlessly - and
-                // the range is rebased onto the committed text before it is
-                // selected and deleted below. ORDER: composition ended, then
-                // the replacement applied to the committed text, then the
-                // insert at the caret it leaves - the reading WebKit's
-                // `WebPage::insertTextAsync` implies, where the replacement
-                // selection is set on the document and
-                // `Editor::confirmComposition` resolves the composition
-                // before the text lands. A range overlapping the preedit
-                // rebases to the composition's own place, an empty span, and
-                // so inserts at the caret (see the rebase function).
-                lw.text_edit_manager
-                    .commit_composition(committed_text.clone());
-                lw.end_preedit_shaping();
-                let rebased = azul_layout::managers::text_edit::rebase_ime_range_onto_committed(
-                    Some((start, end)),
-                    marked,
-                )
-                .filter(|(a, b)| a != b);
-                log_debug!(
-                    LogCategory::Input,
-                    "[IME insertText] replacementRange {}..{} (bytes) during a composition \
-                     rebased onto the committed text as {:?} (10b-i-b-i-b)",
-                    start,
-                    end,
-                    rebased
-                );
-                rebased
-            }
-        };
-        if let Some((start, end)) = to_delete {
-            if lw.set_focused_selection_from_byte_range(start, end) {
-                if let Some(focused) = lw.focus_manager.get_focused_node().copied() {
-                    lw.delete_selection(focused, false);
-                }
-            } else {
-                log_debug!(
                     LogCategory::Input,
                     "[IME insertText] replacementRange {}..{}: no focused editable to select in",
                     start,
                     end
                 );
+                }
             }
+            // END the composition before inserting: the composed string is glyphs
+            // in the node's inline layout, never document text, so it has to be
+            // un-shaped or the commit lands next to a composition that is still
+            // on screen (typing "か" and committing rendered "かか").
+            //
+            // Commit rather than a bare clear, so `CompositionEnd` carries the
+            // committed string. macOS is the one backend that hands it to us
+            // directly, on `insertText:`.
+            lw.text_edit_manager
+                .commit_composition(committed_text.clone());
+            lw.end_preedit_shaping();
         }
-        // END the composition before inserting: the composed string is glyphs
-        // in the node's inline layout, never document text, so it has to be
-        // un-shaped or the commit lands next to a composition that is still
-        // on screen (typing "か" and committing rendered "かか").
-        //
-        // Commit rather than a bare clear, so `CompositionEnd` carries the
-        // committed string. macOS is the one backend that hands it to us
-        // directly, on `insertText:`.
-        lw.text_edit_manager
-            .commit_composition(committed_text.clone());
-        lw.end_preedit_shaping();
+        macos_window.handle_text_input(&committed_text);
     }
-    macos_window.handle_text_input(&committed_text);
-}}
+}
 
 /// Screen point -> UTF-16 index into the IME document. Was NSNotFound, so a
 /// click into a composition, and every "what is under the pointer" question
@@ -3878,29 +5857,31 @@ unsafe fn ime_character_index_for_point(
     window: *const MacOSWindow,
     view_height: f64,
     point: NSPoint,
-) -> usize { unsafe {
-    let w = &*window;
-    let Some(lw) = w.common.layout_window.as_ref() else {
-        return objc2_foundation::NSNotFound as usize;
-    };
-    // Screen (bottom-left) -> window content (bottom-left) -> azul (top-left).
-    let local = w.window.convertRectFromScreen(NSRect {
-        origin: point,
-        size: NSSize {
-            width: 0.0,
-            height: 0.0,
-        },
-    });
-    let azul_point = azul_core::geom::LogicalPosition::new(
-        local.origin.x as f32,
-        (view_height - local.origin.y) as f32,
-    );
-    let Some(byte) = lw.focused_byte_offset_for_point(azul_point) else {
-        return objc2_foundation::NSNotFound as usize;
-    };
-    let (doc, _) = ime_document_of(window);
-    azul_layout::window::byte_offset_to_utf16(&doc, byte.min(doc.len()))
-}}
+) -> usize {
+    unsafe {
+        let w = &*window;
+        let Some(lw) = w.common.layout_window.as_ref() else {
+            return objc2_foundation::NSNotFound as usize;
+        };
+        // Screen (bottom-left) -> window content (bottom-left) -> azul (top-left).
+        let local = w.window.convertRectFromScreen(NSRect {
+            origin: point,
+            size: NSSize {
+                width: 0.0,
+                height: 0.0,
+            },
+        });
+        let azul_point = azul_core::geom::LogicalPosition::new(
+            local.origin.x as f32,
+            (view_height - local.origin.y) as f32,
+        );
+        let Some(byte) = lw.focused_byte_offset_for_point(azul_point) else {
+            return objc2_foundation::NSNotFound as usize;
+        };
+        let (doc, _) = ime_document_of(window);
+        azul_layout::window::byte_offset_to_utf16(&doc, byte.min(doc.len()))
+    }
+}
 
 /// The on-screen rect of a UTF-16 range of the IME document - where the
 /// candidate window goes. Was the caret rect whatever range was asked for,
@@ -3913,86 +5894,89 @@ unsafe fn ime_first_rect_for_character_range(
     view_height: f64,
     range: NSRange,
     actual_range: *mut NSRange,
-) -> NSRect { unsafe {
-    let w = &*window;
-    let (doc, _) = ime_document_of(window);
-    let from_range = if ns_range_is_not_found(range) {
-        None
-    } else {
-        let (start, end) =
-            azul_layout::window::utf16_range_to_bytes(&doc, range.location, range.length);
-        w.common
-            .layout_window
-            .as_ref()
-            .and_then(|lw| lw.focused_rect_for_byte_range(start, end))
-            .map(|r| (r, (start, end)))
-    };
-    let rect = match from_range {
-        Some((rect, bytes)) => {
-            if !actual_range.is_null() {
-                let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, bytes);
-                *actual_range = NSRange { location, length };
-            }
-            rect
-        }
-        None => {
-            // Try live cursor rect from layout
-            let cursor_rect = w
-                .common
+) -> NSRect {
+    unsafe {
+        let w = &*window;
+        let (doc, _) = ime_document_of(window);
+        let from_range = if ns_range_is_not_found(range) {
+            None
+        } else {
+            let (start, end) =
+                azul_layout::window::utf16_range_to_bytes(&doc, range.location, range.length);
+            w.common
                 .layout_window
                 .as_ref()
-                .and_then(|lw| lw.get_focused_cursor_rect_viewport());
-            match cursor_rect {
-                Some(r) => r,
-                None => {
-                    // Fallback: cached ime_position
-                    use azul_core::window::ImePosition;
-                    match w.common.current_window_state().ime_position {
-                        ImePosition::Initialized(r) => r,
-                        _ => {
-                            log_trace!(
-                                LogCategory::Input,
-                                "[IME firstRect] no cursor rect, no ime_position"
-                            );
-                            return NSRect::ZERO;
+                .and_then(|lw| lw.focused_rect_for_byte_range(start, end))
+                .map(|r| (r, (start, end)))
+        };
+        let rect = match from_range {
+            Some((rect, bytes)) => {
+                if !actual_range.is_null() {
+                    let (location, length) = azul_layout::window::byte_range_to_utf16(&doc, bytes);
+                    *actual_range = NSRange { location, length };
+                }
+                rect
+            }
+            None => {
+                // Try live cursor rect from layout
+                let cursor_rect = w
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .and_then(|lw| lw.get_focused_cursor_rect_viewport());
+                match cursor_rect {
+                    Some(r) => r,
+                    None => {
+                        // Fallback: cached ime_position
+                        use azul_core::window::ImePosition;
+                        match w.common.current_window_state().ime_position {
+                            ImePosition::Initialized(r) => r,
+                            _ => {
+                                log_trace!(
+                                    LogCategory::Input,
+                                    "[IME firstRect] no cursor rect, no ime_position"
+                                );
+                                return NSRect::ZERO;
+                            }
                         }
                     }
                 }
             }
-        }
-    };
+        };
 
-    log_trace!(
-        LogCategory::Input,
-        "[IME firstRect] rect at ({}, {}) size ({}, {})",
-        rect.origin.x,
-        rect.origin.y,
-        rect.size.width,
-        rect.size.height
-    );
+        log_trace!(
+            LogCategory::Input,
+            "[IME firstRect] rect at ({}, {}) size ({}, {})",
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height
+        );
 
-    // Convert from top-left (azul) to bottom-left (macOS) view coordinates
-    let window_local = NSRect {
-        origin: NSPoint {
-            x: rect.origin.x as f64,
-            y: view_height
-                - rect.origin.y as f64
-                - rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
-        },
-        size: NSSize {
-            width: rect.size.width.max(1.0) as f64,
-            height: rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
-        },
-    };
-    // Convert from view-local to screen coordinates
-    w.window.convertRectToScreen(window_local)
-}}
+        // Convert from top-left (azul) to bottom-left (macOS) view coordinates
+        let window_local = NSRect {
+            origin: NSPoint {
+                x: rect.origin.x as f64,
+                y: view_height
+                    - rect.origin.y as f64
+                    - rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
+            },
+            size: NSSize {
+                width: rect.size.width.max(1.0) as f64,
+                height: rect.size.height.max(MIN_IME_CURSOR_HEIGHT) as f64,
+            },
+        };
+        // Convert from view-local to screen coordinates
+        w.window.convertRectToScreen(window_local)
+    }
+}
 
 /// Present a menu parked by [`PendingContextMenu`]. Blocks in a nested tracking
 /// runloop until the user picks an item or dismisses the menu, so it may ONLY be
 /// called once every `&mut MacOSWindow` has been dropped — the retained menu and
 /// view keep themselves alive without borrowing the window.
 pub(crate) fn present_pending_context_menu(pending: &PendingContextMenu) {
+    MENUS_TRACKING.with(|n| n.set(n.get() + 1));
     // Typed binding, not msg_send!: the method returns BOOL (YES if an item was
     // selected), and the moved-verbatim `let _: () = msg_send![…]` declared a
     // void return — objc2's debug-assertions signature verification panics on
@@ -4004,6 +5988,15 @@ pub(crate) fn present_pending_context_menu(pending: &PendingContextMenu) {
         pending.location,
         Some(&*pending.view),
     );
+    MENUS_TRACKING.with(|n| n.set(n.get() - 1));
+}
+
+thread_local! {
+    /// Native context menus tracking right now. Each spins a nested run loop
+    /// inside the view handler that popped it up, which goes on with its
+    /// window afterwards: no window is freed meanwhile
+    /// ([`inside_nested_run_loop`]).
+    static MENUS_TRACKING: Cell<u32> = const { Cell::new(0) };
 }
 
 pub struct MacOSWindow {
@@ -4098,6 +6091,11 @@ pub struct MacOSWindow {
     /// The display link's callback context: the NSWindow behind a liveness
     /// flag. Intentionally leaked (see `retire_display_link`).
     display_link_target: Option<*const DisplayLinkTarget>,
+    /// When the display link runs: started by a frame request
+    /// ([`MacOSWindow::request_frame`]), stopped after a couple of idle
+    /// vsync ticks, off while the window shows nothing. An idle window used
+    /// to keep the link - and the main thread - waking 60 times a second.
+    frame_pacer: crate::desktop::shell2::common::frame_pacer::FramePacer,
     /// CoreVideo functions (loaded via dlopen for backward compatibility)
     cv_functions: Option<Arc<CoreVideoFunctions>>,
     /// Core Graphics functions (for display enumeration)
@@ -4118,6 +6116,48 @@ pub struct MacOSWindow {
     /// setNeedsDisplay → drawRect gap; pure CVDisplayLink wakeups don't set it,
     /// so the idle early-return optimization stays intact.
     redraw_requested: bool,
+    /// The colour `NSWindow.backgroundColor` was last set to for an opaque
+    /// window ([`MacOSWindow::sync_window_backdrop`]); `None` before it was.
+    backdrop_rgb: Option<[u8; 3]>,
+    /// The appearance this window's `NSWindow.appearance` was last set to by
+    /// [`MacOSWindow::sync_native_appearance`]: `Some(mode)` = forced into
+    /// Aqua / DarkAqua, `None` = nil (inherits the app's, i.e. the desktop's).
+    /// A fresh `NSWindow` inherits, so it starts `None`.
+    applied_chrome_mode: Option<azul_core::window::DarkLightMode>,
+    /// The window's `<webview>`s (`webview::MacWebViews`), made at the first
+    /// one: an app without a web view never loads WebKit.
+    webviews: Option<webview::MacWebViews>,
+    /// The constructor ordered the window in fully transparent and no view
+    /// has drawn it since. The constructor runs before the views have the
+    /// back-pointer they render through, so a `drawRect` it causes draws no
+    /// frame; shown at once, a new window would flash white (or an empty GL
+    /// surface) before its content. `reveal_after_first_frame` makes it
+    /// opaque again from the first `drawRect` that showed its document.
+    awaiting_first_frame: bool,
+    /// The draws since the window was ordered in that did not show its
+    /// document yet (WebRender builds a frame after the pass that sent it).
+    blank_first_draws: u32,
+    /// WebRender published a frame after the renderer last took one in: the
+    /// next pass shows it even when it has nothing new to send.
+    frame_waiting: bool,
+    /// Whether a pass of the GPU path waits for the renderer's threads after
+    /// its send, and what is still on its way to them (audit A4-31,
+    /// `common::frame_schedule`): a transaction with a display list is sent
+    /// without the wait and drawn by the pass the renderer's wake brings.
+    frame_schedule: crate::desktop::shell2::common::frame_schedule::FrameSchedule,
+    /// The physical size of the last frame the GPU path drew. A pass at
+    /// another size (a resize, another screen's factor) is drawn in step with
+    /// its transaction, whatever it sends.
+    last_gpu_frame_size: Option<(u32, u32)>,
+    /// A node drag of this window left it and runs as the system's drag
+    /// session (`start_os_drag_if_it_left`) until `os_drag_ended`: AppKit
+    /// tracks the pointer meanwhile, so no `mouseUp:` ends the node drag, and
+    /// the window declines the session as a drop target of its own.
+    os_drag_running: bool,
+    /// [`MacOSWindow::release_native`] ran: nothing native points back at this
+    /// struct any more and its GPU side is gone. The window is closed (or being
+    /// dropped); only its free at the event loop's safe point is left.
+    released: bool,
 }
 
 // Implement PlatformWindow trait for cross-platform event processing
@@ -4137,6 +6177,13 @@ unsafe extern "C" {
 impl PlatformWindow for MacOSWindow {
     fn start_native_eyedropper(&mut self, request_id: u64) -> bool {
         crate::desktop::eyedropper::macos::start(request_id)
+    }
+
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        self.webviews_mut()
+            .map(|views| views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
     }
 
     fn regenerate_layout_once(
@@ -4223,20 +6270,12 @@ impl PlatformWindow for MacOSWindow {
     }
 
     fn flush_a11y_tree_update(&mut self) {
-        // MWA-A3e: push incremental a11y updates (text edits / caret moves)
-        // parked in last_tree_update by the event pass; previously they only
-        // reached VoiceOver on the next full relayout / a11y rebuild.
+        // The parked update (text edits, caret moves, a layout pass's patch)
+        // reaches the adapter after this run-loop turn, once
+        // (`schedule_a11y_delivery`): this is called from the draw path and
+        // after every event of a burst.
         #[cfg(feature = "a11y")]
-        {
-            let pending = self
-                .common
-                .layout_window
-                .as_mut()
-                .and_then(|lw| lw.a11y_manager.take_pending());
-            if let (Some(update), Some(adapter)) = (pending, self.accessibility_adapter.as_mut()) {
-                adapter.update_tree(update);
-            }
-        }
+        self.schedule_a11y_delivery();
     }
 
     fn start_timer(&mut self, timer_id: usize, timer: azul_layout::timer::Timer) {
@@ -4347,7 +6386,8 @@ impl PlatformWindow for MacOSWindow {
         // were never polled from this timer at all (a spawned thread's result
         // only ever landed if some unrelated azul timer happened to be running).
         // tickTimers: runs process_timers_and_threads() on both backends.
-        let interval: f64 = TIMER_INTERVAL_60FPS;
+        // One poll per frame of this window (its monitor's refresh rate).
+        let interval: f64 = self.frame_interval_secs();
         let timer: Retained<NSTimer> = if let Some(ref gl_view) = self.gl_view {
             unsafe {
                 msg_send_id![
@@ -4415,7 +6455,7 @@ impl PlatformWindow for MacOSWindow {
     ) {
         if let Some(layout_window) = self.common.layout_window.as_mut() {
             for thread_id in thread_ids {
-                layout_window.threads.remove(thread_id);
+                drop(layout_window.remove_thread(thread_id));
             }
         }
     }
@@ -4433,8 +6473,53 @@ impl PlatformWindow for MacOSWindow {
         }
     }
 
+    fn adopt_app_mode_in_other_windows(&mut self) {
+        // The same registry walk as above; each window adopts the app's
+        // mode through its own trigger (restyle, or a rebuild where its
+        // `layout()` read the mode).
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            if w.adopt_app_mode() {
+                w.request_redraw();
+            }
+            // Even when its mode did not move: a pin forces the chrome.
+            w.sync_native_appearance();
+        }
+    }
+
+    fn adopt_app_light_in_other_windows(&mut self) {
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            let changed = w
+                .common
+                .layout_window
+                .as_mut()
+                .is_some_and(azul_layout::window::LayoutWindow::adopt_app_light);
+            if changed {
+                w.request_redraw();
+            }
+        }
+    }
+
     fn queue_window_create(&mut self, options: WindowCreateOptions) {
         self.pending_window_creates.push(options);
+    }
+
+    /// `drain_loop_work` carries the close out, and the loop may be parked in
+    /// `runMode:beforeDate:` (or `NSApplication.run()`) while the request is
+    /// raised: a timer tick or a `drawRect:` runs inside that park, which
+    /// would go on until the next unrelated event. The loop's wake brings it
+    /// around.
+    fn close_owed(&mut self) {
+        crate::desktop::loop_waker::wake();
     }
 
     fn set_window_mouse_transparent(&mut self, transparent: bool) {
@@ -4442,6 +6527,34 @@ impl PlatformWindow for MacOSWindow {
         // the gesture; a borderless window already answers NO to
         // canBecomeKeyWindow, so it never steals focus either.
         self.window.setIgnoresMouseEvents(transparent);
+    }
+
+    fn popups_route_keys_natively(&self) -> bool {
+        // `AzulPopupWindow` answers `canBecomeKeyWindow = YES` and is shown
+        // with `makeKeyAndOrderFront`: AppKit sends the popup its own keys,
+        // and a key that reaches the parent was typed INTO the parent. (A
+        // list popup is an `AzulListPopupWindow`, never key: its keys reach
+        // the parent, which forwards the navigation ones.)
+        true
+    }
+
+    fn deliver_forwarded_keys(&mut self) {
+        // The popups are this app's own windows: run the pass of every one
+        // the parent just forwarded a key to, right now, as X11 does - a
+        // list popup is never the key window, so nothing else would wake it.
+        let me: *mut Self = self;
+        for wptr in registry::get_all_window_ptrs() {
+            if wptr.is_null() || core::ptr::eq(wptr, me) {
+                continue;
+            }
+            let w = unsafe { &mut *wptr };
+            if crate::desktop::shell2::common::transient::has_forwarded_keys(
+                w.common.current_window_state(),
+            ) {
+                let r = w.process_window_events(0);
+                w.apply_activation_pass_result(r);
+            }
+        }
     }
 
     // REQUIRED: Menu Display
@@ -4477,12 +6590,8 @@ impl PlatformWindow for MacOSWindow {
         }
     }
 
-    fn show_tooltip_from_callback(
-        &mut self,
-        text: &str,
-        position: azul_core::geom::LogicalPosition,
-    ) {
-        if let Err(e) = self.show_tooltip(text, position) {
+    fn show_tooltip_from_callback(&mut self, text: &str, anchor: azul_core::geom::LogicalRect) {
+        if let Err(e) = self.show_tooltip(text, anchor) {
             log_error!(
                 LogCategory::Platform,
                 "[macOS] Failed to show tooltip: {}",
@@ -4501,6 +6610,10 @@ impl PlatformWindow for MacOSWindow {
         }
     }
 
+    fn window_to_screen(&self) -> Option<azul_layout::placement::WindowToScreen> {
+        Some(self.screen_mapping())
+    }
+
     /// AppKit runs a menu item from its key equivalent before the key reaches
     /// the view — the shared dispatch must not run the MENU BAR's items a
     /// second time. Context menus are still dispatched by the shared path.
@@ -4514,6 +6627,54 @@ impl PlatformWindow for MacOSWindow {
 }
 
 impl MacOSWindow {
+    /// Put the NATIVE chrome - the titlebar, the frame, AppKit's own controls
+    /// in this window - into the mode the window shows:
+    /// `NSWindow.appearance` = Aqua / DarkAqua while
+    /// `CommonWindowState::native_chrome_mode` forces one (an app or
+    /// `AZ_THEME` pin, or a window seeded into the other mode than the
+    /// desktop's), nil - inherit the desktop's - otherwise. Nothing set it, so
+    /// under a pin the titlebar stayed in the desktop's appearance (the
+    /// Windows backend's DWM caption already followed, `apply_titlebar_theme`).
+    ///
+    /// Only this window's appearance is set, never `NSApp.appearance`: the
+    /// desktop probe (`system_style::probe_effective_appearance`) reads
+    /// `NSApp.effectiveAppearance`, which must keep telling the DESKTOP's.
+    /// The `viewDidChangeEffectiveAppearance` this may trigger re-probes that
+    /// and finds the desktop unchanged - a no-op.
+    ///
+    /// The names are passed as literals: AppKit's `NSAppearanceNameAqua` /
+    /// `NSAppearanceNameDarkAqua` constants are the strings of their own
+    /// names, and a literal needs no dlsym of a data symbol.
+    fn sync_native_appearance(&mut self) {
+        use azul_core::window::DarkLightMode;
+
+        let wanted = self.common.native_chrome_mode();
+        if wanted == self.applied_chrome_mode {
+            return;
+        }
+        unsafe {
+            let appearance: *mut NSObject = match wanted {
+                None => core::ptr::null_mut(),
+                Some(mode) => {
+                    let name = match mode {
+                        DarkLightMode::Dark => ns_string!("NSAppearanceNameDarkAqua"),
+                        DarkLightMode::Light => ns_string!("NSAppearanceNameAqua"),
+                    };
+                    let named: *mut NSObject =
+                        msg_send![objc2::class!(NSAppearance), appearanceNamed: name];
+                    if named.is_null() {
+                        // Unknown to this AppKit: leave the chrome as it is
+                        // rather than reset it to inherit.
+                        return;
+                    }
+                    named
+                }
+            };
+            let _: () = msg_send![&*self.window, setAppearance: appearance];
+        }
+        self.applied_chrome_mode = wanted;
+    }
+
     /// Determine which rendering backend to use.
     ///
     /// Delegates to `AzBackend::resolve()` for env-var / config priority,
@@ -4771,24 +6932,17 @@ impl MacOSWindow {
             .map_err(|code| format!("CVDisplayLinkCreateWithCGDisplays failed: {}", code))?;
 
         // Set output callback
-        // For now, we'll use a simple callback that just marks the window for redraw
-        // libdispatch: hop from the CVDisplayLink thread to the main queue.
-        // AppKit is not thread-safe — the old callback called
+        // The tick hops from the CVDisplayLink thread to the main thread
+        // (`vsync_ticks`). AppKit is not thread-safe - the old callback called
         // setViewsNeedDisplay: directly on the display-link thread (UB inside
         // AppKit's view-dirty bookkeeping, and it could not wake a run loop
         // blocked in runMode:beforeDate: either).
-        extern "C" {
-            static _dispatch_main_q: std::ffi::c_void;
-            fn dispatch_async_f(
-                queue: *const std::ffi::c_void,
-                context: *mut std::ffi::c_void,
-                work: extern "C" fn(*mut std::ffi::c_void),
-            );
-        }
+        vsync_ticks::install();
 
         extern "C" fn mark_views_dirty_on_main(context: *mut std::ffi::c_void) {
-            // Runs on the MAIN queue. `context` is an NSWindow retained at
-            // enqueue time (the window may have been dropped in between).
+            // Runs on the main thread (`vsync_ticks`). `context` is an
+            // NSWindow retained at delivery (the window may have been dropped
+            // in between).
             //
             // THE VSYNC FRAME DRIVER: for years this called
             // `setViewsNeedDisplay:` on the WINDOW, which marks no view -
@@ -4803,33 +6957,48 @@ impl MacOSWindow {
                 if !context.is_null() {
                     let ns_window = context as *const NSWindow;
                     pace_trace("mark-dirty-on-main");
-                    if let Some(win) = registry::get_window(
-                        ns_window as *mut objc2::runtime::AnyObject,
-                    ) {
+                    if let Some(win) =
+                        registry::get_window(ns_window as *mut objc2::runtime::AnyObject)
+                    {
                         let win = &mut *win;
-                        let pending = win.redraw_requested
-                            || win.common.display_list_dirty
-                            || win.common.regeneration_pending();
-                        if pending && win.backend == RenderBackend::CPU {
-                            // RENDER AT THE TICK, not in drawRect. The old
-                            // flow rendered frame N inside drawRect while
-                            // DISPLAYING frame N-1's marks - a one-frame-lag
-                            // self-chain that paced at ~20ms regardless of a
-                            // ~11ms frame cost. Rendering here (main queue,
-                            // outside drawing; the CPU path needs no GL
-                            // context) issues the damage marks NOW, AppKit
-                            // displays them at the end of THIS runloop
-                            // cycle, and drawRect degenerates to the pure
-                            // blit its own pending-work check already makes
-                            // it. One frame per vsync, no self-chain.
-                            pace_trace("vsync-render");
-                            let _ = win.render_and_present_in_draw_rect();
-                        } else if pending {
-                            // GL (and any backend that must render inside
-                            // drawRect): deliver the invalidation and let
-                            // drawRect do the work, still vsync-aligned.
-                            pace_trace("vsync-deliver");
-                            win.deliver_invalidation_now();
+                        let pending = win.frame_pending();
+                        // THE PACER decides: render what is owed, idle, or
+                        // stop the link after a couple of empty ticks - the
+                        // next frame request starts it again. A running
+                        // link used to wake this thread 60 times a second
+                        // for windows with nothing to draw.
+                        use crate::desktop::shell2::common::frame_pacer::TickAction;
+                        match win.frame_pacer.on_tick(pending) {
+                            TickAction::Render if win.backend == RenderBackend::CPU => {
+                                // RENDER AT THE TICK, not in drawRect. The old
+                                // flow rendered frame N inside drawRect while
+                                // DISPLAYING frame N-1's marks - a one-frame-lag
+                                // self-chain that paced at ~20ms regardless of a
+                                // ~11ms frame cost. Rendering here (main queue,
+                                // outside drawing; the CPU path needs no GL
+                                // context) issues the damage marks NOW, AppKit
+                                // displays them at the end of THIS runloop
+                                // cycle, and drawRect degenerates to the pure
+                                // blit its own pending-work check already makes
+                                // it. One frame per vsync, no self-chain.
+                                pace_trace("vsync-render");
+                                let _ = win.render_and_present_in_draw_rect();
+                            }
+                            TickAction::Render => {
+                                // GL (and any backend that must render inside
+                                // drawRect): deliver the invalidation and let
+                                // drawRect do the work, still vsync-aligned.
+                                pace_trace("vsync-deliver");
+                                win.deliver_invalidation_now();
+                            }
+                            TickAction::Idle => {}
+                            TickAction::Stop => {
+                                pace_trace("display-link-stop");
+                                win.stop_display_link();
+                                // The frames are over: what their layouts
+                                // freed goes back to the system now.
+                                azul_layout::probe::return_freed_memory();
+                            }
                         }
                     }
                     // Balance the retain taken in display_link_callback.
@@ -4862,11 +7031,7 @@ impl MacOSWindow {
                 {
                     pace_trace("cvdisplaylink-fire");
                     objc2::ffi::objc_retain(target.window.cast());
-                    dispatch_async_f(
-                        std::ptr::addr_of!(_dispatch_main_q),
-                        target.window,
-                        mark_views_dirty_on_main,
-                    );
+                    vsync_ticks::deliver(target.window, mark_views_dirty_on_main);
                 }
             }
             corevideo::K_CV_RETURN_SUCCESS
@@ -4886,17 +7051,18 @@ impl MacOSWindow {
             return Err(format!("CVDisplayLinkSetOutputCallback failed: {}", result));
         }
 
-        // Start the display link
-        let result = display_link.start();
-        if result != corevideo::K_CV_RETURN_SUCCESS {
-            return Err(format!("CVDisplayLinkStart failed: {}", result));
-        }
-
+        // NOT started: the link runs only while frames are wanted. The
+        // first frame request (`request_frame`) starts it, the pacer stops it
+        // after a couple of idle ticks. A link replaced by this call (a
+        // display change) was dropped - stopped - with its predecessor, so
+        // the pacer forgets it ran, and a frame still owed asks again.
         log_info!(
             LogCategory::Rendering,
-            "[CVDisplayLink] Display link started successfully"
+            "[CVDisplayLink] Display link ready (started on demand)"
         );
         self.display_link = Some(display_link);
+        self.frame_pacer.reset();
+        self.request_frame_if_pending();
 
         Ok(())
     }
@@ -4976,6 +7142,10 @@ impl MacOSWindow {
         parent_lw: Option<&LayoutWindow>,
         mtm: MainThreadMarker,
     ) -> Result<Self, WindowError> {
+        // A worker wakes the main queue when it has something to say, so no window
+        // polls its workers every frame (`wake_main_for_threads`).
+        azul_layout::thread::set_thread_wake(Some(wake_main_for_threads));
+
         // If background_color is None and no material effect, use system window background
         // Note: When a material is set, the renderer will use transparent clear color automatically
         crate::desktop::shell2::common::resolve_initial_background_color(
@@ -5145,10 +7315,22 @@ impl MacOSWindow {
             LogCategory::Window,
             "[MacOSWindow::new] Creating window with style mask..."
         );
-        let style_mask = NSWindowStyleMask::Titled
-            | NSWindowStyleMask::Closable
-            | NSWindowStyleMask::Miniaturizable
-            | NSWindowStyleMask::Resizable;
+        // A dialog window (`anchor="dialog"`) owned by a parent: a title bar to move it by and a
+        // close box, nothing to minimize or resize - a sheet-like panel, as AppKit's own alerts.
+        let is_dialog_child = options.window_state.flags.window_type
+            == azul_core::window::WindowType::Dialog
+            && options.parent_window_id != 0;
+        // An owned top-level window (`WindowCreateOptions::owned`): a full window,
+        // ordered with its owner like a dialog - above it, minimised with it.
+        let is_owned_window = options.owned && options.parent_window_id != 0;
+        let style_mask = if is_dialog_child {
+            NSWindowStyleMask::Titled | NSWindowStyleMask::Closable
+        } else {
+            NSWindowStyleMask::Titled
+                | NSWindowStyleMask::Closable
+                | NSWindowStyleMask::Miniaturizable
+                | NSWindowStyleMask::Resizable
+        };
 
         // Create the window
         log_trace!(
@@ -5158,8 +7340,27 @@ impl MacOSWindow {
         let is_popup_child = options.window_state.flags.window_type
             == azul_core::window::WindowType::Menu
             && options.parent_window_id != 0;
+        // A popup that leaves focus on its invoker (a combobox's list) is
+        // never the key window - see `ListPopupWindow`.
+        let keeps_invoker_focus = is_popup_child
+            && !crate::desktop::shell2::common::transient::popup_takes_focus(
+                &options.window_state,
+            );
         let window: Retained<NSWindow> =
-            if is_popup_child {
+            if keeps_invoker_focus {
+                let popup: Option<Retained<ListPopupWindow>> = unsafe {
+                    msg_send_id![
+                        mtm.alloc::<ListPopupWindow>(),
+                        initWithContentRect: content_rect,
+                        styleMask: style_mask,
+                        backing: NSBackingStoreType::Buffered,
+                        defer: false,
+                    ]
+                };
+                Retained::into_super(popup.ok_or_else(|| {
+                    WindowError::PlatformError("AzulListPopupWindow init failed".into())
+                })?)
+            } else if is_popup_child {
                 let popup: Option<Retained<PopupWindow>> = unsafe {
                     msg_send_id![
                         mtm.alloc::<PopupWindow>(),
@@ -5241,6 +7442,21 @@ impl MacOSWindow {
             "[MacOSWindow::new] Content view configured"
         );
 
+        // Both renderers write sRGB bytes. Without the tag AppKit takes the
+        // GL frame to be in the display's colour space, and on a wide-gamut
+        // display every colour looks too saturated.
+        {
+            let render_view: *const NSView = match (&gl_view, &cpu_view) {
+                (Some(gl), _) => Retained::as_ptr(gl) as *const NSView,
+                (None, Some(cpu)) => Retained::as_ptr(cpu) as *const NSView,
+                (None, None) => std::ptr::null(),
+            };
+            if !render_view.is_null() {
+                let tags = color_space::tag_window_srgb(&window, unsafe { &*render_view });
+                log_info!(LogCategory::Rendering, "[MacOSWindow::new] {}", tags);
+            }
+        }
+
         // Make the render view the window's first responder. Keyboard events
         // (keyDown:/keyUp:/flagsChanged:) are delivered to the FIRST RESPONDER
         // — unlike mouse/scroll events, which are hit-tested to the view under
@@ -5289,8 +7505,9 @@ impl MacOSWindow {
         // A parent-owned popup orders WITH its parent: above it, moving with
         // it, behind any other app that comes to the front — not at the
         // floating level, which kept the colour picker on top of every other
-        // application after its parent was sent to the background.
-        if is_popup_child {
+        // application after its parent was sent to the background. A dialog
+        // window orders with its parent the same way.
+        if is_popup_child || is_dialog_child || is_owned_window {
             if let Some(parent) = unsafe {
                 registry::get_window(
                     options.parent_window_id as usize as *mut objc2::runtime::AnyObject,
@@ -5459,9 +7676,12 @@ impl MacOSWindow {
 
             let notifier = Notifier {
                 new_frame_ready: new_frame_ready.clone(),
-                // drawRect cycle + drain_loop_work + CVDisplayLink consume the
-                // flag on macOS; no extra wake needed.
-                wake: None,
+                // `drain_loop_work` consumes the flag and asks for the frame.
+                // It used to be enough that the CVDisplayLink woke the main
+                // thread every vsync; the link now stops when idle, so a
+                // frame WebRender finishes after it stopped must wake the loop
+                // itself (an app-defined NSEvent, safe from this thread).
+                wake: Some(Arc::new(crate::desktop::loop_waker::wake)),
             };
 
             let (mut renderer, sender) = match webrender::create_webrender_instance(
@@ -5495,10 +7715,17 @@ impl MacOSWindow {
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
             let render_api = sender.create_api();
-            let physical_size = azul_core::geom::PhysicalSize {
-                width: (options.window_state.size.dimensions.width * actual_hidpi_factor) as u32,
-                height: (options.window_state.size.dimensions.height * actual_hidpi_factor) as u32,
-            };
+            // The document is born at the size every later frame gives it
+            // (`WindowSize::get_physical_size` -> `LogicalSize::to_physical`:
+            // ROUNDED): truncated here, it was one pixel smaller than the
+            // viewport and the framebuffer for a fractional product (333.7
+            // units at 1.5: 500.55 -> 500 here, 501 everywhere else) until the
+            // first transaction set the document view (audit A10-15).
+            let physical_size = options
+                .window_state
+                .size
+                .dimensions
+                .to_physical(actual_hidpi_factor);
             let framebuffer_size = webrender::api::units::DeviceIntSize::new(
                 physical_size.width as i32,
                 physical_size.height as i32,
@@ -5506,9 +7733,19 @@ impl MacOSWindow {
 
             let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
             let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
-            let hit_tester = render_api
-                .request_hit_tester(wr_translate_document_id(document_id))
-                .resolve();
+            // WebRender's hit tester is asked by nobody: every hit test is
+            // answered by the layout-based tester
+            // (`CommonWindowState::perform_hit_test`). It is not requested
+            // any more - `resolve()` was a blocking round trip to the render
+            // backend at every window creation. `AZ_WR_HIT_TESTER=1` requests
+            // it as before (audit A6-17).
+            let hit_tester = std::env::var_os("AZ_WR_HIT_TESTER").is_some().then(|| {
+                AsyncHitTester::Resolved(
+                    render_api
+                        .request_hit_tester(wr_translate_document_id(document_id))
+                        .resolve(),
+                )
+            });
             let gl_ctx_inner = gl_context
                 .as_ref()
                 .map(|_| GlContextPtr::new(RendererType::Hardware, gl_funcs.clone()));
@@ -5526,7 +7763,7 @@ impl MacOSWindow {
                     Some(render_api),
                     Some(document_id),
                     Some(id_namespace),
-                    Some(AsyncHitTester::Resolved(hit_tester)),
+                    hit_tester,
                     gl_ctx_inner.into(),
                     RendererType::Hardware,
                 )
@@ -5549,6 +7786,8 @@ impl MacOSWindow {
 
         // Initialize window state with actual HiDPI factor from screen
         let actual_dpi = (actual_hidpi_factor * BASE_DPI) as u32; // Convert scale factor to DPI
+        // Read before the window state takes its fields out of `options`.
+        let owner_window_id = crate::desktop::shell2::common::owned_window::owner_of(&options);
         let current_window_state = FullWindowState {
             window_id: options.window_state.window_id.clone(),
             title: options.window_state.title.clone(),
@@ -5560,7 +7799,7 @@ impl MacOSWindow {
             },
             position: options.window_state.position,
             flags: options.window_state.flags,
-            theme: options.window_state.theme,
+            mode: options.window_state.mode,
             debug_state: options.window_state.debug_state,
             keyboard_state: Default::default(),
             mouse_state: Default::default(),
@@ -5570,7 +7809,6 @@ impl MacOSWindow {
             renderer_options: options.window_state.renderer_options,
             background_color: options.window_state.background_color,
             layout_callback: options.window_state.layout_callback,
-            close_callback: options.window_state.close_callback.clone(),
             monitor_id: OptionU32::None, // Monitor ID will be set when we detect the actual monitor
             window_focused: true,
             active_route: azul_core::resources::OptionRouteMatch::None,
@@ -5586,8 +7824,7 @@ impl MacOSWindow {
         // faces and its embedded (icon) fonts — so text and icons resolve
         // instead of falling through to the macOS last-resort tofu face. A
         // top-level window builds its own manager over the shared fc_cache.
-        let fc_cache =
-            fc_cache_opt.unwrap_or_else(|| Arc::new(FcFontCache::build()));
+        let fc_cache = fc_cache_opt.unwrap_or_else(|| Arc::new(FcFontCache::build()));
         let mut layout_window = match parent_lw {
             Some(parent) => LayoutWindow::from_font_manager(parent.font_manager.clone_shared()),
             // Shares the app-level manager's font pools instead of starting a
@@ -5611,6 +7848,13 @@ impl MacOSWindow {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
+        layout_window.set_app_e2e(&config);
+        layout_window.set_app_node_identity(&config);
+        // `<webview>`s are WKWebViews (`webview::MacWebViews`).
+        layout_window
+            .webviews
+            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
 
         // Initialize monitor cache once at window creation
         if let Ok(mut guard) = layout_window.monitors.lock() {
@@ -5706,7 +7950,7 @@ impl MacOSWindow {
 
         let mut common = event::CommonWindowState::new(
             current_window_state,
-            options.theme,
+            options.mode,
             options.background_color_light,
             options.background_color_dark,
             fc_cache,
@@ -5715,6 +7959,7 @@ impl MacOSWindow {
             undo_manager,
         );
         common.layout_window = Some(layout_window);
+        common.owner_window_id = owner_window_id;
         common.renderer_resources = renderer_resources;
         common.render_api = wr_render_api;
         common.renderer = wr_renderer;
@@ -5738,9 +7983,9 @@ impl MacOSWindow {
             gl_functions,
             cpu_view,
             #[cfg(feature = "cpurender")]
-            cpu_backend: crate::desktop::shell2::headless::CpuBackend::new(),
+            cpu_backend: crate::desktop::shell2::headless::CpuBackend::for_config(&config),
             is_open: true,
-            child_of: if is_popup_child {
+            child_of: if is_popup_child || is_dialog_child {
                 options.parent_window_id
             } else {
                 0
@@ -5764,12 +8009,28 @@ impl MacOSWindow {
             thread_timer_running: None,
             display_link: None, // Will be initialized when VSYNC is enabled
             display_link_target: None,
+            frame_pacer: crate::desktop::shell2::common::frame_pacer::FramePacer::new(),
             cv_functions,
             cg_functions,
             current_display_id: None, // Will be set after monitor detection
             surface_needs_update: true, // First frame always needs update
             redraw_requested: true,   // First frame must not be skipped
+            backdrop_rgb: None,
+            applied_chrome_mode: None, // a fresh NSWindow inherits its appearance
+            webviews: None,            // made (and WebKit loaded) at the first web view
+            awaiting_first_frame: false,
+            blank_first_draws: 0,
+            frame_waiting: false,
+            frame_schedule: crate::desktop::shell2::common::frame_schedule::FrameSchedule::new(),
+            last_gpu_frame_size: None, // the first frame is drawn in step
+            os_drag_running: false,
+            released: false,
         };
+
+        // The titlebar in the mode the window will show, before it is ever
+        // drawn: a window opened under a dark pin on a light desktop must not
+        // flash a light titlebar.
+        window.sync_native_appearance();
 
         // NOTE: Do NOT set the delegate pointer here!
         // The window will be moved out of this function (returned by value),
@@ -5860,6 +8121,12 @@ impl MacOSWindow {
             );
         }
 
+        // A window created to fit its content (a window-drawn menu) takes the size
+        // its first layout measured, before it is ever shown.
+        if options.size_to_content {
+            window.fit_to_content();
+        }
+
         // Install the application menu bar from the root DOM's menu_bar (if any).
         window.apply_menu_bar_from_dom();
 
@@ -5905,9 +8172,28 @@ impl MacOSWindow {
             window.apply_background_material(initial_background_material);
         }
 
+        // An opaque window shows AppKit's own background until its view has
+        // drawn the first frame: make that the colour the frame clears to, so
+        // a dialog over a dark window opens dark instead of flashing white.
+        if matches!(initial_background_material, WindowBackgroundMaterial::Opaque) {
+            let c = window.common.clear_color();
+            unsafe {
+                let backdrop = NSColor::colorWithRed_green_blue_alpha(
+                    f64::from(c.r) / 255.0,
+                    f64::from(c.g) / 255.0,
+                    f64::from(c.b) / 255.0,
+                    1.0,
+                );
+                window.window.setBackgroundColor(Some(&backdrop));
+            }
+        }
+
         // Apply initial window state for fields not set during window creation
         // (title, size, frame, decorations, background_material are set above)
         window.apply_initial_window_state();
+        // The traffic lights where the window's options put them (after the
+        // decorations, which decide the titlebar AppKit lays them out in).
+        window.apply_traffic_light_position();
 
         // Show window - drawRect will handle the first frame rendering
         if window.common.current_window_state().flags.is_visible {
@@ -5915,9 +8201,24 @@ impl MacOSWindow {
                 LogCategory::Window,
                 "[Window Init] Making window visible (first frame will be rendered in drawRect)..."
             );
-            unsafe {
+            // A popup that leaves focus on its invoker (a combobox's list,
+            // an `AzulListPopupWindow`) is only ordered front: it can never
+            // be key, asking AppKit to make it so merely logs a complaint,
+            // and the parent must keep the keyboard anyway.
+            // Invisible until a view can draw its first frame (see
+            // `awaiting_first_frame`); ordering it in now still lays it out
+            // and makes it key at once.
+            window.window.setAlphaValue(0.0);
+            window.awaiting_first_frame = true;
+            if crate::desktop::shell2::common::transient::popup_takes_focus(
+                window.common.current_window_state(),
+            ) {
                 window.window.makeKeyAndOrderFront(None);
+            } else {
+                window.window.orderFront(None);
             }
+            // Ordering the window in lays its titlebar out: again.
+            window.apply_traffic_light_position();
         } else {
             log_debug!(
                 LogCategory::Window,
@@ -5938,9 +8239,9 @@ impl MacOSWindow {
             if let Some(primary_height) = primary_screen_height() {
                 let top_left_x = frame.origin.x as i32;
                 let top_left_y = (primary_height - frame.origin.y - frame.size.height) as i32;
-                let pos = WindowPosition::Initialized(
-                    azul_core::geom::PhysicalPositionI32::new(top_left_x, top_left_y),
-                );
+                let pos = WindowPosition::Initialized(azul_core::geom::PhysicalPositionI32::new(
+                    top_left_x, top_left_y,
+                ));
                 window
                     .common
                     .update_window_state(event::WindowStateSource::Os, |ws| ws.position = pos);
@@ -5981,8 +8282,16 @@ impl MacOSWindow {
         // reflect the display. NSView is main-thread-only, so the read is safe.
         let safe_area = self.window.contentView().map(|cv| {
             let i = cv.safeAreaInsets();
-            (i.top, i.left, i.bottom, i.right)
+            // How much of the content view the titlebar covers: the whole
+            // band in a window whose content runs under it
+            // (`FullSizeContentView`), nothing in a plain window, nothing in
+            // fullscreen (the titlebar is hidden there).
+            let titlebar_band =
+                (cv.frame().size.height - self.window.contentLayoutRect().size.height).max(0.0);
+            layout_safe_area_insets((i.top, i.left, i.bottom, i.right), titlebar_band)
         });
+        // The title bar as it stands now, for `env(titlebar-area-*)`.
+        let titlebar = self.measure_titlebar();
         // Consume the reason tag BEFORE borrowing the layout window: this is
         // the regeneration this window asked for, and the tag travels with
         // the request (see CommonWindowState::request_regeneration).
@@ -5990,6 +8299,7 @@ impl MacOSWindow {
 
         let borrows = self.common.layout_borrows();
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
+        layout_window.frame_titlebar = titlebar;
         if let Some((top, left, bottom, right)) = safe_area {
             let mk = |v: f64| {
                 if v > 0.5 {
@@ -6012,7 +8322,7 @@ impl MacOSWindow {
         }
 
         // Collect debug messages if debug server is enabled
-        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -6050,10 +8360,10 @@ impl MacOSWindow {
         // The caller (render_and_present_in_draw_rect) manages this flag.
         // Setting it to true here would cause unnecessary re-layouts.
 
-        // Rebuild the hit tester from the new layout results. Unconditional:
-        // it is the only hit tester now, so a GPU window needs it exactly as
-        // much as a CPU one.
-        self.common.rebuild_cpu_hit_tester();
+        // Rebuild the hit tester from the new layout results (a GPU window
+        // needs it exactly as much as a CPU one: it is the only one), unless
+        // the layout did not change.
+        self.common.rebuild_cpu_hit_tester_after(&result);
 
         // Mark accessibility tree for update after layout
         #[cfg(feature = "a11y")]
@@ -6161,6 +8471,8 @@ impl MacOSWindow {
                 }
                 // DisplayLink will be dropped here
             }
+            // Whatever the pacer thought ran is gone with it.
+            self.frame_pacer.reset();
 
             // Recreate display link for new display
             if let Err(e) = self.initialize_display_link() {
@@ -6193,10 +8505,15 @@ impl MacOSWindow {
         // the new DPI and dispatch. Without the snapshot + pass the scale change
         // was invisible to the event system, so no DPI-conditional callback ever
         // ran and the delta was left for the next handler's snapshot to erase.
-        self.common.update_window_state(
-            event::WindowStateSource::Os,
-            |ws| ws.size.dpi = (new_hidpi.inner.get() * BASE_DPI) as u32,
-        );
+        self.common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dpi = (new_hidpi.inner.get() * BASE_DPI) as u32
+            });
+        // A frame at another scale shares no pixel with the one before it,
+        // and the display list (logical px) is the same at both: without
+        // this the CPU frame kept the old scale's pixels wherever the list
+        // did not change (see `cpu_frame_scale_changed`).
+        self.cpu_frame_scale_changed();
         let result = self.process_window_events(0);
         self.apply_activation_pass_result(result);
 
@@ -6305,6 +8622,12 @@ impl MacOSWindow {
     }
 
     fn sync_window_state(&mut self) {
+        // The native chrome follows the mode the window shows. Before the
+        // diff, not inside it: a pin that agrees with the window's mode
+        // changes no window state at all and still has to force the chrome
+        // (the desktop may flip under it later). Cached - free when unchanged.
+        self.sync_native_appearance();
+
         // Diff against the OS-SYNC baseline, never against `previous_window_state`
         // (which is the event-diff baseline and is free to hold a live delta —
         // diffing against it here would push half-processed geometry at AppKit).
@@ -6314,10 +8637,18 @@ impl MacOSWindow {
             None => return, // First frame, nothing to sync
         };
 
-        // Close requested?
-        if !previous.flags.close_requested && current.flags.close_requested {
-            self.close_window();
-            return; // Don't sync other state if closing
+        // A close the protocol confirmed: nothing else is synced to a window
+        // that goes. It is carried out by `drain_loop_work`, at the event
+        // loop's safe point, not here: this runs inside the pass that raised it
+        // (an event handler, a `drawRect:`). One the app raised (`close_window`,
+        // the CSD titlebar's close button) is still a request - its protocol
+        // runs there too and may be vetoed - so the rest (a title it set) is
+        // synced as for any other state change.
+        if !previous.flags.close_requested
+            && current.flags.close_requested
+            && !self.common.close_unconfirmed()
+        {
+            return;
         }
 
         // Title changed?
@@ -6402,11 +8733,23 @@ impl MacOSWindow {
             }
         }
 
+        // The app moved the traffic lights (`MacWindowOptions`, through
+        // `modify_window_state`).
+        if previous.platform_specific_options.mac_options.traffic_light_position
+            != current.platform_specific_options.mac_options.traffic_light_position
+        {
+            self.apply_traffic_light_position();
+            self.sync_titlebar_report();
+        }
+
         // Window flags changed?
         if previous.flags != current.flags {
             // Check decorations
             if previous.flags.decorations != current.flags.decorations {
                 self.apply_decorations(current.flags.decorations);
+                // Another titlebar: AppKit lays its buttons out anew.
+                self.apply_traffic_light_position();
+                self.sync_titlebar_report();
             }
 
             // Check resizable
@@ -6577,7 +8920,9 @@ impl MacOSWindow {
     /// Process close event: save state, set flag, run callbacks, handle result.
     /// Returns true if the close was confirmed (callback did not clear the flag).
     fn process_close_event(&mut self) -> bool {
-        let outcome = self.request_window_close("macos.process_close_event");
+        // Against the DOM the app's state describes now (a rebuild its last
+        // callback asked for is built first).
+        let outcome = self.run_close_protocol("macos.process_close_event");
 
         match outcome.result {
             azul_core::events::ProcessEventResult::ShouldRegenerateDomCurrentWindow => {
@@ -6671,27 +9016,6 @@ impl MacOSWindow {
         Ok(should_close)
     }
 
-    /// Handle close request from WindowDelegate
-    fn handle_close_request(&mut self) {
-        log_debug!(
-            LogCategory::Window,
-            "[MacOSWindow] Processing close request"
-        );
-
-        if self.process_close_event() {
-            log_debug!(
-                LogCategory::Window,
-                "[MacOSWindow] Close confirmed, closing window"
-            );
-            self.close_window();
-        } else {
-            log_debug!(
-                LogCategory::Window,
-                "[MacOSWindow] Close cancelled by callback"
-            );
-        }
-    }
-
     /// Start the thread-polling tick timer (delegates to the trait
     /// `start_thread_poll_timer` so external callers have a stable inherent API,
     /// same as the Win32 method of this name).
@@ -6712,7 +9036,6 @@ impl MacOSWindow {
         PlatformWindow::stop_thread_poll_timer(self);
     }
 
-    /// Actually close the window
     /// Detach a child popup from the parent it was added to, if that parent
     /// is still around. AppKit keeps child windows ordered with the parent;
     /// a closed child must leave that list first.
@@ -6731,8 +9054,8 @@ impl MacOSWindow {
     }
 
     /// Stop the display link and mark its target dead, BEFORE the NSWindow
-    /// is closed or released. Idempotent; called from `close_window` and
-    /// `Drop`. See `DisplayLinkTarget` for the crash this prevents.
+    /// is closed or released. Idempotent; called from `release_native`. See
+    /// `DisplayLinkTarget` for the crash this prevents.
     fn retire_display_link(&mut self) {
         if let Some(target) = self.display_link_target.take() {
             // SAFETY: the target is leaked and therefore always valid.
@@ -6751,28 +9074,128 @@ impl MacOSWindow {
         }
     }
 
+    /// Close the window: everything native lets go of it and its GPU side goes
+    /// ([`Self::release_native`]), then the NSWindow closes and the box is
+    /// parked for the event loop to free (`drain_closed_windows`): it cannot
+    /// be dropped from behind `&mut self`. Only `drain_loop_work` calls this,
+    /// at the loop's safe point; a second call finds the window closed.
     fn close_window(&mut self) {
-        // The display link must be dead before the NSWindow goes: its callback
-        // retains the window on another thread.
-        self.retire_display_link();
-        self.detach_from_parent();
-        // Unregister from the global registry before closing, and park the box
-        // for deferred drop — we cannot drop `self` from behind `&mut self`.
-        // `self.window.close()` below re-enters windowWillClose:, whose
-        // unregister then returns None (already removed), so the box is parked
-        // exactly once and freed later by drain_closed_windows().
-        let ns_window = self.get_ns_window_ptr();
-        if let Some(freed) = registry::unregister_window(ns_window) {
-            queue_window_free(freed);
+        if self.released {
+            return;
         }
-
+        self.release_native();
+        self.detach_from_parent();
+        self.unregister_and_park();
+        // The delegate let go above, so the windowWillClose: this sends finds
+        // no window to close a second time.
         unsafe {
             self.window.close();
         }
-        if let Some(doc_id) = self.common.document_id {
-            crate::desktop::gl_texture_integration::remove_document_textures(&doc_id);
-        }
         self.is_open = false;
+    }
+
+    /// AppKit closes the window itself (its title bar's close button once
+    /// `windowShouldClose:` agreed, `performClose:`): the same teardown as
+    /// [`Self::close_window`], inside this window's own `windowWillClose:`,
+    /// without closing the NSWindow again.
+    fn closed_by_appkit(&mut self) {
+        self.release_native();
+        self.detach_from_parent();
+        self.unregister_and_park();
+        self.is_open = false;
+    }
+
+    /// Leave the registry, and park the box for `drain_closed_windows`, once.
+    fn unregister_and_park(&mut self) {
+        if let Some(freed) = registry::unregister_window(self.get_ns_window_ptr()) {
+            queue_window_free(freed);
+        }
+    }
+
+    /// Everything native that could still call into this window lets go of it,
+    /// and its GPU side is released while the NSWindow and the GL context are
+    /// alive. AppKit keeps a closed window and its views alive past this struct
+    /// (the autorelease pool of the turn that closed it, a display-link tick
+    /// that retained it, a layer display it had queued), so a later
+    /// `drawRect:` or notification must find no window instead of the freed
+    /// one. Runs once, on every way out (our close, AppKit's close, a drop
+    /// without a close).
+    fn release_native(&mut self) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+        if self.released {
+            return;
+        }
+        self.released = true;
+        // The display link first: its callback retains the window on another
+        // thread.
+        self.retire_display_link();
+        for (_, timer) in self.timers.drain() {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+        if let Some(timer) = self.thread_timer_running.take() {
+            unsafe {
+                timer.invalidate();
+            }
+        }
+        self.window_delegate.forget_window();
+        unsafe {
+            self.window.setDelegate(None);
+        }
+        if let Some(view) = self.gl_view.as_ref() {
+            view.forget_window();
+        }
+        if let Some(view) = self.cpu_view.as_ref() {
+            view.forget_window();
+        }
+        // The popups this window opened close with it: a popup's own popup has
+        // no other parent to close it.
+        PlatformWindow::close_transient_windows(self);
+        self.release_gpu_resources();
+    }
+
+    /// WebRender's renderer is deinit()'d, not dropped (its textures are
+    /// deleted inside a frame), and the app's GL textures of this document go
+    /// with it - in THIS window's GL context. Each window has its own, and the
+    /// current one is whichever window drew last: deleted in that one, the
+    /// names would free another window's textures and programs that happen to
+    /// have the same numbers.
+    fn release_gpu_resources(&mut self) {
+        let document = self.common.document_id;
+        self.with_own_gl_context(|window| {
+            window.common.deinit_renderer();
+            if let Some(document) = document {
+                crate::desktop::gl_texture_integration::remove_document_textures(&document);
+            }
+        });
+    }
+
+    /// Run `f` with this window's GL context current, and give the thread back
+    /// the context that was current before (none, if that was this one). The
+    /// CPU backend has no context: `f` just runs.
+    fn with_own_gl_context(&mut self, f: impl FnOnce(&mut Self)) {
+        let Some(own) = self.gl_context.clone() else {
+            f(self);
+            return;
+        };
+        unsafe {
+            let current: *mut NSOpenGLContext =
+                msg_send![objc2::class!(NSOpenGLContext), currentContext];
+            let previous = Retained::retain(current);
+            own.makeCurrentContext();
+            f(self);
+            match previous {
+                Some(previous)
+                    if !core::ptr::eq(Retained::as_ptr(&previous), Retained::as_ptr(&own)) =>
+                {
+                    previous.makeCurrentContext();
+                }
+                _ => {
+                    let _: () = msg_send![objc2::class!(NSOpenGLContext), clearCurrentContext];
+                }
+            }
+        }
     }
 
     /// Check if the window is still open
@@ -6786,6 +9209,115 @@ impl MacOSWindow {
     /// identifier in the window registry for multi-window support.
     pub fn get_ns_window_ptr(&self) -> *mut objc2::runtime::AnyObject {
         Retained::as_ptr(&self.window) as *mut objc2::runtime::AnyObject
+    }
+
+    /// Put AppKit's close / minimize / zoom buttons where the window's
+    /// `MacWindowOptions::traffic_light_position` asks ([`traffic_light_frames`]):
+    /// a window whose own title row - a tab strip in the titlebar - is taller
+    /// than AppKit's 28pt bar centres them on that row instead of leaving
+    /// them at AppKit's y.
+    ///
+    /// AppKit lays the titlebar out again whenever it sees fit - every
+    /// resize, leaving full screen, a key change - and puts the buttons back
+    /// in its own place, so this runs again then (`windowDidResize:`,
+    /// `windowDidExitFullScreen:`, `windowDidBecomeKey:`), as Electron does.
+    /// Nothing without the option, in full screen (AppKit shows the buttons
+    /// in its menu-bar overlay there), or when the window has no buttons.
+    fn apply_traffic_light_position(&self) {
+        use azul_core::geom::OptionLogicalPosition;
+
+        let state = self.common.current_window_state();
+        let OptionLogicalPosition::Some(position) =
+            state.platform_specific_options.mac_options.traffic_light_position
+        else {
+            return;
+        };
+        if state.flags.frame == WindowFrame::Fullscreen {
+            return;
+        }
+        unsafe {
+            // NSWindowCloseButton = 0, NSWindowMiniaturizeButton = 1,
+            // NSWindowZoomButton = 2 (an NSUInteger enum).
+            let close: Option<Retained<NSView>> =
+                msg_send_id![&*self.window, standardWindowButton: 0usize];
+            let minimize: Option<Retained<NSView>> =
+                msg_send_id![&*self.window, standardWindowButton: 1usize];
+            let zoom: Option<Retained<NSView>> =
+                msg_send_id![&*self.window, standardWindowButton: 2usize];
+            let (Some(close), Some(minimize), Some(zoom)) = (close, minimize, zoom) else {
+                return;
+            };
+            // The titlebar container is the close button's grandparent (the
+            // lookup Electron makes); a view tree AppKit changed in some
+            // release finds none and leaves the buttons alone.
+            let Some(container) = close.superview().and_then(|bar| bar.superview()) else {
+                return;
+            };
+            let close_frame = close.frame();
+            let pitch = minimize.frame().origin.x - close_frame.origin.x;
+            let ((cx, cy, cw, ch), origins) = traffic_light_frames(
+                self.window.frame().size.height,
+                container.frame().size.width,
+                (f64::from(position.x), f64::from(position.y)),
+                (close_frame.size.width, close_frame.size.height),
+                pitch,
+            );
+            container.setFrame(NSRect::new(NSPoint::new(cx, cy), NSSize::new(cw, ch)));
+            for (button, (x, y)) in [&close, &minimize, &zoom].into_iter().zip(origins) {
+                button.setFrameOrigin(NSPoint::new(x, y));
+            }
+        }
+    }
+
+    /// What this window's title bar is to its content, measured from AppKit
+    /// ([`titlebar_report`]): the band the title bar covers, and the frames of
+    /// its visible close / minimize / zoom buttons wherever they stand - in
+    /// AppKit's own place or where `traffic_light_position` put them.
+    /// `NSView` is main-thread-only, and so is every caller.
+    fn measure_titlebar(&self) -> azul_css::system::TitlebarReport {
+        let Some(cv) = self.window.contentView() else {
+            return azul_css::system::TitlebarReport::Unmeasured;
+        };
+        let size = cv.frame().size;
+        let band = (size.height - self.window.contentLayoutRect().size.height).max(0.0);
+        let mut buttons = Vec::with_capacity(3);
+        unsafe {
+            // NSWindowCloseButton = 0, NSWindowMiniaturizeButton = 1,
+            // NSWindowZoomButton = 2 (an NSUInteger enum).
+            for kind in 0usize..3 {
+                let button: Option<Retained<NSView>> =
+                    msg_send_id![&*self.window, standardWindowButton: kind];
+                let Some(button) = button else {
+                    continue;
+                };
+                let hidden: bool = msg_send![&*button, isHidden];
+                if hidden {
+                    continue;
+                }
+                let bounds: NSRect = msg_send![&*button, bounds];
+                let frame: NSRect = msg_send![&*button, convertRect: bounds, toView: &*cv];
+                buttons.push((frame.origin.x, frame.origin.y, frame.size.width, frame.size.height));
+            }
+        }
+        titlebar_report(band, (size.width, size.height), &buttons)
+    }
+
+    /// Measure the title bar again ([`Self::measure_titlebar`]) after AppKit
+    /// may have laid it out anew - a resize, full screen, a key change, a
+    /// new decoration, moved traffic lights - and lay the window out again
+    /// when it changed, so `env(titlebar-area-*)` follows it.
+    fn sync_titlebar_report(&mut self) {
+        let report = self.measure_titlebar();
+        let Some(layout_window) = self.common.layout_window.as_mut() else {
+            return;
+        };
+        if layout_window.frame_titlebar == report {
+            return;
+        }
+        layout_window.frame_titlebar = report;
+        self.common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::Other);
+        self.request_redraw();
     }
 
     /// Apply window decorations changes
@@ -6900,17 +9432,23 @@ impl MacOSWindow {
                         }
 
                         self.window.setOpaque(true);
+                        // The window's own background, set again by the next
+                        // frame (`sync_window_backdrop`), not the system's.
                         self.window.setBackgroundColor(None);
+                        self.backdrop_rgb = None;
                         self.window.setTitlebarAppearsTransparent(false);
                     }
                 }
+                self.set_gl_surface_see_through(gl_surface_see_through(material));
             }
             WindowBackgroundMaterial::Transparent => {
-                // Transparent window without blur
+                // Transparent window without blur: a modal dialog's dimmed
+                // backdrop, a popup with real rounded corners.
                 unsafe {
                     self.window.setOpaque(false);
                     self.window.setBackgroundColor(Some(&NSColor::clearColor()));
                 }
+                self.set_gl_surface_see_through(gl_surface_see_through(material));
             }
             WindowBackgroundMaterial::Sidebar
             | WindowBackgroundMaterial::Menu
@@ -6986,28 +9524,10 @@ impl MacOSWindow {
                         }
                     }
 
-                    // Make the GL context surface transparent
-                    // NSOpenGLCPSurfaceOpacity = 236
-                    if let Some(ref gl_context) = self.gl_context {
-                        unsafe {
-                            const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
-                            let opacity: i32 = 0; // 0 = transparent, 1 = opaque
-                            let _: () = msg_send![
-                                &**gl_context,
-                                setValues: &opacity as *const i32
-                                forParameter: NS_OPENGL_CP_SURFACE_OPACITY
-                            ];
-                        }
-                    }
-
-                    // Make the GL/CPU view layer non-opaque so blur shows through
-                    if let Some(ref gl_view) = self.gl_view {
-                        unsafe {
-                            let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
-                            if let Some(layer) = (*view_ptr).layer() {
-                                let _: () = msg_send![&*layer, setOpaque: false];
-                            }
-                        }
+                    // Make the GL surface, or the CPU view's layer, non-opaque
+                    // so the blur shows through.
+                    if self.gl_view.is_some() {
+                        self.set_gl_surface_see_through(gl_surface_see_through(material));
                     } else if let Some(ref cpu_view) = self.cpu_view {
                         unsafe {
                             let view_ptr = Retained::as_ptr(cpu_view) as *const NSView;
@@ -7025,21 +9545,92 @@ impl MacOSWindow {
         }
     }
 
-    /// Handle a menu action from a menu item click
-    /// Pause/resume the CVDisplayLink (window occluded / miniaturized —
-    /// no reason to tick vsync for an invisible window).
-    pub(super) fn set_display_link_paused(&mut self, paused: bool) {
-        if let Some(ref link) = self.display_link {
-            if paused {
-                if link.is_running() {
-                    let _ = link.stop();
+    /// Let the desktop show through the GL surface where the frame's alpha
+    /// is below one (`NSOpenGLCPSurfaceOpacity` 0, a non-opaque layer and a
+    /// view that says it is not opaque), or make it opaque again. A no-op
+    /// without a GL context.
+    fn set_gl_surface_see_through(&self, see_through: bool) {
+        const NS_OPENGL_CP_SURFACE_OPACITY: i64 = 236;
+        let opacity: i32 = i32::from(!see_through);
+        if let Some(ref gl_context) = self.gl_context {
+            unsafe {
+                let _: () = msg_send![
+                    &**gl_context,
+                    setValues: &opacity as *const i32
+                    forParameter: NS_OPENGL_CP_SURFACE_OPACITY
+                ];
+            }
+        }
+        if let Some(ref gl_view) = self.gl_view {
+            // AppKit sets a layer-backed view's layer from `isOpaque` again
+            // when it updates the layer, so the view has to answer too.
+            gl_view.set_transparent(see_through);
+            unsafe {
+                let view_ptr = Retained::as_ptr(gl_view) as *const NSView;
+                if let Some(layer) = (*view_ptr).layer() {
+                    let _: () = msg_send![&*layer, setOpaque: !see_through];
                 }
-            } else if !link.is_running() {
-                let _ = link.start();
             }
         }
     }
 
+    /// Pause/resume the CVDisplayLink (window occluded / miniaturized —
+    /// no reason to tick vsync for an invisible window). Paused, the pacer
+    /// runs no link and frame requests are delivered directly; resumed, the
+    /// link stays off until a frame is wanted, and one still owed from the
+    /// hidden time asks now.
+    pub(super) fn set_display_link_paused(&mut self, paused: bool) {
+        if paused {
+            let _ = self.frame_pacer.suspend();
+            self.stop_display_link();
+        } else {
+            self.frame_pacer.resume();
+            self.request_frame_if_pending();
+        }
+    }
+
+    /// This window's frame interval in seconds - the one source,
+    /// `LayoutWindow::frame_interval_nanos` (the refresh rate of the monitor
+    /// the window is on, capped by `RendererOptions::max_frame_rate`).
+    fn frame_interval_secs(&self) -> f64 {
+        self.common.frame_interval().as_secs_f64()
+    }
+
+    /// Stop the display link if it runs. The pacer already recorded the
+    /// stop (or never ran it); the next frame request starts it again.
+    fn stop_display_link(&mut self) {
+        if let Some(ref link) = self.display_link {
+            if link.is_running() {
+                let _ = link.stop();
+            }
+        }
+    }
+
+    /// Is a frame owed? A redraw was requested, the display list is dirty,
+    /// or a DOM regeneration is queued - the display-link tick renders
+    /// exactly when this holds.
+    fn frame_pending(&self) -> bool {
+        self.redraw_requested
+            || self.common.display_list_dirty
+            || self.common.regeneration_pending()
+    }
+
+    /// THE safety net under [`Self::request_frame`]: a frame is owed and no
+    /// link pumps one - ask for it.
+    ///
+    /// Most writers of the frame flags request a frame themselves, but the
+    /// always-on link used to poll the flags every vsync, and a path that
+    /// only raised a flag relied on that poll. The main loop calls this
+    /// before it parks, and so do the timer ticks (they also run inside
+    /// menu tracking and live resize, where the main loop does not), so no
+    /// owed frame waits for unrelated input.
+    pub fn request_frame_if_pending(&mut self) {
+        if self.frame_pending() && !self.frame_pacer.is_running() {
+            self.request_frame();
+        }
+    }
+
+    /// Handle a menu action from a menu item click
     fn handle_menu_action(&mut self, tag: isize) {
         use azul_core::events::ProcessEventResult;
 
@@ -7085,6 +9676,165 @@ impl MacOSWindow {
         }
     }
 
+    /// Whether nobody sees this window: it is in the Dock, or the app is hidden
+    /// (Cmd-H). What a window is released for with `MemoryRelease::NotShown`,
+    /// asked again by every render pass (A5-20: the pass of a window that is
+    /// shown brings its text halos back).
+    fn is_not_shown(&self) -> bool {
+        if self.common.current_window_state().flags.frame == WindowFrame::Minimized {
+            return true;
+        }
+        let app = NSApplication::sharedApplication(self.mtm);
+        let hidden: bool = unsafe { msg_send![&*app, isHidden] };
+        hidden
+    }
+
+    /// A5-20: this window's display lists stop painting text halos from kept
+    /// pictures, and the renderer deletes the pictures' keys - its image
+    /// templates hold the same bytes as the thread's kept pictures, so this is
+    /// what gives the memory back (`wr_translate2::release_text_halo_images`:
+    /// the lists go with the deletes, translated without the pictures). Sent
+    /// outside a render pass, and waited for: when this returns the scene and
+    /// the deletes have landed, and nothing a later pass sends can pass them.
+    /// The window is `HaloRelease::Hidden` until a pass finds it shown again.
+    fn release_halo_images_of_a_hidden_window(&mut self) {
+        if !matches!(self.backend, RenderBackend::OpenGL) {
+            return;
+        }
+        let (Some(layout_window), Some(render_api)) =
+            (self.common.layout_window.as_mut(), self.common.render_api.as_mut())
+        else {
+            return;
+        };
+        let mut txn = WrTransaction::new();
+        if crate::desktop::wr_translate2::release_text_halo_images(layout_window, &mut txn) == 0 {
+            return;
+        }
+        let doc_id = wr_translate_document_id(layout_window.document_id);
+        render_api.send_transaction(doc_id, txn);
+        render_api.flush_scene_builder();
+    }
+
+    /// Give back what `reason` asks for of this window's regenerable memory
+    /// (`release_plan`): the release A9-09 does when the window goes to the
+    /// Dock, for the app being hidden and for memory pressure too (A10-26).
+    /// What is given back is made again by the frames that follow; the frame
+    /// on screen (the view's framebuffer, AppKit's backing store) stays.
+    pub(crate) fn release_regenerable_memory(&mut self, reason: MemoryRelease) {
+        let plan = release_plan(reason, keep_caches());
+        #[cfg(feature = "cpurender")]
+        {
+            if plan.compositor {
+                // A1-29: the kept group surfaces (one view of the window with its overscan:
+                // 47 MB at 2940 x 1912), the kept halos and turned text pictures of this
+                // thread (up to 96 MB) and the compositor's layers (its root layer is one
+                // frame of pixels). This is the thread that paints the window's frames
+                // (`drawRect:`), which the halo store belongs to; the halos are the
+                // thread's, so every CPU window on it draws again the ones it shows.
+                self.cpu_backend.release_caches();
+                // (A10-06) The layer's copy of the kept surface goes with it.
+                // The picture is in no buffer then (`release_caches` forces
+                // the next frame to be a full one): a window that may be on
+                // screen gets that frame now, one that is not shown when it is
+                // shown again (`frame_pending` at `set_display_link_paused`).
+                if cpu_present_options().layer {
+                    if let Some(ref cpu_view) = self.cpu_view {
+                        cpu_view.hide_present_layer();
+                    }
+                    if reason == MemoryRelease::NotShown {
+                        self.redraw_requested = true;
+                    } else {
+                        self.request_redraw();
+                    }
+                }
+            }
+            if plan.glyph_generation {
+                self.cpu_backend.glyph_cache.gc();
+            }
+        }
+        if !keep_caches() {
+            // A5-18: the GPU backend's kept text halos (up to 96 MB of pictures) are
+            // this thread's, and every GPU window on it paints from them. What no
+            // window's display lists paint goes: the pictures of labels that left
+            // the view and of the sizes before the last zoom. What a list paints
+            // stays while its window can be seen: the renderer holds the same
+            // bytes for as long as a list names their keys, and a list translated
+            // without a scan finds its pictures there
+            // (`cpurender::release_text_halos`). So first every window's lists mark
+            // what they paint (a window that made no scan lately would lose its
+            // pictures to the windows that did).
+            //
+            // A5-20: a window NOBODY sees (the Dock, a hidden app) gives back the
+            // pictures its own lists paint as well. First the renderer's keys
+            // (which is what frees them), then the thread forgets this window's
+            // use, so that only what the other windows mark below is kept.
+            let full = reason == MemoryRelease::NotShown && halo_release_is_full();
+            if full {
+                self.release_halo_images_of_a_hidden_window();
+                azul_layout::cpurender::text_halos_forget_use();
+            }
+            let me: *const Self = &*self;
+            let painted_by = |window: &Self| {
+                // A GPU window whose pictures were not given back paints from them.
+                let Some(layout_window) = window.common.layout_window.as_ref().filter(|lw| {
+                    window.common.render_api.is_some()
+                        && lw.gpu_state_manager.halo_release
+                            == azul_layout::managers::gpu_state::HaloRelease::Kept
+                }) else {
+                    return;
+                };
+                let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+                azul_layout::cpurender::text_halos_in_use(
+                    layout_window.layout_results.values().map(|result| &result.display_list),
+                    dpi,
+                );
+            };
+            for window in registry::get_all_window_ptrs() {
+                if !core::ptr::eq(window.cast_const(), me) {
+                    // SAFETY: a registered window is alive, this is the main thread
+                    // (`release_memory_of_every_window`), and it is not `self`.
+                    painted_by(unsafe { &*window });
+                }
+            }
+            painted_by(&*self);
+            // The halos' glyphs and the shadows kept per list only make the next
+            // halo cheaper: they go when no window of the thread is on screen.
+            let not_shown = reason == MemoryRelease::NotShown && registry::window_count() <= 1;
+            let _ = azul_layout::cpurender::release_text_halos(not_shown);
+        }
+        if plan.staging_bitmap {
+            if let Some(ref cpu_view) = self.cpu_view {
+                cpu_view.release_staging_bitmap();
+            }
+        }
+        if plan.webrender_caches {
+            if let Some(api) = self.common.render_api.as_ref() {
+                api.notify_memory_pressure();
+            }
+        }
+        if plan.free_pages {
+            azul_layout::probe::hint_purge_allocator();
+        }
+    }
+
+    /// The window's DPI factor is changing: the next CPU frame is repainted
+    /// in full.
+    ///
+    /// `CpuBackend::render_frame` repaints what the display list's diff
+    /// reports and keeps every other pixel of the frame before. The list is
+    /// in logical pixels, so at another DPI factor it is the SAME list while
+    /// every device pixel is another one: the frame kept the old scale's
+    /// pixels (its top-left quarter when the factor doubles: the previous
+    /// frame, half size; cropped and doubled when it halves) until something
+    /// else damaged them. Called at every write of `size.dpi` that changes
+    /// it.
+    pub(super) fn cpu_frame_scale_changed(&mut self) {
+        #[cfg(feature = "cpurender")]
+        {
+            self.cpu_backend.force_full_repaint = true;
+        }
+    }
+
     /// Synchronize window size from content view bounds
     ///
     /// This ensures the window state always reflects the actual view size,
@@ -7102,9 +9852,28 @@ impl MacOSWindow {
 
         let old_dims = self.common.current_window_state().size.dimensions;
 
+        // A10-02: the CPU frame is sized from the STATE (`ceil(dims * dpi)`)
+        // and the view's framebuffer from the VIEW's bounds, by the same
+        // formula. Inside the tolerance below the two can still be one pixel
+        // apart (a window asked for at 800.2 pt that AppKit made 800 pt at
+        // 2x: frame 1601 px, view 1600 px), and a frame of another size than
+        // the view is rescaled into it on every present. So the state also
+        // follows the view whenever the two make frames of different sizes.
+        let dpi = self.common.current_window_state().size.dpi as f32 / BASE_DPI;
+        let frame_differs = azul_layout::window::present_geometry::frame_size_px(
+            old_dims.width,
+            old_dims.height,
+            dpi,
+        ) != azul_layout::window::present_geometry::frame_size_px(
+            new_logical_width,
+            new_logical_height,
+            dpi,
+        );
+
         // Only update if dimensions actually changed (with small tolerance for float comparison)
         if (old_dims.width - new_logical_width).abs() > 0.5
             || (old_dims.height - new_logical_height).abs() > 0.5
+            || frame_differs
         {
             // Snapshot the event-diff baseline BEFORE mutating: this fallback
             // (for a windowDidResize the loop never saw) has to dispatch the
@@ -7121,10 +9890,10 @@ impl MacOSWindow {
                 width: new_logical_width,
                 height: new_logical_height,
             };
-            self.common.update_window_state(
-                event::WindowStateSource::Os,
-                |ws| ws.size.dimensions = new_dims,
-            );
+            self.common
+                .update_window_state(event::WindowStateSource::Os, |ws| {
+                    ws.size.dimensions = new_dims
+                });
 
             // Also update the DPI in case it changed (e.g., window moved to different display)
             let scale_factor = unsafe {
@@ -7136,10 +9905,11 @@ impl MacOSWindow {
             // Os-source for the same reason as the dimension write above: the
             // scale is an OS fact, keep the OS-sync baseline in lockstep.
             let new_dpi = (scale_factor * BASE_DPI) as u32;
-            self.common.update_window_state(
-                event::WindowStateSource::Os,
-                |ws| ws.size.dpi = new_dpi,
-            );
+            if new_dpi != self.common.current_window_state().size.dpi {
+                self.cpu_frame_scale_changed();
+            }
+            self.common
+                .update_window_state(event::WindowStateSource::Os, |ws| ws.size.dpi = new_dpi);
 
             // The dimensions AND the backing scale just changed — that is a
             // `Resize` by the enum's own definition, and it is what the X11 and
@@ -7255,10 +10025,7 @@ impl MacOSWindow {
                 Some(lw) => lw,
                 None => return,
             };
-            let layout_result = match layout_window
-                .layout_results
-                .get(&DomId::ROOT_ID)
-            {
+            let layout_result = match layout_window.layout_results.get(&DomId::ROOT_ID) {
                 Some(lr) => lr,
                 None => return,
             };
@@ -7276,57 +10043,92 @@ impl MacOSWindow {
         self.set_application_menu(&menu);
     }
 
-    /// Show a tooltip with the given text at the specified position
-    ///
-    /// Position is in logical coordinates. The tooltip will be created on first use.
+    /// How this window's content lies on the screen: the top-left of its
+    /// content area in global top-down points (y = 0 at the top of the PRIMARY
+    /// screen), the space AppKit's screens are listed in, at one point per
+    /// logical px.
+    #[allow(clippy::cast_possible_truncation)] // screen points
+    pub(crate) fn screen_mapping(&self) -> azul_layout::placement::WindowToScreen {
+        let content = unsafe { self.window.contentRectForFrameRect(self.window.frame()) };
+        let primary_h = primary_screen_height().unwrap_or(0.0);
+        azul_layout::placement::WindowToScreen::new(
+            azul_layout::placement::ScreenPoint::new(
+                content.origin.x as f32,
+                (primary_h - content.origin.y - content.size.height) as f32,
+            ),
+            1.0,
+        )
+    }
+
+    /// Show a tooltip with `text` for `anchor`, the box it explains in this
+    /// window's logical coordinates (top-left origin). The tooltip panel is
+    /// created on first use.
     pub fn show_tooltip(
         &mut self,
         text: &str,
-        position: azul_core::geom::LogicalPosition,
+        anchor: azul_core::geom::LogicalRect,
     ) -> Result<(), String> {
         // Lazily create tooltip if needed
         if self.tooltip.is_none() {
             self.tooltip = Some(tooltip::TooltipWindow::new(self.mtm)?);
         }
-
-        let dpi_factor = DpiScaleFactor::new(unsafe {
-            self.window
-                .screen()
-                .map(|screen| screen.backingScaleFactor() as f32)
-                .unwrap_or(1.0)
-        });
-
-        // `position` is WINDOW-logical (top-left origin) — the ShowTooltip
-        // contract (`get_cursor_relative_to_viewport`). The tooltip panel is a
-        // separate NSPanel positioned in GLOBAL coordinates, so convert:
-        // window-local top-down → window bottom-up → screen bottom-up
-        // (convertRectToScreen) → global top-down against the PRIMARY screen
-        // height (MWA-B9). Previously the window-local point was handed over
-        // unconverted and read as global: the tooltip appeared at the
-        // window-relative offset measured from the SCREEN's top-left corner.
-        let global_top_down = {
-            let content_h = self
-                .window
-                .contentView()
-                .map(|cv| cv.bounds().size.height)
-                .unwrap_or(0.0);
-            let window_rect = NSRect::new(
-                NSPoint::new(position.x as f64, content_h - position.y as f64),
-                NSSize::new(0.0, 0.0),
-            );
-            let screen_rect = self.window.convertRectToScreen(window_rect);
-            let primary_h = primary_screen_height().unwrap_or(0.0);
-            azul_core::geom::LogicalPosition::new(
-                screen_rect.origin.x as f32,
-                (primary_h - screen_rect.origin.y) as f32,
-            )
-        };
-
+        let mapping = self.screen_mapping();
         if let Some(ref mut tooltip) = self.tooltip {
-            tooltip.show(text, global_top_down, dpi_factor)?;
+            tooltip.show(text, anchor, mapping)?;
         }
 
         Ok(())
+    }
+
+    /// Size a `size_to_content` window (a window-drawn menu) to its content as its
+    /// first layout measured it. A menu is placed again for that size by the rule it
+    /// was opened with - `show_menu` could only place it from an estimate - so one
+    /// taller than the room below its control flips above it, and one taller than the
+    /// screen is cut to it. Its data and the frame are global top-down points.
+    fn fit_to_content(&mut self) {
+        let Some(measured) = self
+            .common
+            .layout_window
+            .as_ref()
+            .and_then(|lw| lw.layout_results.get(&azul_core::dom::DomId::ROOT_ID))
+            .map(|r| {
+                r.layout_tree.get_content_size(
+                    azul_layout::solver3::layout_tree::LayoutNodeId::new(r.layout_tree.root),
+                )
+            })
+        else {
+            return;
+        };
+        let measured_something = measured.width > 0.0 && measured.height > 0.0;
+        if !measured_something {
+            return;
+        }
+        let ctx = self
+            .common
+            .current_window_state()
+            .layout_callback
+            .ctx
+            .clone();
+        let placed = crate::desktop::menu::place_measured_menu(&ctx, measured);
+        let size = placed.map_or(measured, |p| p.size);
+        let frame = placed.map(|p| p.frame);
+        unsafe {
+            self.window.setContentSize(NSSize::new(
+                f64::from(size.width),
+                f64::from(size.height),
+            ));
+            // AppKit takes the top-left in bottom-up coordinates of the primary screen.
+            if let (Some(frame), Some(primary_height)) = (frame, primary_screen_height()) {
+                self.window.setFrameTopLeftPoint(NSPoint::new(
+                    f64::from(frame.origin.x),
+                    primary_height - f64::from(frame.origin.y),
+                ));
+            }
+        }
+        self.common
+            .update_window_state(event::WindowStateSource::Os, |ws| {
+                ws.size.dimensions = size;
+            });
     }
 
     /// Hide the currently displayed tooltip
@@ -7451,22 +10253,17 @@ impl MacOSWindow {
         position: azul_core::geom::LogicalPosition,
         anchor: Option<azul_core::geom::LogicalRect>,
     ) {
-        // Get parent window position
-        let parent_pos = match self.common.current_window_state().position {
-            WindowPosition::Initialized(pos) => {
-                azul_core::geom::LogicalPosition::new(pos.x as f32, pos.y as f32)
-            }
-            _ => azul_core::geom::LogicalPosition::new(0.0, 0.0),
-        };
-
-        // Create menu window options using the unified menu system
+        // `position` and `anchor` are this window's logical px; the menu is
+        // placed in them and reaches the screen through the window's mapping.
         let menu_options = crate::desktop::menu::show_menu(
             menu.clone(),
             self.common.system_style.clone(),
-            parent_pos,
+            Some(self.screen_mapping()),
             anchor,         // The node the menu was opened for (drives min-width)
             Some(position), // Position for menu
             None,           // No parent menu
+            // The item picked in it runs in THIS window (`drain_loop_work`).
+            self.common.menu_picks.clone(),
         );
 
         // Queue window creation request
@@ -7566,18 +10363,10 @@ impl MacOSWindow {
         #[cfg(feature = "a11y")]
         self.process_accessibility_actions();
 
-        // Only update accessibility tree when something changed — not on every mouse move
+        // The tree update of this event, with every other one of the burst,
+        // after this run-loop turn (`schedule_a11y_delivery`).
         #[cfg(feature = "a11y")]
-        if self.common.a11y_dirty {
-            self.update_accessibility();
-            self.common.a11y_dirty = false;
-        } else {
-            // Scroll moved the content: throttled full rebuild (bounds +
-            // scroll_x/y), then hand it over like any other parked update.
-            use super::common::event::PlatformWindow;
-            self.rebuild_a11y_after_scroll_if_due();
-            self.flush_a11y_tree_update();
-        }
+        self.schedule_a11y_delivery();
     }
 
     /// Set the mouse cursor to a specific system cursor
@@ -7611,6 +10400,19 @@ impl MacOSWindow {
                 "operation_not_allowed" | "not-allowed" => NSCursor::operationNotAllowedCursor(),
                 _ => NSCursor::arrowCursor(), // Default fallback
             };
+            // A pointer move asks for the cursor of the node under it, which
+            // is nearly always the one that is set: AppKit is asked what its
+            // current cursor is, and `set` (a message to the window server)
+            // is sent only for another one. `currentCursor` is what the
+            // application last set, by this call or by AppKit itself (a
+            // resize cursor at the window's edge), so nothing is remembered
+            // here that could go stale. `AZ_CURSOR_SET_ALWAYS=1`: `set` on
+            // every call, as before.
+            if !cursor_is_set_on_every_call()
+                && core::ptr::eq::<NSCursor>(&*NSCursor::currentCursor(), &*cursor)
+            {
+                return;
+            }
             cursor.set();
         }
     }
@@ -7646,18 +10448,54 @@ impl MacOSWindow {
     /// SAFETY: This creates a self-referential pointer. The caller must ensure:
     /// - The window is not moved in memory (use Box/Arc or keep it on the stack)
     /// - The view is owned by the window and doesn't outlive it
-    pub unsafe fn setup_gl_view_back_pointer(&mut self) { unsafe {
-        // Get the window pointer first, before borrowing gl_view
-        let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
+    pub unsafe fn setup_gl_view_back_pointer(&mut self) {
+        unsafe {
+            // Get the window pointer first, before borrowing gl_view
+            let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
 
-        if let Some(ref gl_view) = self.gl_view {
-            gl_view.set_window_ptr(window_ptr);
-            log_trace!(
-                LogCategory::Platform,
-                "[setup_gl_view_back_pointer] GLView back pointer set"
-            );
+            if let Some(ref gl_view) = self.gl_view {
+                gl_view.set_window_ptr(window_ptr);
+                log_trace!(
+                    LogCategory::Platform,
+                    "[setup_gl_view_back_pointer] GLView back pointer set"
+                );
+            }
         }
-    }}
+    }
+
+    /// Make a window the constructor ordered in transparent visible, once a
+    /// view's `drawRect` showed its document (see `awaiting_first_frame`):
+    /// a window shown before that shows its bare background for a frame,
+    /// the white flash of a popover. Called after every `drawRect` that
+    /// reached the window; a renderer that never shows the document still
+    /// gets the window shown after [`BLANK_DRAWS_BEFORE_SHOWN`] draws, so a
+    /// failed first frame never leaves it invisible.
+    pub(super) fn reveal_after_first_frame(&mut self, shows_document: bool) {
+        if !self.awaiting_first_frame {
+            return;
+        }
+        if shown_after_draw(shows_document, self.blank_first_draws) {
+            self.awaiting_first_frame = false;
+            self.window.setAlphaValue(1.0);
+        } else {
+            // The frame WebRender is building asks for the draw that shows
+            // it; the request keeps a window whose frame never comes on its
+            // way to being shown anyway.
+            self.blank_first_draws += 1;
+            self.request_redraw();
+        }
+    }
+
+    /// Whether the GPU renderer's current frame holds this window's
+    /// document. A window without one (the CPU backend) answers `true`.
+    pub(super) fn gpu_shows_document(&self) -> bool {
+        match (self.common.renderer.as_ref(), self.common.layout_window.as_ref()) {
+            (Some(renderer), Some(lw)) => {
+                crate::desktop::wr_translate2::renderer_shows_document(renderer, lw.document_id)
+            }
+            _ => true,
+        }
+    }
 
     /// Finalize the delegate's back-pointer to this window.
     ///
@@ -7667,24 +10505,42 @@ impl MacOSWindow {
     /// SAFETY:
     /// - The window must not be moved in memory after this call
     /// - The delegate is owned by the window and doesn't outlive it
-    pub unsafe fn finalize_delegate_pointer(&mut self) { unsafe {
-        let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
-        let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
-        (*delegate_ptr).set_window_ptr(window_ptr);
-        // Also set the CPUView's back pointer (if using CPU backend).
-        // Must go through set_window_ptr: the raw ivar write it replaces
-        // skipped the initial tickTimers: kick that set_window_ptr schedules
-        // (GLView got it via setup_gl_view_back_pointer, CPU windows did not),
-        // so the first timer/thread pass never ran on CPU windows until an
-        // NSTimer was created for some other reason.
-        if let Some(ref cpu_view) = self.cpu_view {
-            cpu_view.set_window_ptr(window_ptr);
+    pub unsafe fn finalize_delegate_pointer(&mut self) {
+        // A10-26: also for an app whose delegate is not azul's (once per process).
+        memory_pressure::install();
+        unsafe {
+            let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
+            let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
+            (*delegate_ptr).set_window_ptr(window_ptr);
+            // Also set the CPUView's back pointer (if using CPU backend).
+            // Must go through set_window_ptr: the raw ivar write it replaces
+            // skipped the initial tickTimers: kick that set_window_ptr schedules
+            // (GLView got it via setup_gl_view_back_pointer, CPU windows did not),
+            // so the first timer/thread pass never ran on CPU windows until an
+            // NSTimer was created for some other reason.
+            if let Some(ref cpu_view) = self.cpu_view {
+                cpu_view.set_window_ptr(window_ptr);
+            }
+            // The views can draw now. A drawRect the constructor's order-in
+            // caused already ran without them, so ask for the one that
+            // reveals the window (a request only: nothing draws inside this
+            // borrow).
+            if self.awaiting_first_frame {
+                let view: Option<&NSView> = match (&self.gl_view, &self.cpu_view) {
+                    (Some(gl), _) => Some(&*(Retained::as_ptr(gl) as *const NSView)),
+                    (None, Some(cpu)) => Some(&*(Retained::as_ptr(cpu) as *const NSView)),
+                    (None, None) => None,
+                };
+                if let Some(view) = view {
+                    view.setNeedsDisplay(true);
+                }
+            }
+            log_trace!(
+                LogCategory::Platform,
+                "[finalize_delegate_pointer] WindowDelegate + CPUView back pointers set"
+            );
         }
-        log_trace!(
-            LogCategory::Platform,
-            "[finalize_delegate_pointer] WindowDelegate + CPUView back pointers set"
-        );
-    }}
+    }
 
     /// This is the MAIN rendering entry point, called ONLY from GLView::drawRect:
     ///
@@ -7700,7 +10556,11 @@ impl MacOSWindow {
     pub fn render_and_present_in_draw_rect(&mut self) -> Result<(), WindowError> {
         use super::common::event::PlatformWindow;
 
+        // The whole draw of a frame, one per drawRect: what AZ_PROFILE=cpu
+        // reports as a frame's render cost next to its relayout.
+        let _probe = azul_layout::probe::Probe::span("draw_rect_render_present");
         log_trace!(LogCategory::Rendering, "[render_and_present] START");
+        self.sync_window_backdrop();
 
         // NOTE: Timer callbacks are NOT invoked here — they run in the
         // NSTimer tick_timers callback. Invoking them here as well would
@@ -7947,27 +10807,14 @@ impl MacOSWindow {
             display_list_needs_rebuild
         };
 
-        // Push the a11y tree from THIS frame's relayout to the OS now.
-        // regenerate_layout_inner() raises a11y_dirty, but the only other flush
-        // site is process_event() — which runs per NSEvent in the MANUAL event
-        // loop only. Under NSApplication.run() (RunForever) it never executes,
-        // and VoiceOver-initiated actions arrive over the accessibility Mach
-        // port without generating any NSEvent, so after the initial tree the
-        // adapter's update_if_active → QueuedEvents::raise() (the
-        // NSAccessibility notification post) never ran again: screen readers
-        // saw the FIRST window state forever. The frame path is the one place
-        // every mode and backend passes through after a relayout.
+        // The a11y tree of THIS frame's relayout reaches the OS from here, in
+        // every run mode: under NSApplication.run() process_event() never
+        // runs, and VoiceOver's actions arrive without an NSEvent, so the
+        // frame path is the one place every mode passes through after a
+        // relayout. Not in the draw call itself: after this run-loop turn
+        // (`schedule_a11y_delivery`).
         #[cfg(feature = "a11y")]
-        if self.common.a11y_dirty {
-            self.update_accessibility();
-            self.common.a11y_dirty = false;
-        } else {
-            // Scroll moved the content: throttled full rebuild (bounds +
-            // scroll_x/y), then hand it over like any other parked update.
-            use super::common::event::PlatformWindow;
-            self.rebuild_a11y_after_scroll_if_due();
-            self.flush_a11y_tree_update();
-        }
+        self.schedule_a11y_delivery();
 
         // Read these BEFORE taking the mutable borrow below. `regeneration_pending()`
         // is an `&self` method on CommonWindowState, so calling it while
@@ -7976,6 +10823,8 @@ impl MacOSWindow {
         // log message must not dictate borrow structure, so the values are
         // captured here and the log uses the locals.
         let regen_pending_at_entry = self.common.regeneration_pending();
+        // (A5-20, read here for the same reason.)
+        let window_is_not_shown = self.is_not_shown();
         let display_list_initialized_at_entry = self.common.display_list_initialized;
 
         // Get layout_window
@@ -8006,7 +10855,8 @@ impl MacOSWindow {
                     "[build_atomic_txn] Scroll animation active, repaint needed"
                 );
                 // Keep CPU-side scrollbar geometry in sync with animated scroll offsets
-                // so that perform_scrollbar_hit_test returns correct thumb positions.
+                // so that the press router (`LayoutWindow::route_press`) finds the
+                // thumb where it is painted.
                 layout_window.scroll_manager.calculate_scrollbar_states();
             }
         }
@@ -8025,12 +10875,27 @@ impl MacOSWindow {
         // asynchronous setNeedsDisplay. Every scroll frame therefore hit this
         // early return and the window never visibly scrolled on macOS.
         let redraw_was_requested = std::mem::take(&mut self.redraw_requested);
-        let scrollbar_fade_active = layout_window.gpu_state_manager.scrollbar_fade_active;
+        // A5-20: a window that gave its text halo pictures back while nobody saw
+        // it (`release_regenerable_memory`) and is shown now owes the frame that
+        // brings them back: this pass scans, draws a small picture for every
+        // label and sends the lists with them. Asked in every pass and not left
+        // to the notifications of the return, so a window that is seen never
+        // stays without them. `halos_return_in_this_pass`: that pass waits for
+        // its frame (below), so the first frame presented after the return is
+        // the one with the halos.
+        if !window_is_not_shown {
+            let _ = layout_window.gpu_state_manager.halos_return();
+        }
+        let halos_return_in_this_pass = layout_window.gpu_state_manager.halo_release
+            == azul_layout::managers::gpu_state::HaloRelease::Returning;
+        // The frames the engine itself owes: a fading scrollbar, text halos left
+        // for a later frame.
+        let frames_owed = layout_window.gpu_state_manager.frames_owed();
         let has_virtual_view_updates = !layout_window.pending_virtual_view_updates.is_empty();
         if self.common.display_list_initialized
             && !display_list_needs_rebuild
             && !scroll_needs_repaint
-            && !scrollbar_fade_active
+            && !frames_owed
             && !has_virtual_view_updates
             && !redraw_was_requested
         {
@@ -8078,6 +10943,8 @@ impl MacOSWindow {
         if self.backend == RenderBackend::CPU {
             use azul_core::dom::DomId;
 
+            // (A10-06) Set when the view could not show a frame's layer.
+            let mut layer_present_failed = false;
             let dom_id = DomId { inner: 0 };
             // render_frame looks up the layout result itself; we only need to know
             // one exists before computing window dims.
@@ -8085,7 +10952,8 @@ impl MacOSWindow {
                 let ws = &layout_window.current_window_state;
                 let width = ws.size.dimensions.width;
                 let height = ws.size.dimensions.height;
-                let dpi = ws.size.dpi as f32 / BASE_DPI;
+                // THE factor of the window's frame (A10-17).
+                let dpi = layout_window.frame_scale();
 
                 if width > 0.0 && height > 0.0 {
                     // Shared per-frame content preparation (journal clock, image
@@ -8106,8 +10974,8 @@ impl MacOSWindow {
                     // (rescale in flight) skips the arm; that frame takes the
                     // legacy copy path below. BLIND-IMPLEMENTED per USER
                     // directive 2026-08-12 — not yet run on real hardware.
-                    let native_pw = (width * dpi).ceil() as u32;
-                    let native_ph = (height * dpi).ceil() as u32;
+                    let (native_pw, native_ph) =
+                        azul_layout::window::present_geometry::frame_size_px(width, height, dpi);
                     // Transparent material: the frame clears to alpha 0
                     // and the view composites it (macOS shapes the window's
                     // hit-testing by that alpha on its own).
@@ -8122,6 +10990,12 @@ impl MacOSWindow {
                             if let Some(ptr) =
                                 cpu_view.native_target_ptr(native_pw as usize, native_ph as usize)
                             {
+                                // `native_target_ptr` refuses the view's
+                                // framebuffer while `fb_content_valid` is
+                                // false (a resize white-filled it), so a
+                                // pointer coming back means it holds frame
+                                // N-1.
+                                self.cpu_backend.native_target_holds_previous_frame = true;
                                 self.cpu_backend.native_target = unsafe {
                                     azul_layout::cpurender::AzulPixmap::from_external(
                                         ptr, native_pw, native_ph,
@@ -8130,6 +11004,16 @@ impl MacOSWindow {
                             }
                         }
                     }
+
+                    // (A10-06) `AZ_CPU_PRESENT=layer`: the renderer leaves the
+                    // picture of one frame (a map view's) out of the window's
+                    // frame and reports it as a layer, when the view can show
+                    // one over a frame of this size. Off (the default): false,
+                    // and the renderer does nothing of it.
+                    self.cpu_backend.promote_for_present = cpu_present_options().layer
+                        && self.cpu_view.as_ref().is_some_and(|cpu_view| {
+                            cpu_view.layer_present_usable(native_pw as usize, native_ph as usize)
+                        });
 
                     self.cpu_backend.render_frame(
                         layout_window,
@@ -8142,6 +11026,10 @@ impl MacOSWindow {
                     // not leave a pointer into the view framebuffer armed
                     // across frames.
                     self.cpu_backend.native_target = None;
+
+                    let paint = self.cpu_backend.last_frame_damage.clone();
+                    let present = self.cpu_backend.last_present_damage.clone();
+                    layout_window.record_frame(paint, present);
 
                     if self.cpu_backend.rendered_native {
                         // Pixels are already in the view framebuffer —
@@ -8170,7 +11058,24 @@ impl MacOSWindow {
                     if let Some(ref pixmap) = self.cpu_backend.last_frame {
                         if let Some(ref cpu_view) = self.cpu_view {
                             match &self.cpu_backend.last_present_damage {
-                                crate::desktop::shell2::headless::FrameDamage::None => {}
+                                // "Nothing changed" is about the frame, not
+                                // about the view: a framebuffer `drawRect:`
+                                // just made anew holds the blank fill, and
+                                // the frame is copied in all the same. (A
+                                // resize whose render ran at the tick BEFORE
+                                // `drawRect:` resized the buffer ends here:
+                                // that render was the full repaint, this one
+                                // finds nothing left to do.)
+                                crate::desktop::shell2::headless::FrameDamage::None
+                                    if !cpu_view.shows_blank() => {}
+                                crate::desktop::shell2::headless::FrameDamage::None => {
+                                    cpu_view.update_framebuffer(
+                                        pixmap.data(),
+                                        pixmap.width() as usize,
+                                        pixmap.height() as usize,
+                                        None,
+                                    );
+                                }
                                 damage => {
                                     let rects = damage.to_present_rects_physical(
                                         dpi,
@@ -8205,10 +11110,56 @@ impl MacOSWindow {
                         }
                     }
                     // (previous-display-list tracking now lives inside render_frame.)
+
+                    // (A10-06) The layer of this frame, in the same run loop
+                    // turn as the frame's own rects above: Core Animation
+                    // commits the layer's move and the view's redraw together.
+                    // With no layer reported the layers are hidden (the
+                    // renderer repainted their clip into the frame above).
+                    if cpu_present_options().layer {
+                        if let Some(ref cpu_view) = self.cpu_view {
+                            let backend = &self.cpu_backend;
+                            let layer = backend.last_present_layer.as_ref().map(|layer| {
+                                layer_present::LayerInput {
+                                    surface_id: layer.surface_id,
+                                    generation: layer.generation,
+                                    surface_size: layer.surface_size,
+                                    scale: (layer.matrix.xx, layer.matrix.yy),
+                                    offset: (layer.matrix.tx, layer.matrix.ty),
+                                    clip: layer.clip,
+                                }
+                            });
+                            layer_present_failed = !cpu_view.present_layer(layer, native_ph, || {
+                                backend.with_present_layer_surface(|surface| {
+                                    (
+                                        surface.data().to_vec(),
+                                        surface.width() as usize,
+                                        surface.height() as usize,
+                                    )
+                                })
+                            });
+                        }
+                    }
                 }
             }
 
+            // (A10-06) The view could not show the layer the frame reported:
+            // the picture is in no buffer. One full frame without a layer
+            // (`layer_present_usable` answers no from now on).
+            if layer_present_failed {
+                log_error!(
+                    LogCategory::Rendering,
+                    "[CPUView] layer present: the layers could not be made; presenting without them"
+                );
+                self.cpu_backend.force_full_repaint = true;
+                self.request_redraw();
+            }
+
             self.common.display_list_initialized = true;
+            // Like every pass, the frame's content step may leave work: a
+            // background whose callback draws its frame off the UI thread is
+            // asked again on the frames the animation drivers bring.
+            self.arm_animation_drivers_if_needed();
             return Ok(());
         }
 
@@ -8252,7 +11203,7 @@ impl MacOSWindow {
             // for no frame, so sending it would only make WebRender do
             // bookkeeping for values it already has. The display-link tick that
             // brought us here has nothing to present.
-            if !frame.changed {
+            if !frame.changed && !self.frame_waiting {
                 log_trace!(
                     LogCategory::Rendering,
                     "[macOS] Lightweight pass: nothing changed, transaction dropped"
@@ -8265,7 +11216,7 @@ impl MacOSWindow {
                     .common
                     .layout_window
                     .as_ref()
-                    .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+                    .map(|lw| lw.gpu_state_manager.frames_owed())
                     .unwrap_or(false);
                 if needs_fade_frame {
                     self.request_redraw();
@@ -8276,8 +11227,58 @@ impl MacOSWindow {
 
         log_trace!(LogCategory::Rendering, "[build_atomic_txn] COMPLETE");
 
-        // Send the complete atomic transaction
-        if let Some(layout_window) = self.common.layout_window.as_ref() {
+        // Send the complete atomic transaction (a pass that only shows a
+        // frame WebRender published has nothing to send).
+        let frame_waiting = std::mem::take(&mut self.frame_waiting);
+        let only_shows_a_published_frame =
+            frame_waiting && !display_list_needs_rebuild && txn.is_empty();
+
+        // Whether this pass waits for the scene builder and the render backend
+        // after its send, and whether it draws (audit A4-31, the rules are
+        // `common::frame_schedule`'s). A transaction with a display list has
+        // the scene built again (10-30 ms est. for a map view): it is sent
+        // WITHOUT the wait, the window keeps the frame it shows, and the pass
+        // the renderer's wake brings (`drain_loop_work`: `frame_waiting`)
+        // draws it. Everything sent while that scene is in flight queues
+        // behind it. In step with their transaction, as before: a pass that
+        // sends no display list while nothing is in flight (every frame of a
+        // gesture), the window's first frame, a pass at another size than the
+        // last frame drawn, a live resize, and every pass with
+        // `AZ_WR_SYNC_SCENE=1`.
+        let frame_size = {
+            let size = self.common.current_window_state().size.get_physical_size();
+            (size.width, size.height)
+        };
+        let forced_sync = crate::desktop::shell2::common::frame_schedule::sync_scene_always()
+            || !display_list_initialized_at_entry
+            || self.last_gpu_frame_size != Some(frame_size)
+            || halos_return_in_this_pass
+            || unsafe { self.window.contentView() }
+                .is_some_and(|view| unsafe { view.inLiveResize() });
+        let frame_send = self.frame_schedule.on_send(
+            crate::desktop::shell2::common::frame_schedule::FrameShape::of(
+                &txn,
+                only_shows_a_published_frame,
+            ),
+            crate::desktop::shell2::common::frame_schedule::FramePass {
+                forced_sync,
+                frame_waiting,
+                now: std::time::Instant::now(),
+            },
+        );
+
+        // From here to the flush's return the UI thread waits for the scene
+        // builder and the render backend: the frame's `gpu_blocked_us`.
+        let blocked_started = std::time::Instant::now();
+        if let Some(layout_window) = self
+            .common
+            .layout_window
+            .as_ref()
+            .filter(|_| frame_send.send)
+        {
+            // Behind whatever is still on its way, if anything is.
+            frame_send.route(&mut txn);
+            crate::desktop::wr_translate2::count_transaction(&txn);
             let doc_id = wr_translate_document_id(layout_window.document_id);
             log_trace!(
                 LogCategory::Rendering,
@@ -8289,19 +11290,84 @@ impl MacOSWindow {
                 .as_mut()
                 .unwrap()
                 .send_transaction(doc_id, txn);
-            self.common
-                .render_api
-                .as_mut()
-                .unwrap()
-                .flush_scene_builder();
+        }
+        if frame_send.flush {
+            if let Some(render_api) = self.common.render_api.as_mut() {
+                render_api.flush_scene_builder();
+            }
         }
         log_trace!(LogCategory::Rendering, "[WebRender] Transaction sent");
+        let blocked_us = crate::desktop::wr_translate2::elapsed_us(blocked_started);
+
+        // A scene went out without the wait: should no wake come for its
+        // frame, a pass comes by itself once the valve's time has gone by,
+        // and that pass waits.
+        if frame_send.arm_valve {
+            arm_scene_valve();
+        }
+
+        if !frame_send.render {
+            // Nothing to draw yet: what was sent is on its way, and the pass
+            // its frame's wake brings draws it. The window keeps the frame it
+            // shows (no `flushBuffer`), no frame is recorded, the GL textures
+            // of the frame on screen stay, and what this pass counted is
+            // published with the frame that shows it.
+            crate::desktop::wr_translate2::gpu_frame_is_drawn_later();
+            log_trace!(
+                LogCategory::Rendering,
+                "[render_and_present] Sent without the wait - the frame is drawn when it is built"
+            );
+            // The rest of a pass, as below: the frames the engine owes (a
+            // scrollbar's fade, halos left for later - their pictures queue
+            // behind the scene), and the web views where this layout put them.
+            let needs_fade_frame = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| lw.gpu_state_manager.frames_owed())
+                .unwrap_or(false);
+            if needs_fade_frame {
+                self.request_redraw();
+            }
+            if crate::desktop::shell2::common::webview::sync(self) {
+                self.request_redraw();
+            }
+            return Ok(());
+        }
 
         // Step 2: Call WebRender to composite the scene
+        let render_started = std::time::Instant::now();
+        let mut draw_calls = 0u64;
         let physical_size = self.common.current_window_state().size.get_physical_size();
+        // The canvas follows the mode the window shows (THE clear colour).
+        self.common.sync_renderer_clear_color();
         if let Some(ref mut renderer) = self.common.renderer {
             log_trace!(LogCategory::Rendering, "[WebRender] renderer.update()");
+            // Every frame published so far is taken in now: a signal still
+            // pending is for one this pass shows, not one still waiting.
+            if let Ok(mut ready) = self.new_frame_ready.0.lock() {
+                *ready = false;
+            }
             renderer.update();
+
+            // A4-31: is the scene that was sent without the wait in the frame
+            // the renderer holds now? Then it is in flight no more, and what
+            // this window believes the renderer holds of values and scroll
+            // offsets is forgotten: the next pass sends the current ones,
+            // whatever travelled with the scene or behind it.
+            if self.frame_schedule.scene_in_flight().is_some() {
+                if let Some(layout_window) = self.common.layout_window.as_mut() {
+                    let document_id = wr_translate_document_id(layout_window.document_id);
+                    let landed = self
+                        .frame_schedule
+                        .on_published(|pipeline| renderer.current_epoch(document_id, pipeline));
+                    if landed {
+                        layout_window
+                            .gpu_state_manager
+                            .invalidate_submitted_digests();
+                    }
+                }
+            }
 
             let device_size = webrender::api::units::DeviceIntSize::new(
                 physical_size.width as i32,
@@ -8321,6 +11387,7 @@ impl MacOSWindow {
                         "[WebRender] Render successful: {:?}",
                         results.stats
                     );
+                    draw_calls = results.stats.total_draw_calls as u64;
 
                     // Store WebRender's dirty rects for per-rect compositor invalidation.
                     // request_redraw() uses these to call setNeedsDisplayInRect: instead
@@ -8340,25 +11407,10 @@ impl MacOSWindow {
                             },
                         })
                         .collect();
-
-                    // Update hit tester after render - WebRender now has valid scene data
-                    if let Some(layout_window) = self.common.layout_window.as_ref() {
-                        let doc_id = wr_translate_document_id(layout_window.document_id);
-                        let new_hit_tester = self
-                            .common
-                            .render_api
-                            .as_ref()
-                            .unwrap()
-                            .request_hit_tester(doc_id)
-                            .resolve();
-                        self.common.hit_tester = Some(
-                            AsyncHitTester::Resolved(new_hit_tester),
-                        );
-                        log_trace!(
-                            LogCategory::Rendering,
-                            "[WebRender] Hit tester updated after render"
-                        );
-                    }
+                    // No WebRender hit tester is fetched here: hit testing reads
+                    // the layout's own tester on every backend
+                    // (`perform_hit_test`), and waiting for WebRender's after each
+                    // frame blocked the draw on its render backend thread.
                 }
                 Err(errors) => {
                     log_error!(
@@ -8380,13 +11432,41 @@ impl MacOSWindow {
             return Ok(());
         }
 
+        // Update frame report for E2E tests
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            // WebRender's own dirty rects, not a collapse to "full": a video
+            // frame on one tile must be visible as that tile's damage. (CGL
+            // still composites the whole window on present; see the report
+            // VIDEO_PATH_2026_09_30.)
+            let (paint, present) = gpu_frame_damage(&self.gpu_damage_rects);
+            // What the GPU path did for this frame, for the frame report and
+            // `get_frame_timings` (the swap below is not in `render_us`).
+            crate::desktop::wr_translate2::publish_gpu_frame(
+                layout_window,
+                blocked_us,
+                crate::desktop::wr_translate2::elapsed_us(render_started),
+                draw_calls,
+            );
+            layout_window.record_frame(paint, present);
+        }
+
         // Step 3: Swap buffers to show the rendered frame
         match self.backend {
             RenderBackend::OpenGL => {
+                // A5-20: a window nobody sees, whose text halo pictures were
+                // given back, has lists without them. A frame of those is not
+                // presented: the window keeps the last frame it showed until
+                // the pass that brings the halos back presents its own.
+                let halos_hidden = self.common.layout_window.as_ref().is_some_and(|lw| {
+                    lw.gpu_state_manager.halo_release
+                        == azul_layout::managers::gpu_state::HaloRelease::Hidden
+                });
                 if let Some(ref gl_context) = self.gl_context {
-                    log_trace!(LogCategory::Rendering, "[GL] flushBuffer()");
-                    unsafe {
-                        gl_context.flushBuffer();
+                    if !halos_hidden {
+                        log_trace!(LogCategory::Rendering, "[GL] flushBuffer()");
+                        unsafe {
+                            gl_context.flushBuffer();
+                        }
                     }
                 }
             }
@@ -8396,10 +11476,25 @@ impl MacOSWindow {
             }
         }
 
+        // The frame was drawn at this size: a pass at another one is drawn in
+        // step with its transaction (A4-31, `forced_sync` above).
+        self.last_gpu_frame_size = Some(frame_size);
+
         // Clean up old textures from previous epochs to prevent memory leak
         // This must happen AFTER render() and buffer swap when WebRender no longer needs the
         // textures
-        if let Some(ref layout_window) = self.common.layout_window {
+        //
+        // Not while a scene is in flight (A4-31): its lists were sent at the
+        // epoch before the current one, but the frame on screen is still the
+        // scene before it, whose GL textures are one epoch older than the
+        // clean-up keeps. They go with the first frame drawn after the scene
+        // landed; at most one scene is in flight, so that is one epoch late.
+        if let Some(ref layout_window) = self
+            .common
+            .layout_window
+            .as_ref()
+            .filter(|_| self.frame_schedule.scene_in_flight().is_none())
+        {
             crate::desktop::gl_texture_integration::remove_old_gl_textures(
                 &layout_window.document_id,
                 layout_window.epoch,
@@ -8414,7 +11509,7 @@ impl MacOSWindow {
             .common
             .layout_window
             .as_ref()
-            .map(|lw| lw.gpu_state_manager.scrollbar_fade_active)
+            .map(|lw| lw.gpu_state_manager.frames_owed())
             .unwrap_or(false);
         if needs_fade_frame {
             self.request_redraw();
@@ -8424,6 +11519,13 @@ impl MacOSWindow {
             LogCategory::Rendering,
             "[render_and_present] FRAME COMPLETE"
         );
+
+        // `<webview>`s where this frame put them (after its layout and its
+        // scroll): placements and queued ops to WebKit. No callback runs
+        // inside a frame; the reports wait for `drain_loop_work`.
+        if crate::desktop::shell2::common::webview::sync(self) {
+            self.request_redraw();
+        }
 
         // CI testing: Exit successfully after first frame render if env var is set
         if std::env::var("AZ_EXIT_SUCCESS_AFTER_FRAME_RENDER").is_ok() {
@@ -8458,19 +11560,68 @@ fn queue_window_free(window_ptr: *mut MacOSWindow) {
     PENDING_WINDOW_FREES.with(|q| q.borrow_mut().push(window_ptr));
 }
 
+/// Whether a nested run loop runs inside a callback: a native context menu
+/// tracks ([`MENUS_TRACKING`]), or a modal session runs
+/// (`NSApplication.modalWindow` is set: an alert, a file dialog's
+/// `runModal`).
+fn inside_nested_run_loop() -> bool {
+    if MENUS_TRACKING.with(Cell::get) > 0 {
+        return true;
+    }
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    let modal: *mut objc2::runtime::AnyObject = unsafe { msg_send![&*app, modalWindow] };
+    !modal.is_null()
+}
+
 /// Reclaim every window parked by [`queue_window_free`], running `MacOSWindow`'s
 /// destructor (CVDisplayLink stop, timer invalidation, GL/NSWindow teardown).
 ///
 /// Must only be called from the event loop, i.e. outside any window delegate
-/// callback or `&mut MacOSWindow` borrow.
+/// callback or `&mut MacOSWindow` borrow. `NSApplication.run()`'s loop work
+/// (`run_before_main_loop_waits`) also runs inside the nested run loops a
+/// callback starts (a modal session, a context menu's tracking), with that
+/// window still in use further down the stack: the windows stay parked until
+/// the nested loop is over.
 pub(crate) fn drain_closed_windows() {
+    use crate::desktop::shell2::common::event::PlatformWindow;
+
+    if inside_nested_run_loop() {
+        return;
+    }
     let pending: Vec<*mut MacOSWindow> =
         PENDING_WINDOW_FREES.with(|q| std::mem::take(&mut *q.borrow_mut()));
     for window_ptr in pending {
         // SAFETY: each pointer came from `Box::into_raw(Box::new(MacOSWindow))`
         // (run.rs) and was removed from the registry exactly once before being
         // queued, so this is its sole owner and the box is freed exactly once.
+        // The registry no longer holds it, so no heir below is the same window.
         unsafe {
+            // The windows it owns (`WindowCreateOptions::owned`) are asked to close
+            // with it, each through its own close guard.
+            let closing_id = (*window_ptr).registry_window_id();
+            if closing_id != 0 {
+                for owned in registry::get_all_window_ptrs() {
+                    if owned != window_ptr && (*owned).common.owner_window_id == closing_id {
+                        (*owned).request_close_by_app();
+                        (*owned).request_redraw();
+                    }
+                }
+            }
+            // The app's threads and keyring ops go on in a window that stays open (a compose
+            // window whose main window closed), not stopped with this one.
+            for heir in registry::get_all_window_ptrs() {
+                if heir != window_ptr
+                    && crate::desktop::shell2::common::thread_handover::hand_over_background_work(
+                        &mut *window_ptr,
+                        &mut *heir,
+                    )
+                {
+                    break;
+                }
+            }
             drop(Box::from_raw(window_ptr));
         }
     }
@@ -8483,9 +11634,13 @@ impl Drop for MacOSWindow {
             "[MacOSWindow::drop] Cleaning up window resources"
         );
 
-        // SAFETY: display_link must be stopped before window is dropped, because the
-        // CVDisplayLink callback retains the NSWindow from another thread.
-        self.retire_display_link();
+        // The web views first: their pending decisions are answered and
+        // their views leave the render view before it goes.
+        drop(self.webviews.take());
+
+        // A window dropped without a close (the end of the run loop) lets go of
+        // everything native here; a closed one did when it closed.
+        self.release_native();
 
         // Release power management assertion if active
         if let Some(assertion_id) = self.pm_assertion_id.take() {
@@ -8498,24 +11653,50 @@ impl Drop for MacOSWindow {
             }
         }
 
-        // Invalidate all active timers
-        for (_, timer) in self.timers.drain() {
-            unsafe {
-                timer.invalidate();
-            }
-        }
-
-        // Invalidate thread poll timer
-        if let Some(timer) = self.thread_timer_running.take() {
-            unsafe {
-                timer.invalidate();
-            }
-        }
+        // The rest that holds GL names of this window goes in its own context
+        // as well: the GL textures in the layout window's image caches, and
+        // the shader programs its GL context pointer deletes when the last
+        // clone goes. As fields they would drop after this body, in whatever
+        // context another window left current. The layout window lives until
+        // here because the loop hands its threads to an heir just before the
+        // drop (`drain_closed_windows`).
+        self.with_own_gl_context(|window| {
+            drop(window.common.layout_window.take());
+            window.common.gl_context_ptr = OptionGlContextPtr::None;
+        });
 
         log_trace!(
             LogCategory::Window,
             "[MacOSWindow::drop] Window cleanup complete"
         );
+    }
+}
+
+/// The draws a new window waits for its document before it is shown anyway.
+const BLANK_DRAWS_BEFORE_SHOWN: u32 = 30;
+
+/// Whether a window ordered in invisible is shown after a draw: once the
+/// draw showed its document, or after [`BLANK_DRAWS_BEFORE_SHOWN`] draws
+/// without it before this one.
+const fn shown_after_draw(shows_document: bool, blank_draws_before: u32) -> bool {
+    shows_document || blank_draws_before >= BLANK_DRAWS_BEFORE_SHOWN
+}
+
+#[cfg(test)]
+mod first_frame_tests {
+    use super::{shown_after_draw, BLANK_DRAWS_BEFORE_SHOWN};
+
+    #[test]
+    fn a_new_window_is_shown_by_the_first_draw_that_showed_its_document() {
+        assert!(!shown_after_draw(false, 0), "a draw without the document keeps it invisible");
+        assert!(shown_after_draw(true, 0));
+        assert!(shown_after_draw(true, 3));
+    }
+
+    #[test]
+    fn a_window_whose_document_never_comes_is_shown_anyway() {
+        assert!(!shown_after_draw(false, BLANK_DRAWS_BEFORE_SHOWN - 1));
+        assert!(shown_after_draw(false, BLANK_DRAWS_BEFORE_SHOWN));
     }
 }
 
@@ -8546,31 +11727,33 @@ impl MacOSWindow {
                 LogCategory::Rendering,
                 "[drain_loop_work] Frame ready signal - requesting redraw"
             );
-            // A frame is ready in WebRender's backbuffer.
-            // Tell macOS to schedule a drawRect: call, which will display it.
+            // WebRender built a frame the renderer has not taken in (the
+            // render pass clears the signal as it takes frames in). Tell
+            // macOS to schedule a drawRect: call, which will display it even
+            // if it has nothing new to send.
+            self.frame_waiting = true;
             self.request_redraw();
         }
 
-        // Check for close request from WindowDelegate
-        if self.common.current_window_state().flags.close_requested {
-            if self.is_open {
-                // Nobody has run the protocol for this one yet — it came from
-                // app code (info.close_window()), not from the title bar. Run
-                // it, so the app's close callback still gets its veto. It
-                // re-sets and then consumes the flag itself.
-                self.handle_close_request();
-            } else {
-                // `windowShouldClose:` already ran the whole protocol and
-                // confirmed (that is what cleared `is_open`), and it leaves the
-                // flag standing. Calling handle_close_request again here ran
-                // the app's close callback a SECOND time for one user close.
-                // Finish the teardown instead.
-                self.common
-                    .update_window_state(event::WindowStateSource::Os, |ws| {
-                        ws.flags.close_requested = false;
-                    });
-                self.discard_input_delta("macos.drain_loop_work.close_already_processed");
+        // THE place a close is carried out: here, outside every callback of
+        // this window. A pass only raises `close_requested` (a popup its
+        // parent closed or that lost the focus, the title bar's confirmed
+        // close, `close_window` from the app): torn down inside that pass - a
+        // `drawRect:`, its own resign-key notification - the window would run
+        // the rest of it with its renderer gone. A close the app raised is
+        // still a request: its protocol runs first, once, and a CloseRequested
+        // callback may veto it. One the protocol already confirmed (the title
+        // bar's, a popup's) is not asked a second time.
+        if self.common.current_window_state().flags.close_requested && !self.released {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            if let Some(outcome) = PlatformWindow::confirm_app_close(self, "macos.drain_loop_work") {
+                if !outcome.confirmed {
+                    self.request_redraw();
+                }
+            }
+            if self.common.current_window_state().flags.close_requested {
                 self.close_window();
+                return;
             }
         }
 
@@ -8584,10 +11767,90 @@ impl MacOSWindow {
         for tag in pending_actions {
             self.handle_menu_action(tag);
         }
+
+        // The items picked in this window's WINDOW-DRAWN menus (the fallback,
+        // `use_native_context_menus = false`) run here too, as a native item
+        // does above: the menu window only posted the pick
+        // (`desktop::menu::MenuPicks`), so what it does lands on this window.
+        if !self.common.menu_picks.is_empty() {
+            use crate::desktop::shell2::common::event::PlatformWindow;
+            if PlatformWindow::run_menu_picks(self)
+                != azul_core::events::ProcessEventResult::DoNothing
+            {
+                self.request_redraw();
+            }
+        }
+
+        // `<webview>`s: what WebKit reported (a navigation to decide, a
+        // load, a title) runs the views' callbacks, and the placements and
+        // ops of the last frames reach WebKit (`common::webview::pump`). Only
+        // while a web view exists or is owed something.
+        let has_webviews = self.common.layout_window.as_ref().is_some_and(|lw| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        });
+        if has_webviews {
+            let result = self.pump_webviews();
+            if !matches!(result, azul_core::events::ProcessEventResult::DoNothing) {
+                self.request_redraw();
+            }
+        }
+    }
+
+    /// The window's `<webview>` backend, made at the first call (it loads
+    /// nothing itself: WebKit is loaded by its first view). `None` without a
+    /// render view.
+    fn webviews_mut(&mut self) -> Option<&mut webview::MacWebViews> {
+        if self.webviews.is_none() {
+            let parent = self.render_view_object()?;
+            self.webviews = Some(webview::MacWebViews::new(parent));
+        }
+        self.webviews.as_mut()
+    }
+
+    /// The view azul renders into (`GLView` / `CPUView`), as an object.
+    fn render_view_object(&self) -> Option<Retained<objc2::runtime::AnyObject>> {
+        let view: *mut objc2::runtime::AnyObject = if let Some(gl) = self.gl_view.as_ref() {
+            Retained::as_ptr(gl) as *mut objc2::runtime::AnyObject
+        } else if let Some(cpu) = self.cpu_view.as_ref() {
+            Retained::as_ptr(cpu) as *mut objc2::runtime::AnyObject
+        } else {
+            return None;
+        };
+        // SAFETY: a live view this window owns; the retain keeps it for the
+        // web views that are its subviews.
+        unsafe { Retained::retain(view) }
+    }
+
+    /// A press on azul's own content takes the keyboard back from a web
+    /// view that had it: AppKit makes a clicked `WKWebView` the first
+    /// responder, and nothing else would ever hand it back to the render
+    /// view, whose `keyDown:` azul's keyboard input runs through.
+    pub(crate) fn reclaim_keyboard_from_webviews(&self) {
+        if self
+            .webviews
+            .as_ref()
+            .is_none_or(webview::MacWebViews::is_empty)
+        {
+            return;
+        }
+        let Some(view) = self.render_view_object() else {
+            return;
+        };
+        unsafe {
+            let first: *mut objc2::runtime::AnyObject = msg_send![&*self.window, firstResponder];
+            if first != Retained::as_ptr(&view) as *mut objc2::runtime::AnyObject {
+                let _: Bool = msg_send![&*self.window, makeFirstResponder: &*view];
+            }
+        }
     }
 
     pub fn poll_event(&mut self) -> Option<MacOSEvent> {
         self.drain_loop_work();
+        // Closed by the work above: it takes no more events, and asks for no
+        // more frames.
+        if !self.is_open {
+            return None;
+        }
 
         let app = NSApplication::sharedApplication(self.mtm);
 
@@ -8640,10 +11903,19 @@ impl MacOSWindow {
         // or directly after CPU rendering
         match &self.backend {
             RenderBackend::OpenGL => {
-                // For GPU rendering, flush the OpenGL context
+                // For GPU rendering, flush the OpenGL context - unless the
+                // window gave its text halo pictures back while nobody sees it
+                // (A5-20, as in the render pass: a frame without them is not
+                // presented).
+                let halos_hidden = self.common.layout_window.as_ref().is_some_and(|lw| {
+                    lw.gpu_state_manager.halo_release
+                        == azul_layout::managers::gpu_state::HaloRelease::Hidden
+                });
                 if let Some(ref gl_context) = self.gl_context {
-                    unsafe {
-                        let _: () = msg_send![gl_context, flushBuffer];
+                    if !halos_hidden {
+                        unsafe {
+                            let _: () = msg_send![gl_context, flushBuffer];
+                        }
                     }
                 }
             }
@@ -8655,11 +11927,11 @@ impl MacOSWindow {
         Ok(())
     }
 
+    /// Close the window now (its popups, renderer and GL side with it, see
+    /// [`Self::close_window`]). Not from inside one of this window's own
+    /// callbacks: there a close is requested (`flags.close_requested`) and the
+    /// loop carries it out.
     pub fn close(&mut self) {
-        // WebRender's Renderer must be deinit()'d, not dropped — texture
-        // deletion has to happen inside a frame. Never doing so crashed debug
-        // builds on close and leaked GPU resources in release.
-        self.common.deinit_renderer();
         self.close_window();
     }
 
@@ -8678,7 +11950,9 @@ impl MacOSWindow {
     /// MWA-A3d: apply a `process_window_events` result from a window-delegate
     /// notification context (activation / deactivation), where no NSView
     /// caller consumes an `EventProcessResult`. Mirrors the mouseDown result
-    /// match in the view event path.
+    /// match in the view event path. Also the tail of a popup's replay of
+    /// keys its parent forwarded (`deliver_forwarded_keys`), which no NSView
+    /// event of the popup's own triggers either.
     fn apply_activation_pass_result(&mut self, result: azul_core::events::ProcessEventResult) {
         use azul_core::events::ProcessEventResult as PER;
         match result {
@@ -8699,6 +11973,41 @@ impl MacOSWindow {
         }
     }
 
+    /// The CPU view's resize fill and an opaque window's
+    /// `NSWindow.backgroundColor` are its clear colour,
+    /// whenever that changes (a mode switch, the app's background): it is
+    /// what AppKit shows where the window grew before the view drew the
+    /// frame at the new size, and the system default (white in a light
+    /// desktop, also under a dark app) flashed there while a resize went
+    /// from smaller back to larger.
+    fn sync_window_backdrop(&mut self) {
+        let c = self.common.clear_color();
+        if let Some(ref cpu_view) = self.cpu_view {
+            cpu_view.set_blank_fill([c.r, c.g, c.b]);
+        }
+        if !matches!(
+            self.common.current_window_state().flags.background_material,
+            WindowBackgroundMaterial::Opaque
+        ) {
+            self.backdrop_rgb = None;
+            return;
+        }
+        let rgb = [c.r, c.g, c.b];
+        if self.backdrop_rgb == Some(rgb) {
+            return;
+        }
+        self.backdrop_rgb = Some(rgb);
+        unsafe {
+            let backdrop = NSColor::colorWithRed_green_blue_alpha(
+                f64::from(c.r) / 255.0,
+                f64::from(c.g) / 255.0,
+                f64::from(c.b) / 255.0,
+                1.0,
+            );
+            self.window.setBackgroundColor(Some(&backdrop));
+        }
+    }
+
     pub fn request_redraw(&mut self) {
         pace_trace("request-redraw");
         log_trace!(
@@ -8710,25 +12019,42 @@ impl MacOSWindow {
         // "No visual changes" early-return does not discard it (scroll offsets
         // moved by the physics timer are otherwise invisible to that check).
         self.redraw_requested = true;
+        self.request_frame();
+    }
 
-        // VSYNC INTEGRATION: with a LIVE display link the request stays a
-        // flag - the next vsync tick (mark_views_dirty_on_main) delivers the
-        // invalidation. This coalesces every request inside one refresh
-        // period into a single vsync-aligned drawRect; measured before this,
-        // the CPU scroll path rendered 10.2ms frames yet paced at ~46fps
-        // because ad-hoc setNeedsDisplay landed mid-period and slipped.
-        // Damage rects queue up in gpu_damage_rects until delivery. Without
-        // a running link (occluded window, init failure) deliver immediately
-        // as before - correctness never depends on the link.
-        if self
-            .display_link
-            .as_ref()
-            .is_some_and(corevideo::DisplayLink::is_running)
-        {
-            pace_trace("request-redraw-deferred");
-            return;
+    /// THE one door every frame request goes through: the pacer says
+    /// whether the display link must start, is already pumping, or cannot
+    /// help (the window shows nothing).
+    ///
+    /// VSYNC INTEGRATION: with a running link the request stays a flag - the
+    /// next vsync tick (mark_views_dirty_on_main) delivers the invalidation.
+    /// This coalesces every request inside one refresh period into a single
+    /// vsync-aligned drawRect; measured before this, the CPU scroll path
+    /// rendered 10.2ms frames yet paced at ~46fps because ad-hoc
+    /// setNeedsDisplay landed mid-period and slipped. Damage rects queue up
+    /// in gpu_damage_rects until delivery. Without a link (VSYNC off,
+    /// CoreVideo missing, init failure, a window that shows nothing) the
+    /// frame is delivered immediately - correctness never depends on the
+    /// link.
+    pub(super) fn request_frame(&mut self) {
+        use crate::desktop::shell2::common::frame_pacer::FrameRequest;
+        match self.frame_pacer.on_request() {
+            FrameRequest::AlreadyRunning => {
+                pace_trace("request-redraw-deferred");
+            }
+            FrameRequest::Start => {
+                let started = self.display_link.as_ref().is_some_and(|link| {
+                    link.is_running() || link.start() == corevideo::K_CV_RETURN_SUCCESS
+                });
+                if started {
+                    pace_trace("display-link-start");
+                } else {
+                    self.frame_pacer.reset();
+                    self.deliver_invalidation_now();
+                }
+            }
+            FrameRequest::DeliverNow => self.deliver_invalidation_now(),
         }
-        self.deliver_invalidation_now();
     }
 
     /// Push the pending invalidation into AppKit: damage rects via
@@ -8874,55 +12200,30 @@ impl MacOSEvent {
 
 impl MacOSWindow {
     // NSResponder Undo/Redo Integration (macOS Native)
+    //
+    // The `undo:` / `redo:` actions run as their keystroke
+    // (`view_handlers::edit_command`); the old `perform_undo` /
+    // `perform_redo`, which applied the engine's text undo directly, had no
+    // caller left and went (EVENTS7).
 
-    /// Perform undo operation (called by NSResponder undo: selector)
-    pub fn perform_undo(&mut self) {
-        // MWA-C-undo_redo: delegate to the SHARED UndoTextEdit arm — this fn
-        // previously carried a hand-copied variant of the apply logic that
-        // had already drifted (no styled-snapshot restore, no selection
-        // restore, redo re-entered the recording pipeline). One
-        // implementation, zero drift.
-        use azul_core::events::SystemChange;
-
-        use crate::desktop::shell2::common::event::PlatformWindow;
-        let target = match self
-            .common
+    /// Whether the focus is a text-editing host: its editor may keep an undo
+    /// history of its own that the engine cannot see (the rich-text editor
+    /// does), and takes Undo / Redo in its key handler.
+    fn focus_is_editing(&self) -> bool {
+        self.common
             .layout_window
             .as_ref()
-            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
-        {
-            Some(t) => t,
-            None => return,
-        };
-        let _ = self.apply_system_change(&SystemChange::UndoTextEdit { target });
-        // request_redraw (not a bare setViewsNeedDisplay) so the frame survives
-        // the drawRect-side early-return.
-        self.request_redraw();
+            .is_some_and(|lw| lw.text_edit_manager.has_active_editing())
     }
 
-    /// Perform redo operation (called by NSResponder redo: selector)
-    pub fn perform_redo(&mut self) {
-        // MWA-C-undo_redo: shared RedoTextEdit arm (see perform_undo).
-        use azul_core::events::SystemChange;
-
-        use crate::desktop::shell2::common::event::PlatformWindow;
-        let target = match self
-            .common
-            .layout_window
-            .as_ref()
-            .and_then(|lw| lw.focus_manager.get_focused_node().copied())
-        {
-            Some(t) => t,
-            None => return,
-        };
-        let _ = self.apply_system_change(&SystemChange::RedoTextEdit { target });
-        // request_redraw (not a bare setViewsNeedDisplay) so the frame survives
-        // the drawRect-side early-return.
-        self.request_redraw();
-    }
-
-    /// Check if undo is available (for menu validation)
+    /// Whether Edit > Undo is enabled (menu validation): the engine has a
+    /// text edit to undo on the focused node, or the focus is an editing
+    /// host ([`Self::focus_is_editing`]). A disabled item would hide the
+    /// editor's own history from the menu.
     pub fn can_undo(&self) -> bool {
+        if self.focus_is_editing() {
+            return true;
+        }
         if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
                 if let Some(node_id) = focused_node.node.into_crate_internal() {
@@ -8933,8 +12234,11 @@ impl MacOSWindow {
         false
     }
 
-    /// Check if redo is available (for menu validation)
+    /// Whether Edit > Redo is enabled (menu validation): see [`Self::can_undo`].
     pub fn can_redo(&self) -> bool {
+        if self.focus_is_editing() {
+            return true;
+        }
         if let Some(layout_window) = self.common.layout_window.as_ref() {
             if let Some(focused_node) = layout_window.focus_manager.get_focused_node() {
                 if let Some(node_id) = focused_node.node.into_crate_internal() {
@@ -9017,9 +12321,39 @@ impl MacOSWindow {
             );
         }
 
+        // A10-19 (A3-core-10): the tree is built ON DEMAND, inside accesskit's
+        // `update_if_active` closure, i.e. only while an assistive technology
+        // is active. `AZ_A11Y_EAGER=1`, and any run with the debug server or
+        // an E2E script attached (they read the layout side's tree without an
+        // adapter), keep the eager path below.
+        let on_demand = !a11y_eager();
+        let window_token = if on_demand {
+            core::ptr::addr_of_mut!(*self) as usize
+        } else {
+            0
+        };
+
         // Create the adapter
-        let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr);
+        let adapter = accessibility::MacOSAccessibilityAdapter::new(view_ptr, window_token);
         self.accessibility_adapter = Some(adapter);
+
+        if on_demand {
+            // No forced activation and no first tree: the adapter becomes
+            // active when a client really asks (its activation handler then
+            // schedules a delivery), and the placeholder -> active transition
+            // that posts the focus notification happens at that delivery.
+            if let Some(lw) = self.common.layout_window.as_mut() {
+                lw.a11y_manager.on_demand = true;
+            }
+            if let Some(adapter) = self.accessibility_adapter.as_mut() {
+                adapter.update_view_focus_state(true);
+            }
+            log_debug!(
+                LogCategory::Platform,
+                "[a11y] Accessibility adapter initialized (tree built on demand)"
+            );
+            return;
+        }
 
         // Force the adapter from Inactive → Placeholder by querying accessibilityChildren.
         // request_initial_tree() returns None intentionally, so the adapter creates a
@@ -9034,7 +12368,13 @@ impl MacOSWindow {
         }
 
         // Now transition Placeholder → Active with the real tree.
-        // This generates focus events that VoiceOver needs.
+        // This generates focus events that VoiceOver needs. The adapter is
+        // created after the first layout and holds nothing yet, while every
+        // a11y pass publishes only what changed since the last one: ask for
+        // the WHOLE tree.
+        if let Some(lw) = self.common.layout_window.as_mut() {
+            lw.a11y_manager.resend_full_tree();
+        }
         self.update_accessibility();
 
         // Set focus state after tree is active.
@@ -9054,6 +12394,11 @@ impl MacOSWindow {
     /// focus, cursor state and builds the tree.  Then submits to the OS adapter.
     #[cfg(feature = "a11y")]
     fn update_accessibility(&mut self) {
+        if self.a11y_on_demand() {
+            self.deliver_a11y_on_demand(true);
+            return;
+        }
+
         let adapter = match self.accessibility_adapter.as_mut() {
             Some(a) => a,
             None => return,
@@ -9072,6 +12417,79 @@ impl MacOSWindow {
             .and_then(|lw| lw.a11y_manager.take_pending());
         if let Some(tree_update) = tree_update {
             adapter.update_tree(tree_update);
+        }
+    }
+
+    /// Hand this window's parked accessibility work to the adapter after
+    /// the current run-loop turn, once however often it is asked for in the
+    /// turn ([`after_turn::a11y_delivery`] runs [`Self::deliver_a11y_now`]).
+    ///
+    /// The adapter diffs an update and posts its notifications per changed
+    /// node on the main thread. Inside the draw call, and once per event of
+    /// a burst, that work landed in the frame (15 % of the main thread while
+    /// the ribbon of AzDrive animated with an assistive client attached).
+    #[cfg(feature = "a11y")]
+    fn schedule_a11y_delivery(&mut self) {
+        if self.accessibility_adapter.is_none() {
+            return;
+        }
+        after_turn::a11y_delivery().request(core::ptr::addr_of_mut!(*self) as usize);
+    }
+
+    /// The parked accessibility work, now: a rebuild when the tree is
+    /// dirty, the throttled rebuild after a scroll, then the one parked
+    /// update to the adapter.
+    #[cfg(feature = "a11y")]
+    pub(crate) fn deliver_a11y_now(&mut self) {
+        use super::common::event::PlatformWindow;
+        if self.common.a11y_dirty {
+            self.update_accessibility();
+            self.common.a11y_dirty = false;
+            return;
+        }
+        self.rebuild_a11y_after_scroll_if_due();
+        if self.a11y_on_demand() {
+            self.deliver_a11y_on_demand(false);
+            return;
+        }
+        let pending = self
+            .common
+            .layout_window
+            .as_mut()
+            .and_then(|lw| lw.a11y_manager.take_pending());
+        if let (Some(update), Some(adapter)) = (pending, self.accessibility_adapter.as_mut()) {
+            adapter.update_tree(update);
+        }
+    }
+
+    /// Whether this window builds its accessibility tree on demand (A10-19).
+    #[cfg(feature = "a11y")]
+    fn a11y_on_demand(&self) -> bool {
+        self.common
+            .layout_window
+            .as_ref()
+            .is_some_and(|lw| lw.a11y_manager.on_demand)
+    }
+
+    /// The on-demand delivery (A10-19): note that a pass is due (`note_pass`,
+    /// after a layout), and if one is due or the adapter waits for its first
+    /// tree, let the adapter build it: INSIDE `update_if_active`, so with no
+    /// assistive technology active nothing is built and the layout side's
+    /// retained tree does not advance.
+    #[cfg(feature = "a11y")]
+    fn deliver_a11y_on_demand(&mut self, note_pass: bool) {
+        let (Some(adapter), Some(lw)) = (
+            self.accessibility_adapter.as_mut(),
+            self.common.layout_window.as_mut(),
+        ) else {
+            return;
+        };
+        if note_pass {
+            // On demand this only notes that a pass is due.
+            lw.update_a11y_tree();
+        }
+        if lw.a11y_update_pending() || adapter.awaiting_tree() {
+            adapter.update_tree_on_demand(|full| lw.a11y_update_on_demand(full));
         }
     }
 
@@ -9131,6 +12549,24 @@ impl MacOSWindow {
         self.window.backingScaleFactor()
     }
 }
+
+/// [`after_turn::a11y_delivery`]'s hand-over: the window at `token` (a
+/// `MacOSWindow` address) delivers its parked accessibility work, if it is
+/// still open.
+#[cfg(feature = "a11y")]
+fn deliver_parked_a11y(token: usize) {
+    let window = token as *mut MacOSWindow;
+    if registry::get_all_window_ptrs().contains(&window) {
+        // SAFETY: a registered window is alive, and this runs on the main
+        // thread at the start of a run-loop turn, where no other borrow of
+        // it is live (the vsync tick's precedent).
+        unsafe { (*window).deliver_a11y_now() };
+    }
+}
+
+/// Without the `a11y` feature nothing is parked.
+#[cfg(not(feature = "a11y"))]
+fn deliver_parked_a11y(_token: usize) {}
 
 /// Position window on requested monitor, or center on primary monitor
 /// Resolve a parent window's CONTENT-area top-left in global top-down
@@ -9419,6 +12855,50 @@ mod objc_class_registration_tests {
             }
         }
     }
+
+    /// AppKit draws nothing beneath a view that says it is opaque. A window
+    /// whose frame has see-through pixels (a popup's rounded corners) needs
+    /// its render view to say it is not, or those pixels show black instead
+    /// of what lies behind. `NSOpenGLView` answers "opaque" unless told
+    /// otherwise, so each view declares `isOpaque` itself.
+    #[test]
+    fn both_render_views_say_for_themselves_whether_they_are_opaque() {
+        use objc2::{sel, ClassType};
+
+        for (name, class) in [
+            ("GLView", super::GLView::class()),
+            ("CPUView", super::CPUView::class()),
+        ] {
+            let declared: Vec<_> = class
+                .instance_methods()
+                .iter()
+                .map(|method| method.name())
+                .collect();
+            assert!(
+                declared.contains(&sel!(isOpaque)),
+                "{name} inherits isOpaque instead of answering it"
+            );
+        }
+    }
+
+    /// Quit (Cmd+Q, the Dock's Quit, a logout) sends `terminate:`, and
+    /// AppKit ends the process at once unless the app delegate answers
+    /// `applicationShouldTerminate:` - no window is asked, and a "Save
+    /// changes?" guard never sees the quit. The delegate must declare it.
+    #[test]
+    fn a_quit_asks_the_app_delegate_before_the_app_ends() {
+        use objc2::{sel, ClassType};
+
+        let declared: Vec<_> = super::AppDelegate::class()
+            .instance_methods()
+            .iter()
+            .map(|method| method.name())
+            .collect();
+        assert!(
+            declared.contains(&sel!(applicationShouldTerminate:)),
+            "the app delegate does not answer applicationShouldTerminate:"
+        );
+    }
 }
 
 /// Play one haptic request on the trackpad.
@@ -9493,5 +12973,685 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             performFeedbackPattern: pattern,
             performanceTime: PERFORM_NOW
         ];
+    }
+}
+
+/// `AZ_CURSOR_SET_ALWAYS=1`: `MacOSWindow::set_cursor` sends `-[NSCursor set]`
+/// on every call (every pointer move), as it did before audit A6-12, instead
+/// of only when AppKit's current cursor is another one. For a machine where
+/// the cursor is found stale after it left and re-entered the content.
+fn cursor_is_set_on_every_call() -> bool {
+    static ALWAYS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALWAYS.get_or_init(|| std::env::var_os("AZ_CURSOR_SET_ALWAYS").is_some_and(|v| v != "0"))
+}
+
+#[cfg(test)]
+mod audit_a10_tests {
+    //! A10 (`audit/A10.md`): the CPU present of the macOS shell. The
+    //! conversions between the renderer's rects (buffer px: top-left origin,
+    //! y down) and AppKit's (points, bottom-left origin, y up), and the one
+    //! AppKit call of a present, drawn into an offscreen bitmap so that the
+    //! rows can be read back without a window.
+
+    use objc2_app_kit::{NSColorSpace, NSGraphicsContext};
+
+    use super::*;
+
+    /// A10-01. The damage of a pan step: the strip at (1267, 20), 13 x 1402
+    /// logical px, in a 1280 x 1440 pt view.
+    ///
+    /// Scale 1: buffer 1280 x 1440, the rect is (1267, 20, 13, 1402) px. Its
+    /// bottom edge is 20 + 1402 = 1422 px from the top, 1440 - 1422 = 18 px
+    /// from the bottom: AppKit rect (1267, 18, 13, 1402) pt.
+    /// Scale 2: buffer 2560 x 2880, the rect is (2534, 40, 26, 2804) px,
+    /// bottom edge 2844 from the top, 36 px = 18 pt from the bottom: the SAME
+    /// AppKit rect.
+    ///
+    /// Mutation: `flip_rect_y` returning `y` unflipped invalidates y = 20 pt
+    /// (scale 1) and fails here.
+    #[test]
+    fn a_present_rect_is_invalidated_flipped_and_in_points() {
+        assert_eq!(
+            present_rect_in_view_points((1267, 20, 13, 1402), 1440, 1.0),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        assert_eq!(
+            present_rect_in_view_points((2534, 40, 26, 2804), 2880, 2.0),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        // An odd pixel rect at 2x is a half-point rect, still exact.
+        assert_eq!(
+            present_rect_in_view_points((2535, 41, 25, 2803), 2880, 2.0),
+            (1267.5, 18.0, 12.5, 1401.5)
+        );
+        // The whole buffer is the whole view.
+        assert_eq!(
+            present_rect_in_view_points((0, 0, 2560, 2880), 2880, 2.0),
+            (0.0, 0.0, 1280.0, 1440.0)
+        );
+    }
+
+    /// A10-01. `drawRect:` gets the invalidated rect back (in points), turns
+    /// it into backing pixels (times the scale) and copies and draws the
+    /// rows `dirty_rows_to_copy` names: exactly the rows of the present rect.
+    ///
+    /// Scale 1: rows 20..1422, columns 1267..1280, drawn from the bitmap's
+    /// (1267, 18, 13, 1402). Scale 2: rows 40..2844, columns 2534..2560, from
+    /// (2534, 36, 26, 2804).
+    #[test]
+    fn the_rows_drawn_are_the_rows_invalidated() {
+        for (rect, (fb_w, fb_h), scale) in [
+            ((1267_u32, 20_u32, 13_u32, 1402_u32), (1280_usize, 1440_usize), 1.0_f64),
+            ((2534, 40, 26, 2804), (2560, 2880), 2.0),
+            ((0, 0, 1, 1), (2560, 2880), 2.0),
+            ((2559, 2879, 1, 1), (2560, 2880), 2.0),
+            ((2535, 41, 25, 2803), (2560, 2880), 2.0),
+            ((0, 0, 2560, 2880), (2560, 2880), 2.0),
+        ] {
+            let (x, y, w, h) = present_rect_in_view_points(rect, fb_h, scale);
+            // What `convertRectToBacking:` does to the dirty rect.
+            let dirty_px = (x * scale, y * scale, w * scale, h * scale);
+            let span = dirty_rows_to_copy(false, dirty_px, fb_w, fb_h);
+            let (rx, ry, rw, rh) = rect;
+            assert_eq!(
+                span,
+                (
+                    rx as usize,
+                    (rx + rw) as usize,
+                    ry as usize,
+                    (ry + rh) as usize
+                ),
+                "{rect:?} at {scale}x"
+            );
+            // And the bitmap's part that is drawn is that span, flipped back.
+            assert_eq!(bitmap_source_rect(span, fb_h), dirty_px, "{rect:?} at {scale}x");
+        }
+        assert_eq!(
+            dirty_rows_to_copy(false, (1267.0, 18.0, 13.0, 1402.0), 1280, 1440),
+            (1267, 1280, 20, 1422)
+        );
+        assert_eq!(
+            bitmap_source_rect((1267, 1280, 20, 1422), 1440),
+            (1267.0, 18.0, 13.0, 1402.0)
+        );
+        assert_eq!(
+            dirty_rows_to_copy(false, (2534.0, 36.0, 26.0, 2804.0), 2560, 2880),
+            (2534, 2560, 40, 2844)
+        );
+    }
+
+    /// A10-01. AppKit may hand back MORE than was invalidated (a half-point
+    /// rect rounded to whole points, the bounding box of several rects): the
+    /// rows drawn are then a superset, never a subset.
+    #[test]
+    fn a_dirty_rect_rounded_outward_by_appkit_still_covers_the_damage() {
+        // (2535, 41, 25, 2803) px at 2x = (1267.5, 18, 12.5, 1401.5) pt,
+        // rounded outward to whole points: (1267, 18, 13, 1402) pt.
+        let span = dirty_rows_to_copy(false, (2534.0, 36.0, 26.0, 2804.0), 2560, 2880);
+        let (x0, x1, y0, y1) = span;
+        assert!(x0 <= 2535 && x1 >= 2560 && y0 <= 41 && y1 >= 2844, "{span:?}");
+    }
+
+    /// A10-02. The framebuffer is as large as the frame the renderer makes
+    /// for the same bounds: `ceil(points * scale)` in `f32`.
+    ///
+    /// 1280.3 pt at 2x: 2560.6, a 2561 px frame. The view truncated to 2560
+    /// and every present of that window took the rescaling copy path.
+    /// Mutation: `as usize` of the `f64` product instead of the shared
+    /// formula gives 2560 and fails here.
+    #[test]
+    fn the_views_framebuffer_is_the_size_of_the_renderers_frame() {
+        use azul_layout::window::present_geometry::frame_size_px;
+        assert_eq!(cpu_view_framebuffer_size((1280.0, 1440.0), 1.0), (1280, 1440));
+        assert_eq!(cpu_view_framebuffer_size((1280.0, 1440.0), 2.0), (2560, 2880));
+        assert_eq!(cpu_view_framebuffer_size((1280.5, 720.5), 2.0), (2561, 1441));
+        assert_eq!(cpu_view_framebuffer_size((1280.3, 720.0), 2.0), (2561, 1440));
+        for bounds in [(1280.3_f64, 719.9_f64), (1.0, 1.0), (2559.999_999_9, 1440.000_000_1)] {
+            for scale in [1.0_f64, 2.0] {
+                let (w, h) = frame_size_px(bounds.0 as f32, bounds.1 as f32, scale as f32);
+                assert_eq!(
+                    cpu_view_framebuffer_size(bounds, scale),
+                    (w as usize, h as usize),
+                    "{bounds:?} at {scale}x"
+                );
+            }
+        }
+    }
+
+    /// An sRGB surface AppKit can draw into, `width` x `height`, every pixel
+    /// `fill`: the stand-in for the view's backing store.
+    fn surface(width: usize, height: usize, fill: [u8; 4]) -> Retained<NSBitmapImageRep> {
+        let plain = unsafe {
+            NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+                NSBitmapImageRep::alloc(),
+                std::ptr::null_mut(),
+                width as isize,
+                height as isize,
+                8,
+                4,
+                true,
+                false,
+                ns_string!("NSDeviceRGBColorSpace"),
+                (width * 4) as isize,
+                32,
+            )
+        }
+        .expect("a bitmap");
+        let surface = plain
+            .bitmapImageRepByRetaggingWithColorSpace(&NSColorSpace::sRGBColorSpace())
+            .expect("an RGB bitmap takes the sRGB colour space");
+        let data = surface.bitmapData();
+        assert!(!data.is_null(), "the surface has a pixel buffer");
+        let stride = surface.bytesPerRow() as usize;
+        for row in 0..height {
+            for x in 0..width {
+                // SAFETY: `row < height` rows of `stride >= width * 4` bytes.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(fill.as_ptr(), data.add(row * stride + x * 4), 4);
+                }
+            }
+        }
+        surface
+    }
+
+    /// The pixel of `surface` in column `x` of the row `row` from the TOP.
+    fn pixel(surface: &NSBitmapImageRep, x: usize, row: usize) -> [u8; 3] {
+        let data = surface.bitmapData();
+        let stride = surface.bytesPerRow() as usize;
+        let mut px = [0_u8; 4];
+        // SAFETY: the callers stay inside the surface.
+        unsafe { std::ptr::copy_nonoverlapping(data.add(row * stride + x * 4), px.as_mut_ptr(), 4) };
+        [px[0], px[1], px[2]]
+    }
+
+    /// The colour of the frame's pixel in column `x` of the row `row` from
+    /// the top: every pixel another one.
+    fn frame_pixel(x: usize, row: usize) -> [u8; 4] {
+        [20 + 25 * x as u8, 20 + 35 * row as u8, 90, 255]
+    }
+
+    /// A10-01, on AppKit itself (no window: the backing store is a bitmap).
+    ///
+    /// An 8 x 6 frame whose every pixel is another colour; AppKit asks for
+    /// the dirty rect (2, 1, 3, 2) in its bottom-left pixels: columns 2..5,
+    /// and the rows whose bottom edge is 1..3 px above the bottom, which are
+    /// rows 3..5 from the top (6 - 3 = 3, 6 - 1 = 5). After the present the
+    /// surface holds the frame's rows 3..5 x columns 2..5 in the same place,
+    /// and its fill everywhere else.
+    ///
+    /// Mutations this must fail: `bitmap_source_rect` without the flip
+    /// (`y0` for `height - y1`) draws the bitmap's rows 1..3, which were not
+    /// copied; `rows_of_bottom_left_rect` without the flip copies rows 1..3
+    /// and draws rows 3..5; a row copied to another row of the bitmap
+    /// (bottom-up storage assumed) shows the frame upside down.
+    #[test]
+    fn appkit_shows_the_copied_rows_where_the_frame_has_them() {
+        const W: usize = 8;
+        const H: usize = 6;
+        const FILL: [u8; 4] = [3, 5, 7, 255];
+        let mut frame = vec![0_u8; W * H * 4];
+        for row in 0..H {
+            for x in 0..W {
+                frame[(row * W + x) * 4..][..4].copy_from_slice(&frame_pixel(x, row));
+            }
+        }
+        let bitmap = color_space::cpu_frame_bitmap(W, H).expect("the view's bitmap");
+        let target = surface(W, H, FILL);
+
+        let dirty = (2.0, 1.0, 3.0, 2.0);
+        let span = dirty_rows_to_copy(false, dirty, W, H);
+        assert_eq!(span, (2, 5, 3, 5), "columns 2..5, rows 3..5 from the top");
+        let (fx, fy, fw, fh) = bitmap_source_rect(span, H);
+        assert_eq!((fx, fy, fw, fh), dirty);
+        let from = NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh));
+
+        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&target)
+            .expect("a graphics context on the surface");
+        NSGraphicsContext::saveGraphicsState_class();
+        NSGraphicsContext::setCurrentContext(Some(&context));
+        // One point is one pixel in a bitmap context: the destination is the
+        // source rect, as it is in a view at scale 1.
+        let drawn = unsafe { draw_framebuffer_span(&bitmap, &frame, W, H, span, from, from) };
+        context.flushGraphics();
+        NSGraphicsContext::restoreGraphicsState_class();
+        assert!(drawn, "AppKit drew the span");
+
+        for row in 0..H {
+            for x in 0..W {
+                let inside = (2..5).contains(&x) && (3..5).contains(&row);
+                let want = if inside { frame_pixel(x, row) } else { FILL };
+                let got = pixel(&target, x, row);
+                assert!(
+                    got.iter().zip(&want[..3]).all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "column {x}, row {row} from the top: {got:?}, expected {:?} ({})",
+                    &want[..3],
+                    if inside { "the frame's pixel" } else { "untouched" }
+                );
+            }
+        }
+    }
+
+    /// A10-26. What a window gives back, and when. Nobody sees it (the Dock,
+    /// Cmd-H) or memory is critical: everything regenerable. A warning while
+    /// it may be on screen: everything but WebRender's caches (flushing them
+    /// makes the next frame upload every texture again). The user's switch:
+    /// nothing.
+    ///
+    /// Mutation: WebRender's caches flushed on a warning fails the second
+    /// assertion; a release that ignores the switch fails the last.
+    #[test]
+    fn a_window_gives_back_its_regenerable_memory_when_hidden_or_under_pressure() {
+        let everything = ReleasePlan {
+            compositor: true,
+            glyph_generation: true,
+            staging_bitmap: true,
+            webrender_caches: true,
+            free_pages: true,
+        };
+        assert_eq!(release_plan(MemoryRelease::NotShown, false), everything);
+        assert_eq!(
+            release_plan(MemoryRelease::PressureWarn, false),
+            ReleasePlan { webrender_caches: false, ..everything }
+        );
+        assert_eq!(release_plan(MemoryRelease::PressureCritical, false), everything);
+        let nothing = ReleasePlan {
+            compositor: false,
+            glyph_generation: false,
+            staging_bitmap: false,
+            webrender_caches: false,
+            free_pages: false,
+        };
+        for reason in [
+            MemoryRelease::NotShown,
+            MemoryRelease::PressureWarn,
+            MemoryRelease::PressureCritical,
+        ] {
+            assert_eq!(release_plan(reason, true), nothing, "AZ_KEEP_CACHES_MINIMIZED=1: {reason:?}");
+        }
+    }
+
+    /// A10-26. The dispatch source reports the pressure level as flags:
+    /// warning 0x02, critical 0x04 (normal, 0x01, is not asked for).
+    #[test]
+    fn a_memory_pressure_event_names_its_release() {
+        assert_eq!(memory_release_for_pressure(0x02), Some(MemoryRelease::PressureWarn));
+        assert_eq!(memory_release_for_pressure(0x04), Some(MemoryRelease::PressureCritical));
+        assert_eq!(memory_release_for_pressure(0x06), Some(MemoryRelease::PressureCritical));
+        assert_eq!(memory_release_for_pressure(0x01), None);
+        assert_eq!(memory_release_for_pressure(0), None);
+    }
+
+    /// A10-19. The accessibility tree is built on demand unless the user asks
+    /// for the old path (`AZ_A11Y_EAGER=1`) or a debug / E2E reader, which
+    /// reads the layout side's tree without an adapter, is attached.
+    #[cfg(feature = "a11y")]
+    #[test]
+    fn the_accessibility_tree_is_eager_only_when_asked_for_or_read_by_a_debug_reader() {
+        assert!(!a11y_eager_for(None, false), "the default: on demand");
+        assert!(a11y_eager_for(Some("1"), false));
+        assert!(!a11y_eager_for(Some("0"), false));
+        assert!(!a11y_eager_for(Some(""), false));
+        assert!(a11y_eager_for(None, true), "an E2E script reads the tree itself");
+    }
+
+    /// The switch of the CPU present: words of `AZ_CPU_PRESENT`.
+    #[test]
+    fn the_cpu_present_switch_is_a_list_of_words() {
+        assert_eq!(parse_cpu_present_options(""), CpuPresentOptions::default());
+        assert_eq!(
+            CpuPresentOptions::default(),
+            CpuPresentOptions { cgimage: true, twice: false, layer: false },
+            "the defaults: straight from the framebuffer, each frame presented once, no layer"
+        );
+        assert_eq!(
+            parse_cpu_present_options("bitmap"),
+            CpuPresentOptions { cgimage: false, twice: false, layer: false }
+        );
+        assert_eq!(
+            parse_cpu_present_options(" twice , bitmap,nonsense"),
+            CpuPresentOptions { cgimage: false, twice: true, layer: false }
+        );
+        assert_eq!(parse_cpu_present_options("bitmap,cgimage").cgimage, true);
+        assert_eq!(
+            parse_cpu_present_options("layer"),
+            CpuPresentOptions { cgimage: true, twice: false, layer: true },
+            "the layer present is a word of its own; the frame is still presented from the framebuffer"
+        );
+    }
+
+    /// A10-25 (A9's count). The CPU view kept the frame twice (framebuffer and
+    /// bitmap), AppKit's backing store is a third copy: on the user's display
+    /// (2940 x 1912 px, 22.5 MB a copy) 67 MB, plus the compositor's root
+    /// layer 90 MB. Presenting straight from the framebuffer, the view keeps
+    /// it once: 45 MB with the backing store.
+    ///
+    /// Mutation: the bitmap path as the default keeps two.
+    #[test]
+    fn the_cpu_view_keeps_the_frame_once() {
+        assert_eq!(view_frame_buffers(CpuPresentOptions::default()), 1);
+        assert_eq!(view_frame_buffers(parse_cpu_present_options("bitmap")), 2);
+        let frame_bytes = 2940_usize * 1912 * 4;
+        assert_eq!(frame_bytes, 22_485_120);
+        // The view's buffers plus AppKit's backing store.
+        assert_eq!((view_frame_buffers(CpuPresentOptions::default()) + 1) * frame_bytes, 44_970_240);
+        assert_eq!((view_frame_buffers(parse_cpu_present_options("bitmap")) + 1) * frame_bytes, 67_455_360);
+    }
+
+    /// A10-13. A frame rendered INSIDE `drawRect:` (no display link, every
+    /// step of a live resize) marked its rects as needing display although
+    /// that very `drawRect:` draws them: two presents per frame. Rects that
+    /// one of the rects being drawn contains are not marked any more.
+    ///
+    /// Count, a pan step rendered inside a `drawRect:` that draws the whole
+    /// 2940 x 1912 view: the strip and the clip, 2 rects marked (old), 0
+    /// (new): one present instead of two. Rendered at the display link's tick
+    /// (nothing is being drawn): 2 marked, as before.
+    ///
+    /// Mutation: `any` -> `all`, or a containment test that lets a rect stick
+    /// out, fails here.
+    #[test]
+    fn a_frame_rendered_inside_draw_rect_is_presented_once() {
+        let strip = (2914_u32, 76_u32, 26_u32, 1800_u32);
+        let clip = (100, 76, 2840, 1800);
+        let whole_view = [(0_usize, 2940_usize, 0_usize, 1912_usize)];
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &whole_view), Vec::new());
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &[]), vec![strip, clip]);
+        // AppKit asked for the sidebar only: the map's rects are not drawn by
+        // this pass and stay marked.
+        let sidebar = [(0_usize, 100_usize, 0_usize, 1912_usize)];
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &sidebar), vec![strip, clip]);
+        // A rect that sticks out of what is being drawn by one pixel stays.
+        let almost = [(100_usize, 2939_usize, 76_usize, 1876_usize)];
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &almost), vec![strip, clip]);
+        // Covered only by two rects together: kept (the proven side).
+        let halves = [(0_usize, 1500_usize, 0_usize, 1912_usize), (1500, 2940, 0, 1912)];
+        assert_eq!(rects_left_to_invalidate(&[strip, clip], &halves), vec![clip]);
+    }
+
+    /// A10-13. What AppKit certainly draws of a rect being drawn is the
+    /// pixels wholly inside it: a fractional rect is cut inward.
+    #[test]
+    fn the_span_inside_a_rect_being_drawn_is_cut_inward() {
+        // A 100 x 80 frame; x 10.5..29.5, y 20.5..49.5 from the bottom:
+        // columns 11..29, rows 80 - 49.5 = 30.5 -> 31 to 80 - 20.5 = 59.5 -> 59.
+        assert_eq!(rows_inside_backing_rect((10.5, 20.5, 19.0, 29.0), 100, 80), (11, 29, 31, 59));
+        assert_eq!(rows_inside_backing_rect((0.0, 0.0, 100.0, 80.0), 100, 80), (0, 100, 0, 80));
+        // The outward span of the same rect contains the inward one.
+        assert_eq!(dirty_rows_to_copy(false, (10.5, 20.5, 19.0, 29.0), 100, 80), (10, 30, 30, 60));
+        let (x0, x1, y0, y1) = rows_inside_backing_rect((0.2, 0.2, 0.5, 0.5), 100, 80);
+        assert!(x1 == x0 || y1 == y0, "no whole pixel inside");
+        assert_eq!(rows_inside_backing_rect((0.0, 0.0, 0.0, 5.0), 100, 80), (0, 0, 0, 0));
+    }
+
+    /// What `drawRect:` did on a resize before A10-14: a new buffer, blank
+    /// all over, the kept top-left part copied on top.
+    fn resized_by_the_old_recipe(
+        old: &[u8],
+        (old_w, old_h): (usize, usize),
+        (new_w, new_h): (usize, usize),
+        keep: bool,
+        blank: [u8; 4],
+    ) -> Vec<u8> {
+        let mut out = Vec::with_capacity(new_w * new_h * 4);
+        for _ in 0..new_w * new_h {
+            out.extend_from_slice(&blank);
+        }
+        if keep && old_w > 0 && old_h > 0 {
+            let n = old_w.min(new_w) * 4;
+            for row in 0..old_h.min(new_h) {
+                out[row * new_w * 4..row * new_w * 4 + n]
+                    .copy_from_slice(&old[row * old_w * 4..row * old_w * 4 + n]);
+            }
+        }
+        out
+    }
+
+    /// A10-14. The framebuffer resized in place holds exactly what the old
+    /// recipe made, for every pair of sizes up to 5 x 5, kept or not: the
+    /// shared top-left part where it was, blank everywhere else.
+    ///
+    /// Mutation: moving the rows of a WIDER buffer first row first (instead
+    /// of last row first) overwrites rows that have not moved; it fails here
+    /// at 2 x 2 -> 3 x 2.
+    #[test]
+    fn a_framebuffer_resized_in_place_is_the_one_the_old_recipe_made() {
+        const BLANK: [u8; 4] = [9, 8, 7, 255];
+        for old_w in 0..=5_usize {
+            for old_h in 0..=5_usize {
+                let mut old = Vec::new();
+                for row in 0..old_h {
+                    for x in 0..old_w {
+                        old.extend_from_slice(&[10 + x as u8, 100 + row as u8, 3, 255]);
+                    }
+                }
+                for new_w in 0..=5_usize {
+                    for new_h in 0..=5_usize {
+                        for keep in [true, false] {
+                            let mut fb = old.clone();
+                            resize_framebuffer(&mut fb, (old_w, old_h), (new_w, new_h), keep, BLANK);
+                            assert_eq!(
+                                fb,
+                                resized_by_the_old_recipe(&old, (old_w, old_h), (new_w, new_h), keep, BLANK),
+                                "{old_w}x{old_h} -> {new_w}x{new_h}, keep {keep}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// A10-14, the count. A live resize that stays inside the size the
+    /// buffer once had allocates nothing: the buffer of a 300 x 200 frame is
+    /// the buffer of every smaller frame after it, and of 300 x 200 again.
+    /// (Before: one allocation of the frame's size per step, 5 here.)
+    #[test]
+    fn a_resize_inside_the_buffers_capacity_allocates_nothing() {
+        const BLANK: [u8; 4] = [0, 0, 0, 255];
+        let mut fb = Vec::new();
+        resize_framebuffer(&mut fb, (0, 0), (300, 200), false, BLANK);
+        let (buffer, capacity) = (fb.as_ptr(), fb.capacity());
+        let mut size = (300, 200);
+        for next in [(250, 200), (250, 150), (300, 200), (280, 190), (300, 200)] {
+            resize_framebuffer(&mut fb, size, next, true, BLANK);
+            size = next;
+            assert_eq!(fb.len(), next.0 * next.1 * 4);
+            assert_eq!((fb.as_ptr(), fb.capacity()), (buffer, capacity), "reallocated at {next:?}");
+        }
+    }
+
+    /// A10-14, the bitmap. It is a staging buffer that may be larger than the
+    /// frame, made in steps of 256 px: dragging an edge from 1000 to 1300 px
+    /// (301 sizes) makes 3 bitmaps (1024, 1280, 1536 px wide), where every
+    /// size made one before; a window that shrinks to less than half gets a
+    /// smaller one.
+    ///
+    /// Mutation: `None` only for an exact fit allocates 301 times.
+    #[test]
+    fn a_live_resize_makes_a_bitmap_every_256_pixels() {
+        let mut have = None;
+        let mut made = Vec::new();
+        for width in 1000..=1300_usize {
+            if let Some(size) = bitmap_size_to_allocate(width, 800, have) {
+                made.push(size);
+                have = Some(size);
+            }
+            let (w, h) = have.expect("a bitmap");
+            assert!(w >= width && h >= 800, "the frame fits its bitmap");
+        }
+        assert_eq!(made, vec![(1024, 1024), (1280, 1024), (1536, 1024)]);
+        // Back to a small window: the large bitmap is let go.
+        assert_eq!(bitmap_size_to_allocate(600, 400, have), Some((768, 512)));
+        // The user's display: 2940 x 1912 px in a 3072 x 2048 bitmap.
+        assert_eq!(bitmap_size_to_allocate(2940, 1912, None), Some((3072, 2048)));
+        assert_eq!(bitmap_size_to_allocate(2940, 1912, Some((3072, 2048))), None);
+        assert_eq!(bitmap_size_to_allocate(0, 0, None), Some((256, 256)));
+    }
+
+    /// A10-14, on AppKit (offscreen). A frame of 8 x 6 presented through a
+    /// bitmap of 16 x 8: the frame's rows are the bitmap's TOP rows, and the
+    /// bitmap's space is measured from ITS bottom edge, so rows 3..5 of the
+    /// frame are at y = 8 - 5 = 3 in the bitmap and at y = 6 - 5 = 1 in the
+    /// view.
+    ///
+    /// Mutation: the frame's height for the bitmap's in the source rect draws
+    /// the bitmap's rows 5..7 (never written).
+    #[test]
+    fn appkit_shows_the_rows_of_a_frame_smaller_than_its_bitmap() {
+        const W: usize = 8;
+        const H: usize = 6;
+        const FILL: [u8; 4] = [3, 5, 7, 255];
+        let mut frame = vec![0_u8; W * H * 4];
+        for row in 0..H {
+            for x in 0..W {
+                frame[(row * W + x) * 4..][..4].copy_from_slice(&frame_pixel(x, row));
+            }
+        }
+        let bitmap = color_space::cpu_frame_bitmap(16, 8).expect("the view's bitmap");
+        let target = surface(W, H, FILL);
+        let span = (2, 5, 3, 5);
+        let (vx, vy, vw, vh) = bitmap_source_rect(span, H);
+        assert_eq!((vx, vy, vw, vh), (2.0, 1.0, 3.0, 2.0));
+        let (fx, fy, fw, fh) = bitmap_source_rect(span, 8);
+        assert_eq!((fx, fy, fw, fh), (2.0, 3.0, 3.0, 2.0));
+        let to = NSRect::new(NSPoint::new(vx, vy), NSSize::new(vw, vh));
+        let from = NSRect::new(NSPoint::new(fx, fy), NSSize::new(fw, fh));
+
+        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&target)
+            .expect("a graphics context on the surface");
+        NSGraphicsContext::saveGraphicsState_class();
+        NSGraphicsContext::setCurrentContext(Some(&context));
+        let drawn = unsafe { draw_framebuffer_span(&bitmap, &frame, W, H, span, from, to) };
+        context.flushGraphics();
+        NSGraphicsContext::restoreGraphicsState_class();
+        assert!(drawn, "AppKit drew the span");
+        for row in 0..H {
+            for x in 0..W {
+                let inside = (2..5).contains(&x) && (3..5).contains(&row);
+                let want = if inside { frame_pixel(x, row) } else { FILL };
+                let got = pixel(&target, x, row);
+                assert!(
+                    got.iter().zip(&want[..3]).all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "column {x}, row {row} from the top: {got:?}, expected {:?}",
+                    &want[..3]
+                );
+            }
+        }
+    }
+
+    /// A10-06, the default present, on Core Graphics itself (offscreen).
+    /// The same 8 x 6 frame and dirty rect as the bitmap test: the span is
+    /// drawn straight from the frame's memory, no row copied, and lands in
+    /// the same place; and after the draw nothing holds the frame's memory.
+    ///
+    /// If this fails with `DrawnButHeld`, Core Graphics keeps the image of a
+    /// draw into a bitmap context: the view then falls back to the bitmap
+    /// path at its first draw (by design), and the mode is of no use.
+    ///
+    /// Mutations: the span's rect flipped for `CGImageCreateWithImageInRect`
+    /// (the image's rect is top-down: no flip) draws rows 1..3; blend mode
+    /// normal instead of copy cannot be told apart with opaque pixels (the
+    /// transparent-window case is a line for the real window).
+    #[test]
+    fn core_graphics_draws_the_span_straight_from_the_frame() {
+        const W: usize = 8;
+        const H: usize = 6;
+        const FILL: [u8; 4] = [3, 5, 7, 255];
+        let mut frame = vec![0_u8; W * H * 4];
+        for row in 0..H {
+            for x in 0..W {
+                frame[(row * W + x) * 4..][..4].copy_from_slice(&frame_pixel(x, row));
+            }
+        }
+        let target = surface(W, H, FILL);
+        let span = dirty_rows_to_copy(false, (2.0, 1.0, 3.0, 2.0), W, H);
+        assert_eq!(span, (2, 5, 3, 5));
+        let (vx, vy, vw, vh) = bitmap_source_rect(span, H);
+        let to = NSRect::new(NSPoint::new(vx, vy), NSSize::new(vw, vh));
+
+        let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&target)
+            .expect("a graphics context on the surface");
+        NSGraphicsContext::saveGraphicsState_class();
+        NSGraphicsContext::setCurrentContext(Some(&context));
+        let result = unsafe { draw_framebuffer_span_cg(&frame, W, H, span, to) };
+        context.flushGraphics();
+        NSGraphicsContext::restoreGraphicsState_class();
+        assert_eq!(result, CgDraw::Drawn);
+        for row in 0..H {
+            for x in 0..W {
+                let inside = (2..5).contains(&x) && (3..5).contains(&row);
+                let want = if inside { frame_pixel(x, row) } else { FILL };
+                let got = pixel(&target, x, row);
+                assert!(
+                    got.iter().zip(&want[..3]).all(|(a, b)| a.abs_diff(*b) <= 2),
+                    "column {x}, row {row} from the top: {got:?}, expected {:?}",
+                    &want[..3]
+                );
+            }
+        }
+        // Outside the frame, or without a context: nothing, and no crash.
+        unsafe {
+            assert_eq!(draw_framebuffer_span_cg(&frame, W, H, (0, W + 1, 0, H), to), CgDraw::NotDrawn);
+            assert_eq!(draw_framebuffer_span_cg(&frame[..8], W, H, span, to), CgDraw::NotDrawn);
+        }
+    }
+
+    /// A10-06, the count. A pan step on the user's display (2940 x 1912 px)
+    /// presents the view's clip, here 2840 x 1800 px: through the bitmap the
+    /// view copies 20,448,000 bytes out of the framebuffer per frame, with
+    /// `cgimage` none (AppKit reads the framebuffer itself).
+    #[test]
+    fn a_pan_frame_copies_the_clip_through_the_bitmap_and_nothing_with_cgimage() {
+        let clip = (100, 2940, 76, 1876);
+        assert_eq!(present_copy_bytes(parse_cpu_present_options("bitmap"), clip), 20_448_000);
+        assert_eq!(present_copy_bytes(CpuPresentOptions::default(), clip), 0);
+    }
+
+    /// A10-18. A GPU frame that was rendered and flushed is never "no
+    /// damage": without dirty rects from WebRender (the macOS shell gets none)
+    /// the whole framebuffer was composited, and the flush presents the whole
+    /// surface either way.
+    ///
+    /// Mutation: `FrameDamage::None` for an empty list fails the first
+    /// assertion; the paint damage as the present damage fails the second.
+    #[test]
+    fn a_rendered_gpu_frame_is_recorded_as_presented_in_full() {
+        use crate::desktop::shell2::headless::FrameDamage;
+        assert_eq!(gpu_frame_damage(&[]), (FrameDamage::Full, FrameDamage::Full));
+        let tile = azul_core::geom::LogicalRect {
+            origin: azul_core::geom::LogicalPosition { x: 10.0, y: 20.0 },
+            size: azul_core::geom::LogicalSize {
+                width: 256.0,
+                height: 256.0,
+            },
+        };
+        assert_eq!(
+            gpu_frame_damage(&[tile]),
+            (FrameDamage::Rects(vec![tile]), FrameDamage::Full)
+        );
+    }
+
+    /// A10-03. A span that leaves the frame, or a framebuffer shorter than
+    /// the frame, draws nothing instead of reading past the buffer.
+    #[test]
+    fn a_span_outside_the_frame_is_not_presented() {
+        const W: usize = 4;
+        const H: usize = 4;
+        let bitmap = color_space::cpu_frame_bitmap(W, H).expect("the view's bitmap");
+        let frame = vec![9_u8; W * H * 4];
+        let rect = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(W as f64, H as f64));
+        unsafe {
+            // Rows 0..5 of a 4-row frame.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (0, W, 0, H + 1), rect, rect));
+            // Columns 0..5 of a 4-column frame.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (0, W + 1, 0, H), rect, rect));
+            // A framebuffer of 3 rows presented as 4.
+            assert!(!draw_framebuffer_span(&bitmap, &frame[..W * 3 * 4], W, H, (0, W, 0, H), rect, rect));
+            // A frame larger than the bitmap.
+            let big = vec![9_u8; W * (H + 2) * 4];
+            assert!(!draw_framebuffer_span(&bitmap, &big, W, H + 2, (0, W, 0, H + 2), rect, rect));
+            // An empty span.
+            assert!(!draw_framebuffer_span(&bitmap, &frame, W, H, (2, 2, 0, H), rect, rect));
+        }
     }
 }

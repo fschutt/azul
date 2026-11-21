@@ -1,0 +1,60 @@
+[
+  {
+    "name": "an app update (a restart, and a state it cannot read) removes nothing and sends nothing",
+    "description": "ICLOUD-023 (sync-chaos state-upgrade-migration): the macOS 26.2 update turned Desktop & Documents sync off and emptied the local folders. Rules D5 and A1: the pass after an update transfers nothing for unchanged files; a state lost or cut off in the migration is rebuilt by hash, with no delete, no trash and no upload.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "Desktop/todo.txt", "text": "desktop" },
+      { "op": "drive_write", "device": "a", "path": "Documents/cv.pdf", "size": 50000, "seed": 62 },
+      { "op": "drive_write", "device": "a", "path": ".azcloudignore", "text": "*.tmp\n" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "assert_response", "path": "result.down", "equals": 0 },
+      { "op": "assert_response", "path": "result.deleted", "equals": 0 },
+      { "op": "drive_corrupt_state", "device": "a" },
+      { "op": "drive_restart", "device": "a" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "assert_response", "path": "result.up", "equals": 0 },
+      { "op": "assert_response", "path": "result.deleted", "equals": 0 },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 3 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "every pairing setting survives an upgrade byte for byte, and a setting change never removes local files without a confirmation",
+    "description": "ICLOUD-023: settings silently changed by an update. Rules D5 and D1: the migration keeps every setting; a mode change that would remove local files is held for the user.",
+    "steps": [
+      { "op": "drive_create", "remote": "r2", "encrypted": false },
+      { "op": "drive_open", "device": "c", "remote": "r2" },
+      { "op": "drive_pair", "device": "c" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "c", "path": "Desktop/todo.txt", "text": "desktop" },
+      { "op": "drive_write", "device": "c", "path": "Documents/cv.txt", "text": "cv" },
+      { "op": "drive_sync", "device": "c" },
+      { "op": "drive_settings", "device": "c", "set": {"mode": "two-way", "auto_download": {"new_under": 10}, "keep_gb": 3, "exclude": ["*.bak"], "sync_on_metered": true} },
+      { "op": "drive_upgrade", "device": "c" },
+      { "op": "drive_settings", "device": "c" },
+      { "op": "assert_response", "path": "result.settings.auto_download.new_under", "equals": 10 },
+      { "op": "assert_response", "path": "result.settings.keep_gb", "equals": 3 },
+      { "op": "assert_response", "path": "result.settings.exclude", "contains": "*.bak" },
+      { "op": "assert_response", "path": "result.settings.sync_on_metered", "equals": true },
+      { "op": "drive_on_demand", "device": "c", "on": true },
+      { "op": "drive_sync", "device": "c", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "c", "count": 2 },
+      { "op": "drive_check", "check": "trash_empty", "device": "c" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

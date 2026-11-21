@@ -1,0 +1,61 @@
+[
+  {
+    "name": "names in NFD and NFC: the original bytes are kept, a disk that ignores normalization sees one file, never a duplicate",
+    "description": "JOTTA-010 (Jottacloud): NFD names from macOS were silently skipped or not uploaded on Windows over three releases. Rules P2 (original bytes stored, names compared in NFC), P1 and O1 (a collision is listed, never silent). sync-chaos port-nfc-nfd.",
+    "only_on": ["macos", "windows"],
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "re\u0301sume\u0301.txt", "text": "my cv" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "café.txt", "text": "composed" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "re\u0301sume\u0301.txt", "text": "my cv" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "r*", "count": 1 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "re\u0301sume\u0301.txt", "text": "my cv" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "caf*", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "café.txt", "text": "composed" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "an exclude typed in NFC matches a folder named in NFD; NFD names go up exactly once",
+    "description": "JOTTA-010 (Jottacloud): macOS excludes typed in NFC did not match NFD names (fixed 2025). Rule P2 (ignore rules match in NFC) and P11 (ignored files never go up).",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": ".azcloudignore", "text": "café-drafts/\n" },
+      { "op": "drive_write", "device": "a", "path": "cafe\u0301-drafts/draft.txt", "text": "a draft" },
+      { "op": "drive_write", "device": "a", "path": "Pra\u0308sentation.key", "text": "slides" },
+      { "op": "drive_write", "device": "a", "path": "keep.txt", "text": "keep" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "cafe\u0301-drafts/draft.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "Pra\u0308sentation.key", "text": "slides" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "keep.txt", "text": "keep" },
+      { "op": "drive_check", "check": "file", "device": "a", "path": "cafe\u0301-drafts/draft.txt", "text": "a draft" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_check", "check": "remote_puts", "device": "a", "max": 3 },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "Pra\u0308sentation.key", "text": "slides" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "cafe\u0301-drafts/draft.txt", "absent": true },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

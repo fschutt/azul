@@ -1,0 +1,25 @@
+{
+  "name": "a new computer restores a 15,000-file backup in one go, across a crash, uploading nothing",
+  "description": "DEGOO-010 (sync-chaos mobile-restore): after a broken phone, Degoo's restore meant downloading 15,000 files one at a time. Rules E5, A5 and E8: pairing a fresh device restores the whole drive without per-file steps; a crash during the restore converges on the next pass with no temp file left, and the restore uploads nothing.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "photos", "count": 15000, "size": 64, "text_prefix": "photo" },
+    { "op": "drive_sync", "device": "a", "timeout_ms": 900000 },
+    { "op": "drive_open", "device": "c", "remote": "r", "device_name": "new-phone" },
+    { "op": "drive_crash_at", "device": "c", "point": "before-rename" },
+    { "op": "drive_pair", "device": "c" },
+    { "op": "drive_wait_idle", "device": "c", "timeout_ms": 900000 },
+    { "op": "drive_status", "device": "c" },
+    { "op": "assert_response", "path": "result.crashes", "equals": 1 },
+    { "op": "drive_sync", "device": "c", "timeout_ms": 900000 },
+    { "op": "drive_check", "check": "files_count", "device": "c", "glob": "photos/*", "count": 15000 },
+    { "op": "drive_check", "check": "no_temp_files", "device": "c" },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_check", "check": "remote_puts", "device": "c", "max": 0 },
+    { "op": "drive_check", "check": "trash_empty", "device": "c" },
+    { "op": "drive_cleanup" }
+  ]
+}

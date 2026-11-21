@@ -1,0 +1,41 @@
+[
+  {
+    "name": "5,000 files under a 429 rate limit: the client waits as told and every file arrives",
+    "description": "MBOX-006 (mailbox.org WebDAV): a bulk upload of more than 5,000 files died after the first file with error 7772. Rule E6: Retry-After is honoured for 429 and never asked early, and the pass finishes. sync-chaos res-429-retry-after.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "bulk", "count": 5000, "size": 64, "seed": 6 },
+      { "op": "drive_fault", "device": "a", "rate_limit_every": 4, "retry_after": 1 },
+      { "op": "drive_sync", "device": "a", "expect": "any", "timeout_ms": 600000 },
+      { "op": "drive_sync", "device": "a", "timeout_ms": 600000 },
+      { "op": "drive_check", "check": "retry_after_respected", "device": "a" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_check", "check": "remote_count", "glob": "bulk/*", "count": 5000 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "the connection is cut after the first request of a bulk upload: the index never names a missing object, the next pass finishes",
+    "description": "MBOX-006: every request after the first failed. Rules E5 and A7: blobs before the index, so a cut leaves a consistent drive; the pass lists remote-offline and the next one sends the rest.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "bulk", "count": 200, "size": 64, "seed": 7 },
+      { "op": "drive_fault", "device": "a", "cut_after_ops": 1 },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code_any": ["remote-offline", "transient"] },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_fault", "device": "a", "clear": true },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_count", "glob": "bulk/*", "count": 200 },
+      { "op": "drive_check", "check": "remote_consistent" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

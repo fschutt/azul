@@ -73,7 +73,7 @@ win.size_to_content = false;
 - `window_state: FullWindowState` — initial state (size, title, flags, ...).
 - `create_callback: OptionCallback` — optional fn called once after window opens.
 - `renderer: OptionRendererOptions` — VSync, sRGB, hardware accel.
-- `theme: OptionWindowTheme` — light/dark override.
+- `theme: OptionDarkLightMode` — light/dark override.
 - `size_to_content: bool` — resize to fit first layout (default false).
 - `hot_reload: bool` — CSS hot-reload on file change.
 
@@ -171,18 +171,27 @@ To close the current window from a callback:
 info.close_window();
 ```
 
-To intercept the close button, set `FullWindowState.close_callback` on the state. Returning `Update::DoNothing` and clearing `flags.close_requested` keeps the window open:
+Every close is a request the app can refuse: the title-bar close button, Alt+F4, `info.close_window()` and the close button of the app-drawn `Titlebar` all fire `WindowEventFilter::CloseRequested` before the window goes. To ask "Save changes?", listen to it on any node and call `info.prevent_window_close()` to keep the window open. Call it last: the window-state changes the callback made before it are kept. Never clear `flags.close_requested` by hand.
 
-```rust,no_run
-use azul::prelude::*;
-
-extern "C" fn on_close(_: RefAny, mut info: CallbackInfo) -> Update {
-    let mut state = info.get_current_window_state().clone();
-    state.flags.close_requested = false;       // veto the close
-    info.modify_window_state(state);
-    Update::DoNothing
+```rust,ignore
+extern "C" fn on_close_requested(mut data: RefAny, mut info: CallbackInfo) -> Update {
+    let dirty = data.downcast_ref::<MyApp>().map(|app| app.dirty).unwrap_or(false);
+    if !dirty {
+        return Update::DoNothing; // the window closes
+    }
+    // ... show the question (set a flag, return RefreshDom) ...
+    info.prevent_window_close(); // the window stays
+    Update::RefreshDom
 }
+
+let content = Dom::create_div().with_callback(
+    EventFilter::Window(WindowEventFilter::CloseRequested),
+    data.clone(),
+    on_close_requested,
+);
 ```
+
+For a document window the `CloseGuard` widget does all of this: wrap the window's content in it, keep its `dirty` flag up to date and answer its events (`Ask`: show the question; `Save`: save, then `close_window()`; `Discard`; `Cancel`). If the document can change between the last DOM build and the close (a save and a `close_window()` in one callback, a save that lands on a thread), give it `with_dirty_check(data, callback)` instead of keeping `dirty` up to date: the guard calls it when the close request arrives and the callback answers `CloseGuardDocumentState::Saved` or `Unsaved`.
 
 ## Menus
 
@@ -348,6 +357,34 @@ On X11, set `LinuxWindowOptions.window_icon`. macOS uses the icon from the `.app
 - `wasm_options: WasmWindowOptions` — reserved.
 
 Linux options carry X11-specific hints (`x11_window_types`, `x11_wm_classes`, `x11_resize_increments`) and Wayland-specific identifiers (`wayland_app_id`, `wayland_theme`). Most apps don't need these — the defaults work.
+
+## App identity
+
+The OS keys several services on the app's id: the Windows toast registration (the AUMID) and the app's entry in the notification settings, the freedesktop `desktop-entry` hint, and the Wayland `app_id` / X11 `WM_CLASS` a desktop matches to a `.desktop` file. Declare it once, as a reverse-DNS id, with `AppConfig::app_id`:
+
+```rust,ignore
+let config = AppConfig::create().with_app_id("org.example.Editor".into());
+```
+
+Where the platform has already named the app, the platform wins, and a different `app_id` is logged as a warning:
+
+| Platform | The app's id |
+|---|---|
+| Windows | `app_id`. The toast AUMID, and the COM activator that delivers a click after the app exited, follow it |
+| Linux | `app_id`: the `desktop-entry` hint, the default Wayland `app_id` and the default X11 `WM_CLASS` (a window's own `wayland_app_id` / `x11_wm_classes` still win). Inside a Flatpak, `FLATPAK_ID` wins |
+| macOS, iOS | the bundle's `CFBundleIdentifier` |
+| Android | the manifest package |
+
+Without an `app_id` nothing changes: the id is the platform's, else `com.azul.<executable name>` (and on Linux the `.desktop` name is the executable's name). The id is read once, when the `App` is created.
+
+Declare the same id at build time as `identifier` in the crate's `[package.metadata.bundle]` table (the `cargo-bundle` key). `azul-doc bundle macos` writes it as the `CFBundleIdentifier` (in its Apple form: `_` becomes `-`), and `azul-doc mobile build` uses it as the iOS bundle id and the Android package. `--bundle-id` / `--package` override it.
+
+```toml
+[package.metadata.bundle]
+identifier = "org.example.Editor"
+```
+
+On Linux, install the app's desktop file as `<app_id>.desktop`: without it, a desktop can attribute a notification only through the process ID while a window is open. On Windows, an app that starts setting `app_id` gets a new entry in Settings > Notifications; the old one stays in the registry until removed.
 
 ## Common errors
 

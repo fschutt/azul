@@ -1,0 +1,31 @@
+{
+  "name": "the large files' objects cannot be fetched while the index can: the small files come down, the large one is named and comes later",
+  "description": "DEGOO-009 (sync-chaos res-server-down-long): Degoo's separate large-file host was down for weeks and downloads hung at 'Connecting to ...'. Rules E6 and O1: per-file retry, never a global stall; the failing file is listed by name on each pass, no partial file is left, the rest syncs, and it arrives once the host is back. (The fault is a 500 for those objects; a connection error has the same expected outcome.)",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "big/video.mp4", "size": 5000000, "seed": 44 },
+    { "op": "drive_write", "device": "a", "path": "notes.txt", "text": "small file" },
+    { "op": "drive_write", "device": "a", "path": "photos/p1.jpg", "size": 20000, "seed": 45 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_fault", "device": "b", "fail_files": ["big/*"] },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "notes.txt", "text": "small file" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "photos/p1.jpg", "same_as": "{root:a}/photos/p1.jpg" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "big/video.mp4", "absent": true },
+    { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["transient", "remote-offline"], "key": "big/video.mp4", "when": "last" },
+    { "op": "drive_check", "check": "no_temp_files", "device": "b" },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["transient", "remote-offline"], "key": "big/video.mp4", "when": "last" },
+    { "op": "drive_fault", "device": "b", "clear": true },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "big/video.mp4", "same_as": "{root:a}/big/video.mp4" },
+    { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["transient", "remote-offline"], "key": "big/video.mp4", "absent": true, "when": "last" },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_cleanup" }
+  ]
+}

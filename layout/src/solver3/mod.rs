@@ -7,18 +7,28 @@ pub mod calc;
 pub mod counters;
 pub mod display_list;
 pub mod fc;
+pub mod footnotes;
 pub mod geometry;
 pub mod getters;
 pub mod layout_tree;
 pub use layout_tree::LayoutNodeId;
 pub mod break_token;
+/// CSS Multi-column Layout 1: column geometry and the column breaks of a
+/// multi-column block container.
+pub mod multicol;
 pub mod page_breaks;
 pub mod paged_layout;
 pub mod pagination;
 pub mod positioning;
+pub mod regions;
+pub mod scroll_chain;
 pub mod scrollbar;
 pub mod sizing;
+pub mod svg;
 pub mod taffy_bridge;
+/// The automatic table layout's width half: column constraints, the table's
+/// min/max-content, the width distribution (shared by sizing and layout).
+pub mod table_width;
 
 /// Lazy `debug_info` macro - only evaluates format args when `debug_messages` is Some
 #[macro_export]
@@ -160,10 +170,21 @@ pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
     positions.get(idx).copied().filter(|p| p.x != f32::MIN)
 }
 
+/// How many entries [`pos_set`] filled with "unset" on this thread to make a
+/// vector long enough for the index it wrote (`audit_tests::a3_solver`: a
+/// position vector made for one box and written at that box's index in the
+/// tree is filled up to it, per box).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static POSITION_FILLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Set position for node index. Grows the vec if needed.
 #[inline]
 pub fn pos_set(positions: &mut PositionVec, idx: usize, pos: LogicalPosition) {
     if idx >= positions.len() {
+        #[cfg(test)]
+        POSITION_FILLS.with(|n| n.set(n.get() + idx + 1 - positions.len()));
         positions.resize(idx + 1, POSITION_UNSET);
     }
     positions[idx] = pos;
@@ -181,7 +202,6 @@ use azul_css::{
 };
 
 use self::{
-    display_list::generate_display_list,
     geometry::IntrinsicSizes,
     getters::get_writing_mode,
     layout_tree::{generate_layout_tree, LayoutTree},
@@ -196,6 +216,62 @@ use crate::{
         layout_tree::DirtyFlag,
     },
 };
+
+/// What one layout pass keeps for itself: memos and scratch buffers that are
+/// valid for exactly one [`LayoutContext`] - one styled DOM, one layout tree,
+/// one viewport - and are dropped with it.
+///
+/// THE place for per-pass state. A new slot is a field here (a struct with
+/// `Default`, defined next to the code that uses it); the context's struct
+/// literals (twelve, in six files) write `pass_memo: Default::default()` and
+/// never change again. Not for anything that must outlive the pass (that is
+/// `cache::LayoutCache`) or that another pass could read by mistake: a slot is
+/// empty at the start of every pass by construction.
+pub struct PassMemo<T> {
+    /// `fc::layout_bfc`'s slot.
+    pub bfc: fc::BfcPassMemo,
+    /// The taffy bridge's slot.
+    pub taffy: taffy_bridge::TaffyPassMemo,
+    /// The intrinsic pass's slot: the paragraphs it shaped, for their
+    /// layout.
+    pub measured: sizing::MeasuredParagraphs,
+    /// The fonts the font manager holds, as the first ask of the pass found
+    /// them ([`LayoutContext::loaded_fonts`]). `T` is the context's font
+    /// type, which is why this struct has it.
+    #[cfg(feature = "text_layout")]
+    loaded_fonts: core::cell::OnceCell<Arc<crate::text3::cache::LoadedFonts<T>>>,
+    #[cfg(not(feature = "text_layout"))]
+    loaded_fonts: core::marker::PhantomData<T>,
+}
+
+// By hand: a derive would ask `T: Default` / `T: Debug`, which no slot needs.
+impl<T> Default for PassMemo<T> {
+    fn default() -> Self {
+        Self {
+            bfc: fc::BfcPassMemo::default(),
+            taffy: taffy_bridge::TaffyPassMemo::default(),
+            measured: sizing::MeasuredParagraphs::default(),
+            loaded_fonts: Default::default(),
+        }
+    }
+}
+
+impl<T> core::fmt::Debug for PassMemo<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PassMemo")
+            .field("bfc", &self.bfc)
+            .field("taffy", &self.taffy)
+            .finish_non_exhaustive()
+    }
+}
+
+/// How often a pass asked the font manager for the fonts it holds
+/// ([`LayoutContext::loaded_fonts`]) on this thread (`audit_tests::a3_solver`:
+/// once per context, not once per inline formatting context).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LOADED_FONTS_ASKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
 
 /// Central context for a single layout pass.
 #[derive(Debug)]
@@ -226,15 +302,20 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub debug_messages: &'a mut Option<Vec<LayoutDebugMessage>>,
     pub counters: &'a mut HashMap<(usize, String), i32>,
     pub viewport_size: LogicalSize,
+    /// The surface the CANVAS background covers (CSS 2.2 §14.2): for a root
+    /// document the whole window, the safe-area strips included, while
+    /// `viewport_size` is only the part the root is laid out in. Everywhere
+    /// else - a child DOM, a page, a test - it is the viewport at the origin.
+    pub canvas_rect: LogicalRect,
     /// Fragmentation context for CSS Paged Media (PDF generation)
     /// When Some, layout respects page boundaries and generates one `DisplayList` per page
     pub fragmentation_context: Option<&'a mut crate::paged::FragmentationContext>,
     /// Per-pass record: layout-tree indices of IFC roots whose LINE LAYOUT
-    /// was recomputed this pass (`layout_flow` ran — `GlyphSwap` reuse does
-    /// NOT count). The DL-patching invalidation signal: a re-flowed IFC's
+    /// was recomputed this pass (its lines were laid out — a reuse of the
+    /// cached layout does NOT count). The DL-patching invalidation signal: a re-flowed IFC's
     /// text items changed shape and must re-emit; everything else can be
     /// copied+translated. Drained into the patch machinery by
-    /// `layout_document`; empty on GlyphSwap-only passes.
+    /// `layout_document`; empty on passes that only reuse cached layouts.
     pub reflowed_ifcs: std::collections::BTreeSet<usize>,
     /// Whether the text cursor should be drawn (managed by `CursorManager` blink timer)
     /// When false, the cursor is in the "off" phase of blinking and should not be rendered.
@@ -309,9 +390,32 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub virtual_view_sizes: Option<&'a BTreeMap<(DomId, NodeId), LogicalSize>>,
     pub scrollbar_style_cache:
         core::cell::RefCell<HashMap<NodeId, getters::ComputedScrollbarStyle>>,
+    /// What this pass keeps for itself ([`PassMemo`]).
+    pub pass_memo: PassMemo<T>,
 }
 
 impl<T: ParsedFontTrait> LayoutContext<'_, T> {
+    /// The fonts the font manager holds (`FontManager::get_loaded_fonts`),
+    /// asked for ONCE per pass and kept.
+    ///
+    /// The fonts a text needs are loaded before its layout pass starts, so
+    /// the pool does not change under one. Asking the manager is two mutex
+    /// locks and a fold over every loaded face (its memo's check): every
+    /// inline formatting context asked twice per pass, 12,000 labels 24,000
+    /// times. A face registered while a pass runs (another thread) is seen by
+    /// the pass that follows - `text3::fontreg::generation` lays that one out
+    /// cold - instead of by the boxes of this pass that happened to come
+    /// after it.
+    #[cfg(feature = "text_layout")]
+    #[must_use]
+    pub fn loaded_fonts(&self) -> Arc<crate::text3::cache::LoadedFonts<T>> {
+        Arc::clone(self.pass_memo.loaded_fonts.get_or_init(|| {
+            #[cfg(test)]
+            LOADED_FONTS_ASKS.with(|n| n.set(n.get() + 1));
+            self.font_manager.get_loaded_fonts()
+        }))
+    }
+
     /// The one overlay→DOM content read order for this context's DOM.
     /// Layout (intrinsic sizing) and display-list build resolve node content
     /// exclusively through this — never via `NodeType::Image` directly.
@@ -321,6 +425,7 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
             overlay: self.content_overlay,
             styled_dom: self.styled_dom,
             dom_id: self.styled_dom.dom_id,
+            image_cache: Some(self.image_cache),
         }
     }
 
@@ -507,6 +612,12 @@ pub fn dl_input_fingerprint(
     h.finish()
 }
 
+/// What a display list reads of the scroll states it is built with: each
+/// scroll node's content size (a `VirtualView`'s virtual size, the thumb's
+/// proportion). Not the container rect: the list takes every box from the
+/// layout, so a container that moved or resized - a list under a growing
+/// ribbon - asks for no other list. Not the offset either: a scroll moves the
+/// frames where they are drawn, the list stays.
 pub(crate) fn scroll_geometry_fingerprint(
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
 ) -> u64 {
@@ -514,10 +625,6 @@ pub(crate) fn scroll_geometry_fingerprint(
     let mut h = DefaultHasher::new();
     for (node, pos) in scroll_offsets {
         node.hash(&mut h);
-        pos.parent_rect.origin.x.to_bits().hash(&mut h);
-        pos.parent_rect.origin.y.to_bits().hash(&mut h);
-        pos.parent_rect.size.width.to_bits().hash(&mut h);
-        pos.parent_rect.size.height.to_bits().hash(&mut h);
         pos.children_rect.size.width.to_bits().hash(&mut h);
         pos.children_rect.size.height.to_bits().hash(&mut h);
     }
@@ -526,6 +633,106 @@ pub(crate) fn scroll_geometry_fingerprint(
 
 pub fn set_skip_display_list(skip: bool) {
     SKIP_DISPLAY_LIST.store(skip, core::sync::atomic::Ordering::Relaxed);
+}
+
+/// The layout indices a css-dirty pass on the RETAINED tree must re-emit
+/// instead of splicing from the previous display list. Every box of a
+/// restyled node re-emits: its own items were painted from its old style.
+/// Every box below one re-emits too, because a value the restyle changed can
+/// be inherited by what it contains (a colour, a font) - unless the pass is
+/// known to change box geometry only (`geometry_only`: the frame of a tween
+/// of a width, a height, a padding, a margin, an offset or a border width).
+/// No box inherits or paints with such a value of its ancestor: what the
+/// geometry moves or resizes inside is re-emitted or translated by the
+/// patch's own position and size diff (`PatchState::build`), and the rest
+/// is copied. Empty when the pass carries no css dirt (a resize).
+fn css_dirty_reemit_set(
+    tree: &LayoutTree,
+    css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
+    geometry_only: bool,
+) -> std::collections::BTreeSet<usize> {
+    let mut out = std::collections::BTreeSet::new();
+    if css_dirty.is_empty() {
+        return out;
+    }
+    let dirty: std::collections::BTreeSet<NodeId> = css_dirty.iter().map(|(n, _)| *n).collect();
+    if geometry_only {
+        for (i, node) in tree.nodes.iter().enumerate() {
+            if node.dom_node_id.is_some_and(|d| dirty.contains(&d)) {
+                out.insert(i);
+            }
+        }
+        return out;
+    }
+    // Per layout index: 0 = not decided yet, 1 = re-emits, 2 = splices. Each
+    // walk up stops at the first decided ancestor, so the whole tree costs
+    // one visit per node and edge.
+    let mut verdict = vec![0_u8; tree.nodes.len()];
+    let mut chain: Vec<usize> = Vec::new();
+    for start in 0..tree.nodes.len() {
+        chain.clear();
+        let mut answer = 2_u8;
+        let mut cur = Some(start);
+        while let Some(i) = cur {
+            let Some(node) = tree.nodes.get(i) else {
+                break;
+            };
+            if verdict[i] != 0 {
+                answer = verdict[i];
+                break;
+            }
+            chain.push(i);
+            if node.dom_node_id.is_some_and(|d| dirty.contains(&d)) {
+                answer = 1;
+                break;
+            }
+            cur = node.parent;
+        }
+        for &i in &chain {
+            verdict[i] = answer;
+        }
+    }
+    for (i, v) in verdict.iter().enumerate() {
+        if *v == 1 {
+            out.insert(i);
+        }
+    }
+    out
+}
+
+/// The layout indices whose display-list runs hold what is painted for the
+/// DOM nodes `nodes`: every box of each node, and for a box that is a member
+/// of an inline formatting context (a text, an inline box) the root of that
+/// context, whose content run paints its members' glyphs and decorations.
+/// What a pass re-emits for the nodes a producer cascaded
+/// (`cache::CascadedSince`); a node without a box adds nothing.
+fn boxes_painted_for(tree: &LayoutTree, nodes: &[NodeId]) -> std::collections::BTreeSet<usize> {
+    let mut out = std::collections::BTreeSet::new();
+    for node in nodes {
+        let Some(boxes) = tree.dom_to_layout.get(node) else {
+            continue;
+        };
+        for id in boxes {
+            out.insert(id.index());
+            if let Some(member) = tree.warm(*id).and_then(|warm| warm.ifc_membership) {
+                out.insert(member.ifc_root_layout_index);
+            }
+        }
+    }
+    out
+}
+
+/// Whether the dynamic selector context `dom` is cascaded under is the one the
+/// cached display list of `cache` was built under (both without one counts).
+fn built_under_the_context_of(cache: &LayoutCache, dom: &StyledDom) -> bool {
+    match (
+        dom.get_css_property_cache().dynamic_context.as_deref(),
+        cache.last_dynamic_context.as_ref(),
+    ) {
+        (Some(now), Some(then)) => now == then,
+        (None, None) => true,
+        _ => false,
+    }
 }
 
 // M12.7: keep this out-of-line so the web lift sees it as its own wasm fn
@@ -546,6 +753,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     text_cache: &mut TextLayoutCache,
     new_dom: &StyledDom,
     viewport: LogicalRect,
+    // What the canvas background covers - see `LayoutContext::canvas_rect`.
+    canvas_rect: LogicalRect,
     font_manager: &crate::font_traits::FontManager<T>,
     scroll_offsets: &BTreeMap<NodeId, ScrollPosition>,
     text_selections: &BTreeMap<DomId, TextSelection>,
@@ -586,25 +795,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
 ) -> Result<std::sync::Arc<DisplayList>> {
     use crate::window::LayoutWindow;
 
-    // Secondary mapping: anonymous wrappers (dom_node_id == None)
-    // by (parent_new_idx, ordinal-among-anon-siblings). An
-    // unchanged DOM produces the same anon wrappers in the same
-    // order under the same parent — matching by position here
-    // preserves their cache slots too. Without this, anon
-    // wrappers re-allocate empty every reconcile and invalidate
-    // their ancestors via `mark_dirty`.
-    fn collect_anon_children_by_parent(tree: &LayoutTree) -> HashMap<usize, Vec<usize>> {
-        let mut map: HashMap<usize, Vec<usize>> = HashMap::new();
-        for (idx, node) in tree.nodes.iter().enumerate() {
-            if node.dom_node_id.is_some() {
-                continue;
-            }
-            if let Some(parent) = node.parent {
-                map.entry(parent).or_default().push(idx);
-            }
-        }
-        map
-    }
+    // Continuous media: `float: footnote` behaves as `float: none` here
+    // (`footnotes::announce`), whatever a paged layout of this document said.
+    footnotes::announce(new_dom, false);
 
     // Reset IFC ID counter at the start of each layout pass
     // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
@@ -633,12 +826,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         style_cache: Default::default(),
         virtual_view_sizes: Some(virtual_view_sizes),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        pass_memo: Default::default(),
         styled_dom: new_dom,
         font_manager,
         text_selections,
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect,
         fragmentation_context: None,
         reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
@@ -693,37 +888,142 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // diff for paint-dirty classification. The dom-id sanity check guards
     // against a stale hint meeting a swapped DOM.
     drop(doc_setup_span);
+    // A face registered at runtime (`text3::fontreg`) changes the face text
+    // naming its family is drawn in: what this cache laid out and shaped
+    // with the fallback is stale, so the document is laid out cold once.
+    let font_epoch = crate::text3::fontreg::generation();
+    if cache.font_epoch != font_epoch {
+        cache.font_epoch = font_epoch;
+        cache.tree = None;
+        cache.cached_display_list = None;
+        cache.resize_only_hint = false;
+        cache.overrides_only_hint = None;
+    }
     let resize_only = core::mem::take(&mut cache.resize_only_hint);
+    // The nodes a producer cascaded since the cached display list was built,
+    // when it styled named nodes only (`cache::CascadedSince`, the step `list`
+    // of the diff-first pipeline). Spent by this pass whatever becomes of it,
+    // and good only for a list built at the epoch it starts from and a DOM
+    // that stands at the epoch it ends at.
+    let cascaded_named: Option<Vec<NodeId>> = cache
+        .cascaded_since_list
+        .take()
+        .filter(|since| {
+            since.from_epoch == cache.last_cascade_epoch
+                && since.to_epoch == new_dom.get_css_property_cache().cascade_epoch
+        })
+        .map(|since| since.nodes);
+    // OVERRIDES-ONLY SKIP: the frame of a layout-property tween changed no
+    // node - only the user override the tween walks (`tick_animations` arms
+    // the latch, stamped with the DOM it describes). The reconcile reads node
+    // data and interaction states, never overrides, so it would rebuild
+    // exactly the retained tree: take it as it is, like the resize path. The
+    // css dirt of this pass (Step 1.15) names the boxes to lay out again, and
+    // its nodes re-emit in the display-list patch (Step 4). A stamp that no
+    // longer matches (a node added, a restyle, a hover moved since the tick)
+    // reconciles as before.
+    let overrides_hint = cache.overrides_only_hint.take();
+    let overrides_only = overrides_hint.is_some_and(|stamp| stamp.describes(new_dom));
+    // A frame of a layout tween that another frame follows (the window says
+    // so in the stamp): its display-list patch translates the runs of the
+    // boxes it moves and records them; any other pass paints them anew
+    // (Step 4, `display_list::PatchState`).
+    let tween_frame_followed =
+        overrides_only && overrides_hint.is_some_and(|stamp| stamp.more_frames_follow);
     let dom_len_for_hint = new_dom.node_data.as_ref().len();
-    let (new_tree_val, mut recon_result) = if resize_only
-        && cache.tree.as_ref().is_some_and(|t| {
+    // NO-CHANGE SKIP: the producer's diff proved every node unchanged with
+    // its ancestors, on the structure and the style tier
+    // (`LayoutCache::dom_diff_clean`), the cascade moved nothing that lays
+    // out, and the viewport is the one laid out: the reconcile could only
+    // rebuild the retained tree (4-7 ms of a page like AzWidgets'). Content
+    // the overlay holds (an edited text, a swapped image) is no part of that
+    // diff, so a window whose overlay shapes the layout now, or shaped the
+    // tree it kept, keeps reconciling.
+    let overlay_shapes_layout =
+        content_overlay.is_some_and(crate::overlay::ContentOverlay::shapes_layout);
+    let unchanged = !resize_only
+        && !overrides_only
+        && !overlay_shapes_layout
+        && !cache.laid_out_with_overlay
+        && cache.viewport == Some(viewport)
+        && css_dirty
+            .iter()
+            .all(|(_, scope)| *scope == azul_css::props::property::RelayoutScope::None)
+        && cache
+            .dom_diff_clean
+            .as_ref()
+            .is_some_and(|clean| clean.len() == dom_len_for_hint && clean.iter().all(|c| *c));
+    // Every path below leaves the tree laid out for this pass's overlay.
+    cache.laid_out_with_overlay = overlay_shapes_layout;
+    // A rebuilt DOM that renumbered its nodes is reconciled whatever the
+    // hints say: the retained tree names the nodes by their old ids.
+    let ids_kept = cache
+        .dom_pairing
+        .as_ref()
+        .is_none_or(cache::DomPairing::keeps_every_id);
+    let (new_tree_val, mut recon_result) = if (resize_only || overrides_only || unchanged)
+        && ids_kept
+        && cache.tree.as_deref().is_some_and(|t| {
             t.dom_to_layout
                 .last_key_value()
                 .is_none_or(|(max_id, _)| max_id.index() < dom_len_for_hint)
         }) {
-        let _p = crate::probe::Probe::span("reconcile_skipped_resize_only");
+        let _p = crate::probe::Probe::span(if resize_only {
+            "reconcile_skipped_resize_only"
+        } else if overrides_only {
+            "reconcile_skipped_overrides_only"
+        } else {
+            "reconcile_skipped_unchanged"
+        });
         cache.last_reconcile_was_skipped = true;
-        let tree = cache.tree.take().expect("checked is_some above");
+        // The one-shot diff is spent either way.
+        cache.dom_diff_clean = None;
+        let tree = cache::unshare(cache.tree.take().expect("checked is_some above"));
         // DL-patching input: the sizes the PREVIOUS pass computed — the
         // layout pass below overwrites used_size in place (same tree
         // object), so this is the only moment they can be captured.
         cache.previous_sizes = tree.nodes.iter().map(|n| n.used_size).collect();
         let mut r = cache::ReconciliationResult::default();
-        r.layout_roots.insert(tree.root);
+        // A resize re-runs the top-down pass from the root at the new size;
+        // an override frame lays out only what its css dirt names.
+        if resize_only {
+            r.layout_roots.insert(tree.root);
+        }
         r.reused_nodes = tree.nodes.len();
         r.fresh_nodes = 0;
+        // The diff proved every node clean, so no node's fingerprint was
+        // computed again: the census counts them all as skipped.
+        if unchanged && !resize_only && !overrides_only {
+            r.fingerprint_skips = dom_len_for_hint;
+        }
         (tree, r)
     } else {
         cache.last_reconcile_was_skipped = false;
         // DL-patching input for the STRUCTURE-PRESERVED case (a text edit):
         // the sizes the previous pass computed, captured before reconcile
         // consumes the old tree.
-        if let Some(t) = cache.tree.as_ref() {
+        if let Some(t) = cache.tree.as_deref() {
             cache.previous_sizes = t.nodes.iter().map(|n| n.used_size).collect();
         }
         let dom_diff_clean = cache.dom_diff_clean.take();
-        cache::reconcile_and_invalidate(&mut ctx_temp, cache, viewport, dom_diff_clean)?
+        // The CSS diff goes in too: a node it restyled is built fresh, with
+        // the new cascade's box props (LAYOUTPERF8 bug B).
+        cache::reconcile_and_invalidate_restyled(
+            &mut ctx_temp,
+            cache,
+            viewport,
+            dom_diff_clean,
+            css_dirty,
+        )?
     };
+    // The styles the reconcile resolved (every text node's under a restyled
+    // box, to compare it with the one it was laid out with) go on to the
+    // layout's context below: same DOM, same viewport, same cascade epoch -
+    // the memo's key. They were dropped with `ctx_temp`, and the layout
+    // resolved each of them a second time.
+    let reconcile_styles = core::mem::take(&mut ctx_temp.style_cache);
+    // The pairing is spent with the pass, like the diff.
+    cache.dom_pairing = None;
     // The reuse census, persisted where a test can read it — see the field
     // docs on LayoutCache for why this pair is the ONLY external observable
     // that distinguishes "reused the warm tree" from "rebuilt it from
@@ -815,10 +1115,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             && *cached_gpu_fp == gpu_fp
             && *cached_scroll_fp == scroll_fp
             && *cached_input_fp == input_fp
+            // A list that holds runs a tween frame translated is not served
+            // as it is: this pass is no tween frame, so it paints those
+            // boxes anew (Step 4) and the list at rest is a fresh one.
+            && cached_dl.translated_since_painted.is_empty()
         {
             let _p = crate::probe::Probe::span("display_list_cache_hit");
             #[cfg(feature = "std")]
-            if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+            if env_flag!("AZ_ANIM_DEBUG") {
                 eprintln!(
                     "[dlcache] HIT fp={gpu_fp:x} items={}",
                     cached_dl.items.len()
@@ -832,7 +1136,53 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // expected no damage, got rects).
             cache.last_build_was_patched = false;
             cache.last_patch_damage = None;
+            // The census describes THIS pass, as the early exit's does: it
+            // sized nothing. Left in place, the count of the last pass that
+            // laid out (the cold one: every node) made a relayout of an
+            // unchanged page read as a whole-page re-measure.
+            cache.last_intrinsic_dirty = 0;
+            // A skip path above took the retained tree out of the cache to
+            // lay it out as this pass's tree. Serving the cached list ends
+            // the pass here, so the tree goes back where the next pass and
+            // the window read it (a reconciled pass left the cache's own
+            // tree in place).
+            if cache.last_reconcile_was_skipped {
+                cache.tree = Some(alloc::sync::Arc::from(new_tree));
+            }
             return Ok(dl);
+        }
+    }
+
+    // A pass that kept the tree without a reconcile restyles what its css
+    // dirt names (a tween's frame), and a resize restyles every text sized in
+    // viewport units: their text may be laid out with another style than the
+    // one the reconcile read, so the next restyle above them rebuilds them.
+    // A box dirt (`SizingOnly` / `Full`: a height, a padding) lays out the
+    // text it reaches again in this very pass, from the style it has now.
+    if cache.last_reconcile_was_skipped {
+        for (dom_id_dirty, scope) in css_dirty {
+            if *scope >= azul_css::props::property::RelayoutScope::SizingOnly {
+                continue;
+            }
+            if let Some(idx) = new_tree
+                .dom_to_layout
+                .get(dom_id_dirty)
+                .and_then(|v| v.first())
+                .map(|id| id.index())
+            {
+                new_tree.forget_text_styles_below(idx);
+            }
+        }
+        if resize_only
+            && new_dom
+                .css_property_cache
+                .ptr
+                .compact_cache
+                .as_ref()
+                .is_none_or(|cc| cc.uses_viewport_units)
+        {
+            let root = new_tree.root;
+            new_tree.forget_text_styles_below(root);
         }
     }
 
@@ -852,33 +1202,114 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .iter()
             .any(|(_, scope)| *scope != azul_css::props::property::RelayoutScope::None);
         if needs_layout_work {
-            let mut dom_to_tree: HashMap<NodeId, usize> =
-                HashMap::with_capacity(new_tree.nodes.len());
-            for (idx, node) in new_tree.nodes.iter().enumerate() {
-                if let Some(d) = node.dom_node_id {
-                    dom_to_tree.insert(d, idx);
+            // A pass that skipped the reconcile kept the tree of the old
+            // cascade: the boxes the css dirt names read their margins,
+            // borders, paddings and layout style again, as the reconcile
+            // builds a restyled box fresh (an override-animated margin
+            // moves its box).
+            if cache.last_reconcile_was_skipped {
+                for (dom_id_dirty, scope) in css_dirty {
+                    if *scope == azul_css::props::property::RelayoutScope::None {
+                        continue;
+                    }
+                    let idx = new_tree
+                        .dom_to_layout
+                        .get(dom_id_dirty)
+                        .and_then(|v| v.first())
+                        .map(|id| id.index());
+                    if let Some(idx) = idx {
+                        new_tree.restyle_node(new_dom, idx, &mut None, viewport.size);
+                    }
                 }
             }
+            let any_columns = multicol::dom_declares_columns(new_dom);
+            let node_of = |idx: usize| {
+                new_tree.nodes.get(idx).map(|n| {
+                    (
+                        n.parent,
+                        n.formatting_context,
+                        any_columns && multicol::is_multicol_box(new_dom, n.dom_node_id),
+                    )
+                })
+            };
+            // An out-of-flow box whose restyle changed its size or its text
+            // alone is its own root: no sibling moves with it and its parent
+            // holds nothing of it (`cache::restyled_out_of_flow_box_stands_alone`).
+            let size_only = cache::restyled_in_size_only(css_dirty);
+            let stands_alone = |idx: usize| {
+                new_tree.nodes.get(idx).is_some_and(|n| {
+                    n.dom_node_id.is_some_and(|dom| size_only.contains(&dom))
+                        && new_tree.warm(LayoutNodeId::new(idx)).is_some_and(|w| {
+                            cache::restyled_out_of_flow_box_stands_alone(
+                                w.computed_style.position,
+                                n.parent
+                                    .and_then(|p| new_tree.nodes.get(p))
+                                    .map(|p| p.formatting_context),
+                                any_columns,
+                            )
+                        })
+                })
+            };
             let mut dirty_roots = std::collections::BTreeSet::new();
             for (dom_id_dirty, scope) in css_dirty {
                 if *scope == azul_css::props::property::RelayoutScope::None {
                     continue;
                 }
-                if let Some(&idx) = dom_to_tree.get(dom_id_dirty) {
-                    recon_result.intrinsic_dirty.insert(idx);
-                    dirty_roots.insert(idx);
-                }
+                // The element's own box: the FIRST layout node of its DOM
+                // node (a list item's `::marker` carries the item's id too,
+                // and a last-wins map named the marker).
+                let Some(idx) = new_tree
+                    .dom_to_layout
+                    .get(dom_id_dirty)
+                    .and_then(|v| v.first())
+                    .map(|id| id.index())
+                else {
+                    continue;
+                };
+                recon_result.intrinsic_dirty.insert(idx);
+                // A box of BLOCK flow is laid out by its PARENT, whatever
+                // the scope. A `Full` change (margins, position, float,
+                // display) moves it in its parent's flow; a `SizingOnly` one
+                // (width, height, padding, borders - and `IfcOnly`, read as
+                // it above) changes its size, which moves the siblings after
+                // it and changes what its parent holds: a scroll box's
+                // extent and bar, an auto height. Re-solved on its own, a
+                // block keeps the slot its parent's last pass gave it
+                // (LAYOUTPERF8 bug B), and the parent - a clean clone -
+                // keeps the overflow and the scrollbar of the old size: a
+                // scroll box whose content grew from 400 to 800 px kept the
+                // thumb of 400 (a_grown_scroll_box_paints_its_thumb_from_
+                // the_layout_that_grew_it). A flex / grid item or an
+                // inline-level box is lifted to its container below anyway.
+                let root = if stands_alone(idx) {
+                    idx
+                } else if cache::lift_to_slot_container(idx, &node_of) == idx {
+                    new_tree
+                        .nodes
+                        .get(idx)
+                        .and_then(|n| n.parent)
+                        .unwrap_or(idx)
+                } else {
+                    idx
+                };
+                dirty_roots.insert(root);
             }
             // Same lift as the reconcile's own roots get: a flex item or an
             // inline-level box is re-solved by its container, or its
-            // siblings keep the slots they had.
-            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, |idx| {
-                new_tree
-                    .nodes
-                    .get(idx)
-                    .map(|n| (n.parent, n.formatting_context))
-            });
+            // siblings keep the slots they had; a box in a multi-column
+            // flow by the multi-column container.
+            let promoted = cache::promote_layout_roots_to_containers_but(
+                &dirty_roots,
+                node_of,
+                stands_alone,
+            );
             recon_result.layout_roots.extend(promoted);
+            // A root below another one is laid out by that one's pass (the
+            // reconcile's own roots were cleaned the same way).
+            recon_result.layout_roots =
+                cache::outermost_layout_roots(&recon_result.layout_roots, |idx| {
+                    new_tree.nodes.get(idx).and_then(|n| n.parent)
+                });
         }
     }
 
@@ -908,6 +1339,30 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
         }
     }
+    // ...and every node's, when the viewport changed under a document that
+    // uses viewport units. A `vw` / `vh` length resolves against the viewport,
+    // which no measurement key carries, so a clean node's measurement may be
+    // stale at its old key. A reconciled tree's clones keep their
+    // measurements (`clone_node_from_old`); the reconcile used to throw them
+    // all away, and this keeps that for exactly the case the keys cannot
+    // see. The resize fast path (`resize_only`) is left as it was. Same gate
+    // as the inline-collection cache's viewport fold (`layout_ifc`).
+    let viewport_units_moved = !resize_only
+        && cache.viewport.is_some_and(|v| v.size != viewport.size)
+        && new_dom
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .is_none_or(|cc| cc.uses_viewport_units);
+    if viewport_units_moved {
+        for node_idx in 0..new_tree.nodes.len() {
+            if let Some(warm) = new_tree.warm_mut(LayoutNodeId::new(node_idx)) {
+                warm.taffy_cache.clear();
+                warm.measured_content_sizes = (None, None);
+            }
+        }
+    }
 
     // Step 1.3: Compute CSS Counters
     // This must be done after tree generation but before layout,
@@ -930,99 +1385,51 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Move cache_map out of LayoutCache for the duration of layout (avoids borrow conflicts).
     // It will be moved back after the layout pass completes.
     //
-    // Critically: the old `cache_map.entries` is indexed by OLD
-    // layout-tree positions. The NEW tree may have re-ordered
-    // indices (anonymous wrapper slots shifted, whitespace nodes
-    // dropped, etc.). A plain `resize_with(default)` would silently
-    // serve the wrong node's cached result for any shifted index.
-    //
-    // Re-map by stable identity: build `old_layout_idx → new_layout_idx`
-    // via the `(dom_node_id → layout_idx)` tables on both trees,
-    // then move each surviving cache entry into its new slot. Nodes
-    // without a matching DOM id (pure anonymous wrappers) fall
-    // through to the default (empty, i.e. dirty) entry.
+    // The old `cache_map.entries` is indexed by OLD layout-tree positions,
+    // and the new tree numbers its nodes anew (a node added or dropped
+    // before another shifts it): each entry follows its node's identity
+    // into the new tree (`LayoutCacheMap::remapped`).
     let mut cache_map = std::mem::take(&mut cache.cache_map);
     let probe_cache_remap = Some(crate::probe::Probe::span("cache_map_remap"));
-    if let Some(old_tree) = cache.tree.as_ref() {
-        let mut remapped = cache::LayoutCacheMap::default();
-        remapped
-            .entries
-            .resize_with(new_tree.nodes.len(), Default::default);
-
-        // Primary mapping: DOM id → layout idx on both sides. This
-        // covers every node that has a corresponding DOM node.
-        for (dom_id, new_indices) in &new_tree.dom_to_layout {
-            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
-                continue;
-            };
-            for (pair_idx, &new_layout_idx) in new_indices.iter().enumerate() {
-                let Some(&old_layout_idx) = old_indices.get(pair_idx) else {
-                    continue;
-                };
-                if old_layout_idx >= LayoutNodeId::new(cache_map.entries.len())
-                    || new_layout_idx >= LayoutNodeId::new(remapped.entries.len())
-                {
-                    continue;
-                }
-                remapped.entries[new_layout_idx.index()] =
-                    core::mem::take(&mut cache_map.entries[old_layout_idx.index()]);
-            }
-        }
-
-        // Build old-parent → [old_anon_indices] and
-        // new-parent → [new_anon_indices]; match by pair position.
-        let old_anon_by_parent = collect_anon_children_by_parent(old_tree);
-        let new_anon_by_parent = collect_anon_children_by_parent(&new_tree);
-
-        // For each new parent we know: look up its old twin by the
-        // dom-id mapping we just populated, then match anon children
-        // positionally within that parent.
-        // Build a new→old layout-idx lookup from the primary pass.
-        let mut new_to_old_layout_idx: HashMap<LayoutNodeId, LayoutNodeId> = HashMap::new();
-        for (dom_id, new_indices) in &new_tree.dom_to_layout {
-            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
-                continue;
-            };
-            for (pair_idx, &new_layout_idx) in new_indices.iter().enumerate() {
-                if let Some(&old_layout_idx) = old_indices.get(pair_idx) {
-                    new_to_old_layout_idx.insert(new_layout_idx, old_layout_idx);
-                }
-            }
-        }
-
-        for (new_parent_idx, new_anon_children) in new_anon_by_parent {
-            let Some(&old_parent_idx) =
-                new_to_old_layout_idx.get(&LayoutNodeId::new(new_parent_idx))
-            else {
-                continue;
-            };
-            let Some(old_anon_children) = old_anon_by_parent.get(&old_parent_idx.index()) else {
-                continue;
-            };
-            for (ord, &new_anon_idx) in new_anon_children.iter().enumerate() {
-                let Some(&old_anon_idx) = old_anon_children.get(ord) else {
-                    continue;
-                };
-                if old_anon_idx >= cache_map.entries.len() || new_anon_idx >= remapped.entries.len()
-                {
-                    continue;
-                }
-                remapped.entries[new_anon_idx] =
-                    core::mem::take(&mut cache_map.entries[old_anon_idx]);
-            }
-        }
-
-        cache_map = remapped;
+    if let Some(old_tree) = cache.tree.as_deref() {
+        cache_map = cache_map.remapped(old_tree, &new_tree, &recon_result.carried_indices);
     } else {
         cache_map.resize_to_tree(new_tree.nodes.len());
     }
     drop(probe_cache_remap);
     crate::probe::sample_peak_rss("rss:after_cache_remap");
-    for &node_idx in &recon_result.intrinsic_dirty {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
+    cache_map.mark_dirty_all(
+        recon_result
+            .intrinsic_dirty
+            .iter()
+            .chain(recon_result.layout_roots.iter())
+            .copied(),
+        &new_tree.nodes,
+    );
+    // A box the reconcile kept although its inline style changed - its
+    // insets alone moved, or what it paints (`cache::reconcile_node`, the
+    // paint flag) - keeps its cache entry, and with it the place the
+    // positioning pass solved for it (`cache::AbsPlacement`), which its
+    // insets are an input of: that place is solved again.
+    for &moved in &recon_result.paint_dirty {
+        if let Some(run) = cache_map
+            .entries
+            .get_mut(moved)
+            .and_then(|entry| entry.abs_interior.as_deref_mut())
+        {
+            run.placement = None;
+        }
     }
-    for &node_idx in &recon_result.layout_roots {
-        cache_map.mark_dirty(node_idx, &new_tree.nodes);
+    // ...and EVERY node's size / layout slots when the viewport moved under a
+    // document that uses viewport units (the Step 1.2 gate): a slot is keyed
+    // by the box's available size, which a `vh` length does not move - a
+    // paragraph in an auto-height block sees the same 300 x indefinite after
+    // an 800 x 600 -> 800 x 800 resize, and its `line-height: 5vh` lines were
+    // served at their 30px pitch instead of laid out at 40px again.
+    if viewport_units_moved {
+        for entry in &mut cache_map.entries {
+            entry.clear();
+        }
     }
 
     // Now create the real context with computed counters
@@ -1035,18 +1442,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         owner_colors,
         seat_focus_rings,
         paint_selection_handles,
-        style_cache: Default::default(),
+        style_cache: reconcile_styles,
         // The report a `VirtualView` is sized by (sizing.rs). The commit that
         // threaded this parameter through left the context at `None`, so no
         // view was ever sized by what it returned - it stayed 300x150.
         virtual_view_sizes: Some(virtual_view_sizes),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        pass_memo: Default::default(),
         styled_dom: new_dom,
         font_manager,
         text_selections,
         debug_messages,
         counters: &mut counter_values,
         viewport_size: viewport.size,
+        canvas_rect,
         fragmentation_context: None,
         reflowed_ifcs: std::collections::BTreeSet::new(),
         cursor_is_visible,
@@ -1075,7 +1484,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // work (the census is load-bearing — tests assert on it).
         cache.last_intrinsic_dirty = 0;
         cache.last_reconcile_reused = recon_result.reused_nodes;
-        let tree = cache.tree.as_ref().ok_or(LayoutError::InvalidTree)?;
+        let tree = cache.tree.as_deref().ok_or(LayoutError::InvalidTree)?;
 
         // Use cached scroll IDs if available, otherwise compute them
         let scroll_ids = if cache.scroll_ids.is_empty() {
@@ -1090,10 +1499,43 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         };
 
         if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
+            cache.cache_map = std::mem::take(&mut ctx.cache_map);
             cache.record_full_emission();
             return Ok(std::sync::Arc::new(DisplayList::default()));
         }
-        let dl = generate_display_list(
+        // The tree, its boxes and their places are the ones the cached list
+        // was built from (nothing is dirty). Where a producer named the nodes
+        // it cascaded since (`cascaded_named`), the list is patched: the
+        // boxes of those nodes and of what the css dirt reaches are painted,
+        // every other run is copied where it lies. Recorded below as a full
+        // emission all the same: the renderers diff the list against the one
+        // they presented.
+        let early_patch = match (cascaded_named.as_deref(), cache.cached_display_list.as_ref()) {
+            (Some(named), Some((_, _, _, _, _, prev_dl)))
+                if display_list::dl_patching_enabled()
+                    && !regions::document_has_named_flows(new_dom)
+                    && built_under_the_context_of(cache, new_dom) =>
+            {
+                let sizes: Vec<Option<LogicalSize>> =
+                    tree.nodes.iter().map(|n| n.used_size).collect();
+                let mut reemit = css_dirty_reemit_set(tree, css_dirty, false);
+                reemit.extend(boxes_painted_for(tree, named));
+                display_list::PatchState::build(
+                    prev_dl,
+                    &cache.calculated_positions,
+                    &cache.calculated_positions,
+                    &sizes,
+                    &sizes,
+                    &reemit,
+                    false,
+                )
+            }
+            _ => None,
+        };
+        if early_patch.is_some() {
+            display_list::count_list_patched_after_a_named_cascade();
+        }
+        let dl = display_list::generate_display_list_impl(
             &mut ctx,
             tree,
             &cache.calculated_positions,
@@ -1103,6 +1545,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             renderer_resources,
             id_namespace,
             dom_id,
+            early_patch,
         )
         .map(std::sync::Arc::new)?;
         // Refresh the structural-identity cache with what was JUST emitted.
@@ -1131,6 +1574,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // renderers' damage override cannot replay stale patch rects, and
         // retire the patch log: the renderers' item diff against the list
         // they last presented covers everything from here.
+        // The per-node cache was MOVED into `ctx` for this pass (Step 1.4) and
+        // is moved back at the end of the function - which this early exit
+        // never reaches. Returning without it left the window holding an
+        // empty cache after every idle frame: the next pass re-measured the
+        // whole tree, and a dirty subtree re-solved on its own lost the
+        // containing block its parent's pass had handed it.
+        cache.cache_map = std::mem::take(&mut ctx.cache_map);
         cache.record_full_emission();
         return Ok(dl);
     }
@@ -1143,28 +1593,18 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     unsafe {
         crate::az_mark(0x60704_u32, (0x80u32));
     }
-    // [az-diag g65 PATH-B VALIDATION] new_tree is still valid here (=2). Clone it into the
-    // HEAP-backed cache.tree (set AFTER the remap+early-exit which read the OLD cache.tree).
-    // cache is the stable &mut arg (read correctly throughout), so cache.tree is NOT a
-    // deep-SP-relative stack local. At the sizing call we read BOTH: stack new_tree (expect
-    // 0=corrupted) vs heap cache.tree (expect 2 if path B sidesteps the SP-drift/wild-store).
-    // If heap=2, the full cache.tree refactor will fix it.
-    cache.tree = Some((*new_tree).clone());
-    // [az-diag g66] disambiguate the g65 heap=1: read BOTH right after the clone. 0x407C0 = stack
-    // new_tree.nodes.len() (source), 0x407C4 = clone cache.tree.nodes.len(). If src=2 & clone=1 →
-    // Vec::clone MIS-LIFTS (drops a node) → the full MOVE-based cache.tree refactor avoids it (do
-    // it). If src=1=clone → corruption already reached line 758 (heisenbug) → move won't help.
-    unsafe {
-        crate::az_mark(0x607C0_u32, (new_tree.nodes.len() as u32));
-        crate::az_mark(
-            0x607C4_u32,
-            (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32),
-        );
-    }
+    // The new tree is stored into `cache.tree` once, after the pass (Step
+    // 3's write-back). A whole-tree CLONE used to be stored here as well -
+    // a wasm-lift diagnostic (g65 / g66) that nothing between here and the
+    // store reads - and cost a full LayoutTree copy per relayout. The old
+    // tree stays in the cache meanwhile; the two error returns below drop it
+    // (it no longer matches the remapped per-node caches).
 
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
     let mut calculated_positions = cache.calculated_positions.clone();
     let mut loop_count = 0;
+    // The layout roots of the last turn of the loop that laid its roots out.
+    let mut laid_out_roots: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     loop {
         loop_count += 1;
         if loop_count > MAX_SCROLLBAR_REFLOW_ITERATIONS {
@@ -1211,22 +1651,36 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // proved it: 0x90 marker store → `brk #0x1` → no `bl
             // calculate_intrinsic_sizes` anywhere. (The prior "string absent ⇒ web_lift off" check
             // was wrong — panic_immediate_abort strips the message string.)
-            // [az-diag g65 PATH-B VALIDATION] 0x40748 = stack new_tree.nodes.len() (expect 0),
-            // 0x4074C = HEAP cache.tree.nodes.len() (expect 2 if path B sidesteps the corruption).
-            unsafe {
-                crate::az_mark(0x60748_u32, (new_tree.nodes.len() as u32));
-                crate::az_mark(
-                    0x6074C_u32,
-                    (cache.tree.as_ref().map_or(999, |t| t.nodes.len()) as u32),
-                );
-            }
             cache.last_intrinsic_dirty = recon_result.intrinsic_dirty.len();
-            calculate_intrinsic_sizes(
+            // The first turn measures what the reconcile found dirty. A later
+            // turn measures again only the nodes of that set (and their
+            // ancestors) with a box below them whose margins, borders or
+            // paddings the layout of the turn before resolved anew - the one
+            // input of the intrinsic sizes a turn changes
+            // (`sizing::dirty_nodes_to_measure_again`). It measured the whole
+            // set again: every dirty label once more per turn.
+            let box_props_changed = ctx.pass_memo.bfc.take_changed_box_props();
+            let measured_again;
+            let intrinsic_dirty = if loop_count == 1 {
+                &recon_result.intrinsic_dirty
+            } else {
+                measured_again = sizing::dirty_nodes_to_measure_again(
+                    &new_tree,
+                    &recon_result.intrinsic_dirty,
+                    &box_props_changed,
+                );
+                &measured_again
+            };
+            if let Err(e) = calculate_intrinsic_sizes(
                 &mut ctx,
                 &mut new_tree,
                 text_cache,
-                &recon_result.intrinsic_dirty,
-            )?;
+                intrinsic_dirty,
+            ) {
+                // The pass never stored its tree: the cached one is stale.
+                cache.tree = None;
+                return Err(e);
+            }
         }
         crate::probe::sample_peak_rss("rss:after_calc_intrinsic");
         crate::probe::sample_phase_peak("rss:peak_during_intrinsic");
@@ -1235,6 +1689,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let _ = (0xDD00_0005u32);
         }
 
+        // The layout roots below the tree root whose box came out another
+        // size: the boxes sized by their content around them follow.
+        let mut resized: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+        // The size each of those roots had before this pass: what follows a
+        // root in its parent's flow moves by what it grew
+        // (`cache::reposition_block_flow_siblings`).
+        let mut sizes_before: BTreeMap<usize, LogicalSize> = BTreeMap::new();
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
                 &new_tree,
@@ -1327,9 +1788,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 ));
             }
 
-            // Purge after intrinsic sizing — frees child_intrinsics Vecs,
-            // IntrinsicSizeCalculator temporaries, text measurement caches.
-            crate::probe::hint_purge_allocator();
+            // Intrinsic sizing freed its temporaries (child_intrinsics Vecs,
+            // IntrinsicSizeCalculator, text measurement caches): handed back
+            // to the system when the window goes idle.
+            crate::probe::note_freed_memory();
             crate::probe::sample_peak_rss("rss:before_root_layout");
             crate::probe::reset_peak();
             // 0x57 = it RETURNED. If step stays 0x55, calculate_layout_for_subtree diverges.
@@ -1341,6 +1803,48 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // 0x5E = Err. Do NOT propagate (continue to the cache store) so layout-real can
             // see whether the geometry was computed regardless of a (possibly spurious,
             // niche-Result-mis-discriminated) Err.
+            let size_before = new_tree
+                .get(LayoutNodeId::new(root_idx))
+                .and_then(|n| n.used_size);
+            if let Some(was) = size_before {
+                sizes_before.insert(root_idx, was);
+            }
+            // An out-of-flow child takes its static position from its
+            // parent's layout, which passes over a child that has a position
+            // (`cache::process_out_of_flow_children`: how it tells the
+            // children it has just placed). This pass's vector began as the
+            // last pass's, so the root's absolutely positioned children all
+            // have one: they kept the place the positioning pass SOLVED last
+            // time as their static position, whatever the root's layout says
+            // now. Their slots are emptied for the root's layout - only when
+            // the root is certain to be laid out (it holds no layout to be
+            // served from), and a slot the layout leaves empty gets its
+            // position back below.
+            let mut emptied: Vec<(usize, LogicalPosition)> = Vec::new();
+            if ctx
+                .cache_map
+                .entries
+                .get(root_idx)
+                .is_some_and(|entry| entry.layout_entry.is_none())
+            {
+                for &child in new_tree.children(root_idx) {
+                    let out_of_flow = matches!(
+                        positioning::get_position_type(
+                            new_dom,
+                            new_tree.nodes.get(child).and_then(|n| n.dom_node_id),
+                        ),
+                        azul_css::props::layout::LayoutPosition::Absolute
+                            | azul_css::props::layout::LayoutPosition::Fixed
+                    );
+                    if !out_of_flow || fc::is_marker_box(&new_tree, child) {
+                        continue;
+                    }
+                    if let Some(kept) = pos_get(&calculated_positions, child) {
+                        emptied.push((child, kept));
+                        pos_set(&mut calculated_positions, child, POSITION_UNSET);
+                    }
+                }
+            }
             let clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
@@ -1365,6 +1869,41 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
+            // A child whose slot was emptied and that the layout did not
+            // place (it failed on the way) stands where it stood.
+            for (child, kept) in emptied {
+                if !pos_contains(&calculated_positions, child) {
+                    pos_set(&mut calculated_positions, child, kept);
+                }
+            }
+            if !is_tree_root {
+                let size_after = new_tree
+                    .get(LayoutNodeId::new(root_idx))
+                    .and_then(|n| n.used_size);
+                // A box built fresh has no size to compare with: it may
+                // have changed.
+                let changed = match (size_before, size_after) {
+                    (Some(was), Some(now)) => {
+                        (was.width - now.width).abs() > 0.01
+                            || (was.height - now.height).abs() > 0.01
+                    }
+                    (None, Some(_)) => true,
+                    _ => false,
+                };
+                // A box out of the flow that came out another size grows no
+                // box around it and moves none beside it: nothing follows.
+                let out_of_flow = matches!(
+                    positioning::get_position_type(
+                        new_dom,
+                        new_tree.nodes.get(root_idx).and_then(|n| n.dom_node_id),
+                    ),
+                    azul_css::props::layout::LayoutPosition::Absolute
+                        | azul_css::props::layout::LayoutPosition::Fixed
+                ) && !fc::is_marker_box(&new_tree, root_idx);
+                if changed && !out_of_flow {
+                    resized.insert(root_idx);
+                }
+            }
 
             // CRITICAL: Insert the root node's own position into calculated_positions
             // This is necessary because calculate_layout_for_subtree only inserts
@@ -1423,9 +1962,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 new_dom,
                 &new_tree,
                 &recon_result.layout_roots,
+                &sizes_before,
                 &mut calculated_positions,
             );
         }
+        // The roots whose subtrees `calculated_positions` now holds as this
+        // pass placed them (the set below may be replaced for another turn
+        // of the loop that never lays it out: the iteration limit).
+        laid_out_roots.clone_from(&recon_result.layout_roots);
 
         if reflow_needed_for_scrollbars {
             debug_log!(
@@ -1450,6 +1994,23 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             continue;
         }
 
+        // A re-solved box that changed size changes the boxes sized by their
+        // content around it: lay them out again from the nearest ancestor of
+        // definite height (or the tree root), which re-stacks what follows
+        // them. A root whose parent's height is definite needs nothing more:
+        // its siblings were re-stacked above.
+        let regrow: std::collections::BTreeSet<usize> = resized
+            .iter()
+            .map(|&idx| cache::root_for_resized(&new_tree, idx))
+            .filter(|idx| !recon_result.layout_roots.contains(idx))
+            .collect();
+        if !regrow.is_empty() {
+            recon_result.layout_roots = cache::outermost_layout_roots(&regrow, |idx| {
+                new_tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+            });
+            continue;
+        }
+
         break;
     }
 
@@ -1468,13 +2029,47 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // positioning absolute elements, the absolute elements will be positioned
     // relative to the wrong (pre-adjustment) position of their containing block.
     // Pass the viewport to correctly resolve percentage offsets for the root element.
+    // The boxes whose position this pass computed from the flow: every
+    // box BELOW a layout root that was laid out. A root's own position
+    // is the one it had (it is laid out where it stood) - the tree
+    // root's too, unless no pass had placed it yet - and so is every
+    // position outside the roots' subtrees: the relative shift (and the
+    // sticky one, Step 3.25) is in those already and must not be added
+    // again.
+    let placed_now: Vec<bool> = {
+        {
+            let mut placed = vec![false; new_tree.nodes.len()];
+            let mut stack: Vec<usize> = Vec::new();
+            for &root in &laid_out_roots {
+                stack.extend_from_slice(new_tree.children(root));
+            }
+            while let Some(index) = stack.pop() {
+                if let Some(seen) = placed.get_mut(index) {
+                    if *seen {
+                        continue;
+                    }
+                    *seen = true;
+                }
+                stack.extend_from_slice(new_tree.children(index));
+            }
+            if laid_out_roots.contains(&new_tree.root)
+                && !pos_contains(&cache.calculated_positions, new_tree.root)
+            {
+                if let Some(root) = placed.get_mut(new_tree.root) {
+                    *root = true;
+                }
+            }
+            placed
+        }
+    };
     {
         let _p = crate::probe::Probe::span("adjust_relative_positions");
-        positioning::adjust_relative_positions(
+        positioning::adjust_relative_positions_of(
             &mut ctx,
             &new_tree,
             &mut calculated_positions,
             viewport,
+            Some(&placed_now),
         );
     }
 
@@ -1483,16 +2078,65 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // is clamped based on scroll offset and inset properties relative to the
     // nearest scrollport. Must happen after relative positioning but before
     // absolute positioning (sticky elements establish containing blocks).
-    {
+    let document_has_sticky_boxes = {
         let _p = crate::probe::Probe::span("adjust_sticky_positions");
-        positioning::adjust_sticky_positions(
+        // A box this pass does not place is shifted from the static place
+        // its constraint of the pass before holds
+        // (`adjust_sticky_positions_of`). A tree the reconcile built holds
+        // none (`LayoutNode::split` makes every node without one), so
+        // the old tree's are handed over first - a sticky box's by its DOM
+        // node, as the per-node caches are (`LayoutCacheMap::remapped`).
+        // Only in a pass that leaves boxes where they were: one that lays
+        // the tree root out places every box.
+        if !laid_out_roots.contains(&new_tree.root) {
+            if let Some(old_tree) = cache.tree.as_deref() {
+                for (old_index, old_warm) in old_tree.warm.iter().enumerate() {
+                    let Some(kept) = old_warm.sticky.as_ref() else {
+                        continue;
+                    };
+                    let new_index = old_tree
+                        .nodes
+                        .get(old_index)
+                        .and_then(|n| n.dom_node_id)
+                        .and_then(|dom_id| {
+                            let ordinal = old_tree
+                                .dom_to_layout
+                                .get(&dom_id)?
+                                .iter()
+                                .position(|i| i.index() == old_index)?;
+                            new_tree.dom_to_layout.get(&dom_id)?.get(ordinal).copied()
+                        });
+                    if let Some(warm) = new_index.and_then(|i| new_tree.warm_mut(i)) {
+                        if warm.sticky.is_none() {
+                            warm.sticky = Some(kept.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let constraints = positioning::adjust_sticky_positions_of(
             &mut ctx,
             &new_tree,
             &mut calculated_positions,
             scroll_offsets,
             viewport,
+            Some(&placed_now),
         );
-    }
+        // Each sticky box keeps what a scroll after this pass needs to move
+        // it (`StickyConstraint`); a box that stopped being sticky drops it.
+        for warm in &mut new_tree.warm {
+            if warm.sticky.is_some() {
+                warm.sticky = None;
+            }
+        }
+        let any = !constraints.is_empty();
+        for (index, constraint) in constraints {
+            if let Some(warm) = new_tree.warm.get_mut(index) {
+                warm.sticky = Some(Box::new(constraint));
+            }
+        }
+        any
+    };
 
     // --- Step 3.5: Position Out-of-Flow Elements ---
     // This must be done AFTER adjusting relative positions, so that absolutely
@@ -1500,13 +2144,34 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // position of their relatively positioned containing blocks.
     {
         let _p = crate::probe::Probe::span("position_out_of_flow");
-        positioning::position_out_of_flow_elements(
+        // The sticky boxes BELOW an absolutely positioned box are shifted
+        // again once that box is placed (the step above saw them where the
+        // flow had their box before its insets were solved), and the
+        // constraints of those shifts are the ones later scrolls move them
+        // by. Only asked for in a document that has a sticky box at all.
+        let mut below_placed_boxes: Vec<(usize, positioning::StickyConstraint)> = Vec::new();
+        positioning::position_out_of_flow_elements_with_sticky(
             &mut ctx,
             &mut new_tree,
             text_cache,
             &mut calculated_positions,
             viewport,
+            document_has_sticky_boxes.then_some((scroll_offsets, &mut below_placed_boxes)),
         );
+        for (index, constraint) in below_placed_boxes {
+            if let Some(warm) = new_tree.warm.get_mut(index) {
+                warm.sticky = Some(Box::new(constraint));
+            }
+        }
+    }
+
+    // --- Step 3.6: Lay the Named Flows Out Through Their Regions ---
+    // Once every box is placed, the regions (absolutely positioned ones
+    // too) stand where they are: the content of each named flow goes
+    // through its chain of regions (CSS Regions 1).
+    {
+        let _p = crate::probe::Probe::span("named_flows");
+        regions::lay_out_named_flows(&mut ctx, &mut new_tree, text_cache, &mut calculated_positions);
     }
 
     // --- Step 3.75: Compute Stable Scroll IDs ---
@@ -1536,7 +2201,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // size — their items just translate by the node's position delta.
         // `AZ_NO_DL_PATCH=1` is the runtime escape hatch (and the A/B lever
         // for the golden-equality test).
-        let patch_disabled = !display_list::dl_patching_enabled();
+        // A region paints the parts of its flow's boxes the region pass gave
+        // it: a box's items are no run of its own to move with it, so a
+        // document with named flows paints its list anew.
+        let patch_disabled = !display_list::dl_patching_enabled()
+            || regions::document_has_named_flows(new_dom);
         // Two ways in: the resize-skip pass (same tree object), or a
         // STRUCTURE-PRESERVED reconcile with no CSS dirt — a text edit
         // reflowed its IFC, everything else splices (per-IFC text patching,
@@ -1548,14 +2217,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // prove the context the cached DL was built under is unchanged.
         // The resize-skip arm keeps its own contract (the harvested
         // breakpoints guarantee no answer flips between crossings).
-        let cascade_ctx_unchanged = {
+        let (context_unchanged, cascade_ctx_unchanged) = {
             let cur = ctx
                 .styled_dom
                 .get_css_property_cache()
                 .dynamic_context
                 .as_deref();
             #[cfg(feature = "std")]
-            if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+            if env_flag!("AZ_PATCH_DEBUG") {
                 match (cur, cache.last_dynamic_context.as_ref()) {
                     (Some(a), Some(b)) if a != b => {
                         eprintln!(
@@ -1565,7 +2234,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                             b.viewport_width,
                             a.viewport_height,
                             b.viewport_height,
-                            a.theme == b.theme,
+                            a.mode == b.mode,
                             a.media_type == b.media_type,
                             a.pseudo_state == b.pseudo_state,
                             a.language == b.language,
@@ -1603,16 +2272,48 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 (None, None) => true,
                 _ => false,
             };
-            context_unchanged
-                && cache.last_cascade_epoch
-                    == ctx.styled_dom.get_css_property_cache().cascade_epoch
+            (
+                context_unchanged,
+                context_unchanged
+                    && cache.last_cascade_epoch
+                        == ctx.styled_dom.get_css_property_cache().cascade_epoch,
+            )
         };
+        // The third way in (the step `list`): the cascade epoch moved, and a
+        // producer named every node it cascaded since the cached list was
+        // built (`cascaded_named`, checked against both epochs where it was
+        // taken). The epoch stands for "no node's paint values moved"; here
+        // the nodes whose values may have moved are known, so the reconciled
+        // tree of the same shape is patched like the retained one: their
+        // boxes re-emit (below), with what the css dirt reaches, and what
+        // the reconcile itself found (fresh, retargeted, paint-dirty boxes),
+        // and every other run is copied where it lies.
+        let named_cascade: Option<&[NodeId]> = cascaded_named
+            .as_deref()
+            .filter(|_| cache.last_reconcile_structure_preserved && context_unchanged);
         let structure_ok = cache.last_reconcile_was_skipped
             || (cache.last_reconcile_structure_preserved
                 && css_dirty.is_empty()
-                && cascade_ctx_unchanged);
+                && cascade_ctx_unchanged)
+            || named_cascade.is_some();
+        // On the retained tree a pass may carry css dirt: its restyled boxes
+        // re-emit, and what they contain unless the dirt is box geometry
+        // only. An override-only frame is that: its latch is armed only when
+        // every tween of the frame keeps the tree's shape - a size, a
+        // padding, a margin, an offset, a border width - and nothing else
+        // staged dirt for the pass (`LayoutWindow::tick_animations`).
+        // Everything else splices. Empty for a resize.
+        let css_dirty_reemit = if cache.last_reconcile_was_skipped {
+            css_dirty_reemit_set(&new_tree, css_dirty, overrides_only)
+        } else if let Some(named) = named_cascade {
+            let mut restyled = css_dirty_reemit_set(&new_tree, css_dirty, false);
+            restyled.extend(boxes_painted_for(&new_tree, named));
+            restyled
+        } else {
+            std::collections::BTreeSet::new()
+        };
         #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if env_flag!("AZ_PATCH_DEBUG") {
             eprintln!(
                 "[PATCHGATE] skipped={} preserved={} css_dirty={} structure_ok={} disabled={} \
                  prev_sizes={} nodes={} prev_pos={} pos={} ctx_same={} reflowed_ifcs={:?} \
@@ -1631,6 +2332,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 recon_result.fresh_indices,
             );
         }
+        // What the patch does with the run of a box that MOVED
+        // (`DisplayListGenerator::try_copy_cached_run`): a frame of a layout
+        // tween that another frame follows translates it and records the box
+        // with the list; every other pass paints the box anew, and with it
+        // every box recorded before. A tween frame is one on the retained
+        // tree, taken for the overrides alone (a resize is none).
+        let translate_moved =
+            tween_frame_followed && cache.last_reconcile_was_skipped && !resize_only;
         // (previous_sizes vs NODES is intended: the cache keeps one entry
         // per node, so equal lengths mean the size snapshot covers the tree.)
         #[allow(clippy::suspicious_operation_groupings)]
@@ -1652,8 +2361,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     // an ancestor whose geometry did not change splices its
                     // unchanged items (size/position changes re-emit via
                     // PatchState's own size diff).
+                    // So must a node whose hit-test area came or went: its
+                    // items hold the area of what it was.
                     let mut reemit = ctx.reflowed_ifcs.clone();
                     reemit.extend(recon_result.fresh_indices.iter().copied());
+                    reemit.extend(recon_result.retargeted.iter().copied());
+                    reemit.extend(css_dirty_reemit.iter().copied());
+                    // ...and a box the reconcile kept although its own data
+                    // moved what it paints with (an inline colour, a
+                    // transform value) or where it stands (its insets): its
+                    // old items are not what it paints now. A css diff names
+                    // such a box and turns the patch off altogether; a pass
+                    // without one spliced its old items.
+                    reemit.extend(recon_result.paint_dirty.iter().copied());
                     display_list::PatchState::build(
                         prev_dl,
                         &cache.calculated_positions, // last pass's positions (replaced later)
@@ -1661,16 +2381,109 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         &cache.previous_sizes,
                         &new_sizes,
                         &reemit,
+                        translate_moved,
                     )
                 })
         } else {
             None
         };
+        // The fourth way in (the step `tlist`, diff-first-07): the TREE changed
+        // its node count, so no index of the list before is an index of this
+        // tree - but the reconcile knows where it carried each box
+        // (`carried_indices`), and the producer named the nodes it cascaded
+        // (`cascaded_named`). The runs of the carried boxes are copied through
+        // that map; a box that came, a carried box under another DOM node than
+        // it had (paired by position), the root of an inline context a fresh
+        // member is laid out in, and everything the other arms re-emit are
+        // painted. Recorded as a FULL emission below (no patch damage, no move
+        // summary: both pair boxes by one index): the renderers diff the list
+        // against the one they presented, as for any list of a changed tree.
+        let patch_across = if patch.is_none()
+            && !patch_disabled
+            && !cache.last_reconcile_was_skipped
+            && !cache.last_reconcile_structure_preserved
+            && context_unchanged
+            && crate::window::diff_first_step(crate::window::DiffFirstStep::TreeList)
+        {
+            match (
+                cascaded_named.as_deref(),
+                cache.cached_display_list.as_ref(),
+                cache.tree.as_deref(),
+            ) {
+                (Some(named), Some((_, _, _, _, _, prev_dl)), Some(old_tree))
+                    if cache.previous_sizes.len() == old_tree.nodes.len() =>
+                {
+                    let new_sizes: Vec<Option<LogicalSize>> =
+                        new_tree.nodes.iter().map(|n| n.used_size).collect();
+                    let mut reemit = ctx.reflowed_ifcs.clone();
+                    reemit.extend(recon_result.fresh_indices.iter().copied());
+                    reemit.extend(recon_result.retargeted.iter().copied());
+                    reemit.extend(recon_result.paint_dirty.iter().copied());
+                    reemit.extend(css_dirty_reemit_set(&new_tree, css_dirty, false));
+                    reemit.extend(boxes_painted_for(&new_tree, named));
+                    for (old, new) in &recon_result.carried_indices {
+                        let same_node = match (old_tree.nodes.get(*old), new_tree.nodes.get(*new)) {
+                            (Some(before), Some(now)) => before.dom_node_id == now.dom_node_id,
+                            _ => false,
+                        };
+                        if !same_node {
+                            reemit.insert(*new);
+                            // A member of an inline context paints nothing in a run of
+                            // its own: its glyphs and its inline box lie in the run of
+                            // the context's ROOT, each item under its own DOM node id
+                            // (`DisplayList::node_mapping`: what a hit, the hover and
+                            // decoration patch and the text patch address a node by). A
+                            // root that kept its own id and was not laid out again would
+                            // be copied with the id this member had in the tree before:
+                            // the id of another node now. So the root paints. (Only adds
+                            // a re-emit. By reading: a node that comes or goes inside an
+                            // earlier inline-block of unchanged size in the same line;
+                            // the fixture tried for it lays the line out again and does
+                            // not reach this, `a_text_whose_node_id_moved_..` in the dll.)
+                            if let Some(member) = new_tree
+                                .warm(LayoutNodeId::new(*new))
+                                .and_then(|warm| warm.ifc_membership)
+                            {
+                                reemit.insert(member.ifc_root_layout_index);
+                            }
+                        }
+                    }
+                    for fresh in &recon_result.fresh_indices {
+                        if let Some(member) = new_tree
+                            .warm(LayoutNodeId::new(*fresh))
+                            .and_then(|warm| warm.ifc_membership)
+                        {
+                            reemit.insert(member.ifc_root_layout_index);
+                        }
+                    }
+                    display_list::PatchState::build_across_trees(
+                        prev_dl,
+                        &cache.calculated_positions,
+                        &calculated_positions,
+                        &cache.previous_sizes,
+                        &new_sizes,
+                        &reemit,
+                        &recon_result.carried_indices,
+                    )
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let patched_across_trees = patch_across.is_some();
+        if patched_across_trees {
+            display_list::count_list_patched_across_trees();
+        }
+        let patch = patch.or(patch_across);
         // Field writes, not `cache.record_*()`: `patch` borrows
         // `cache.cached_display_list` for the rest of this build, and a
         // `&mut self` method call would conflict with it where disjoint
         // field writes do not. Same bookkeeping as `record_full_emission`.
-        if patch.is_some() {
+        if patch.is_some() && named_cascade.is_some() {
+            display_list::count_list_patched_after_a_named_cascade();
+        }
+        if patch.is_some() && !patched_across_trees {
             // The damage is recorded below, once the final list exists.
             cache.last_build_was_patched = true;
             cache.last_patch_damage = None;
@@ -1681,7 +2494,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.last_patch_damage = None;
             cache.patch_damage_log.clear();
         }
-        if patch.is_some() {
+        if patch.is_some() && !patched_across_trees {
             // The patch's own damage, phase 1 of 2: the CHANGED-node set
             // (re-emitted OR moved/resized) plus old ∪ new NODE bounds as the
             // geometry base (covers vacated areas and items with no bounds).
@@ -1692,6 +2505,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let mut rects: Vec<LogicalRect> = Vec::new();
             let mut changed: std::collections::BTreeSet<usize> = ctx.reflowed_ifcs.clone();
             changed.extend(recon_result.fresh_indices.iter().copied());
+            changed.extend(css_dirty_reemit.iter().copied());
+            changed.extend(recon_result.paint_dirty.iter().copied());
             for (idx, node) in new_tree.nodes.iter().enumerate() {
                 let old_pos = pos_get(&cache.calculated_positions, idx);
                 let new_pos = pos_get(&calculated_positions, idx);
@@ -1710,9 +2525,28 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             patch_damage_pending = Some((changed, rects));
         }
+        // The nodes are the ones of the last pass, index for index: the
+        // retained tree, or a reconcile that kept the structure.
+        let (nodes_before, positions_before) =
+            (cache.previous_sizes.len(), cache.calculated_positions.len());
+        let same_nodes = (cache.last_reconcile_was_skipped
+            || cache.last_reconcile_structure_preserved)
+            && nodes_before == new_tree.nodes.len()
+            && positions_before == calculated_positions.len();
         if patch.is_some() {
             drop(crate::probe::Probe::span("dl_patched_pass"));
-            // Round-3 presentation hint from the SAME inputs the patch used.
+        }
+        cache.last_patch_move_from_seq = cache.layout_seq;
+        cache.layout_seq = cache.layout_seq.wrapping_add(1);
+        if (patch.is_some() && !patched_across_trees) || same_nodes {
+            // Round-3 presentation hint from the SAME inputs the patch used,
+            // and on a pass that built its list in full from the same nodes
+            // too: the CPU frame blits the movers by the dominant delta only
+            // where the list diff finds their items translated by it
+            // (`compute_display_list_damage_translated`), so a list built
+            // from scratch is presented as a move just as a patched one is.
+            // A layout tween (a ribbon's content growing over the page) was
+            // never patched, and every frame repainted all it pushed.
             // The re-emit set must match PatchState's exactly: reflowed IFCs
             // PLUS size-changed nodes — a size-changed node re-emitted its
             // items, so blitting its old pixels without repainting is stale.
@@ -1720,6 +2554,21 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 new_tree.nodes.iter().map(|n| n.used_size).collect();
             let mut reemit_full = ctx.reflowed_ifcs.clone();
             reemit_full.extend(recon_result.fresh_indices.iter().copied());
+            reemit_full.extend(css_dirty_reemit.iter().copied());
+            reemit_full.extend(recon_result.paint_dirty.iter().copied());
+            // A view's document rides its box: a view whose own items are not
+            // re-emitted moves its content with its box (a new size alone).
+            let node_data = ctx.styled_dom.node_data.as_container();
+            let riders: Vec<bool> = (0..new_tree.nodes.len())
+                .map(|i| {
+                    !reemit_full.contains(&i)
+                        && new_tree
+                            .get(LayoutNodeId::new(i))
+                            .and_then(|node| node.dom_node_id)
+                            .and_then(|dom_id| node_data.get(dom_id))
+                            .is_some_and(azul_core::dom::NodeData::is_virtual_view_node)
+                })
+                .collect();
             for (i, (prev, new)) in cache
                 .previous_sizes
                 .iter()
@@ -1751,11 +2600,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 &reemit_full,
                 &parents,
                 &opaque_bg,
+                &riders,
             );
         } else {
             cache.last_patch_move = None;
         }
-        display_list::generate_display_list_impl(
+        #[cfg(feature = "std")]
+        if env_flag!("AZ_PATCH_DEBUG") {
+            eprintln!(
+                "[MOVESUMMARY] pass: patched={} same_nodes={} hint={:?}",
+                patch.is_some(),
+                same_nodes,
+                cache
+                    .last_patch_move
+                    .as_ref()
+                    .map(|m| (m.dominant_delta, m.mover_rects_old.len(), m.exceptions.len()))
+            );
+        }
+        match display_list::generate_display_list_impl(
             &mut ctx,
             &new_tree,
             &calculated_positions,
@@ -1766,7 +2628,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             id_namespace,
             dom_id,
             patch,
-        )?
+        ) {
+            Ok(dl) => dl,
+            Err(e) => {
+                // The pass never stored its tree: the cached one is stale.
+                cache.tree = None;
+                return Err(e);
+            }
+        }
     };
     crate::probe::sample_phase_peak("rss:peak_during_display_list");
 
@@ -1794,7 +2663,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // correctly misses once and re-seeds.
     let gpu_fp = gpu_value_cache.map_or(0, azul_core::gpu::GpuValueCache::dl_emission_fingerprint);
     #[cfg(feature = "std")]
-    if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
+    if env_flag!("AZ_ANIM_DEBUG") {
         eprintln!(
             "[dlcache] STORE fp={gpu_fp:x} items={}",
             display_list.items.len()
@@ -1806,12 +2675,55 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // that extends outside the node box (box-shadow fringes) — the same
     // bounds the item diff damages with.
     if let Some((changed, mut rects)) = patch_damage_pending.take() {
-        {
+        // When every item of the new list belongs to the same node and paint
+        // call at the same index as in the old one, the renderers' item diff
+        // pairs the two lists right and damages exactly what changed - a
+        // moved item where it was and where it is, or nothing where the
+        // frame blits it. The changed nodes' boxes are the safety net for a
+        // list whose items shifted against each other (a node that now
+        // emits more items than before, another fewer); here they would only
+        // bury that precise damage under every box the pass moved (each
+        // frame of a ribbon opening over a page repainted the window).
+        let paired = cache
+            .cached_display_list
+            .as_ref()
+            .is_some_and(|(_, _, _, _, _, old_dl)| {
+                old_dl.items.len() == display_list.items.len()
+                    && old_dl.layout_node_mapping == display_list.layout_node_mapping
+                    && old_dl
+                        .items
+                        .iter()
+                        .zip(display_list.items.iter())
+                        .all(|(a, b)| display_list::same_item_kind(a, b))
+            });
+        #[cfg(feature = "std")]
+        if env_flag!("AZ_PATCH_DEBUG") {
+            let why = cache.cached_display_list.as_ref().map(|(_, _, _, _, _, old_dl)| {
+                (
+                    old_dl.items.len(),
+                    display_list.items.len(),
+                    old_dl
+                        .layout_node_mapping
+                        .iter()
+                        .zip(display_list.layout_node_mapping.iter())
+                        .position(|(a, b)| a != b),
+                    old_dl
+                        .items
+                        .iter()
+                        .zip(display_list.items.iter())
+                        .position(|(a, b)| !display_list::same_item_kind(a, b)),
+                )
+            });
+            eprintln!("[PATCHPAIR] paired={paired} (old len, new len, first owner / kind mismatch)={why:?}");
+        }
+        if paired {
+            rects.clear();
+        } else {
             let mut add_items = |dl: &DisplayList| {
                 for (i, m) in dl.layout_node_mapping.iter().enumerate() {
                     if let Some((idx, _)) = m {
                         if changed.contains(idx) {
-                            if let Some(b) = dl.items[i].visual_bounds() {
+                            if let Some(b) = dl.visual_bounds_of(i) {
                                 rects.push(b);
                             }
                         }
@@ -1823,8 +2735,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             add_items(&display_list);
         }
+        // ...and every SCROLLBAR the build changed. Bars are untagged
+        // (stacking-context walk items), so the pass above never sees them,
+        // and they change without their node: the viewport's bar runs along
+        // the window, outside the root's box, and any thumb follows the
+        // content extent under it. See `changed_scrollbar_damage`. (A paired
+        // list's diff pairs its bars too.)
+        if let (false, Some((_, _, _, _, _, old_dl))) = (paired, cache.cached_display_list.as_ref()) {
+            rects.extend(display_list::changed_scrollbar_damage(
+                old_dl,
+                &display_list,
+            ));
+        }
         #[cfg(feature = "std")]
-        if std::env::var_os("AZ_PATCH_DEBUG").is_some() {
+        if env_flag!("AZ_PATCH_DEBUG") {
             eprintln!("[PATCHDMG] rects={rects:?}");
         }
         // Onto the LOG, not just the slot: a second patched build before the
@@ -1871,7 +2795,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         display_list.clone(),
     ));
 
-    cache.tree = Some(*new_tree); // [g56] unbox the heap LayoutTree back into the cache
+    cache.tree = Some(alloc::sync::Arc::from(new_tree)); // [g56] unbox the heap LayoutTree back into the cache
     cache.previous_positions =
         std::mem::replace(&mut cache.calculated_positions, calculated_positions);
     cache.viewport = Some(viewport);
@@ -2106,7 +3030,7 @@ mod autotest_generated {
             warm: vec![LayoutNodeWarm::default(); n],
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena: Vec::new(),
             children_offsets: vec![(0, 0); n],
             subtree_needs_intrinsic: vec![false; n],
@@ -2929,12 +3853,14 @@ mod autotest_generated {
                     style_cache: Default::default(),
                     virtual_view_sizes: None,
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    pass_memo: Default::default(),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,
                     text_selections: &self.text_selections,
                     debug_messages: &mut self.debug_messages,
                     counters: &mut self.counters,
                     viewport_size: size(800.0, 600.0),
+                    canvas_rect: azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), size(800.0, 600.0)),
                     fragmentation_context: None,
                     reflowed_ifcs: std::collections::BTreeSet::new(),
                     cursor_is_visible: true,
@@ -3197,6 +4123,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -3244,6 +4171,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -3293,6 +4221,7 @@ mod autotest_generated {
                 &mut text_cache,
                 dom,
                 viewport,
+                LogicalRect::new(LogicalPosition::zero(), viewport.size),
                 &font_manager,
                 &BTreeMap::new(),
                 &BTreeMap::new(),
@@ -3505,7 +4434,7 @@ mod autotest_generated {
             if run(&mut cache, &dom, rect(0.0, 0.0, 800.0, 600.0)).is_err() {
                 return; // font-less environment quirk — nothing to assert
             }
-            let tree = cache.tree.as_ref().expect("tree must be cached");
+            let tree = cache.tree.as_deref().expect("tree must be cached");
             for (idx, node) in tree.nodes.iter().enumerate() {
                 if node.dom_node_id.is_none() {
                     continue;
@@ -3619,7 +4548,7 @@ mod cascade_epoch_in_the_dl_key {
     fn the_theme_still_keys_on_its_own() {
         let light = azul_css::dynamic_selector::DynamicSelectorContext::default();
         let dark = azul_css::dynamic_selector::DynamicSelectorContext {
-            theme: azul_css::dynamic_selector::ThemeCondition::Dark,
+            mode: azul_css::system::DarkLightMode::Dark,
             ..Default::default()
         };
         assert_ne!(fp(1, Some(&light)), fp(1, Some(&dark)));

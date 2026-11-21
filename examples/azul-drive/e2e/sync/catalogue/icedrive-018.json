@@ -1,0 +1,24 @@
+{
+  "name": "a virus scanner reading every file of the folder does not download cloud-only files",
+  "description": "ICEDRIVE-018 (Icedrive): Windows Defender's scan hydrated every cloud-only file. Rule P13 (on-demand files: a background scanner cannot hydrate a tree, the cache stays bounded): files made cloud-only stay cloud-only while a scanner reads the folder; the next pass downloads nothing. sync-chaos placeholder-write-back.",
+  "steps": [
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_many", "device": "a", "dir": "media", "count": 20, "size": 200000, "seed": 71 },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_evict", "device": "b", "glob": "media/*" },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files[\"media/d000/f000000.txt\"].cloud_only", "equals": true },
+    { "op": "drive_scan_read", "device": "b", "glob": "*" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "assert_response", "path": "result.down", "equals": 0 },
+    { "op": "drive_states", "device": "b" },
+    { "op": "assert_response", "path": "result.files[\"media/d000/f000019.txt\"].cloud_only", "equals": true },
+    { "op": "drive_cleanup" }
+  ]
+}

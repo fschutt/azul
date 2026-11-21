@@ -17,6 +17,11 @@ use agg_rust::{
 };
 use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 
+use crate::geometry_guard::{
+    add_svg_rings, target_bounds, BoundedPath, ClampBox, ClampedVertexSource, RingEnd,
+    COORD_LIMIT,
+};
+
 use super::*;
 
 pub const IDENTITY_EPSILON_F64: f64 = 0.0001;
@@ -63,64 +68,108 @@ pub fn blit_pixmap_clipped(
     opacity: f32,
     clip: Option<(i32, i32, i32, i32)>,
 ) {
-    let sw = src.width as i32;
-    let sh = src.height as i32;
-    let dw = dst.width as i32;
-    let dh = dst.height as i32;
     let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
+    for_each_clipped_pixel(src, dst, px_x, px_y, clip, |below, layer| {
+        blend_over(below, layer, op);
+    });
+}
 
-    for sy in 0..sh {
-        // saturating: px_y/px_x are caller-supplied device offsets that a large-but-legal
-        // CSS transform can push to ~i32::MAX; a plain `+` overflows. A saturated result
-        // fails the bounds check below and is skipped, which is the intended outcome.
-        let dy = px_y.saturating_add(sy);
-        if dy < 0 || dy >= dh {
+/// [`blit_pixmap_clipped`] for a layer that already holds its backdrop - a
+/// plain layer seeded with its parent's pixels: its window replaces the
+/// pixels under it. Blended over them, a translucent backdrop (a translucent
+/// box inside an opacity group) would count twice.
+pub fn copy_pixmap_clipped(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    px_x: i32,
+    px_y: i32,
+    clip: Option<(i32, i32, i32, i32)>,
+) {
+    for_each_clipped_pixel(src, dst, px_x, px_y, clip, |below, layer| {
+        below.copy_from_slice(&layer);
+    });
+}
+
+/// Hands every pixel of `src` placed at (`px_x`, `px_y`) in `dst` that lands
+/// inside `dst` and the optional DEST-space clip `(x0, y0, x1, y1)` to
+/// `apply`, with the destination pixel to write.
+pub(crate) fn for_each_clipped_pixel(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    px_x: i32,
+    px_y: i32,
+    clip: Option<(i32, i32, i32, i32)>,
+    mut apply: impl FnMut(&mut [u8], [u8; 4]),
+) {
+    // The rows and columns of `src` that land inside `dst` and the clip, found once; a row is
+    // then one slice of each buffer. The loops used to visit every pixel of `src` and test it
+    // against the target, the clip and both buffers' lengths: a layer of the window's size
+    // composited under a small clip walked the whole layer (A1-55).
+    let (dw, dh) = (dst.width as i32, dst.height as i32);
+    let (x0, y0, x1, y1) = clip.map_or((0, 0, dw, dh), |(cx0, cy0, cx1, cy1)| {
+        (cx0.max(0), cy0.max(0), cx1.min(dw), cy1.min(dh))
+    });
+    // The `i` in `0..len` with `lo <= at + i < hi`.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // both are in 0..=len
+    let landing_between = |len: u32, at: i32, lo: i32, hi: i32| {
+        let first = (i64::from(lo) - i64::from(at)).max(0);
+        let end = i64::from(len).min(i64::from(hi) - i64::from(at));
+        (end > first).then_some((first as usize, end as usize))
+    };
+    let Some((cols, rows)) =
+        landing_between(src.width, px_x, x0, x1).zip(landing_between(src.height, px_y, y0, y1))
+    else {
+        return;
+    };
+    let (sw, dw) = (src.width as usize, dst.width as usize);
+    let from: &[u8] = &src.data;
+    let to: &mut [u8] = &mut dst.data;
+    for sy in rows.0..rows.1 {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // inside `dst`
+        let (dy, dx) = (
+            (i64::from(px_y) + sy as i64) as usize,
+            (i64::from(px_x) + cols.0 as i64) as usize,
+        );
+        let si = (sy * sw + cols.0) * 4;
+        let di = (dy * dw + dx) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(from.len(), si)).min(whole_pixels(to.len(), di));
+        if n == 0 {
             continue;
         }
-        if let Some((_, cy0, _, cy1)) = clip {
-            if dy < cy0 || dy >= cy1 {
-                continue;
-            }
-        }
-        for sx in 0..sw {
-            let dx = px_x.saturating_add(sx);
-            if dx < 0 || dx >= dw {
-                continue;
-            }
-            if let Some((cx0, _, cx1, _)) = clip {
-                if dx < cx0 || dx >= cx1 {
-                    continue;
-                }
-            }
-            let si = ((sy * sw + sx) * 4) as usize;
-            let di = ((dy * dw + dx) * 4) as usize;
-            if si + 3 >= src.data.len() || di + 3 >= dst.data.len() {
-                continue;
-            }
-
-            let sr = u32::from(src.data[si]);
-            let sg = u32::from(src.data[si + 1]);
-            let sb = u32::from(src.data[si + 2]);
-            let sa = (u32::from(src.data[si + 3]) * op) / 255;
-
-            if sa == 0 {
-                continue;
-            }
-            if sa == 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+        for (below, layer) in to[di..di + n * 4].chunks_exact_mut(4).zip(from[si..si + n * 4].chunks_exact(4)) {
+            apply(below, [layer[0], layer[1], layer[2], layer[3]]);
         }
     }
+}
+
+/// Blends the layer pixel `src` over the pixel `dst` at the layer's opacity
+/// `op` (0-255): what a composited layer does to each pixel, and what an
+/// opacity group blended in place does with the pixels it painted, so both
+/// paint the same levels.
+///
+/// Layer pixels are premultiplied. AGG blends a colour at coverage `a` into a
+/// pixel as `colour * a + pixel * (1 - a)` in every channel, alpha included,
+/// which is source-over of premultiplied pixels: a layer cleared to
+/// transparent black holds each colour already multiplied by its alpha.
+/// Reading it as straight alpha multiplied the colour by its alpha a second
+/// time, and darkened everything translucent inside a group or a layer.
+#[inline]
+pub(crate) fn blend_over(dst: &mut [u8], src: [u8; 4], op: u32) {
+    let [red, green, blue, alpha] = src.map(u32::from);
+    // Rounded, not truncated: a faint pixel of the layer (a shadow's tail)
+    // under a group opacity keeps the level it paints.
+    let covered = (alpha * op + 127) / 255;
+    if covered == 0 {
+        return;
+    }
+    let kept = 255 - covered;
+    let over = |layer: u32, below: u8| {
+        ((layer * op + u32::from(below) * kept + 127) / 255).min(255) as u8
+    };
+    dst[0] = over(red, dst[0]);
+    dst[1] = over(green, dst[1]);
+    dst[2] = over(blue, dst[2]);
+    dst[3] = ((covered * 255 + u32::from(dst[3]) * kept + 127) / 255).min(255) as u8;
 }
 
 /// Blit `src` into `dst` through an affine map from SRC DEVICE-PIXEL
@@ -179,12 +228,6 @@ pub fn blit_pixmap_affine_clipped(
         return;
     }
 
-    let mut inv = *m;
-    // agg's invert() on a degenerate matrix produces non-finite values; the
-    // finite-check below skips those pixels, so the collapsed-layer case
-    // degrades to "draws nothing" rather than UB or garbage.
-    inv.invert();
-
     // Dest-space bounding box of the four transformed src corners.
     let corners = [
         (0.0, 0.0),
@@ -216,11 +259,59 @@ pub fn blit_pixmap_affine_clipped(
         y1 = y1.min(cy1);
     }
 
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    crate::cpu_counters::count(crate::cpu_counters::Counter::PxBlitted, (x1 - x0) as u64 * (y1 - y0) as u64);
+    // A matrix with no shear - the zoom of a map, a group scaled and moved - is separable.
+    if let Some(scale_translate) = super::blit_scale::scale_translate_of(m) {
+        super::blit_scale::blit_scale_translate(src, dst, scale_translate, op, (x0, y0, x1, y1));
+        return;
+    }
+    blit_pixmap_affine_general(src, dst, m, op, (x0, y0, x1, y1));
+}
+
+/// The general composite of [`blit_pixmap_affine_clipped`]: every pixel of the destination box
+/// `(x0, y0, x1, y1)` mapped back through the inverse of `m`, four texels fetched with clamping,
+/// blended in f32. Any affine matrix; the separable path of a scale and a move
+/// (`blit_scale`) agrees with it to 3/255 and is what the tests compare against.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+// bounded pixel/coord/colour casts
+pub(crate) fn blit_pixmap_affine_general(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    m: &TransAffine,
+    op: u32,
+    (x0, y0, x1, y1): (i32, i32, i32, i32),
+) {
+    let sw = src.width as i32;
+    let sh = src.height as i32;
+    let dw = dst.width as i32;
+    // The inverse map, with the matrix's translation split into its whole pixels and the
+    // rest: a destination pixel `d` is the source point `L^-1 ((d - whole) + (0.5 - rest))`.
+    // `d - whole` is an exact integer, so a composite whose translation differs by whole
+    // pixels (a pan of a view, the pixels of the frame before moved next to a strip painted
+    // now) computes, for the same pixel of the picture, the same numbers and so the same
+    // weights. Mapped through an inverse matrix that carries the translation
+    // (`d inv + inv_t`), the two sums rounded apart in their last bits, and a weight that
+    // sat on a rounding boundary came out a level apart: moved pixels next to painted ones.
+    let det = m.sx * m.sy - m.shx * m.shy;
+    // A degenerate matrix has no area: the collapsed-layer case draws nothing.
+    if !(det.is_finite() && det != 0.0 && m.tx.is_finite() && m.ty.is_finite()) {
+        return;
+    }
+    let (whole_x, whole_y) = (m.tx.floor(), m.ty.floor());
+    let (rest_x, rest_y) = (0.5 - (m.tx - whole_x), 0.5 - (m.ty - whole_y));
+
     for dy in y0..y1 {
         for dx in x0..x1 {
             // Sample at the dest pixel CENTER, mapped back to src space.
-            let (mut fx, mut fy) = (f64::from(dx) + 0.5, f64::from(dy) + 0.5);
-            inv.transform(&mut fx, &mut fy);
+            let (u, v) = ((f64::from(dx) - whole_x) + rest_x, (f64::from(dy) - whole_y) + rest_y);
+            let (fx, fy) = ((m.sy * u - m.shx * v) / det, (m.sx * v - m.shy * u) / det);
             if !(fx.is_finite() && fy.is_finite()) {
                 return;
             }
@@ -281,28 +372,11 @@ pub fn blit_pixmap_affine_clipped(
             let bot = lerp2(p01, p11, wx);
             let px = lerp2(top, bot, wy);
 
-            let sa = ((px[3] as u32) * op) / 255;
-            if sa == 0 {
-                continue;
-            }
             let di = ((dy * dw + dx) * 4) as usize;
             if di + 3 >= dst.data.len() {
                 continue;
             }
-            let (sr, sg, sb) = (px[0] as u32, px[1] as u32, px[2] as u32);
-            if sa >= 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+            blend_over(&mut dst.data[di..di + 4], px.map(|v| v.round() as u8), op);
         }
     }
 }
@@ -462,28 +536,11 @@ pub fn blit_pixmap_projective_clipped(
             let bot = lerp2(fetch(x_lo, y_lo + 1), fetch(x_lo + 1, y_lo + 1), wx);
             let px = lerp2(top, bot, wy);
 
-            let sa = ((px[3] as u32) * op) / 255;
-            if sa == 0 {
-                continue;
-            }
             let di = ((dy * dw + dx) * 4) as usize;
             if di + 3 >= dst.data.len() {
                 continue;
             }
-            let (sr, sg, sb) = (px[0] as u32, px[1] as u32, px[2] as u32);
-            if sa >= 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv_sa = 255 - sa;
-                dst.data[di] = ((sr * sa + u32::from(dst.data[di]) * inv_sa) / 255) as u8;
-                dst.data[di + 1] = ((sg * sa + u32::from(dst.data[di + 1]) * inv_sa) / 255) as u8;
-                dst.data[di + 2] = ((sb * sa + u32::from(dst.data[di + 2]) * inv_sa) / 255) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
-            }
+            blend_over(&mut dst.data[di..di + 4], px.map(|v| v.round() as u8), op);
         }
     }
 }
@@ -646,6 +703,12 @@ impl core::fmt::Debug for PixBuf {
 // move across threads with its pixmap.
 unsafe impl Send for PixBuf {}
 
+// SAFETY: a `&PixBuf` gives out `&[u8]` only (`Deref`); every write goes through `&mut PixBuf`.
+// Under the creator's contract of the borrowed variant (the region is reached through this
+// pixmap alone) shared reads from several threads are reads of an ordinary byte slice: the
+// bands of a repaint composite from one kept group surface this way (`retained`).
+unsafe impl Sync for PixBuf {}
+
 /// A simple RGBA pixel buffer. Replaces `tiny_skia::Pixmap`.
 #[derive(Debug)]
 pub struct AzulPixmap {
@@ -703,6 +766,28 @@ impl AzulPixmap {
         let data = PixBuf::from(vec![255u8; len]); // opaque white
         Some(Self {
             data,
+            width,
+            height,
+        })
+    }
+
+    /// Create a new pixmap of transparent black.
+    ///
+    /// The bytes come zeroed from the allocator (`alloc_zeroed`), which for a buffer of this
+    /// size hands out pages the system has not touched yet: nothing is written here, and a page
+    /// costs memory only once something is painted on it. [`Self::new`] followed by
+    /// `fill(0, 0, 0, 0)` wrote every byte twice - 46 MB of writes for the 23 MB surface of a
+    /// zoomed map, of which a walk then paints a part.
+    #[must_use]
+    pub fn new_transparent(width: u32, height: u32) -> Option<Self> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let len = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))?;
+        Some(Self {
+            data: PixBuf::from(vec![0u8; len]),
             width,
             height,
         })
@@ -803,24 +888,16 @@ impl AzulPixmap {
         let old_h = self.height as usize;
         let new_w = new_width as usize;
         let new_h = new_height as usize;
-        let mut new_data = vec![fill_a; new_w * new_h * 4];
-
-        // Fill entire buffer with fill color first (covers right + bottom strips)
-        for chunk in new_data.chunks_exact_mut(4) {
-            chunk[0] = fill_r;
-            chunk[1] = fill_g;
-            chunk[2] = fill_b;
-            chunk[3] = fill_a;
-        }
-
-        // Copy old rows into top-left corner
+        // The old rows in the top-left corner, the right and bottom strips in the fill colour.
         let old_stride = old_w * 4;
         let new_stride = new_w * 4;
-        for row in 0..old_h {
-            let src = row * old_stride;
-            let dst = row * new_stride;
-            new_data[dst..dst + old_stride].copy_from_slice(&self.data[src..src + old_stride]);
-        }
+        let new_data = resized_buffer(
+            &self.data,
+            old_stride,
+            (old_h, old_stride),
+            (new_h, new_stride),
+            [fill_r, fill_g, fill_b, fill_a],
+        );
 
         self.data = new_data.into();
         self.width = new_width;
@@ -850,25 +927,14 @@ impl AzulPixmap {
         let new_stride = new_w * 4;
         let old_stride = old_w * 4;
 
-        let mut new_data = vec![0u8; new_w * new_h * 4];
-
-        // Fill entire buffer with fill color
-        for chunk in new_data.chunks_exact_mut(4) {
-            chunk[0] = fill_r;
-            chunk[1] = fill_g;
-            chunk[2] = fill_b;
-            chunk[3] = fill_a;
-        }
-
-        // Copy overlapping region from old to new
-        let copy_rows = old_h.min(new_h);
-        let copy_cols_bytes = old_stride.min(new_stride);
-        for row in 0..copy_rows {
-            let src = row * old_stride;
-            let dst = row * new_stride;
-            new_data[dst..dst + copy_cols_bytes]
-                .copy_from_slice(&self.data[src..src + copy_cols_bytes]);
-        }
+        // The overlapping region from the old buffer, the rest in the fill colour.
+        let new_data = resized_buffer(
+            &self.data,
+            old_stride,
+            (old_h.min(new_h), old_stride.min(new_stride)),
+            (new_h, new_stride),
+            [fill_r, fill_g, fill_b, fill_a],
+        );
 
         self.data = new_data.into();
         self.width = new_width;
@@ -952,6 +1018,38 @@ impl AzulPixmap {
             height,
         })
     }
+}
+
+/// A buffer of `new.0` rows of `new.1` bytes: its first `kept.0` rows start with the first
+/// `kept.1` bytes of the same row of `old` (rows of `old_stride` bytes), and every other pixel
+/// is `fill`. Each byte is written once: the resizes filled the whole new buffer with the
+/// colour (after `vec![..]` had written it, too) and then copied the old pixels over that -
+/// two to three passes over a frame of 22 MB on every step of a live resize (A1-56).
+fn resized_buffer(
+    old: &[u8],
+    old_stride: usize,
+    kept: (usize, usize),
+    new: (usize, usize),
+    fill: [u8; 4],
+) -> Vec<u8> {
+    let (rows, stride) = new;
+    // Zeroed by the allocator: nothing more is written for a transparent fill.
+    let mut data = vec![0u8; rows * stride];
+    if stride == 0 {
+        return data;
+    }
+    for (row, line) in data.chunks_exact_mut(stride).enumerate() {
+        let from_old = if row < kept.0 { kept.1.min(stride) } else { 0 };
+        if from_old > 0 {
+            line[..from_old].copy_from_slice(&old[row * old_stride..row * old_stride + from_old]);
+        }
+        if fill != [0; 4] {
+            for px in line[from_old..].chunks_exact_mut(4) {
+                px.copy_from_slice(&fill);
+            }
+        }
+    }
+    data
 }
 
 // ============================================================================
@@ -1139,6 +1237,21 @@ impl AzRect {
         })
     }
 
+    /// The device pixels a paint under this clip may write, `(x0, y0, x1, y1)`, half-open: the
+    /// rule of every fill, text run and image (`as i32` on both edges, see
+    /// `agg_fill_path_clipped`: a pixel the clip covers in part is inside at the near edge
+    /// and outside at the far edge). What is composited under a clip instead of painted under
+    /// it (an isolated group) takes this box, or its edge columns are not the paints'.
+    #[allow(clippy::cast_possible_truncation)] // saturating: a clip far outside is clamped by its user
+    pub(crate) fn pixel_box(&self) -> (i32, i32, i32, i32) {
+        (
+            self.x as i32,
+            self.y as i32,
+            (self.x + self.width) as i32,
+            (self.y + self.height) as i32,
+        )
+    }
+
     /// Intersect this rect with a clip rect. Returns None if fully clipped.
     pub(crate) fn clip(&self, clip: &Self) -> Option<Self> {
         let x1 = self.x.max(clip.x);
@@ -1162,44 +1275,21 @@ impl AzRect {
 // AGG helper: fill a PathStorage with a solid color into an AzulPixmap
 // ============================================================================
 
-/// Wraps a `VertexSource` and clamps every coordinate to a finite range the AGG
-/// rasterizer can handle. A coordinate of ~1e30 (or ±inf) saturates the rasterizer's
-/// 24.8 fixed-point conversion to ~`i32::MAX` and makes its scanline sweep run once per
-/// row crossed — O(coordinate magnitude), i.e. an effective hang (>1GB RAM, spins
-/// forever) on a large-but-legal transform or an SVG numeric attribute. Anything far
-/// outside the target contributes no visible pixels, so clamping it to just off-screen
-/// is visually equivalent and bounds the work to the visible area.
-struct ClampVertexSource<'a> {
-    inner: &'a mut dyn VertexSource,
-    limit: f64,
-}
-
-impl VertexSource for ClampVertexSource<'_> {
-    fn rewind(&mut self, path_id: u32) {
-        self.inner.rewind(path_id);
-    }
-
-    fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
-        let cmd = self.inner.vertex(x, y);
-        *x = if x.is_nan() {
-            0.0
-        } else {
-            x.clamp(-self.limit, self.limit)
-        };
-        *y = if y.is_nan() {
-            0.0
-        } else {
-            y.clamp(-self.limit, self.limit)
-        };
-        cmd
-    }
-}
-
-/// Coordinate clamp limit for a `w`×`h` target: far larger than any on-screen coordinate
-/// (so real geometry is untouched) yet small enough that the rasterizer's work stays
-/// bounded. Off-screen geometry gets pinned just outside the target.
-fn coord_clamp_limit(w: u32, h: u32) -> f64 {
-    (f64::from(w) + f64::from(h)).mul_add(4.0, 4096.0)
+/// Adds `path` to `ras` for a `w`×`h` target, the one way every fill reaches the
+/// rasterizer: its geometry clamped exactly to [`target_bounds`] with its non-finite
+/// vertices taken out ([`ClampedVertexSource`]), and the rasterizer clipped to the
+/// target (plus `clip`), which bounds its sweep to the visible area. Resets `ras`.
+pub(crate) fn add_path_for_target(
+    ras: &mut RasterizerScanlineAa,
+    path: &mut dyn VertexSource,
+    w: u32,
+    h: u32,
+    clip: Option<AzRect>,
+) {
+    let (clip_x0, clip_y0, clip_x1, clip_y1) = geometry_clip_box(clip, w, h);
+    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
+    let mut clamped = ClampedVertexSource::new(path, target_bounds(w, h));
+    ras.add_path(&mut clamped, 0);
 }
 
 pub fn agg_fill_path(
@@ -1217,6 +1307,147 @@ pub fn agg_fill_path(
 /// scanline output to the clip region.  This handles scroll-frame clips,
 /// border-radius is TODO (would need a mask), transforms are handled by
 /// transforming the clip box through the inverse transform before setting it.
+/// The outline of a stroked SVG path as AGG walks it: the geometry flattened,
+/// dashed when the stroke has a pattern, then stroked with its caps and
+/// joins. One builder for the CPU renderer and the GPU mask, which must draw
+/// the same stroke.
+#[allow(missing_debug_implementations, clippy::large_enum_variant)] // AGG's pipeline types have no Debug; a short-lived stack value, never stored
+pub enum SvgStrokeOutline<'a> {
+    /// A solid stroke.
+    Solid(agg_rust::conv_stroke::ConvStroke<agg_rust::conv_curve::ConvCurve<&'a mut PathStorage>>),
+    /// A dashed one.
+    Dashed(
+        agg_rust::conv_stroke::ConvStroke<
+            agg_rust::conv_dash::ConvDash<agg_rust::conv_curve::ConvCurve<&'a mut PathStorage>>,
+        >,
+    ),
+}
+
+impl VertexSource for SvgStrokeOutline<'_> {
+    fn rewind(&mut self, path_id: u32) {
+        match self {
+            Self::Solid(stroke) => stroke.rewind(path_id),
+            Self::Dashed(stroke) => stroke.rewind(path_id),
+        }
+    }
+
+    fn vertex(&mut self, x: &mut f64, y: &mut f64) -> u32 {
+        match self {
+            Self::Solid(stroke) => stroke.vertex(x, y),
+            Self::Dashed(stroke) => stroke.vertex(x, y),
+        }
+    }
+}
+
+/// The widest stroke drawn, in device pixels: far wider than any mask or pixmap, while
+/// a round join on it stays a few thousand points (AGG steps round joins by angle, the
+/// finer the wider the stroke).
+const MAX_STROKE_WIDTH_PX: f64 = 1_048_576.0;
+
+/// How far a miter may reach from its corner, in device pixels. Stroke geometry is
+/// clamped to [`COORD_LIMIT`], so its clamped pieces run along that box's edge, millions
+/// of pixels out; reaching less than half that far, neither their stroke nor a miter at
+/// one of their corners comes near anything on screen.
+const MAX_STROKE_REACH_PX: f64 = 2_097_152.0;
+
+/// The most dashes one stroke is cut into. AGG's dasher walks dash by dash, so the
+/// work grows with the count; a pattern that fine against its path is drawn solid.
+const MAX_DASHES: f64 = 1_048_576.0;
+
+/// The length of `path`'s polygon, its curves' control points included: never less
+/// than the length of the curves themselves.
+fn polygon_length(path: &PathStorage) -> f64 {
+    let mut length = 0.0;
+    let mut last: Option<(f64, f64)> = None;
+    for i in 0..path.total_vertices() {
+        let (mut x, mut y) = (0.0, 0.0);
+        let cmd = path.vertex_idx(i, &mut x, &mut y);
+        if agg_rust::basics::is_move_to(cmd) {
+            last = Some((x, y));
+        } else if agg_rust::basics::is_vertex(cmd) {
+            if let Some((last_x, last_y)) = last {
+                length += (x - last_x).hypot(y - last_y);
+            }
+            last = Some((x, y));
+        }
+    }
+    length
+}
+
+/// The stroke of `geometry` (device pixels): `width` device pixels wide,
+/// with `outline`'s caps, joins and dashes, whose lengths are user units of
+/// `scale` device pixels each.
+///
+/// The width is held to `MAX_STROKE_WIDTH_PX` (a NaN width draws nothing), the miter
+/// to `MAX_STROKE_REACH_PX`, and a pattern of no length, or of more than
+/// `MAX_DASHES` dashes along the path, is drawn solid.
+pub fn svg_stroke_outline<'a>(
+    geometry: &'a mut PathStorage,
+    outline: &crate::solver3::display_list::StrokeOutline,
+    width: f64,
+    scale: f64,
+) -> SvgStrokeOutline<'a> {
+    use agg_rust::math_stroke::{LineCap, LineJoin};
+    use azul_core::svg::{SvgLineCap, SvgLineJoin};
+
+    fn configure<VS: VertexSource>(
+        stroke: &mut agg_rust::conv_stroke::ConvStroke<VS>,
+        outline: &crate::solver3::display_list::StrokeOutline,
+        width: f64,
+    ) {
+        let miter_limit = f64::from(outline.miter_limit)
+            .min(MAX_STROKE_REACH_PX / (width * 0.5).max(1.0))
+            .max(1.0);
+        stroke.set_width(width);
+        stroke.set_line_cap(match outline.cap {
+            SvgLineCap::Butt => LineCap::Butt,
+            SvgLineCap::Square => LineCap::Square,
+            SvgLineCap::Round => LineCap::Round,
+        });
+        stroke.set_line_join(match outline.join {
+            // SVG's `miter`: a bevel once the miter outgrows its limit - AGG's
+            // "revert". `miter-clip` cuts the miter off at the limit instead.
+            SvgLineJoin::Miter => LineJoin::MiterRevert,
+            SvgLineJoin::MiterClip => LineJoin::Miter,
+            SvgLineJoin::Round => LineJoin::Round,
+            SvgLineJoin::Bevel => LineJoin::Bevel,
+        });
+        stroke.set_miter_limit(miter_limit);
+    }
+
+    let width = if width.is_nan() {
+        0.0
+    } else {
+        width.min(MAX_STROKE_WIDTH_PX)
+    };
+    let period: f64 = outline
+        .dashes
+        .iter()
+        .map(|(dash, gap)| f64::from(dash + gap) * scale)
+        .sum();
+    // NaN, a period of no length or too many dashes all fail this.
+    let dashes_along = polygon_length(geometry) / period * outline.dashes.len() as f64;
+    let dashed_pattern = period > 0.0 && dashes_along <= MAX_DASHES;
+
+    // Flattened before stroking: `PathStorage` holds curves as COMMANDS, and
+    // the dasher and the stroker walk vertices.
+    let flattened = agg_rust::conv_curve::ConvCurve::new(geometry);
+    if outline.dashes.is_empty() || !dashed_pattern {
+        let mut stroke = agg_rust::conv_stroke::ConvStroke::new(flattened);
+        configure(&mut stroke, outline, width);
+        return SvgStrokeOutline::Solid(stroke);
+    }
+    let mut dashed = agg_rust::conv_dash::ConvDash::new(flattened);
+    for (dash, gap) in &outline.dashes {
+        dashed.add_dash(f64::from(*dash) * scale, f64::from(*gap) * scale);
+    }
+    // The dasher walks the offset dash by dash: folded into one period.
+    dashed.dash_start((f64::from(outline.dash_offset) * scale).rem_euclid(period));
+    let mut stroke = agg_rust::conv_stroke::ConvStroke::new(dashed);
+    configure(&mut stroke, outline, width);
+    SvgStrokeOutline::Dashed(stroke)
+}
+
 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::similar_names)] // clip-box coordinate names (clip_x0/y0/x1/y1)
 /// Build an agg path from SVG geometry, mapping every coordinate on the way.
@@ -1230,50 +1461,26 @@ pub fn agg_fill_path(
 /// One builder for both consumers - the clip-mask rasteriser and the stroke -
 /// because two copies of a curve-by-curve translation drift apart silently:
 /// the reader only sees the shape being wrong, never which copy did it.
+///
+/// The geometry is made safe for AGG on the way: a ring with a non-finite
+/// point is left out, and the rest is clamped exactly to `COORD_LIMIT` device
+/// pixels (`geometry_guard`), which nothing on screen ever reaches.
+/// `close_rings` closes each ring along its exact closing edge, as a fill
+/// does; a stroke passes `false`, an open path having no closing edge.
 pub fn svg_path_to_agg(
     path: &azul_core::svg::SvgMultiPolygon,
     mx: &dyn Fn(f32) -> f64,
     my: &dyn Fn(f32) -> f64,
+    close_rings: bool,
 ) -> PathStorage {
-    use azul_core::svg::SvgPathElement;
-
-    let mut out = PathStorage::new();
-    for ring in path.rings.as_ref() {
-        let mut first = true;
-        for item in ring.items.as_ref() {
-            match item {
-                SvgPathElement::Line(l) => {
-                    if first {
-                        out.move_to(mx(l.start.x), my(l.start.y));
-                        first = false;
-                    }
-                    out.line_to(mx(l.end.x), my(l.end.y));
-                }
-                SvgPathElement::QuadraticCurve(q) => {
-                    if first {
-                        out.move_to(mx(q.start.x), my(q.start.y));
-                        first = false;
-                    }
-                    out.curve3(mx(q.ctrl.x), my(q.ctrl.y), mx(q.end.x), my(q.end.y));
-                }
-                SvgPathElement::CubicCurve(c) => {
-                    if first {
-                        out.move_to(mx(c.start.x), my(c.start.y));
-                        first = false;
-                    }
-                    out.curve4(
-                        mx(c.ctrl_1.x),
-                        my(c.ctrl_1.y),
-                        mx(c.ctrl_2.x),
-                        my(c.ctrl_2.y),
-                        mx(c.end.x),
-                        my(c.end.y),
-                    );
-                }
-            }
-        }
-    }
-    out
+    let mut out = BoundedPath::new(ClampBox::around_origin(COORD_LIMIT));
+    let end = if close_rings {
+        RingEnd::Filled
+    } else {
+        RingEnd::Open
+    };
+    add_svg_rings(&mut out, path, &|p| (mx(p.x), my(p.y)), end);
+    out.finish()
 }
 
 /// The user-space -> device-pixel mapping for SVG geometry painted into
@@ -1299,6 +1506,63 @@ pub fn svg_user_space_mapping(
         ),
         _ => (dpi_factor, dpi_factor, 0.0, 0.0),
     }
+}
+
+/// How far beyond a pass's clip, and beyond the pixmap, the rasterizer cuts a
+/// path's geometry, in device pixels.
+///
+/// A cut is rounded to AGG's 1/256 px grid, and what it leaves of an edge that
+/// crosses it is the segment from the last vertex inside to the cut: every
+/// pixel along that segment is anti-aliased against an edge a hair off the
+/// true one, a level in a pixel whose coverage sits on a rounding boundary. So
+/// the cut must lie further from the visible pixels than a segment is long.
+/// AGG steps an arc so that a segment is about `sqrt(radius / scale)` px long:
+/// 4 px for a 30 px corner at 2x, 22 px for a radius of 1000. The 2 px this
+/// was (`069780aa0`) let a corner's segment reach across it: 10 of 2400 random
+/// frames of `an_incremental_cpu_frame_matches_a_full_redraw` (30 seeds, both
+/// dpi) had one pixel a level off the full redraw; none has with this.
+///
+/// The bound holds for the segments the producers of arcs leave, not for any
+/// segment: the corner arcs of a rounded box are stepped so that none is longer
+/// than [`MAX_ARC_SEGMENT_PX`] (`raster::arc_approximation_scale` - without that
+/// a radius of 1000 px at 1x, 2000 at 2x, was back to a segment longer than the
+/// margin, `FIX-d0950e410-1`).
+pub(crate) const GEOMETRY_MARGIN: f64 = 32.0;
+
+/// The longest segment of a corner arc, in device pixels: the margin less the
+/// two pixels a cut's own rounding needs and two of slack for a chord being
+/// shorter than its arc. A radius that AGG's default step would leave longer
+/// than this is stepped finer ([`GEOMETRY_MARGIN`]).
+pub(crate) const MAX_ARC_SEGMENT_PX: f64 = GEOMETRY_MARGIN - 4.0;
+
+/// The box the AA rasterizer clips a path's GEOMETRY to: the pixmap grown by
+/// [`GEOMETRY_MARGIN`], whatever the pixel clip of the pass is.
+///
+/// Cutting the geometry changes the coverage of the pixels along the edge that
+/// is cut: the cut is rounded to AGG's 1/256 px grid, and what is left of the
+/// edge runs from the cut to its far vertex, a hair off the true edge all the
+/// way. A cut at the pixmap's edge is the same cut in every pass, so the
+/// pixels agree; a cut at the PASS's clip is not: a shape painted under a
+/// damage rect or in a band was rasterized from other geometry than the same
+/// shape in a full repaint. With the cut 32 px outside the pass's clip (as it
+/// was) that held for the short segments of a corner arc and failed for a long
+/// slanted edge - the side of a turned label, a diagonal stroke - whose cut,
+/// 32 px away, still moves the edge inside the clip: a repaint of a strip
+/// across a turned label differed from the full paint by a level in a few
+/// pixels along the label's sides (`a_turned_label_of_a_view_is_drawn_without_a_
+/// surface`, damaged != full). The pixel clip (`clip_box_i`) alone decides
+/// which pixels a pass writes; the rasterizer sweeps the shape's cells inside
+/// the pixmap, which costs the cells outside the clip and nothing per pixel.
+///
+/// The pixels beyond the pixmap are never written, so the cut may lie there;
+/// it still bounds the sweep (the huge-coordinate guard).
+fn geometry_clip_box(_clip: Option<AzRect>, w: u32, h: u32) -> (f64, f64, f64, f64) {
+    (
+        -GEOMETRY_MARGIN,
+        -GEOMETRY_MARGIN,
+        f64::from(w) + GEOMETRY_MARGIN,
+        f64::from(h) + GEOMETRY_MARGIN,
+    )
 }
 
 pub fn agg_fill_path_clipped(
@@ -1331,31 +1595,7 @@ pub fn agg_fill_path_clipped(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(rule);
-    // Clip GEOMETRY to the target pixmap (intersected with any caller clip) before
-    // rasterizing. Without this, the scanline sweep runs once per row the path crosses,
-    // so a huge/infinite coordinate — reachable from a large-but-legal CSS transform or
-    // SVG attribute — is O(coordinate magnitude), i.e. an effective hang. Clamping the
-    // rasterizer's clip box bounds the work to the visible area.
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
-        || (0.0, 0.0, f64::from(w), f64::from(h)),
-        |c| {
-            (
-                f64::from(c.x).max(0.0),
-                f64::from(c.y).max(0.0),
-                f64::from(c.x + c.width).min(f64::from(w)),
-                f64::from(c.y + c.height).min(f64::from(h)),
-            )
-        },
-    );
-    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    // Clamp coordinates before rasterizing — see ClampVertexSource. This is the actual
-    // guard against the huge/infinite-coordinate hang (the rasterizer's own clip_box
-    // above does not bound the work for saturated fixed-point coords).
-    let mut clamped = ClampVertexSource {
-        inner: path,
-        limit: coord_clamp_limit(w, h),
-    };
-    ras.add_path(&mut clamped, 0);
+    add_path_for_target(&mut ras, path, w, h, clip);
     let mut sl = ScanlineU8::new();
     render_scanlines_aa_solid(&mut ras, &mut sl, &mut rb, color);
 }
@@ -1441,23 +1681,7 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     }
     let mut ras = RasterizerScanlineAa::new();
     ras.filling_rule(FillingRule::NonZero);
-    let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.map_or_else(
-        || (0.0, 0.0, f64::from(w), f64::from(h)),
-        |c| {
-            (
-                f64::from(c.x).max(0.0),
-                f64::from(c.y).max(0.0),
-                f64::from(c.x + c.width).min(f64::from(w)),
-                f64::from(c.y + c.height).min(f64::from(h)),
-            )
-        },
-    );
-    ras.clip_box(clip_x0, clip_y0, clip_x1, clip_y1);
-    let mut clamped = ClampVertexSource {
-        inner: path,
-        limit: coord_clamp_limit(w, h),
-    };
-    ras.add_path(&mut clamped, 0);
+    add_path_for_target(&mut ras, path, w, h, clip);
     let mut sl = ScanlineU8::new();
 
     let interp = SpanInterpolatorLinear::new(transform);
@@ -1477,6 +1701,45 @@ pub fn agg_fill_gradient_clipped<G: GradientFunction>(
     let mut sg = SpanGradient::new(interp, gradient_fn, lut, clamp_d(d1), clamp_d(d2));
     let mut alloc = SpanAllocator::<Rgba8>::new();
     render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, &mut sg);
+}
+
+/// Fill `path` (by `rule`) with the colour a span generator gives each pixel, under the
+/// optional pixel clip: [`agg_fill_gradient_clipped`] for any generator (a border whose sides
+/// differ, `raster::BorderSideSpans`).
+#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // bounded pixel casts
+pub(crate) fn agg_fill_spans_clipped<SG>(
+    pixmap: &mut AzulPixmap,
+    path: &mut dyn VertexSource,
+    rule: FillingRule,
+    spans: &mut SG,
+    clip: Option<AzRect>,
+) where
+    SG: agg_rust::renderer_scanline::SpanGenerator<Color = Rgba8>,
+{
+    let w = pixmap.width;
+    let h = pixmap.height;
+    let stride = (w * 4) as i32;
+    let mut ra = unsafe { RowAccessor::new_with_buf(pixmap.data.as_mut_ptr(), w, h, stride) };
+    let mut pf = PixfmtRgba32::new(&mut ra);
+    let mut rb = RendererBase::new(pf);
+    if let Some(c) = clip {
+        // Degenerate clip = nothing visible (see `agg_fill_path_clipped`).
+        if c.width <= 0.0 || c.height <= 0.0 {
+            return;
+        }
+        rb.clip_box_i(
+            c.x as i32,
+            c.y as i32,
+            (c.x + c.width) as i32 - 1,
+            (c.y + c.height) as i32 - 1,
+        );
+    }
+    let mut ras = RasterizerScanlineAa::new();
+    ras.filling_rule(rule);
+    add_path_for_target(&mut ras, path, w, h, clip);
+    let mut sl = ScanlineU8::new();
+    let mut alloc = SpanAllocator::<Rgba8>::new();
+    render_scanlines_aa(&mut ras, &mut sl, &mut rb, &mut alloc, spans);
 }
 
 // ============================================================================
@@ -1506,46 +1769,164 @@ pub fn blit_buffer_sub(
     let dh = dst.height as i32;
     let x_end = sx.saturating_add(w).min(src_w);
     let y_end = sy.saturating_add(h).min(src_h);
-
-    for py in sy..y_end {
-        let ty = dy.saturating_add((py - sy) as i32);
-        if ty < 0 || ty >= dh {
+    // The pixels that land: the region cut to the source and to the destination (it was
+    // counted as asked for, before either cut).
+    crate::cpu_counters::count(
+        crate::cpu_counters::Counter::PxBlitted,
+        span_on_target(x_end.saturating_sub(sx), dx, dw) * span_on_target(y_end.saturating_sub(sy), dy, dh),
+    );
+    // The loops run over what lands, row by row through one slice of each buffer: every
+    // pixel of the region was tested against the target and both buffers' lengths before.
+    let Some((cols, rows)) = landing(x_end.saturating_sub(sx), dx, dw).zip(landing(y_end.saturating_sub(sy), dy, dh)) else {
+        return;
+    };
+    let data: &mut [u8] = &mut dst.data;
+    for j in rows.0..rows.1 {
+        let (py, ty) = (sy as usize + j, (i64::from(dy) + j as i64) as usize);
+        let si = (py * src_w as usize + sx as usize + cols.0) * 4;
+        let di = (ty * dw as usize + (i64::from(dx) + cols.0 as i64) as usize) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(src.len(), si)).min(whole_pixels(data.len(), di));
+        if n == 0 {
             continue;
         }
-        for px in sx..x_end {
-            let tx = dx.saturating_add((px - sx) as i32);
-            if tx < 0 || tx >= dw {
-                continue;
-            }
-            let si = ((py * src_w + px) * 4) as usize;
-            let di = ((ty as u32 * dst.width + tx as u32) * 4) as usize;
-            if si + 3 >= src.len() || di + 3 >= dst.data.len() {
-                continue;
-            }
-            let sa = u32::from(src[si + 3]);
+        let (from, to) = (&src[si..si + n * 4], &mut data[di..di + n * 4]);
+        for (d, q) in to.chunks_exact_mut(4).zip(from.chunks_exact(4)) {
+            let sa = u32::from(q[3]);
             if sa == 0 {
                 continue;
             }
             if sa == 255 {
-                dst.data[di] = src[si];
-                dst.data[di + 1] = src[si + 1];
-                dst.data[di + 2] = src[si + 2];
-                dst.data[di + 3] = 255;
+                d.copy_from_slice(q);
             } else {
                 let inv_sa = 255 - sa;
-                dst.data[di] =
-                    ((u32::from(src[si]) + u32::from(dst.data[di]) * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 1] = ((u32::from(src[si + 1])
-                    + u32::from(dst.data[di + 1]) * inv_sa / 255)
-                    .min(255)) as u8;
-                dst.data[di + 2] = ((u32::from(src[si + 2])
-                    + u32::from(dst.data[di + 2]) * inv_sa / 255)
-                    .min(255)) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+                d[0] = (u32::from(q[0]) + u32::from(d[0]) * inv_sa / 255).min(255) as u8;
+                d[1] = (u32::from(q[1]) + u32::from(d[1]) * inv_sa / 255).min(255) as u8;
+                d[2] = (u32::from(q[2]) + u32::from(d[2]) * inv_sa / 255).min(255) as u8;
+                d[3] = (sa + u32::from(d[3]) * inv_sa / 255).min(255) as u8;
             }
         }
     }
+}
+
+/// The `i` in `0..len` with `0 <= at + i < limit`, as `(first, end)`: the part of `len` pixels
+/// placed at `at` that lands on an axis `limit` px long ([`span_on_target`] counts them).
+/// `None` when none does. 10 px at -3 on 100: `(3, 10)`; at 95: `(0, 5)`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // both are in 0..=len
+fn landing(len: u32, at: i32, limit: i32) -> Option<(usize, usize)> {
+    let lo = (-i64::from(at)).max(0);
+    let hi = i64::from(len).min(i64::from(limit) - i64::from(at));
+    (hi > lo).then_some((lo as usize, hi as usize))
+}
+
+/// How many whole RGBA pixels a buffer of `len` bytes holds from byte `at` on: the pixels `i`
+/// with `at + 4 i + 3 < len`, the test the per-pixel loops made before each pixel.
+const fn whole_pixels(len: usize, at: usize) -> usize {
+    len.saturating_sub(at) / 4
+}
+
+/// How many of the `len` pixels that start at `at` on an axis of a target `limit` px long land
+/// on it: the `i` in `0..len` with `0 <= at + i < limit`. 10 px at -3 on 100: 7; at 95: 5.
+pub(crate) fn span_on_target(len: u32, at: i32, limit: i32) -> u64 {
+    let lo = (-i64::from(at)).max(0);
+    let hi = i64::from(len).min(i64::from(limit) - i64::from(at));
+    u64::try_from(hi - lo).unwrap_or(0)
+}
+
+/// A kept halo's `coverage` (one byte a pixel, `cov_w` wide) in `color`, composited over `dst`:
+/// the `w` x `h` region at `(sx, sy)` of the coverage lands with its top-left at `(dx, dy)`. What
+/// [`blit_buffer_sub`] does with the same halo drawn in `color` and premultiplied, to within a
+/// level of 255 (the colour is applied after the blur here, before it there).
+#[allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::too_many_arguments,
+    clippy::many_single_char_names
+)] // bounded pixel/coord/colour casts
+pub fn blit_tinted_coverage(
+    dst: &mut AzulPixmap,
+    coverage: &[u8],
+    cov_w: u32,
+    sx: u32,
+    sy: u32,
+    w: u32,
+    h: u32,
+    dx: i32,
+    dy: i32,
+    color: azul_css::props::basic::ColorU,
+) {
+    let (dw, dh) = (dst.width as i32, dst.height as i32);
+    let cov_h = if cov_w == 0 { 0 } else { coverage.len() as u32 / cov_w };
+    let x_end = sx.saturating_add(w).min(cov_w);
+    let y_end = sy.saturating_add(h).min(cov_h);
+    crate::cpu_counters::count(
+        crate::cpu_counters::Counter::PxBlitted,
+        span_on_target(x_end.saturating_sub(sx), dx, dw) * span_on_target(y_end.saturating_sub(sy), dy, dh),
+    );
+    let Some((cols, rows)) = landing(x_end.saturating_sub(sx), dx, dw).zip(landing(y_end.saturating_sub(sy), dy, dh)) else {
+        return;
+    };
+    TINT_TABLE.with(|table| {
+        // The premultiplied source of every coverage in this colour: the coverage times the
+        // colour's alpha, and the colour scaled by that. A frame tints the halos of its labels
+        // with one colour or two, so the table of the colour before is nearly always this
+        // one's; each pixel worked the four products and divisions out again.
+        let mut table = table.borrow_mut();
+        let tint = [color.r, color.g, color.b, color.a];
+        if table.0 != Some(tint) {
+            let (cr, cg, cb, ca) = (
+                u32::from(color.r),
+                u32::from(color.g),
+                u32::from(color.b),
+                u32::from(color.a),
+            );
+            for (cov, entry) in table.1.iter_mut().enumerate() {
+                let sa = (cov as u32 * ca + 127) / 255;
+                *entry = [
+                    ((cr * sa + 127) / 255) as u8,
+                    ((cg * sa + 127) / 255) as u8,
+                    ((cb * sa + 127) / 255) as u8,
+                    sa as u8,
+                ];
+            }
+            table.0 = Some(tint);
+        }
+        let sources = &table.1;
+        let data: &mut [u8] = &mut dst.data;
+        for j in rows.0..rows.1 {
+            let (py, ty) = (sy as usize + j, (i64::from(dy) + j as i64) as usize);
+            let row = &coverage[py * cov_w as usize..(py + 1) * cov_w as usize];
+            let di = (ty * dw as usize + (i64::from(dx) + cols.0 as i64) as usize) * 4;
+            let n = (cols.1 - cols.0).min(whole_pixels(data.len(), di));
+            if n == 0 {
+                continue;
+            }
+            let from = &row[sx as usize + cols.0..sx as usize + cols.0 + n];
+            for (d, cov) in data[di..di + n * 4].chunks_exact_mut(4).zip(from) {
+                let source = sources[usize::from(*cov)];
+                let sa = u32::from(source[3]);
+                if sa == 0 {
+                    continue;
+                }
+                if sa == 255 {
+                    d.copy_from_slice(&source);
+                } else {
+                    let inv = 255 - sa;
+                    let over = |s: u8, d: u8| (u32::from(s) + u32::from(d) * inv / 255).min(255) as u8;
+                    d[0] = over(source[0], d[0]);
+                    d[1] = over(source[1], d[1]);
+                    d[2] = over(source[2], d[2]);
+                    d[3] = over(source[3], d[3]);
+                }
+            }
+        }
+    });
+}
+
+std::thread_local! {
+    /// [`blit_tinted_coverage`]: the colour last tinted with on this thread (`r, g, b, a`), and
+    /// the premultiplied pixel it gives each coverage 0..=255.
+    static TINT_TABLE: core::cell::RefCell<(Option<[u8; 4]>, [[u8; 4]; 256])> =
+        const { core::cell::RefCell::new((None, [[0; 4]; 256])) };
 }
 
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
@@ -1608,30 +1989,22 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 #[must_use]
 pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
-    let pw = pixmap.width as i32;
-    let ph = pixmap.height as i32;
     let mut snap = vec![0u8; (w as usize) * (h as usize) * 4];
-
-    for py in 0..h as i32 {
-        // saturating: an extreme snapshot origin would overflow a plain `+`.
-        let sy = y.saturating_add(py);
-        if sy < 0 || sy >= ph {
+    // Row by row, the columns that lie on the pixmap as one copy: every pixel was tested
+    // against the pixmap and both buffers' lengths and copied byte by byte before.
+    let Some((cols, rows)) = landing(w, x, pixmap.width as i32).zip(landing(h, y, pixmap.height as i32)) else {
+        return snap;
+    };
+    let data: &[u8] = &pixmap.data;
+    for py in rows.0..rows.1 {
+        let sy = (i64::from(y) + py as i64) as usize;
+        let si = (sy * pixmap.width as usize + (i64::from(x) + cols.0 as i64) as usize) * 4;
+        let di = (py * w as usize + cols.0) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(data.len(), si)).min(whole_pixels(snap.len(), di));
+        if n == 0 {
             continue;
         }
-        for px in 0..w as i32 {
-            let sx = x.saturating_add(px);
-            if sx < 0 || sx >= pw {
-                continue;
-            }
-            let si = ((sy as u32 * pixmap.width + sx as u32) * 4) as usize;
-            let di = ((py as u32 * w + px as u32) * 4) as usize;
-            if si + 3 < pixmap.data.len() && di + 3 < snap.len() {
-                snap[di] = pixmap.data[si];
-                snap[di + 1] = pixmap.data[si + 1];
-                snap[di + 2] = pixmap.data[si + 2];
-                snap[di + 3] = pixmap.data[si + 3];
-            }
-        }
+        snap[di..di + n * 4].copy_from_slice(&data[si..si + n * 4]);
     }
     snap
 }
@@ -1645,28 +2018,28 @@ pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> V
 // bounded image-dimension / non-negative-loop-index coordinate casts
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y: i32) {
-    let dw = dst.width as i32;
-    let dh = dst.height as i32;
-    for py in 0..h as i32 {
-        // saturating: an extreme write-region origin would overflow a plain `+`.
-        let dy = y.saturating_add(py);
-        if dy < 0 || dy >= dh {
+    // A side that does not fit an `i32` writes nothing, as the per-pixel loops this replaced
+    // did (their `0..w as i32` was an empty range then): no source is 2^31 px wide, and the
+    // row copies below would take the first pixels of `src` for a row of such a region
+    // (`write_region_u32_max_dimensions_are_a_noop`).
+    if i32::try_from(w).is_err() || i32::try_from(h).is_err() {
+        return;
+    }
+    // As `snapshot_region`: the rows and columns that land, a copy per row.
+    let Some((cols, rows)) = landing(w, x, dst.width as i32).zip(landing(h, y, dst.height as i32)) else {
+        return;
+    };
+    let dw = dst.width as usize;
+    let data: &mut [u8] = &mut dst.data;
+    for py in rows.0..rows.1 {
+        let dy = (i64::from(y) + py as i64) as usize;
+        let si = (py * w as usize + cols.0) * 4;
+        let di = (dy * dw + (i64::from(x) + cols.0 as i64) as usize) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(src.len(), si)).min(whole_pixels(data.len(), di));
+        if n == 0 {
             continue;
         }
-        for px in 0..w as i32 {
-            let dx = x.saturating_add(px);
-            if dx < 0 || dx >= dw {
-                continue;
-            }
-            let si = ((py as u32 * w + px as u32) * 4) as usize;
-            let di = ((dy as u32 * dst.width + dx as u32) * 4) as usize;
-            if si + 3 < src.len() && di + 3 < dst.data.len() {
-                dst.data[di] = src[si];
-                dst.data[di + 1] = src[si + 1];
-                dst.data[di + 2] = src[si + 2];
-                dst.data[di + 3] = src[si + 3];
-            }
-        }
+        data[di..di + n * 4].copy_from_slice(&src[si..si + n * 4]);
     }
 }
 
@@ -3088,10 +3461,11 @@ mod autotest_generated {
 
     #[test]
     fn blit_pixmap_half_alpha_blend_is_exact() {
-        let src = filled(1, 1, [200, 100, 50, 128]);
+        // (200, 100, 50) at alpha 128, premultiplied as a layer holds it:
+        // over transparent black it lands as it is.
+        let src = filled(1, 1, [100, 50, 25, 128]);
         let mut dst = filled(1, 1, CLEAR);
         blit_pixmap(&src, &mut dst, 0, 0, 1.0);
-        // sa = 128, inv = 127, dst starts at 0 => (c * 128) / 255
         assert_eq!(get(&dst, 0, 0), [100, 50, 25, 128]);
     }
 
@@ -3646,6 +4020,111 @@ mod autotest_generated {
         );
     }
 
+    /// The coverage of a rounded box that reaches past the pixmap's edge, from
+    /// the harness of `an_incremental_cpu_frame_matches_a_full_redraw`: seed
+    /// 104 at 2x, a 118 x 47 box with 15 px corners moved by a translate
+    /// (213, 101), its right edge 22 device px past a 640 px window. The cut
+    /// of the geometry at the window's edge (the rasterizer rounds the cut)
+    /// moved the coverage of the pixel at (637, 295), on the corner's arc, by
+    /// a level against the same box in a pixmap wide enough to hold it - the
+    /// pixel the layered compositor, whose group layer is wider than the
+    /// window, paints.
+    fn rounded_box_past_an_edge(pixmap_width: u32) -> AzulPixmap {
+        use agg_rust::rounded_rect::RoundedRect;
+        let mut rr = RoundedRect::default_new();
+        rr.rect(426.0, 202.0, 426.0 + 236.0, 202.0 + 94.0);
+        rr.radius_all(30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0, 30.0);
+        rr.normalize_radius();
+        rr.set_approximation_scale(2.0);
+        let mut path = PathStorage::new();
+        path.concat_path(&mut rr, 0);
+        // Opaque black over nothing: the alpha channel IS the coverage.
+        let mut p = filled(pixmap_width, 400, [0, 0, 0, 0]);
+        agg_fill_path_clipped(
+            &mut p,
+            &mut path,
+            &Rgba8::new(0, 0, 0, 255),
+            FillingRule::NonZero,
+            None,
+        );
+        p
+    }
+
+    #[test]
+    fn a_rounded_box_past_the_pixmaps_edge_has_the_coverage_it_has_in_a_wider_pixmap() {
+        let narrow = rounded_box_past_an_edge(640);
+        let wide = rounded_box_past_an_edge(700);
+        let different: Vec<(u32, u32, u8, u8)> = (0..400)
+            .flat_map(|y| (0..640).map(move |x| (x, y)))
+            .filter_map(|(x, y)| {
+                let (n, w) = (get(&narrow, x, y)[3], get(&wide, x, y)[3]);
+                (n != w).then_some((x, y, n, w))
+            })
+            .collect();
+        assert!(
+            different.is_empty(),
+            "the pixels (x, y, coverage cut at the edge, coverage in a wider pixmap) \
+             differ: {different:?}"
+        );
+        // The pixel is a real anti-aliased one, not an empty one agreeing by accident.
+        let arc = get(&narrow, 637, 295)[3];
+        assert!(arc > 0 && arc < 255, "the arc's pixel has partial coverage, got {arc}");
+    }
+
+    /// A rounded box filled under a clip has, inside the clip, the pixels it has
+    /// filled under none: the pass that repaints a damage rect gives what the
+    /// full repaint gives there. The clip's left edge is walked across the
+    /// corner arcs of boxes of every radius, so the cut of the geometry (which
+    /// lies `GEOMETRY_MARGIN` beyond the clip) crosses a segment of the arc
+    /// somewhere in the grid. With the 2 px margin the cut first had, a corner
+    /// segment (4 px for a 30 px radius at 2x) reached the visible pixels.
+    #[test]
+    fn a_rounded_box_filled_under_a_clip_has_inside_it_the_pixels_it_has_under_none() {
+        use agg_rust::rounded_rect::RoundedRect;
+        fn fill(radius: f64, clip: Option<AzRect>) -> AzulPixmap {
+            let mut rr = RoundedRect::default_new();
+            rr.rect(100.0, 60.0, 340.0, 180.0);
+            rr.radius_all(radius, radius, radius, radius, radius, radius, radius, radius);
+            rr.normalize_radius();
+            rr.set_approximation_scale(2.0);
+            let mut path = PathStorage::new();
+            path.concat_path(&mut rr, 0);
+            let mut p = filled(400, 240, [0, 0, 0, 0]);
+            agg_fill_path_clipped(
+                &mut p,
+                &mut path,
+                &Rgba8::new(0, 0, 0, 255),
+                FillingRule::NonZero,
+                clip,
+            );
+            p
+        }
+        let mut different = Vec::new();
+        for radius in [12.0, 20.0, 30.0, 45.0, 60.0] {
+            let unclipped = fill(radius, None);
+            for left in (96..=170).step_by(2) {
+                let clip = AzRect::from_xywh(f64::from(left) as f32, 40.0, 150.0, 160.0)
+                    .expect("valid");
+                let clipped = fill(radius, Some(clip));
+                for y in 40..200 {
+                    for x in left..left + 150 {
+                        let (c, u) = (get(&clipped, x, y)[3], get(&unclipped, x, y)[3]);
+                        if c != u {
+                            different.push((radius, left, x, y, c, u));
+                        }
+                    }
+                }
+            }
+        }
+        assert!(
+            different.is_empty(),
+            "(radius, clip left, x, y, coverage under the clip, coverage under none) differ: \
+             {:?} ({} in all)",
+            &different[..different.len().min(8)],
+            different.len()
+        );
+    }
+
     #[test]
     fn agg_fill_path_evenodd_leaves_the_hole_of_a_donut_unpainted() {
         let mut p = filled(12, 12, WHITE);
@@ -3991,5 +4470,321 @@ mod pixbuf_tests {
         let mut b = [0u8; 16];
         assert!(unsafe { AzulPixmap::from_external(b.as_mut_ptr(), 0, 2) }.is_none());
         assert!(unsafe { AzulPixmap::from_external(b.as_mut_ptr(), 2, 0) }.is_none());
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A1 (`audit/A1.md`).
+#[cfg(test)]
+mod audit_a1_tests {
+    use super::*;
+
+    /// A1-14 (A11-20): a blit counts the pixels that land, not the region it was asked for.
+    /// A 10 x 4 buffer blitted at (-3, 2) onto a 20 x 5 target lands 7 columns (3 are left of
+    /// it) and 3 rows (the fourth is below it): 21 px, not 40. The same for a kept halo.
+    /// Mutation: counting `w * h` gives 40; a span of `limit - at` without the `len` cut, 23 x 3.
+    #[test]
+    fn a_blit_counts_the_pixels_that_land() {
+        assert_eq!((span_on_target(10, -3, 100), span_on_target(10, 95, 100)), (7, 5));
+        assert_eq!((span_on_target(10, 0, 100), span_on_target(10, 100, 100), span_on_target(10, -10, 100)), (10, 0, 0));
+        assert_eq!(span_on_target(0, 5, 100), 0);
+        let mut target = AzulPixmap::new_transparent(20, 5).expect("a target");
+        let buffer = vec![255u8; 10 * 4 * 4];
+        crate::cpu_counters::reset();
+        blit_buffer_sub(&mut target, &buffer, 10, 4, 0, 0, 10, 4, -3, 2);
+        assert_eq!(crate::cpu_counters::take().px_blitted, 7 * 3);
+        let coverage = vec![255u8; 10 * 4];
+        let white = azul_css::props::basic::ColorU { r: 255, g: 255, b: 255, a: 255 };
+        blit_tinted_coverage(&mut target, &coverage, 10, 0, 0, 10, 4, -3, 2, white);
+        assert_eq!(crate::cpu_counters::take().px_blitted, 7 * 3);
+        // A region that asks for more than the source holds counts what the source holds.
+        blit_buffer_sub(&mut target, &buffer, 10, 4, 6, 0, 10, 4, 0, 0);
+        assert_eq!(crate::cpu_counters::take().px_blitted, 4 * 4);
+    }
+
+
+    // The per-pixel loops the row blits replaced (A1-57), on plain buffers.
+
+    fn old_blit_sub(
+        dst: &mut [u8],
+        (dw, dh): (i32, i32),
+        src: &[u8],
+        (src_w, src_h): (u32, u32),
+        (sx, sy, w, h): (u32, u32, u32, u32),
+        (dx, dy): (i32, i32),
+    ) {
+        let x_end = sx.saturating_add(w).min(src_w);
+        let y_end = sy.saturating_add(h).min(src_h);
+        for py in sy..y_end {
+            let ty = dy.saturating_add((py - sy) as i32);
+            if ty < 0 || ty >= dh {
+                continue;
+            }
+            for px in sx..x_end {
+                let tx = dx.saturating_add((px - sx) as i32);
+                if tx < 0 || tx >= dw {
+                    continue;
+                }
+                let si = ((py * src_w + px) * 4) as usize;
+                let di = ((ty * dw + tx) * 4) as usize;
+                if si + 3 >= src.len() || di + 3 >= dst.len() {
+                    continue;
+                }
+                let sa = u32::from(src[si + 3]);
+                if sa == 0 {
+                    continue;
+                }
+                if sa == 255 {
+                    dst[di..di + 4].copy_from_slice(&[src[si], src[si + 1], src[si + 2], 255]);
+                } else {
+                    let inv = 255 - sa;
+                    for c in 0..3 {
+                        dst[di + c] = (u32::from(src[si + c]) + u32::from(dst[di + c]) * inv / 255).min(255) as u8;
+                    }
+                    dst[di + 3] = (sa + u32::from(dst[di + 3]) * inv / 255).min(255) as u8;
+                }
+            }
+        }
+    }
+
+    fn old_blit_tinted(
+        dst: &mut [u8],
+        (dw, dh): (i32, i32),
+        coverage: &[u8],
+        cov_w: u32,
+        (sx, sy, w, h): (u32, u32, u32, u32),
+        (dx, dy): (i32, i32),
+        color: [u8; 4],
+    ) {
+        let cov_h = if cov_w == 0 { 0 } else { coverage.len() as u32 / cov_w };
+        let x_end = sx.saturating_add(w).min(cov_w);
+        let y_end = sy.saturating_add(h).min(cov_h);
+        let [cr, cg, cb, ca] = color.map(u32::from);
+        for py in sy..y_end {
+            let ty = dy.saturating_add((py - sy) as i32);
+            if ty < 0 || ty >= dh {
+                continue;
+            }
+            for px in sx..x_end {
+                let cov = u32::from(coverage[(py * cov_w + px) as usize]);
+                let tx = dx.saturating_add((px - sx) as i32);
+                if cov == 0 || tx < 0 || tx >= dw {
+                    continue;
+                }
+                let sa = (cov * ca + 127) / 255;
+                let di = ((ty * dw + tx) * 4) as usize;
+                if sa == 0 || di + 3 >= dst.len() {
+                    continue;
+                }
+                let source = [(cr * sa + 127) / 255, (cg * sa + 127) / 255, (cb * sa + 127) / 255, sa];
+                for c in 0..4 {
+                    dst[di + c] = if sa == 255 {
+                        if c == 3 { 255 } else { source[c] as u8 }
+                    } else {
+                        (source[c] + u32::from(dst[di + c]) * (255 - sa) / 255).min(255) as u8
+                    };
+                }
+            }
+        }
+    }
+
+    fn old_snapshot(data: &[u8], (pw, ph): (i32, i32), (x, y): (i32, i32), (w, h): (u32, u32)) -> Vec<u8> {
+        let mut snap = vec![0_u8; (w * h * 4) as usize];
+        for py in 0..h as i32 {
+            for px in 0..w as i32 {
+                let (sx, sy) = (x.saturating_add(px), y.saturating_add(py));
+                if sx < 0 || sx >= pw || sy < 0 || sy >= ph {
+                    continue;
+                }
+                let si = ((sy * pw + sx) * 4) as usize;
+                let di = ((py as u32 * w + px as u32) * 4) as usize;
+                if si + 3 < data.len() && di + 3 < snap.len() {
+                    snap[di..di + 4].copy_from_slice(&data[si..si + 4]);
+                }
+            }
+        }
+        snap
+    }
+
+    fn old_write(dst: &mut [u8], (dw, dh): (i32, i32), src: &[u8], (w, h): (u32, u32), (x, y): (i32, i32)) {
+        for py in 0..h as i32 {
+            for px in 0..w as i32 {
+                let (dx, dy) = (x.saturating_add(px), y.saturating_add(py));
+                if dx < 0 || dx >= dw || dy < 0 || dy >= dh {
+                    continue;
+                }
+                let si = ((py as u32 * w + px as u32) * 4) as usize;
+                let di = ((dy * dw + dx) * 4) as usize;
+                if si + 3 < src.len() && di + 3 < dst.len() {
+                    dst[di..di + 4].copy_from_slice(&src[si..si + 4]);
+                }
+            }
+        }
+    }
+
+    /// A 9 x 7 target with a byte pattern (every alpha level among them).
+    fn patterned_target() -> AzulPixmap {
+        let mut target = AzulPixmap::new(9, 7).expect("a pixmap");
+        for (i, b) in target.data_mut().iter_mut().enumerate() {
+            *b = (i * 29 % 253) as u8;
+        }
+        target
+    }
+
+    /// A1-57: the buffer blits and the region copies walk the pixels that land, row by row
+    /// through one slice of each buffer. The same bytes as the per-pixel loops they replace
+    /// (above), for a 6 x 5 source with empty, translucent and opaque pixels at every kind of
+    /// place around a 9 x 7 target - inside, across each edge, outside - and for regions of
+    /// the source that start anywhere, past its end too; a source buffer shorter than its
+    /// size says is read as far as it goes.
+    /// Mutation: `cols.0` left out of a row's start shifts every row cut at the left edge;
+    /// `whole_pixels` without the division copies a partial pixel (a panic at the end).
+    #[test]
+    fn the_row_blits_are_the_per_pixel_blits() {
+        let (src_w, src_h) = (6_u32, 5_u32);
+        let mut src = Vec::new();
+        let mut coverage = Vec::new();
+        for i in 0..src_w * src_h {
+            let a = [0_u8, 255, 90, 255, 1, 254, 200][(i % 7) as usize];
+            let premultiplied = |v: u32| (v % 256 * u32::from(a) / 255) as u8;
+            src.extend_from_slice(&[premultiplied(i * 11), premultiplied(i * 23), premultiplied(i * 37), a]);
+            coverage.push(a);
+        }
+        let short = &src[..src.len() - 6];
+        let regions = [(0, 0, 6, 5), (2, 1, 3, 2), (4, 3, 9, 9), (6, 0, 1, 1), (0, 0, 0, 3), (5, 4, 1, 1)];
+        let tints = [[200, 100, 50, 255], [255, 255, 255, 128], [200, 100, 50, 255], [0, 0, 0, 0]];
+        let mut checked = 0;
+        for dx in [-7, -2, 0, 4, 8, 9] {
+            for dy in [-6, -1, 0, 3, 6, 7] {
+                for region in regions {
+                    for source in [src.as_slice(), short] {
+                        let mut new = patterned_target();
+                        let mut old = patterned_target().data().to_vec();
+                        blit_buffer_sub(&mut new, source, src_w, src_h, region.0, region.1, region.2, region.3, dx, dy);
+                        old_blit_sub(&mut old, (9, 7), source, (src_w, src_h), region, (dx, dy));
+                        assert!(new.data() == old.as_slice(), "blit_buffer_sub {region:?} at ({dx}, {dy})");
+                    }
+                    for tint in tints {
+                        let mut new = patterned_target();
+                        let mut old = patterned_target().data().to_vec();
+                        let color = azul_css::props::basic::ColorU { r: tint[0], g: tint[1], b: tint[2], a: tint[3] };
+                        blit_tinted_coverage(&mut new, &coverage, src_w, region.0, region.1, region.2, region.3, dx, dy, color);
+                        old_blit_tinted(&mut old, (9, 7), &coverage, src_w, region, (dx, dy), tint);
+                        assert!(new.data() == old.as_slice(), "blit_tinted_coverage {region:?} at ({dx}, {dy}) in {tint:?}");
+                    }
+                    let (w, h) = (region.2.min(8), region.3.min(8));
+                    let target = patterned_target();
+                    assert!(
+                        snapshot_region(&target, dx, dy, w, h) == old_snapshot(target.data(), (9, 7), (dx, dy), (w, h)),
+                        "snapshot_region {w} x {h} at ({dx}, {dy})"
+                    );
+                    let patch: Vec<u8> = (0..w * h * 4).map(|i| (i * 7 % 256) as u8).collect();
+                    let mut new = patterned_target();
+                    let mut old = patterned_target().data().to_vec();
+                    write_region(&mut new, &patch, w, h, dx, dy);
+                    old_write(&mut old, (9, 7), &patch, (w, h), (dx, dy));
+                    assert!(new.data() == old.as_slice(), "write_region {w} x {h} at ({dx}, {dy})");
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 6 * 6 * 6);
+        let _ = crate::cpu_counters::take();
+    }
+
+
+    /// A1-55: a layer blit walks the pixels that land inside the target and the clip, row by
+    /// row. The same bytes as the loop over every pixel of the layer it replaces (here, on
+    /// plain buffers, with `blend_over` at an opacity of 0.5 = 127), for a 6 x 5 layer at every kind
+    /// of place around a 9 x 7 target under no clip, a clip inside it, one that reaches past
+    /// it and an empty one; and `copy_pixmap_clipped` copies exactly those pixels.
+    /// Mutation: the clip's near edge left out of `landing_between` paints left of the clip.
+    #[test]
+    fn a_layer_blit_over_what_lands_is_the_blit_over_every_pixel() {
+        let mut layer = AzulPixmap::new(6, 5).expect("a layer");
+        for (i, px) in layer.data_mut().chunks_exact_mut(4).enumerate() {
+            let a = [0_u8, 255, 90, 255, 1, 254, 200][i % 7];
+            let premultiplied = |v: usize| (v % 256 * usize::from(a) / 255) as u8;
+            px.copy_from_slice(&[premultiplied(i * 11), premultiplied(i * 23), premultiplied(i * 37), a]);
+        }
+        let old = |dst: &mut [u8], (px_x, px_y): (i32, i32), clip: Option<(i32, i32, i32, i32)>, copy: bool| {
+            for sy in 0..5_i32 {
+                for sx in 0..6_i32 {
+                    let (dx, dy) = (px_x.saturating_add(sx), px_y.saturating_add(sy));
+                    if dx < 0 || dx >= 9 || dy < 0 || dy >= 7 {
+                        continue;
+                    }
+                    if clip.is_some_and(|(cx0, cy0, cx1, cy1)| dx < cx0 || dx >= cx1 || dy < cy0 || dy >= cy1) {
+                        continue;
+                    }
+                    let (si, di) = (((sy * 6 + sx) * 4) as usize, ((dy * 9 + dx) * 4) as usize);
+                    let s = &layer.data()[si..si + 4];
+                    if copy {
+                        dst[di..di + 4].copy_from_slice(s);
+                    } else {
+                        blend_over(&mut dst[di..di + 4], [s[0], s[1], s[2], s[3]], 127);
+                    }
+                }
+            }
+        };
+        let clips = [None, Some((2, 1, 7, 5)), Some((-4, -4, 40, 40)), Some((5, 5, 5, 9)), Some((8, 0, 3, 7))];
+        for px_x in [-7, -2, 0, 4, 8, 9] {
+            for px_y in [-6, -1, 0, 3, 6, 7] {
+                for clip in clips {
+                    let mut new = patterned_target();
+                    let mut want = patterned_target().data().to_vec();
+                    blit_pixmap_clipped(&layer, &mut new, px_x, px_y, 0.5, clip);
+                    old(&mut want, (px_x, px_y), clip, false);
+                    assert!(new.data() == want.as_slice(), "blended at ({px_x}, {px_y}) under {clip:?}");
+                    let mut new = patterned_target();
+                    let mut want = patterned_target().data().to_vec();
+                    copy_pixmap_clipped(&layer, &mut new, px_x, px_y, clip);
+                    old(&mut want, (px_x, px_y), clip, true);
+                    assert!(new.data() == want.as_slice(), "copied at ({px_x}, {px_y}) under {clip:?}");
+                }
+            }
+        }
+    }
+
+    /// A1-56: a resized pixmap holds the old pixels where the two sizes overlap and the fill
+    /// colour everywhere else, each byte written once. A 5 x 4 pixmap of numbered pixels made
+    /// larger, smaller, wider and lower, narrower and higher: pixel (x, y) is the old one
+    /// where x < 5 and y < 4, else the colour; growing does the same and refuses to shrink.
+    /// Mutation: the fill from byte 0 of every row writes over the kept pixels.
+    #[test]
+    fn a_resized_pixmap_keeps_what_overlaps_and_fills_the_rest() {
+        let numbered = || {
+            let mut pm = AzulPixmap::new(5, 4).expect("a pixmap");
+            for (i, px) in pm.data_mut().chunks_exact_mut(4).enumerate() {
+                px.copy_from_slice(&[i as u8, 100, 200, 255]);
+            }
+            pm
+        };
+        let check = |pm: &AzulPixmap, fill: [u8; 4], what: &str| {
+            for y in 0..pm.height() {
+                for x in 0..pm.width() {
+                    let at = ((y * pm.width() + x) * 4) as usize;
+                    let want = if x < 5 && y < 4 { [(y * 5 + x) as u8, 100, 200, 255] } else { fill };
+                    assert_eq!(&pm.data()[at..at + 4], &want[..], "{what}: pixel ({x}, {y})");
+                }
+            }
+        };
+        for (w, h) in [(8, 6), (3, 2), (8, 2), (3, 6), (5, 4), (5, 9)] {
+            for fill in [[9, 8, 7, 255], [0, 0, 0, 0]] {
+                let mut pm = numbered();
+                pm.resize_reuse(w, h, fill[0], fill[1], fill[2], fill[3]);
+                assert_eq!((pm.width(), pm.height(), pm.data().len()), (w, h, (w * h * 4) as usize));
+                check(&pm, fill, "resize_reuse");
+                let mut pm = numbered();
+                let grown = pm.resize_grow_only(w, h, fill[0], fill[1], fill[2], fill[3]);
+                if w >= 5 && h >= 4 {
+                    assert!(grown.is_some());
+                    assert_eq!((pm.width(), pm.height()), (w, h));
+                    check(&pm, fill, "resize_grow_only");
+                } else {
+                    assert!(grown.is_none(), "a pixmap does not shrink by growing");
+                    assert_eq!((pm.width(), pm.height()), (5, 4));
+                }
+            }
+        }
     }
 }

@@ -1,14 +1,14 @@
 /**
  * Focus & Tab Navigation E2E Test
- * 
+ *
  * Simple grid of colored rectangles to test:
  * 1. Tab key navigation between focusable elements
  * 2. Shift+Tab for reverse navigation
  * 3. Enter/Space key activation (triggers click callback)
  * 4. Escape key to clear focus
  * 5. :focus CSS pseudo-class styling (color change on focus)
- * 
- * Run with: AZUL_DEBUG=8765 ./focus
+ *
+ * Run with: AZ_DEBUG=8765 ./focus
  * Test with: curl -X POST http://localhost:8765/ -d '{"op": "key_down", "key": "Tab"}'
  */
 
@@ -44,16 +44,16 @@ AzJson FocusTestData_toJson(AzRefAny refany) {
     if (!FocusTestData_downcastRef(&refany, &ref)) {
         return AzJson_null();
     }
-    
+
     AzJsonKeyValue entries[4] = {
         AzJsonKeyValue_create(AZ_STR("click_count_button1"), AzJson_int(ref.ptr->click_count_button1)),
         AzJsonKeyValue_create(AZ_STR("click_count_button2"), AzJson_int(ref.ptr->click_count_button2)),
         AzJsonKeyValue_create(AZ_STR("click_count_button3"), AzJson_int(ref.ptr->click_count_button3)),
         AzJsonKeyValue_create(AZ_STR("last_clicked_button"), AzJson_int(ref.ptr->last_clicked_button))
     };
-    
+
     FocusTestDataRef_delete(&ref);
-    
+
     AzJsonKeyValueVec vec = AzJsonKeyValueVec_copyFromArray(entries, 4);
     return AzJson_object(vec);
 }
@@ -111,21 +111,21 @@ AzUpdate on_button3_click(AzRefAny data, AzCallbackInfo info) {
 // Create a focusable colored box
 AzDom create_box(int button_num, AzCallbackType click_callback, AzRefAny data) {
     AzDom box = AzDom_createDiv();
-    
+
     // Add click callback - use leftMouseUp for click
     AzEventFilter event = AzEventFilter_hover(AzHoverEventFilter_leftMouseUp());
     AzDom_addCallback(&box, event, AzRefAny_clone(&data), click_callback);
-    
+
     // Make focusable with tabindex=0 (Auto)
     AzDom_setTabIndex(&box, AzTabIndex_auto());
-    
+
     // Add classes for CSS styling - add each class separately!
     AzDom_addClass(&box, AZ_STR("box"));
-    
+
     char class_name[32];
     snprintf(class_name, sizeof(class_name), "box-%d", button_num);
     AzDom_addClass(&box, AZ_STR(class_name));
-    
+
     return box;
 }
 
@@ -135,27 +135,27 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         return AzDom_createBody();
     }
     FocusTestDataRef_delete(&d);
-    
+
     // Create container for the 3 boxes
     AzDom container = AzDom_createDiv();
     AzDom_addClass(&container, AZ_STR("container"));
-    
+
     // Create three colored boxes
     AzDom box1 = create_box(1, on_button1_click, data);  // Red
     AzDom box2 = create_box(2, on_button2_click, data);  // Green
     AzDom box3 = create_box(3, on_button3_click, data);  // Blue
-    
+
     AzDom_addChild(&container, box1);
     AzDom_addChild(&container, box2);
     AzDom_addChild(&container, box3);
-    
+
     // Build body
     AzDom body = AzDom_createBody();
     AzDom_addChild(&body, container);
-    
+
     // CSS with :focus pseudo-class for visual feedback
     // When focused, boxes get a bright yellow border and lighter color
-    const char* css_str = 
+    const char* css_str =
         "body { "
         "  background-color: #2c3e50; "
         "  display: flex; "
@@ -184,7 +184,7 @@ AzDom layout(AzRefAny data, AzLayoutCallbackInfo info) {
         ".box-2:focus { background-color: #2ecc71; } "
         ".box-3 { background-color: #3498db; } "
         ".box-3:focus { background-color: #5dade2; } ";
-    
+
     // The layout callback returns AzDom now: the Css rides along as a field
     // and the framework builds the StyledDom itself, because constructing it
     // here got in the way of cascading and re-cascading.
@@ -199,22 +199,22 @@ int main() {
         .click_count_button3 = 0,
         .last_clicked_button = 0
     };
-    
+
     AzRefAny app_data = FocusTestData_upcast(initial_data);
-    
+
     // Create window options with layout callback
     AzWindowCreateOptions window = AzWindowCreateOptions_create(layout);
     window.window_state.title = AZ_STR("Focus Test - Tab to navigate, Enter/Space to click");
     window.window_state.size.dimensions.width = 500.0;
     window.window_state.size.dimensions.height = 300.0;
-    
+
     // Create app config and app
     AzAppConfig config = AzAppConfig_create();
     AzApp app = AzApp_create(app_data, config);
-    
+
     // Run the app with the window
     AzApp_run(&app, window);
     AzApp_delete(&app);
-    
+
     return 0;
 }

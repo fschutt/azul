@@ -159,18 +159,21 @@ pub fn run_debug_analysis(config: DebugConfig) -> anyhow::Result<()> {
     // Run the test and collect debug data
     let debug_data = run_test_and_collect_data(&config, &test_file)?;
 
-    // Check if test already passes (pixel difference <= 0.5% of total pixels)
-    // Total pixels = WIDTH * HEIGHT = 1920 * 1080 = 2,073,600
-    // 0.5% = 10,368 pixels
-    const PASS_THRESHOLD: usize = (1920 * 1080) / 200; // 0.5% tolerance
+    // Check if test already passes: the page's own budget, the one the
+    // reftest pipeline passes it by (0.5 % of 1920x1080 for most pages,
+    // much less for a vendored `wpt-*` page - see `pass_threshold_for`).
+    let pass_threshold = super::pipeline::pass_threshold_for(
+        &test_file,
+        &std::fs::read_to_string(&test_file).unwrap_or_default(),
+    );
     let diff_count = debug_data.diff_count.unwrap_or(0);
 
-    if diff_count <= PASS_THRESHOLD {
+    if diff_count <= pass_threshold {
         let percentage = (diff_count as f64 / (1920.0 * 1080.0)) * 100.0;
         println!(
-            "\n[ OK ] Test '{}' passes ({} pixels different = {:.3}%, threshold 0.5%). No debug \
-             needed.",
-            config.test_name, diff_count, percentage
+            "\n[ OK ] Test '{}' passes ({} pixels different = {:.3}%, budget {} pixels). No \
+             debug needed.",
+            config.test_name, diff_count, percentage, pass_threshold
         );
         return Ok(());
     }

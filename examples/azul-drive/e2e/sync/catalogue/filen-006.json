@@ -1,0 +1,47 @@
+[
+  {
+    "name": "FILEN-006: a file deleted and another created at once (the freed inode reused) is a delete and a new file, never a rename",
+    "description": "FILEN-006 (Filen): rename detection keyed on the inode took 'rm a.txt, create c.txt' for a rename and renamed the cloud original away. Rules A3 (identity by content and the base, not the inode), P12, D2 (the delete lands in the trash). sync-chaos merge-inode-reuse (on ext4 the inode is reused for real).",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "the original a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_rm", "device": "a", "path": "a.txt" },
+      { "op": "drive_write", "device": "a", "path": "c.txt", "text": "a brand new c" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "a.txt", "absent": true },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "c.txt", "text": "a brand new c" },
+      { "op": "drive_check", "check": "kept", "texts": ["the original a"] },
+      { "op": "drive_check", "check": "trash_has", "device": "b", "text": "the original a" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "c.txt", "text": "a brand new c" },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "a.txt", "absent": true },
+      { "op": "drive_check", "check": "converged" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-006: in a backup pair, a delete followed by a new file reusing the inode never destroys the kept backup",
+    "description": "FILEN-006 (Filen): in the additive localBackup mode the phantom rename destroyed the kept backup of a.txt. Rules A3, D2. Needs one-way pairs.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a", "mode": "backup" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "a.txt", "text": "the original a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_rm", "device": "a", "path": "a.txt" },
+      { "op": "drive_write", "device": "a", "path": "c.txt", "text": "a brand new c" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "a.txt", "text": "the original a" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "c.txt", "text": "a brand new c" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

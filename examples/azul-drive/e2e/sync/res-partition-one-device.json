@@ -1,0 +1,26 @@
+{
+  "name": "a device cut off from the drive keeps its edit and lists remote-offline; after the partition both converge",
+  "description": "sync-chaos res-partition-mid-transfer, reduced: a partition of one device's connection, the other syncs on.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_fault", "device": "b", "partition": true },
+    { "op": "drive_write", "device": "b", "path": "kept.txt", "text": "made offline" },
+    { "op": "drive_sync", "device": "b", "expect": "any" },
+    { "op": "drive_check", "check": "problem", "device": "b", "code_any": ["remote-offline", "transient"], "when": "last" },
+    { "op": "drive_write", "device": "a", "path": "other.txt", "text": "a goes on" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_counters", "device": "b" },
+    { "op": "assert_response", "path": "result.refused", "at_least": 1 },
+    { "op": "drive_fault", "device": "b", "clear": true },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "file", "device": "a", "path": "kept.txt", "text": "made offline" },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_cleanup" }
+  ]
+}

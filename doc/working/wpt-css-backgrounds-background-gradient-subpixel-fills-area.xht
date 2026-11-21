@@ -1,0 +1,44 @@
+<html lang="en-GB" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<title>CSS Background Test: Gradient backgrounds should fill the positioning area</title>
+<meta name="fuzzy" content="maxDifference=0-1;totalPixels=0-6800"/>
+<style>
+    ul {
+      width: 396.875px;
+      overflow: auto;
+      padding: 0;
+      list-style: none;
+      background-color: red;
+    }
+
+    li {
+      float: left;
+    }
+
+    div {
+      display: block;
+      width: 19.6875px;
+      height: 17px;
+      padding: 20px 10px;
+      background: linear-gradient(to bottom, green 0%, darkgreen 100%) darkgreen;
+    }
+  
+</style>
+</head>
+<body>
+    <ul>
+      <li><div></div></li>
+      <li><div></div></li>
+      <li><div></div></li>
+      <li><div></div></li>
+      <li><div></div></li>
+      <li><div></div></li>
+      <li><div></div></li>
+      <li><div></div></li>
+      <li><div></div></li>
+      <li><div></div></li>
+    </ul>
+
+
+</body>
+</html>

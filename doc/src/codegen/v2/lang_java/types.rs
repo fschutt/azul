@@ -24,6 +24,7 @@ use anyhow::Result;
 
 use super::{
     super::{
+        c_layout::union_payload_layout,
         config::CodegenConfig,
         generator::CodeBuilder,
         ir::{
@@ -242,8 +243,10 @@ fn emit_monomorphized_alias_files(
             out.push_str(&tag_file);
 
             // 2. <Name>Variant_<V>.java per variant
+            let payload = union_payload_layout(&ta.name, ir);
             for v in variants {
                 let variant_struct = format!("{}Variant_{}", name, v.name);
+                let padding = payload.as_ref().map_or(0, |p| p.padding(&v.name));
                 let chunk = emit_file(
                     &format!("{}.java", variant_struct),
                     |b| {
@@ -261,6 +264,7 @@ fn emit_monomorphized_alias_files(
                         // offset on small-aligned variants.
                         b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
                         let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
+                        emit_variant_padding(b, padding, &mut field_names);
                         emit_monomorphized_payload(b, v, ir, &mut field_names);
                         emit_field_order_override(b, &field_names);
                         emit_byvalue_byref(b, &variant_struct);
@@ -362,6 +366,22 @@ fn emit_monomorphized_alias_files(
     }
 
     Ok(())
+}
+
+/// The bytes azul.h puts between a variant's tag and its payload
+/// (`uint8_t _pad0[N]`, from `c_layout::union_payload_layout`: Rust puts
+/// every payload at the largest alignment of any variant), as a JNA byte
+/// array listed right after `tag` in the field order. Nothing for N = 0
+/// (JNA rejects zero-length arrays).
+fn emit_variant_padding(
+    builder: &mut CodeBuilder,
+    padding: usize,
+    field_names: &mut Vec<String>,
+) {
+    if padding > 0 {
+        builder.line(&format!("public byte[] _pad0 = new byte[{}];", padding));
+        field_names.push("\"_pad0\"".to_string());
+    }
 }
 
 fn emit_monomorphized_payload(
@@ -502,9 +522,11 @@ fn emit_tagged_union_files(
     )?;
     out.push_str(&tag_file);
 
-    // 2. Per-variant payload Structure files AzFooVariant_Bar { tag; payload; }
+    // 2. Per-variant payload Structure files AzFooVariant_Bar { tag; [_pad0;] payload; }
+    let payload = union_payload_layout(&enum_def.name, ir);
     for v in &enum_def.variants {
         let variant_struct = format!("{}Variant_{}", name, v.name);
+        let padding = payload.as_ref().map_or(0, |p| p.padding(&v.name));
         let chunk = emit_file(
             &format!("{}.java", variant_struct),
             |b| {
@@ -523,6 +545,7 @@ fn emit_tagged_union_files(
                 b.line(&format!("public byte tag; // {}_Tag.{}", name, v.name));
 
                 let mut field_names: Vec<String> = vec!["\"tag\"".to_string()];
+                emit_variant_padding(b, padding, &mut field_names);
                 match &v.kind {
                     EnumVariantKind::Unit => {}
                     EnumVariantKind::Tuple(types) => {

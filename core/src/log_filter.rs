@@ -26,7 +26,8 @@
 //! Parsed once from `AZ_LOG` on first use, then mutable at runtime:
 //!
 //! ```text
-//! AZ_LOG=debug                  every category at Debug and above (the default)
+//! (unset)                       errors only: a run that asked for nothing prints nothing else
+//! AZ_LOG=1 / AZ_LOG=debug       every category at Debug and above
 //! AZ_LOG=off                    silence
 //! AZ_LOG=trace                  everything, including the per-frame firehose
 //! AZ_LOG=warn,+platform         Warn globally, but Platform down to Trace
@@ -252,7 +253,9 @@ pub fn category_from_name(name: &str) -> Option<Category> {
 #[allow(unused_qualifications)]
 pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
     use alloc::vec::Vec;
-    let mut level = Some(Level::Debug); // unset / unrecognised -> Debug (the historical default)
+    // An `AZ_LOG` that is set but empty or unrecognised means "logs, please":
+    // Debug. (A process that did not set it at all is `level_for`'s business.)
+    let mut level = Some(Level::Debug);
     let mut overrides: Vec<(Category, bool)> = Vec::new();
     let lower = raw.trim().to_ascii_lowercase();
     if lower.is_empty() {
@@ -285,6 +288,60 @@ pub fn parse(raw: &str) -> (Option<Level>, alloc::vec::Vec<(Category, bool)>) {
     (level, overrides)
 }
 
+/// The level of a process that set none of the variables that ask for logs
+/// ([`LOG_REQUEST_VARS`]): errors, as the log facade's own default and
+/// `AppConfig::log_level` are. It used to be Debug: with `AZ_LOG` unset an
+/// ordinary run of a lean build echoed every Debug record to stderr (the
+/// shell's gate counts its default-on `log_active()` as a sink), which for a
+/// frame of a map is 15 000 lines of display-list dump (2026-11-20: 3.4 million
+/// lines, 612 MB and half the wall time of a two-minute session of an app that
+/// had asked for no logging).
+pub const LEVEL_WHEN_NOT_ASKED: Level = Level::Error;
+
+/// The variables that ask for logs: setting one of them is a request to see
+/// more than errors (`AZ_LOG` itself, a file or stderr to write to, a debug
+/// server, a scripted run, a recording).
+pub const LOG_REQUEST_VARS: [&str; 6] =
+    ["AZ_LOG", "AZ_LOG_FILE", "AZ_LOG_STDERR", "AZ_DEBUG", "AZ_E2E", "AZ_RECORD"];
+
+/// The level to use for what `AZ_LOG` parsed to: the parsed one when logs were
+/// asked for, [`LEVEL_WHEN_NOT_ASKED`] when none of [`LOG_REQUEST_VARS`] is set.
+///
+/// Split out from [`init_from_env`] so it is testable without touching the
+/// process environment.
+#[must_use]
+pub fn level_for(asked: bool, parsed: Option<Level>) -> Option<Level> {
+    if asked {
+        parsed
+    } else {
+        Some(LEVEL_WHEN_NOT_ASKED)
+    }
+}
+
+/// Whether the environment asks for logs: one of [`LOG_REQUEST_VARS`] is set.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn asked_for_logs() -> bool {
+    LOG_REQUEST_VARS
+        .iter()
+        .any(|var| std::env::var_os(var).is_some())
+}
+
+/// The level the environment asks for, `None` for "off": what `AZ_LOG` parses
+/// to when [`asked_for_logs`], errors otherwise ([`LEVEL_WHEN_NOT_ASKED`]).
+///
+/// THE one reading of the environment that both log sinks of azul-dll use - the
+/// shell's gate (through [`init_from_env`]) and the `log` facade's built-in
+/// stderr logger - so a process cannot be at Error for one and at Debug for the
+/// other (they used to parse `AZ_LOG` separately: unset was Debug for the gate
+/// and Error for the facade, `AZ_LOG=1` the other way round).
+#[cfg(feature = "std")]
+#[must_use]
+pub fn level_from_env() -> Option<Level> {
+    let raw = std::env::var("AZ_LOG").unwrap_or_default();
+    level_for(asked_for_logs(), parse(&raw).0)
+}
+
 /// Parse `AZ_LOG` (and `AZ_LOG_STDERR`) into the atomics. Idempotent; the first
 /// caller wins and later ones are no-ops, so an explicit [`set_min_level`] made
 /// before any logging is not clobbered.
@@ -302,7 +359,8 @@ pub fn init_from_env() {
         if !raw.trim().is_empty() {
             STDERR_ECHO.store(true, Ordering::Relaxed);
         }
-        let (level, overrides) = parse(&raw);
+        let (parsed, overrides) = parse(&raw);
+        let level = level_for(asked_for_logs(), parsed);
         let min = level.map_or(u8::MAX, |l| l as u8);
         MIN_LEVEL.store(min, Ordering::Relaxed);
         recompute(min);

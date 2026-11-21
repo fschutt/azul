@@ -72,21 +72,30 @@ impl PageConstraints {
     /// `skip_first_page` is set.
     #[must_use]
     pub fn from_slicer_config(cfg: &SlicerConfig) -> Self {
-        let base_header_space = if cfg.header_footer.show_header {
-            cfg.header_footer.header_height
+        Self::new(cfg.page_content_height, &cfg.header_footer)
+    }
+
+    /// The page heights of pages `page_content_height` tall that carry
+    /// `header_footer`.
+    #[must_use]
+    pub fn new(
+        page_content_height: f32,
+        header_footer: &crate::solver3::pagination::HeaderFooterConfig,
+    ) -> Self {
+        let base_header_space = if header_footer.show_header {
+            header_footer.header_height
         } else {
             0.0
         };
-        let base_footer_space = if cfg.header_footer.show_footer {
-            cfg.header_footer.footer_height
+        let base_footer_space = if header_footer.show_footer {
+            header_footer.footer_height
         } else {
             0.0
         };
-        let normal_page_content_height =
-            cfg.page_content_height - base_header_space - base_footer_space;
-        let first_page_content_height = if cfg.header_footer.skip_first_page {
+        let normal_page_content_height = page_content_height - base_header_space - base_footer_space;
+        let first_page_content_height = if header_footer.skip_first_page {
             // First page has full height when skipping headers/footers
-            cfg.page_content_height
+            page_content_height
         } else {
             normal_page_content_height
         };
@@ -196,7 +205,45 @@ pub fn compute_page_breaks(
     constraints: &PageConstraints,
     policy: &BreakPolicy,
 ) -> Vec<PageBreakPosition> {
-    compute_page_breaks_impl(input, *constraints, policy, None, None)
+    compute_page_breaks_impl(input, *constraints, policy, None, None, None)
+}
+
+/// The breaks a paged layout is sliced by: [`compute_page_breaks`] (or
+/// [`compute_page_breaks_with_sequence`] for a slicer with a page sequence)
+/// under `config`'s policy, with the room `config`'s footnotes take from the
+/// pages their anchors land on (`footnotes::Footnotes::room_for_page`).
+#[must_use]
+pub fn compute_page_breaks_for_slicer(
+    input: &PageBreakInput<'_>,
+    config: &SlicerConfig,
+) -> Vec<PageBreakPosition> {
+    let footnotes = (!config.footnotes.is_empty()).then_some(&config.footnotes);
+    match &config.page_sequence {
+        // classic office suites model: every page's height from ITS setup.
+        Some(sequence) => {
+            let _ = sequence.has_uniform_width(); // announce the width degradation once
+            let constraints = PageConstraints {
+                first_page_content_height: sequence.setup_for_page(0).content_height(),
+                normal_page_content_height: sequence.default.content_height(),
+            };
+            compute_page_breaks_impl(
+                input,
+                constraints,
+                &config.break_policy,
+                Some(sequence),
+                None,
+                footnotes,
+            )
+        }
+        None => compute_page_breaks_impl(
+            input,
+            PageConstraints::from_slicer_config(config),
+            &config.break_policy,
+            None,
+            None,
+            footnotes,
+        ),
+    }
 }
 
 /// Why an element could not be kept intact across a page boundary (E21).
@@ -233,7 +280,8 @@ pub fn compute_page_breaks_with_report(
     policy: &BreakPolicy,
 ) -> (Vec<PageBreakPosition>, Vec<MonolithWarning>) {
     let mut warnings = Vec::new();
-    let breaks = compute_page_breaks_impl(input, *constraints, policy, None, Some(&mut warnings));
+    let breaks =
+        compute_page_breaks_impl(input, *constraints, policy, None, Some(&mut warnings), None);
     (breaks, warnings)
 }
 
@@ -257,7 +305,7 @@ pub fn compute_page_breaks_with_sequence(
         first_page_content_height: sequence.setup_for_page(0).content_height(),
         normal_page_content_height: default_h,
     };
-    compute_page_breaks_impl(input, constraints, policy, Some(sequence), None)
+    compute_page_breaks_impl(input, constraints, policy, Some(sequence), None, None)
 }
 
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
@@ -268,6 +316,7 @@ fn compute_page_breaks_impl(
     policy: &BreakPolicy,
     sequence: Option<&crate::solver3::pagination::PageSequence>,
     mut monolith_report: Option<&mut Vec<MonolithWarning>>,
+    footnotes: Option<&crate::solver3::footnotes::Footnotes>,
 ) -> Vec<PageBreakPosition> {
     let any_awareness = policy.honor_break_inside
         || policy.atomic_lines
@@ -276,12 +325,20 @@ fn compute_page_breaks_impl(
         || policy.repeat_table_headers
         // A page sequence varies heights per page — the forward pass is the
         // only correct evaluator even with all avoid-rules off.
-        || sequence.is_some();
+        || sequence.is_some()
+        // ...and so do footnotes: a page is as much shorter as its notes
+        // are tall, and which notes those are depends on where it starts.
+        || footnotes.is_some();
     if !any_awareness {
         return compute_page_breaks_from_display_list(input.display_list, &constraints);
     }
 
-    let total_height = calculate_display_list_height(input.display_list);
+    // With footnotes the pages are cut from the FLOW: the notes are parked
+    // on the canvas where they were taken out of it.
+    let total_height = footnotes.map_or_else(
+        || calculate_display_list_height(input.display_list),
+        |f| crate::solver3::display_list::paged_flow_height(input.display_list, f),
+    );
     let first = constraints.first_page_content_height;
     let normal = constraints.normal_page_content_height;
     if total_height <= 0.0 || first <= 0.0 {
@@ -352,6 +409,8 @@ fn compute_page_breaks_impl(
     let mut page_height = first;
     let mut page_index: usize = 0;
     let mut forced_iter = forced.into_iter().peekable();
+    // The footnotes that go on from the page before (`footnotes::NoteRest`).
+    let mut note_rest: Vec<crate::solver3::footnotes::NoteRest> = Vec::new();
 
     loop {
         // Per-page setup (classic office suites model): the sequence overrides the height
@@ -367,7 +426,27 @@ fn compute_page_breaks_impl(
             .map(|(_, _, h)| *h)
             .sum();
         let effective_height = (page_height - reserve).max(MERGE_WINDOW_PX);
-        let naive = prev_end + effective_height;
+        // The page's footnotes take their heights from its flow, and a line
+        // whose note no longer fits under it ends the page before it (CSS
+        // Generated Content for Paged Media, "Footnotes"; `footnote-policy:
+        // line`). Only the anchors before the next forced break are this
+        // page's.
+        // What the pages before left over of their notes goes on here
+        // (`note_rest`); what this page leaves over is only known for good
+        // once the page ends (`rest_after`).
+        let mut rest_after = note_rest.clone();
+        let note_room = footnotes.map(|f| {
+            f.room_for_page(
+                prev_end,
+                effective_height,
+                forced_iter.peek().map(|fb| fb.y),
+                &mut rest_after,
+            )
+        });
+        let full = prev_end + effective_height;
+        let naive = note_room.map_or(full, |room| {
+            room.flow_end.clamp(prev_end + MERGE_WINDOW_PX, full)
+        });
 
         // A forced break before (or at) the naive position ends the page there.
         if let Some(&fb) = forced_iter.peek() {
@@ -382,6 +461,7 @@ fn compute_page_breaks_impl(
                     prev_end = fb.y;
                     page_height = normal;
                     page_index += 1;
+                    note_rest = rest_after;
                 }
                 continue;
             }
@@ -395,11 +475,20 @@ fn compute_page_breaks_impl(
         let floor = (naive - max_push).max(prev_end + MERGE_WINDOW_PX);
         let adjusted = snap_break_up(naive, floor, &avoid_ranges, &paragraphs, policy);
 
-        let kind = if (adjusted - naive).abs() < f32::EPSILON {
-            BreakKind::Interval
-        } else {
+        let kind = if (adjusted - naive).abs() >= f32::EPSILON {
             BreakKind::Avoided(naive)
+        } else if note_room.is_some_and(|room| room.ends_before_a_line) {
+            // The page was full where its notes begin; it ends before the
+            // line whose note did not fit.
+            BreakKind::Avoided(full)
+        } else {
+            BreakKind::Interval
         };
+        // A break that no longer moves past the last one (an f32 too large
+        // to move by a page) ends the pages: repeating it never would.
+        if adjusted <= prev_end {
+            break;
+        }
         breaks.push(PageBreakPosition {
             y: adjusted,
             kind,
@@ -408,6 +497,7 @@ fn compute_page_breaks_impl(
         prev_end = adjusted;
         page_height = normal;
         page_index += 1;
+        note_rest = rest_after;
         // `!(x > 0.0)` semantics kept explicitly: a NaN height must also stop
         // the loop, so test `<= 0.0 || is_nan` instead of the negation.
         if sequence.is_none() && (normal <= 0.0 || normal.is_nan()) {
@@ -514,8 +604,8 @@ fn collect_avoid_ranges(
         // Every text item's rect is a line-box fragment; a break through one
         // slices a line (the "baseline-sliced line" artifact). Snap to its top.
         for item in &input.display_list.items {
-            if let crate::solver3::display_list::DisplayListItem::Text { clip_rect, .. } = item {
-                let r = clip_rect.inner();
+            if let crate::solver3::display_list::DisplayListItem::Text { line_box, .. } = item {
+                let r = line_box.inner();
                 if r.size.height > 0.0 {
                     ranges.push(AvoidRange {
                         top: r.origin.y,
@@ -538,13 +628,13 @@ fn collect_paragraph_lines(input: &PageBreakInput<'_>) -> Vec<ParagraphLines> {
     let mut per_node: std::collections::BTreeMap<NodeId, Vec<(f32, f32)>> =
         std::collections::BTreeMap::new();
     for (idx, item) in input.display_list.items.iter().enumerate() {
-        let crate::solver3::display_list::DisplayListItem::Text { clip_rect, .. } = item else {
+        let crate::solver3::display_list::DisplayListItem::Text { line_box, .. } = item else {
             continue;
         };
         let Some(node) = input.display_list.node_mapping.get(idx).copied().flatten() else {
             continue;
         };
-        let r = clip_rect.inner();
+        let r = line_box.inner();
         if r.size.height <= 0.0 {
             continue;
         }
@@ -582,6 +672,17 @@ fn collect_paragraph_lines(input: &PageBreakInput<'_>) -> Vec<ParagraphLines> {
 /// Snap a naive break Y up out of avoid-ranges and widow/orphan violations.
 /// Iterates to a fixpoint (a snap can land inside ANOTHER range) but never
 /// below `floor` — beyond the push budget the current candidate stands.
+///
+/// A snap goes to the top of the INNERMOST range containing `y` (the one
+/// starting lowest). From there the break only keeps climbing out of ranges
+/// that ENCLOSE the range it just left — their bottom reaches at least as far
+/// down — which is true nesting: a line inside a `break-inside: avoid` box.
+/// A range that merely overlaps the top edge of the range just left (the
+/// previous table row whose text clip runs a few pixels into this one, a box
+/// with a negative margin, collapsed borders) is a sibling, and a break at
+/// that edge is legitimate. Treating such overlaps as nesting made every row
+/// hand the break to the row above until the whole push budget was spent, so
+/// pages came out a third short (azul#478).
 fn snap_break_up(
     naive: f32,
     floor: f32,
@@ -590,20 +691,31 @@ fn snap_break_up(
     policy: &BreakPolicy,
 ) -> f32 {
     let mut y = naive;
+    // Bottom of the range the last avoid-snap left. Only a range reaching at
+    // least this far down encloses it and may pull the break further up.
+    // `None` = no snap yet, or widows/orphans moved `y` since.
+    let mut left_bottom: Option<f32> = None;
     // Bounded iterations: each snap strictly decreases y and range/paragraph
     // counts are finite; 32 covers any sane nesting without risking a loop.
     for _ in 0..32 {
         let mut moved = false;
 
-        for range in avoid_ranges {
-            // STRICTLY inside (a break AT an edge is fine).
-            if y > range.top + f32::EPSILON && y < range.bottom - f32::EPSILON {
-                let _ = range.node;
-                if range.top >= floor {
-                    y = range.top;
-                    moved = true;
-                } // else: budget exceeded — the naive break stands mid-range
-            }
+        // STRICTLY inside (a break AT an edge is fine); innermost = lowest top.
+        let innermost = avoid_ranges
+            .iter()
+            .filter(|range| y > range.top + f32::EPSILON && y < range.bottom - f32::EPSILON)
+            .filter(|range| match left_bottom {
+                Some(bottom) => range.bottom >= bottom - f32::EPSILON,
+                None => true,
+            })
+            .max_by(|a, b| a.top.total_cmp(&b.top));
+        if let Some(range) = innermost {
+            let _ = range.node;
+            if range.top >= floor {
+                y = range.top;
+                left_bottom = Some(range.bottom);
+                moved = true;
+            } // else: budget exceeded — the current candidate stands mid-range
         }
 
         if policy.widows_orphans {
@@ -622,6 +734,7 @@ fn snap_break_up(
                     // Too few lines kept: the whole paragraph moves.
                     if first_top >= floor {
                         y = first_top;
+                        left_bottom = None;
                         moved = true;
                     }
                 } else if after > 0 && after < para.widows {
@@ -633,6 +746,7 @@ fn snap_break_up(
                         .map_or(first_top, |(t, _)| *t);
                     if target < y && target >= floor {
                         y = target;
+                        left_bottom = None;
                         moved = true;
                     }
                 }
@@ -834,7 +948,13 @@ pub fn compute_page_breaks_from_forced(
         if normal <= 0.0 || normal.is_nan() {
             break;
         }
-        y += normal;
+        // Past 2^24 pages' worth of height an f32 no longer moves by one
+        // page: the breaks end there instead of repeating forever.
+        let next = y + normal;
+        if next <= y {
+            break;
+        }
+        y = next;
     }
 
     breaks.sort_by(|a, b| a.y.total_cmp(&b.y));
@@ -1112,6 +1232,7 @@ mod tests {
                 a: 255,
             },
             clip_rect: rect(y, h).into(),
+            line_box: rect(y, h).into(),
             source_node_index: None,
         }
     }
@@ -1155,6 +1276,36 @@ mod tests {
             &constraints(first, normal),
             policy,
         )
+    }
+
+    /// A document taller than an f32 can step through by pages (a fuzzer's
+    /// `height="1e12"` SVG) ends its breaks where a page no longer moves the
+    /// position, instead of pushing the same break forever.
+    #[test]
+    fn interval_breaks_end_where_an_f32_no_longer_moves_by_a_page() {
+        let breaks = compute_page_breaks_from_forced(&[], &constraints(3.0e7, 1.0), 1.0e12);
+        assert!(!breaks.is_empty(), "harness: the first page breaks");
+        assert!(
+            breaks.windows(2).all(|w| w[0].y < w[1].y),
+            "every break moves past the one before: {:?}",
+            ys(&breaks)
+        );
+    }
+
+    /// The same for the pass that moves breaks around boxes that avoid one.
+    #[test]
+    fn avoiding_breaks_end_where_an_f32_no_longer_moves_by_a_page() {
+        let (styled, dl) = avoid_fixture(vec![(rect_item(0.0, 1.0e12), None)]);
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 3.0e7, 1.0);
+        assert!(
+            breaks.windows(2).all(|w| w[0].y < w[1].y),
+            "every break moves past the one before: {:?}",
+            ys(&breaks)
+        );
     }
 
     #[test]
@@ -1246,6 +1397,75 @@ mod tests {
         let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
         assert_eq!(breaks[0].y, 90.0, "{breaks:?}");
         assert!(matches!(breaks[0].kind, BreakKind::Avoided(..)));
+    }
+
+    #[test]
+    fn overlapping_sibling_ranges_do_not_cascade() {
+        // azul#478. Table rows on a 20px pitch whose text clip rects run 3px
+        // into the next row (a 23px clip at the 3px padding offset — what a
+        // `td { padding: 3px }` table produces), so every row's range overlaps
+        // the top edge of the next. Page 110 cuts the row at 100..123: the
+        // break snaps to ITS top (100) and stops there. It must not go on
+        // because 100 lies inside the previous row's 80..103 — that row ends
+        // above the row just left, so it is a sibling, not an enclosing box.
+        // The old fixpoint took every such overlap as nesting and climbed row
+        // by row until the push budget (0.33 × page) was spent, cutting every
+        // page about a third short.
+        let mut items = vec![(rect_item(0.0, 400.0), None)];
+        for row in 0..15 {
+            items.push((text_item(20.0 * row as f32, 23.0), None));
+        }
+        let (styled, dl) = avoid_fixture(items);
+        let policy = BreakPolicy {
+            atomic_lines: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 110.0, 110.0);
+        assert_eq!(breaks[0].y, 100.0, "one row up, not a cascade: {breaks:?}");
+        assert!(matches!(breaks[0].kind, BreakKind::Avoided(..)));
+        // Page 2 starts at 100 and is cut at 210 (row 200..223): 200 again.
+        assert_eq!(breaks[1].y, 200.0, "{breaks:?}");
+    }
+
+    #[test]
+    fn break_in_the_overlap_of_two_siblings_snaps_to_the_lower_one() {
+        // Rows 80..103 and 100..123 overlap on 100..103. A naive break at
+        // 102 is inside BOTH; the innermost (lowest-starting) range wins, so
+        // the break lands at 100 — not at 80, which would cost a whole row.
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 400.0), None),
+            (text_item(80.0, 23.0), None),
+            (text_item(100.0, 23.0), None),
+        ]);
+        let policy = BreakPolicy {
+            atomic_lines: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 102.0, 102.0);
+        assert_eq!(breaks[0].y, 100.0, "{breaks:?}");
+    }
+
+    #[test]
+    fn nested_ranges_still_cascade_to_the_enclosing_box() {
+        // A `break-inside: avoid` box (node 1) at 75..140 holding lines at
+        // 90..106 and 106..122. Page 100 cuts the first line: the break snaps
+        // to the line top (90), and because the box ENCLOSES that line (it
+        // reaches below the line's bottom) the break keeps climbing to the
+        // box top (75, inside the 0.33 × 100 push budget). The sibling rule
+        // above must not stop true nesting.
+        let (styled, dl) = avoid_fixture(vec![
+            (rect_item(0.0, 400.0), None),
+            (rect_item(75.0, 65.0), Some(1)),
+            (text_item(90.0, 16.0), None),
+            (text_item(106.0, 16.0), None),
+        ]);
+        let policy = BreakPolicy {
+            honor_break_inside: true,
+            atomic_lines: true,
+            ..Default::default()
+        };
+        let breaks = breaks_with(&styled, &dl, &policy, 100.0, 100.0);
+        assert_eq!(breaks[0].y, 75.0, "{breaks:?}");
     }
 
     #[test]

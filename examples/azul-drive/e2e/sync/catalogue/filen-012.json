@@ -1,0 +1,75 @@
+[
+  {
+    "name": "FILEN-012: a local name in NFD and the drive's name in NFC with the same bytes are one file: no duplicate, no delete",
+    "description": "FILEN-012 (Filen): names were compared bytewise, so NFC and NFD forms were two files and duplicated on cross-sync. Rule P2: the original bytes are stored, names are compared in NFC; a local NFD name and the drive's NFC name are one file.",
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Caf\u00e9.txt", "text": "same bytes", "writer": "windows-pc" },
+      { "op": "drive_write", "device": "a", "path": "Cafe\u0301.txt", "text": "same bytes" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "count": 1 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "Caf*", "count": 1 },
+      { "op": "drive_check", "check": "conflict_copies", "device": "a", "path": "Cafe\u0301.txt", "count": 0 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-012: NFD names keep their bytes, and two forms of one name reach a disk that ignores normalization as one file plus a listed collision",
+    "description": "FILEN-012 (Filen): duplicates on cross-sync. Rules P2, P1, O1. sync-chaos port-nfc-nfd.",
+    "only_on": ["macos"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_write", "device": "a", "path": "r\u00e9sum\u00e9.txt", "text": "my cv" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Caf\u00e9.txt", "text": "composed", "writer": "windows-pc" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Cafe\u0301.txt", "text": "decomposed", "writer": "old-mac" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "r\u00e9sum\u00e9.txt", "text": "my cv" },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "glob": "r*", "count": 1 },
+      { "op": "drive_check", "check": "file", "device": "b", "path": "r\u00e9sum\u00e9.txt", "text": "my cv" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "Caf*", "count": 1 },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "name-collision" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "Caf\u00e9.txt", "text": "composed" },
+      { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "Cafe\u0301.txt", "text": "decomposed" },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "FILEN-012: two normalization forms of one name both come down to a disk that keeps them apart",
+    "description": "FILEN-012 (Filen): on ext4 the two forms are two files; both survive. Rules P2, P1. sync-chaos port-linux-nfd-distinct.",
+    "only_on": ["linux"],
+    "steps": [
+      { "op": "drive_create", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Caf\u00e9.txt", "text": "composed", "writer": "windows-pc" },
+      { "op": "drive_tamper", "remote": "r", "action": "put", "key": "Cafe\u0301.txt", "text": "decomposed", "writer": "old-mac" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "count": 2 },
+      { "op": "drive_check", "check": "remote_count", "remote": "r", "count": 2 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

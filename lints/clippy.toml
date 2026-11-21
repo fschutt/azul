@@ -1,0 +1,36 @@
+# The compiler's sweep (ARCH29 section 9.4 A7, ARCH30-2). THIS FILE IS NOT READ BY `cargo clippy` (the azul checkout has no
+# clippy.toml: its crates are linted with the default configuration). Only the azul-apps checkout's
+# `iso/scripts/ci-local.sh --lints` (iso/scripts/lints.py) points CLIPPY_CONF_DIR at this directory, so no lane's clippy run
+# turns red at the sites that are not converted yet. The run counts the sites per crate (azul-storage, azcloud-kit, AzDrive,
+# azul-bridge, AzMail, azul-mail-core), compares them with iso/lints/baseline.tsv in that checkout (which only falls) and
+# fails on a rise. When ARCH30-3 has put an #[expect(clippy::disallowed_methods, reason = "<register id>")] at every old
+# site, the entries move into a clippy.toml here and this directory goes. Not a `[lints]` table and not `clippy::all`: the
+# crates carry ~600 (azul-storage) and ~1,000 (the kit, mostly result_large_err) old findings of other lints, and the run
+# allows them (`-A clippy::all`).
+#
+# Each entry has a planted case in the self-test (`ci-local.sh --lints --self-test` in the azul-apps checkout): a function
+# that calls it must fail, the same function under #[expect] must pass, an #[expect] with no violation under it must fail
+# with `unfulfilled_lint_expectations`. An entry without a case fails the self-test.
+disallowed-methods = [
+    # ---- a failed stat reads as false (azul-apps 894bee5ef: eight decisions acted on one): the answer to "is it there" has
+    # three values, found, absent and could not look. Ask Path::try_exists / fs::symlink_metadata and keep the error (the
+    # `Seen` of ARCH30-5 once it exists). A site that stands says why: #[expect(clippy::disallowed_methods, reason =
+    # "<register id>")] ----
+    { path = "std::path::Path::exists", reason = "a failed stat (EIO, EACCES, ENOTDIR) reads as false, and a decision then acts on a disk's silence: ask Path::try_exists / fs::symlink_metadata and keep the error" },
+    { path = "std::path::Path::is_file", reason = "a failed stat reads as false: look with fs::metadata and keep the error, never read it as 'no file'" },
+    { path = "std::path::Path::is_dir", reason = "a failed stat reads as false: look with fs::metadata and keep the error, never read it as 'no directory'" },
+    { path = "std::path::Path::is_symlink", reason = "a failed stat reads as false: look with fs::symlink_metadata and keep the error, never read it as 'not a link'" },
+
+    # ---- a file of the user's, of this computer's state or of a cache is put in place only through
+    # azul_storage::durable::{publish, replace, replace_cache, replace_keeping} (AZ-U5, AZ-S19, X-AR5a-4/-6, RF41). These are the
+    # needles of examples/azul-srcgate/tests/durable_gate.rs (`fs::rename`, `fs::copy`, `fs::write`, `File::create` and an
+    # open with `.create(true)` / `.create_new(true)`); where the gate allows them today, a descriptor-relative primitive in
+    # beneath.rs / win.rs, a lock file, an append-only log, a quarantine rename, the E2E harness, the #[expect] goes when
+    # ARCH30-3 converts the site. durable.rs itself has none: it is built on beneath.rs. ----
+    { path = "std::fs::rename", reason = "puts a file in place without the durable steps (staged beside the name, synced, checked, renamed, the folder synced): azul_storage::durable::{publish, replace, replace_keeping}; only durable.rs / beneath.rs rename raw (AZ-U5)" },
+    { path = "std::fs::copy", reason = "a copy loses the 0600 of a key and leaves a torn target after a cut: azul_storage::durable::publish (AZ-S19)" },
+    { path = "std::fs::write", reason = "an overwrite in place: a power cut leaves an empty target: azul_storage::durable::replace / publish (X-AR5a-4)" },
+    { path = "std::fs::File::create", reason = "truncates the target before the new bytes exist: azul_storage::durable::replace / publish (X-AR5a-4)" },
+    { path = "std::fs::OpenOptions::create", reason = "a `.create(true)` open is a raw file creation (a lock file or an append-only log is the exception that says so with an #[expect]); clippy cannot read the argument, so `.create(false)` is flagged too: azul_storage::durable (X-AR5a-6)" },
+    { path = "std::fs::OpenOptions::create_new", reason = "a `.create_new(true)` open is a raw file creation (a lock file is the exception that says so with an #[expect]): azul_storage::durable (X-AR5a-6)" },
+]

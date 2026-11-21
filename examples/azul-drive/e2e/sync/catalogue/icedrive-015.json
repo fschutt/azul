@@ -1,0 +1,30 @@
+{
+  "name": "accented names in an encrypted drive come out as the same UTF-8 bytes on every device, no mojibake",
+  "description": "ICEDRIVE-015 (Icedrive): two clients encoded encrypted names differently, so 'probl\u00e8mes' showed as 'probl\u00c3\u00a8mes'. Rules P2 and I1: names are sealed as their original UTF-8 bytes; every device that opens the drive reads byte-identical names (NFC stays NFC, NFD stays NFD), the drive's listing holds no mojibake.",
+  "steps": [
+    { "op": "drive_create", "remote": "r" },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "probl\u00e8mes/D\u00e9veloppement.txt", "text": "accents" },
+    { "op": "drive_write", "device": "a", "path": "Re\u0301sume\u0301.txt", "text": "decomposed" },
+    { "op": "drive_write", "device": "a", "path": "\u00c9t\u00e9 \u2014 \u65e5\u672c\u8a9e.txt", "text": "wide" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "probl\u00e8mes/D\u00e9veloppement.txt", "text": "accents" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "Re\u0301sume\u0301.txt", "text": "decomposed" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "\u00c9t\u00e9 \u2014 \u65e5\u672c\u8a9e.txt", "text": "wide" },
+    { "op": "drive_check", "check": "remote_file", "remote": "r", "key": "probl\u00e8mes/D\u00e9veloppement.txt", "text": "accents" },
+    { "op": "drive_index", "remote": "r" },
+    { "op": "assert_response", "path": "result.files", "contains": "D\u00e9veloppement" },
+    { "op": "assert_response", "path": "result.files", "not_contains": "\u00c3" },
+    { "op": "drive_list", "device": "b" },
+    { "op": "assert_response", "path": "result.files", "not_contains": "\u00c3" },
+    { "op": "drive_check", "check": "converged" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "a" },
+    { "op": "drive_cleanup" }
+  ]
+}

@@ -380,6 +380,17 @@ impl SceneSpatialTree {
                         ScrollFrameKind::PipelineRoot { is_root_pipeline } => {
                             // Once we encounter a pipeline root, there is no need to look further
                             if is_root_pipeline {
+                                // azul: ... for a scroll frame. A root pipeline that
+                                // is an iframe (a view) can stand under a transform of
+                                // its host, and a scroll root below a transform that is
+                                // not a 2D scale / translation is not axis-aligned to
+                                // the screen: a picture cache cannot have it for its
+                                // spatial node (`get_relative_scale_offset` expects a
+                                // scale and an offset, and panics). The frames above
+                                // are looked at for that alone.
+                                if self.is_below_a_complex_frame(node.parent) {
+                                    return self.root_reference_frame_index;
+                                }
                                 break;
                             }
                         }
@@ -433,6 +444,33 @@ impl SceneSpatialTree {
         } else {
             real_scroll_root
         }
+    }
+
+    /// Whether `from` or a spatial node above it is a reference frame that is not
+    /// declared a 2D scale / translation (a turned, skewed or perspective frame,
+    /// or one whose host did not promise otherwise).
+    fn is_below_a_complex_frame(&self, from: Option<SpatialNodeIndex>) -> bool {
+        let mut above = from;
+        while let Some(index) = above {
+            if index == self.root_reference_frame_index {
+                break;
+            }
+            let node = self.get_node_info(index);
+            if let SpatialNodeType::ReferenceFrame(ref info) = node.node_type {
+                let simple = matches!(
+                    info.kind,
+                    ReferenceFrameKind::Transform {
+                        is_2d_scale_translation: true,
+                        ..
+                    }
+                );
+                if !simple {
+                    return true;
+                }
+            }
+            above = node.parent;
+        }
+        false
     }
 
     /// The root reference frame, which is the true root of the SpatialTree.
@@ -2186,4 +2224,215 @@ fn test_is_ancestor_or_self_zooming() {
     assert!(st.get_spatial_node(root).is_ancestor_or_self_zooming);
     assert!(st.get_spatial_node(child1).is_ancestor_or_self_zooming);
     assert!(st.get_spatial_node(child2).is_ancestor_or_self_zooming);
+}
+
+/// azul (audit A4-08). The content of a root pipeline that is an iframe - a
+/// view - has the view's own scroll frame for its scroll root, so that a
+/// picture cache is cut for it and a scroll of the view moves tiles. Not when
+/// the view stands under a transform of its host that is not a 2D scale /
+/// translation: a picture cache's spatial node has to be axis-aligned to the
+/// screen (`get_relative_scale_offset` expects a scale and an offset and panics
+/// on anything else), and the search used to stop at the root pipeline without
+/// looking at what is above it.
+#[test]
+fn test_find_scroll_root_root_pipeline_under_a_complex_frame() {
+    for (host_is_simple, a_view_has_its_root) in [(true, true), (false, false)] {
+        let mut st = SceneSpatialTree::new();
+        let pid = PipelineInstanceId::new(0);
+
+        // The host's box with a transform, and in it the view: its root frame,
+        // its pipeline's root scroll frame and the scroll frame of its content.
+        let host = st.add_reference_frame(
+            st.root_reference_frame_index(),
+            TransformStyle::Flat,
+            PropertyBinding::Value(LayoutTransform::identity()),
+            ReferenceFrameKind::Transform {
+                is_2d_scale_translation: host_is_simple,
+                should_snap: false,
+                paired_with_perspective: false,
+            },
+            LayoutVector2D::new(0.0, 0.0),
+            PipelineId::dummy(),
+            SpatialNodeUid::external(SpatialTreeItemKey::new(0, 0), PipelineId::dummy(), pid),
+        );
+        let view = st.add_reference_frame(
+            host,
+            TransformStyle::Flat,
+            PropertyBinding::Value(LayoutTransform::identity()),
+            ReferenceFrameKind::Transform {
+                is_2d_scale_translation: true,
+                should_snap: true,
+                paired_with_perspective: false,
+            },
+            LayoutVector2D::new(0.0, 0.0),
+            PipelineId::dummy(),
+            SpatialNodeUid::external(SpatialTreeItemKey::new(0, 1), PipelineId::dummy(), pid),
+        );
+        let pipeline_root = st.add_scroll_frame(
+            view,
+            ExternalScrollId(0, PipelineId::dummy()),
+            PipelineId::dummy(),
+            &LayoutRect::from_size(LayoutSize::new(400.0, 400.0)),
+            &LayoutSize::new(400.0, 400.0),
+            ScrollFrameKind::PipelineRoot {
+                is_root_pipeline: true,
+            },
+            LayoutVector2D::new(0.0, 0.0),
+            APZScrollGeneration::default(),
+            HasScrollLinkedEffect::No,
+            SpatialNodeUid::external(SpatialTreeItemKey::new(0, 2), PipelineId::dummy(), pid),
+        );
+        let content = st.add_scroll_frame(
+            pipeline_root,
+            ExternalScrollId(1, PipelineId::dummy()),
+            PipelineId::dummy(),
+            &LayoutRect::from_size(LayoutSize::new(400.0, 400.0)),
+            &LayoutSize::new(400.0, 400.0),
+            ScrollFrameKind::Explicit,
+            LayoutVector2D::new(0.0, 0.0),
+            APZScrollGeneration::default(),
+            HasScrollLinkedEffect::No,
+            SpatialNodeUid::external(SpatialTreeItemKey::new(0, 3), PipelineId::dummy(), pid),
+        );
+
+        let expected = if a_view_has_its_root {
+            content
+        } else {
+            st.root_reference_frame_index()
+        };
+        assert_eq!(
+            st.find_scroll_root(content, true),
+            expected,
+            "host frame is a 2D scale / translation: {}",
+            host_is_simple
+        );
+    }
+}
+
+/// azul (audit A4-29). A picture cache asks for the scale and the offset
+/// between its spatial node and the screen. Below a frame whose value is a
+/// scale and a translation it gets them; below one that TURNS - a frame its
+/// host declared a 2D scale / translation and then gave another value - there
+/// is none, and upstream panicked on the render backend ("pictures caches
+/// don't support complex transforms"). Now the cache is drawn untransformed
+/// for that frame and the case is counted.
+/// Mutation: the `expect` back in `get_relative_scale_offset` panics here;
+/// the counter call removed fails the last assertion.
+#[test]
+fn test_a_picture_cache_under_a_turned_frame_is_drawn_untransformed_and_counted() {
+    let mut cst = SceneSpatialTree::new();
+    let root = cst.root_reference_frame_index();
+    let scaled = add_reference_frame(
+        &mut cst,
+        root,
+        LayoutTransform::scale(2.0, 2.0, 1.0),
+        LayoutVector2D::zero(),
+        SpatialTreeItemKey::new(0, 0),
+    );
+    // A quarter turn about z.
+    let turned = add_reference_frame(
+        &mut cst,
+        root,
+        LayoutTransform::new(
+            0.0, 1.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ),
+        LayoutVector2D::zero(),
+        SpatialTreeItemKey::new(0, 1),
+    );
+
+    let mut st = SpatialTree::new();
+    st.apply_updates(cst.end_frame_and_get_pending_updates());
+    st.update_tree(&SceneProperties::new());
+
+    let plain = crate::picture::get_relative_scale_offset(scaled, root, &st);
+    assert_eq!((plain.scale.x, plain.scale.y), (2.0, 2.0));
+
+    let before = crate::azul_counters::snapshot();
+    let fallback = crate::picture::get_relative_scale_offset(turned, root, &st);
+    assert_eq!(fallback, ScaleOffset::identity());
+    assert!(
+        crate::azul_counters::snapshot()
+            .since(&before)
+            .complex_tile_cache_transforms
+            >= 1
+    );
+}
+
+/// azul (audit A4-29). A view's zoom: a reference frame directly in the
+/// view's pipeline root, and inside it (through a second, identity frame) a
+/// scroll frame that does not scroll, holding the zoomed content. With the
+/// zoom frame DECLARED a 2D scale / translation that scroll frame is the
+/// scroll root of the content - also of content under a turned frame inside
+/// it - so a picture cache is cut whose spatial node is below the zoom.
+/// Undeclared, the search forgets the scroll frame at the zoom frame and the
+/// content has no scroll root of its own (the document's root): the zoom is
+/// then inside whatever cache draws it, and every step redraws its tiles.
+/// The view's own content frame, next to the zoom, is not touched by either.
+#[test]
+fn test_find_scroll_root_below_a_declared_zoom_frame_of_a_root_pipeline() {
+    for declared in [true, false] {
+        let mut st = SceneSpatialTree::new();
+        let pid = PipelineInstanceId::new(0);
+        let mut next_key = 0u64;
+        let mut uid = || {
+            next_key += 1;
+            SpatialNodeUid::external(
+                SpatialTreeItemKey::new(0, next_key),
+                PipelineId::dummy(),
+                pid,
+            )
+        };
+        let frame = |st: &mut SceneSpatialTree, parent, is_2d, uid| {
+            st.add_reference_frame(
+                parent,
+                TransformStyle::Flat,
+                PropertyBinding::Value(LayoutTransform::identity()),
+                ReferenceFrameKind::Transform {
+                    is_2d_scale_translation: is_2d,
+                    should_snap: false,
+                    paired_with_perspective: false,
+                },
+                LayoutVector2D::new(0.0, 0.0),
+                PipelineId::dummy(),
+                uid,
+            )
+        };
+        let scroll = |st: &mut SceneSpatialTree, parent, id, kind, uid| {
+            st.add_scroll_frame(
+                parent,
+                ExternalScrollId(id, PipelineId::dummy()),
+                PipelineId::dummy(),
+                &LayoutRect::from_size(LayoutSize::new(400.0, 400.0)),
+                &LayoutSize::new(400.0, 400.0),
+                kind,
+                LayoutVector2D::new(0.0, 0.0),
+                APZScrollGeneration::default(),
+                HasScrollLinkedEffect::No,
+                uid,
+            )
+        };
+
+        let root = st.root_reference_frame_index();
+        let view = frame(&mut st, root, true, uid());
+        let pipeline_root = scroll(
+            &mut st,
+            view,
+            0,
+            ScrollFrameKind::PipelineRoot {
+                is_root_pipeline: true,
+            },
+            uid(),
+        );
+        let content = scroll(&mut st, pipeline_root, 1, ScrollFrameKind::Explicit, uid());
+        let zoom = frame(&mut st, pipeline_root, declared, uid());
+        let zoom_space = frame(&mut st, zoom, true, uid());
+        let zoomed = scroll(&mut st, zoom_space, 2, ScrollFrameKind::Explicit, uid());
+        let label = frame(&mut st, zoomed, false, uid());
+        let label_space = frame(&mut st, label, true, uid());
+
+        let below_the_zoom = if declared { zoomed } else { root };
+        assert_eq!(st.find_scroll_root(zoomed, true), below_the_zoom, "declared: {declared}");
+        assert_eq!(st.find_scroll_root(label_space, true), below_the_zoom, "declared: {declared}");
+        assert_eq!(st.find_scroll_root(content, true), content, "declared: {declared}");
+    }
 }

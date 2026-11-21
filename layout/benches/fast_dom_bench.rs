@@ -183,6 +183,7 @@ fn main() {
             &mut text_cache,
             &styled_dom,
             viewport,
+            azul_core::geom::LogicalRect::new(azul_core::geom::LogicalPosition::zero(), viewport.size),
             &font_manager,
             &BTreeMap::new(),
             &BTreeMap::new(),

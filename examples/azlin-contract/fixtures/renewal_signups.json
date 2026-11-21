@@ -1,0 +1,23 @@
+[
+  {
+    "renewal_of": "ck_first",
+    "grant": "period_tokens",
+    "tier": "100GB",
+    "period_tokens": {
+      "checkout_id": "ck_renew",
+      "months": 1,
+      "issue_key": "a2V5"
+    }
+  },
+  {
+    "renewal_of": null,
+    "grant": "period_tokens",
+    "tier": "1TB",
+    "period_tokens": {
+      "checkout_id": "ck_renew",
+      "months": 1,
+      "issue_key": "a2V5",
+      "recurring": true
+    }
+  }
+]

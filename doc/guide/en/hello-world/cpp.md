@@ -239,6 +239,53 @@ AZ_REFLECT_JSON(MyDataModel, MyDataModel_toJson, MyDataModel_fromJson);
 `azul23.hpp`. `RefAny::create<T>(model)` on its own creates a `RefAny` without JSON hooks, so use 
 the macro whenever the model should be serializable.
 
+## Missing values and errors in callbacks
+
+From `azul17.hpp` on, an Option is a `std::optional` in both directions. A 
+parameter of an Option type takes `std::nullopt`, a `std::optional<T>` or the 
+value itself (`"light.png"` for an `OptionString`), and an Option that comes back 
+converts into a `std::optional<T>` of the wrapper class, so `if (!x) return 
+Update::DoNothing;` ends a callback when something is missing. A Result tests 
+with `if (!r)`, splits with `auto [ok, err] = std::move(r);`, and in C++23 becomes 
+a `std::expected<Ok, Err>` (`toStdExpected()`). A callback is a C function 
+pointer, so no exception may leave it: an error ends it with an early return.
+
+A folder picker. Before, an absent value had to be spelled as the wrapper:
+
+```cpp
+FileDialog::open_directory("Choose a folder"sv, OptionString::none(), data_wrapper.clone(), on_pick_folder);
+icons.set_light(OptionString::some(String("light.png"sv)));
+```
+
+Now:
+
+```cpp
+ffi::Update on_pick_folder(ffi::RefAny data, ffi::CallbackInfo info, ffi::RefAny result) {
+    RefAny data_wrapper(data);
+    auto* d = data_wrapper.downcast_mut<MyDataModel>();
+    if (!d) return Update::DoNothing;
+    std::optional<FileOpenResult> picked = FileOpenResult::downcast(RefAny(result));
+    if (!picked) return Update::DoNothing;
+    std::optional<FilePath> path = picked->get_path();
+    if (!path) return Update::DoNothing; // cancelled
+    d->folder = path->get_inner();
+    return Update::RefreshDom;
+}
+
+ffi::Update on_choose_folder(ffi::RefAny data, ffi::CallbackInfo info) {
+    RefAny data_wrapper(data);
+    FileDialog::open_directory("Choose a folder"sv, std::nullopt, data_wrapper.clone(), on_pick_folder);
+    return Update::DoNothing;
+}
+
+// elsewhere
+icons.set_light("light.png");
+icons.set_light(std::nullopt);
+```
+
+`azul03.hpp`, `azul11.hpp` and `azul14.hpp` predate `std::optional`: there an 
+Option stays the wrapper class (`OptionString::none()`, `isSome()`, `unwrap()`).
+
 ## Per-standard notes
 
 ### C++03

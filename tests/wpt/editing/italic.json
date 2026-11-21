@@ -1,0 +1,727 @@
+{
+ "source": "editing/data/italic.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 136,
+ "eligible_cases": 36,
+ "left_out": {
+  "markup outside the mail subset": 14,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 61,
+  "tag <address>": 7,
+  "tag <cite>": 6,
+  "tag <dfn>": 6,
+  "tag <var>": 6
+ },
+ "cases": [
+  {
+   "id": "italic-78be6569",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[]bar"
+   ],
+   "expected_canonical": [
+    "foo[]bar"
+   ]
+  },
+  {
+   "id": "italic-e86c4e47",
+   "initial": "<p>[foo</p> <p>bar]</p>",
+   "initial_xhtml": "<p>[foo</p> <p>bar]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><i>[foo</i></p> <p><i>bar]</i></p>"
+   ],
+   "expected_canonical": [
+    "<p><i>[foo</i></p> <p><i>bar]</i></p>"
+   ]
+  },
+  {
+   "id": "italic-00fbd8db",
+   "initial": "<span>[foo</span> <span>bar]</span>",
+   "initial_xhtml": "<span>[foo</span> <span>bar]</span>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<i><span>[foo</span> <span>bar]</span></i>"
+   ],
+   "expected_canonical": [
+    "<i><span>[foo</span> <span>bar]</span></i>"
+   ]
+  },
+  {
+   "id": "italic-e5e45eb0",
+   "initial": "<p>[foo</p><p> <span>bar</span> </p><p>baz]</p>",
+   "initial_xhtml": "<p>[foo</p><p> <span>bar</span> </p><p>baz]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><i>[foo</i></p><p> <i><span>bar</span></i> </p><p><i>baz]</i></p>"
+   ],
+   "expected_canonical": [
+    "<p><i>[foo</i></p><p> <i><span>bar</span></i> </p><p><i>baz]</i></p>"
+   ]
+  },
+  {
+   "id": "italic-4153e4d3",
+   "initial": "<p>[foo<p><br><p>bar]",
+   "initial_xhtml": "<p>[foo</p><p><br/></p><p>bar]</p>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><i>[foo</i></p><p><i><br></i></p><p><i>bar]</i></p>"
+   ],
+   "expected_canonical": [
+    "<p><i>[foo</i></p><p><i><br/></i></p><p><i>bar]</i></p>"
+   ]
+  },
+  {
+   "id": "italic-76582c05",
+   "initial": "<b>foo[]bar</b>",
+   "initial_xhtml": "<b>foo[]bar</b>",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<b>foo[]bar</b>"
+   ],
+   "expected_canonical": [
+    "<b>foo[]bar</b>"
+   ]
+  },
+  {
+   "id": "italic-dca6000a",
+   "initial": "<i>foo[]bar</i>",
+   "initial_xhtml": "<i>foo[]bar</i>",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<i>foo[]bar</i>"
+   ],
+   "expected_canonical": [
+    "<i>foo[]bar</i>"
+   ]
+  },
+  {
+   "id": "italic-4bfb4a9a",
+   "initial": "<span>foo</span>{}<span>bar</span>",
+   "initial_xhtml": "<span>foo</span>{}<span>bar</span>",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo</span>{}<span>bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo</span>{}<span>bar</span>"
+   ]
+  },
+  {
+   "id": "italic-b67f08f3",
+   "initial": "<span>foo[</span><span>]bar</span>",
+   "initial_xhtml": "<span>foo[</span><span>]bar</span>",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<span>foo[</span><span>]bar</span>"
+   ],
+   "expected_canonical": [
+    "<span>foo[</span><span>]bar</span>"
+   ]
+  },
+  {
+   "id": "italic-fda21705",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<i>[bar]</i>baz"
+   ],
+   "expected_canonical": [
+    "foo<i>[bar]</i>baz"
+   ]
+  },
+  {
+   "id": "italic-92a530a9",
+   "initial": "foo[bar<b>baz]qoz</b>quz",
+   "initial_xhtml": "foo[bar<b>baz]qoz</b>quz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<i>[bar</i><b><i>baz]</i>qoz</b>quz"
+   ],
+   "expected_canonical": [
+    "foo<i>[bar</i><b><i>baz]</i>qoz</b>quz"
+   ]
+  },
+  {
+   "id": "italic-18f8db48",
+   "initial": "foo[bar<i>baz]qoz</i>quz",
+   "initial_xhtml": "foo[bar<i>baz]qoz</i>quz",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<i>[barbaz]qoz</i>quz"
+   ],
+   "expected_canonical": [
+    "foo<i>[barbaz]qoz</i>quz"
+   ]
+  },
+  {
+   "id": "italic-23cbfca0",
+   "initial": "{<p><p> <p>foo</p>}",
+   "initial_xhtml": "{<p></p><p> </p><p>foo</p>}",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<p></p><p> </p><p><i>foo</i></p>}"
+   ],
+   "expected_canonical": [
+    "{<p></p><p> </p><p><i>foo</i></p>}"
+   ]
+  },
+  {
+   "id": "italic-f61e7cab",
+   "initial": "foo<em>[bar]</em>baz",
+   "initial_xhtml": "foo<em>[bar]</em>baz",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "italic-e177a743",
+   "initial": "foo{<em>bar</em>}baz",
+   "initial_xhtml": "foo{<em>bar</em>}baz",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{bar}baz"
+   ],
+   "expected_canonical": [
+    "foo{bar}baz"
+   ]
+  },
+  {
+   "id": "italic-74e7e6af",
+   "initial": "foo<em>b[a]r</em>baz",
+   "initial_xhtml": "foo<em>b[a]r</em>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<em>b</em>a<em>r</em>baz"
+   ],
+   "expected_canonical": [
+    "foo<em>b</em>a<em>r</em>baz"
+   ]
+  },
+  {
+   "id": "italic-73a2d23c",
+   "initial": "foo<i>b[a]r</i>baz",
+   "initial_xhtml": "foo<i>b[a]r</i>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<i>b</i>[a]<i>r</i>baz"
+   ],
+   "expected_canonical": [
+    "foo<i>b</i>[a]<i>r</i>baz"
+   ]
+  },
+  {
+   "id": "italic-eb17d2ce",
+   "initial": "fo[o<em>bar</em>b]az",
+   "initial_xhtml": "fo[o<em>bar</em>b]az",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo<i>[obarb]</i>az"
+   ],
+   "expected_canonical": [
+    "fo<i>[obarb]</i>az"
+   ]
+  },
+  {
+   "id": "italic-9d3cffd6",
+   "initial": "foo[<em>bar</em>baz]",
+   "initial_xhtml": "foo[<em>bar</em>baz]",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[<i>barbaz]</i>"
+   ],
+   "expected_canonical": [
+    "foo[<i>barbaz]</i>"
+   ]
+  },
+  {
+   "id": "italic-3d9fa8bc",
+   "initial": "foo[<i>bar</i>baz]",
+   "initial_xhtml": "foo[<i>bar</i>baz]",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[<i>barbaz]</i>"
+   ],
+   "expected_canonical": [
+    "foo[<i>barbaz]</i>"
+   ]
+  },
+  {
+   "id": "italic-fed6f36c",
+   "initial": "[foo<em>bar</em>]baz",
+   "initial_xhtml": "[foo<em>bar</em>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<i>[foobar</i>]baz"
+   ],
+   "expected_canonical": [
+    "<i>[foobar</i>]baz"
+   ]
+  },
+  {
+   "id": "italic-bd9d00e0",
+   "initial": "[foo<i>bar</i>]baz",
+   "initial_xhtml": "[foo<i>bar</i>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<i>[foobar</i>]baz"
+   ],
+   "expected_canonical": [
+    "<i>[foobar</i>]baz"
+   ]
+  },
+  {
+   "id": "italic-cbee2e07",
+   "initial": "<i>{<p>foo</p><p>bar</p>}<p>baz</p></i>",
+   "initial_xhtml": "<i>{<p>foo</p><p>bar</p>}<p>baz</p></i>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "{<p>foo</p><p>bar</p>}<p><i>baz</i></p>"
+   ],
+   "expected_canonical": [
+    "{<p>foo</p><p>bar</p>}<p><i>baz</i></p>"
+   ]
+  },
+  {
+   "id": "italic-da593a77",
+   "initial": "<i><p>foo[<b>bar</b>}</p><p>baz</p></i>",
+   "initial_xhtml": "<i><p>foo[<b>bar</b>}</p><p>baz</p></i>",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "<p><i>foo[</i><b>bar</b>}</p><p><i>baz</i></p>"
+   ],
+   "expected_canonical": [
+    "<p><i>foo[</i><b>bar</b>}</p><p><i>baz</i></p>"
+   ]
+  },
+  {
+   "id": "italic-782bd74c",
+   "initial": "foo [bar <b>baz] qoz</b> quz sic",
+   "initial_xhtml": "foo [bar <b>baz] qoz</b> quz sic",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo <i>[bar </i><b><i>baz]</i> qoz</b> quz sic"
+   ],
+   "expected_canonical": [
+    "foo <i>[bar </i><b><i>baz]</i> qoz</b> quz sic"
+   ]
+  },
+  {
+   "id": "italic-c40bf024",
+   "initial": "foo bar <b>baz [qoz</b> quz] sic",
+   "initial_xhtml": "foo bar <b>baz [qoz</b> quz] sic",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo bar <b>baz <i>[qoz</i></b><i> quz]</i> sic"
+   ],
+   "expected_canonical": [
+    "foo bar <b>baz <i>[qoz</i></b><i> quz]</i> sic"
+   ]
+  },
+  {
+   "id": "italic-cf9823f3",
+   "initial": "foo [bar <i>baz] qoz</i> quz sic",
+   "initial_xhtml": "foo [bar <i>baz] qoz</i> quz sic",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo <i>[bar baz] qoz</i> quz sic"
+   ],
+   "expected_canonical": [
+    "foo <i>[bar baz] qoz</i> quz sic"
+   ]
+  },
+  {
+   "id": "italic-c1d10379",
+   "initial": "foo bar <i>baz [qoz</i> quz] sic",
+   "initial_xhtml": "foo bar <i>baz [qoz</i> quz] sic",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo bar <i>baz [qoz quz]</i> sic"
+   ],
+   "expected_canonical": [
+    "foo bar <i>baz [qoz quz]</i> sic"
+   ]
+  },
+  {
+   "id": "italic-e67ac90b",
+   "initial": "fo[o<i>b]ar</i>baz",
+   "initial_xhtml": "fo[o<i>b]ar</i>baz",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo<i>[ob]ar</i>baz"
+   ],
+   "expected_canonical": [
+    "fo<i>[ob]ar</i>baz"
+   ]
+  },
+  {
+   "id": "italic-ead97322",
+   "initial": "foo<i>ba[r</i>b]az",
+   "initial_xhtml": "foo<i>ba[r</i>b]az",
+   "commands": [
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<i>ba[rb]</i>az"
+   ],
+   "expected_canonical": [
+    "foo<i>ba[rb]</i>az"
+   ]
+  },
+  {
+   "id": "italic-0796e69c",
+   "initial": "fo[o<i>bar</i>b]az",
+   "initial_xhtml": "fo[o<i>bar</i>b]az",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "fo<i>[obarb]</i>az"
+   ],
+   "expected_canonical": [
+    "fo<i>[obarb]</i>az"
+   ]
+  },
+  {
+   "id": "italic-942dec3d",
+   "initial": "foo[<i>b]ar</i>baz",
+   "initial_xhtml": "foo[<i>b]ar</i>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[b]<i>ar</i>baz"
+   ],
+   "expected_canonical": [
+    "foo[b]<i>ar</i>baz"
+   ]
+  },
+  {
+   "id": "italic-429e4807",
+   "initial": "foo<i>ba[r</i>]baz",
+   "initial_xhtml": "foo<i>ba[r</i>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo<i>ba</i>[r]baz"
+   ],
+   "expected_canonical": [
+    "foo<i>ba</i>[r]baz"
+   ]
+  },
+  {
+   "id": "italic-0afb62ec",
+   "initial": "foo[<i>bar</i>]baz",
+   "initial_xhtml": "foo[<i>bar</i>]baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "italic-ec2e7bb8",
+   "initial": "foo<i>[bar]</i>baz",
+   "initial_xhtml": "foo<i>[bar]</i>baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[bar]baz"
+   ],
+   "expected_canonical": [
+    "foo[bar]baz"
+   ]
+  },
+  {
+   "id": "italic-4355171b",
+   "initial": "foo{<i>bar</i>}baz",
+   "initial_xhtml": "foo{<i>bar</i>}baz",
+   "commands": [
+    [
+     "stylewithcss",
+     "false"
+    ],
+    [
+     "italic",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo{bar}baz"
+   ],
+   "expected_canonical": [
+    "foo{bar}baz"
+   ]
+  }
+ ]
+}

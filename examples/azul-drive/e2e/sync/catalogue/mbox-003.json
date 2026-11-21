@@ -1,0 +1,50 @@
+[
+  {
+    "name": "a drive that suddenly lists nothing does not empty the folders of either device",
+    "description": "MBOX-003 (mailbox.org WebDAV): the listing came back empty although the drive had files; a two-way tool would read 'everything deleted remotely'. Rules D1 and D6: deletes need positive evidence, and a plan that empties a folder is held for the user (mass-delete-held), never applied. sync-chaos delete-remote-emptied.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": true },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_open", "device": "b", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_pair", "device": "b" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 50, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_sync", "device": "b" },
+      { "op": "drive_tamper", "remote": "r", "action": "delete_all" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "docs/*", "count": 50 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_status", "device": "a" },
+      { "op": "assert_response", "path": "result.status", "contains": "mass-delete" },
+      { "op": "drive_sync", "device": "b", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "b", "code": "mass-delete-held" },
+      { "op": "drive_check", "check": "files_count", "device": "b", "glob": "docs/*", "count": 50 },
+      { "op": "drive_check", "check": "trash_empty", "device": "b" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "docs/*", "count": 50 },
+      { "op": "drive_cleanup" }
+    ]
+  },
+  {
+    "name": "an older, empty index put back in place of the full one is refused as a rollback, nothing is deleted",
+    "description": "MBOX-003: an empty but valid answer for a root that had files. Rules S15 and D6: an index older than the last one seen is refused (remote-rollback), and nothing here is deleted.",
+    "steps": [
+      { "op": "drive_create", "remote": "r", "encrypted": false },
+      { "op": "drive_open", "device": "a", "remote": "r" },
+      { "op": "drive_pair", "device": "a" },
+      { "op": "drive_wait_idle" },
+      { "op": "drive_snapshot", "remote": "r", "name": "empty" },
+      { "op": "drive_many", "device": "a", "dir": "docs", "count": 30, "text_prefix": "doc" },
+      { "op": "drive_sync", "device": "a" },
+      { "op": "drive_tamper", "remote": "r", "action": "rollback", "to": "empty" },
+      { "op": "drive_sync", "device": "a", "expect": "any" },
+      { "op": "drive_check", "check": "problem", "device": "a", "code": "remote-rollback" },
+      { "op": "drive_check", "check": "files_count", "device": "a", "glob": "docs/*", "count": 30 },
+      { "op": "drive_check", "check": "trash_empty", "device": "a" },
+      { "op": "drive_cleanup" }
+    ]
+  }
+]

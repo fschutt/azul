@@ -103,6 +103,9 @@ fn generate_spec(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     // Controlled wrapper-type declarations (Finalize override prototypes).
     wrappers::emit_wrapper_specs(&mut builder, ir, config)?;
 
+    // `package Fields`: Get_/Set_ accessors for the wrapper types' fields.
+    wrappers::emit_fields_spec(&mut builder, ir, config);
+
     // Managed-FFI host-invoker spec declarations
     // (Azul_Refany_Create / Azul_Refany_Get + FFI imports).
     managed::emit_managed_spec(&mut builder, ir);
@@ -122,6 +125,7 @@ fn generate_body(ir: &CodegenIR, config: &CodegenConfig) -> Result<String> {
     builder.indent();
 
     wrappers::emit_wrapper_bodies(&mut builder, ir, config)?;
+    wrappers::emit_fields_body(&mut builder, ir, config);
 
     // Managed-FFI runtime bodies (handle table, releaser, invoker
     // stubs, refany_create / get + init).

@@ -4,6 +4,8 @@
 //! geometry, supporting all 14 SVG path commands (M/m, L/l, H/h, V/v,
 //! C/c, S/s, Q/q, T/t, A/a, Z/z).
 
+#[cfg(not(feature = "std"))]
+use crate::float_math::FloatMath as _;
 use alloc::{string::String, vec::Vec};
 
 use azul_css::props::basic::{SvgCubicCurve, SvgPoint, SvgQuadraticCurve};
@@ -411,6 +413,25 @@ impl<'a> PathParser<'a> {
 /// Each M/m command starts a new subpath (ring). All 14 SVG path commands are
 /// supported including arcs (converted to cubic beziers).
 ///
+/// A ring does not say whether its subpath was closed (`Z`) or left open: a
+/// stroke draws the two differently. [`parse_svg_path_d_subpaths`] says it.
+///
+/// # Errors
+///
+/// Returns an error if `d` is not a valid SVG path-data string.
+pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
+    parse_svg_path_d_subpaths(d).map(|(mp, _)| mp)
+}
+
+/// [`parse_svg_path_d`], and for each of its rings whether a closepath
+/// (`Z` / `z`) ended it: `closed[i]` belongs to `rings[i]`.
+///
+/// A stroke draws an open subpath with caps at both ends and nothing between
+/// its last point and its first; a closed one gets the closing segment and a
+/// join where it meets its start (SVG 2 s9.3.4). A fill closes every subpath
+/// either way. A ring flushed by the next `M`, or by the end of the data,
+/// is open, even when its last point lies on its first.
+///
 /// # Panics
 ///
 /// Panics if the path tokenizer signals a command but then yields no token
@@ -420,7 +441,9 @@ impl<'a> PathParser<'a> {
 /// # Errors
 ///
 /// Returns an error if `d` is not a valid SVG path-data string.
-pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
+pub fn parse_svg_path_d_subpaths(
+    d: &str,
+) -> Result<(SvgMultiPolygon, Vec<bool>), SvgPathParseError> {
     let d = d.trim();
     if d.is_empty() {
         return Err(SvgPathParseError::EmptyPath);
@@ -428,6 +451,8 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
 
     let mut parser = PathParser::new(d.as_bytes());
     let mut rings: Vec<SvgPath> = Vec::new();
+    // `closed[i]`: a closepath ended `rings[i]`.
+    let mut closed: Vec<bool> = Vec::new();
     let mut current_elements: Vec<SvgPathElement> = Vec::new();
 
     parser.skip_whitespace();
@@ -475,11 +500,12 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
 
         match cmd_upper {
             b'M' => {
-                // Flush current subpath
+                // Flush current subpath: an `M` leaves it open
                 if !current_elements.is_empty() {
                     rings.push(SvgPath {
                         items: SvgPathElementVec::from_vec(core::mem::take(&mut current_elements)),
                     });
+                    closed.push(false);
                 }
                 let (x, y) = parser.parse_coordinate_pair()?;
                 let pt = parser.make_absolute(x, y, relative);
@@ -534,11 +560,12 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
                 parser.last_control = None;
                 parser.last_command = cmd;
 
-                // Flush current subpath
+                // Flush current subpath, closed
                 if !current_elements.is_empty() {
                     rings.push(SvgPath {
                         items: SvgPathElementVec::from_vec(core::mem::take(&mut current_elements)),
                     });
+                    closed.push(true);
                 }
             }
             _ => {
@@ -581,11 +608,12 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
         }
     }
 
-    // Flush any remaining elements
+    // Flush any remaining elements: the data ended without a closepath
     if !current_elements.is_empty() {
         rings.push(SvgPath {
             items: SvgPathElementVec::from_vec(current_elements),
         });
+        closed.push(false);
     }
 
     // A `d` made up solely of comma/whitespace filler (e.g. ",") consumes to EOF
@@ -599,9 +627,12 @@ pub fn parse_svg_path_d(d: &str) -> Result<SvgMultiPolygon, SvgPathParseError> {
         });
     }
 
-    Ok(SvgMultiPolygon {
-        rings: SvgPathVec::from_vec(rings),
-    })
+    Ok((
+        SvgMultiPolygon {
+            rings: SvgPathVec::from_vec(rings),
+        },
+        closed,
+    ))
 }
 
 /// Convert an SVG arc to 1–4 cubic bezier curves.

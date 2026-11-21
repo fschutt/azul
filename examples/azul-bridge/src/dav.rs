@@ -1,0 +1,2104 @@
+//! WebDAV (RFC 4918) class 1, and the minimal class 2 (LOCK / UNLOCK) that macOS Finder and
+//! Windows Explorer need to write, over an azul-storage [`Drive`]: the bucket today, the
+//! encrypted drive later - the server does not change.
+//!
+//! - OPTIONS, PROPFIND (Depth 0 and 1; `infinity` is refused as RFC 4918 allows) with the
+//!   common properties (resourcetype, displayname, getcontentlength, getlastmodified,
+//!   creationdate, getetag, getcontenttype, supportedlock, lockdiscovery; any other is listed
+//!   as not found), GET / HEAD with one byte range, PUT (Content-Length or chunked), DELETE,
+//!   MKCOL, COPY and MOVE (Destination, Overwrite, Depth), PROPPATCH (answered as done: dead
+//!   properties are not kept, Windows only sets its timestamps), LOCK (exclusive and shared
+//!   write locks, refresh, lock-null files) and UNLOCK, a lock enforced through the `If` header.
+//! - Security: the request must name this computer (`Host` 127.0.0.1 / localhost / [::1] and
+//!   the bridge's port: a DNS-rebinding page names its own host), must not come from a browser
+//!   page (`Origin` present), signs in with HTTP Digest (MD5, `qop=auth`: Windows Explorer) or
+//!   Basic (the one user and password, compared in constant time); a path is percent-decoded and then refused when it has `..`, `.`, an empty
+//!   level, a backslash, NUL or a control character; PROPFIND / PROPPATCH / LOCK bodies are
+//!   limited in size and refused when they carry a DTD (no entity of any kind is expanded);
+//!   the sync's bookkeeping (`.azlin/`) is neither listed nor reachable.
+//! - The same doors serve CalDAV and CardDAV on a port of their own ([`Dav::for_pim`],
+//!   [`crate::pim`]).
+
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::{Duration, Instant},
+};
+
+use azul_storage::{
+    ops,
+    xfer::{overlap, Overlap},
+    ByteRange, Drive, DriveError, ObjectInfo,
+};
+
+use crate::{
+    auth::{self, Credentials, FailureGate},
+    dates,
+    digest::{self, DigestAuth},
+    http::{self, Framing, Head, HttpError, Response, Status},
+    limits::Limits,
+    net::{self, Conn, Input, RateLimiter},
+    pim::Pim,
+};
+
+/// The folder the Azlin sync keeps its bookkeeping in: hidden.
+pub const HIDDEN: &str = ".azlin";
+/// The folder of the swaps' records ([`SwapRecords`]) in the bridge's state folder, the place of the UID
+/// maps ([`crate::uids::UIDS_DIR`]): one folder for each drive the bridge serves.
+pub const SWAPS_DIR: &str = "dav-swaps";
+/// A record of another process is left alone for this long when nothing proves that process is gone: it may be a swap
+/// that is running. A bridge that holds the lock of its state folder knows it is ([`SwapRecords::guarded_by`]); the
+/// grace is for a [`Dav`] that was built without it (the tests).
+const SWAP_GRACE_SECS: u64 = 600;
+/// A lock lasts at most this long without a refresh.
+pub const MAX_LOCK_SECS: u64 = 3600;
+/// ...and this long when the client asks for none.
+pub const DEFAULT_LOCK_SECS: u64 = 600;
+
+pub(crate) const DAV: &str = "DAV:";
+
+/// A write lock.
+#[derive(Debug, Clone)]
+struct Lock {
+    /// The locked key (a folder's ends in `/`).
+    key: String,
+    token: String,
+    owner: String,
+    exclusive: bool,
+    infinite: bool,
+    seconds: u64,
+    expires: Instant,
+}
+
+impl Lock {
+    /// Whether the lock covers `key`: itself, under a folder locked with depth infinity, or a
+    /// folder above it (deleting or moving that folder touches the locked thing).
+    fn covers(&self, key: &str) -> bool {
+        if self.key == key || self.key.trim_end_matches('/') == key.trim_end_matches('/') {
+            return true;
+        }
+        let folder = if key.is_empty() || key.ends_with('/') {
+            key.to_string()
+        } else {
+            format!("{key}/")
+        };
+        // The root's lock key is empty: it is above every key.
+        let folder_lock = self.key.is_empty() || self.key.ends_with('/');
+        (self.infinite && folder_lock && key.starts_with(&self.key))
+            || self.key.starts_with(&folder)
+    }
+}
+
+/// What a request's path names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Resource {
+    File(ObjectInfo),
+    Folder,
+    Missing,
+}
+
+/// The WebDAV server: what every connection shares.
+pub struct Dav {
+    drive: Arc<dyn Drive>,
+    credentials: Credentials,
+    gate: Arc<FailureGate>,
+    limits: Limits,
+    /// The port the bridge listens on (a request must name it); 0: any.
+    port: u16,
+    locks: Mutex<Vec<Lock>>,
+    /// HTTP Digest's nonces (Windows Explorer signs in that way).
+    digest: DigestAuth,
+    /// CalDAV and CardDAV instead of the drive's files ([`Dav::for_pim`]).
+    pim: Option<Pim>,
+    /// Where a replacing COPY or MOVE writes down what it is about to do ([`SwapRecords`]).
+    records: SwapRecords,
+    /// The stamps of the swaps this process is running now: recovery leaves their records alone.
+    swaps: Mutex<HashSet<String>>,
+    /// The second (seconds since 1970) from which the next look at the records of earlier processes is
+    /// due ([`Dav::recover_swaps_once`]): 0 before the first request, never (`u64::MAX`) once nothing is
+    /// left to wait for.
+    next_look: AtomicU64,
+    /// A test's clock for the grace of a record of another process.
+    #[cfg(test)]
+    clock: Option<Box<dyn Fn() -> u64 + Send + Sync>>,
+}
+
+/// Where the records of the replacing COPYs and MOVEs are kept ([`Dav::swap_in`]): one `<stamp>.json`
+/// each, written before the first step and removed after the last. A process that dies inside a swap
+/// leaves its record, and the first request of the next one finishes or undoes the swap
+/// ([`Dav::recover_swaps`]) by the names the record holds, never by a pattern (X-DELTA-APPS3-14).
+///
+/// A folder of the bridge's STATE (`<state>/dav-swaps/<drive>/`, the place of the UID maps), or memory
+/// for a drive that is gone with the process (`--memory`, a test). Never the drive itself: the
+/// encrypted drive's index and a folder served by `--folder` both refuse a name of the drive's own
+/// bookkeeping (`.azlin/`), so a record put there ended every replacing COPY and MOVE with a 409 and
+/// settled none (X-DELTA-APPS4-1); and a record in the drive is seen by the bridge of every other
+/// computer of the user, whose process id and clock say nothing about the swap. Clones share the
+/// records: the "next process" of a test is a new [`Dav`] over a clone.
+#[derive(Debug, Clone)]
+pub struct SwapRecords {
+    place: RecordPlace,
+    /// The bridge holds the OS lock of the state folder these records are in ([`SwapRecords::guarded_by`]).
+    guarded: bool,
+}
+
+#[derive(Debug, Clone)]
+enum RecordPlace {
+    Folder(PathBuf),
+    Memory(Arc<Mutex<BTreeMap<String, Vec<u8>>>>),
+}
+
+impl SwapRecords {
+    /// Records kept as files in `folder` (made when the first one is written).
+    #[must_use]
+    pub fn in_folder(folder: PathBuf) -> SwapRecords {
+        SwapRecords {
+            place: RecordPlace::Folder(folder),
+            guarded: false,
+        }
+    }
+
+    /// Records kept in memory only.
+    #[must_use]
+    pub fn in_memory() -> SwapRecords {
+        SwapRecords {
+            place: RecordPlace::Memory(Arc::new(Mutex::new(BTreeMap::new()))),
+            guarded: false,
+        }
+    }
+
+    /// These records, made by a bridge that holds `instance`, the OS lock of its state folder
+    /// ([`crate::single::claim`]): when the records are files below that folder, no other bridge serves it, so a
+    /// record of ANOTHER process id is a dead process's and the first request settles it - it needs no grace
+    /// (X-DELTA-APPS5-5: a bridge that a login item started a second after a crash left the user's destination
+    /// missing for ten minutes, and a record dated by a clock that was wrong ahead waited for years). Records
+    /// that are not below the lock's folder, and records in memory, are not guarded: their grace stays.
+    #[must_use]
+    pub fn guarded_by(mut self, instance: &crate::single::Instance) -> SwapRecords {
+        self.guarded = match &self.place {
+            RecordPlace::Folder(folder) => instance.guards(folder),
+            RecordPlace::Memory(_) => false,
+        };
+        self
+    }
+
+    /// Whether a record of another process is a dead one's ([`SwapRecords::guarded_by`]).
+    #[must_use]
+    pub(crate) fn guarded(&self) -> bool {
+        self.guarded
+    }
+
+    /// The records of the drive `label` the bridge serves, below the state folder `state`: one folder
+    /// for each drive (`folder:<path>` for `--folder`, `azlin:<id>` for an account's drive), so that
+    /// a record is never settled on another drive than the one it was made on; `None` for a drive
+    /// that is gone with the process: memory.
+    #[must_use]
+    pub fn of_drive(state: &std::path::Path, label: Option<&str>) -> SwapRecords {
+        match label {
+            None => SwapRecords::in_memory(),
+            Some(label) => {
+                let hash = azul_storage::sigv4::sha256_hex(label.as_bytes());
+                SwapRecords::in_folder(state.join(SWAPS_DIR).join(&hash[..32]))
+            }
+        }
+    }
+
+    /// The folder the records are files in; `None` for records kept in memory only. What `serve` keeps them
+    /// by is pinned by a test of its own (`cli::swap_records_for`, X-DELTA-APPS5-4): a test's reading.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn folder(&self) -> Option<&std::path::Path> {
+        match &self.place {
+            RecordPlace::Folder(folder) => Some(folder),
+            RecordPlace::Memory(_) => None,
+        }
+    }
+
+    fn file_of(folder: &std::path::Path, stamp: &str) -> PathBuf {
+        folder.join(format!("{stamp}.json"))
+    }
+
+    fn memory(
+        map: &Mutex<BTreeMap<String, Vec<u8>>>,
+    ) -> std::sync::MutexGuard<'_, BTreeMap<String, Vec<u8>>> {
+        map.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Writes the record of the swap `stamp`; on disk it is whole and synced when this returns
+    /// ([`azul_storage::durable::replace`]), private to this user (it names the user's files).
+    pub(crate) fn put(&self, stamp: &str, bytes: &[u8]) -> std::io::Result<()> {
+        match &self.place {
+            RecordPlace::Folder(folder) => azul_storage::durable::replace(
+                &SwapRecords::file_of(folder, stamp),
+                bytes,
+                azul_storage::durable::Mode::Private,
+            ),
+            RecordPlace::Memory(map) => {
+                SwapRecords::memory(map).insert(stamp.to_string(), bytes.to_vec());
+                Ok(())
+            }
+        }
+    }
+
+    /// The stamps of the records there are, in order. A folder that is not there holds none; one that
+    /// cannot be read is an error, never "none".
+    pub(crate) fn stamps(&self) -> std::io::Result<Vec<String>> {
+        match &self.place {
+            RecordPlace::Folder(folder) => {
+                let entries = match std::fs::read_dir(folder) {
+                    Ok(entries) => entries,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+                    Err(e) => return Err(e),
+                };
+                let mut stamps = Vec::new();
+                for entry in entries {
+                    let name = entry?.file_name();
+                    // What `replace` stages beside a record is no record.
+                    if let Some(stamp) = name.to_str().and_then(|name| name.strip_suffix(".json")) {
+                        stamps.push(stamp.to_string());
+                    }
+                }
+                stamps.sort();
+                Ok(stamps)
+            }
+            RecordPlace::Memory(map) => Ok(SwapRecords::memory(map).keys().cloned().collect()),
+        }
+    }
+
+    /// The record `stamp`: `None` when it is gone (another look settled it).
+    fn get(&self, stamp: &str) -> std::io::Result<Option<Vec<u8>>> {
+        match &self.place {
+            RecordPlace::Folder(folder) => match std::fs::read(SwapRecords::file_of(folder, stamp))
+            {
+                Ok(bytes) => Ok(Some(bytes)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e),
+            },
+            RecordPlace::Memory(map) => Ok(SwapRecords::memory(map).get(stamp).cloned()),
+        }
+    }
+
+    /// Removes the record `stamp` (one that is gone already is removed).
+    fn remove(&self, stamp: &str) -> std::io::Result<()> {
+        match &self.place {
+            RecordPlace::Folder(folder) => {
+                match std::fs::remove_file(SwapRecords::file_of(folder, stamp)) {
+                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
+                    _ => Ok(()),
+                }
+            }
+            RecordPlace::Memory(map) => {
+                SwapRecords::memory(map).remove(stamp);
+                Ok(())
+            }
+        }
+    }
+}
+
+/// What one look at the records of interrupted swaps found ([`Dav::recover_swaps`]).
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Recovery {
+    /// The swaps it finished or undid.
+    settled: usize,
+    /// The second (seconds since 1970) at which the first record of another process that it had to
+    /// leave alone is past its grace: the next look is due then. `None`: nothing waits.
+    wait_until: Option<u64>,
+}
+
+/// What a replacing COPY or MOVE is about to do, written down before the first step
+/// ([`SwapRecords`]).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct SwapIntent {
+    /// The source.
+    key: String,
+    /// The destination, which steps aside and is replaced.
+    target: String,
+    /// Where the new content is made first.
+    beside: String,
+    /// Where the old destination waits until the new content is in its place.
+    aside: String,
+    /// The source is a folder.
+    folder: bool,
+    /// The destination is a folder.
+    destination_is_folder: bool,
+    /// A MOVE: the source itself goes into place.
+    moving: bool,
+}
+
+impl std::fmt::Debug for Dav {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Dav")
+            .field("credentials", &self.credentials)
+            .field("port", &self.port)
+            .finish_non_exhaustive()
+    }
+}
+
+/// `&`, `<`, `>`, `"` and `'` as XML writes them.
+#[must_use]
+pub fn xml_escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&apos;"),
+            c if c.is_control() && c != '\t' && c != '\n' && c != '\r' => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// One path level percent-encoded (everything but RFC 3986's unreserved characters).
+#[must_use]
+pub fn encode_segment(segment: &str) -> String {
+    let mut out = String::with_capacity(segment.len());
+    for b in segment.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// The href of `key` (`/a%20b/c.txt`, a folder's with its final `/`).
+#[must_use]
+pub fn href_of(key: &str, folder: bool) -> String {
+    let mut out = String::from("/");
+    let path: Vec<String> = key
+        .split('/')
+        .filter(|s| !s.is_empty())
+        .map(encode_segment)
+        .collect();
+    out.push_str(&path.join("/"));
+    if folder && !path.is_empty() {
+        out.push('/');
+    }
+    out
+}
+
+fn percent_decode(text: &str) -> Option<Vec<u8>> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = std::str::from_utf8(bytes.get(i + 1..i + 3)?).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    Some(out)
+}
+
+/// The drive key a request target names, and whether it was written as a folder (a final `/`;
+/// the root always is).
+///
+/// # Errors
+///
+/// 400 for a path that is not one or tries to leave the drive (`..`, `.`, an empty level, a
+/// backslash, NUL, a control character, bytes that are not UTF-8); 404 for the sync's hidden
+/// folder.
+pub fn key_of(target: &str) -> Result<(String, bool), Status> {
+    let path = match target
+        .strip_prefix("http://")
+        .or_else(|| target.strip_prefix("https://"))
+    {
+        Some(rest) => rest.find('/').map_or("/", |at| &rest[at..]),
+        None => target,
+    };
+    let path = path.split(['?', '#']).next().unwrap_or_default();
+    if !path.starts_with('/') {
+        return Err(Status::BAD_REQUEST);
+    }
+    let decoded = percent_decode(path).ok_or(Status::BAD_REQUEST)?;
+    let decoded = String::from_utf8(decoded).map_err(|_| Status::BAD_REQUEST)?;
+    if decoded
+        .chars()
+        .any(|c| c == '\\' || c == '\0' || c.is_control())
+    {
+        return Err(Status::BAD_REQUEST);
+    }
+    let folder = decoded.ends_with('/');
+    let inner = decoded.trim_start_matches('/');
+    let inner = inner.strip_suffix('/').unwrap_or(inner);
+    if inner.is_empty() {
+        return Ok((String::new(), true));
+    }
+    let levels: Vec<&str> = inner.split('/').collect();
+    for level in &levels {
+        if level.is_empty() || *level == "." || *level == ".." {
+            return Err(Status::BAD_REQUEST);
+        }
+    }
+    if levels[0] == HIDDEN {
+        return Err(Status::NOT_FOUND);
+    }
+    Ok((levels.join("/"), folder))
+}
+
+/// A file's media type by its extension.
+#[must_use]
+pub fn content_type_of(key: &str) -> &'static str {
+    let extension = key
+        .rsplit('/')
+        .next()
+        .and_then(|name| name.rsplit_once('.'))
+        .map(|(_, ext)| ext.to_ascii_lowercase())
+        .unwrap_or_default();
+    match extension.as_str() {
+        "txt" | "log" => "text/plain; charset=utf-8",
+        "md" => "text/markdown; charset=utf-8",
+        "csv" => "text/csv; charset=utf-8",
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css",
+        "js" => "text/javascript",
+        "json" => "application/json",
+        "xml" => "application/xml",
+        "pdf" => "application/pdf",
+        "zip" => "application/zip",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "mp3" => "audio/mpeg",
+        "mp4" => "video/mp4",
+        "eml" => "message/rfc822",
+        "ics" => "text/calendar",
+        "vcf" => "text/vcard",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Whether an XML body declares a DTD or an entity: refused before any parser sees it.
+fn has_dtd(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.contains("<!doctype") || lower.contains("<!entity")
+}
+
+/// A WebDAV request body as XML.
+pub(crate) fn parse_xml(body: &[u8]) -> Result<Option<String>, Status> {
+    let text = std::str::from_utf8(body).map_err(|_| Status::BAD_REQUEST)?;
+    if text.trim().is_empty() {
+        return Ok(None);
+    }
+    if has_dtd(text) {
+        return Err(Status::BAD_REQUEST);
+    }
+    // Parsed once here to know it is well-formed; the callers parse the same text again.
+    roxmltree::Document::parse(text).map_err(|_| Status::BAD_REQUEST)?;
+    Ok(Some(text.to_string()))
+}
+
+pub(crate) fn is_dav(node: &roxmltree::Node<'_, '_>, name: &str) -> bool {
+    node.is_element()
+        && node.tag_name().name() == name
+        && node.tag_name().namespace() == Some(DAV)
+}
+
+/// What PROPFIND asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PropRequest {
+    All,
+    Names,
+    /// `(namespace, name)` of each property.
+    Some(Vec<(String, String)>),
+}
+
+pub(crate) fn prop_request(body: &[u8]) -> Result<PropRequest, Status> {
+    let Some(text) = parse_xml(body)? else {
+        return Ok(PropRequest::All);
+    };
+    let doc = roxmltree::Document::parse(&text).map_err(|_| Status::BAD_REQUEST)?;
+    let root = doc.root_element();
+    if !is_dav(&root, "propfind") {
+        return Err(Status::BAD_REQUEST);
+    }
+    for child in root.children().filter(roxmltree::Node::is_element) {
+        if is_dav(&child, "allprop") {
+            return Ok(PropRequest::All);
+        }
+        if is_dav(&child, "propname") {
+            return Ok(PropRequest::Names);
+        }
+        if is_dav(&child, "prop") {
+            let names = child
+                .children()
+                .filter(roxmltree::Node::is_element)
+                .map(|p| {
+                    (
+                        p.tag_name().namespace().unwrap_or_default().to_string(),
+                        p.tag_name().name().to_string(),
+                    )
+                })
+                .collect();
+            return Ok(PropRequest::Some(names));
+        }
+    }
+    Err(Status::BAD_REQUEST)
+}
+
+/// The properties every resource can have, in DAV:.
+const LIVE: [&str; 9] = [
+    "resourcetype",
+    "displayname",
+    "getcontentlength",
+    "getlastmodified",
+    "creationdate",
+    "getetag",
+    "getcontenttype",
+    "supportedlock",
+    "lockdiscovery",
+];
+
+const SUPPORTED_LOCK: &str = "<D:supportedlock>\
+    <D:lockentry><D:lockscope><D:exclusive/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockentry>\
+    <D:lockentry><D:lockscope><D:shared/></D:lockscope><D:locktype><D:write/></D:locktype></D:lockentry>\
+    </D:supportedlock>";
+
+/// An empty element of `(namespace, name)` for a response (its namespace declared on it).
+pub(crate) fn empty_element(namespace: &str, name: &str) -> String {
+    if namespace == DAV {
+        format!("<D:{}/>", xml_escape(name))
+    } else if namespace.is_empty() {
+        format!("<{} xmlns=\"\"/>", xml_escape(name))
+    } else {
+        format!("<x:{} xmlns:x=\"{}\"/>", xml_escape(name), xml_escape(namespace))
+    }
+}
+
+fn random_token() -> String {
+    let mut bytes = [0u8; 16];
+    // Without randomness the token is still unique per process (the time and a counter).
+    if getrandom::getrandom(&mut bytes).is_err() {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        bytes[..8].copy_from_slice(&n.to_le_bytes());
+        bytes[8..].copy_from_slice(&(t as u64).to_le_bytes());
+    }
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    format!(
+        "opaquelocktoken:{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
+    )
+}
+
+/// `Second-600` / `Infinite` (the first one given) in seconds, within the bridge's maximum.
+fn timeout_of(head: &Head) -> u64 {
+    let Some(value) = head.header("Timeout") else {
+        return DEFAULT_LOCK_SECS;
+    };
+    let first = value.split(',').next().unwrap_or_default().trim();
+    if first.eq_ignore_ascii_case("Infinite") {
+        return MAX_LOCK_SECS;
+    }
+    first
+        .strip_prefix("Second-")
+        .and_then(|s| s.parse::<u64>().ok())
+        .map_or(DEFAULT_LOCK_SECS, |s| s.clamp(1, MAX_LOCK_SECS))
+}
+
+impl Dav {
+    /// The server over `drive`; `records` is where a replacing COPY or MOVE writes down its steps
+    /// ([`SwapRecords`]: the bridge's state folder for a drive that outlives the process).
+    #[must_use]
+    pub fn new(
+        drive: Arc<dyn Drive>,
+        credentials: Credentials,
+        gate: Arc<FailureGate>,
+        limits: Limits,
+        port: u16,
+        records: SwapRecords,
+    ) -> Dav {
+        Dav {
+            drive,
+            credentials,
+            gate,
+            limits,
+            port,
+            locks: Mutex::new(Vec::new()),
+            digest: DigestAuth::new("Azlin Bridge"),
+            pim: None,
+            records,
+            swaps: Mutex::new(HashSet::new()),
+            next_look: AtomicU64::new(0),
+            #[cfg(test)]
+            clock: None,
+        }
+    }
+
+    /// CalDAV and CardDAV ([`crate::pim`]) behind the same doors as the drive's WebDAV: the
+    /// host, no browser, the sign-in, the limits - on a port of their own. (They never swap: their
+    /// calendar folder is the PIM's own.)
+    #[must_use]
+    pub fn for_pim(pim: Pim, credentials: Credentials, gate: Arc<FailureGate>, limits: Limits, port: u16) -> Dav {
+        let mut dav = Dav::new(
+            pim.contacts_drive(),
+            credentials,
+            gate,
+            limits,
+            port,
+            SwapRecords::in_memory(),
+        );
+        dav.pim = Some(pim);
+        dav
+    }
+
+    /// Seconds since 1970 (a test steps it).
+    fn now(&self) -> u64 {
+        #[cfg(test)]
+        if let Some(clock) = &self.clock {
+            return clock();
+        }
+        azul_storage::time::now_unix()
+    }
+
+    fn locks(&self) -> std::sync::MutexGuard<'_, Vec<Lock>> {
+        let mut locks = self
+            .locks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let now = Instant::now();
+        locks.retain(|lock| lock.expires > now);
+        locks
+    }
+
+    /// Whether a lock someone holds keeps this request from changing `key` (the request did
+    /// not name the lock's token in its `If` header).
+    fn locked_out(&self, key: &str, head: &Head) -> bool {
+        let presented = head.header("If").unwrap_or_default();
+        self.locks()
+            .iter()
+            .any(|lock| lock.covers(key) && !presented.contains(&lock.token))
+    }
+
+    /// Drops the locks of `key` and of everything under it (it was deleted or moved away); a
+    /// lock of a folder above it stays.
+    fn forget_locks_under(&self, key: &str) {
+        let folder = format!("{}/", key.trim_end_matches('/'));
+        let mut locks = self.locks();
+        locks.retain(|lock| {
+            let gone = lock.key == key || lock.key == folder || lock.key.starts_with(&folder);
+            !gone
+        });
+    }
+
+    // ---- the connection ----
+
+    /// Whether the request names this computer: `Host` 127.0.0.1, localhost or [::1], with
+    /// the bridge's port.
+    fn host_ok(&self, head: &Head) -> bool {
+        let Some(host) = head.header("Host") else {
+            return false;
+        };
+        let (name, port) = if let Some(rest) = host.strip_prefix('[') {
+            match rest.split_once(']') {
+                Some((name, after)) => (name, after.strip_prefix(':')),
+                None => return false,
+            }
+        } else {
+            match host.rsplit_once(':') {
+                Some((name, port)) => (name, Some(port)),
+                None => (host, None),
+            }
+        };
+        let local = matches!(name.to_ascii_lowercase().as_str(), "127.0.0.1" | "localhost" | "::1");
+        let port_ok = match port {
+            Some(port) => self.port == 0 || port.parse::<u16>().ok() == Some(self.port),
+            None => self.port == 0 || self.port == 80,
+        };
+        local && port_ok
+    }
+
+    /// The checks before a request's body is read: the host, no browser, the sign-in. `Err`
+    /// is the answer, and whether the connection must close after it.
+    fn guard(&self, head: &Head, failures: &mut u32) -> Result<(), (Response, bool)> {
+        if !self.host_ok(head) {
+            return Err((
+                Response::text(Status::FORBIDDEN, "The bridge answers this computer's own address only."),
+                true,
+            ));
+        }
+        if head.header("Origin").is_some() {
+            return Err((
+                Response::text(Status::FORBIDDEN, "The bridge does not answer web pages."),
+                true,
+            ));
+        }
+        if head.method == "OPTIONS" {
+            return Ok(());
+        }
+        // Digest first (Windows' WebClient takes no Basic over http), Basic for everyone else.
+        let challenge = |stale: bool| {
+            Response::text(Status::UNAUTHORIZED, "Sign in with the bridge's user and password.")
+                .with_header("WWW-Authenticate", self.digest.challenge(stale))
+                .with_header("WWW-Authenticate", "Basic realm=\"Azlin Bridge\", charset=\"UTF-8\"")
+        };
+        let Some(value) = head.header("Authorization") else {
+            return Err((challenge(false), false));
+        };
+        if let Some(params) = value
+            .strip_prefix("Digest ")
+            .or_else(|| value.strip_prefix("digest "))
+        {
+            self.gate.before_attempt();
+            match self
+                .digest
+                .verify(params, &head.method, &head.target, &self.credentials)
+            {
+                digest::Verdict::Signed => return Ok(()),
+                // The client signs again with the new nonce without asking the user.
+                digest::Verdict::Stale => return Err((challenge(true), false)),
+                digest::Verdict::Refused => {
+                    self.gate.failed();
+                    *failures += 1;
+                    let close = *failures >= self.limits.auth_failures_per_connection;
+                    return Err((challenge(false), close));
+                }
+            }
+        }
+        let decoded = value
+            .strip_prefix("Basic ")
+            .or_else(|| value.strip_prefix("basic "))
+            .and_then(auth::decode_base64)
+            .unwrap_or_default();
+        let (user, password) = match decoded.iter().position(|b| *b == b':') {
+            Some(at) => (&decoded[..at], &decoded[at + 1..]),
+            None => (&decoded[..], &[][..]),
+        };
+        self.gate.before_attempt();
+        if self.credentials.check(user, password) {
+            return Ok(());
+        }
+        self.gate.failed();
+        *failures += 1;
+        let close = *failures >= self.limits.auth_failures_per_connection;
+        Err((challenge(false), close))
+    }
+
+    /// The most a request's body may be.
+    fn body_limit(&self, method: &str) -> u64 {
+        // An event or a card is held as a message is.
+        if method == "PUT" && self.pim.is_some() {
+            return self.limits.message_bytes as u64;
+        }
+        if method == "PUT" {
+            self.limits.put_bytes
+        } else {
+            self.limits.xml_bytes as u64
+        }
+    }
+
+    /// Serves one connection: requests until it closes, goes quiet or a request is refused.
+    pub fn handle<C: Conn>(&self, mut conn: C) {
+        let _ = conn.set_read_timeout(Some(self.limits.http_idle));
+        let mut input = Input::new();
+        let mut rate = RateLimiter::new(self.limits.commands_per_second, self.limits.command_burst);
+        let mut failures = 0u32;
+        loop {
+            let head = match http::read_head(
+                &mut input,
+                &mut conn,
+                self.limits.header_bytes,
+                self.limits.header_count,
+            ) {
+                Ok(head) => head,
+                Err(HttpError::Gone) => return,
+                Err(HttpError::Refuse(status)) => {
+                    refuse_and_close(&mut conn, &Response::text(status, status.1));
+                    return;
+                }
+            };
+            rate.take();
+            let keep_alive = head.keep_alive();
+            let framing = match head.framing() {
+                Ok(framing) => framing,
+                Err(status) => {
+                    refuse_and_close(&mut conn, &Response::text(status, status.1));
+                    return;
+                }
+            };
+            if let Err((response, close)) = self.guard(&head, &mut failures) {
+                if self.refuse_before_body(&mut input, &mut conn, &head, framing, &response, close) {
+                    continue;
+                }
+                return;
+            }
+            // The drive's PUT streams its body into the drive (never held whole).
+            if head.method == "PUT" && self.pim.is_none() {
+                if self.put_streamed(&mut input, &mut conn, &head, framing) {
+                    continue;
+                }
+                return;
+            }
+            if head
+                .header("Expect")
+                .is_some_and(|e| e.eq_ignore_ascii_case("100-continue"))
+                && net::send(&mut conn, b"HTTP/1.1 100 Continue\r\n\r\n").is_err()
+            {
+                return;
+            }
+            let body = match http::read_body(&mut input, &mut conn, framing, self.body_limit(&head.method)) {
+                Ok(body) => body,
+                Err(HttpError::Gone) => return,
+                Err(HttpError::Refuse(status)) => {
+                    refuse_and_close(&mut conn, &Response::text(status, status.1));
+                    return;
+                }
+            };
+            let response = self.respond(&head, &body);
+            let head_only = head.method == "HEAD";
+            if http::write_response(&mut conn, &response, head_only, keep_alive).is_err() || !keep_alive {
+                return;
+            }
+        }
+    }
+
+    /// Answers `response` to a request refused before its body was read: a small body is read
+    /// past so the connection goes on (`true`); a big one, a client waiting for 100 Continue, or
+    /// `close`, closes it (`false`).
+    fn refuse_before_body<C: Conn>(
+        &self,
+        input: &mut Input,
+        conn: &mut C,
+        head: &Head,
+        framing: Framing,
+        response: &Response,
+        close: bool,
+    ) -> bool {
+        let small = matches!(framing, Framing::Length(n) if n <= self.limits.xml_bytes as u64);
+        let expects = head
+            .header("Expect")
+            .is_some_and(|e| e.eq_ignore_ascii_case("100-continue"));
+        if close || !small || expects {
+            refuse_and_close(conn, response);
+            return false;
+        }
+        if http::read_body(input, conn, framing, self.limits.xml_bytes as u64).is_err() {
+            return false;
+        }
+        let keep_alive = head.keep_alive();
+        http::write_response(conn, response, false, keep_alive).is_ok() && keep_alive
+    }
+
+    /// A PUT of the drive: checked before its body is read, then the body streamed into the
+    /// drive (`Drive::put_from`: an encrypted drive spools a big file to a temporary file, a
+    /// bucket sends it in parts), within `put_bytes`. Whether the connection goes on.
+    fn put_streamed<C: Conn>(&self, input: &mut Input, conn: &mut C, head: &Head, framing: Framing) -> bool {
+        let allowed = match key_of(&head.target) {
+            Err(status) => Err(Response::text(status, "Not a path of the drive.")),
+            Ok((key, folder_syntax)) => match self.put_allowed(head, &key, folder_syntax) {
+                Ok(Ok(existed)) => Ok((key, existed)),
+                Ok(Err(answer)) => Err(answer),
+                Err(e) => Err(drive_answer(e)),
+            },
+        };
+        let (key, existed) = match allowed {
+            Ok(allowed) => allowed,
+            Err(answer) => return self.refuse_before_body(input, conn, head, framing, &answer, false),
+        };
+        if matches!(framing, Framing::Length(n) if n > self.limits.put_bytes) {
+            refuse_and_close(conn, &Response::text(Status::TOO_LARGE, Status::TOO_LARGE.1));
+            return false;
+        }
+        if head
+            .header("Expect")
+            .is_some_and(|e| e.eq_ignore_ascii_case("100-continue"))
+            && net::send(conn, b"HTTP/1.1 100 Continue\r\n\r\n").is_err()
+        {
+            return false;
+        }
+        let mut body = http::BodyReader::new(input, conn, framing, self.limits.put_bytes);
+        let written = self.put_body(&key, existed, &mut body);
+        let failure = body.take_failure();
+        match (written, failure) {
+            (_, Some(HttpError::Gone)) => false,
+            (_, Some(HttpError::Refuse(status))) => {
+                refuse_and_close(conn, &Response::text(status, status.1));
+                false
+            }
+            (Ok(response), None) => {
+                let keep_alive = head.keep_alive();
+                http::write_response(conn, &response, false, keep_alive).is_ok() && keep_alive
+            }
+            // The drive refused part way: what is left of the body is not read.
+            (Err(e), None) => {
+                refuse_and_close(conn, &drive_answer(e));
+                false
+            }
+        }
+    }
+
+    // ---- the methods ----
+
+    /// The answer to one request whose sign-in and body are done.
+    #[must_use]
+    pub fn respond(&self, head: &Head, body: &[u8]) -> Response {
+        if let Some(pim) = &self.pim {
+            return pim.respond(head, body);
+        }
+        self.recover_swaps_once();
+        let (key, folder_syntax) = match key_of(&head.target) {
+            Ok(found) => found,
+            Err(status) => return Response::text(status, "Not a path of the drive."),
+        };
+        let result = match head.method.as_str() {
+            "OPTIONS" => Ok(Response::new(Status::OK)
+                .with_header("DAV", "1, 2")
+                .with_header("MS-Author-Via", "DAV")
+                .with_header(
+                    "Allow",
+                    "OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, PROPFIND, PROPPATCH, LOCK, UNLOCK",
+                )),
+            "PROPFIND" => self.propfind(head, &key, folder_syntax, body),
+            "PROPPATCH" => self.proppatch(head, &key, folder_syntax, body),
+            "GET" | "HEAD" => self.get(head, &key, folder_syntax),
+            "PUT" => self.put(head, &key, folder_syntax, body),
+            "DELETE" => self.delete(head, &key, folder_syntax),
+            "MKCOL" => self.mkcol(head, &key, body),
+            "COPY" | "MOVE" => self.copy_or_move(head, &key, folder_syntax, head.method == "MOVE"),
+            "LOCK" => self.lock(head, &key, folder_syntax, body),
+            "UNLOCK" => self.unlock(head, &key),
+            _ => Ok(Response::text(Status::METHOD_NOT_ALLOWED, "Not a WebDAV method the bridge offers.")
+                .with_header("Allow", "OPTIONS, GET, HEAD, PUT, DELETE, MKCOL, COPY, MOVE, PROPFIND, PROPPATCH, LOCK, UNLOCK")),
+        };
+        result.unwrap_or_else(drive_answer)
+    }
+
+    fn resource(&self, key: &str, folder_syntax: bool) -> Result<Resource, DriveError> {
+        if key.is_empty() {
+            return Ok(Resource::Folder);
+        }
+        if !folder_syntax {
+            match self.drive.head(key) {
+                Ok(info) => return Ok(Resource::File(info)),
+                Err(DriveError::NotFound { .. }) => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if ops::folder_exists(&*self.drive, &format!("{key}/"))? {
+            Ok(Resource::Folder)
+        } else {
+            Ok(Resource::Missing)
+        }
+    }
+
+    /// Whether the folder that holds `key` is there (the root always is).
+    fn parent_exists(&self, key: &str) -> Result<bool, DriveError> {
+        match key.rsplit_once('/') {
+            None => Ok(true),
+            Some((parent, _)) => ops::folder_exists(&*self.drive, &format!("{parent}/")),
+        }
+    }
+
+    fn lockdiscovery(&self, key: &str) -> String {
+        let locks = self.locks();
+        let active: Vec<&Lock> = locks.iter().filter(|l| l.covers(key)).collect();
+        if active.is_empty() {
+            return String::from("<D:lockdiscovery/>");
+        }
+        let mut out = String::from("<D:lockdiscovery>");
+        for lock in active {
+            out.push_str(&active_lock(lock));
+        }
+        out.push_str("</D:lockdiscovery>");
+        out
+    }
+
+    /// One `<D:response>` of a PROPFIND.
+    fn prop_response(&self, key: &str, folder: bool, info: Option<&ObjectInfo>, request: &PropRequest) -> String {
+        let name = key.rsplit('/').next().unwrap_or_default();
+        let mut found: Vec<String> = Vec::new();
+        let mut missing: Vec<String> = Vec::new();
+        let names_only = matches!(request, PropRequest::Names);
+        let live = |prop: &str| -> Option<String> {
+            Some(match prop {
+                "resourcetype" if folder => String::from("<D:resourcetype><D:collection/></D:resourcetype>"),
+                "resourcetype" => String::from("<D:resourcetype/>"),
+                "displayname" => format!("<D:displayname>{}</D:displayname>", xml_escape(name)),
+                "getcontentlength" => format!("<D:getcontentlength>{}</D:getcontentlength>", info?.size),
+                "getlastmodified" => format!(
+                    "<D:getlastmodified>{}</D:getlastmodified>",
+                    dates::http_date(i64::try_from(info?.modified?).unwrap_or(0))
+                ),
+                "creationdate" => format!(
+                    "<D:creationdate>{}</D:creationdate>",
+                    azul_storage::time::iso8601(info?.modified?)
+                ),
+                "getetag" => format!("<D:getetag>\"{}\"</D:getetag>", xml_escape(info?.etag.as_deref()?)),
+                "getcontenttype" if !folder => {
+                    format!("<D:getcontenttype>{}</D:getcontenttype>", content_type_of(key))
+                }
+                "supportedlock" => String::from(SUPPORTED_LOCK),
+                "lockdiscovery" => self.lockdiscovery(key),
+                _ => return None,
+            })
+        };
+        match request {
+            PropRequest::All | PropRequest::Names => {
+                for prop in LIVE {
+                    if let Some(value) = live(prop) {
+                        found.push(if names_only { format!("<D:{prop}/>") } else { value });
+                    }
+                }
+            }
+            PropRequest::Some(names) => {
+                for (namespace, prop) in names {
+                    let value = (namespace == DAV).then(|| live(prop)).flatten();
+                    match value {
+                        Some(value) => found.push(value),
+                        None => missing.push(empty_element(namespace, prop)),
+                    }
+                }
+            }
+        }
+        let mut out = format!("<D:response><D:href>{}</D:href>", xml_escape(&href_of(key, folder)));
+        if !found.is_empty() {
+            out.push_str("<D:propstat><D:prop>");
+            out.push_str(&found.concat());
+            out.push_str("</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat>");
+        }
+        if !missing.is_empty() {
+            out.push_str("<D:propstat><D:prop>");
+            out.push_str(&missing.concat());
+            out.push_str("</D:prop><D:status>HTTP/1.1 404 Not Found</D:status></D:propstat>");
+        }
+        out.push_str("</D:response>");
+        out
+    }
+
+    fn propfind(&self, head: &Head, key: &str, folder_syntax: bool, body: &[u8]) -> Result<Response, DriveError> {
+        let depth = head.header("Depth").unwrap_or("infinity").to_ascii_lowercase();
+        if depth != "0" && depth != "1" {
+            return Ok(Response::new(Status::FORBIDDEN).with_body(
+                "application/xml; charset=utf-8",
+                b"<?xml version=\"1.0\" encoding=\"utf-8\"?>\
+                  <D:error xmlns:D=\"DAV:\"><D:propfind-finite-depth/></D:error>"
+                    .to_vec(),
+            ));
+        }
+        let request = match prop_request(body) {
+            Ok(request) => request,
+            Err(status) => return Ok(Response::text(status, "Not a PROPFIND body the bridge reads.")),
+        };
+        let mut out = String::from("<?xml version=\"1.0\" encoding=\"utf-8\"?><D:multistatus xmlns:D=\"DAV:\">");
+        match self.resource(key, folder_syntax)? {
+            Resource::Missing => return Ok(Response::text(Status::NOT_FOUND, "Not there.")),
+            Resource::File(info) => out.push_str(&self.prop_response(key, false, Some(&info), &request)),
+            Resource::Folder => {
+                out.push_str(&self.prop_response(key, true, None, &request));
+                if depth == "1" {
+                    let prefix = if key.is_empty() { String::new() } else { format!("{key}/") };
+                    let level = ops::list_folder_all(&*self.drive, &prefix)?;
+                    for folder in &level.folders {
+                        let child = folder.trim_end_matches('/');
+                        if child == HIDDEN || child.is_empty() {
+                            continue;
+                        }
+                        out.push_str(&self.prop_response(child, true, None, &request));
+                    }
+                    for object in &level.objects {
+                        // A folder's own marker is the folder, not a child.
+                        if object.key == prefix || object.key.ends_with('/') {
+                            continue;
+                        }
+                        out.push_str(&self.prop_response(&object.key, false, Some(object), &request));
+                    }
+                }
+            }
+        }
+        out.push_str("</D:multistatus>");
+        Ok(Response::new(Status::MULTI_STATUS).with_body("application/xml; charset=utf-8", out.into_bytes()))
+    }
+
+    fn proppatch(&self, head: &Head, key: &str, folder_syntax: bool, body: &[u8]) -> Result<Response, DriveError> {
+        let folder = match self.resource(key, folder_syntax)? {
+            Resource::Missing => return Ok(Response::text(Status::NOT_FOUND, "Not there.")),
+            Resource::File(_) => false,
+            Resource::Folder => true,
+        };
+        if self.locked_out(key, head) {
+            return Ok(Response::text(Status::LOCKED, "Locked."));
+        }
+        let text = match parse_xml(body) {
+            Ok(Some(text)) => text,
+            Ok(None) | Err(_) => return Ok(Response::text(Status::BAD_REQUEST, "Not a PROPPATCH body.")),
+        };
+        let Ok(doc) = roxmltree::Document::parse(&text) else {
+            return Ok(Response::text(Status::BAD_REQUEST, "Not a PROPPATCH body."));
+        };
+        let root = doc.root_element();
+        if !is_dav(&root, "propertyupdate") {
+            return Ok(Response::text(Status::BAD_REQUEST, "Not a PROPPATCH body."));
+        }
+        // Every property named in set / remove: answered as done (dead properties are not
+        // kept; Windows sets its file times this way and stops copying on a refusal).
+        let mut props = String::new();
+        for action in root.children().filter(|n| is_dav(n, "set") || is_dav(n, "remove")) {
+            for prop in action.children().filter(|n| is_dav(n, "prop")) {
+                for p in prop.children().filter(roxmltree::Node::is_element) {
+                    props.push_str(&empty_element(p.tag_name().namespace().unwrap_or_default(), p.tag_name().name()));
+                }
+            }
+        }
+        let out = format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?><D:multistatus xmlns:D=\"DAV:\"><D:response>\
+             <D:href>{}</D:href><D:propstat><D:prop>{props}</D:prop>\
+             <D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>",
+            xml_escape(&href_of(key, folder))
+        );
+        Ok(Response::new(Status::MULTI_STATUS).with_body("application/xml; charset=utf-8", out.into_bytes()))
+    }
+
+    fn get(&self, head: &Head, key: &str, folder_syntax: bool) -> Result<Response, DriveError> {
+        match self.resource(key, folder_syntax)? {
+            Resource::Missing => Ok(Response::text(Status::NOT_FOUND, "Not there.")),
+            Resource::Folder => {
+                let prefix = if key.is_empty() { String::new() } else { format!("{key}/") };
+                let level = ops::list_folder_all(&*self.drive, &prefix)?;
+                let mut html = format!(
+                    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>{0}</title></head><body><h1>{0}</h1><ul>",
+                    xml_escape(&href_of(key, true))
+                );
+                for folder in &level.folders {
+                    let child = folder.trim_end_matches('/');
+                    if child == HIDDEN {
+                        continue;
+                    }
+                    let name = child.rsplit('/').next().unwrap_or_default();
+                    html.push_str(&format!(
+                        "<li><a href=\"{}\">{}/</a></li>",
+                        xml_escape(&href_of(child, true)),
+                        xml_escape(name)
+                    ));
+                }
+                for object in level.objects.iter().filter(|o| !o.key.ends_with('/')) {
+                    html.push_str(&format!(
+                        "<li><a href=\"{}\">{}</a> ({} bytes)</li>",
+                        xml_escape(&href_of(&object.key, false)),
+                        xml_escape(object.name()),
+                        object.size
+                    ));
+                }
+                html.push_str("</ul></body></html>");
+                Ok(Response::new(Status::OK).with_body("text/html; charset=utf-8", html.into_bytes()))
+            }
+            Resource::File(info) => {
+                let mut response_headers: Vec<(String, String)> = vec![
+                    (String::from("Accept-Ranges"), String::from("bytes")),
+                    (String::from("Content-Type"), content_type_of(key).to_string()),
+                ];
+                if let Some(etag) = &info.etag {
+                    response_headers.push((String::from("ETag"), format!("\"{etag}\"")));
+                }
+                if let Some(modified) = info.modified {
+                    response_headers.push((
+                        String::from("Last-Modified"),
+                        dates::http_date(i64::try_from(modified).unwrap_or(0)),
+                    ));
+                }
+                let range = head.header("Range").and_then(|r| parse_range(r, info.size));
+                let head_only = head.method == "HEAD";
+                let (status, body, length) = match range {
+                    Some(Err(())) => {
+                        let mut response = Response::text(Status::RANGE_NOT_SATISFIABLE, "Outside the file.");
+                        response.headers.push((String::from("Content-Range"), format!("bytes */{}", info.size)));
+                        return Ok(response);
+                    }
+                    Some(Ok((start, end))) => {
+                        response_headers.push((
+                            String::from("Content-Range"),
+                            format!("bytes {start}-{end}/{}", info.size),
+                        ));
+                        let body = if head_only {
+                            Vec::new()
+                        } else {
+                            self.drive.get_range(key, ByteRange::new(start, Some(end)))?
+                        };
+                        (Status::PARTIAL, body, end - start + 1)
+                    }
+                    None => {
+                        let body = if head_only { Vec::new() } else { self.drive.get(key)? };
+                        (Status::OK, body, info.size)
+                    }
+                };
+                if head_only {
+                    response_headers.push((String::from("Content-Length"), length.to_string()));
+                }
+                Ok(Response {
+                    status,
+                    headers: response_headers,
+                    body,
+                })
+            }
+        }
+    }
+
+    fn put(&self, head: &Head, key: &str, folder_syntax: bool, body: &[u8]) -> Result<Response, DriveError> {
+        match self.put_allowed(head, key, folder_syntax)? {
+            Err(answer) => Ok(answer),
+            Ok(existed) => self.put_body(key, existed, &mut &body[..]),
+        }
+    }
+
+    /// A PUT's checks before its body: `Ok(existed)` - it may write (and a file was there) -
+    /// or the answer that refuses it.
+    fn put_allowed(&self, head: &Head, key: &str, folder_syntax: bool) -> Result<Result<bool, Response>, DriveError> {
+        if key.is_empty() || folder_syntax {
+            return Ok(Err(Response::text(Status::METHOD_NOT_ALLOWED, "A folder is made with MKCOL.")));
+        }
+        let current = match self.resource(key, false)? {
+            Resource::Folder => {
+                return Ok(Err(Response::text(Status::METHOD_NOT_ALLOWED, "A folder has this name.")));
+            }
+            Resource::File(info) => Some(info),
+            Resource::Missing => None,
+        };
+        // The client writes what it saw: a save made after its PROPFIND is not overwritten
+        // (`If-Match`), a name that is taken is not made again (`If-None-Match: *`)
+        // (X-DELTA-SYNC4-21).
+        let version = current.as_ref().map(crate::pim::version_of);
+        if let Some(refusal) = crate::pim::precondition(head, version.as_deref()) {
+            return Ok(Err(refusal));
+        }
+        let existed = current.is_some();
+        if !self.parent_exists(key)? {
+            return Ok(Err(Response::text(
+                Status::CONFLICT,
+                "The folder it would go into is not there.",
+            )));
+        }
+        if self.locked_out(key, head) {
+            return Ok(Err(Response::text(Status::LOCKED, "Locked.")));
+        }
+        Ok(Ok(existed))
+    }
+
+    /// Writes the file `key` from `body` as it streams in; the answer to an allowed PUT.
+    fn put_body(&self, key: &str, existed: bool, body: &mut dyn std::io::Read) -> Result<Response, DriveError> {
+        self.drive.put_from(key, body)?;
+        let mut response = Response::new(if existed { Status::NO_CONTENT } else { Status::CREATED });
+        if let Ok(info) = self.drive.head(key) {
+            if let Some(etag) = info.etag {
+                response = response.with_header("ETag", format!("\"{etag}\""));
+            }
+        }
+        Ok(response)
+    }
+
+    fn delete(&self, head: &Head, key: &str, folder_syntax: bool) -> Result<Response, DriveError> {
+        if key.is_empty() {
+            return Ok(Response::text(Status::FORBIDDEN, "The drive itself is not deleted."));
+        }
+        let resource = self.resource(key, folder_syntax)?;
+        if resource == Resource::Missing {
+            return Ok(Response::text(Status::NOT_FOUND, "Not there."));
+        }
+        // A file is deleted as the client saw it (`If-Match`): one saved since goes with it
+        // otherwise (X-DELTA-SYNC4-21).
+        if let Resource::File(info) = &resource {
+            let version = crate::pim::version_of(info);
+            if let Some(refusal) = crate::pim::precondition(head, Some(version.as_str())) {
+                return Ok(refusal);
+            }
+        }
+        if self.locked_out(key, head) {
+            return Ok(Response::text(Status::LOCKED, "Locked."));
+        }
+        match resource {
+            Resource::File(_) => self.drive.delete(key)?,
+            _ => self.drive.delete_folder(&format!("{key}/"))?,
+        }
+        self.forget_locks_under(key);
+        Ok(Response::new(Status::NO_CONTENT))
+    }
+
+    fn mkcol(&self, head: &Head, key: &str, body: &[u8]) -> Result<Response, DriveError> {
+        if !body.is_empty() {
+            return Ok(Response::text(Status::UNSUPPORTED_MEDIA, "MKCOL takes no body."));
+        }
+        if key.is_empty() || self.resource(key, false)? != Resource::Missing {
+            return Ok(Response::text(Status::METHOD_NOT_ALLOWED, "Something has this name."));
+        }
+        if !self.parent_exists(key)? {
+            return Ok(Response::text(Status::CONFLICT, "The folder it would go into is not there."));
+        }
+        if self.locked_out(key, head) {
+            return Ok(Response::text(Status::LOCKED, "Locked."));
+        }
+        self.drive.create_folder(&format!("{key}/"))?;
+        Ok(Response::new(Status::CREATED))
+    }
+
+    fn copy_or_move(&self, head: &Head, key: &str, folder_syntax: bool, moving: bool) -> Result<Response, DriveError> {
+        let Some(destination) = head.header("Destination") else {
+            return Ok(Response::text(Status::BAD_REQUEST, "No Destination."));
+        };
+        let (target, _) = match key_of(destination) {
+            Ok(found) => found,
+            Err(status) => return Ok(Response::text(status, "Not a destination in the drive.")),
+        };
+        if key.is_empty() || target.is_empty() {
+            return Ok(Response::text(Status::FORBIDDEN, "The drive itself is not copied or moved."));
+        }
+        let source = self.resource(key, folder_syntax)?;
+        let folder = match source {
+            Resource::Missing => return Ok(Response::text(Status::NOT_FOUND, "Not there.")),
+            Resource::File(_) => false,
+            Resource::Folder => true,
+        };
+        let existing = self.resource(&target, false)?;
+        // Before anything is touched: the destination is not the source, not inside it and not
+        // the folder it lies in (X-DELTA-SYNC4-17).
+        if let Some(refusal) = self.refuse_overlap(key, folder, &target, &existing) {
+            return Ok(refusal);
+        }
+        if !self.parent_exists(&target)? {
+            return Ok(Response::text(Status::CONFLICT, "The destination's folder is not there."));
+        }
+        if self.locked_out(&target, head) || (moving && self.locked_out(key, head)) {
+            return Ok(Response::text(Status::LOCKED, "Locked."));
+        }
+        let overwrite = !head
+            .header("Overwrite")
+            .is_some_and(|o| o.eq_ignore_ascii_case("F"));
+        let replaced = existing != Resource::Missing;
+        if replaced && !overwrite {
+            return Ok(Response::text(
+                Status::PRECONDITION_FAILED,
+                "The destination is there.",
+            ));
+        }
+        let depth_zero = head.header("Depth") == Some("0");
+        match (&existing, folder) {
+            (Resource::Missing, _) => {
+                self.put_in_place(key, &target, folder, moving, depth_zero)?
+            }
+            // A file over a file: the copy replaces the destination in one step, and only when
+            // the source was read; a copy that fails leaves the destination as it was. A move is
+            // that copy and then the source's removal - which only a landed copy licenses.
+            (Resource::File(_), false) => {
+                self.drive.copy(key, &target)?;
+                if moving {
+                    // ARCH30-4: Why::Superseded
+                    self.drive.delete(key)?;
+                }
+            }
+            _ => self.swap_in(
+                key,
+                &target,
+                folder,
+                matches!(existing, Resource::Folder),
+                moving,
+                depth_zero,
+            )?,
+        }
+        if replaced {
+            self.forget_locks_under(&target);
+        }
+        if moving {
+            self.forget_locks_under(key);
+        }
+        Ok(Response::new(if replaced {
+            Status::NO_CONTENT
+        } else {
+            Status::CREATED
+        }))
+    }
+
+    /// The refusal when the destination `target` is the source `key`, lies inside it or is the
+    /// folder it lies in; `None` when the two are apart. Decided by the files the keys name
+    /// ([`azul_storage::xfer::overlap`]: a name in another case on a disk that ignores it, a link,
+    /// a second drive over the folder), never by the spelling - a MOVE onto an ancestor deleted the
+    /// destination first and took the source with it (X-DELTA-SYNC4-17). `existing`: what is at
+    /// the destination now.
+    fn refuse_overlap(
+        &self,
+        key: &str,
+        folder: bool,
+        target: &str,
+        existing: &Resource,
+    ) -> Option<Response> {
+        let site = self.drive.site();
+        let from = if folder {
+            format!("{key}/")
+        } else {
+            key.to_string()
+        };
+        let to = if *existing == Resource::Folder {
+            format!("{target}/")
+        } else {
+            target.to_string()
+        };
+        let (status, why) = match overlap(&site, &from, &site, &to) {
+            Overlap::Disjoint => return None,
+            Overlap::Same => (Status::FORBIDDEN, "Not onto itself."),
+            Overlap::SourceHoldsTarget => (Status::FORBIDDEN, "Not into itself."),
+            Overlap::TargetHoldsSource => (Status::FORBIDDEN, "Not onto the folder it lies in."),
+            Overlap::Unknown => (
+                Status::FORBIDDEN,
+                "The destination cannot be told from the source.",
+            ),
+        };
+        Some(Response::text(status, why))
+    }
+
+    /// The source where nothing is: a rename for a move, a copy for a copy (a folder's copy is its
+    /// folder and every object under it, with `Depth: 0` the folder alone).
+    fn put_in_place(
+        &self,
+        key: &str,
+        target: &str,
+        folder: bool,
+        moving: bool,
+        depth_zero: bool,
+    ) -> Result<(), DriveError> {
+        match (folder, moving) {
+            (false, true) => self.drive.rename(key, target),
+            (false, false) => self.drive.copy(key, target),
+            (true, true) => self.drive.rename(&format!("{key}/"), &format!("{target}/")),
+            (true, false) => {
+                let from = format!("{key}/");
+                let to = format!("{target}/");
+                self.drive.create_folder(&to)?;
+                if depth_zero {
+                    return Ok(());
+                }
+                for object in ops::list_all(&*self.drive, &from)? {
+                    let rest = &object.key[from.len()..];
+                    if rest.is_empty() {
+                        continue;
+                    }
+                    let dest = format!("{to}{rest}");
+                    if object.key.ends_with('/') {
+                        self.drive.put(&dest, &[])?;
+                    } else {
+                        self.drive.copy(&object.key, &dest)?;
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Replaces a destination that is a folder, or a file where the source is a folder - or a
+    /// folder where it is a file: the new content is made BESIDE the destination first and only a
+    /// whole one takes its place. RFC 4918 says the destination is deleted and the source copied;
+    /// in that order a copy that failed left neither (X-DELTA-SYNC4-17). Here the destination
+    /// is not touched until the new content is complete, then it steps aside under a name of its
+    /// own, the new content is renamed into its place, and only then is the old one deleted. A step
+    /// that fails puts back what it moved, deletes nothing but what this call made, and leaves the
+    /// destination under its name.
+    ///
+    /// A KILL inside the swap is the other crash row: the process is gone and nothing puts back.
+    /// So the swap writes its intent first ([`SwapRecords`]: the source, the destination and the
+    /// two staging names - in the bridge's state folder, where the encrypted drive and a served
+    /// folder would refuse a record, X-DELTA-APPS4-1) and removes it when the swap is settled, and
+    /// the next process finishes or undoes what it finds ([`Dav::recover_swaps`], by those names and
+    /// only when the destination is where the table below expects it). The table, by what a kill
+    /// leaves, step by step (the tests stop the flow after each write, on the drives the bridge
+    /// serves: `x_delta_apps4_1_*`):
+    ///
+    /// | killed after | the drive | the next start |
+    /// |---|---|---|
+    /// | (before the record is whole) | as it was | nothing to settle; the client's request failed |
+    /// | the record | as it was | nothing of the swap is under a staging name: the record goes |
+    /// | the new content beside the destination (a MOVE: the source under that name) | the destination untouched | a copy beside it is deleted, a moved source goes back |
+    /// | the destination stepped aside | the old content whole under the aside name, the new beside | finishes: the new content into place, the old deleted |
+    /// | the new content in place | both exist | the old one is deleted |
+    /// | the old one deleted | the swap is done | the record goes |
+    fn swap_in(
+        &self,
+        key: &str,
+        target: &str,
+        folder: bool,
+        destination_is_folder: bool,
+        moving: bool,
+        depth_zero: bool,
+    ) -> Result<(), DriveError> {
+        let stamp = unique_stamp();
+        let intent = SwapIntent {
+            key: key.to_string(),
+            target: target.to_string(),
+            beside: format!("{target}.azul-new-{stamp}"),
+            aside: format!("{target}.azul-old-{stamp}"),
+            folder,
+            destination_is_folder,
+            moving,
+        };
+        // 0. The intent, durable before anything moves: a record that cannot be written is a swap
+        //    that does not start, with nothing touched. The stamp is running BEFORE its record is
+        //    there, so that a look at the records that comes between the two never finds a record
+        //    nobody owns.
+        let text = serde_json::to_vec(&intent).map_err(|e| DriveError::Io(e.to_string()))?;
+        self.running().insert(stamp.clone());
+        if let Err(e) = self.records.put(&stamp, &text) {
+            self.running().remove(&stamp);
+            return Err(DriveError::Io(format!(
+                "the replacement of {target} was not started, nothing was changed: its record could not be written ({e})"
+            )));
+        }
+        let (result, clean) = self.swap_steps(&intent, depth_zero);
+        self.running().remove(&stamp);
+        // The intent goes only when nothing this swap made is left behind: a stray keeps it, for
+        // the next start to settle.
+        if clean {
+            if let Err(e) = self.records.remove(&stamp) {
+                eprintln!("[azul-bridge] the record of a finished swap could not be removed ({stamp}): {e}");
+            }
+        }
+        result
+    }
+
+    /// The swaps this process is running ([`Dav::swaps`]).
+    fn running(&self) -> std::sync::MutexGuard<'_, HashSet<String>> {
+        self.swaps
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The steps of a swap ([`Dav::swap_in`]); with them, whether the swap is settled - nothing of
+    /// it is left under a staging name.
+    fn swap_steps(&self, intent: &SwapIntent, depth_zero: bool) -> (Result<(), DriveError>, bool) {
+        let SwapIntent {
+            key,
+            target,
+            beside,
+            aside,
+            folder,
+            destination_is_folder,
+            moving,
+        } = intent;
+        let (folder, destination_is_folder, moving) = (*folder, *destination_is_folder, *moving);
+        let (new_slash, old_slash) = (
+            if folder { "/" } else { "" },
+            if destination_is_folder { "/" } else { "" },
+        );
+        // 1. The new content beside the destination.
+        if let Err(e) = self.put_in_place(key, beside, folder, moving, depth_zero) {
+            // A copy that failed midway is deleted (this call made it); a move that failed moved
+            // nothing. A delete the drive refuses leaves a stray: the swap is then not settled, and
+            // the intent stays to name it.
+            let clean = moving || self.discard_own(beside, folder).is_ok();
+            return (Err(e), clean);
+        }
+        // Undoes step 1 when a later step fails: a copy is deleted (this call made it), a move
+        // is renamed back (it is the source itself). Whether it left nothing behind.
+        let undo_step_1 = |this: &Dav| -> bool {
+            if moving {
+                if let Err(e) = this.drive.rename(
+                    &format!("{beside}{new_slash}"),
+                    &format!("{key}{new_slash}"),
+                ) {
+                    eprintln!("[azul-bridge] the moved {key} is kept as {beside}: it could not be put back: {e}");
+                    return false;
+                }
+            } else if this.discard_own(beside, folder).is_err() {
+                return false;
+            }
+            true
+        };
+        // 2. The old destination steps aside.
+        if let Err(e) = self.drive.rename(
+            &format!("{target}{old_slash}"),
+            &format!("{aside}{old_slash}"),
+        ) {
+            let clean = undo_step_1(self);
+            return (Err(e), clean);
+        }
+        // 3. The new content takes its place.
+        if let Err(e) = self.drive.rename(
+            &format!("{beside}{new_slash}"),
+            &format!("{target}{new_slash}"),
+        ) {
+            let clean = match self.drive.rename(
+                &format!("{aside}{old_slash}"),
+                &format!("{target}{old_slash}"),
+            ) {
+                Ok(()) => undo_step_1(self),
+                Err(back) => {
+                    eprintln!(
+                        "[azul-bridge] the old {target} is kept as {aside}: it could not be put back: {back}"
+                    );
+                    false
+                }
+            };
+            return (Err(e), clean);
+        }
+        // 4. The old one goes: the replacement landed.
+        let removed = if destination_is_folder {
+            // ARCH30-4: Why::Superseded
+            self.drive.delete_folder(&format!("{aside}/"))
+        } else {
+            // ARCH30-4: Why::Superseded
+            self.drive.delete(aside)
+        };
+        if let Err(e) = removed {
+            eprintln!("[azul-bridge] the replaced {target} is kept as {aside}: it could not be deleted: {e}");
+            return (Ok(()), false);
+        }
+        (Ok(()), true)
+    }
+
+    /// Looks at the swaps an earlier process left ([`SwapRecords`]) before the first request is
+    /// answered, and again when a record it had to leave alone is past its grace; a look that fails
+    /// is made again by the next request.
+    fn recover_swaps_once(&self) {
+        let now = self.now();
+        let due = self.next_look.load(Ordering::SeqCst);
+        // The request that takes the look over from `due` makes it; one that comes meanwhile goes on.
+        if now < due
+            || self
+                .next_look
+                .compare_exchange(due, u64::MAX, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
+            return;
+        }
+        match self.recover_swaps(now) {
+            Ok(found) => {
+                if found.settled > 0 {
+                    eprintln!(
+                        "[azul-bridge] {} interrupted copy or move settled",
+                        found.settled
+                    );
+                }
+                if let Some(at) = found.wait_until {
+                    self.next_look.store(at, Ordering::SeqCst);
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "[azul-bridge] the interrupted copies and moves could not be looked at: {e}"
+                );
+                self.next_look.store(0, Ordering::SeqCst);
+            }
+        }
+    }
+
+    /// Finishes or undoes the swaps recorded in [`SwapRecords`] that are not running now. A record of
+    /// this process that is not running was cut by a panic; one of another process is settled at once
+    /// when the bridge holds the lock of the state folder the records are in ([`SwapRecords::guarded_by`]: the
+    /// process that made it is gone), and else left alone for [`SWAP_GRACE_SECS`] (`now`: seconds since 1970) -
+    /// it may be a swap that is running - and the look says when that is over ([`Recovery::wait_until`]). A
+    /// record that cannot be read stays, and
+    /// so does one whose names are not where the table of [`Dav::swap_in`] expects them: nothing is
+    /// guessed.
+    ///
+    /// # Errors
+    ///
+    /// The records cannot be listed or read, or the drive refuses a step: the look is made again.
+    fn recover_swaps(&self, now: u64) -> Result<Recovery, DriveError> {
+        let stamps = self.records.stamps().map_err(|e| {
+            DriveError::Io(format!(
+                "the records of the interrupted swaps cannot be listed: {e}"
+            ))
+        })?;
+        let mut found = Recovery::default();
+        for stamp in stamps {
+            if self.running().contains(&stamp) {
+                continue;
+            }
+            // `<seconds>-<process>-<counter>` ([`unique_stamp`]).
+            let mut parts = stamp.split('-');
+            let at = parts.next().and_then(|secs| secs.parse::<u64>().ok());
+            let process = parts.next().and_then(|pid| pid.parse::<u32>().ok());
+            if process != Some(std::process::id()) {
+                match at {
+                    // A name this bridge did not make: not its to settle.
+                    None => continue,
+                    // The bridge holds the lock of the state folder the records are in: no other bridge is serving
+                    // it, so the process that made this record is gone - settled at the first request, whatever
+                    // the clock said then or says now (X-DELTA-APPS5-5).
+                    Some(_) if self.records.guarded() => {}
+                    Some(at) if now < at.saturating_add(SWAP_GRACE_SECS) => {
+                        let until = at.saturating_add(SWAP_GRACE_SECS);
+                        found.wait_until =
+                            Some(found.wait_until.map_or(until, |was| was.min(until)));
+                        continue;
+                    }
+                    Some(_) => {}
+                }
+            }
+            let bytes = match self.records.get(&stamp) {
+                Ok(Some(bytes)) => bytes,
+                // Settled by another look since the list.
+                Ok(None) => continue,
+                Err(e) => {
+                    return Err(DriveError::Io(format!(
+                        "the record {stamp} of an interrupted swap cannot be read: {e}"
+                    )))
+                }
+            };
+            let intent = match serde_json::from_slice::<SwapIntent>(&bytes) {
+                Ok(intent) => intent,
+                Err(e) => {
+                    eprintln!(
+                        "[azul-bridge] the record {stamp} of an interrupted swap is damaged: {e}"
+                    );
+                    continue;
+                }
+            };
+            if self.settle_swap(&intent)? {
+                self.records.remove(&stamp).map_err(|e| {
+                    DriveError::Io(format!(
+                        "the record {stamp} of a settled swap could not be removed: {e}"
+                    ))
+                })?;
+                found.settled += 1;
+            }
+        }
+        Ok(found)
+    }
+
+    /// Settles one interrupted swap by what is where (the table of [`Dav::swap_in`]); `false`
+    /// when the names are not where that table expects them and nothing was touched.
+    fn settle_swap(&self, intent: &SwapIntent) -> Result<bool, DriveError> {
+        let present = |name: &str| -> Result<bool, DriveError> {
+            Ok(self.resource(name, false)? != Resource::Missing)
+        };
+        let (new_slash, old_slash) = (
+            if intent.folder { "/" } else { "" },
+            if intent.destination_is_folder {
+                "/"
+            } else {
+                ""
+            },
+        );
+        let (target, beside, aside) = (
+            present(&intent.target)?,
+            present(&intent.beside)?,
+            present(&intent.aside)?,
+        );
+        match (target, beside, aside) {
+            // Nothing of the swap is left under a staging name: it was settled before the record
+            // could go.
+            (_, false, false) => Ok(true),
+            // After step 1: the destination is untouched; the new content is a copy to delete, or
+            // the moved source to put back (when its own name is free).
+            (true, true, false) => {
+                if intent.moving {
+                    if present(&intent.key)? {
+                        return Ok(false);
+                    }
+                    self.drive.rename(
+                        &format!("{}{new_slash}", intent.beside),
+                        &format!("{}{new_slash}", intent.key),
+                    )?;
+                } else {
+                    // A delete the drive refuses ends the look here: the intent stays, the next
+                    // request tries again.
+                    self.discard_own(&intent.beside, intent.folder)?;
+                }
+                Ok(true)
+            }
+            // After step 2: the old content is whole under its staging name and the new content
+            // is complete beside the (missing) destination: the swap finishes.
+            (false, true, true) => {
+                self.drive.rename(
+                    &format!("{}{new_slash}", intent.beside),
+                    &format!("{}{new_slash}", intent.target),
+                )?;
+                self.drop_aside(intent, old_slash)?;
+                Ok(true)
+            }
+            // After step 3: the new content is in place and the old one waits to go.
+            (true, false, true) => {
+                self.drop_aside(intent, old_slash)?;
+                Ok(true)
+            }
+            // The destination is gone and only the old content is left: it goes back under its name.
+            (false, false, true) => {
+                self.drive.rename(
+                    &format!("{}{old_slash}", intent.aside),
+                    &format!("{}{old_slash}", intent.target),
+                )?;
+                Ok(true)
+            }
+            // Anything else is not a state of the table: nothing is guessed.
+            _ => Ok(false),
+        }
+    }
+
+    /// Deletes the old destination of a swap that landed, by its staging name.
+    fn drop_aside(&self, intent: &SwapIntent, old_slash: &str) -> Result<(), DriveError> {
+        if old_slash.is_empty() {
+            // ARCH30-4: Why::Superseded
+            self.drive.delete(&intent.aside)
+        } else {
+            // ARCH30-4: Why::Superseded
+            self.drive.delete_folder(&format!("{}/", intent.aside))
+        }
+    }
+
+    /// Deletes what this very request made beside a destination and no other client knows of. An
+    /// error when the drive refuses: what is left is a stray, said on stderr, and the caller keeps
+    /// the swap's intent so that the next start settles it.
+    fn discard_own(&self, key: &str, folder: bool) -> Result<(), DriveError> {
+        let removed = if folder {
+            // ARCH30-4: Why::Refused
+            self.drive.delete_folder(&format!("{key}/"))
+        } else {
+            // ARCH30-4: Why::Refused
+            self.drive.delete(key)
+        };
+        if let Err(e) = &removed {
+            eprintln!("[azul-bridge] {key} is left over from a copy that failed: {e}");
+        }
+        removed
+    }
+
+    fn lock(&self, head: &Head, key: &str, folder_syntax: bool, body: &[u8]) -> Result<Response, DriveError> {
+        let text = match parse_xml(body) {
+            Ok(text) => text,
+            Err(status) => return Ok(Response::text(status, "Not a LOCK body.")),
+        };
+        let seconds = timeout_of(head);
+        let Some(text) = text else {
+            // A refresh: the token comes in the If header.
+            let presented = head.header("If").unwrap_or_default().to_string();
+            let mut locks = self.locks();
+            let Some(lock) = locks
+                .iter_mut()
+                .find(|l| l.covers(key) && presented.contains(&l.token))
+            else {
+                return Ok(Response::text(Status::PRECONDITION_FAILED, "No lock of yours to refresh."));
+            };
+            lock.seconds = seconds;
+            lock.expires = Instant::now() + Duration::from_secs(seconds);
+            let xml = active_lock(lock);
+            drop(locks);
+            return Ok(lock_answer(Status::OK, &xml, None));
+        };
+        let Ok(doc) = roxmltree::Document::parse(&text) else {
+            return Ok(Response::text(Status::BAD_REQUEST, "Not a LOCK body."));
+        };
+        let root = doc.root_element();
+        if !is_dav(&root, "lockinfo") {
+            return Ok(Response::text(Status::BAD_REQUEST, "Not a LOCK body."));
+        }
+        let exclusive = !root
+            .descendants()
+            .any(|n| is_dav(&n, "shared"));
+        let owner = root
+            .children()
+            .find(|n| is_dav(n, "owner"))
+            .map(|n| {
+                // The text nodes only: an element's `text()` is its first text child, which
+                // the walk meets again as a node of its own.
+                n.descendants()
+                    .filter(roxmltree::Node::is_text)
+                    .filter_map(|d| d.text())
+                    .collect::<String>()
+                    .trim()
+                    .to_string()
+            })
+            .unwrap_or_default();
+        let infinite = head
+            .header("Depth")
+            .is_none_or(|d| d.eq_ignore_ascii_case("infinity"));
+        let resource = self.resource(key, folder_syntax)?;
+        // A folder's lock key ends in `/`; the root's is empty (it is above every key).
+        let lock_key = match &resource {
+            Resource::Folder if !key.is_empty() => format!("{key}/"),
+            _ => key.to_string(),
+        };
+        let lock_is_folder = lock_key.is_empty() || lock_key.ends_with('/');
+        {
+            let locks = self.locks();
+            let conflict = locks.iter().any(|l| {
+                (l.covers(&lock_key) || (infinite && lock_is_folder && l.key.starts_with(&lock_key)))
+                    && (l.exclusive || exclusive)
+            });
+            if conflict {
+                return Ok(Response::text(Status::LOCKED, "Locked by someone else."));
+            }
+        }
+        // A lock on a name that is not there makes an empty file (RFC 4918 9.10.4).
+        let created = if resource == Resource::Missing {
+            if key.is_empty() || folder_syntax || !self.parent_exists(key)? {
+                return Ok(Response::text(Status::CONFLICT, "The folder it would go into is not there."));
+            }
+            self.drive.put(key, &[])?;
+            true
+        } else {
+            false
+        };
+        let lock = Lock {
+            key: lock_key,
+            token: random_token(),
+            owner,
+            exclusive,
+            infinite,
+            seconds,
+            expires: Instant::now() + Duration::from_secs(seconds),
+        };
+        let xml = active_lock(&lock);
+        let token = lock.token.clone();
+        self.locks().push(lock);
+        Ok(lock_answer(
+            if created { Status::CREATED } else { Status::OK },
+            &xml,
+            Some(&token),
+        ))
+    }
+
+    fn unlock(&self, head: &Head, key: &str) -> Result<Response, DriveError> {
+        let token = head
+            .header("Lock-Token")
+            .unwrap_or_default()
+            .trim()
+            .trim_start_matches('<')
+            .trim_end_matches('>')
+            .to_string();
+        let mut locks = self.locks();
+        let before = locks.len();
+        locks.retain(|l| !(l.token == token && l.covers(key)));
+        if locks.len() == before {
+            return Ok(Response::text(Status::CONFLICT, "No such lock here."));
+        }
+        Ok(Response::new(Status::NO_CONTENT))
+    }
+}
+
+/// A part of a name no other request of any bridge makes twice: the second, the process and a
+/// counter (the names a replacing COPY / MOVE makes beside its destination).
+fn unique_stamp() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "{}-{}-{}",
+        azul_storage::time::now_unix(),
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+/// The answer to a request the drive failed.
+pub(crate) fn drive_answer(e: DriveError) -> Response {
+    match e {
+        DriveError::NotFound { .. } => Response::text(Status::NOT_FOUND, "Not there."),
+        DriveError::InvalidKey { reason, .. } => Response::text(Status::CONFLICT, reason),
+        DriveError::Denied { .. } => Response::text(Status::FORBIDDEN, "The drive refused."),
+        DriveError::Locked { .. } => Response::text(
+            Status::FORBIDDEN,
+            "The drive is locked on this computer: unlock it in AzDrive.",
+        ),
+        other => Response::text(Status::BAD_GATEWAY, &other.to_string()),
+    }
+}
+
+/// Answers with `response` and closes - after reading for a moment what the client still sends
+/// (a body the bridge refused), so it sees the answer instead of a reset (a lingering close).
+fn refuse_and_close<C: Conn>(conn: &mut C, response: &Response) {
+    use std::io::Read;
+
+    if http::write_response(conn, response, false, false).is_err() {
+        return;
+    }
+    let _ = conn.set_read_timeout(Some(Duration::from_millis(500)));
+    let mut scratch = [0u8; 16 * 1024];
+    let mut total = 0usize;
+    while total < 16 * 1024 * 1024 {
+        match conn.read(&mut scratch) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => total += n,
+        }
+    }
+}
+
+fn active_lock(lock: &Lock) -> String {
+    format!(
+        "<D:activelock><D:locktype><D:write/></D:locktype><D:lockscope>{}</D:lockscope>\
+         <D:depth>{}</D:depth><D:owner>{}</D:owner><D:timeout>Second-{}</D:timeout>\
+         <D:locktoken><D:href>{}</D:href></D:locktoken>\
+         <D:lockroot><D:href>{}</D:href></D:lockroot></D:activelock>",
+        if lock.exclusive { "<D:exclusive/>" } else { "<D:shared/>" },
+        if lock.infinite { "infinity" } else { "0" },
+        xml_escape(&lock.owner),
+        lock.seconds,
+        lock.token,
+        xml_escape(&href_of(&lock.key, lock.key.ends_with('/')))
+    )
+}
+
+fn lock_answer(status: Status, active: &str, token: Option<&str>) -> Response {
+    let body = format!(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?><D:prop xmlns:D=\"DAV:\"><D:lockdiscovery>{active}</D:lockdiscovery></D:prop>"
+    );
+    let mut response = Response::new(status).with_body("application/xml; charset=utf-8", body.into_bytes());
+    if let Some(token) = token {
+        response = response.with_header("Lock-Token", format!("<{token}>"));
+    }
+    response
+}
+
+/// One byte range of a `Range` header for a file of `size` bytes: `Some(Ok((first, last)))`,
+/// `Some(Err(()))` when it is outside the file, `None` for no range or one the bridge ignores
+/// (several ranges, another unit: the whole file then).
+fn parse_range(value: &str, size: u64) -> Option<Result<(u64, u64), ()>> {
+    let spec = value.trim().strip_prefix("bytes=")?;
+    if spec.contains(',') {
+        return None;
+    }
+    let (first, last) = spec.split_once('-')?;
+    let (first, last) = (first.trim(), last.trim());
+    if first.is_empty() {
+        // The last n bytes.
+        let n: u64 = last.parse().ok()?;
+        if n == 0 || size == 0 {
+            return Some(Err(()));
+        }
+        return Some(Ok((size.saturating_sub(n), size - 1)));
+    }
+    let start: u64 = first.parse().ok()?;
+    let end: u64 = if last.is_empty() {
+        size.saturating_sub(1)
+    } else {
+        last.parse::<u64>().ok()?.min(size.saturating_sub(1))
+    };
+    if start >= size || end < start {
+        return Some(Err(()));
+    }
+    Some(Ok((start, end)))
+}
+
+fn busy(stream: &mut std::net::TcpStream) {
+    let _ = http::write_response(
+        stream,
+        &Response::text(Status(503, "Service Unavailable"), "Too many connections."),
+        false,
+        false,
+    );
+}
+
+/// Serves WebDAV on `listener` until it fails.
+pub fn serve(dav: Arc<Dav>, listener: std::net::TcpListener) {
+    let max = dav.limits.max_connections;
+    let handler: net::Handler = Arc::new(move |stream| dav.handle(stream));
+    net::serve(listener, max, handler, busy);
+}
+
+#[cfg(test)]
+mod tests;

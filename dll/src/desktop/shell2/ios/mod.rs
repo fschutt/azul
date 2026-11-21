@@ -59,6 +59,8 @@ use crate::{
 pub mod accessibility;
 pub mod clipboard;
 mod text_input;
+/// `<webview>`: `WKWebView`s, `WebKit.framework` loaded at the first one.
+mod webview;
 
 use crate::{
     desktop::wr_translate2::{AsyncHitTester, WrRenderApi},
@@ -170,17 +172,36 @@ const K_CG_RENDERING_INTENT_DEFAULT: u32 = 0;
 /// says it is done, not when the creating stack frame unwinds.
 #[cfg(feature = "cpurender")]
 extern "C" fn release_frame_pixels(_info: *mut c_void, data: *const u8, size: usize) {
-    // Reconstitute the Box<[u8]> leaked in display_layer and drop it.
+    // Reconstitute the Box<[u8]> leaked in display_layer. It is not freed:
+    // it is the buffer of a later frame's copy (A10-11; the pool frees what
+    // it does not keep).
     // SAFETY: `data`/`size` are exactly the pointer + length of the boxed
     // slice passed to CGDataProviderCreateWithData below; CG invokes this
     // callback exactly once, when the last retain on the provider is gone.
-    unsafe {
-        drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+    let buffer = unsafe {
+        Box::from_raw(core::ptr::slice_from_raw_parts_mut(
             data as *mut u8,
             size,
-        )));
+        ))
+    };
+    // Core Graphics may call this from any thread: the pool is behind a lock.
+    if let Ok(mut pool) = FRAME_COPIES.lock() {
+        pool.give_back(buffer);
     }
 }
+
+/// The buffers of the frame copies handed to Core Graphics (A10-11): a
+/// present used to allocate one of the frame's size and free the one before
+/// (22 MB on a 2732 x 2048 screen, every present).
+#[cfg(feature = "cpurender")]
+static FRAME_COPIES: std::sync::Mutex<azul_layout::window::FrameBufferPool> =
+    std::sync::Mutex::new(azul_layout::window::FrameBufferPool::new());
+
+/// The window's rendered-frame count at the last `setContents:`, plus one;
+/// 0 = no frame was handed to the layer yet (A10-11).
+#[cfg(feature = "cpurender")]
+static FRAMES_AT_LAST_PRESENT: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
 
 // ─── Global window pointer ────────────────────────────────────────────
 //
@@ -235,6 +256,10 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         None => return,
     };
 
+    // `<webview>`s first: their reports (a delegate asked for this pass) may
+    // ask for a rebuild or a repaint, which this pass then makes.
+    window.pump_webviews_if_any();
+
     if window.common.regeneration_pending() {
         // A relayout re-rasters on its way through, so any pending
         // repaint-only request is satisfied by it.
@@ -248,6 +273,9 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         window.needs_rerender = false;
         window.rerender_cpu();
     }
+
+    // Where this frame put the `<webview>`s, and the ops queued for them.
+    let _ = crate::desktop::shell2::common::webview::sync(window);
 
     #[cfg(feature = "cpurender")]
     {
@@ -267,6 +295,39 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         if pw == 0 || ph == 0 {
             return;
         }
+        // A10-11: the layer keeps the image it was given. When that image is
+        // still this frame (nothing was rendered since, or one frame was and
+        // it changed nothing: a tick of the display link over an idle UI)
+        // there is nothing to copy and nothing to hand over.
+        let frames_now = window
+            .common
+            .layout_window
+            .as_ref()
+            .map_or(0, |lw| lw.frame_timings().frame_count);
+        let frames_at_last_present =
+            match FRAMES_AT_LAST_PRESENT.load(core::sync::atomic::Ordering::Relaxed) {
+                0 => None,
+                n => Some(n - 1),
+            };
+        let layer_has_contents = unsafe {
+            let contents: *mut Object = msg_send![layer, contents];
+            !contents.is_null()
+        };
+        if layer_has_contents
+            && azul_layout::window::present_geometry::frame_already_shown(
+                frames_now,
+                frames_at_last_present,
+                window.cpu_backend.last_present_damage.is_none(),
+            )
+        {
+            // What the layer shows is the frame as of NOW: the next idle
+            // tick is again "one frame since, nothing changed".
+            FRAMES_AT_LAST_PRESENT.store(
+                frames_now.saturating_add(1),
+                core::sync::atomic::Ordering::Relaxed,
+            );
+            return;
+        }
         // Hand the provider its OWN copy of the frame. The old code passed a
         // pointer into `cpu_backend.last_frame` with `release: None` ("pixmap
         // outlives this call") — but the CGImage outlives the call: the layer
@@ -277,8 +338,14 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         // commit time (ERROR_CGDataProvider_BufferIsNotReadable / torn
         // frames). The copy is freed in `release_frame_pixels` when CG drops
         // its last reference.
-        let owned: Box<[u8]> = Box::from(pixmap.data());
-        let len = owned.len();
+        // The copy goes into a buffer an earlier frame's copy gave back
+        // (A10-11), not into a fresh allocation.
+        let len = pixmap.data().len();
+        let mut owned: Box<[u8]> = match FRAME_COPIES.lock() {
+            Ok(mut pool) => pool.take(len),
+            Err(_) => vec![0_u8; len].into_boxed_slice(),
+        };
+        owned.copy_from_slice(pixmap.data());
         let data_ptr = Box::into_raw(owned) as *mut u8;
         unsafe {
             let cs = CGColorSpaceCreateDeviceRGB();
@@ -312,6 +379,10 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
             if !image.is_null() {
                 let _: () = msg_send![layer, setContents: image];
                 CGImageRelease(image);
+                FRAMES_AT_LAST_PRESENT.store(
+                    frames_now.saturating_add(1),
+                    core::sync::atomic::Ordering::Relaxed,
+                );
             }
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
@@ -700,6 +771,7 @@ fn handle_touch(this: &Object, touches: *mut Object, event: *mut Object, phase: 
     }
     if let Some(lw) = window.common.layout_window.as_mut() {
         lw.gesture_drag_manager.clear_native_gesture();
+        lw.gesture_drag_manager.note_pinch_dispatched();
 
         // Pencil events route through the same gesture manager that pen
         // tablets do on desktop. Apple Pencil has no eraser tip and no
@@ -939,7 +1011,10 @@ extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
     use azul_core::geom::LogicalPosition;
     use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
     let state: i64 = unsafe { msg_send![sender, state] };
-    if state != UI_GESTURE_RECOGNIZER_STATE_CHANGED {
+    // `scale` is the recognizer's scale since the gesture began (cumulative,
+    // as `DetectedPinch` is defined); the BEGAN update opens the gesture.
+    let began = state == UI_GESTURE_RECOGNIZER_STATE_BEGAN;
+    if !began && state != UI_GESTURE_RECOGNIZER_STATE_CHANGED {
         return;
     }
     let scale: f64 = unsafe { msg_send![sender, scale] };
@@ -956,6 +1031,8 @@ extern "C" fn on_pinch(_this: &Object, _cmd: Sel, sender: *mut Object) {
                 initial_distance: 0.0,
                 current_distance: 0.0,
                 duration_ms: 0,
+                began,
+                ended: false,
             }),
         );
     }
@@ -1059,6 +1136,18 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
         // per-frame slot `run.rs` gives the four desktop backends.
         #[cfg(feature = "a11y")]
         window.process_accessibility_actions();
+        // Native notifications: queued posts out to UNUserNotificationCenter,
+        // taps / buttons / dismissals (queued by the UN delegate on its own
+        // queue) routed to their callbacks - or to the app-level handler for
+        // the tap that launched the app - and run against this window. The
+        // display tick is iOS's only per-frame slot, so it is the pump; UN
+        // needs no wake-up here, unlike the parked macOS loop.
+        let deliveries = crate::desktop::notifications::pump_notifications();
+        if !deliveries.is_empty()
+            && crate::desktop::notifications::invoke_deliveries(window, deliveries)
+        {
+            window.request_redraw();
+        }
         // The APP's explicit soft-keyboard request. `CallbackInfo::
         // request_soft_keyboard()` -> `CallbackChange::RequestSoftKeyboard` ->
         // `TextEditManager::pending_soft_keyboard` was drained on Android only,
@@ -1088,7 +1177,7 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
             let _ = window.process_window_events(0);
             window
                 .common
-                .request_regeneration(RelayoutReason::ThemeChange);
+                .request_regeneration(RelayoutReason::ModeChange);
         }
         if window.common.regeneration_pending() {
             let _ = window.present();
@@ -1096,7 +1185,7 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
     }
 }
 
-/// The device's light/dark setting, as a [`WindowTheme`].
+/// The device's light/dark setting, as a [`DarkLightMode`].
 ///
 /// `UITraitCollection.currentTraitCollection.userInterfaceStyle`:
 /// 0 = unspecified, 1 = light, 2 = dark (`UIUserInterfaceStyle`). Unspecified
@@ -1108,15 +1197,15 @@ extern "C" fn display_tick(_this: &Object, _cmd: Sel, _link: *mut Object) {
 /// Linux backends: there the probe is a blocking D-Bus round trip and MUST be
 /// threaded, here it is one message send and must NOT be.
 #[cfg(target_os = "ios")]
-unsafe fn probe_user_interface_style() -> Option<azul_core::window::WindowTheme> {
+unsafe fn probe_user_interface_style() -> Option<azul_core::window::DarkLightMode> {
     let traits: *mut Object = msg_send![class!(UITraitCollection), currentTraitCollection];
     if traits.is_null() {
         return None;
     }
     let style: i64 = msg_send![traits, userInterfaceStyle];
     match style {
-        1 => Some(azul_core::window::WindowTheme::LightMode),
-        2 => Some(azul_core::window::WindowTheme::DarkMode),
+        1 => Some(azul_core::window::DarkLightMode::Light),
+        2 => Some(azul_core::window::DarkLightMode::Dark),
         _ => None,
     }
 }
@@ -1133,16 +1222,19 @@ unsafe fn probe_user_interface_style() -> Option<azul_core::window::WindowTheme>
 unsafe fn adopt_device_appearance(
     common: &mut crate::desktop::shell2::common::event::CommonWindowState,
 ) -> bool {
-    let Some(theme) = probe_user_interface_style() else {
+    let Some(desktop) = probe_user_interface_style() else {
         return false;
     };
-    if common.current_window_state().theme == theme {
+    // The DEVICE's appearance: the window takes it only while the app follows
+    // it (`AppConfig::mode` / `CallbackInfo::set_mode` pin it otherwise);
+    // either way the device's is remembered.
+    let Some(theme) = common.adopt_desktop_theme(desktop) else {
         return false;
-    }
+    };
     // The diff pipeline compares against previous_window_state to decide a
     // ThemeChanged event fired; without this snapshot no callback runs.
     common.snapshot_window_state_baseline("ios.adopt_device_appearance");
-    common.update_unsynced_state(|ws| ws.theme = theme);
+    common.write_shown_mode(theme);
     true
 }
 
@@ -1369,6 +1461,13 @@ extern "C" fn did_finish_launching(
                 }
             };
 
+        // The UNUserNotificationCenter delegate, BEFORE this method returns:
+        // a tap on a notification of an app that was not running launches it,
+        // and UN delivers that response only to a delegate set while launching.
+        // Also reads the stored authorization for
+        // `get_permission_status(Capability::Notifications)`.
+        crate::desktop::notifications::install_launch_hooks();
+
         let window = match IOSWindow::new(
             root_window,
             fc_cache,
@@ -1404,6 +1503,10 @@ extern "C" fn did_finish_launching(
 
 extern "C" fn app_did_become_active(_this: &Object, _cmd: Sel, _app: *mut Object) {
     log_info!(LogCategory::EventLoop, "[iOS] applicationDidBecomeActive:");
+    // Notifications: a response from now on is a tap on a running app (the
+    // one that cold-launched it arrived before this), and the permission the
+    // user may have changed in Settings meanwhile is re-read.
+    crate::desktop::notifications::app_became_active();
     // Covers the resume path that skips willEnterForeground (first launch
     // does both; unpausing twice is a harmless idempotent setter).
     unsafe { set_display_link_paused(false) };
@@ -1590,6 +1693,9 @@ pub struct IOSWindow {
     /// panning with the finger that is left). Re-seeded on hand-over so the
     /// transfer is not read as a jump.
     pub pan_touch_id: Option<u64>,
+    /// The window's `<webview>`s (`webview::IosWebViews`), made at the
+    /// first one: an app without a web view never loads WebKit.
+    webviews: Option<webview::IosWebViews>,
 }
 
 impl IOSWindow {
@@ -1614,6 +1720,13 @@ impl IOSWindow {
             .map_err(|e| WindowError::PlatformError(format!("Layout init failed: {:?}", e)))?;
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
+        layout_window.set_app_localization(&config);
+        layout_window.set_app_e2e(&config);
+        layout_window.set_app_node_identity(&config);
+        // `<webview>`s are WKWebViews (`webview::IosWebViews`).
+        layout_window
+            .webviews
+            .set_platform(azul_layout::managers::webview::WebViewPlatform::Backend);
 
         // Build the native UI tree. Bounds come from `[[UIScreen mainScreen] bounds]`.
         let (ui_window, ui_view_controller, ui_view) = unsafe {
@@ -1742,7 +1855,7 @@ impl IOSWindow {
 
         let mut common = CommonWindowState::new(
             full_window_state,
-            options.theme,
+            options.mode,
             options.background_color_light,
             options.background_color_dark,
             fc_cache,
@@ -1764,7 +1877,7 @@ impl IOSWindow {
 
         Ok(Self {
             common,
-            cpu_backend: CpuBackend::new(),
+            cpu_backend: CpuBackend::for_config(&config),
             needs_rerender: false,
             ui_window,
             ui_view,
@@ -1777,6 +1890,7 @@ impl IOSWindow {
             touch_pan_last: None,
             primary_touch_id: None,
             pan_touch_id: None,
+            webviews: None,
         })
     }
 
@@ -1815,7 +1929,8 @@ impl IOSWindow {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
+            // THE factor of the window's frame (A10-17), not get_hidpi_factor().
+            let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);
             // Shared per-frame content preparation (journal clock, image
             // callbacks through the content chokepoint, scrollbar cache).
             if let Some(lw) = self.common.layout_window.as_mut() {
@@ -1838,6 +1953,22 @@ impl IOSWindow {
         // `displayLayer:` re-rasters instead of blitting the previous frame.
         self.needs_rerender = true;
         let _ = self.present();
+    }
+
+    /// One turn of the window's `<webview>`s (`common::webview::pump`): what
+    /// WebKit reported (its delegate asked for this display pass) runs the
+    /// views' callbacks, and the queued ops reach WebKit. Only while a web
+    /// view exists or is owed something.
+    pub(crate) fn pump_webviews_if_any(&mut self) {
+        let busy = self.common.layout_window.as_ref().is_some_and(|lw| {
+            !lw.webviews.views().is_empty() || lw.webviews.has_pending_work()
+        });
+        if busy
+            && PlatformWindow::pump_webviews(self)
+                != azul_core::events::ProcessEventResult::DoNothing
+        {
+            self.needs_rerender = true;
+        }
     }
 
     /// Drain the accessibility actions UIKit queued and apply them.
@@ -1878,6 +2009,16 @@ impl IOSWindow {
         let Some(lw) = self.common.layout_window.as_ref() else {
             return;
         };
+        // The layout tail's accessibility pass (`LayoutWindow::update_a11y_tree`)
+        // diffs the tree against what was published and publishes NOTHING
+        // when nothing a screen reader can see changed: then the element
+        // list built from the last snapshot is still right, and rebuilding
+        // the whole snapshot after every regenerate was a full walk for
+        // nothing (A11YPATCH8 left 3). The first pass publishes the whole
+        // tree; an explicit `a11y_dirty` still rebuilds.
+        if !lw.a11y_manager.last_pass.published && !self.common.a11y_dirty {
+            return;
+        }
         let snapshot = lw.build_a11y_snapshot();
         let view = (&*self.ui_view as *const Object) as *mut Object;
         self.accessibility_adapter.update_snapshot(snapshot, view);
@@ -1906,7 +2047,7 @@ impl IOSWindow {
         let borrows = self.common.layout_borrows();
         let layout_window = borrows.layout_window.ok_or("No layout window")?;
 
-        let debug_enabled = crate::desktop::shell2::common::debug_server::is_debug_enabled();
+        let debug_enabled = crate::desktop::shell2::common::debug_server::layout_trace_enabled();
         let mut debug_messages = if debug_enabled {
             Some(Vec::new())
         } else {
@@ -1966,7 +2107,8 @@ impl IOSWindow {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
+            // THE factor of the window's frame (A10-17), not get_hidpi_factor().
+            let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);
             // Shared per-frame content preparation (journal clock, image
             // callbacks through the content chokepoint, scrollbar cache).
             // Before this, image callbacks were NEVER invoked on this host —
@@ -2002,6 +2144,23 @@ impl PlatformWindow for IOSWindow {
     /// Mobile windows are managed by the system shell and are never dragged
     /// by the application.
     fn handle_begin_interactive_move(&mut self) {}
+
+    /// `WKWebView`s in the render view (`webview::IosWebViews`), made at the
+    /// first call.
+    fn webview_backend(
+        &mut self,
+    ) -> Option<&mut dyn crate::desktop::shell2::common::webview::WebViewBackend> {
+        if self.webviews.is_none() {
+            let view = &*self.ui_view as *const Object as *mut objc2::runtime::AnyObject;
+            // SAFETY: the window's live render view; the retain keeps it for
+            // the web views that are its subviews.
+            let parent = unsafe { objc2::rc::Retained::retain(view) }?;
+            self.webviews = Some(webview::IosWebViews::new(parent));
+        }
+        self.webviews
+            .as_mut()
+            .map(|views| views as &mut dyn crate::desktop::shell2::common::webview::WebViewBackend)
+    }
 
     fn regenerate_layout_once(
         &mut self,
@@ -2071,7 +2230,7 @@ impl PlatformWindow for IOSWindow {
     ) {
         if let Some(lw) = self.common.layout_window.as_mut() {
             for id in thread_ids {
-                lw.threads.remove(id);
+                drop(lw.remove_thread(id));
             }
         }
     }
@@ -2089,12 +2248,7 @@ impl PlatformWindow for IOSWindow {
     ) {
     }
 
-    fn show_tooltip_from_callback(
-        &mut self,
-        _text: &str,
-        _position: azul_core::geom::LogicalPosition,
-    ) {
-    }
+    fn show_tooltip_from_callback(&mut self, _text: &str, _anchor: azul_core::geom::LogicalRect) {}
 
     fn hide_tooltip_from_callback(&mut self) {}
 
@@ -2431,7 +2585,7 @@ extern "C" fn ui_keyboard_frame_changed(this: &Object, _cmd: Sel, notification: 
     // The inset is layout input, so a change has to reach layout.
     window
         .common
-        .request_regeneration(RelayoutReason::ThemeChange);
+        .request_regeneration(RelayoutReason::ModeChange);
 }
 
 /// `canBecomeFirstResponder` — required, or UIKit never asks for text.

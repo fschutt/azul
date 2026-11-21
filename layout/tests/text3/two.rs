@@ -109,22 +109,22 @@ fn test_bidi_reordering_mixed_content() {
     ];
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
 
     // The visual order of runs remains the same as the logical order.
     // The second run is simply marked as RTL.
-    assert_eq!(visual_items.len(), 3);
-    assert_eq!(visual_items[0].text, "hello ");
-    assert_eq!(visual_items[0].bidi_level.level(), 0); // LTR
+    assert_eq!(bidi_runs.len(), 3);
+    assert_eq!(bidi_runs[0].text, "hello ");
+    assert_eq!(bidi_runs[0].bidi_level.level(), 0); // LTR
                                                        // FIX: The Hebrew text is the second visual
                                                        // run.
-    assert_eq!(visual_items[1].text, "שלום");
-    assert_eq!(visual_items[1].bidi_level.level(), 1); // RTL
+    assert_eq!(bidi_runs[1].text, "שלום");
+    assert_eq!(bidi_runs[1].bidi_level.level(), 1); // RTL
                                                        // FIX: The second LTR part is the third
                                                        // visual run.
-    assert_eq!(visual_items[2].text, " world");
-    assert_eq!(visual_items[2].bidi_level.level(), 0); // LTR
+    assert_eq!(bidi_runs[2].text, " world");
+    assert_eq!(bidi_runs[2].bidi_level.level(), 0); // LTR
 }
 
 #[test]
@@ -142,9 +142,9 @@ fn test_long_word_overflow_no_hyphenation() {
         ..Default::default()
     };
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let (line_items, _) = super::break_one_line_compat(
         &mut cursor,
@@ -178,18 +178,24 @@ fn test_multi_column_layout() {
         logical_start_byte: 0,
         source_node_id: None,
     })];
+    // Room for two lines of a column, not three: a column holds the lines that END inside
+    // it, and this fixture's lines stand 16px apart (see `line_pitch`), not the 12px of the
+    // style. The 25px this test used to give were "2 lines (12.0 each)"; they held two only
+    // because the line breaker let the last line of a column hang below it, and with the
+    // lines it really has they are one line a column and the third goes on into an overflow
+    // column, past the 100px the two columns span (CSS Multi-column 1, 8.2).
     let constraints = UnifiedConstraints {
         available_width: AvailableSpace::Definite(100.0),
-        available_height: Some(25.0), // Enough for 2 lines (12.0 each)
+        available_height: Some(super::line_pitch(&content, 45.0) * 2.5),
         columns: 2,
         column_gap: 10.0,
         ..Default::default()
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout =
         super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
@@ -252,9 +258,9 @@ fn test_line_clamp() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout =
         super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
@@ -282,12 +288,19 @@ fn test_flow_across_fragments() {
         source_node_id: None,
     })];
 
+    // A fragment holds the lines that END inside it, so its height is sized by
+    // the distance between this fixture's lines (16px, not the style's 12px;
+    // see `line_pitch`): room for one line and not two, room for the two more
+    // and not a third. The 15px and 30px this test used to give were "one line"
+    // and "two more lines" of 12px; they held them only because the line
+    // breaker let the last line of a fragment hang below it.
+    let pitch = super::line_pitch(&content, 100.0);
     let flow_chain = vec![
         LayoutFragment {
             id: "frag1".into(),
             constraints: UnifiedConstraints {
                 available_width: AvailableSpace::Definite(100.0),
-                available_height: Some(15.0), // Only one line
+                available_height: Some(pitch * 1.5), // Only one line
                 ..Default::default()
             },
         },
@@ -295,7 +308,7 @@ fn test_flow_across_fragments() {
             id: "frag2".into(),
             constraints: UnifiedConstraints {
                 available_width: AvailableSpace::Definite(100.0),
-                available_height: Some(30.0), // Two more lines
+                available_height: Some(pitch * 2.5), // Two more lines
                 ..Default::default()
             },
         },
@@ -328,6 +341,16 @@ fn test_flow_across_fragments() {
         frag2_max_line > 0,
         "Fragment 2 should contain subsequent lines"
     );
+    // Lines are numbered on through the fragments of a paragraph, so `frag2_max_line > 0`
+    // holds for any second fragment; what it stands for is that fragment 2 holds the two
+    // lines that are left.
+    let frag2_lines: std::collections::BTreeSet<usize> =
+        frag2_layout.items.iter().map(|i| i.line_index).collect();
+    assert_eq!(
+        frag2_lines.into_iter().collect::<Vec<_>>(),
+        vec![1, 2],
+        "Fragment 2 should hold the two remaining lines"
+    );
 
     // Ensure all content was laid out
     assert!(result.remaining_items.is_empty());
@@ -352,9 +375,9 @@ fn test_kashida_justification() {
 
     // Directly test the kashida insertion logic
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Rtl).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Rtl).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
 
     let line_constraints = LineConstraints {
         segments: vec![LineSegment {
@@ -406,7 +429,8 @@ fn test_layout_with_shape_exclusion() {
             y: 10.0,
             width: 100.0,
             height: 30.0,
-        })],
+        })
+        .into()],
         ..Default::default()
     };
 
@@ -424,9 +448,9 @@ fn test_layout_with_shape_exclusion() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout =
         super::perform_fragment_layout_compat(&mut cursor, &logical_items, &constraints).unwrap();
@@ -515,7 +539,7 @@ fn test_bug3_rtl_glyph_reversal() {
     let text = "\u{05e9}\u{05dc}\u{05d5}\u{05dd}";
     let style = default_style();
     // Manually create visual items as if BIDI pass has run
-    let visual_items = vec![VisualItem {
+    let bidi_runs = vec![BidiRun {
         logical_source: LogicalItem::Text {
             source: ContentIndex {
                 run_index: 0,
@@ -533,7 +557,7 @@ fn test_bug3_rtl_glyph_reversal() {
     }];
 
     // Manually run shaping
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
 
     // Assert that we have 4 clusters for 4 characters
     assert_eq!(shaped_items.len(), 4);
@@ -605,9 +629,9 @@ fn test_simple_line_break() {
 
     // Using layout_flow is complex for mocks, so we'll test stages
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout = super::perform_fragment_layout_compat(
@@ -667,9 +691,9 @@ fn test_justification_inter_word() {
     };
 
     let logical_items = super::create_logical_items_compat(&content, &[]);
-    let visual_items =
-        super::reorder_logical_items_compat(&logical_items, BidiDirection::Ltr).unwrap();
-    let shaped_items = super::shape_visual_items_compat(&visual_items, &manager).unwrap();
+    let bidi_runs =
+        super::split_into_bidi_runs_compat(&logical_items, BidiDirection::Ltr).unwrap();
+    let shaped_items = super::shape_bidi_runs_compat(&bidi_runs, &manager).unwrap();
 
     let mut cursor = BreakCursor::new(&shaped_items);
     let layout =
@@ -708,8 +732,8 @@ fn test_hyphenation_break() {
         logical_start_byte: 0,
         source_node_id: None,
     })];
-    let shaped_items = super::shape_visual_items_compat(
-        &super::reorder_logical_items_compat(
+    let shaped_items = super::shape_bidi_runs_compat(
+        &super::split_into_bidi_runs_compat(
             &super::create_logical_items_compat(&content, &[]),
             BidiDirection::Ltr,
         )
@@ -769,8 +793,8 @@ fn test_hyphenation_break_2() {
         logical_start_byte: 0,
         source_node_id: None,
     })];
-    let shaped_items = super::shape_visual_items_compat(
-        &super::reorder_logical_items_compat(
+    let shaped_items = super::shape_bidi_runs_compat(
+        &super::split_into_bidi_runs_compat(
             &super::create_logical_items_compat(&content, &[]),
             BidiDirection::Ltr,
         )

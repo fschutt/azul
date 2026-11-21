@@ -1,0 +1,120 @@
+{
+  "name": "scroller_rebuilt_as_a_plain_box_settles",
+  "description": "A scrolled box that the app's next build replaces with a plain box at the same place. Under React's identity rules (the default since IDENTITY29) a keyless <div> with another id at the same place is the SAME node, so the node outlives the scroller and keeps its scroll state (offset 120) until the layout pass finds it is no scroll container any more and lets the state go. (That used to leave scroll_manager.scroll_dirty set after the pass, and assert_state_machines_idle found a flag that nothing would ever clear; the flag drove nothing and is gone.) The scenario ends on the idle law and on the manager invariants: the box's scroll state, scrollbar state and GPU keys are gone with its scrolling, nothing dangles.",
+  "setup": {
+    "window_width": 400,
+    "window_height": 300,
+    "dpi": 96
+  },
+  "steps": [
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"scroller\">",
+        "  <div class=\"row\" id=\"r0\"></div>",
+        "  <div class=\"row\" id=\"r1\"></div>",
+        "  <div class=\"row\" id=\"r2\"></div>",
+        "  <div class=\"row\" id=\"r3\"></div>",
+        "  <div class=\"row\" id=\"r4\"></div>",
+        "  <div class=\"row\" id=\"r5\"></div>",
+        "  <div class=\"row\" id=\"r6\"></div>",
+        "  <div class=\"row\" id=\"r7\"></div>",
+        "  <div class=\"row\" id=\"r8\"></div>",
+        "  <div class=\"row\" id=\"r9\"></div>",
+        "</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#scroller { width: 200px; height: 100px; overflow-y: scroll; }",
+        ".row { width: 100%; height: 50px; background: blue; }"
+      ]
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 150
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#scroller"
+    },
+    {
+      "op": "assert_node_count",
+      "selector": ".row",
+      "expected": 10
+    },
+    {
+      "op": "scroll_node_by",
+      "selector": "#scroller",
+      "delta_x": 0,
+      "delta_y": 120
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 100
+    },
+    {
+      "op": "assert_scroll",
+      "selector": "#scroller",
+      "x": 0,
+      "y": 120,
+      "tolerance": 1.0
+    },
+    {
+      "op": "assert_manager_invariants",
+      "min_checked": 1
+    },
+    {
+      "op": "mount",
+      "html": [
+        "<div id=\"plain\">no scroller here</div>"
+      ],
+      "css": [
+        "html, body { margin: 0; padding: 0; }",
+        "#plain { width: 200px; height: 40px; background: green; }"
+      ]
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 150
+    },
+    {
+      "op": "tick_ms",
+      "ms": 2000
+    },
+    {
+      "op": "wait_frame"
+    },
+    {
+      "op": "wait",
+      "ms": 150
+    },
+    {
+      "op": "assert_not_exists",
+      "selector": "#scroller"
+    },
+    {
+      "op": "assert_not_exists",
+      "selector": ".row"
+    },
+    {
+      "op": "assert_exists",
+      "selector": "#plain"
+    },
+    {
+      "op": "assert_manager_invariants",
+      "min_checked": 1
+    },
+    {
+      "op": "assert_state_machines_idle"
+    }
+  ]
+}

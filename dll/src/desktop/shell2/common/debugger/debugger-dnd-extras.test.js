@@ -1,0 +1,277 @@
+// Unit tests for the B5 logic of debugger-dnd.js: the properties panel, the
+// document stylesheet panel, drops onto the window canvas, duplicate.
+//
+//     node dll/src/desktop/shell2/common/debugger/debugger-dnd-extras.test.js
+//
+// No dependencies. Under node debugger-dnd.js exports only its pure logic:
+// which rows the properties panel shows for a node, which server message an
+// edit in it sends, where a drop on the window picture lands, and so on.
+'use strict';
+
+const assert = require('assert');
+const L = require('./debugger-dnd.js');
+
+let failed = 0;
+let passed = 0;
+function test(name, fn) {
+    try {
+        fn();
+        passed++;
+        console.log('ok   ' + name);
+    } catch (e) {
+        failed++;
+        console.log('FAIL ' + name + '\n     ' + (e && e.message ? e.message : e));
+    }
+}
+
+const el = (uid, tag, attrs, children) =>
+    ({ uid, kind: 'element', tag, attrs: attrs || {}, children: children || [] });
+const text = (uid, t) => ({ uid, kind: 'text', tag: '#text', text: t, attrs: {}, children: [] });
+const inst = (uid, library, tag, attrs) =>
+    ({ uid, kind: 'component', library, tag, attrs: attrs || {}, children: [] });
+
+// A registry entry as `get_component_registry` answers it.
+const CARD = {
+    tag: 'card', display_name: 'Card',
+    data_model: [
+        { name: 'text', field_type: 'String', default: 'Title', required: false, description: 'Text of the <h1>' },
+        { name: 'href', field_type: 'String', default: 'https://e.com', required: false, description: '' },
+        { name: 'wide', field_type: 'bool', default: 'false', required: false, description: '' },
+        { name: 'on_click', field_type: 'Callback(Update)', default: null, required: false, description: '' },
+    ],
+};
+const REGISTRY = { libraries: [
+    { name: 'builtin', components: [{ tag: 'p' }, { tag: 'div' }] },
+    { name: 'user', components: [CARD] },
+] };
+
+const names = (rows) => rows.map((r) => r.name);
+
+// ── 1. the properties panel ─────────────────────────────────────────────
+
+test('an element shows its text, id, classes and style first, then its other attributes', () => {
+    const rows = L.propertyRows(el(3, 'a', { href: 'x', text: 'More', class: 'btn', 'data-k': '1' }), null);
+    assert.deepStrictEqual(names(rows), ['text', 'id', 'class', 'style', 'data-k', 'href']);
+    const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
+    assert.strictEqual(byName.text.value, 'More');
+    assert.strictEqual(byName.id.value, '', 'an attribute the node does not have is empty');
+    assert.strictEqual(byName.class.value, 'btn');
+    assert.ok(rows.every((r) => r.group === 'attribute' && r.fieldType === 'String'));
+});
+
+test('a void element and the <body> have no text row; a text node has only its text', () => {
+    assert.deepStrictEqual(names(L.propertyRows(el(4, 'br'), null)), ['id', 'class', 'style']);
+    assert.deepStrictEqual(names(L.propertyRows(el(0, 'body'), null)), ['id', 'class', 'style']);
+    const t = L.propertyRows(text(5, 'tail'), null);
+    assert.deepStrictEqual(names(t), ['text']);
+    assert.strictEqual(t[0].value, 'tail');
+    assert.deepStrictEqual(L.propertyRows(null, null), []);
+});
+
+test('a component instance shows its arguments (the data model), then class / id / style', () => {
+    const def = L.componentDef(REGISTRY, 'user', 'card');
+    assert.strictEqual(def, CARD, 'looked up by library and tag');
+    assert.strictEqual(L.componentDef(REGISTRY, 'user', 'nope'), null);
+    const rows = L.propertyRows(inst(7, 'user', 'card', { text: 'Hi', class: 'big' }), def);
+    assert.deepStrictEqual(names(rows), ['text', 'href', 'wide', 'on_click', 'class', 'id', 'style']);
+    const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
+    assert.strictEqual(byName.text.group, 'argument');
+    assert.strictEqual(byName.text.value, 'Hi', "the instance's own argument");
+    assert.strictEqual(byName.href.value, null, 'not given: the default applies');
+    assert.strictEqual(byName.href.default, 'https://e.com');
+    assert.strictEqual(byName.wide.fieldType, 'bool', 'the server type string, parsed by the widget');
+    assert.strictEqual(byName.class.group, 'attribute');
+    assert.strictEqual(byName.class.value, 'big');
+});
+
+test('an instance of an unknown component still shows what it has', () => {
+    const rows = L.propertyRows(inst(8, 'gone', 'x', { title: 'T' }), null);
+    assert.deepStrictEqual(names(rows), ['class', 'id', 'style', 'title']);
+});
+
+test('an edit sends builder_set_attribute; empty removes the attribute; unchanged sends nothing', () => {
+    const a = el(3, 'a', { href: 'x', text: 'More' });
+    assert.deepStrictEqual(L.propertyMessage(a, 'text', 'Less'),
+        { op: 'builder_set_attribute', node: 3, name: 'text', value: 'Less' });
+    assert.deepStrictEqual(L.propertyMessage(a, 'href', ''),
+        { op: 'builder_set_attribute', node: 3, name: 'href' }, 'no value: removed');
+    assert.strictEqual(L.propertyMessage(a, 'href', 'x'), null, 'unchanged');
+    assert.strictEqual(L.propertyMessage(a, 'id', ''), null, 'removing what is not there');
+    // A text node's only attribute is its text; emptying it keeps the node.
+    assert.deepStrictEqual(L.propertyMessage(text(5, 'tail'), 'text', ''),
+        { op: 'builder_set_attribute', node: 5, name: 'text', value: '' });
+    // An argument: set, or removed so the default applies again.
+    const c = inst(7, 'user', 'card', { text: 'Hi' });
+    assert.deepStrictEqual(L.propertyMessage(c, 'href', 'https://azul.rs'),
+        { op: 'builder_set_attribute', node: 7, name: 'href', value: 'https://azul.rs' });
+    assert.deepStrictEqual(L.propertyMessage(c, 'text', ''),
+        { op: 'builder_set_attribute', node: 7, name: 'text' });
+});
+
+test('a typed widget value becomes the attribute text the server parses, and back', () => {
+    assert.strictEqual(L.attrString({ type: 'String', value: 'a b' }), 'a b');
+    assert.strictEqual(L.attrString({ type: 'Bool', value: true }), 'true');
+    assert.strictEqual(L.attrString({ type: 'Bool', value: false }), 'false');
+    assert.strictEqual(L.attrString({ type: 'I32', value: -4 }), '-4');
+    assert.strictEqual(L.attrString({ type: 'F32', value: 1.5 }), '1.5');
+    assert.strictEqual(L.attrString({ type: 'ColorU', value: { r: 255, g: 0, b: 16, a: 255 } }), '#ff0010');
+    assert.strictEqual(L.attrString({ type: 'ColorU', value: { r: 0, g: 0, b: 0, a: 128 } }), '#00000080');
+    assert.strictEqual(L.attrString({ type: 'None' }), '');
+    assert.strictEqual(L.attrString(null), '');
+    // ...and the attribute text as the widget's value (null: nothing to show).
+    assert.strictEqual(L.typedValue('true', 'Bool'), true);
+    assert.strictEqual(L.typedValue('0', 'Bool'), false);
+    assert.strictEqual(L.typedValue('12', 'I32'), 12);
+    assert.strictEqual(L.typedValue('x', 'I32'), null);
+    assert.strictEqual(L.typedValue('2.5', 'F64'), 2.5);
+    assert.deepStrictEqual(L.typedValue('#ff0010', 'ColorU'), { r: 255, g: 0, b: 16, a: 255 });
+    assert.deepStrictEqual(L.typedValue('#00000080', 'ColorU'), { r: 0, g: 0, b: 0, a: 128 });
+    assert.strictEqual(L.typedValue('', 'String'), null);
+    assert.strictEqual(L.typedValue('hi', 'String'), 'hi');
+});
+
+test('only the argument types one attribute can carry are editable in the panel', () => {
+    ['String', 'Bool', 'I32', 'I64', 'U32', 'U64', 'Usize', 'F32', 'F64', 'ColorU'].forEach((t) =>
+        assert.ok(L.editableType(t), t));
+    ['Callback', 'Option', 'Vec', 'StyledDom', 'RefAny', 'StructRef', 'EnumRef', 'ImageRef'].forEach((t) =>
+        assert.ok(!L.editableType(t), t));
+});
+
+// ── 2. the document's stylesheet ────────────────────────────────────────
+
+test('applying the stylesheet sends builder_set_stylesheet, unless the text is what the document has', () => {
+    const doc = { root: el(0, 'body'), stylesheet: '.a { color: red; }' };
+    assert.deepStrictEqual(L.stylesheetMessage(doc, '.a { color: blue; }'),
+        { op: 'builder_set_stylesheet', css: '.a { color: blue; }' });
+    assert.strictEqual(L.stylesheetMessage(doc, '.a { color: red; }'), null);
+    assert.deepStrictEqual(L.stylesheetMessage(doc, ''), { op: 'builder_set_stylesheet', css: '' },
+        'emptying it is an edit too');
+    assert.strictEqual(L.stylesheetMessage({ root: el(0, 'body') }, ''), null,
+        'an old server answers no stylesheet: empty');
+    assert.strictEqual(L.stylesheetMessage(null, 'x'), null);
+});
+
+test('the editor follows the document (undo, load) but never overwrites text not applied yet', () => {
+    assert.strictEqual(L.sheetText('.a{}', '.b{}', false), '.b{}', 'clean: the document wins');
+    assert.strictEqual(L.sheetText('.a{} /* typing */', '.b{}', true), '.a{} /* typing */', 'dirty: kept');
+    assert.strictEqual(L.sheetText('x', undefined, false), '', 'no stylesheet in the answer: empty');
+});
+
+// ── 3. drops onto the window canvas ─────────────────────────────────────
+
+// body(0) > [ p(1) "A", div(2) > [ span(4) ], user:card(3) ]
+function canvasDoc() {
+    return el(0, 'body', {}, [
+        el(1, 'p', { text: 'A' }),
+        el(2, 'div', {}, [el(4, 'span')]),
+        inst(3, 'user', 'card'),
+    ]);
+}
+const hitAt = (uid, relY, rect) => ({ hit: true, uid, rel_y: relY, rect: rect || { x: 0, y: 0, width: 400, height: 40 } });
+const card = (component, library) => ({ type: 'component', library: library || 'builtin', component });
+
+test('a point on the picture is a point in the window, whatever size the picture is shown at', () => {
+    const shown = { left: 100, top: 50, width: 200, height: 150 };
+    const logical = { width: 400, height: 300 };
+    assert.deepStrictEqual(L.canvasPoint(100, 50, shown, logical), { x: 0, y: 0 });
+    assert.deepStrictEqual(L.canvasPoint(200, 125, shown, logical), { x: 200, y: 150 });
+    assert.deepStrictEqual(L.canvasPoint(90, 400, shown, logical), { x: 0, y: 300 }, 'clamped to the window');
+    assert.strictEqual(L.canvasPoint(0, 0, shown, null), null, 'no window size yet');
+});
+
+test('a drop on the canvas lands like a drop on the tree row of the node under it', () => {
+    const d = canvasDoc();
+    // The middle of a container: into it.
+    assert.deepStrictEqual(L.canvasDrop(card('span'), hitAt(2, 0.5), d),
+        { uid: 2, zone: 'into', msg: { op: 'builder_insert', parent: 2, component: 'span' } });
+    // Its top quarter: before it; its bottom quarter: after it.
+    assert.deepStrictEqual(L.canvasDrop(card('span'), hitAt(2, 0.1), d).msg,
+        { op: 'builder_insert', parent: 0, component: 'span', index: 1 });
+    assert.deepStrictEqual(L.canvasDrop(card('span'), hitAt(2, 0.9), d).msg,
+        { op: 'builder_insert', parent: 0, component: 'span', index: 2 });
+    // A leaf (an instance) splits in halves.
+    assert.strictEqual(L.canvasDrop(card('span'), hitAt(3, 0.4), d).zone, 'before');
+    assert.strictEqual(L.canvasDrop(card('span'), hitAt(3, 0.6), d).zone, 'after');
+    // A palette component of a library is named in the message.
+    assert.deepStrictEqual(L.canvasDrop(card('card', 'user'), hitAt(2, 0.5), d).msg,
+        { op: 'builder_insert', parent: 2, component: 'card', library: 'user' });
+});
+
+test('where INTO is refused (a <div> in a <p>) the drop goes before or after the node instead', () => {
+    const d = canvasDoc();
+    const top = L.canvasDrop(card('div'), hitAt(1, 0.4), d);
+    assert.strictEqual(top.zone, 'before');
+    assert.deepStrictEqual(top.msg, { op: 'builder_insert', parent: 0, component: 'div', index: 0 });
+    const bottom = L.canvasDrop(card('div'), hitAt(1, 0.6), d);
+    assert.strictEqual(bottom.zone, 'after');
+    assert.deepStrictEqual(bottom.msg, { op: 'builder_insert', parent: 0, component: 'div', index: 1 });
+});
+
+test('outside every document node the drop appends to <body>; a moved row cannot land in itself', () => {
+    const d = canvasDoc();
+    assert.deepStrictEqual(L.canvasDrop(card('p'), { hit: false, uid: null }, d),
+        { uid: 0, zone: 'into', msg: { op: 'builder_insert', parent: 0, component: 'p' } });
+    // A tree row dragged onto the canvas moves.
+    assert.deepStrictEqual(L.canvasDrop({ type: 'builder-node', uid: 1 }, hitAt(2, 0.5), d).msg,
+        { op: 'builder_move', node: 1, parent: 2 });
+    assert.strictEqual(L.canvasDrop({ type: 'builder-node', uid: 2 }, hitAt(4, 0.5), d).msg, null,
+        'the div into its own span');
+    assert.strictEqual(L.canvasDrop(null, hitAt(2, 0.5), d), null);
+});
+
+test('the drop indicator on the picture: the node for INTO, a line for BEFORE / AFTER', () => {
+    const shown = { width: 200, height: 150 };
+    const logical = { width: 400, height: 300 };
+    const hit = hitAt(2, 0.5, { x: 20, y: 40, width: 200, height: 40 });
+    assert.deepStrictEqual(L.canvasIndicator(hit, 'into', shown, logical),
+        { zone: 'into', left: 10, top: 20, width: 100, height: 20 });
+    assert.deepStrictEqual(L.canvasIndicator(hit, 'before', shown, logical),
+        { zone: 'before', left: 10, top: 19, width: 100, height: 2 });
+    assert.deepStrictEqual(L.canvasIndicator(hit, 'after', shown, logical),
+        { zone: 'after', left: 10, top: 39, width: 100, height: 2 });
+    assert.deepStrictEqual(L.canvasIndicator({ hit: false }, 'into', shown, logical),
+        { zone: 'into', left: 0, top: 0, width: 200, height: 150 }, 'the whole window: <body>');
+    assert.strictEqual(L.canvasIndicator(hit, 'into', shown, null), null);
+});
+
+// ── 4. the markers stay out of the inspector ────────────────────────────
+
+test("a document node's live node is found by builder_uid (and by an older server's marker class)", () => {
+    const nodes = [
+        { index: 0, tag: 'html', classes: [] },
+        { index: 1, tag: 'body', classes: [], builder_uid: 0 },
+        { index: 2, tag: 'p', classes: ['note'], builder_uid: 3 },
+        { index: 3, tag: 'div', classes: ['azb-card', 'azb-5'] },
+    ];
+    assert.strictEqual(L.liveNodeOf(nodes, 3).index, 2);
+    assert.strictEqual(L.liveNodeOf(nodes, 0).index, 1);
+    assert.strictEqual(L.liveNodeOf(nodes, 5).index, 3, 'a server before B5 still answers the class');
+    assert.strictEqual(L.liveNodeOf(nodes, 9), null);
+    assert.strictEqual(L.liveNodeOf(null, 3), null);
+});
+
+// ── 5. duplicate, the document file ─────────────────────────────────────
+
+test('Duplicate sends builder_duplicate for any node but the <body>', () => {
+    const d = canvasDoc();
+    assert.deepStrictEqual(L.duplicateMessage(d, 2), { op: 'builder_duplicate', node: 2 });
+    assert.deepStrictEqual(L.duplicateMessage(d, 4), { op: 'builder_duplicate', node: 4 });
+    assert.strictEqual(L.duplicateMessage(d, 0), null, 'the root');
+    assert.strictEqual(L.duplicateMessage(d, 99), null, 'not in the document');
+    assert.strictEqual(L.duplicateMessage(null, 2), null);
+});
+
+test('a document file opens as builder_load_document; anything else says why', () => {
+    const file = { format: 'azul-builder-document', version: 1, root: { kind: 'element', tag: 'body' }, stylesheet: '' };
+    assert.deepStrictEqual(L.documentLoadMessage(JSON.stringify(file)),
+        { op: 'builder_load_document', document: file });
+    assert.throws(() => L.documentLoadMessage('{nope'), /not JSON/);
+    assert.throws(() => L.documentLoadMessage('[1]'), /not a builder document/);
+    assert.throws(() => L.documentLoadMessage(JSON.stringify({ format: 'azul-project' })), /azul-project/);
+    // A bare tree (no format) is a document too, as the server reads it.
+    assert.deepStrictEqual(L.documentLoadMessage('{"kind":"element","tag":"body"}').document,
+        { kind: 'element', tag: 'body' });
+});
+
+console.log('\n' + passed + ' passed, ' + failed + ' failed');
+process.exit(failed ? 1 : 0);

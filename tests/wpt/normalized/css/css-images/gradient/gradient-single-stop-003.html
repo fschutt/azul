@@ -1,0 +1,34 @@
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+<title>Gradient with a single stop</title>
+<meta name="assert" content="Tests that gradient with a single color stop renders the expected solid color"/>
+<meta name="fuzzy" content="maxDifference=0-1; totalPixels=0-6000"/>
+<style>
+        body {
+            background: #fff;
+        }
+
+        div {
+            width: 100px;
+            height: 100px;
+            position: absolute;
+        }
+
+        #fail {
+            background: red;
+        }
+
+        #test {
+            background-image: repeating-linear-gradient(green 50px);
+        }
+    
+</style>
+</head>
+<body>
+    <p>Test passes if there is a filled green square.</p>
+    <div id="fail"></div>
+    <div id="test"></div>
+
+
+</body>
+</html>

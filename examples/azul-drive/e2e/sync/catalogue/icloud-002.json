@@ -1,0 +1,29 @@
+{
+  "name": "a file emptied to 0 bytes stays empty on every device, never reverted",
+  "description": "ICLOUD-002 (sync-chaos port-sparse-zero-byte): iCloud's servers reverted every 0-byte file to its last non-empty version. Rule P7: a file truncated to 0 bytes syncs as 0 bytes and stays so; the old content is only a stored version.",
+  "steps": [
+    { "op": "drive_create", "remote": "r", "encrypted": false },
+    { "op": "drive_open", "device": "a", "remote": "r" },
+    { "op": "drive_open", "device": "b", "remote": "r" },
+    { "op": "drive_pair", "device": "a" },
+    { "op": "drive_pair", "device": "b" },
+    { "op": "drive_wait_idle" },
+    { "op": "drive_write", "device": "a", "path": "f.txt", "text": "abc" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_overwrite_in_place", "device": "a", "path": "f.txt", "text": "" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "assert_response", "path": "result.up", "equals": 1 },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "f.txt", "size": 0 },
+    { "op": "drive_check", "check": "remote_file", "key": "f.txt", "text": "" },
+    { "op": "drive_sync", "device": "a" },
+    { "op": "drive_check", "check": "file", "device": "a", "path": "f.txt", "size": 0 },
+    { "op": "drive_sync", "device": "b" },
+    { "op": "drive_check", "check": "last_pass_quiet", "device": "b" },
+    { "op": "drive_check", "check": "file", "device": "b", "path": "f.txt", "size": 0 },
+    { "op": "drive_check", "check": "conflict_copies", "device": "b", "path": "f.txt", "count": 0 },
+    { "op": "drive_check", "check": "kept", "texts": ["abc"] },
+    { "op": "drive_cleanup" }
+  ]
+}

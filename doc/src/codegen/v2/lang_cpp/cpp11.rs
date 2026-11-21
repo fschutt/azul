@@ -296,6 +296,7 @@ impl CppDialect for Cpp11Generator {
             code.push_str("}\r\n\r\n");
         }
 
+        code.push_str(&generate_field_accessor_impls(struct_def, ir, config, self.standard()));
         code.push_str(&generate_vec_from_std_vector_impl(struct_def, ir, config));
     }
 
@@ -739,6 +740,8 @@ pub fn emit_class_declaration_cpp11_or_later(
             c_type_name, c_type_name
         ));
     }
+
+    code.push_str(&generate_field_accessor_decls(struct_def, ir, config, gen.standard()));
 
     if is_vec_type(struct_def) {
         gen.generate_vec_methods(code, struct_def, config);

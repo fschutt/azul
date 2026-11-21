@@ -1,0 +1,1084 @@
+{
+ "source": "editing/data/inserttext.js",
+ "upstream": "https://github.com/web-platform-tests/wpt",
+ "upstream_commit": "a6e66db3709bfebb764502d55f6d501a25059448",
+ "license": "BSD-3-Clause, see tests/wpt/LICENSE.md",
+ "generated_by": "scripts/refci/vendor_wpt.py",
+ "upstream_cases": 323,
+ "eligible_cases": 113,
+ "left_out": {
+  "markup outside the mail subset": 142,
+  "over the cap of 60": 53,
+  "setup command inserttext": 32,
+  "styleWithCSS=true (azul formats with elements, not style attributes)": 24,
+  "tag <pre>": 6,
+  "tag <sub>": 3,
+  "tag <sup>": 3
+ },
+ "cases": [
+  {
+   "id": "inserttext-90e5260b",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "inserttext",
+     "a"
+    ]
+   ],
+   "expected": [
+    "fooa[]baz"
+   ],
+   "expected_canonical": [
+    "fooa[]baz"
+   ]
+  },
+  {
+   "id": "inserttext-4f203dac",
+   "initial": "foo[bar]baz",
+   "initial_xhtml": "foo[bar]baz",
+   "commands": [
+    [
+     "inserttext",
+     ""
+    ]
+   ],
+   "expected": [
+    "foo[]baz"
+   ],
+   "expected_canonical": [
+    "foo[]baz"
+   ]
+  },
+  {
+   "id": "inserttext-c60ecd1b",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "inserttext",
+     "\t"
+    ]
+   ],
+   "expected": [
+    "foo\t[]bar"
+   ],
+   "expected_canonical": [
+    "foo\t[]bar"
+   ]
+  },
+  {
+   "id": "inserttext-3cd29d25",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "inserttext",
+     "&"
+    ]
+   ],
+   "expected": [
+    "foo&amp;[]bar"
+   ],
+   "expected_canonical": [
+    "foo&amp;[]bar"
+   ]
+  },
+  {
+   "id": "inserttext-22c18402",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "inserttext",
+     "\n"
+    ]
+   ],
+   "expected": [
+    "<div>foo</div><div>{}bar</div>"
+   ],
+   "expected_canonical": [
+    "<div>foo</div><div>{}bar</div>"
+   ]
+  },
+  {
+   "id": "inserttext-fa397364",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "inserttext",
+     "\n"
+    ]
+   ],
+   "expected": [
+    "<p>foo</p><p>{}bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo</p><p>{}bar</p>"
+   ]
+  },
+  {
+   "id": "inserttext-8f23a516",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "div"
+    ],
+    [
+     "inserttext",
+     "abc\ndef"
+    ]
+   ],
+   "expected": [
+    "<div>fooabc</div><div>def[]bar</div>"
+   ],
+   "expected_canonical": [
+    "<div>fooabc</div><div>def[]bar</div>"
+   ]
+  },
+  {
+   "id": "inserttext-b7981ded",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "defaultparagraphseparator",
+     "p"
+    ],
+    [
+     "inserttext",
+     "abc\ndef"
+    ]
+   ],
+   "expected": [
+    "<p>fooabc</p><p>def[]bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>fooabc</p><p>def[]bar</p>"
+   ]
+  },
+  {
+   "id": "inserttext-2af190c3",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "inserttext",
+     "\u0007"
+    ]
+   ],
+   "expected": [
+    "foo\u0007[]bar"
+   ],
+   "expected_canonical": [
+    "foo\u0007[]bar"
+   ]
+  },
+  {
+   "id": "inserttext-2c7b9ab5",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "inserttext",
+     "<b>hi</b>"
+    ]
+   ],
+   "expected": [
+    "foo&lt;b&gt;hi&lt;/b&gt;[]bar"
+   ],
+   "expected_canonical": [
+    "foo&lt;b&gt;hi&lt;/b&gt;[]bar"
+   ]
+  },
+  {
+   "id": "inserttext-6bc74113",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "inserttext",
+     "<"
+    ]
+   ],
+   "expected": [
+    "foo&lt;[]bar"
+   ],
+   "expected_canonical": [
+    "foo&lt;[]bar"
+   ]
+  },
+  {
+   "id": "inserttext-6c3a3b0a",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "inserttext",
+     "&amp;"
+    ]
+   ],
+   "expected": [
+    "foo&amp;amp;[]bar"
+   ],
+   "expected_canonical": [
+    "foo&amp;amp;[]bar"
+   ]
+  },
+  {
+   "id": "inserttext-5e65cf82",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo []bar"
+   ],
+   "expected_canonical": [
+    "foo []bar"
+   ]
+  },
+  {
+   "id": "inserttext-609ce0d9",
+   "initial": "foo []bar",
+   "initial_xhtml": "foo []bar",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo&nbsp; bar",
+    "foo &nbsp;bar"
+   ],
+   "expected_canonical": [
+    "foo  bar",
+    "foo  bar"
+   ]
+  },
+  {
+   "id": "inserttext-9a705ebe",
+   "initial": "foo[] bar",
+   "initial_xhtml": "foo[] bar",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo&nbsp; bar",
+    "foo &nbsp;bar"
+   ],
+   "expected_canonical": [
+    "foo  bar",
+    "foo  bar"
+   ]
+  },
+  {
+   "id": "inserttext-03ae9daf",
+   "initial": "foo  []bar",
+   "initial_xhtml": "foo  []bar",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo&nbsp; bar",
+    "foo &nbsp;bar"
+   ],
+   "expected_canonical": [
+    "foo  bar",
+    "foo  bar"
+   ]
+  },
+  {
+   "id": "inserttext-82f161a6",
+   "initial": "[]foo",
+   "initial_xhtml": "[]foo",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "&nbsp;foo"
+   ],
+   "expected_canonical": [
+    " foo"
+   ]
+  },
+  {
+   "id": "inserttext-e23c89d1",
+   "initial": "{}foo",
+   "initial_xhtml": "{}foo",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "&nbsp;foo"
+   ],
+   "expected_canonical": [
+    " foo"
+   ]
+  },
+  {
+   "id": "inserttext-181646e8",
+   "initial": "foo[]",
+   "initial_xhtml": "foo[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo&nbsp;"
+   ],
+   "expected_canonical": [
+    "foo "
+   ]
+  },
+  {
+   "id": "inserttext-4e393e30",
+   "initial": "foo{}",
+   "initial_xhtml": "foo{}",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo&nbsp;"
+   ],
+   "expected_canonical": [
+    "foo "
+   ]
+  },
+  {
+   "id": "inserttext-7efc18c2",
+   "initial": "<b>foo[]</b>bar",
+   "initial_xhtml": "<b>foo[]</b>bar",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "<b>foo </b>bar",
+    "<b>foo&nbsp;</b>bar"
+   ],
+   "expected_canonical": [
+    "<b>foo </b>bar",
+    "<b>foo </b>bar"
+   ]
+  },
+  {
+   "id": "inserttext-363eb911",
+   "initial": "foo[]<b>bar</b>",
+   "initial_xhtml": "foo[]<b>bar</b>",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo <b>bar</b>",
+    "foo&nbsp;<b>bar</b>"
+   ],
+   "expected_canonical": [
+    "foo <b>bar</b>",
+    "foo <b>bar</b>"
+   ]
+  },
+  {
+   "id": "inserttext-e9fc7da6",
+   "initial": "foo[] ",
+   "initial_xhtml": "foo[] ",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo&nbsp;"
+   ],
+   "expected_canonical": [
+    "foo "
+   ]
+  },
+  {
+   "id": "inserttext-b4d7f7df",
+   "initial": " foo   []   ",
+   "initial_xhtml": " foo   []   ",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    " foo&nbsp;"
+   ],
+   "expected_canonical": [
+    " foo "
+   ]
+  },
+  {
+   "id": "inserttext-663405c8",
+   "initial": "foo[]<span> </span>",
+   "initial_xhtml": "foo[]<span> </span>",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo&nbsp;<span> </span>",
+    "foo&nbsp;<span></span>",
+    "foo&nbsp;"
+   ],
+   "expected_canonical": [
+    "foo <span> </span>",
+    "foo <span></span>",
+    "foo "
+   ]
+  },
+  {
+   "id": "inserttext-32f6f3c2",
+   "initial": "foo[]<span> </span> ",
+   "initial_xhtml": "foo[]<span> </span> ",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "foo&nbsp;[]<span> </span> ",
+    "foo&nbsp;<span></span>",
+    "foo&nbsp;"
+   ],
+   "expected_canonical": [
+    "foo []<span> </span> ",
+    "foo <span></span>",
+    "foo "
+   ]
+  },
+  {
+   "id": "inserttext-bf8a3e63",
+   "initial": " []foo",
+   "initial_xhtml": " []foo",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "&nbsp;foo"
+   ],
+   "expected_canonical": [
+    " foo"
+   ]
+  },
+  {
+   "id": "inserttext-4a6e4d6e",
+   "initial": "   []   foo ",
+   "initial_xhtml": "   []   foo ",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "&nbsp;foo "
+   ],
+   "expected_canonical": [
+    " foo "
+   ]
+  },
+  {
+   "id": "inserttext-5670301b",
+   "initial": "<span> </span>[]foo",
+   "initial_xhtml": "<span> </span>[]foo",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "<span> </span>&nbsp;foo",
+    "<span></span>&nbsp;foo",
+    "&nbsp;foo"
+   ],
+   "expected_canonical": [
+    "<span> </span> foo",
+    "<span></span> foo",
+    " foo"
+   ]
+  },
+  {
+   "id": "inserttext-b4608d4f",
+   "initial": " <span> </span>[]foo",
+   "initial_xhtml": " <span> </span>[]foo",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    " <span> </span>&nbsp;foo",
+    "<span></span>&nbsp;foo",
+    "&nbsp;foo"
+   ],
+   "expected_canonical": [
+    " <span> </span> foo",
+    "<span></span> foo",
+    " foo"
+   ]
+  },
+  {
+   "id": "inserttext-10dc4b04",
+   "initial": "{}<br>",
+   "initial_xhtml": "{}<br/>",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "&nbsp;"
+   ],
+   "expected_canonical": [
+    " "
+   ]
+  },
+  {
+   "id": "inserttext-adb173d7",
+   "initial": "<p>{}<br>",
+   "initial_xhtml": "<p>{}<br/></p>",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "<p>&nbsp;</p>"
+   ],
+   "expected_canonical": [
+    "<p> </p>"
+   ]
+  },
+  {
+   "id": "inserttext-4b637e67",
+   "initial": "<p>foo[]<p>bar",
+   "initial_xhtml": "<p>foo[]</p><p>bar</p>",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "<p>foo&nbsp;</p><p>bar</p>"
+   ],
+   "expected_canonical": [
+    "<p>foo </p><p>bar</p>"
+   ]
+  },
+  {
+   "id": "inserttext-c233da30",
+   "initial": "http://a[]",
+   "initial_xhtml": "http://a[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "http://a&nbsp;"
+   ],
+   "expected_canonical": [
+    "http://a "
+   ]
+  },
+  {
+   "id": "inserttext-23114017",
+   "initial": "ftp://a[]",
+   "initial_xhtml": "ftp://a[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "ftp://a&nbsp;"
+   ],
+   "expected_canonical": [
+    "ftp://a "
+   ]
+  },
+  {
+   "id": "inserttext-edab8da8",
+   "initial": "quasit://a[]",
+   "initial_xhtml": "quasit://a[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "quasit://a&nbsp;"
+   ],
+   "expected_canonical": [
+    "quasit://a "
+   ]
+  },
+  {
+   "id": "inserttext-abf9eee1",
+   "initial": ".x-++-.://a[]",
+   "initial_xhtml": ".x-++-.://a[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    ".x-++-.://a&nbsp;"
+   ],
+   "expected_canonical": [
+    ".x-++-.://a "
+   ]
+  },
+  {
+   "id": "inserttext-4eb0f5ff",
+   "initial": "(http://a)[]",
+   "initial_xhtml": "(http://a)[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "(http://a)&nbsp;"
+   ],
+   "expected_canonical": [
+    "(http://a) "
+   ]
+  },
+  {
+   "id": "inserttext-423aceac",
+   "initial": "http://a![]",
+   "initial_xhtml": "http://a![]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "http://a!&nbsp;"
+   ],
+   "expected_canonical": [
+    "http://a! "
+   ]
+  },
+  {
+   "id": "inserttext-2d168572",
+   "initial": "mailto:a[]",
+   "initial_xhtml": "mailto:a[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "mailto:a&nbsp;"
+   ],
+   "expected_canonical": [
+    "mailto:a "
+   ]
+  },
+  {
+   "id": "inserttext-3b19a803",
+   "initial": "a@b[]",
+   "initial_xhtml": "a@b[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "a@b&nbsp;"
+   ],
+   "expected_canonical": [
+    "a@b "
+   ]
+  },
+  {
+   "id": "inserttext-e032ceee",
+   "initial": "a@[]",
+   "initial_xhtml": "a@[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "a@&nbsp;"
+   ],
+   "expected_canonical": [
+    "a@ "
+   ]
+  },
+  {
+   "id": "inserttext-e5d61ab2",
+   "initial": "@b[]",
+   "initial_xhtml": "@b[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "@b&nbsp;"
+   ],
+   "expected_canonical": [
+    "@b "
+   ]
+  },
+  {
+   "id": "inserttext-5bb104ef",
+   "initial": "#@x[]",
+   "initial_xhtml": "#@x[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "#@x&nbsp;"
+   ],
+   "expected_canonical": [
+    "#@x "
+   ]
+  },
+  {
+   "id": "inserttext-24817545",
+   "initial": "a@.[]",
+   "initial_xhtml": "a@.[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "a@.&nbsp;"
+   ],
+   "expected_canonical": [
+    "a@. "
+   ]
+  },
+  {
+   "id": "inserttext-33cae471",
+   "initial": "<b>a@b</b>{}",
+   "initial_xhtml": "<b>a@b</b>{}",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "<b>a@b</b>&nbsp;"
+   ],
+   "expected_canonical": [
+    "<b>a@b</b> "
+   ]
+  },
+  {
+   "id": "inserttext-76f97f95",
+   "initial": "<b>a</b><i>@</i><u>b</u>{}",
+   "initial_xhtml": "<b>a</b><i>@</i><u>b</u>{}",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "<b>a</b><i>@</i><u>b</u>&nbsp;"
+   ],
+   "expected_canonical": [
+    "<b>a</b><i>@</i><u>b</u> "
+   ]
+  },
+  {
+   "id": "inserttext-693d7412",
+   "initial": "a@b<b>[]c</b>",
+   "initial_xhtml": "a@b<b>[]c</b>",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "a@b<b>&nbsp;c</b>"
+   ],
+   "expected_canonical": [
+    "a@b<b> c</b>"
+   ]
+  },
+  {
+   "id": "inserttext-3e975247",
+   "initial": "<p>a@b</p><p>[]c</p>",
+   "initial_xhtml": "<p>a@b</p><p>[]c</p>",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "<p>a@b</p><p>&nbsp;c</p>"
+   ],
+   "expected_canonical": [
+    "<p>a@b</p><p> c</p>"
+   ]
+  },
+  {
+   "id": "inserttext-0fef6acd",
+   "initial": "http://a[]",
+   "initial_xhtml": "http://a[]",
+   "commands": [
+    [
+     "inserttext",
+     "a"
+    ]
+   ],
+   "expected": [
+    "http://aa[]"
+   ],
+   "expected_canonical": [
+    "http://aa[]"
+   ]
+  },
+  {
+   "id": "inserttext-9d25c261",
+   "initial": "http://a[]",
+   "initial_xhtml": "http://a[]",
+   "commands": [
+    [
+     "inserttext",
+     "\t"
+    ]
+   ],
+   "expected": [
+    "http://a\t"
+   ],
+   "expected_canonical": [
+    "http://a\t"
+   ]
+  },
+  {
+   "id": "inserttext-277e0f71",
+   "initial": "http://a[]",
+   "initial_xhtml": "http://a[]",
+   "commands": [
+    [
+     "inserttext",
+     "\f"
+    ]
+   ],
+   "expected": [
+    "http://a\f"
+   ],
+   "expected_canonical": [
+    "http://a\f"
+   ]
+  },
+  {
+   "id": "inserttext-8482e553",
+   "initial": "http://a[]",
+   "initial_xhtml": "http://a[]",
+   "commands": [
+    [
+     "inserttext",
+     " "
+    ]
+   ],
+   "expected": [
+    "http://a&nbsp;[]"
+   ],
+   "expected_canonical": [
+    "http://a []"
+   ]
+  },
+  {
+   "id": "inserttext-05f154a1",
+   "initial": "foo[]",
+   "initial_xhtml": "foo[]",
+   "commands": [
+    [
+     "inserttext",
+     "   "
+    ]
+   ],
+   "expected": [
+    "foo &nbsp;&nbsp;",
+    "foo&nbsp; &nbsp;"
+   ],
+   "expected_canonical": [
+    "foo   ",
+    "foo   "
+   ]
+  },
+  {
+   "id": "inserttext-16642b8a",
+   "initial": "foo[]bar",
+   "initial_xhtml": "foo[]bar",
+   "commands": [
+    [
+     "inserttext",
+     "a"
+    ]
+   ],
+   "expected": [
+    "fooa[]bar"
+   ],
+   "expected_canonical": [
+    "fooa[]bar"
+   ]
+  },
+  {
+   "id": "inserttext-93093a81",
+   "initial": "foo []",
+   "initial_xhtml": "foo []",
+   "commands": [
+    [
+     "inserttext",
+     "a"
+    ]
+   ],
+   "expected": [
+    "foo a[]"
+   ],
+   "expected_canonical": [
+    "foo a[]"
+   ]
+  },
+  {
+   "id": "inserttext-af25185d",
+   "initial": "<p>foo[]",
+   "initial_xhtml": "<p>foo[]</p>",
+   "commands": [
+    [
+     "inserttext",
+     "a"
+    ]
+   ],
+   "expected": [
+    "<p>fooa[]</p>"
+   ],
+   "expected_canonical": [
+    "<p>fooa[]</p>"
+   ]
+  },
+  {
+   "id": "inserttext-bd5628a6",
+   "initial": "<p>foo</p>{}",
+   "initial_xhtml": "<p>foo</p>{}",
+   "commands": [
+    [
+     "inserttext",
+     "a"
+    ]
+   ],
+   "expected": [
+    "<p>foo</p>a[]"
+   ],
+   "expected_canonical": [
+    "<p>foo</p>a[]"
+   ]
+  },
+  {
+   "id": "inserttext-4c4f922f",
+   "initial": "<p>[]foo",
+   "initial_xhtml": "<p>[]foo</p>",
+   "commands": [
+    [
+     "inserttext",
+     "a"
+    ]
+   ],
+   "expected": [
+    "<p>a[]foo</p>"
+   ],
+   "expected_canonical": [
+    "<p>a[]foo</p>"
+   ]
+  },
+  {
+   "id": "inserttext-37323bba",
+   "initial": "<p>{}foo",
+   "initial_xhtml": "<p>{}foo</p>",
+   "commands": [
+    [
+     "inserttext",
+     "a"
+    ]
+   ],
+   "expected": [
+    "<p>a[]foo</p>"
+   ],
+   "expected_canonical": [
+    "<p>a[]foo</p>"
+   ]
+  }
+ ]
+}

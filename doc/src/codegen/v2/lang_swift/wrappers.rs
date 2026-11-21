@@ -35,6 +35,7 @@ use super::{
         managed_host_invoker::{
             callback_ctx_field, has_callback_wrapper_arg, layout_callback_factory_info,
         },
+        upper_first,
     },
     camel, escape,
     model::{pointee_swift, ClassInfo, EnumInfo, Field, Kind, Model, Prim, Shape, Ty, Variant},
@@ -722,11 +723,34 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 base: prop.clone(),
                 labels: vec![],
             };
+            let access = format!("_raw.{}", escape(&f.c_name));
             if !taken.is_free(&sel, None) {
+                // A method owns the property name: the field stays writable
+                // through `mutating func setX(_:)` (a plain struct owns no
+                // heap, so storing the new value is the whole setter).
+                let name = camel(&format!("set_{}", f.name));
+                let set_sel = Selector {
+                    is_static: false,
+                    base: name.clone(),
+                    labels: vec!["_".to_string()],
+                };
+                if taken.is_free(&set_sel, Some(ex.as_str())) {
+                    taken.take(set_sel, Some(ex.clone()));
+                    w.l(
+                        1,
+                        &format!(
+                            "public mutating func {}(_ newValue: {}) {{ {} = {} }}",
+                            escape(&name),
+                            ex,
+                            access,
+                            m.in_expr(t, "newValue").unwrap()
+                        ),
+                    );
+                    w.l(0, "");
+                }
                 continue;
             }
             taken.take(sel, None);
-            let access = format!("_raw.{}", escape(&f.c_name));
             if let Some(d) = &f.doc {
                 w.doc(1, &self.rw(std::slice::from_ref(d)));
             }
@@ -1203,10 +1227,56 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 base: prop.clone(),
                 labels: vec![],
             };
+            let fptr = format!("_address.pointer(to: \\{}.{})!", raw, escape(&f.c_name));
+            // The setter body: release the field's old value (its `_delete`),
+            // then move the new one in.
+            let set_body: Option<Vec<String>> = m.in_expr(&t, "newValue").and_then(|setter| {
+                let ct = c_type(&t)?;
+                let mut b = vec![format!("let __v: {} = {}", ct, setter)];
+                match &t {
+                    Ty::Prim(_) | Ty::Enum(_) | Ty::Plain(_) => {
+                        b.push(format!("_address.pointee.{} = __v", escape(&f.c_name)));
+                    }
+                    _ => {
+                        b.push(format!("let __f: UnsafeMutablePointer<{}> = {}", ct, fptr));
+                        if let Some(d) = m.cleanup(&t, "__f") {
+                            b.push(d);
+                        }
+                        b.push("__f.pointee = __v".to_string());
+                    }
+                }
+                Some(b)
+            });
             if !taken.is_free(&sel, None) {
+                // An api.json method owns the property name (`get_text` is
+                // the read-only `var text: String`). It keeps it, but the
+                // field must stay writable: `setText(_:)`. Skipping the
+                // field outright made `TextInputState.text` unreachable.
+                if matches!(t, Ty::Callback(_) | Ty::RawPtr(_) | Ty::RefAny) {
+                    continue;
+                }
+                let Some(body) = set_body else { continue };
+                let name = camel(&format!("set_{}", f.name));
+                let set_sel = Selector {
+                    is_static: false,
+                    base: name.clone(),
+                    labels: vec!["_".to_string()],
+                };
+                if !taken.is_free(&set_sel, Some(ex.as_str())) {
+                    continue;
+                }
+                taken.take(set_sel, Some(ex.clone()));
+                if let Some(d) = &f.doc {
+                    w.doc(1, &self.rw(std::slice::from_ref(d)));
+                }
+                w.l(1, &format!("public func {}(_ newValue: {}) {{", escape(&name), ex));
+                for l in &body {
+                    w.l(2, l);
+                }
+                w.l(1, "}");
+                w.l(0, "");
                 continue;
             }
-            let fptr = format!("_address.pointer(to: \\{}.{})!", raw, escape(&f.c_name));
             let get = match &t {
                 Ty::Class(n) => Some(format!(
                     "{}(_view: {}, root: self)",
@@ -1229,28 +1299,10 @@ impl<'m, 'a> Emitter<'m, 'a> {
             w.l(2, "get {");
             w.l(3, &format!("return {}", get));
             w.l(2, "}");
-            let setter = m.in_expr(&t, "newValue");
-            if let Some(setter) = setter {
+            if let Some(body) = set_body {
                 w.l(2, "set {");
-                w.l(3, &format!("let __v: {} = {}", c_type(&t).unwrap(), setter));
-                match &t {
-                    Ty::Prim(_) | Ty::Enum(_) | Ty::Plain(_) => {
-                        w.l(3, &format!("_address.pointee.{} = __v", escape(&f.c_name)));
-                    }
-                    _ => {
-                        w.l(
-                            3,
-                            &format!(
-                                "let __f: UnsafeMutablePointer<{}> = {}",
-                                c_type(&t).unwrap(),
-                                fptr
-                            ),
-                        );
-                        if let Some(d) = m.cleanup(&t, "__f") {
-                            w.l(3, &d);
-                        }
-                        w.l(3, "__f.pointee = __v");
-                    }
+                for l in &body {
+                    w.l(3, l);
                 }
                 w.l(2, "}");
             }
@@ -2232,7 +2284,13 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 role = Role::Func;
             }
         }
-        if reserved_member(&name) && kind != MethodKind::Init {
+        // `downcast` is reserved for RefAny's own `downcast(T.self)`; the static
+        // `FileOpenResult.downcast(result)` of every other class cannot clash
+        // with it and keeps the name the Rust API and the docs use.
+        let static_downcast = kind == MethodKind::Static
+            && name == "downcast"
+            && self.m.refany_class() != Some(class);
+        if reserved_member(&name) && kind != MethodKind::Init && !static_downcast {
             name = format!("{}_", name);
         }
 
@@ -2364,9 +2422,15 @@ impl<'m, 'a> Emitter<'m, 'a> {
         for j in 0..td.args.len() {
             parts.push(self.cb_user_arg(td, j, data_first)?.0);
         }
+        // A closure that may throw: a thrown error is logged and the callback
+        // answers its fallback (`Update.doNothing`), so `try` works inside a
+        // callback the way `?` does in Rust. Kinds without a survivable
+        // fallback stay non-throwing.
+        let throws = if self.cb_fallback(td).is_some() { " throws" } else { "" };
         Some(format!(
-            "({}) -> {}",
+            "({}){} -> {}",
             parts.join(", "),
+            throws,
             self.cb_user_ret(td)?.0
         ))
     }
@@ -2437,6 +2501,33 @@ impl<'m, 'a> Emitter<'m, 'a> {
     ) -> Option<Vec<String>> {
         let m = self.m;
         let fallback = self.cb_fallback(td)?;
+        let (sink, mut out) = self.cb_log_lines(td, message);
+        for (j, a) in td.args.iter().enumerate() {
+            if (j == 0 && data_first) || a.ref_kind != ArgRefKind::Owned {
+                continue;
+            }
+            let ty = m.not_result(m.owned(&a.type_name));
+            if m.cleanup(&ty, "__x").is_none() {
+                continue; // nothing of its own to free
+            }
+            let src = if sink == Some(j) {
+                "__log".to_string()
+            } else {
+                format!("__c{}", j)
+            };
+            if let Some(e) = m.take_expr(&ty, &src) {
+                out.push(format!("_ = {}", e));
+            }
+        }
+        out.push(fallback);
+        Some(out)
+    }
+
+    /// Report `message` (a Swift string literal body, interpolation allowed)
+    /// through the argument that carries libazul's log, if one does. Answers
+    /// that argument's index (its copy is `__log`) and the lines.
+    fn cb_log_lines(&self, td: &CallbackTypedefDef, message: &str) -> (Option<usize>, Vec<String>) {
+        let m = self.m;
         let mut out = Vec::new();
         // `log` writes to libazul's diagnostics sink, which is what the
         // observability lane reads - not into the value it is called on, so
@@ -2467,25 +2558,7 @@ impl<'m, 'a> Emitter<'m, 'a> {
                 sym, level, idx, message
             ));
         }
-        for (j, a) in td.args.iter().enumerate() {
-            if (j == 0 && data_first) || a.ref_kind != ArgRefKind::Owned {
-                continue;
-            }
-            let ty = m.not_result(m.owned(&a.type_name));
-            if m.cleanup(&ty, "__x").is_none() {
-                continue; // nothing of its own to free
-            }
-            let src = if sink.as_ref().is_some_and(|(s, ..)| *s == j) {
-                "__log".to_string()
-            } else {
-                format!("__c{}", j)
-            };
-            if let Some(e) = m.take_expr(&ty, &src) {
-                out.push(format!("_ = {}", e));
-            }
-        }
-        out.push(fallback);
-        Some(out)
+        (sink.map(|(j, ..)| j), out)
     }
 
     /// The closure the trampoline calls: C values in, the user's closure in
@@ -2541,17 +2614,33 @@ impl<'m, 'a> Emitter<'m, 'a> {
             call.push(format!("__u{}", j));
         }
         let (_, rty) = self.cb_user_ret(td).unwrap();
+        let fallback = self.cb_fallback(td);
+        // The user's closure throws exactly when there is a fallback to answer
+        // with (see `user_closure_type`).
+        let try_ = if fallback.is_some() { "try " } else { "" };
+        let mut run = Vec::new();
         match rty {
             Ty::Void => {
-                out.push(format!("    {}({})", user, call.join(", ")));
+                run.push(format!("{}{}({})", try_, user, call.join(", ")));
             }
             ty => {
-                out.push(format!("    let __ur = {}({})", user, call.join(", ")));
-                out.push(format!(
-                    "    return {}",
-                    self.m.in_expr(&ty, "__ur").unwrap()
-                ));
+                run.push(format!("let __ur = {}{}({})", try_, user, call.join(", ")));
+                run.push(format!("return {}", self.m.in_expr(&ty, "__ur").unwrap()));
             }
+        }
+        match fallback {
+            // A thrown error is reported and the fallback answered. The
+            // arguments are the closure's by now, so nothing is freed here.
+            Some(fallback) => {
+                out.push("    do {".to_string());
+                out.extend(run.iter().map(|l| format!("        {}", l)));
+                out.push("    } catch {".to_string());
+                let (_, log) = self.cb_log_lines(td, "a callback threw \\(error)");
+                out.extend(log.iter().map(|l| format!("        {}", l)));
+                out.push(format!("        {}", fallback));
+                out.push("    }".to_string());
+            }
+            None => out.extend(run.iter().map(|l| format!("    {}", l))),
         }
         out.push("}".to_string());
         out
@@ -3821,14 +3910,6 @@ fn case_names(variants: &[String]) -> Vec<String> {
 
 /// Swift member name for an api.json field name.
 /// `fromUtf16Le` -> `FromUtf16Le`, for a name built by prefixing another.
-fn upper_first(s: &str) -> String {
-    let mut ch = s.chars();
-    match ch.next() {
-        Some(f) => f.to_ascii_uppercase().to_string() + ch.as_str(),
-        None => String::new(),
-    }
-}
-
 fn member_name(field: &str) -> String {
     let mut n = camel(field);
     if n.is_empty() || n.starts_with(|c: char| c.is_ascii_digit()) {
@@ -3915,5 +3996,74 @@ mod tests {
             assert!(reserved_member(n), "{n} must be reserved");
         }
         assert!(!reserved_member("withCss"));
+    }
+}
+
+#[cfg(test)]
+mod field_access_tests {
+    //! The field-access contract (azul-work/field_access_wave.md) for Swift.
+    use std::sync::OnceLock;
+
+    use super::super::super::config::CodegenConfig;
+
+    fn output() -> &'static str {
+        static OUT: OnceLock<String> = OnceLock::new();
+        OUT.get_or_init(|| {
+            super::super::generate(super::super::super::bug_classes::ir(), &CodegenConfig::c_header())
+                .expect("Swift generates")
+        })
+    }
+
+    /// The body of `public final class {name}: ...`.
+    fn class_body(name: &str) -> &'static str {
+        let out = output();
+        let head = format!("\npublic final class {}: ", name);
+        let start = out
+            .find(&head)
+            .unwrap_or_else(|| panic!("no class {} in the Swift output", name));
+        let rest = &out[start + 1..];
+        let end = rest.find("\n}\n").expect("class ends");
+        &rest[..end]
+    }
+
+    /// The member starting at `head`, up to its closing brace.
+    fn member<'a>(body: &'a str, head: &str) -> &'a str {
+        let start = body
+            .find(head)
+            .unwrap_or_else(|| panic!("no `{}` in:\n{}", head, body));
+        let rest = &body[start..];
+        let end = rest.find("\n    }\n").expect("member ends");
+        &rest[..end]
+    }
+
+    #[test]
+    fn the_text_field_of_text_input_state_gets_a_setter_next_to_the_get_text_property() {
+        let body = class_body("TextInputState");
+        // The api.json method keeps the property name `text` ...
+        let get = member(body, "    public var text: String {");
+        assert!(get.contains("AzTextInputState_getText("), "{}", get);
+        // ... and the field is still writable through `setText(_:)`, which
+        // releases the old Vec before storing the new one.
+        let set = member(body, "    public func setText(_ newValue: ");
+        assert!(set.contains("\\AzTextInputState.text)!"), "{}", set);
+        let del = set.find("AzU32Vec_delete(__f)").expect("releases the old value");
+        let store = set.find("__f.pointee = __v").expect("stores the new value");
+        assert!(del < store, "{}", set);
+    }
+
+    #[test]
+    fn a_string_field_setter_releases_the_old_string_before_storing_the_new_one() {
+        let set = member(class_body("FullWindowState"), "    public var title: String {");
+        let del = set.find("AzString_delete(__f)").expect("releases");
+        let store = set.find("__f.pointee = __v").expect("stores");
+        assert!(del < store, "{}", set);
+    }
+
+    #[test]
+    fn a_struct_field_getter_is_a_view_and_its_setter_consumes_the_new_value() {
+        let p = member(class_body("WindowCreateOptions"), "    public var windowState: FullWindowState {");
+        assert!(p.contains("FullWindowState(_view: "), "{}", p);
+        assert!(p.contains("newValue._take()"), "{}", p);
+        assert!(p.contains("AzFullWindowState_delete(__f)"), "{}", p);
     }
 }

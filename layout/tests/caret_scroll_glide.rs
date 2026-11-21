@@ -67,7 +67,7 @@ fn build(animations: SystemAnimations) -> LayoutWindow {
         azul_core::geom::LogicalPosition::zero(),
         azul_core::task::Instant::from(std::time::Instant::now()),
     );
-    lw.text_edit_manager.initialize_editing(
+    lw.start_editing_at(
         TextCursor {
             cluster_id: GraphemeClusterId {
                 source_run: 0,

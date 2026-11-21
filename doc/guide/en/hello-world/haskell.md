@@ -150,6 +150,59 @@ Every function takes its receiver last, so builder calls chain with `>>=`. Argum
 by value are moved into the library: after `Dom.withChild label`, `label` cannot be used again.
 Using it anyway raises an `AzulError` instead of crashing.
 
+## Missing values and errors in callbacks
+
+Every optional value of the API is a `Maybe` and every fallible call returns an 
+`Either` (the error on the `Left`): a parameter takes `Nothing` or `Just x`, a field 
+getter or a return value gives one. `orDoNothing` runs a handler body in `MaybeT`, 
+so a `Nothing` at any step ends the handler with the model unchanged and 
+`Update_DoNothing`; `orDoNothingOnError` does the same for `ExceptT`, writing the 
+error to stderr. Both, and `MaybeT` / `ExceptT`, come with `import Azul`.
+
+A folder picker. Before, the start folder was the raw `T.OptionString_None`, the 
+downcast a raw `T.OptionFileOpenResult` to take apart by hand, and the resume 
+callback could not get the app's model as its data:
+
+```haskell
+onPickFolder :: Model -> CallbackInfo -> RefAny -> IO (Model, Update)
+onPickFolder model _ result = do
+  picked <- FileOpenResult.downcast result
+  case picked of
+    T.OptionFileOpenResult_None -> pure (model, Update_DoNothing)
+    T.OptionFileOpenResult_Some raw -> ... -- a raw struct, its path another option
+```
+
+Now `FileDialog.openDirectoryWithModel` hands the running callback's model to the 
+resume callback, and the handler reads as one chain:
+
+```haskell
+import Azul
+import qualified Azul.FileDialog as FileDialog
+import qualified Azul.FileOpenResult as FileOpenResult
+import qualified Azul.AzFilePath as FilePath
+import qualified Azul.Url as Url
+import Control.Monad.IO.Class (liftIO)
+
+data Model = Model { folder :: String, link :: String }
+
+onChooseFolder :: Model -> CallbackInfo -> IO (Model, Update)
+onChooseFolder model _ = do
+  _ <- FileDialog.openDirectoryWithModel "Choose a folder" Nothing onPickFolder
+  pure (model, Update_DoNothing)
+
+onPickFolder :: Model -> CallbackInfo -> RefAny -> IO (Model, Update)
+onPickFolder model _ result = orDoNothing model $ do
+  picked <- MaybeT (FileOpenResult.downcast result)
+  path <- MaybeT (FileOpenResult.getPath picked) -- Nothing when cancelled
+  name <- liftIO (FilePath.getInner path)
+  pure (model { folder = name }, Update_RefreshDom)
+
+onOpenLink :: Model -> CallbackInfo -> IO (Model, Update)
+onOpenLink model _ = orDoNothingOnError model $ do
+  _url <- ExceptT (Url.parse (link model)) -- an Err is logged, the handler does nothing
+  pure (model, Update_RefreshDom)
+```
+
 ## Build and run
 
 From the directory containing `cabal.project` and the native library:

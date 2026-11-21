@@ -955,6 +955,36 @@ mod autotest_generated {
         assert_eq!(parse_svg_path_d("M0 0 Z").unwrap().rings.as_ref().len(), 0);
     }
 
+    /// `parse_svg_path_d_subpaths` says which rings a closepath ended; a ring
+    /// flushed by `M` or by the end of the data is open, even when it ends
+    /// where it began.
+    #[test]
+    fn parse_path_subpaths_record_closepath() {
+        let closed = |d: &str| parse_svg_path_d_subpaths(d).unwrap().1;
+        assert_eq!(closed("M0 0 L10 0 L10 10"), vec![false]);
+        assert_eq!(closed("M0 0 L10 0 L10 10 Z"), vec![true]);
+        assert_eq!(
+            closed("M0 0 L10 0 L0 0"),
+            vec![false],
+            "back at the start, no Z"
+        );
+        assert_eq!(closed("M0 0 L1 0 Z M5 5 L6 6"), vec![true, false]);
+        assert_eq!(closed("M0 0 L1 0 M5 5 L6 6 z"), vec![false, true]);
+        // After a Z, a drawing command starts a new subpath at the old start.
+        assert_eq!(closed("M0 0 L1 0 Z L3 3"), vec![true, false]);
+        // A Z on an empty subpath adds no ring and no flag.
+        assert_eq!(closed("M0 0 Z M1 1 L2 2"), vec![false]);
+        // One flag per ring, and the rings are parse_svg_path_d's.
+        for d in [
+            "M0 0 L1 0 Z M5 5 L6 6",
+            "M0 0 C1 1 2 2 3 3 Z m1 1 h2 v2 z m4 4 l1 1",
+        ] {
+            let (mp, flags) = parse_svg_path_d_subpaths(d).unwrap();
+            assert_eq!(mp, parse_svg_path_d(d).unwrap());
+            assert_eq!(mp.rings.as_ref().len(), flags.len());
+        }
+    }
+
     /// Every M and every Z flushes a ring.
     #[test]
     fn parse_path_multiple_subpaths_produce_multiple_rings() {

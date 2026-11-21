@@ -58,11 +58,11 @@ pub fn create_logical_items_compat(
     azul_layout::text3::cache::create_logical_items(content, overrides, &mut None)
 }
 
-pub fn reorder_logical_items_compat(
+pub fn split_into_bidi_runs_compat(
     items: &[azul_layout::text3::cache::LogicalItem],
     dir: BidiDirection,
-) -> Result<Vec<azul_layout::text3::cache::VisualItem>, LayoutError> {
-    azul_layout::text3::cache::reorder_logical_items(
+) -> Result<Vec<azul_layout::text3::cache::BidiRun>, LayoutError> {
+    azul_layout::text3::cache::split_into_bidi_runs(
         items,
         dir,
         azul_layout::text3::cache::UnicodeBidi::Normal,
@@ -70,14 +70,14 @@ pub fn reorder_logical_items_compat(
     )
 }
 
-pub fn shape_visual_items_compat(
-    items: &[azul_layout::text3::cache::VisualItem],
+pub fn shape_bidi_runs_compat(
+    items: &[azul_layout::text3::cache::BidiRun],
     _manager: &MockFontManager,
 ) -> Result<Vec<ShapedItem>, LayoutError> {
     let loaded = mock_loaded_fonts();
     let chain = HashMap::new();
     let fc = rust_fontconfig::FcFontCache::default();
-    azul_layout::text3::cache::shape_visual_items(items, &chain, &fc, &loaded, &mut None)
+    azul_layout::text3::cache::shape_bidi_runs(items, &chain, &fc, &loaded, &mut None)
 }
 
 pub fn perform_fragment_layout_compat(
@@ -101,7 +101,7 @@ pub fn break_one_line_compat<'a>(
     is_vertical: bool,
     hyphenator: Option<&hyphenation::Standard>,
 ) -> (Vec<ShapedItem>, bool) {
-    azul_layout::text3::cache::break_one_line(
+    let (line, was_hyphenated) = azul_layout::text3::cache::break_one_line(
         cursor,
         lc,
         is_vertical,
@@ -110,7 +110,8 @@ pub fn break_one_line_compat<'a>(
         Default::default(),
         Default::default(),
         Default::default(),
-    )
+    );
+    (line.into_items(), was_hyphenated)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -124,18 +125,30 @@ pub fn position_one_line_compat(
     is_last_line: bool,
     constraints: &azul_layout::text3::cache::UnifiedConstraints,
 ) -> (Vec<PositionedItem>, f32) {
+    // The items are a line in logical order; the positioner takes it in
+    // visual order, as one segment: the first of the room's.
+    let items = azul_layout::text3::cache::LogicalLine::new(line_items.to_vec())
+        .into_visual(base_direction);
+    let segment = lc.segments.first().copied().unwrap_or(
+        azul_layout::text3::cache::LineSegment {
+            start_x: 0.0,
+            width: lc.total_available,
+            priority: 0,
+        },
+    );
     azul_layout::text3::cache::position_one_line(
-        line_items,
-        lc,
+        &[azul_layout::text3::cache::SegmentLine {
+            segment,
+            items,
+            text_align,
+            is_last_line,
+        }],
         line_top_y,
         line_index,
-        text_align,
         base_direction,
-        is_last_line,
         constraints,
         &mut None,
         &mock_loaded_fonts(),
-        false,
     )
 }
 
@@ -169,6 +182,49 @@ pub fn layout_flow_compat(
         &mock_loaded_fonts(),
         &mut None,
     )
+}
+
+/// The distance between two lines of `content` in this fixture, as the engine
+/// lays them out.
+///
+/// It is NOT the style's `line_height` (12px): a fragment's
+/// `UnifiedConstraints::default()` carries the strut of a 16px font, and a line
+/// box is the taller of the strut's and the run's, so the mock text stands 16px
+/// apart. A fragment holds the lines that END inside it (CSS Fragmentation 3: a
+/// line box is monolithic, `a_frames_last_line_ends_inside_the_frame`), so a
+/// test that sizes a fragment in lines has to size it by what the lines are.
+pub fn line_pitch(content: &[azul_layout::text3::cache::InlineContent], width: f32) -> f32 {
+    use azul_layout::text3::cache::{
+        AvailableSpace, LayoutFragment, TextShapingCache, UnifiedConstraints,
+    };
+    let mut cache = TextShapingCache::new();
+    let one_tall_fragment = [LayoutFragment {
+        id: "tall".into(),
+        constraints: UnifiedConstraints {
+            available_width: AvailableSpace::Definite(width),
+            ..Default::default()
+        },
+    }];
+    let flow = layout_flow_compat(
+        &mut cache,
+        content,
+        &[],
+        &one_tall_fragment,
+        &create_mock_font_manager(),
+    )
+    .expect("the content lays out");
+    let layout = flow.fragment_layouts.get("tall").expect("the one fragment");
+    let mut tops = std::collections::BTreeMap::<usize, f32>::new();
+    for item in &layout.items {
+        let top = tops.entry(item.line_index).or_insert(item.position.y);
+        *top = top.min(item.position.y);
+    }
+    let mut tops = tops.into_values();
+    let (first, second) = (
+        tops.next().expect("a first line"),
+        tops.next().expect("a second line: the content is wider than the fragment"),
+    );
+    second - first
 }
 
 // --- Mocking Infrastructure ---
@@ -421,6 +477,7 @@ pub fn create_mock_font_manager() -> MockFontManager {
             ascent: 80.0,
             descent: -20.0,
             cap_height: Some(70.0),
+            browser_ascent_boost: false,
             x_height: Some(50.0),
             line_gap: 0.0,
             units_per_em: 100,
@@ -480,6 +537,7 @@ pub fn create_mock_font_loader() -> Arc<MockFontLoader> {
             ascent: 80.0,
             descent: -20.0,
             cap_height: Some(70.0),
+            browser_ascent_boost: false,
             x_height: Some(50.0),
             line_gap: 0.0,
             units_per_em: 100,
