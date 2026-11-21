@@ -7,8 +7,8 @@
 //! `request` shows the OS-drawn modal (`evaluatePolicy:localizedReason:reply:`)
 //! and parks the outcome in the result channel from the reply block —
 //! which fires on an arbitrary thread, so it routes through the
-//! thread-safe `push_biometric_result` rather than touching any window
-//! state directly. `probe_availability` is the synchronous capability
+//! thread-safe `results` queue (the app's, a clone of which the block
+//! holds) rather than touching any window state directly. `probe_availability` is the synchronous capability
 //! check (`canEvaluatePolicy:` + `biometryType`).
 //!
 //! `biometryType` maps TouchID→Fingerprint, FaceID/OpticID→Face. iOS
@@ -17,7 +17,7 @@
 //! `LAContext` needs the app code-signed with the right entitlement.
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
-use azul_layout::managers::biometric::push_biometric_result;
+use azul_layout::managers::shared_queue::SharedQueue;
 use block2::RcBlock;
 use objc2::{rc::Retained, runtime::Bool};
 use objc2_foundation::{NSError, NSString};
@@ -32,7 +32,8 @@ const POLICY_WITH_PASSCODE: isize = 2;
 
 /// Show the biometric prompt and deliver the outcome asynchronously via
 /// the result channel. Returns immediately.
-pub fn request(prompt: &BiometricPrompt) {
+pub fn request(prompt: &BiometricPrompt, results: &SharedQueue<BiometricResult>) {
+    let results = results.clone();
     let policy = LAPolicy(if prompt.allow_device_credential {
         POLICY_WITH_PASSCODE
     } else {
@@ -53,7 +54,7 @@ pub fn request(prompt: &BiometricPrompt) {
         } else {
             map_la_error(unsafe { &*error }.code())
         };
-        push_biometric_result(result);
+        results.push(result);
     });
 
     unsafe {

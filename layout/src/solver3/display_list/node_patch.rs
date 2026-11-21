@@ -745,6 +745,7 @@ pub(crate) const MAX_MOVED_ITEMS: usize = 4096;
 /// looked at on this thread ([`frame_owners`], [`movable_frame`], [`move_frame`]): what a
 /// test reads to say that a move looks at its own items and not at the list.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static MOVE_ITEM_VISITS: core::cell::Cell<usize> =
         const { core::cell::Cell::new(0) };

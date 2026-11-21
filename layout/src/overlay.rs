@@ -333,19 +333,12 @@ pub struct ContentChangeResult {
     pub tier: ContentDirtyTier,
 }
 
-/// Identity of one overlay part — "NodeIdGen2": minted from a monotonic
-/// per-process counter, NEVER a real `NodeId` (a previewed part has no DOM
-/// node until the app's re-render creates one).
+/// Identity of one overlay part — "NodeIdGen2": minted by the
+/// [`ContentOverlay`] that previews it, from a monotonic per-overlay counter,
+/// NEVER a real `NodeId` (a previewed part has no DOM node until the app's
+/// re-render creates one).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OverlayPartId(pub u64);
-
-impl OverlayPartId {
-    fn mint() -> Self {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        Self(NEXT.fetch_add(1, Ordering::Relaxed))
-    }
-}
 
 /// A pending STRUCTURAL delta over the immutable DOM.
 ///
@@ -444,9 +437,20 @@ pub struct ContentOverlay {
     /// via [`ResolvedContent::children_for_node`] /
     /// [`Self::pending_structure`]; empty = the DOM is the whole truth.
     pending_structure: BTreeMap<DomId, Vec<PendingStructure>>,
+    /// The parts this overlay has minted ids for ([`Self::mint_part_id`]); the
+    /// next id is one more, so ids start at 1.
+    minted_parts: u64,
 }
 
 impl ContentOverlay {
+    /// The id of a new overlay part: one more than the last this overlay
+    /// minted. Ids are keys of this overlay's own previews, so they need to
+    /// differ only inside it.
+    fn mint_part_id(&mut self) -> OverlayPartId {
+        self.minted_parts += 1;
+        OverlayPartId(self.minted_parts)
+    }
+
     /// The overlay's image for a node, if any. Callers wanting the full
     /// overlay→DOM read order use [`ResolvedContent`] instead.
     #[must_use]
@@ -617,7 +621,7 @@ impl ContentOverlay {
                     .map(|node| StructuralPreview::Split {
                         node,
                         at: sp.at,
-                        part_ids: [OverlayPartId::mint(), OverlayPartId::mint()],
+                        part_ids: [self.mint_part_id(), self.mint_part_id()],
                     })
             }
             Op::MergeNodes(m) => match (

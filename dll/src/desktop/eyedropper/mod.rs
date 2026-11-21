@@ -45,7 +45,7 @@ use azul_core::{
 use azul_css::props::basic::color::ColorU;
 use azul_layout::{
     callbacks::{Callback, CallbackInfo},
-    managers::eyedropper::{push_result, EyedropperResult},
+    managers::eyedropper::{EyedropperChannel, EyedropperResult},
     window_state::{FullWindowState, WindowCreateOptions},
 };
 
@@ -105,6 +105,8 @@ const LOUPE_GAP: f32 = 18.0;
 /// The loupe window's state, in its layout-callback ctx.
 struct LoupeData {
     request_id: u64,
+    /// The app's channel the answer is parked in.
+    channel: EyedropperChannel,
     shot: Screenshot,
     /// The screenshot as an image, built once.
     frame: ImageRef,
@@ -115,9 +117,15 @@ struct LoupeData {
     done: bool,
 }
 
-/// Build the fullscreen loupe window for a finished screenshot.
+/// Build the fullscreen loupe window for a finished screenshot. It answers on `channel`, the
+/// app's: the click (or Escape) parks the pick there for the window that asked.
 #[must_use]
-pub fn loupe_window(shot: Screenshot, request_id: u64, dpi: u32) -> Option<WindowCreateOptions> {
+pub fn loupe_window(
+    shot: Screenshot,
+    request_id: u64,
+    dpi: u32,
+    channel: &EyedropperChannel,
+) -> Option<WindowCreateOptions> {
     let size = shot.logical_size();
     let frame = ImageRef::new_rawimage(RawImage {
         width: shot.width as usize,
@@ -129,6 +137,7 @@ pub fn loupe_window(shot: Screenshot, request_id: u64, dpi: u32) -> Option<Windo
     })?;
     let data = RefAny::new(LoupeData {
         request_id,
+        channel: channel.clone(),
         shot,
         frame,
         cursor: None,
@@ -177,9 +186,9 @@ fn data_origin(data: &RefAny) -> LogicalPosition {
         .map_or(LogicalPosition::zero(), |d| d.shot.origin)
 }
 
-/// Answer a pick (or a cancellation) for `request_id`.
-pub fn finish(request_id: u64, color: Option<ColorU>) {
-    push_result(EyedropperResult { request_id, color });
+/// Answer a pick (or a cancellation) for `request_id` on the app's `channel`.
+pub fn finish(channel: &EyedropperChannel, request_id: u64, color: Option<ColorU>) {
+    channel.push_result(EyedropperResult { request_id, color });
 }
 
 /// The magnifier's content: `LOUPE_CELLS`² source pixels around the pointer,
@@ -406,7 +415,7 @@ extern "C" fn on_loupe_pick(mut data: RefAny, mut info: CallbackInfo) -> Update 
             (pos.x * d.shot.scale).floor() as i64,
             (pos.y * d.shot.scale).floor() as i64,
         );
-        finish(d.request_id, d.shot.pixel(px, py));
+        finish(&d.channel, d.request_id, d.shot.pixel(px, py));
         answered = true;
     });
     if answered {
@@ -423,7 +432,7 @@ extern "C" fn on_loupe_cancel(mut data: RefAny, mut info: CallbackInfo) -> Updat
     with_loupe(&mut data, |d| {
         if !d.done {
             d.done = true;
-            finish(d.request_id, None);
+            finish(&d.channel, d.request_id, None);
             answered = true;
         }
     });
@@ -591,6 +600,19 @@ mod tests {
         assert!(near_corner.x >= 0.0 && near_corner.y >= 0.0);
     }
 
+    /// A pick (or a cancellation) parks in the channel the loupe was built with, addressed by its
+    /// request id: another app's channel never sees it.
+    #[test]
+    fn a_pick_answers_on_the_channel_it_was_given() {
+        let ours = EyedropperChannel::new();
+        let theirs = EyedropperChannel::new();
+        finish(&ours, 7, Some(ColorU::RED));
+        assert!(theirs.drain_results_for(&[7]).is_empty());
+        let got = ours.drain_results_for(&[7]);
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].color, Some(ColorU::RED));
+    }
+
     #[test]
     fn bgra_becomes_opaque_rgba() {
         assert_eq!(
@@ -601,7 +623,7 @@ mod tests {
 
     #[test]
     fn a_loupe_window_is_fullscreen_at_the_capture_origin() {
-        let opts = loupe_window(shot(), 7, 96).expect("window");
+        let opts = loupe_window(shot(), 7, 96, &EyedropperChannel::new()).expect("window");
         assert_eq!(opts.window_state.flags.frame, WindowFrame::Fullscreen);
         assert_eq!(opts.window_state.flags.decorations, WindowDecorations::None);
         assert_eq!(

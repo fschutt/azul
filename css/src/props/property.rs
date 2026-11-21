@@ -609,6 +609,8 @@ std::thread_local! {
 #[cfg(feature = "std")]
 #[must_use]
 pub fn css_key_map() -> &'static CssKeyMap {
+    // A pure function of the property table compiled in, built once: it never grows and has no
+    // owner to give it to (a parse of a bare string has no context).
     static MAP: std::sync::OnceLock<CssKeyMap> = std::sync::OnceLock::new();
     MAP.get_or_init(build_css_key_map)
 }

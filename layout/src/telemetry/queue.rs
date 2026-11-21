@@ -9,10 +9,7 @@
 //! either on the uploader thread started by [`super::spawn_uploader`], or on
 //! an azul `Thread` owned by the embedding app.
 
-use std::{
-    path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::path::{Path, PathBuf};
 
 use super::config::TelemetryConfig;
 use crate::http::{http_post_with_config, HttpRequestConfig};
@@ -23,6 +20,8 @@ pub const DEFAULT_MAX_FILES: usize = 500;
 pub const DEFAULT_MAX_BYTES: u64 = 10 * 1024 * 1024;
 /// Request timeout for one upload attempt.
 const UPLOAD_TIMEOUT_SECS: u64 = 20;
+/// The highest sequence number a ping file name carries (six digits).
+const MAX_SEQUENCE: u32 = 999_999;
 
 /// Which OTLP signal a queued file belongs to.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -89,9 +88,6 @@ pub struct PingQueue {
     max_bytes: u64,
 }
 
-/// Monotonic counter disambiguating pings written inside the same millisecond.
-static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
 impl PingQueue {
     /// A queue rooted at `dir`, with the default quotas.
     #[must_use]
@@ -135,16 +131,58 @@ impl PingQueue {
     /// Returns the IO error if the directory cannot be created or the file
     /// cannot be written.
     pub fn enqueue(&self, kind: PingKind, payload: &str) -> std::io::Result<PathBuf> {
+        use std::io::Write;
+
         std::fs::create_dir_all(&self.dir)?;
         let millis = super::unix_nanos() / 1_000_000;
-        let seq = SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        // Zero-padded so lexicographic order *is* chronological order, which
-        // is what makes `pending()` a FIFO without reading any metadata.
-        let name = format!("{millis:013}-{seq:06}-{}.json", kind.as_str());
-        let path = self.dir.join(name);
-        std::fs::write(&path, payload)?;
+        // Pings written inside the same millisecond are told apart by a sequence number: one
+        // past the highest already queued in that millisecond, and the file is created
+        // EXCLUSIVELY, so a writer on another thread (or in another process sharing the
+        // directory) that took the same number makes this one take the next. The directory is
+        // the counter: nothing is kept in the process.
+        let mut seq = self.next_sequence(millis);
+        let (path, mut file) = loop {
+            // Zero-padded so lexicographic order *is* chronological order, which
+            // is what makes `pending()` a FIFO without reading any metadata.
+            let path = self
+                .dir
+                .join(format!("{millis:013}-{seq:06}-{}.json", kind.as_str()));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(file) => break (path, file),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && seq < MAX_SEQUENCE => {
+                    seq += 1;
+                }
+                Err(e) => return Err(e),
+            }
+        };
+        file.write_all(payload.as_bytes())?;
+        drop(file);
         self.enforce_quota();
         Ok(path)
+    }
+
+    /// The sequence number the next ping written in `millis` takes: one past the highest of the
+    /// pings already queued in that millisecond (whatever their kinds), so the pings of one
+    /// millisecond stay in the order they were written.
+    fn next_sequence(&self, millis: u64) -> u32 {
+        let prefix = format!("{millis:013}-");
+        self.pending()
+            .iter()
+            .filter_map(|path| {
+                path.file_name()?
+                    .to_str()?
+                    .strip_prefix(prefix.as_str())?
+                    .split('-')
+                    .next()?
+                    .parse::<u32>()
+                    .ok()
+            })
+            .max()
+            .map_or(0, |highest| highest.saturating_add(1).min(MAX_SEQUENCE))
     }
 
     /// Every queued file, oldest first.
@@ -516,6 +554,37 @@ mod tests {
         assert_eq!(pending, sorted, "pending() must already be chronological");
         let first = std::fs::read_to_string(&pending[0]).unwrap();
         assert_eq!(first, "{\"n\":0}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// The name's sequence number comes from the directory, not from the process: two handles
+    /// on one directory (two writers) never take the same name, and the pings of one
+    /// millisecond stay in the order they were written whatever their kinds.
+    #[test]
+    fn two_handles_on_one_directory_never_take_the_same_name() {
+        let dir = scratch("handles");
+        let a = PingQueue::new(dir.clone());
+        let b = PingQueue::new(dir.clone());
+        let mut written = Vec::new();
+        for i in 0..20 {
+            let queue = if i % 2 == 0 { &a } else { &b };
+            let kind = if i % 3 == 0 {
+                PingKind::Logs
+            } else {
+                PingKind::Metrics
+            };
+            written.push(
+                queue
+                    .enqueue(kind, &format!("{{\"n\":{i}}}"))
+                    .expect("enqueue"),
+            );
+        }
+        assert_eq!(a.len(), 20, "no ping overwrote another");
+        assert_eq!(
+            a.pending(),
+            written,
+            "the directory lists the pings in the order they were written"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 

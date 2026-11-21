@@ -20,7 +20,7 @@
 //! here too, and a list that holds ever more images shows as growth.
 //!
 //! Two things a shell's tables hold are NOT counted, on purpose: the kept
-//! pictures of text shadows (`cpurender::text_halos` - the compositor's own
+//! pictures of text shadows (`TextHaloStore::text_halos` - the compositor's own
 //! pictures, not a resource of the page) and the legacy `font_id_map` /
 //! `font_families_map` (no shell writes them any more: they stay 0 everywhere).
 //! The real `RendererResources` is not written either: the CPU path reads it

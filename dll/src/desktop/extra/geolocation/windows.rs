@@ -13,7 +13,7 @@
 //!   → ILocation::RequestPermissions(NULL, &IID_ILatLongReport, 1, FALSE)
 //!   → loop: ILocation::GetReport(IID_ILatLongReport) → ILatLongReport::
 //!       GetLatitude/GetLongitude/GetErrorRadius/GetAltitude/GetAltitudeError
-//!   → push_location_fix(...)
+//!   → the app's `GeolocationChannel::push_fix(...)`
 //! ```
 //!
 //! The poll runs on a one-shot worker thread (same lifecycle pattern as
@@ -30,8 +30,11 @@
 
 use azul_layout::managers::geolocation::GeolocationDiffEvent;
 
-pub fn handle_event(event: &GeolocationDiffEvent) {
-    imp::handle_event(event);
+pub fn handle_event(
+    event: &GeolocationDiffEvent,
+    services: &azul_layout::managers::app_services::AppServices,
+) {
+    imp::handle_event(event, &services.geolocation);
 }
 
 mod imp {
@@ -43,28 +46,26 @@ mod imp {
         time::Duration,
     };
 
-    use azul_layout::managers::geolocation::{
-        push_location_fix, GeolocationDiffEvent, LocationFix,
-    };
+    use azul_layout::managers::geolocation::{GeolocationChannel, GeolocationDiffEvent, LocationFix};
 
     /// Stop flag of the currently-running poll thread (if any) — same
     /// lifecycle shape as the GeoClue loop in linux.rs.
     static ACTIVE: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 
-    pub fn handle_event(event: &GeolocationDiffEvent) {
+    pub fn handle_event(event: &GeolocationDiffEvent, channel: &Arc<GeolocationChannel>) {
         match event {
-            GeolocationDiffEvent::Subscribe { .. } => start(),
+            GeolocationDiffEvent::Subscribe { .. } => start(channel),
             GeolocationDiffEvent::Reconfigure { .. } => {
                 // Accuracy is a hint only in the classic API; restart keeps
                 // the lifecycle simple and matches linux.rs.
                 stop();
-                start();
+                start(channel);
             }
             GeolocationDiffEvent::Release => stop(),
         }
     }
 
-    fn start() {
+    fn start(channel: &Arc<GeolocationChannel>) {
         let mut active = match ACTIVE.lock() {
             Ok(g) => g,
             Err(_) => return,
@@ -74,7 +75,8 @@ mod imp {
         }
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
-        std::thread::spawn(move || location_poll_loop(&stop_thread));
+        let channel = Arc::clone(channel);
+        std::thread::spawn(move || location_poll_loop(&stop_thread, &channel));
         *active = Some(stop);
     }
 
@@ -182,7 +184,7 @@ mod imp {
     const CLSCTX_INPROC_SERVER: u32 = 0x1;
     const S_OK: Hresult = 0;
 
-    fn location_poll_loop(stop: &Arc<AtomicBool>) {
+    fn location_poll_loop(stop: &Arc<AtomicBool>, channel: &GeolocationChannel) {
         type CoInitializeEx = unsafe extern "system" fn(*mut core::ffi::c_void, u32) -> Hresult;
         type CoUninitialize = unsafe extern "system" fn();
         type CoCreateInstance = unsafe extern "system" fn(
@@ -270,7 +272,7 @@ mod imp {
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_millis() as u64)
                             .unwrap_or(0);
-                        push_location_fix(LocationFix {
+                        channel.push_fix(LocationFix {
                             latitude_deg: lat,
                             longitude_deg: lon,
                             accuracy_m: if err_radius.is_finite() {

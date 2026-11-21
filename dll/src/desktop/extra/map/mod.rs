@@ -142,7 +142,7 @@ pub extern "C" fn tile_fetch_worker(
                 i.look,
                 i.bytes.as_ref().to_vec(),
                 i.client.clone(),
-                TileDiskCache::open(i.cache_dir.as_str(), i.cache_max_bytes),
+                TileDiskCache::open(i.cache_dir.as_str(), i.cache_max_bytes, &i.disk_usage),
                 i.language.as_str().to_string(),
             )
         })

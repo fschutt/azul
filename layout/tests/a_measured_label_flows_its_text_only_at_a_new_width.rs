@@ -25,7 +25,7 @@ use azul_layout::{
 };
 
 use crate::a_one_box_slide_does_not_re_lay_out_the_page::{
-    count, restore_ambient_recording, window,
+    count, window,
 };
 
 /// The width of the pane's header box, wider than any place: the pane keeps
@@ -280,7 +280,6 @@ pub(crate) fn assert_lays_out_like_a_fresh_window(lw: &LayoutWindow, page: Dom, 
 /// flowed it once more.
 #[test]
 fn a_hovered_label_flows_its_text_once_however_often_it_is_measured() {
-    let _serialised = crate::probe_lock();
     if !Probe::enabled() {
         eprintln!("[a_measured_label] the probe is compiled out: nothing to count");
         return;
@@ -290,11 +289,11 @@ fn a_hovered_label_flows_its_text_once_however_often_it_is_measured() {
     let label = node_with_class(&lw, "label-3");
     let before = rect(&lw, label);
 
-    Probe::set_recording(true);
+    let recording = Probe::record_on_this_thread(true);
     let _ = Probe::drain();
     rebuild(&mut lw, page(&names, Some(3), Pane::Fixed));
     let events = Probe::drain();
-    restore_ambient_recording();
+    drop(recording);
 
     let after = rect(&lw, label);
     assert!(

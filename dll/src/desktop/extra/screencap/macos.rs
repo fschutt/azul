@@ -161,6 +161,21 @@ fn sck_class(name: &str) -> Option<&'static AnyClass> {
     AnyClass::get(&cname)
 }
 
+/// Park the screen-capture permission outcome in the App's permission queue.
+///
+/// `open` is a function pointer in the capture widget's backend table and is called with the
+/// request alone, so there is no context to carry the queue: it is read from `process_app`, where
+/// `App::run` put the App's services (a platform callback with no context is what that slot is
+/// for).
+fn report_screen_permission(state: azul_layout::managers::permission::PermissionState) {
+    if let Some(services) = crate::desktop::process_app::services() {
+        services.permission.push((
+            azul_layout::managers::permission::Capability::ScreenCapture,
+            state,
+        ));
+    }
+}
+
 /// Screen-Recording TCC preflight/request via CoreGraphics (10.15+). Returns
 /// whether capture access is (now) granted; `true` when the symbols are
 /// missing (pre-10.15 — no TCC gate existed) so we never block older systems.
@@ -181,12 +196,9 @@ fn ensure_screen_access() -> bool {
             // MWA-C-permission: inform the PermissionManager (this backend
             // used to bypass it entirely — ScreenCapture state stayed
             // NotDetermined forever).
-            azul_layout::managers::permission::push_async_result(
-                azul_layout::managers::permission::Capability::ScreenCapture,
-                azul_layout::managers::permission::PermissionState::Granted(
-                    azul_layout::managers::permission::PermissionQuality::Full,
-                ),
-            );
+            report_screen_permission(azul_layout::managers::permission::PermissionState::Granted(
+                azul_layout::managers::permission::PermissionQuality::Full,
+            ));
             return true;
         }
         // Not granted yet — trigger the prompt (first time) / System-Settings
@@ -209,16 +221,13 @@ fn ensure_screen_access() -> bool {
             // granted" after a request = the user must act in System
             // Settings → report Denied (could_re_prompt stays false, which
             // matches macOS: re-prompting is impossible until reset).
-            azul_layout::managers::permission::push_async_result(
-                azul_layout::managers::permission::Capability::ScreenCapture,
-                if granted {
-                    azul_layout::managers::permission::PermissionState::Granted(
-                        azul_layout::managers::permission::PermissionQuality::Full,
-                    )
-                } else {
-                    azul_layout::managers::permission::PermissionState::Denied
-                },
-            );
+            report_screen_permission(if granted {
+                azul_layout::managers::permission::PermissionState::Granted(
+                    azul_layout::managers::permission::PermissionQuality::Full,
+                )
+            } else {
+                azul_layout::managers::permission::PermissionState::Denied
+            });
             return granted;
         }
         false

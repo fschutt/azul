@@ -87,7 +87,7 @@ pub struct ReportProblemState {
 /// screenshot (the capture happens in `invoke_system_dialog`, BEFORE this
 /// window exists, so the dialog itself is never in the picture).
 pub fn open(info: &mut CallbackInfo, screenshot_png: Option<Vec<u8>>) {
-    let env = crate::appenv::app_env();
+    let env = info.get_app_env();
     // Fit the capture into the dialog: the preview is a scaled copy, and the
     // scale is REMEMBERED so a blackout drawn here maps to the real pixels.
     const PREVIEW_MAX_W: f32 = 460.0;
@@ -234,6 +234,7 @@ extern "C" fn on_cancel(mut _state: RefAny, mut info: CallbackInfo) -> Update {
 }
 
 extern "C" fn on_send(mut state: RefAny, mut info: CallbackInfo) -> Update {
+    let env = info.get_app_env();
     let task = {
         let Some(mut s) = state.downcast_mut::<ReportProblemState>() else {
             return Update::DoNothing;
@@ -258,7 +259,8 @@ extern "C" fn on_send(mut state: RefAny, mut info: CallbackInfo) -> Update {
         };
         SendTask {
             email: s.email.clone(),
-            report: build_report_text(&s.message, s.include_sysinfo, s.include_actions),
+            report: build_report_text(&env, &s.message, s.include_sysinfo, s.include_actions),
+            env,
             screenshot,
             recent_actions: if s.include_actions {
                 Some(crate::journal::recent_json(
@@ -287,9 +289,13 @@ extern "C" fn on_send(mut state: RefAny, mut info: CallbackInfo) -> Update {
 
 /// The report body: user message + app identity + (optional) system block.
 /// Plain text by design — it is read by a HUMAN at the support mailbox.
-fn build_report_text(message: &str, include_sysinfo: bool, include_actions: bool) -> String {
+fn build_report_text(
+    env: &crate::appenv::AppEnv,
+    message: &str,
+    include_sysinfo: bool,
+    include_actions: bool,
+) -> String {
     use std::fmt::Write as _;
-    let env = crate::appenv::app_env();
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -338,6 +344,9 @@ const fn app_data_json(_info: &CallbackInfo) -> Option<String> {
 }
 
 struct SendTask {
+    /// The app's snapshot as the window held it when the user pressed Send: the worker has no
+    /// window to ask.
+    env: crate::appenv::AppEnv,
     email: Option<String>,
     report: String,
     screenshot: Option<Vec<u8>>,
@@ -353,6 +362,7 @@ extern "C" fn send_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thr
     let Some(task) = init.downcast_ref::<SendTask>() else {
         return;
     };
+    let env = task.env.clone();
     let email = task.email.clone();
     let report = task.report.clone();
     let screenshot = task.screenshot.clone();
@@ -372,7 +382,7 @@ extern "C" fn send_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thr
         attachments.push(("app-data.json".to_owned(), data.into_bytes()));
     }
 
-    let status = deliver(email.as_deref(), &report, &attachments);
+    let status = deliver(&env, email.as_deref(), &report, &attachments);
 
     let _ = sender.send(ThreadReceiveMsg::WriteBack(ThreadWriteBackMsg::new(
         apply_status as WriteBackCallbackType,
@@ -381,7 +391,12 @@ extern "C" fn send_worker(mut init: RefAny, mut sender: ThreadSender, _recv: Thr
 }
 
 #[cfg(feature = "crash-mail")]
-fn deliver(email: Option<&str>, _report: &str, attachments: &[(String, Vec<u8>)]) -> ReportStatus {
+fn deliver(
+    env: &crate::appenv::AppEnv,
+    email: Option<&str>,
+    _report: &str,
+    attachments: &[(String, Vec<u8>)],
+) -> ReportStatus {
     match email {
         Some(to) => {
             let domain = to.split('@').nth(1).unwrap_or("localhost").to_owned();
@@ -399,19 +414,23 @@ fn deliver(email: Option<&str>, _report: &str, attachments: &[(String, Vec<u8>)]
                 Err(e) => ReportStatus::Failed(format!("Sending failed: {e}")),
             }
         }
-        None => save_to_disk(attachments),
+        None => save_to_disk(env, attachments),
     }
 }
 
 #[cfg(not(feature = "crash-mail"))]
-fn deliver(_email: Option<&str>, _report: &str, attachments: &[(String, Vec<u8>)]) -> ReportStatus {
+fn deliver(
+    env: &crate::appenv::AppEnv,
+    _email: Option<&str>,
+    _report: &str,
+    attachments: &[(String, Vec<u8>)],
+) -> ReportStatus {
     // Built without the mail transport: saving to disk is the honest path.
-    save_to_disk(attachments)
+    save_to_disk(env, attachments)
 }
 
 /// Disk fallback: `{data_dir}/{app}/problem-reports/report-<unix>[.-]*`.
-fn save_to_disk(attachments: &[(String, Vec<u8>)]) -> ReportStatus {
-    let env = crate::appenv::app_env();
+fn save_to_disk(env: &crate::appenv::AppEnv, attachments: &[(String, Vec<u8>)]) -> ReportStatus {
     let dir = report_dir(&env.app_name);
     if let Err(e) = std::fs::create_dir_all(&dir) {
         return ReportStatus::Failed(format!("cannot create {}: {e}", dir.display()));
@@ -712,18 +731,18 @@ mod tests {
 
     #[test]
     fn report_text_carries_message_and_sysinfo_toggle_is_respected() {
-        crate::appenv::set_app_env(crate::appenv::AppEnv {
+        let env = crate::appenv::AppEnv {
             app_name: "reporttest".to_owned(),
             current_version: "9.9.9".to_owned(),
             ..Default::default()
-        });
-        let with = build_report_text("it broke while saving", true, false);
+        };
+        let with = build_report_text(&env, "it broke while saving", true, false);
         assert!(with.contains("reporttest 9.9.9"), "{with}");
         assert!(with.contains("it broke while saving"), "{with}");
         assert!(with.contains("System information"), "{with}");
 
         // The toggle is a PRIVACY control: off must mean ABSENT, not empty.
-        let without = build_report_text("msg", false, false);
+        let without = build_report_text(&env, "msg", false, false);
         assert!(!without.contains("System information"), "{without}");
     }
 
@@ -731,15 +750,16 @@ mod tests {
     /// never mention data the user chose not to send.
     #[test]
     fn the_recent_actions_section_follows_its_toggle() {
-        let on = build_report_text("msg", false, true);
+        let env = crate::appenv::AppEnv::default();
+        let on = build_report_text(&env, "msg", false, true);
         assert!(on.contains("recent-actions.json"), "{on}");
-        let off = build_report_text("msg", false, false);
+        let off = build_report_text(&env, "msg", false, false);
         assert!(!off.contains("recent-actions"), "{off}");
     }
 
     #[test]
     fn empty_message_is_labeled_not_blank() {
-        let text = build_report_text("   ", true, false);
+        let text = build_report_text(&crate::appenv::AppEnv::default(), "   ", true, false);
         assert!(text.contains("(no user message)"), "{text}");
     }
 }

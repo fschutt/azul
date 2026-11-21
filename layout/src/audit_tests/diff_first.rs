@@ -16,12 +16,7 @@ use rust_fontconfig::FcFontCache;
 use crate::{
     callbacks::ExternalSystemCallbacks,
     overlay::ContentChange,
-    solver3::display_list::{
-        cached_runs_copied_on_this_thread, moved_runs_painted_anew_on_this_thread,
-        moved_runs_translated_on_this_thread, set_moved_run_policy_on_this_thread,
-        translate_item, translated_runs_painted_anew_on_this_thread, DisplayList, EmitPhase,
-        MovedRunPolicy,
-    },
+    solver3::display_list::{translate_item, DisplayList, EmitPhase, MovedRunPolicy},
     window::LayoutWindow,
     window_state::FullWindowState,
 };
@@ -39,24 +34,6 @@ const AFTER: (f32, f32) = (413.0, 607.0);
 const MOVING: usize = 40;
 /// Eight rows that stay.
 const STILL: usize = 8;
-
-/// What the patched builds of this thread do with a moved box's run for the life of the
-/// value, whatever the environment says (`AZ_DL_TRANSLATE_MOVED_RUNS`); the environment's
-/// again when it goes, also by a failed assertion.
-struct MovedRuns;
-
-impl MovedRuns {
-    fn policy(policy: MovedRunPolicy) -> Self {
-        set_moved_run_policy_on_this_thread(Some(policy));
-        Self
-    }
-}
-
-impl Drop for MovedRuns {
-    fn drop(&mut self) {
-        set_moved_run_policy_on_this_thread(None);
-    }
-}
 
 /// A row: one box of a fixed size that paints one rect, its background, at its position.
 /// Each row of a column stands at another x (a margin of `i` x 1.7 px).
@@ -105,8 +82,11 @@ fn page(still: usize, moving: usize) -> Dom {
 }
 
 /// `dom` laid out in a window of `size`, its display list built.
-fn laid_out(dom: Dom, size: (f32, f32)) -> LayoutWindow {
+fn laid_out(dom: Dom, size: (f32, f32), policy: MovedRunPolicy) -> LayoutWindow {
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    // What this window's patched builds do with a moved box's run, whatever the
+    // environment says (`AZ_DL_TRANSLATE_MOVED_RUNS`); no other window is told.
+    lw.display_list_options.moved_runs = policy;
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(size.0, size.1);
     lw.current_window_state = ws.clone();
@@ -208,16 +188,13 @@ fn runs_of(
 /// counted as painted anew.
 #[test]
 fn a_box_a_patched_pass_moved_is_painted_as_a_build_paints_it() {
-    let _default = MovedRuns::policy(MovedRunPolicy::TweenFramesTranslate);
-    let mut lw = laid_out(page(STILL, MOVING), BEFORE);
-    let (anew, copied) = (
-        moved_runs_painted_anew_on_this_thread(),
-        cached_runs_copied_on_this_thread(),
-    );
+    let mut lw = laid_out(page(STILL, MOVING), BEFORE, MovedRunPolicy::TweenFramesTranslate);
+    let before = lw.display_list_patch_counters();
     resize(&mut lw, AFTER);
+    let counted = lw.display_list_patch_counters();
     let (anew, copied) = (
-        moved_runs_painted_anew_on_this_thread() - anew,
-        cached_runs_copied_on_this_thread() - copied,
+        counted.moved_runs_painted_anew - before.moved_runs_painted_anew,
+        counted.cached_runs_copied - before.cached_runs_copied,
     );
     assert!(
         lw.layout_cache.last_build_was_patched,
@@ -252,19 +229,15 @@ fn a_box_a_patched_pass_moved_is_painted_as_a_build_paints_it() {
 /// the shifted one.
 #[test]
 fn the_switch_translates_a_moved_run_as_before() {
-    let _translated = MovedRuns::policy(MovedRunPolicy::AlwaysTranslate);
-    let mut lw = laid_out(page(STILL, MOVING), BEFORE);
+    let mut lw = laid_out(page(STILL, MOVING), BEFORE, MovedRunPolicy::AlwaysTranslate);
     let before = pass_of(&lw);
-    let (anew, copied, translated) = (
-        moved_runs_painted_anew_on_this_thread(),
-        cached_runs_copied_on_this_thread(),
-        moved_runs_translated_on_this_thread(),
-    );
+    let counted_before = lw.display_list_patch_counters();
     resize(&mut lw, AFTER);
+    let counted = lw.display_list_patch_counters();
     let (anew, copied, translated) = (
-        moved_runs_painted_anew_on_this_thread() - anew,
-        cached_runs_copied_on_this_thread() - copied,
-        moved_runs_translated_on_this_thread() - translated,
+        counted.moved_runs_painted_anew - counted_before.moved_runs_painted_anew,
+        counted.cached_runs_copied - counted_before.cached_runs_copied,
+        counted.moved_runs_translated - counted_before.moved_runs_translated,
     );
     let after = pass_of(&lw);
     assert!(
@@ -337,16 +310,13 @@ fn the_switch_translates_a_moved_run_as_before() {
 /// patch painting everything): no run is counted as copied.
 #[test]
 fn a_box_that_stayed_is_still_copied() {
-    let _default = MovedRuns::policy(MovedRunPolicy::TweenFramesTranslate);
-    let mut lw = laid_out(page(MOVING, 0), BEFORE);
-    let (anew, copied) = (
-        moved_runs_painted_anew_on_this_thread(),
-        cached_runs_copied_on_this_thread(),
-    );
+    let mut lw = laid_out(page(MOVING, 0), BEFORE, MovedRunPolicy::TweenFramesTranslate);
+    let before = lw.display_list_patch_counters();
     resize(&mut lw, AFTER);
+    let counted = lw.display_list_patch_counters();
     let (anew, copied) = (
-        moved_runs_painted_anew_on_this_thread() - anew,
-        cached_runs_copied_on_this_thread() - copied,
+        counted.moved_runs_painted_anew - before.moved_runs_painted_anew,
+        counted.cached_runs_copied - before.cached_runs_copied,
     );
     assert!(
         lw.layout_cache.last_build_was_patched,
@@ -411,8 +381,8 @@ fn tween_page() -> Dom {
 const TWEEN_WINDOW: (f32, f32) = (600.0, 4000.0);
 
 /// [`tween_page`] laid out, the write of the band's new height made: its tween is seeded.
-fn tweening() -> LayoutWindow {
-    let mut lw = laid_out(tween_page(), TWEEN_WINDOW);
+fn tweening(policy: MovedRunPolicy) -> LayoutWindow {
+    let mut lw = laid_out(tween_page(), TWEEN_WINDOW, policy);
     let _ = lw.apply_content_change(ContentChange::NodeCss {
         dom_id: DomId::ROOT_ID,
         node_id: NodeId::new(BAND),
@@ -517,13 +487,14 @@ fn distance(list: &DisplayList, painted: &DisplayList) -> (f32, usize) {
     (furthest, different)
 }
 
-/// The counters of the patched builds of this thread: moved runs painted anew, moved runs
+/// The counters of the patched builds of `lw`: moved runs painted anew, moved runs
 /// translated, translated runs painted anew although their box stood.
-fn counts() -> (usize, usize, usize) {
+fn counts(lw: &LayoutWindow) -> (usize, usize, usize) {
+    let counted = lw.display_list_patch_counters();
     (
-        moved_runs_painted_anew_on_this_thread(),
-        moved_runs_translated_on_this_thread(),
-        translated_runs_painted_anew_on_this_thread(),
+        counted.moved_runs_painted_anew,
+        counted.moved_runs_translated,
+        counted.translated_runs_painted_anew,
     )
 }
 
@@ -542,16 +513,15 @@ fn counts() -> (usize, usize, usize) {
 /// rounding.
 #[test]
 fn a_frame_of_a_tween_translates_what_the_tween_pushes_within_a_rounding_per_frame() {
-    let _default = MovedRuns::policy(MovedRunPolicy::TweenFramesTranslate);
-    let mut lw = tweening();
+    let mut lw = tweening(MovedRunPolicy::TweenFramesTranslate);
     let (mut frames, mut drifted_frames) = (0_usize, 0_usize);
     loop {
-        let before = counts();
+        let before = counts(&lw);
         if !tween_frame(&mut lw) {
             break;
         }
         frames += 1;
-        let after = counts();
+        let after = counts(&lw);
         assert!(
             lw.layout_cache.last_reconcile_was_skipped && lw.layout_cache.last_build_was_patched,
             "frame {frames}: harness: a tween frame keeps the layout tree and patches the list"
@@ -599,10 +569,8 @@ fn a_frame_of_a_tween_translates_what_the_tween_pushes_within_a_rounding_per_fra
 /// (the `recorded` test removed): the list after the resize differs from a painted one.
 #[test]
 fn the_frame_that_ends_a_tween_and_a_pass_that_is_none_leave_a_painted_list() {
-    let _default = MovedRuns::policy(MovedRunPolicy::TweenFramesTranslate);
-
     // (1) The tween run to its end.
-    let mut lw = tweening();
+    let mut lw = tweening(MovedRunPolicy::TweenFramesTranslate);
     let mut frames = 0;
     while tween_frame(&mut lw) {
         frames += 1;
@@ -620,7 +588,7 @@ fn the_frame_that_ends_a_tween_and_a_pass_that_is_none_leave_a_painted_list() {
     assert_eq!(different, 0, "after the tween the list is the list a build paints");
 
     // (2) A pass that is no tween frame, in the middle of the tween: a resize.
-    let mut lw = tweening();
+    let mut lw = tweening(MovedRunPolicy::TweenFramesTranslate);
     for frame in 0..5 {
         assert!(tween_frame(&mut lw), "harness: frame {frame} is not the tween's last");
     }
@@ -628,9 +596,9 @@ fn the_frame_that_ends_a_tween_and_a_pass_that_is_none_leave_a_painted_list() {
         held_list(&lw).translated_since_painted.len() >= ROWS,
         "harness: five frames in, the rows are recorded"
     );
-    let before = counts();
+    let before = counts(&lw);
     resize(&mut lw, (TWEEN_WINDOW.0 + 40.0, TWEEN_WINDOW.1));
-    let after = counts();
+    let after = counts(&lw);
     assert!(
         lw.layout_cache.last_build_was_patched,
         "premise: a resize of a kept tree patches the list"
@@ -658,8 +626,7 @@ fn the_frame_that_ends_a_tween_and_a_pass_that_is_none_leave_a_painted_list() {
 /// list after the rebuild records rows, or differs from a painted one.
 #[test]
 fn a_tween_cut_off_by_a_rebuild_leaves_a_painted_list() {
-    let _default = MovedRuns::policy(MovedRunPolicy::TweenFramesTranslate);
-    let mut lw = tweening();
+    let mut lw = tweening(MovedRunPolicy::TweenFramesTranslate);
     for frame in 0..5 {
         assert!(tween_frame(&mut lw), "harness: frame {frame} is not the tween's last");
     }
@@ -693,11 +660,10 @@ fn a_tween_cut_off_by_a_rebuild_leaves_a_painted_list() {
 /// Mutation: the policy not asked on a tween frame: rows are counted as translated.
 #[test]
 fn the_other_extreme_paints_what_a_tween_pushes_on_every_frame() {
-    let _never = MovedRuns::policy(MovedRunPolicy::NeverTranslate);
-    let mut lw = tweening();
-    let before = counts();
+    let mut lw = tweening(MovedRunPolicy::NeverTranslate);
+    let before = counts(&lw);
     assert!(tween_frame(&mut lw), "harness: the first frame is not the tween's last");
-    let after = counts();
+    let after = counts(&lw);
     assert!(
         lw.layout_cache.last_build_was_patched,
         "harness: a tween frame patches the list"

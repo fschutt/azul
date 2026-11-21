@@ -516,10 +516,16 @@ pub fn regenerate_layout(
     // What `get_locale()` / `is_rtl()` answer: the app's `set_locale` choice,
     // else the system language (the style was installed above).
     let active_language = layout_window.active_language();
+    // The app's registered fonts as this window holds them (shared with the other windows of
+    // the app): a layout callback that builds a `FontCacheSnapshot` measures with the faces the
+    // window draws with, the app's shipped faces among them.
+    let registered_fonts: &(dyn core::any::Any + Send + Sync) =
+        &layout_window.font_manager.registered_fonts;
     let layout_ref_data = LayoutCallbackInfoRefData {
         image_cache: &image_cache_snapshot,
         gl_context: gl_context_ptr,
         system_fonts: &layout_window.font_manager.fc_cache,
+        registered_fonts: Some(registered_fonts),
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
         locale: &active_language.id,
@@ -957,7 +963,7 @@ pub fn regenerate_layout(
         layout_window.last_dom_fingerprints.as_ref(),
     ) {
         (Some((fp, _)), Some(prev))
-            if azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Text)
+            if layout_window.switches.diff_first_step(azul_layout::window::DiffFirstStep::Text)
                 && !theme_rebuild
                 && !csd_changed_precheck
                 && fp.style_root == prev.style_root =>
@@ -1104,13 +1110,13 @@ pub fn regenerate_layout(
         layout_window.last_dom_fingerprints.as_ref(),
     ) {
         (Some((fp, _)), Some(prev))
-            if azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Nodes)
+            if layout_window.switches.diff_first_step(azul_layout::window::DiffFirstStep::Nodes)
                 && !theme_rebuild
                 && !csd_changed_precheck
                 && !theme_changed_precheck
                 && !window_size_changed_precheck
                 // With the step `text` off, a rebuild of texts alone takes the full path.
-                && (azul_layout::window::diff_first_step(
+                && (layout_window.switches.diff_first_step(
                     azul_layout::window::DiffFirstStep::Text,
                 ) || azul_core::diff::texts_alone_changed(prev, fp).is_none()) =>
         {
@@ -1190,7 +1196,7 @@ pub fn regenerate_layout(
             n.styled_node_state.dragging || n.styled_node_state.drag_over
         });
         let reuse_styles =
-            azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Style)
+            layout_window.switches.diff_first_step(azul_layout::window::DiffFirstStep::Style)
                 && !states_changed
                 && !drag_state_raised;
         let (reached, over_the_nodes) = layout_window.restyle_rebuilt_nodes(
@@ -1213,10 +1219,13 @@ pub fn regenerate_layout(
         // the tree kept its shape, instead of emitting the whole list because the cascade
         // epoch moved). Under the conditions of the flags above, and only where the cascade
         // ran for the reached nodes alone; anything a pass that never ran left is void.
+        let across_trees = layout_window
+            .switches
+            .diff_first_step(azul_layout::window::DiffFirstStep::TreeList);
         layout_window.layout_cache.cascaded_since_list = (over_the_nodes
             && !states_changed
             && !written_since_its_pass
-            && azul_layout::window::diff_first_step(
+            && layout_window.switches.diff_first_step(
                 azul_layout::window::DiffFirstStep::WindowList,
             ))
         .then(|| azul_layout::solver3::cache::CascadedSince {
@@ -1228,6 +1237,7 @@ pub fn regenerate_layout(
                 .filter(|(_, reached)| **reached)
                 .map(|(index, _)| azul_core::id::NodeId::new(index))
                 .collect(),
+            across_trees,
         });
         layout_window.last_dom_fingerprints = Some(fp);
 
@@ -1293,7 +1303,7 @@ pub fn regenerate_layout(
     // context), and the tree is then styled in full and reconciled as below. Not for a
     // theme or rice rebuild (another sheet over the same nodes), nor where decorations are
     // injected into the styled tree. `AZ_DIFF_FIRST` without `tree` turns it off.
-    let reconciles_first = azul_layout::window::diff_first_step(
+    let reconciles_first = layout_window.switches.diff_first_step(
         azul_layout::window::DiffFirstStep::Tree,
     ) && precascade.is_some()
         && prev_dom_fingerprints.is_some()
@@ -1972,7 +1982,9 @@ pub fn regenerate_layout(
         // them, across the changed tree where a node came or went.
         if let (Some(from_epoch), true) = (
             epoch_before_reconciled,
-            azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::TreeList),
+            layout_window
+                .switches
+                .diff_first_step(azul_layout::window::DiffFirstStep::TreeList),
         ) {
             layout_window.layout_cache.cascaded_since_list =
                 Some(azul_layout::solver3::cache::CascadedSince {
@@ -1984,6 +1996,8 @@ pub fn regenerate_layout(
                         .filter(|(_, clean)| !**clean)
                         .map(|(index, _)| azul_core::id::NodeId::new(index))
                         .collect(),
+                    // The step that got us here is the one that lets the pass patch across.
+                    across_trees: true,
                 });
         }
         layout_window.layout_cache.dom_diff_clean = Some(clean);
@@ -2132,7 +2146,10 @@ pub fn regenerate_layout(
     });
     let permission_events = layout_window.permission_manager.take_pending_events();
     if !permission_events.is_empty() {
-        crate::desktop::extra::permission::apply_diff_events(&permission_events);
+        crate::desktop::extra::permission::apply_diff_events(
+            &permission_events,
+            &layout_window.app_services.permission,
+        );
     }
 
     // 7b. Geolocation diff — symmetric to the permission pass. Walks
@@ -2162,7 +2179,10 @@ pub fn regenerate_layout(
     }
     let geolocation_events = layout_window.geolocation_manager.take_pending_events();
     if !geolocation_events.is_empty() {
-        crate::desktop::extra::geolocation::apply_diff_events(&geolocation_events);
+        crate::desktop::extra::geolocation::apply_diff_events(
+            &geolocation_events,
+            &layout_window.app_services,
+        );
     }
     drop(span_capabilities);
 
@@ -2994,14 +3014,19 @@ pub(crate) fn reconcile_transient_windows(
 ///
 /// Falls back to a private manager when there is no app-level one, which is the
 /// old behaviour and keeps this infallible to adopt.
+///
+/// The window also gets the platform's wallpaper reader (`wallpaper::install`):
+/// what its metals reflect is its own, read the first time one is drawn.
 pub fn layout_window_sharing_fonts(
     app_font_manager: Option<
         &Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
     >,
     fc_cache: &FcFontCache,
 ) -> Result<LayoutWindow, azul_layout::solver3::LayoutError> {
-    match app_font_manager {
-        Some(fm) => Ok(LayoutWindow::from_font_manager(fm.clone_shared())),
-        None => LayoutWindow::new(fc_cache.clone()),
-    }
+    let window = match app_font_manager {
+        Some(fm) => LayoutWindow::from_font_manager(fm.clone_shared()),
+        None => LayoutWindow::new(fc_cache.clone())?,
+    };
+    crate::desktop::wallpaper::install(&window);
+    Ok(window)
 }

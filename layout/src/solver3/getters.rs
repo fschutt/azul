@@ -630,6 +630,7 @@ fn resolve_font_size_slow(
 /// this thread ([`resolve_font_size_slow_in_viewport`]), which the memo is
 /// there to spare (`audit_tests::a3_solver`).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static FONT_SIZE_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -3008,6 +3009,7 @@ fn background_as_declared(
 
 /// How many nodes [`inherited_color_override`] looked at on this thread.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static COLOR_OVERRIDE_WALK_STEPS: core::cell::Cell<usize> =
         const { core::cell::Cell::new(0) };
@@ -3944,7 +3946,8 @@ pub fn get_layout_scrollbar_width_px<T: ParsedFontTrait>(
     // `reserve_width_px` already accounts for overlay vs legacy:
     //   overlay (WhenScrolling) → 0.0
     //   legacy (Always)         → visual_width_px
-    let style = get_scrollbar_style(
+    let style = get_scrollbar_style_with(
+        Some(&ctx.pass_memo.scrollbar_base),
         ctx.styled_dom,
         dom_id,
         styled_node_state,
@@ -4188,6 +4191,10 @@ pub struct StyleCache {
     /// alone.
     by_inputs: HashMap<StyleInputs, std::sync::Arc<StyleProperties>>,
     by_value: HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
+    /// The font-selector stacks the build of a style made, by what the
+    /// builder reads: the stack of the document's body font is the same for
+    /// every node that inherits it ([`FontStackMemo`]).
+    pub(crate) font_stacks: FontStackMemo,
 }
 
 /// Everything [`get_style_properties`] reads of a node it reads nothing else
@@ -4406,6 +4413,7 @@ fn style_equals_itself(style: &StyleProperties) -> bool {
 /// style of a node that is in it already (`audit_tests::a3_solver`: a pass
 /// resolves a node's style once, the reconcile and the layout share one memo).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static STYLE_BUILT_NODES: core::cell::RefCell<std::collections::HashSet<u32>> =
         core::cell::RefCell::new(std::collections::HashSet::new());
@@ -4419,6 +4427,7 @@ thread_local! {
 /// build by which a hit checks itself in test and debug builds is not
 /// counted.)
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static STYLE_VALUE_HITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static STYLE_VALUE_HIT_NODES: core::cell::RefCell<std::collections::HashSet<u32>> =
@@ -4494,6 +4503,7 @@ pub fn get_style_properties_cached(
         // the build, which is the point of the key.
         #[cfg(any(test, debug_assertions))]
         {
+            // Built without the memo of the font stacks: the check must not depend on it.
             let built = get_style_properties(styled_dom, dom_id, system_style, viewport_size);
             assert!(
                 *shared == built || !style_equals_itself(&built),
@@ -4515,7 +4525,13 @@ pub fn get_style_properties_cached(
     let _p = crate::probe::Probe::span("style_props_build");
     #[cfg(test)]
     STYLE_BUILDS.with(|n| n.set(n.get() + 1));
-    let built = get_style_properties(styled_dom, dom_id, system_style, viewport_size);
+    let built = get_style_properties_with(
+        Some(&mut cache.font_stacks),
+        styled_dom,
+        dom_id,
+        system_style,
+        viewport_size,
+    );
 
     // Share by VALUE. Nodes that resolve to the same computed style get the
     // same allocation, so a thousand paragraphs cost one StyleProperties
@@ -4560,8 +4576,29 @@ pub fn get_style_properties(
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
     viewport_size: PhysicalSize,
 ) -> StyleProperties {
+    get_style_properties_with(None, styled_dom, dom_id, system_style, viewport_size)
+}
+
+/// [`get_style_properties`] keeping the font stacks it builds in `memo` (a
+/// layout pass's, [`StyleCache`]'s): the stack of a family list is built once
+/// for every node that inherits it. Without a memo every call builds its own.
+#[must_use]
+pub fn get_style_properties_with(
+    memo: Option<&mut FontStackMemo>,
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
+    viewport_size: PhysicalSize,
+) -> StyleProperties {
     let node_state = styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-    get_style_properties_for_state(styled_dom, dom_id, system_style, viewport_size, &node_state)
+    get_style_properties_for_state_with(
+        memo,
+        styled_dom,
+        dom_id,
+        system_style,
+        viewport_size,
+        &node_state,
+    )
 }
 
 /// The text decorations `dom_id` declares itself (`text-decoration` is not
@@ -4671,8 +4708,33 @@ fn spacing_of_px(px: f32) -> crate::text3::cache::Spacing {
     }
 }
 
+/// [`get_style_properties_for_state_with`] without a memo of the font stacks.
+///
+/// # Panics
+///
+/// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the
+/// font-family list).
+#[must_use]
+pub fn get_style_properties_for_state(
+    styled_dom: &StyledDom,
+    dom_id: NodeId,
+    system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
+    viewport_size: PhysicalSize,
+    node_state: &StyledNodeState,
+) -> StyleProperties {
+    get_style_properties_for_state_with(
+        None,
+        styled_dom,
+        dom_id,
+        system_style,
+        viewport_size,
+        node_state,
+    )
+}
+
 /// [`get_style_properties`] resolved against an EXPLICIT pseudo-state rather
-/// than the node's own.
+/// than the node's own, keeping the font stacks it builds in `memo`
+/// ([`get_style_properties_with`]).
 ///
 /// The engine's `::placeholder` painter is the caller: the prompt is painted
 /// GLYPHS, not a node, so no node's state can carry the pseudo-element.
@@ -4684,7 +4746,8 @@ fn spacing_of_px(px: f32) -> crate::text3::cache::Spacing {
 ///
 /// Panics only on an internal indexing invariant (an in-range `get().unwrap()` over the font-family
 /// list).
-pub fn get_style_properties_for_state(
+pub fn get_style_properties_for_state_with(
+    memo: Option<&mut FontStackMemo>,
     styled_dom: &StyledDom,
     dom_id: NodeId,
     system_style: Option<&std::sync::Arc<azul_css::system::SystemStyle>>,
@@ -4861,6 +4924,7 @@ pub fn get_style_properties_for_state(
                 let platform = system_style.map(|ss| &ss.platform);
                 FontStack::Stack(at_optical_size(
                     build_font_selector_stack_memo_themed(
+                        memo,
                         &font_families,
                         platform,
                         structural_theme_of(styled_dom),
@@ -5435,12 +5499,29 @@ use crate::text3::cache::{FontChainKey, FontChainKeyOrRef, FontSelector, FontSta
 /// The themed memo outside every theme (the tests' spelling).
 #[cfg(test)]
 fn build_font_selector_stack_memo(
+    memo: &mut FontStackMemo,
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
     fc_weight: FcWeight,
     fc_style: FontStyle,
 ) -> Vec<FontSelector> {
-    build_font_selector_stack_memo_themed(font_families, platform, None, fc_weight, fc_style)
+    build_font_selector_stack_memo_themed(
+        Some(memo),
+        font_families,
+        platform,
+        None,
+        fc_weight,
+        fc_style,
+    )
+}
+
+/// The font-selector stacks a layout pass built, by what the builder reads
+/// ([`build_font_selector_stack_memo_themed`]). A slot of the pass's
+/// [`StyleCache`], so that it lives and dies with the pass: it was a
+/// thread-local once, shared by every window that laid out on the thread.
+#[derive(Debug, Default)]
+pub struct FontStackMemo {
+    by_key: HashMap<u64, (FontStackMemoInputs, Vec<FontSelector>)>,
 }
 
 /// Memoised [`build_font_selector_stack_themed`], for a document cascaded
@@ -5458,12 +5539,14 @@ fn build_font_selector_stack_memo(
 /// spans) and was the single largest source of short-lived allocations in
 /// the layout pass.
 ///
-/// The memo is per-thread (layout is single-threaded per document, so no
-/// lock) and keyed on everything the builder reads, so a document that
-/// changes family, weight, style, platform or app theme gets a fresh build —
-/// see the `memo_is_keyed_on_*` tests.
+/// The memo is the layout pass's own (`memo`, [`FontStackMemo`]: a pass is
+/// single-threaded, so no lock) and keyed on everything the builder reads, so
+/// a document that changes family, weight, style, platform or app theme gets
+/// a fresh build — see the `memo_is_keyed_on_*` tests. Without a memo the
+/// stack is built on every call.
 #[allow(clippy::implicit_hasher)]
 fn build_font_selector_stack_memo_themed(
+    memo: Option<&mut FontStackMemo>,
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
     theme: Option<&str>,
@@ -5471,17 +5554,15 @@ fn build_font_selector_stack_memo_themed(
     fc_style: FontStyle,
 ) -> Vec<FontSelector> {
     use core::hash::{Hash, Hasher};
-    use std::{cell::RefCell, collections::HashMap};
 
     // Bounded so a pathological document (thousands of distinct
     // family/weight combinations) cannot grow the memo without limit; the
     // realistic working set is single digits.
     const MAX_ENTRIES: usize = 256;
 
-    thread_local! {
-        static MEMO: RefCell<HashMap<u64, (FontStackMemoInputs, Vec<FontSelector>)>> =
-            RefCell::new(HashMap::new());
-    }
+    let Some(memo) = memo else {
+        return build_font_selector_stack_themed(font_families, platform, theme, fc_weight, fc_style);
+    };
 
     let key = {
         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -5514,10 +5595,8 @@ fn build_font_selector_stack_memo_themed(
     // An entry answers only for the inputs it was built from: the key is a
     // 64-bit hash of them, and two inputs with one hash would otherwise be
     // served each other's stack (another family's fonts, silently).
-    if let Some(hit) = MEMO.with(|m| {
-        m.borrow().get(&key).and_then(|entry| {
-            font_stack_memo_answer(entry, font_families, platform, theme, &fc_weight, &fc_style)
-        })
+    if let Some(hit) = memo.by_key.get(&key).and_then(|entry| {
+        font_stack_memo_answer(entry, font_families, platform, theme, &fc_weight, &fc_style)
     }) {
         drop(crate::probe::Probe::span("font_stack_memo_hit"));
         return hit;
@@ -5527,13 +5606,10 @@ fn build_font_selector_stack_memo_themed(
     let inputs = font_stack_memo_inputs(font_families, platform, theme, &fc_weight, &fc_style);
     let built =
         build_font_selector_stack_themed(font_families, platform, theme, fc_weight, fc_style);
-    MEMO.with(|m| {
-        let mut m = m.borrow_mut();
-        if m.len() >= MAX_ENTRIES {
-            m.clear();
-        }
-        m.insert(key, (inputs, built.clone()));
-    });
+    if memo.by_key.len() >= MAX_ENTRIES {
+        memo.by_key.clear();
+    }
+    memo.by_key.insert(key, (inputs, built.clone()));
     built
 }
 
@@ -5613,12 +5689,14 @@ pub(crate) fn at_optical_size(
 /// run set in it asks the font manager for the chain the same family has in
 /// the document's own text.
 pub(crate) fn font_stack_for_families(
+    memo: Option<&mut FontStackMemo>,
     styled_dom: &StyledDom,
     families: &StyleFontFamilyVec,
     font_size_px: f32,
 ) -> Vec<FontSelector> {
     at_optical_size(
         build_font_selector_stack_memo_themed(
+            memo,
             families,
             None,
             structural_theme_of(styled_dom),
@@ -6679,6 +6757,10 @@ pub fn variable_instance(
 ) -> Option<rust_fontconfig::FontMatch> {
     use std::{collections::BTreeMap, sync::Mutex};
 
+    // OPEN, the owner's question (see the report of refactor/statics-solver): the font manager
+    // owns the faces this memo is about, but `select_variable_instances` is reached through
+    // `resolve_chain_on_miss(key, fc_cache)` from ~15 call sites of three clusters that pass
+    // the `FcFontCache` alone.
     /// `(source face, wght baked or 0, opsz baked as f32 bits or 0)` -> the
     /// baked instance, or `None` when the source has no such instance.
     static INSTANCES: Mutex<BTreeMap<(FontId, u16, u32), Option<FontId>>> =
@@ -6756,6 +6838,7 @@ struct VariationAxes {
 fn variation_axes(fc_cache: &FcFontCache, source: FontId) -> Option<VariationAxes> {
     use std::{collections::BTreeMap, sync::Mutex};
 
+    // OPEN: the same question as `INSTANCES` in `variable_instance`.
     static AXES: Mutex<BTreeMap<FontId, VariationAxes>> = Mutex::new(BTreeMap::new());
 
     if let Some(known) = AXES.lock().ok().and_then(|memo| memo.get(&source).copied()) {
@@ -7305,8 +7388,9 @@ fn resolve_collected_stacks_covering<T: ParsedFontTrait>(
 ) -> ResolvedFontChains {
     // The faces the app registered while it runs match by family like the
     // manager's own (`text3::fontreg`), put into this cache first.
-    let memory_families =
-        crate::text3::fontreg::with_runtime_faces(&font_manager.memory_families, fc_cache);
+    let memory_families = font_manager
+        .registered_fonts
+        .with_runtime_faces(&font_manager.memory_families, fc_cache);
 
     // Fast path (rust-fontconfig 4.2): when a registry is attached
     // we can resolve each stack by cmap-probing candidate files
@@ -7323,7 +7407,7 @@ fn resolve_collected_stacks_covering<T: ParsedFontTrait>(
         let used_chars = all_chars();
         if !used_chars.is_empty() {
             // The registry's cache loads what the probe resolves.
-            drop(crate::text3::fontreg::ensure_in(&registry.shared_cache()));
+            drop(font_manager.registered_fonts.ensure_in(&registry.shared_cache()));
             let mut fast =
                 resolve_font_chains_fast(collected, registry, &used_chars, &memory_families);
             extend_chains_to_cover(&mut fast, &used_chars, fc_cache, Some(registry));
@@ -7384,8 +7468,7 @@ pub fn resolve_font_chains_fast(
 ) -> ResolvedFontChains {
     use rust_fontconfig::PatternMatch;
 
-    static DBG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let dbg = *DBG.get_or_init(|| std::env::var_os("AZ_FAST_RESOLVE_DEBUG").is_some());
+    let dbg = env_flag!("AZ_FAST_RESOLVE_DEBUG");
 
     let mut chains: HashMap<FontChainKeyOrRef, FontFallbackChain> = HashMap::new();
     let mut unresolved: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -7594,25 +7677,25 @@ fn extend_chains_to_cover(
 /// system fallback and said nothing — so eight different families rendering
 /// identically looked like correct behaviour to every test we had.
 fn report_unresolved_families(resolved: &ResolvedFontChains) {
-    use std::sync::{Mutex, OnceLock};
-    static SEEN: OnceLock<Mutex<std::collections::BTreeSet<String>>> = OnceLock::new();
-    if resolved.unresolved_families.is_empty() {
-        return;
-    }
-    let seen = SEEN.get_or_init(|| Mutex::new(std::collections::BTreeSet::new()));
-    let Ok(mut seen) = seen.lock() else { return };
+    use core::hash::{Hash, Hasher};
+
     for family in &resolved.unresolved_families {
-        if seen.insert(family.clone()) {
-            // Through the diagnostics sink, like every other azul warning:
-            // `eprintln!` PANICS when stderr has gone away (piping a running
-            // app into `head` is enough), and a bare print is invisible to the
-            // ring, so nothing could assert that a missing family was reported.
-            azul_core::diagnostics::emit(alloc::format!(
+        let mut key = std::collections::hash_map::DefaultHasher::new();
+        "unresolved font-family".hash(&mut key);
+        family.hash(&mut key);
+        // Through the diagnostics sink, like every other azul warning:
+        // `eprintln!` PANICS when stderr has gone away (piping a running
+        // app into `head` is enough), and a bare print is invisible to the
+        // ring, so nothing could assert that a missing family was reported.
+        // Once per family: the sink remembers the keys it printed, bounded
+        // (`azul_core::diagnostics::emit_once`), and forgets them with its ring.
+        azul_core::diagnostics::emit_once(key.finish(), || {
+            alloc::format!(
                 "[azul][font] UNRESOLVED font-family {family:?}: no font file and no registered \
                  in-memory font matches this family. Text that asks for it renders in a FALLBACK \
                  font. Register it with FontManager::register_named_font(), or install it."
-            ));
-        }
+            )
+        });
     }
 }
 
@@ -7741,10 +7824,9 @@ where
         // Get font bytes from fc_cache as a shared mmap. Faces backed
         // by the same .ttc all observe the same `Arc<FontBytes>` via
         // rust_fontconfig's `shared_bytes` dedup. A face registered at
-        // runtime shares the registry's bytes (the cache's would be copied).
-        let runtime = crate::text3::fontreg::shared_bytes(font_id);
-        let is_runtime = runtime.is_some();
-        let Some(font_bytes) = runtime.or_else(|| fc_cache.get_font_bytes(font_id)) else {
+        // runtime is in the cache under its id (`RegisteredFonts::ensure_in`), which hands out
+        // the registry's own allocation of its bytes (rust-fontconfig 5.1).
+        let Some(font_bytes) = fc_cache.get_font_bytes(font_id) else {
             failed.push((
                 *font_id,
                 format!("Could not get font bytes for {font_id:?}"),
@@ -7753,17 +7835,13 @@ where
         };
 
         // Get font index (for font collections like .ttc files); a runtime
-        // face is index 0 (`fontreg::ensure_in`).
-        let font_index = if is_runtime {
-            0
-        } else {
-            fc_cache
-                .get_font_by_id(font_id)
-                .map_or(0, |source| match source {
-                    rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
-                    rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
-                })
-        };
+        // face is index 0 (`RegisteredFonts::ensure_in`).
+        let font_index = fc_cache
+            .get_font_by_id(font_id)
+            .map_or(0, |source| match source {
+                rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
+                rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
+            });
 
         // Load the font using the provided function
         match load_fn(font_bytes, font_index) {
@@ -7999,23 +8077,53 @@ impl ComputedScrollbarStyle {
 /// radius. `None` without a system scrollbar.
 type ScrollbarBaseKey = Option<(Option<ColorU>, Option<ColorU>, Option<f32>, Option<f32>)>;
 
-thread_local! {
-    /// The scrollbar style of a node without scrollbar CSS of its own, for
-    /// the context and the system scrollbar it was last made for (compared
-    /// by value on every ask).
-    static SCROLLBAR_BASE: core::cell::RefCell<
+/// The scrollbar style of a node without scrollbar CSS of its own, for the
+/// context and the system scrollbar it was last made for (compared by value on
+/// every ask): made once per layout pass and kept in the pass's memo
+/// (`PassMemo::scrollbar_base`), which is dropped with the pass. It was a
+/// thread-local once, shared by every window that laid out on the thread.
+#[derive(Debug, Default)]
+pub struct ScrollbarBaseMemo {
+    entry: core::cell::RefCell<
         Option<(
             azul_css::dynamic_selector::DynamicSelectorContext,
             ScrollbarBaseKey,
             ComputedScrollbarStyle,
         )>,
-    > = const { core::cell::RefCell::new(None) };
+    >,
+}
+
+impl ScrollbarBaseMemo {
+    /// The kept style when it was made for this context and this system scrollbar, else the
+    /// one `make` builds (kept from then on).
+    fn get_or_make(
+        &self,
+        ctx: &azul_css::dynamic_selector::DynamicSelectorContext,
+        sys_key: ScrollbarBaseKey,
+        make: impl FnOnce() -> ComputedScrollbarStyle,
+    ) -> ComputedScrollbarStyle {
+        let mut memo = self.entry.borrow_mut();
+        let kept = match &*memo {
+            Some((memo_ctx, memo_sys, kept)) if memo_ctx == ctx && *memo_sys == sys_key => {
+                Some(*kept)
+            }
+            _ => None,
+        };
+        if let Some(kept) = kept {
+            kept
+        } else {
+            let made = make();
+            *memo = Some((ctx.clone(), sys_key, made));
+            made
+        }
+    }
 }
 
 /// How often [`get_scrollbar_style`] was asked, and how often it made the
 /// node-independent part of its answer, on this thread
 /// (`audit_tests::a3_solver`: once per context, not once per node).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static SCROLLBAR_STYLE_ASKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static SCROLLBAR_BASE_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -8035,9 +8143,23 @@ thread_local! {
 ///
 /// When `system_style` is `None`, falls back to the unconditional UA rule
 /// (classic light scrollbar).
-#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
 #[must_use]
 pub fn get_scrollbar_style(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+    system_style: Option<&azul_css::system::SystemStyle>,
+) -> ComputedScrollbarStyle {
+    get_scrollbar_style_with(None, styled_dom, node_id, node_state, system_style)
+}
+
+/// [`get_scrollbar_style`] with the memo of the part of the answer that reads
+/// no node (`base`: the pass's, [`ScrollbarBaseMemo`]); without one that part
+/// is made for every ask.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+#[must_use]
+pub fn get_scrollbar_style_with(
+    base: Option<&ScrollbarBaseMemo>,
     styled_dom: &StyledDom,
     node_id: NodeId,
     node_state: &StyledNodeState,
@@ -8074,13 +8196,10 @@ pub fn get_scrollbar_style(
     // there is no way to tell from the rendering alone whether you are looking
     // at "the platform's scrollbars" or "the fallback that happens to render".
     #[cfg(feature = "std")]
-    {
-        use core::sync::atomic::{AtomicBool, Ordering};
-        static DUMPED: AtomicBool = AtomicBool::new(false);
-        if !DUMPED.swap(true, Ordering::Relaxed)
-            && env_flag!("AZ_DUMP_SCROLLBAR_OS")
-        {
-            std::eprintln!(
+    if env_flag!("AZ_DUMP_SCROLLBAR_OS") {
+        // Once: the sink remembers the key it printed.
+        azul_core::diagnostics::emit_once(0x5c20_11ba_a205_0001, || {
+            alloc::format!(
                 "[azul][scrollbar] system_style={} os={:?} visibility={:?} width={:?}",
                 if system_style.is_some() {
                     "Some"
@@ -8090,13 +8209,13 @@ pub fn get_scrollbar_style(
                 ctx.os,
                 azul_core::ua_css::evaluate_ua_scrollbar_css(ctx).visibility,
                 azul_core::ua_css::evaluate_ua_scrollbar_css(ctx).width,
-            );
-        }
+            )
+        });
     }
     // What follows up to the fast path reads the context and the system's
     // scrollbar and nothing of the node: the answer for every node without
     // scrollbar CSS of its own (99% of them). It is made once per context and
-    // system scrollbar and kept (`SCROLLBAR_BASE`, keyed by their VALUES, so a
+    // system scrollbar and kept (`ScrollbarBaseMemo`, keyed by their VALUES, so a
     // theme switch or another window's context makes it anew); it was made for
     // every node of every layout pass.
     let sys = system_style.and_then(|s| s.scrollbar.as_deref());
@@ -8148,22 +8267,7 @@ pub fn get_scrollbar_style(
     }
     result
     };
-    let result = SCROLLBAR_BASE.with(|memo| {
-        let mut memo = memo.borrow_mut();
-        let kept = match &*memo {
-            Some((memo_ctx, memo_sys, base)) if memo_ctx == ctx && *memo_sys == sys_key => {
-                Some(*base)
-            }
-            _ => None,
-        };
-        if let Some(base) = kept {
-            base
-        } else {
-            let base = build_base();
-            *memo = Some((ctx.clone(), sys_key, base));
-            base
-        }
-    });
+    let result = base.map_or_else(build_base, |memo| memo.get_or_make(ctx, sys_key, build_base));
 
     // FAST PATH: 99% of nodes have no scrollbar CSS. Bail before walking 8 × cascade.
     if node_state.is_normal() {
@@ -8315,7 +8419,8 @@ pub fn get_scrollbar_style_cached<T: ParsedFontTrait>(
     if let Some(s) = ctx.scrollbar_style_cache.borrow().get(&node_id) {
         return *s;
     }
-    let style = get_scrollbar_style(
+    let style = get_scrollbar_style_with(
+        Some(&ctx.pass_memo.scrollbar_base),
         ctx.styled_dom,
         node_id,
         node_state,
@@ -11291,8 +11396,10 @@ mod autotest_generated {
             build_font_selector_stack(&families, None, FcWeight::Normal, FontStyle::Normal);
         // Twice: the first call fills the memo, the second must be served
         // from it — and both must equal the unmemoised build.
+        let mut memo = FontStackMemo::default();
         for _ in 0..2 {
             let memoed = build_font_selector_stack_memo(
+                &mut memo,
                 &families,
                 None,
                 FcWeight::Normal,
@@ -11317,21 +11424,39 @@ mod autotest_generated {
         let menlo =
             StyleFontFamilyVec::from_vec(vec![StyleFontFamily::System("Menlo".to_string().into())]);
 
-        let base =
-            build_font_selector_stack_memo(&iosevka, None, FcWeight::Normal, FontStyle::Normal);
+        // ONE memo for every case: what each case asks must not be answered from the entry of
+        // another.
+        let mut memo = FontStackMemo::default();
+        let base = build_font_selector_stack_memo(
+            &mut memo,
+            &iosevka,
+            None,
+            FcWeight::Normal,
+            FontStyle::Normal,
+        );
         assert_eq!(base[0].family, "Iosevka");
 
         // 1. different FAMILY
-        let other_family =
-            build_font_selector_stack_memo(&menlo, None, FcWeight::Normal, FontStyle::Normal);
+        let other_family = build_font_selector_stack_memo(
+            &mut memo,
+            &menlo,
+            None,
+            FcWeight::Normal,
+            FontStyle::Normal,
+        );
         assert_eq!(
             other_family[0].family, "Menlo",
             "a different family must not be served the memoised stack"
         );
 
         // 2. different WEIGHT
-        let bold =
-            build_font_selector_stack_memo(&iosevka, None, FcWeight::Bold, FontStyle::Normal);
+        let bold = build_font_selector_stack_memo(
+            &mut memo,
+            &iosevka,
+            None,
+            FcWeight::Bold,
+            FontStyle::Normal,
+        );
         assert_eq!(
             bold[0].weight,
             FcWeight::Bold,
@@ -11339,8 +11464,13 @@ mod autotest_generated {
         );
 
         // 3. different STYLE
-        let italic =
-            build_font_selector_stack_memo(&iosevka, None, FcWeight::Normal, FontStyle::Italic);
+        let italic = build_font_selector_stack_memo(
+            &mut memo,
+            &iosevka,
+            None,
+            FcWeight::Normal,
+            FontStyle::Italic,
+        );
         assert_eq!(
             italic[0].style,
             FontStyle::Italic,
@@ -11354,12 +11484,14 @@ mod autotest_generated {
             "system:monospace".to_string().into(),
         )]);
         let mac = build_font_selector_stack_memo(
+            &mut memo,
             &sys,
             Some(&azul_css::system::Platform::MacOs),
             FcWeight::Normal,
             FontStyle::Normal,
         );
         let win = build_font_selector_stack_memo(
+            &mut memo,
             &sys,
             Some(&azul_css::system::Platform::Windows),
             FcWeight::Normal,
@@ -13258,7 +13390,13 @@ mod audit_a3_solver_tests {
     fn a_font_stack_memo_entry_answers_only_for_the_inputs_it_was_built_from() {
         let (iosevka, menlo) = (family("Iosevka"), family("Menlo"));
         let (weight, style) = (FcWeight::Normal, FontStyle::Normal);
-        let stack = build_font_selector_stack_memo(&iosevka, None, FcWeight::Normal, FontStyle::Normal);
+        let stack = build_font_selector_stack_memo(
+            &mut FontStackMemo::default(),
+            &iosevka,
+            None,
+            FcWeight::Normal,
+            FontStyle::Normal,
+        );
         let entry = (
             font_stack_memo_inputs(&iosevka, None, Some("dark"), &weight, &style),
             stack.clone(),

@@ -4,10 +4,10 @@
 //! probe -> `BiometricKind`. fprintd draws NO UI of its own (the app shows
 //! "touch the reader" from `prompt.reason`). NOT PAM (that's an interactive
 //! auth stack — wrong layer + a libpam C dep). Mirrors apple.rs (spawn thread
-//! -> push_biometric_result) + geolocation/linux.rs (the zbus signal loop).
+//! -> the result queue) + geolocation/linux.rs (the zbus signal loop).
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
-use azul_layout::managers::biometric::push_biometric_result;
+use azul_layout::managers::shared_queue::SharedQueue;
 
 const SVC: &str = "net.reactivated.Fprint";
 const MGR_PATH: &str = "/net/reactivated/Fprint/Manager";
@@ -76,10 +76,11 @@ fn probe() -> Option<BiometricKind> {
 
 /// Start a one-shot verify; deliver the outcome async via the result channel.
 /// fprintd shows no modal — the app renders `prompt.reason` itself.
-pub fn request(_prompt: &BiometricPrompt) {
-    std::thread::spawn(|| {
+pub fn request(_prompt: &BiometricPrompt, results: &SharedQueue<BiometricResult>) {
+    let results = results.clone();
+    std::thread::spawn(move || {
         let result = run_verify().unwrap_or(BiometricResult::Unavailable);
-        push_biometric_result(result);
+        results.push(result);
     });
 }
 

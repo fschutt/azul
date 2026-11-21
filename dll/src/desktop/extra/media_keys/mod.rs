@@ -25,6 +25,8 @@ pub mod linux;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
+use azul_layout::managers::{app_services::AppServices, media_keys::MediaKeyQueues};
+
 /// Start any out-of-band media-key transport this platform has.
 ///
 /// `window` is the app's own top-level window handle. Only Windows needs it -
@@ -32,13 +34,28 @@ pub mod windows;
 /// rather than guessed with `GetForegroundWindow`, which would attach the
 /// session to whatever the user happened to be looking at when the app
 /// started.
-pub fn ensure_started(window: azul_core::window::RawWindowHandle) {
+///
+/// `exposed` is `AppConfig::expose_system_media_controls` as the calling window's app holds it
+/// (`AppShared::expose_system_media_controls`): an app that did not ask to be a media player is
+/// not registered as one, and nothing here starts.
+///
+/// `services` is the app's: the transport's thread, handler blocks or system callbacks park the
+/// keys, seeks and raise requests in its queues (`media_keys`, `raise`). Android's JNI entry
+/// points carry no context and read them where `App::run` put them (`process_app`).
+pub fn ensure_started(
+    window: azul_core::window::RawWindowHandle,
+    exposed: bool,
+    services: &AppServices,
+) {
+    if !exposed {
+        return;
+    }
     #[cfg(target_os = "linux")]
-    linux::start(registry_id_of(window));
+    linux::start(registry_id_of(window), &services.media_keys, &services.raise);
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    apple::start();
+    apple::start(&services.media_keys);
     #[cfg(target_os = "windows")]
-    windows::start(hwnd_of(window));
+    windows::start(hwnd_of(window), &services.media_keys);
     #[cfg(target_os = "android")]
     android::start();
     #[cfg(not(any(
@@ -49,6 +66,13 @@ pub fn ensure_started(window: azul_core::window::RawWindowHandle) {
         target_os = "android"
     )))]
     let _ = window;
+    #[cfg(any(target_os = "android", not(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows"
+    ))))]
+    let _ = services;
 }
 
 /// The same id `PlatformWindow::registry_window_id` derives - what a raise
@@ -84,11 +108,15 @@ fn hwnd_of(window: azul_core::window::RawWindowHandle) -> isize {
 ///
 /// Platforms with no session API (Windows, and the mobile shells) ignore this
 /// rather than failing - see 9h-i-a-i-b/c in the ledger.
+///
+/// `exposed` is `AppConfig::expose_system_media_controls` ([`ensure_started`]).
 pub fn publish_now_playing(
     info: &azul_core::media_session::NowPlayingInfo,
     window: azul_core::window::RawWindowHandle,
+    exposed: bool,
+    services: &AppServices,
 ) {
-    if !azul_layout::window::expose_system_media_controls() {
+    if !exposed {
         // Not an error, but silently doing nothing when an app asked for
         // something visible is exactly the kind of gap this whole backlog is
         // about, so say so - once, because a player republishes constantly.
@@ -101,7 +129,7 @@ pub fn publish_now_playing(
         }
         return;
     }
-    ensure_started(window);
+    ensure_started(window, exposed, services);
 
     #[cfg(target_os = "linux")]
     linux::publish(info);
@@ -231,17 +259,19 @@ pub fn announce_seeked(position_us: i64) {
 /// Take over (or release) the system audio (9h-i-a-i-d-i).
 ///
 /// `Some(true)` = the app owns it now, `Some(false)` = refused, `None` =
-/// the platform will answer later through `push_system_audio_change`
-/// (Android's delayed focus grant). Desktop mixers share, so there is
-/// nothing to take and the answer is `Some(true)`; the SMTC and MPRIS
-/// controls work without any of this. macOS (9h-i-a-i-d-i-a) runs the same
-/// `AVAudioSession` path as iOS and answers `Some(true)` wherever a piece of
-/// AVFAudio is missing, so a Mac without it is the desktop case above.
+/// the platform will answer later through the app's `queues`
+/// (`MediaKeyQueues::push_system_audio_change`; Android's delayed focus
+/// grant, whose JNI callback reads them from `process_app`). Desktop mixers
+/// share, so there is nothing to take and the answer is `Some(true)`; the
+/// SMTC and MPRIS controls work without any of this. macOS (9h-i-a-i-d-i-a)
+/// runs the same `AVAudioSession` path as iOS and answers `Some(true)`
+/// wherever a piece of AVFAudio is missing, so a Mac without it is the
+/// desktop case above.
 #[allow(unused_variables)]
-pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
+pub fn set_system_audio_takeover(active: bool, queues: &MediaKeyQueues) -> Option<bool> {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
     {
-        return apple::set_system_audio_takeover(active);
+        return apple::set_system_audio_takeover(active, queues);
     }
     #[cfg(target_os = "android")]
     {

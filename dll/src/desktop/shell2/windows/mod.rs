@@ -318,6 +318,9 @@ impl Win32Window {
         font_registry: Option<Arc<rust_fontconfig::registry::FcFontRegistry>>,
         app_data: Arc<std::cell::RefCell<RefAny>>,
         undo_manager: event::SharedUndoManager,
+        // What the app chose and configured (its mode, its language, ...), shared by every
+        // window of it.
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         // THE app-level font manager, so every window shares one set of font
         // pools; see `layout_window_sharing_fonts`.
         app_font_manager: Option<
@@ -329,6 +332,7 @@ impl Win32Window {
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &config.system_style,
+            app_shared.mode(),
         );
 
         let total_start = std::time::Instant::now();
@@ -664,9 +668,7 @@ impl Win32Window {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
-        layout_window.set_app_localization(&config);
-        layout_window.set_app_e2e(&config);
-        layout_window.set_app_node_identity(&config);
+        app_shared.seed_window(&mut layout_window, &config);
         layout_window.webviews.set_platform(webview::platform());
 
         // Initialize monitor cache once at window creation
@@ -780,7 +782,11 @@ impl Win32Window {
                     core::mem::size_of::<dlopen::RAWINPUTDEVICE>() as u32,
                 );
             }
-            crate::desktop::extra::hid::windows::enumerate(&win32.user32);
+            // The device list is published on the App's HID channel.
+            crate::desktop::extra::hid::windows::enumerate(
+                &win32.user32,
+                &undo_manager.services().hid,
+            );
         }
 
         // File drag-and-drop is enabled via OLE `RegisterDragDrop` (modern
@@ -820,8 +826,9 @@ impl Win32Window {
             system_style,
             app_data,
             undo_manager,
+            app_shared,
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.owner_window_id =
             crate::desktop::shell2::common::owned_window::owner_of(&options);
         common.gl_context_ptr = gl_context_ptr;
@@ -4013,11 +4020,13 @@ fn pump_modal_loop_work() {
                         window.font_registry.clone(),
                         window.common.app_data.clone(),
                         window.common.undo_manager.clone(),
+                        window.common.app.clone(),
                     )),
                     None => None,
                 }
             };
-            let Some((options, config, fc_cache, font_registry, app_data, undo_manager)) = next
+            let Some((options, config, fc_cache, font_registry, app_data, undo_manager, app_shared)) =
+                next
             else {
                 break;
             };
@@ -4029,6 +4038,7 @@ fn pump_modal_loop_work() {
                 font_registry,
                 app_data,
                 undo_manager,
+                app_shared,
                 None,
             ) {
                 Ok(new_window) => unsafe {
@@ -5575,7 +5585,9 @@ unsafe extern "system" fn window_proc(
             // while unfocused. A joystick axis is not that - it carries no
             // desktop position - and gating it would make `get_hid_reports()`
             // silent unless a game happened to hold a pointer lock.
-            crate::desktop::extra::hid::windows::handle_wm_input(&window.win32.user32, lparam);
+            // The reports are parked in the App's HID channel.
+            let hid = window.common.undo_manager.services().hid.clone();
+            crate::desktop::extra::hid::windows::handle_wm_input(&window.win32.user32, &hid, lparam);
 
             let locked = window
                 .common
@@ -5735,7 +5747,7 @@ unsafe extern "system" fn window_proc(
             if ctrl_held
                 && !horizontal
                 && delta != 0
-                && azul_layout::window::synthesize_pinch_from_ctrl_wheel()
+                && window.common.app.synthesize_pinch_from_ctrl_wheel()
             {
                 use azul_layout::managers::gesture::{DetectedPinch, NativeGestureEvent};
                 // One notch is a 10% step, the ratio browsers use for a zoom
@@ -6315,7 +6327,12 @@ unsafe extern "system" fn window_proc(
             window.dynamic_selector_context.window_focused = true;
             // The user may have changed the wallpaper while away: the metals
             // read it again (one `stat` when it is the same).
-            if crate::desktop::wallpaper::refresh() {
+            if window
+                .common
+                .layout_window
+                .as_ref()
+                .is_some_and(crate::desktop::wallpaper::refresh)
+            {
                 unsafe {
                     (window.win32.user32.InvalidateRect)(window.hwnd, ptr::null(), 0);
                 }
@@ -6678,7 +6695,11 @@ unsafe extern "system" fn window_proc(
         // (`extra::session`). A power broadcast is answered TRUE.
         crate::desktop::extra::session::windows::WM_POWERBROADCAST
         | crate::desktop::extra::session::windows::WM_WTSSESSION_CHANGE => {
-            crate::desktop::extra::session::windows::handle(msg, wparam as usize);
+            crate::desktop::extra::session::windows::handle(
+                msg,
+                wparam as usize,
+                &window.common.undo_manager.services().session,
+            );
             if msg == crate::desktop::extra::session::windows::WM_POWERBROADCAST {
                 1
             } else {

@@ -3066,15 +3066,15 @@ pub fn download_and_verify(
 
 /// A name part no other call of this process used and no file planted before it ran can have.
 fn unique_suffix() -> String {
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    // collapse-ok: only makes a name unique; the counter and the process id do the rest.
+    // collapse-ok: only makes a name unique; the process's mint ([`crate::uuid::Uuid::short`],
+    // one id per call) and the process id do the rest.
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.subsec_nanos());
     format!(
         "{}-{nanos}-{}",
         std::process::id(),
-        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        crate::uuid::Uuid::short().as_str()
     )
 }
 
@@ -3660,19 +3660,21 @@ fn private_state_dir_in(data_home: Option<PathBuf>, app_name: &str) -> Result<Pa
 }
 
 /// Runs one full check (+ optional staging) as an azul [`Thread`], reading
-/// the manifest URL / current version / mode from the published
-/// [`crate::appenv::AppEnv`]. The `data` `RefAny` is handed back VERBATIM to
-/// `callback` on the main thread. `CallbackInfo::check_for_updates` is the
-/// thin wrapper that also registers the thread with the event loop.
+/// the manifest URL / current version / mode from `env`, the
+/// [`crate::appenv::AppEnv`] of the window that asks. The `data` `RefAny` is
+/// handed back VERBATIM to `callback` on the main thread.
+/// `CallbackInfo::check_for_updates` is the thin wrapper that also registers
+/// the thread with the event loop.
 #[must_use]
 pub fn spawn_update_check(
+    env: crate::appenv::AppEnv,
     data: RefAny,
     callback: UpdateCheckCallback,
     options: UpdateOptions,
 ) -> (ThreadId, Thread) {
     let task = CheckTask {
         options,
-        env: crate::appenv::app_env(),
+        env,
         callback,
     };
     let worker: ThreadCallbackType = update_check_worker;

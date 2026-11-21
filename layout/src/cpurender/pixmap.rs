@@ -209,23 +209,46 @@ pub fn blit_pixmap_affine(src: &AzulPixmap, dst: &mut AzulPixmap, m: &TransAffin
     clippy::cast_precision_loss
 )]
 // bounded pixel/coord/colour casts
+/// Returns how many pixels of `dst` the composite wrote (the box it covers, after the clips; 0
+/// when nothing is drawn): what a frame counts as `Counter::PxBlitted`.
 pub fn blit_pixmap_affine_clipped(
     src: &AzulPixmap,
     dst: &mut AzulPixmap,
     m: &TransAffine,
     opacity: f32,
     clip: Option<(i32, i32, i32, i32)>,
-) {
+) -> u64 {
+    blit_pixmap_affine_clipped_with_threads(src, dst, m, opacity, clip, super::bands::max_threads())
+}
+
+/// [`blit_pixmap_affine_clipped`] on at most `max_threads` threads: a large composite is cut
+/// into rows that run side by side (`blit_scale`). A pass that already runs on a band's thread
+/// of a repaint asks for 1 (`GlyphCache`'s scratch knows whether it is one): the band's thread
+/// is the composite's.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+// bounded pixel/coord/colour casts
+pub fn blit_pixmap_affine_clipped_with_threads(
+    src: &AzulPixmap,
+    dst: &mut AzulPixmap,
+    m: &TransAffine,
+    opacity: f32,
+    clip: Option<(i32, i32, i32, i32)>,
+    max_threads: usize,
+) -> u64 {
     let sw = src.width as i32;
     let sh = src.height as i32;
     let dw = dst.width as i32;
     let dh = dst.height as i32;
     if sw == 0 || sh == 0 || dw == 0 || dh == 0 {
-        return;
+        return 0;
     }
     let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
     if op == 0 {
-        return;
+        return 0;
     }
 
     // Dest-space bounding box of the four transformed src corners.
@@ -246,7 +269,7 @@ pub fn blit_pixmap_affine_clipped(
         max_y = max_y.max(y);
     }
     if !(min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite()) {
-        return;
+        return 0;
     }
     let mut x0 = (min_x.floor() as i32).max(0);
     let mut y0 = (min_y.floor() as i32).max(0);
@@ -260,15 +283,23 @@ pub fn blit_pixmap_affine_clipped(
     }
 
     if x1 <= x0 || y1 <= y0 {
-        return;
+        return 0;
     }
-    crate::cpu_counters::count(crate::cpu_counters::Counter::PxBlitted, (x1 - x0) as u64 * (y1 - y0) as u64);
+    let written = (x1 - x0) as u64 * (y1 - y0) as u64;
     // A matrix with no shear - the zoom of a map, a group scaled and moved - is separable.
     if let Some(scale_translate) = super::blit_scale::scale_translate_of(m) {
-        super::blit_scale::blit_scale_translate(src, dst, scale_translate, op, (x0, y0, x1, y1));
-        return;
+        super::blit_scale::blit_scale_translate(
+            src,
+            dst,
+            scale_translate,
+            op,
+            (x0, y0, x1, y1),
+            max_threads,
+        );
+        return written;
     }
     blit_pixmap_affine_general(src, dst, m, op, (x0, y0, x1, y1));
+    written
 }
 
 /// The general composite of [`blit_pixmap_affine_clipped`]: every pixel of the destination box
@@ -1753,6 +1784,9 @@ pub(crate) fn agg_fill_spans_clipped<SG>(
 /// an outset shadow must not paint inside the border box (CSS), and the
 /// interior of a page-sized shadow buffer is the single largest
 /// alpha-blend a repaint used to do.
+///
+/// Returns how many pixels of the region land on `dst` (the region cut to the source and to the
+/// destination): what a frame counts as `Counter::PxBlitted`.
 pub fn blit_buffer_sub(
     dst: &mut AzulPixmap,
     src: &[u8],
@@ -1764,21 +1798,18 @@ pub fn blit_buffer_sub(
     h: u32,
     dx: i32,
     dy: i32,
-) {
+) -> u64 {
     let dw = dst.width as i32;
     let dh = dst.height as i32;
     let x_end = sx.saturating_add(w).min(src_w);
     let y_end = sy.saturating_add(h).min(src_h);
-    // The pixels that land: the region cut to the source and to the destination (it was
-    // counted as asked for, before either cut).
-    crate::cpu_counters::count(
-        crate::cpu_counters::Counter::PxBlitted,
-        span_on_target(x_end.saturating_sub(sx), dx, dw) * span_on_target(y_end.saturating_sub(sy), dy, dh),
-    );
+    // The pixels that land: the region cut to the source and to the destination.
+    let landed =
+        span_on_target(x_end.saturating_sub(sx), dx, dw) * span_on_target(y_end.saturating_sub(sy), dy, dh);
     // The loops run over what lands, row by row through one slice of each buffer: every
     // pixel of the region was tested against the target and both buffers' lengths before.
     let Some((cols, rows)) = landing(x_end.saturating_sub(sx), dx, dw).zip(landing(y_end.saturating_sub(sy), dy, dh)) else {
-        return;
+        return landed;
     };
     let data: &mut [u8] = &mut dst.data;
     for j in rows.0..rows.1 {
@@ -1806,6 +1837,7 @@ pub fn blit_buffer_sub(
             }
         }
     }
+    landed
 }
 
 /// The `i` in `0..len` with `0 <= at + i < limit`, as `(first, end)`: the part of `len` pixels
@@ -1832,10 +1864,59 @@ pub(crate) fn span_on_target(len: u32, at: i32, limit: i32) -> u64 {
     u64::try_from(hi - lo).unwrap_or(0)
 }
 
+/// The premultiplied pixel [`blit_tinted_coverage`] gives each coverage 0..=255 for the colour it
+/// tinted with last (`r, g, b, a`). A frame tints the halos of its labels with one colour or two,
+/// so the table of the colour before is nearly always the next one's: kept by the glyph cache the
+/// thread paints with (`PaintScratch`), so it is not worked out again for every halo and nothing of
+/// it is shared between threads.
+#[derive(Debug, Clone)]
+pub struct TintTable {
+    colour: Option<[u8; 4]>,
+    pixels: [[u8; 4]; 256],
+}
+
+impl Default for TintTable {
+    fn default() -> Self {
+        Self { colour: None, pixels: [[0; 4]; 256] }
+    }
+}
+
+impl TintTable {
+    /// The table for `color`: worked out when the colour is not the one last asked for. The
+    /// premultiplied source of every coverage in this colour: the coverage times the colour's
+    /// alpha, and the colour scaled by that. (Each pixel used to work the four products and
+    /// divisions out again.)
+    fn for_color(&mut self, color: azul_css::props::basic::ColorU) -> &[[u8; 4]; 256] {
+        let tint = [color.r, color.g, color.b, color.a];
+        if self.colour != Some(tint) {
+            let (cr, cg, cb, ca) = (
+                u32::from(color.r),
+                u32::from(color.g),
+                u32::from(color.b),
+                u32::from(color.a),
+            );
+            for (cov, entry) in self.pixels.iter_mut().enumerate() {
+                let sa = (cov as u32 * ca + 127) / 255;
+                *entry = [
+                    ((cr * sa + 127) / 255) as u8,
+                    ((cg * sa + 127) / 255) as u8,
+                    ((cb * sa + 127) / 255) as u8,
+                    sa as u8,
+                ];
+            }
+            self.colour = Some(tint);
+        }
+        &self.pixels
+    }
+}
+
 /// A kept halo's `coverage` (one byte a pixel, `cov_w` wide) in `color`, composited over `dst`:
 /// the `w` x `h` region at `(sx, sy)` of the coverage lands with its top-left at `(dx, dy)`. What
 /// [`blit_buffer_sub`] does with the same halo drawn in `color` and premultiplied, to within a
 /// level of 255 (the colour is applied after the blur here, before it there).
+///
+/// `tint` is the painting thread's table of the colour tinted with last. Returns how many pixels
+/// of the region land on `dst`: what a frame counts as `Counter::PxBlitted`.
 #[allow(
     clippy::cast_possible_wrap,
     clippy::cast_sign_loss,
@@ -1844,6 +1925,7 @@ pub(crate) fn span_on_target(len: u32, at: i32, limit: i32) -> u64 {
 )] // bounded pixel/coord/colour casts
 pub fn blit_tinted_coverage(
     dst: &mut AzulPixmap,
+    tint: &mut TintTable,
     coverage: &[u8],
     cov_w: u32,
     sx: u32,
@@ -1853,80 +1935,46 @@ pub fn blit_tinted_coverage(
     dx: i32,
     dy: i32,
     color: azul_css::props::basic::ColorU,
-) {
+) -> u64 {
     let (dw, dh) = (dst.width as i32, dst.height as i32);
     let cov_h = if cov_w == 0 { 0 } else { coverage.len() as u32 / cov_w };
     let x_end = sx.saturating_add(w).min(cov_w);
     let y_end = sy.saturating_add(h).min(cov_h);
-    crate::cpu_counters::count(
-        crate::cpu_counters::Counter::PxBlitted,
-        span_on_target(x_end.saturating_sub(sx), dx, dw) * span_on_target(y_end.saturating_sub(sy), dy, dh),
-    );
+    let landed =
+        span_on_target(x_end.saturating_sub(sx), dx, dw) * span_on_target(y_end.saturating_sub(sy), dy, dh);
     let Some((cols, rows)) = landing(x_end.saturating_sub(sx), dx, dw).zip(landing(y_end.saturating_sub(sy), dy, dh)) else {
-        return;
+        return landed;
     };
-    TINT_TABLE.with(|table| {
-        // The premultiplied source of every coverage in this colour: the coverage times the
-        // colour's alpha, and the colour scaled by that. A frame tints the halos of its labels
-        // with one colour or two, so the table of the colour before is nearly always this
-        // one's; each pixel worked the four products and divisions out again.
-        let mut table = table.borrow_mut();
-        let tint = [color.r, color.g, color.b, color.a];
-        if table.0 != Some(tint) {
-            let (cr, cg, cb, ca) = (
-                u32::from(color.r),
-                u32::from(color.g),
-                u32::from(color.b),
-                u32::from(color.a),
-            );
-            for (cov, entry) in table.1.iter_mut().enumerate() {
-                let sa = (cov as u32 * ca + 127) / 255;
-                *entry = [
-                    ((cr * sa + 127) / 255) as u8,
-                    ((cg * sa + 127) / 255) as u8,
-                    ((cb * sa + 127) / 255) as u8,
-                    sa as u8,
-                ];
-            }
-            table.0 = Some(tint);
+    let sources = tint.for_color(color);
+    let data: &mut [u8] = &mut dst.data;
+    for j in rows.0..rows.1 {
+        let (py, ty) = (sy as usize + j, (i64::from(dy) + j as i64) as usize);
+        let row = &coverage[py * cov_w as usize..(py + 1) * cov_w as usize];
+        let di = (ty * dw as usize + (i64::from(dx) + cols.0 as i64) as usize) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(data.len(), di));
+        if n == 0 {
+            continue;
         }
-        let sources = &table.1;
-        let data: &mut [u8] = &mut dst.data;
-        for j in rows.0..rows.1 {
-            let (py, ty) = (sy as usize + j, (i64::from(dy) + j as i64) as usize);
-            let row = &coverage[py * cov_w as usize..(py + 1) * cov_w as usize];
-            let di = (ty * dw as usize + (i64::from(dx) + cols.0 as i64) as usize) * 4;
-            let n = (cols.1 - cols.0).min(whole_pixels(data.len(), di));
-            if n == 0 {
+        let from = &row[sx as usize + cols.0..sx as usize + cols.0 + n];
+        for (d, cov) in data[di..di + n * 4].chunks_exact_mut(4).zip(from) {
+            let source = sources[usize::from(*cov)];
+            let sa = u32::from(source[3]);
+            if sa == 0 {
                 continue;
             }
-            let from = &row[sx as usize + cols.0..sx as usize + cols.0 + n];
-            for (d, cov) in data[di..di + n * 4].chunks_exact_mut(4).zip(from) {
-                let source = sources[usize::from(*cov)];
-                let sa = u32::from(source[3]);
-                if sa == 0 {
-                    continue;
-                }
-                if sa == 255 {
-                    d.copy_from_slice(&source);
-                } else {
-                    let inv = 255 - sa;
-                    let over = |s: u8, d: u8| (u32::from(s) + u32::from(d) * inv / 255).min(255) as u8;
-                    d[0] = over(source[0], d[0]);
-                    d[1] = over(source[1], d[1]);
-                    d[2] = over(source[2], d[2]);
-                    d[3] = over(source[3], d[3]);
-                }
+            if sa == 255 {
+                d.copy_from_slice(&source);
+            } else {
+                let inv = 255 - sa;
+                let over = |s: u8, d: u8| (u32::from(s) + u32::from(d) * inv / 255).min(255) as u8;
+                d[0] = over(source[0], d[0]);
+                d[1] = over(source[1], d[1]);
+                d[2] = over(source[2], d[2]);
+                d[3] = over(source[3], d[3]);
             }
         }
-    });
-}
-
-std::thread_local! {
-    /// [`blit_tinted_coverage`]: the colour last tinted with on this thread (`r, g, b, a`), and
-    /// the premultiplied pixel it gives each coverage 0..=255.
-    static TINT_TABLE: core::cell::RefCell<(Option<[u8; 4]>, [[u8; 4]; 256])> =
-        const { core::cell::RefCell::new((None, [[0; 4]; 256])) };
+    }
+    landed
 }
 
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
@@ -4493,16 +4541,16 @@ mod audit_a1_tests {
         assert_eq!(span_on_target(0, 5, 100), 0);
         let mut target = AzulPixmap::new_transparent(20, 5).expect("a target");
         let buffer = vec![255u8; 10 * 4 * 4];
-        crate::cpu_counters::reset();
-        blit_buffer_sub(&mut target, &buffer, 10, 4, 0, 0, 10, 4, -3, 2);
-        assert_eq!(crate::cpu_counters::take().px_blitted, 7 * 3);
+        assert_eq!(blit_buffer_sub(&mut target, &buffer, 10, 4, 0, 0, 10, 4, -3, 2), 7 * 3);
         let coverage = vec![255u8; 10 * 4];
         let white = azul_css::props::basic::ColorU { r: 255, g: 255, b: 255, a: 255 };
-        blit_tinted_coverage(&mut target, &coverage, 10, 0, 0, 10, 4, -3, 2, white);
-        assert_eq!(crate::cpu_counters::take().px_blitted, 7 * 3);
+        let mut tint = TintTable::default();
+        assert_eq!(
+            blit_tinted_coverage(&mut target, &mut tint, &coverage, 10, 0, 0, 10, 4, -3, 2, white),
+            7 * 3
+        );
         // A region that asks for more than the source holds counts what the source holds.
-        blit_buffer_sub(&mut target, &buffer, 10, 4, 6, 0, 10, 4, 0, 0);
-        assert_eq!(crate::cpu_counters::take().px_blitted, 4 * 4);
+        assert_eq!(blit_buffer_sub(&mut target, &buffer, 10, 4, 6, 0, 10, 4, 0, 0), 4 * 4);
     }
 
 
@@ -4656,6 +4704,9 @@ mod audit_a1_tests {
         let short = &src[..src.len() - 6];
         let regions = [(0, 0, 6, 5), (2, 1, 3, 2), (4, 3, 9, 9), (6, 0, 1, 1), (0, 0, 0, 3), (5, 4, 1, 1)];
         let tints = [[200, 100, 50, 255], [255, 255, 255, 128], [200, 100, 50, 255], [0, 0, 0, 0]];
+        // One table for every blit, as a painting thread keeps one: a colour that is not the last
+        // one's makes it work the new table out.
+        let mut table = TintTable::default();
         let mut checked = 0;
         for dx in [-7, -2, 0, 4, 8, 9] {
             for dy in [-6, -1, 0, 3, 6, 7] {
@@ -4671,7 +4722,7 @@ mod audit_a1_tests {
                         let mut new = patterned_target();
                         let mut old = patterned_target().data().to_vec();
                         let color = azul_css::props::basic::ColorU { r: tint[0], g: tint[1], b: tint[2], a: tint[3] };
-                        blit_tinted_coverage(&mut new, &coverage, src_w, region.0, region.1, region.2, region.3, dx, dy, color);
+                        blit_tinted_coverage(&mut new, &mut table, &coverage, src_w, region.0, region.1, region.2, region.3, dx, dy, color);
                         old_blit_tinted(&mut old, (9, 7), &coverage, src_w, region, (dx, dy), tint);
                         assert!(new.data() == old.as_slice(), "blit_tinted_coverage {region:?} at ({dx}, {dy}) in {tint:?}");
                     }
@@ -4692,7 +4743,6 @@ mod audit_a1_tests {
             }
         }
         assert_eq!(checked, 6 * 6 * 6);
-        let _ = crate::cpu_counters::take();
     }
 
 

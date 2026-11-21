@@ -10,12 +10,9 @@ use azul_core::{
 };
 use azul_css::props::basic::ColorU;
 
-use crate::{
-    cpu_counters::{self, Counter},
-    solver3::display_list::{
-        reference_frame_extent, reference_frame_extent_walked, BorderRadius, DisplayList,
-        DisplayListItem, WindowLogicalRect,
-    },
+use crate::solver3::display_list::{
+    reference_frame_extent, reference_frame_extent_walked, reference_frame_extent_walked_counted,
+    BorderRadius, DisplayList, DisplayListItem, WindowLogicalRect,
 };
 
 fn wlr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
@@ -190,13 +187,13 @@ fn nested_frames_clips_and_scroll_frames_count_from_each_frames_own_start() {
 /// How many items the asks of a list read: the index reads each once, however many frames there
 /// are, however often it is asked, however deep they nest.
 fn items_read_asking_twice(list: &DisplayList) -> u64 {
-    cpu_counters::reset();
+    let before = list.index_items_scanned();
     for _ in 0..2 {
         for i in 0..list.items.len() {
             let _ = reference_frame_extent(list, i);
         }
     }
-    cpu_counters::take().scan_items
+    list.index_items_scanned() - before
 }
 
 #[test]
@@ -231,11 +228,10 @@ fn a_list_is_walked_once_however_often_its_frames_are_asked_about() {
     // Walked from each push to its pop, the nested list is read quadratically: the sweep above
     // would have failed on it.
     let deep = nested(200);
-    cpu_counters::reset();
-    for i in 0..deep.items.len() {
-        let _ = reference_frame_extent_walked(&deep.items, i);
-    }
-    let walked = cpu_counters::take().scan_items;
+    let walked: u64 = (0..deep.items.len())
+        .filter_map(|i| reference_frame_extent_walked_counted(&deep.items, i))
+        .map(|(_, read)| read)
+        .sum();
     assert!(walked > 10 * deep.items.len() as u64, "the walk reads {walked} items");
 }
 

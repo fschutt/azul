@@ -394,3 +394,44 @@ fn app_startup_persists_the_font_cache() {
          {candidates:?}\n--- child stdout ---\n{stdout}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// 4. The faces an app ships are in the font manager of its App
+// ---------------------------------------------------------------------------
+
+/// `AppConfig::add_font` puts a face in the registered fonts `AppInternal::create` builds the
+/// app's font manager on: the family is indexed in it (in the tier of the faces azul bundles), and
+/// a window made from that manager (`clone_shared`, as every shell does) draws with the very same
+/// registered fonts. They used to be a process-wide list that every font manager read.
+#[test]
+fn an_apps_shipped_face_is_in_the_font_manager_of_its_app() {
+    use azul_layout::text3::cache::MemoryFontTier;
+
+    const FAMILY: &str = "Azul App Shipped Face";
+    let norm = rust_fontconfig::utils::normalize_family_name(FAMILY);
+    let face = azul_layout::text3::ui_fonts::bundled_ui_fonts()[0].bytes.clone();
+    let mut config = AppConfig::default();
+    config.add_font(FAMILY.into(), face.into());
+
+    let app = azul::desktop::app::AppInternal::create(RefAny::new(0u32), config);
+    let manager = app.font_manager.as_ref().expect("the app's font manager");
+    let faces = manager
+        .memory_families
+        .get(&norm)
+        .expect("the family of the shipped face is indexed in the font manager of its app");
+    assert_eq!(faces.len(), 1, "one face");
+    assert_eq!(faces[0].tier, MemoryFontTier::Fallback, "in the tier the faces azul bundles are in");
+
+    let window = manager.clone_shared();
+    assert!(
+        Arc::ptr_eq(&window.registered_fonts, &manager.registered_fonts),
+        "a window of the app draws with the registered fonts of the app"
+    );
+    assert!(window.memory_families.contains_key(&norm));
+
+    // An app that ships nothing has no such family: the registry is the app's, not the process's.
+    let other = azul::desktop::app::AppInternal::create(RefAny::new(0u32), AppConfig::default());
+    let other_manager = other.font_manager.as_ref().expect("the font manager of another app");
+    assert!(!other_manager.memory_families.contains_key(&norm));
+    assert!(!Arc::ptr_eq(&other_manager.registered_fonts, &manager.registered_fonts));
+}

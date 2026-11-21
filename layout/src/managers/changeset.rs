@@ -479,13 +479,17 @@ pub enum CursorMovement {
 }
 
 impl TextChangeset {
-    /// Create a new changeset with unique ID
-    pub fn new(target: DomNodeId, operation: TextOperation, timestamp: Instant) -> Self {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static CHANGESET_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-
+    /// Create a changeset under `id`: the id the window that records it took
+    /// from its own counter, which is what keeps the ids of its edits apart
+    /// (`LayoutWindow::apply_text_changeset`).
+    pub fn new(
+        id: ChangesetId,
+        target: DomNodeId,
+        operation: TextOperation,
+        timestamp: Instant,
+    ) -> Self {
         Self {
-            id: CHANGESET_ID_COUNTER.fetch_add(1, Ordering::Relaxed),
+            id,
             target,
             operation,
             timestamp,
@@ -594,8 +598,6 @@ impl DocumentChangeset {
 
 #[cfg(test)]
 mod autotest_generated {
-    use std::{collections::HashSet, thread};
-
     use azul_core::{
         dom::DomId,
         geom::LogicalPosition,
@@ -610,13 +612,13 @@ mod autotest_generated {
     // =========================================================================
     // Fixtures
     //
-    // `TextChangeset` is a plain data carrier: the constructor stamps a unique
-    // id and the five getters are pure classifiers over `TextOperation`. The
-    // adversarial surface is therefore (a) the atomic id counter under
-    // contention, (b) whether the getters partition the 11 operation variants
-    // exactly as documented, and (c) whether extreme payloads (NaN / infinite
-    // cursors, u32::MAX cluster ids, huge and non-ASCII strings) survive a
-    // round trip through the getters bit-for-bit instead of being normalized.
+    // `TextChangeset` is a plain data carrier: the constructor stores the id it
+    // is given and the five getters are pure classifiers over `TextOperation`.
+    // The adversarial surface is therefore (a) whether the getters partition
+    // the 11 operation variants exactly as documented, and (b) whether extreme
+    // payloads (NaN / infinite cursors, u32::MAX cluster ids, huge and
+    // non-ASCII strings) survive a round trip through the getters bit-for-bit
+    // instead of being normalized.
     // =========================================================================
 
     fn node(dom: usize, raw: usize) -> DomNodeId {
@@ -783,7 +785,7 @@ mod autotest_generated {
     }
 
     fn changeset_for(op: TextOperation) -> TextChangeset {
-        TextChangeset::new(node(0, 1), op, ts(0))
+        TextChangeset::new(1, node(0, 1), op, ts(0))
     }
 
     // =========================================================================
@@ -800,8 +802,9 @@ mod autotest_generated {
             new_cursor: cur(3.0, 4.0),
         });
 
-        let cs = TextChangeset::new(target, op, timestamp.clone());
+        let cs = TextChangeset::new(ChangesetId::MAX, target, op, timestamp.clone());
 
+        assert_eq!(cs.id, ChangesetId::MAX, "the id must round-trip unchanged");
         assert_eq!(cs.target, target, "target must round-trip unchanged");
         assert_eq!(
             cs.timestamp, timestamp,
@@ -819,6 +822,7 @@ mod autotest_generated {
         // must not interpret, decode or index with either.
         let huge_text = "\u{1F600}".repeat(64 * 1024); // 256 KiB of 4-byte chars
         let cs = TextChangeset::new(
+            0,
             node(usize::MAX, usize::MAX),
             TextOperation::ReplaceText(TextOpReplaceText {
                 range: extreme_range(),
@@ -843,86 +847,17 @@ mod autotest_generated {
     }
 
     #[test]
-    fn new_assigns_strictly_increasing_unique_ids() {
-        let mut ids = Vec::new();
-        for i in 0..256_u64 {
-            let cs = TextChangeset::new(
-                node(0, 1),
-                TextOperation::ClearSelection(TextOpClearSelection {
-                    old_range: simple_range(),
-                }),
-                ts(i),
-            );
-            ids.push(cs.id);
-        }
-
-        // Other tests in this binary share the global counter, so only
-        // *monotonicity within this sequence* is guaranteed — not `id == i`.
-        for w in ids.windows(2) {
-            assert!(
-                w[1] > w[0],
-                "changeset ids must strictly increase: {} then {}",
-                w[0],
-                w[1]
-            );
-        }
-        let unique: HashSet<ChangesetId> = ids.iter().copied().collect();
-        assert_eq!(unique.len(), ids.len(), "changeset ids must be unique");
-    }
-
-    #[test]
-    fn new_ids_stay_unique_across_threads() {
-        // The id comes from a `fetch_add(Relaxed)` on a process-global counter.
-        // Relaxed is fine for uniqueness (RMW ops are atomic regardless of
-        // ordering) — this pins that down under contention.
-        const THREADS: usize = 8;
-        const PER_THREAD: usize = 250;
-
-        let handles: Vec<_> = (0..THREADS)
-            .map(|_| {
-                thread::spawn(|| {
-                    (0..PER_THREAD)
-                        .map(|_| {
-                            TextChangeset::new(
-                                node(0, 1),
-                                TextOperation::Copy(TextOpCopy {
-                                    range: simple_range(),
-                                    content: clip("x"),
-                                }),
-                                ts(0),
-                            )
-                            .id
-                        })
-                        .collect::<Vec<ChangesetId>>()
-                })
-            })
-            .collect();
-
-        let mut all = Vec::new();
-        for h in handles {
-            all.extend(h.join().expect("worker thread panicked"));
-        }
-
-        let unique: HashSet<ChangesetId> = all.iter().copied().collect();
-        assert_eq!(
-            unique.len(),
-            THREADS * PER_THREAD,
-            "concurrent TextChangeset::new handed out duplicate ids"
+    fn clone_keeps_the_id_it_was_given() {
+        let cs = TextChangeset::new(
+            7,
+            node(0, 1),
+            TextOperation::ClearSelection(TextOpClearSelection {
+                old_range: simple_range(),
+            }),
+            ts(0),
         );
-    }
-
-    #[test]
-    fn clone_keeps_the_id_but_new_mints_a_fresh_one() {
-        let cs = changeset_for(TextOperation::ClearSelection(TextOpClearSelection {
-            old_range: simple_range(),
-        }));
-        let cloned = cs.clone();
-        assert_eq!(cloned.id, cs.id, "Clone must not re-mint the id");
-
-        let fresh = changeset_for(TextOperation::ClearSelection(TextOpClearSelection {
-            old_range: simple_range(),
-        }));
-        assert!(fresh.id > cs.id, "new() must mint a fresh id");
+        assert_eq!(cs.id, 7, "new() stores the id it is given");
+        assert_eq!(cs.clone().id, 7, "Clone must not change the id");
     }
 
     // =========================================================================
@@ -979,8 +914,8 @@ mod autotest_generated {
     #[test]
     fn predicates_are_pure_and_ignore_target_and_timestamp() {
         for (name, op) in all_ops() {
-            let a = TextChangeset::new(node(0, 0), op.clone(), ts(0));
-            let b = TextChangeset::new(node(usize::MAX, usize::MAX), op, ts(u64::MAX));
+            let a = TextChangeset::new(1, node(0, 0), op.clone(), ts(0));
+            let b = TextChangeset::new(2, node(usize::MAX, usize::MAX), op, ts(u64::MAX));
 
             assert_eq!(a.mutates_text(), b.mutates_text(), "{name}: mutates_text");
             assert_eq!(
@@ -1275,6 +1210,7 @@ mod autotest_generated {
 
     fn changeset_for_ts(timestamp: Instant) -> TextChangeset {
         TextChangeset::new(
+            1,
             node(0, 1),
             TextOperation::ClearSelection(TextOpClearSelection {
                 old_range: simple_range(),

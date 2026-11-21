@@ -56,9 +56,36 @@ use azul_css::AzString;
 /// flickrBase58 — base58 without the look-alikes `0`, `O`, `I` and `l`.
 const BASE58: &[u8; 58] = b"123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ";
 
-/// Mint tick. Every id is a pure function of its tick, so the sequence is the
-/// same on every run — deterministic, not random.
-static TICK: AtomicU64 = AtomicU64::new(0);
+/// A mint: the tick that numbers the ids it makes. Every id is a pure function of its tick, so
+/// the sequence is the same on every run — deterministic, not random.
+///
+/// The process has one ([`PROCESS_MINT`]); a test builds one of its own and reads only that, so
+/// what it checks cannot be moved by an id another test thread minted.
+struct UuidMint {
+    tick: AtomicU64,
+}
+
+impl UuidMint {
+    /// A mint that has made no id yet.
+    const fn new() -> Self {
+        Self {
+            tick: AtomicU64::new(0),
+        }
+    }
+
+    /// The next marker's 128 bits (advances this mint's tick).
+    fn next_bits(&self) -> u128 {
+        tick_bits(self.tick.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+/// The process's mint.
+///
+/// KEPT process-wide: the id space is the process's. A marker minted by one
+/// window, thread or app of the process must differ from every other, and the
+/// callers (`Uuid::short()` from the C API) have no handle to share a mint by.
+/// The seeded ids ([`Uuid::from_seed`] and the like) never read it.
+static PROCESS_MINT: UuidMint = UuidMint::new();
 
 /// splitmix64's increment (2^64 divided by the golden ratio, made odd): a
 /// seeded id is the first two splitmix64 outputs for its seed.
@@ -97,9 +124,9 @@ const fn tick_bits(tick: u64) -> u128 {
     v4_shape(mix64(even), mix64(even.wrapping_add(1)))
 }
 
-/// The next marker's 128 bits (advances the process tick).
+/// The next marker's 128 bits (advances the process's mint).
 fn next_bits() -> u128 {
-    tick_bits(TICK.fetch_add(1, Ordering::Relaxed))
+    PROCESS_MINT.next_bits()
 }
 
 /// A seeded id's 128 bits: the first two outputs of splitmix64 seeded with
@@ -455,39 +482,43 @@ mod uuid_tests {
         assert_eq!(minted.len(), 10_000, "10 000 minted codes, no repeats");
     }
 
-    /// `code_from_seed` never touches the process-wide mint.
+    /// A seeded code reads no mint: it is a pure function of its seed, so ids minted in between
+    /// (on this thread or any other) move nothing it returns.
     #[test]
-    fn code_from_seed_never_advances_the_mint_tick() {
-        use core::sync::atomic::Ordering;
-        let quiet = (0..1_000).any(|_| {
-            let before = TICK.load(Ordering::SeqCst);
-            for seed in 0..16 {
-                let _ = Uuid::code_from_seed(seed);
-            }
-            TICK.load(Ordering::SeqCst) == before
-        });
-        assert!(quiet, "code_from_seed advanced the process tick");
+    fn a_seeded_code_does_not_depend_on_what_was_minted() {
+        let before = Uuid::code_from_seed(7);
+        for _ in 0..64 {
+            let _ = Uuid::code();
+            let _ = Uuid::short();
+        }
+        assert_eq!(Uuid::code_from_seed(7), before);
     }
 
-    /// A seeded id never touches the process-wide mint: after any number of
-    /// `from_seed` calls, `v4()` / `short()` return what they would have
-    /// returned anyway (they are pure functions of the tick).
+    /// A seeded id reads no mint either: `from_seed` / `short_from_seed` return what they would
+    /// have returned anyway, however many ids were minted before.
     #[test]
-    fn from_seed_never_advances_the_mint_tick() {
+    fn a_seeded_id_does_not_depend_on_what_was_minted() {
+        let (hex, short) = (Uuid::from_seed(7), Uuid::short_from_seed(7));
+        for _ in 0..64 {
+            let _ = Uuid::v4();
+            let _ = Uuid::short();
+        }
+        assert_eq!(Uuid::from_seed(7), hex);
+        assert_eq!(Uuid::short_from_seed(7), short);
+    }
+
+    /// A mint counts its own ids only: a fresh one starts where every fresh one starts, is not
+    /// moved by another mint or by the process's, and advances by exactly what it makes. (A test
+    /// that read the process's mint would see ids other test threads mint.)
+    #[test]
+    fn a_mint_counts_its_own_ids_only() {
         use core::sync::atomic::Ordering;
-        // Other tests mint on other threads, so look for one quiet window; a
-        // from_seed that advanced the tick would never find one.
-        let quiet = (0..1_000).any(|_| {
-            let before = TICK.load(Ordering::SeqCst);
-            for seed in 0..16 {
-                let _ = Uuid::from_seed(seed);
-                let _ = Uuid::short_from_seed(seed);
-            }
-            TICK.load(Ordering::SeqCst) == before
-        });
-        assert!(
-            quiet,
-            "from_seed / short_from_seed advanced the process tick"
-        );
+        let (ours, theirs) = (UuidMint::new(), UuidMint::new());
+        let first = ours.next_bits();
+        let _ = Uuid::v4(); // the process's mint
+        assert_eq!(theirs.next_bits(), first, "every fresh mint starts alike");
+        assert_ne!(ours.next_bits(), first, "a mint advances by what it makes");
+        assert_eq!(ours.tick.load(Ordering::SeqCst), 2);
+        assert_eq!(theirs.tick.load(Ordering::SeqCst), 1);
     }
 }

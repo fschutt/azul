@@ -26,10 +26,11 @@
 //! Restricted; missing/other → NotDetermined.
 
 use azul_layout::managers::permission::{
-    push_async_result, Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
+    AsyncPermissionResults, Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
 };
 
-pub fn handle_event(event: &PermissionDiffEvent) {
+/// `results` is the app's queue the consent store's answers are parked in.
+pub fn handle_event(event: &PermissionDiffEvent, results: &AsyncPermissionResults) {
     match event {
         PermissionDiffEvent::Subscribe { capability, .. } => {
             // No prompt surface from Win32 — seed the manager with the
@@ -38,7 +39,7 @@ pub fn handle_event(event: &PermissionDiffEvent) {
             // Subscribe.
             let state = probe_status(*capability);
             if state != PermissionState::NotDetermined {
-                push_async_result(*capability, state);
+                results.push((*capability, state));
             }
         }
         // Grants are user-scoped and persistent; nothing to release.

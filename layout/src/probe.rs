@@ -35,24 +35,49 @@ use core::marker::PhantomData;
     not(feature = "web_lift")
 ))]
 mod imp {
+    use core::marker::PhantomData;
     use std::{
-        cell::RefCell,
+        cell::{Cell, RefCell},
         sync::atomic::{AtomicBool, AtomicU8, Ordering},
         time::Instant,
     };
 
-    thread_local! {
-        static EVENTS: RefCell<Vec<super::Event>> = const { RefCell::new(Vec::new()) };
-        /// Currently-open span count. Read when a span OPENS (its own
-        /// depth) and decremented when it closes.
-        static DEPTH: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
-        /// Names of the currently-open spans, outermost first: what a crash
-        /// report reads as "what scope was the app in" ([`span_path`]). Kept
-        /// while a reader of it is installed ([`TRACK_SCOPE`]: the telemetry
-        /// panic hook), with recording on or off - that diagnostic must not
-        /// depend on AZ_PROFILE. Cost then: one push/pop of a `&'static str`
+    /// What the profiler keeps for ONE thread: its event buffer, how many spans it has open, the
+    /// names of those spans, and the recording choice the thread made for itself
+    /// ([`record_on_this_thread`]).
+    ///
+    /// Per thread (a `thread_local!` is the one piece of profiler state that is not
+    /// process-wide) because a span is recorded WITHOUT a lock, on whatever thread it runs on,
+    /// and `drain` hands a thread its own events: the profiler is a deliberate process-wide
+    /// recorder (the editor, the e2e ops and the telemetry bridge record through it), and a
+    /// lock-free per-thread buffer is what makes a span cheap enough to leave in the solver's
+    /// per-node paths. The process-wide parts of it are [`RECORDING`] (`AZ_PROFILE` and the
+    /// telemetry bridge's switch) and [`TRACK_SCOPE`] (a panic hook is process-global).
+    struct ThreadProbe {
+        events: RefCell<Vec<super::Event>>,
+        /// Currently-open span count. Read when a span OPENS (its own depth) and decremented
+        /// when it closes.
+        depth: Cell<u16>,
+        /// Names of the currently-open spans, outermost first: what a crash report reads as
+        /// "what scope was the app in" ([`span_path`]). Kept while a reader of it is installed
+        /// ([`TRACK_SCOPE`]: the telemetry panic hook), with recording on or off - that
+        /// diagnostic must not depend on `AZ_PROFILE`. Cost then: one push/pop of a `&'static str`
         /// per span; without a reader, none.
-        static SPAN_NAMES: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+        span_names: RefCell<Vec<&'static str>>,
+        /// This thread's own recording mode, in the codes of [`RECORDING`] (0: it made no choice
+        /// and the process's mode stands).
+        recording: Cell<u8>,
+    }
+
+    thread_local! {
+        static THREAD: ThreadProbe = const {
+            ThreadProbe {
+                events: RefCell::new(Vec::new()),
+                depth: Cell::new(0),
+                span_names: RefCell::new(Vec::new()),
+                recording: Cell::new(0),
+            }
+        };
     }
 
     /// Whether the names of the open spans are kept for [`span_path`]
@@ -61,6 +86,7 @@ mod imp {
     /// inline formatting context) pushed and popped a thread-local `RefCell<Vec>`
     /// with recording off and no crash hook to read it, where the docs promise
     /// an atomic load.
+    // Process-wide because the panic hook that reads the names is (`std::panic::set_hook`).
     static TRACK_SCOPE: AtomicBool = AtomicBool::new(false);
 
     pub(super) fn track_scope(on: bool) {
@@ -69,9 +95,11 @@ mod imp {
 
     // How often this thread's span bookkeeping touched a thread-local (tests
     // only): a span that neither records nor keeps its name touches none.
+    // Test builds only and per test thread, so every test counts its own: counting accesses in
+    // the span hot path cannot be an always-on field of anything.
     #[cfg(test)]
     thread_local! {
-        static TLS_TOUCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+        static TLS_TOUCHES: Cell<usize> = const { Cell::new(0) };
     }
 
     #[cfg(test)]
@@ -85,7 +113,7 @@ mod imp {
 
     #[cfg(test)]
     pub(super) fn tls_touches() -> usize {
-        TLS_TOUCHES.try_with(std::cell::Cell::get).unwrap_or(0)
+        TLS_TOUCHES.try_with(Cell::get).unwrap_or(0)
     }
 
     /// Whether spans/samples are RECORDED. The `probe` feature being compiled
@@ -96,46 +124,111 @@ mod imp {
     /// growth, invisible to the `LayoutCache` memory walk (it's a thread-local).
     /// A 5 s resize drag alone is ~375 relayouts × hundreds of spans.
     ///
-    /// 0 = uninitialized (resolve from `AZ_PROFILE` on first probe),
-    /// 1 = recording (asked for by `AZ_PROFILE`), 2 = off, 3 = recording
-    /// for a caller that drains the buffer itself (`set_recording(true)`).
+    /// The low three bits are the mode: 0 = uninitialized (resolve from `AZ_PROFILE` on first
+    /// probe), 1 = recording (asked for by `AZ_PROFILE`), 2 = off, 3 = recording for a caller
+    /// that drains the buffer itself (`set_recording(true)`). [`THREAD_CHOICES`] is set once
+    /// some thread has chosen for itself ([`record_on_this_thread`]).
+    // Process-wide by contract: `AZ_PROFILE` is read once from the environment, and the
+    // telemetry bridge switches recording on for every thread of the process.
     static RECORDING: AtomicU8 = AtomicU8::new(0);
+    /// The mode bits of [`RECORDING`].
+    const MODE_MASK: u8 = 0b0111;
+    /// Set in [`RECORDING`] once a thread chose its own recording ([`record_on_this_thread`]):
+    /// only then does a span look at its thread's choice, so a process that never does (every
+    /// product build) still pays the one atomic load and touches no thread-local.
+    const THREAD_CHOICES: u8 = 0b1000;
+
+    /// The recording mode in force on this thread: its own choice, else the process's.
+    #[inline]
+    fn mode_in_force(state: u8) -> u8 {
+        if state & THREAD_CHOICES != 0 {
+            if let Some(own) = THREAD
+                .try_with(|t| t.recording.get())
+                .ok()
+                .filter(|own| *own != 0)
+            {
+                return own;
+            }
+        }
+        state & MODE_MASK
+    }
 
     #[inline]
     fn recording() -> bool {
-        match RECORDING.load(Ordering::Relaxed) {
+        let state = RECORDING.load(Ordering::Relaxed);
+        match mode_in_force(state) {
             1 | 3 => true,
             2 => false,
             _ => {
                 // First probe anywhere resolves the mode once. Any profile
-                // mode that can consume events counts; the write is
-                // idempotent so a racing thread resolving the same env is
-                // harmless.
+                // mode that can consume events counts; the write only lands
+                // while the mode is still unresolved, so a racing thread
+                // resolving the same env is harmless.
                 let on = azul_core::profile::cpu_enabled()
                     || azul_core::profile::memory_enabled()
                     || azul_core::profile::heap_enabled();
-                RECORDING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+                let resolved = if on { 1 } else { 2 };
+                let _ = RECORDING.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+                    (old & MODE_MASK == 0).then_some(old | resolved)
+                });
                 on
             }
         }
     }
 
-    pub(super) fn set_recording(on: bool) {
-        RECORDING.store(if on { 3 } else { 2 }, Ordering::Relaxed);
+    /// Stores the mode bits of [`RECORDING`], keeping [`THREAD_CHOICES`].
+    fn store_mode(mode: u8) {
+        let _ = RECORDING.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |old| {
+            Some((old & THREAD_CHOICES) | mode)
+        });
     }
 
-    pub(super) fn record_as_profile(on: bool) {
-        RECORDING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+    pub(super) fn set_recording(on: bool) {
+        store_mode(if on { 3 } else { 2 });
     }
 
     pub(super) fn drained_by_its_caller() -> bool {
-        RECORDING.load(Ordering::Relaxed) == 3
+        mode_in_force(RECORDING.load(Ordering::Relaxed)) == 3
+    }
+
+    /// Keeps this thread's recording choice until it is dropped ([`record_on_this_thread`]).
+    #[derive(Debug)]
+    #[must_use = "the choice ends when the guard is dropped"]
+    pub struct ThreadRecording {
+        /// The thread's choice before this one (0: none), restored on drop.
+        previous: u8,
+        /// Restores on the thread that chose, so it must not move to another.
+        not_send: PhantomData<*const ()>,
+    }
+
+    impl Drop for ThreadRecording {
+        fn drop(&mut self) {
+            let _ = THREAD.try_with(|t| t.recording.set(self.previous));
+        }
+    }
+
+    /// This thread records in `mode` (the codes of [`RECORDING`]) until the guard drops.
+    fn choose_for_this_thread(mode: u8) -> ThreadRecording {
+        RECORDING.fetch_or(THREAD_CHOICES, Ordering::Relaxed);
+        let previous = THREAD.try_with(|t| t.recording.replace(mode)).unwrap_or(0);
+        ThreadRecording {
+            previous,
+            not_send: PhantomData,
+        }
+    }
+
+    pub(super) fn record_on_this_thread(on: bool) -> ThreadRecording {
+        choose_for_this_thread(if on { 3 } else { 2 })
+    }
+
+    pub(super) fn record_as_profile_on_this_thread() -> ThreadRecording {
+        choose_for_this_thread(1)
     }
 
     /// RAII guard that records its name + elapsed nanos on drop.
     /// `start == None` means recording was off when the span opened: the
     /// guard is inert (no clock read on open, no TLS touch on drop).
-    /// `scoped`: its name was pushed onto [`SPAN_NAMES`] when it opened, so
+    /// `scoped`: its name was pushed onto the thread's span names when it opened, so
     /// its drop pops it (and only then: a span opened while no reader was
     /// installed pops nothing, whatever the flag says when it closes).
     #[derive(Debug)]
@@ -149,9 +242,9 @@ mod imp {
     impl Drop for Span {
         fn drop(&mut self) {
             if self.scoped {
-                let _ = SPAN_NAMES.try_with(|st| {
+                let _ = THREAD.try_with(|t| {
                     touched();
-                    st.borrow_mut().pop();
+                    t.span_names.borrow_mut().pop();
                 });
             }
             let Some(start) = self.start else { return };
@@ -161,13 +254,10 @@ mod imp {
             // inlined into layout_dom_recursive/layout_document, so they can't
             // be stubbed at the symbol level — use the non-panicking access.
             let depth = self.depth;
-            let _ = DEPTH.try_with(|d| {
+            let _ = THREAD.try_with(|t| {
                 touched();
-                d.set(d.get().saturating_sub(1));
-            });
-            let _ = EVENTS.try_with(|cell| {
-                touched();
-                cell.borrow_mut().push(super::Event {
+                t.depth.set(t.depth.get().saturating_sub(1));
+                t.events.borrow_mut().push(super::Event {
                     name: self.name,
                     kind: super::EventKind::Span { dur_ns },
                     depth,
@@ -186,10 +276,10 @@ mod imp {
     /// touched, the guard is inert.
     pub(super) fn open_gated(is_recording: bool, track_scope: bool, name: &'static str) -> Span {
         let scoped = track_scope
-            && SPAN_NAMES
-                .try_with(|st| {
+            && THREAD
+                .try_with(|t| {
                     touched();
-                    st.borrow_mut().push(name);
+                    t.span_names.borrow_mut().push(name);
                 })
                 .is_ok();
         if !is_recording {
@@ -200,11 +290,11 @@ mod imp {
                 scoped,
             };
         }
-        let depth = DEPTH
-            .try_with(|d| {
+        let depth = THREAD
+            .try_with(|t| {
                 touched();
-                let cur = d.get();
-                d.set(cur.saturating_add(1));
+                let cur = t.depth.get();
+                t.depth.set(cur.saturating_add(1));
                 cur
             })
             .unwrap_or(0);
@@ -221,12 +311,11 @@ mod imp {
             return;
         }
         // try_with: see Span::drop — no real TLS in the lifted wasm backend.
-        let depth = DEPTH.try_with(std::cell::Cell::get).unwrap_or(0);
-        let _ = EVENTS.try_with(|cell| {
-            cell.borrow_mut().push(super::Event {
+        let _ = THREAD.try_with(|t| {
+            t.events.borrow_mut().push(super::Event {
                 name: label,
                 kind: super::EventKind::Rss { bytes },
-                depth,
+                depth: t.depth.get(),
             });
         });
     }
@@ -235,14 +324,14 @@ mod imp {
     /// joined with `" > "` — e.g. `dispatch.timer > layout > text_shape`.
     /// Empty when no span is open. Readable from a panic hook (same thread).
     pub(super) fn span_path() -> String {
-        SPAN_NAMES
-            .try_with(|st| st.borrow().join(" > "))
+        THREAD
+            .try_with(|t| t.span_names.borrow().join(" > "))
             .unwrap_or_default()
     }
 
     pub(super) fn drain() -> Vec<super::Event> {
-        EVENTS
-            .try_with(|cell| core::mem::take(&mut *cell.borrow_mut()))
+        THREAD
+            .try_with(|t| core::mem::take(&mut *t.events.borrow_mut()))
             .unwrap_or_default()
     }
 
@@ -259,6 +348,8 @@ mod imp {
             collections::HashMap,
             sync::{Mutex, OnceLock},
         };
+        // Process-wide by design: it leaks one name per distinct callback pointer, for the
+        // process, and a pointer means the same function to every thread.
         static CACHE: OnceLock<Mutex<HashMap<usize, &'static str>>> = OnceLock::new();
         CACHE.get_or_init(|| Mutex::new(HashMap::new()))
     }
@@ -388,6 +479,7 @@ mod imp {
     #[cfg(unix)]
     fn addr2line_available() -> bool {
         use std::sync::OnceLock;
+        // A fact about the machine (is `addr2line` installed), asked once.
         static AVAILABLE: OnceLock<bool> = OnceLock::new();
         *AVAILABLE.get_or_init(|| {
             std::process::Command::new("addr2line")
@@ -471,11 +563,11 @@ mod imp {
     }
 
     pub(super) fn drop_events() {
-        let _ = EVENTS.try_with(|cell| cell.borrow_mut().clear());
+        let _ = THREAD.try_with(|t| t.events.borrow_mut().clear());
     }
 
     pub(super) fn peek_len() -> usize {
-        EVENTS.try_with(|cell| cell.borrow().len()).unwrap_or(0)
+        THREAD.try_with(|t| t.events.borrow().len()).unwrap_or(0)
     }
 
     pub(super) const fn enabled() -> bool {
@@ -516,11 +608,29 @@ mod imp {
     #[inline]
     pub(super) const fn set_recording(_on: bool) {}
 
-    #[inline]
-    pub(super) const fn track_scope(_on: bool) {}
+    /// Nothing records in this configuration, so there is no choice to keep.
+    #[derive(Debug)]
+    #[must_use = "the choice ends when the guard is dropped"]
+    pub struct ThreadRecording;
+
+    // Nothing was chosen, so nothing is restored; the impl keeps the stub a guard that is
+    // dropped, as the real one is (not a `Copy` value).
+    impl Drop for ThreadRecording {
+        fn drop(&mut self) {}
+    }
 
     #[inline]
-    pub(super) const fn record_as_profile(_on: bool) {}
+    pub(super) const fn record_on_this_thread(_on: bool) -> ThreadRecording {
+        ThreadRecording
+    }
+
+    #[inline]
+    pub(super) const fn record_as_profile_on_this_thread() -> ThreadRecording {
+        ThreadRecording
+    }
+
+    #[inline]
+    pub(super) const fn track_scope(_on: bool) {}
 
     #[inline]
     pub(super) const fn drained_by_its_caller() -> bool {
@@ -578,6 +688,9 @@ pub enum EventKind {
 /// Re-exported guard. Held by the caller of [`Probe::span`].
 pub use imp::Span;
 
+/// Re-exported guard. Held by the caller of [`Probe::record_on_this_thread`].
+pub use imp::ThreadRecording;
+
 /// Probe API. All methods are no-ops without the `probe` feature.
 #[derive(Copy, Clone, Debug)]
 pub struct Probe {
@@ -611,13 +724,15 @@ impl Probe {
         imp::track_scope(on);
     }
 
-    /// Force event recording on/off, overriding the lazy `AZ_PROFILE`
-    /// resolution. Tests use this (they assert on drained events without
-    /// setting env vars); a debug server could too. Flipping mid-span only
-    /// perturbs the saturating depth counter, never memory safety.
+    /// Force event recording on/off for the whole PROCESS, overriding the
+    /// lazy `AZ_PROFILE` resolution: what the telemetry bridge does, and a
+    /// debug server could. Flipping mid-span only perturbs the saturating
+    /// depth counter, never memory safety.
     ///
-    /// Switching it ON says the caller drains the buffer itself (a test, the
-    /// telemetry bridge): see [`Probe::drained_by_its_caller`].
+    /// Switching it ON says the caller drains the buffer itself (the
+    /// telemetry bridge): see [`Probe::drained_by_its_caller`]. A test that
+    /// asserts on drained events uses [`Probe::record_on_this_thread`]
+    /// instead: the process's switch is every other test's too.
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
@@ -625,24 +740,41 @@ impl Probe {
         imp::set_recording(on);
     }
 
-    /// Records as `AZ_PROFILE` would ask for it: on with no caller draining
-    /// the buffer (only the CPU report and the frame pumps empty it), or off.
-    /// What a test of the buffer's bounds needs; [`Probe::set_recording`] is
-    /// for a caller that reads the spans itself.
+    /// Record the spans of THIS thread (`true`), or none of them (`false`),
+    /// whatever the process's switch says ([`Probe::set_recording`],
+    /// `AZ_PROFILE`), until the returned guard is dropped (the thread's
+    /// choice before it comes back). The owner of the choice is the thread
+    /// that made it: a test measures its own thread's spans and touches no
+    /// other thread's, so tests that run side by side need no lock around
+    /// the profiler, and none of them leaves it in the state it found.
+    ///
+    /// Choosing to record says the thread drains its own buffer
+    /// ([`Probe::drained_by_its_caller`]).
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn record_on_this_thread(on: bool) -> ThreadRecording {
+        imp::record_on_this_thread(on)
+    }
+
+    /// [`Probe::record_on_this_thread`] as `AZ_PROFILE` records: on, with no
+    /// caller draining the buffer (only the CPU report and the frame pumps
+    /// empty it). What a test of the buffer's bounds needs.
     #[doc(hidden)]
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
-    pub fn record_as_profile(on: bool) {
-        imp::record_as_profile(on);
+    pub fn record_as_profile_on_this_thread() -> ThreadRecording {
+        imp::record_as_profile_on_this_thread()
     }
 
     /// Whether recording is on because a caller switched it on
-    /// ([`Probe::set_recording`]) and drains the buffer itself - not because
-    /// `AZ_PROFILE` asked for it. A layout pass with no CPU report empties the
-    /// buffer at its end (nothing else would, with `AZ_PROFILE=memory`); it
-    /// must leave it to such a caller, whose spans it would otherwise throw
-    /// away before the caller can read them.
+    /// ([`Probe::set_recording`], or [`Probe::record_on_this_thread`] for this
+    /// thread) and drains the buffer itself - not because `AZ_PROFILE` asked
+    /// for it. A layout pass with no CPU report empties the buffer at its end
+    /// (nothing else would, with `AZ_PROFILE=memory`); it must leave it to
+    /// such a caller, whose spans it would otherwise throw away before the
+    /// caller can read them.
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
@@ -754,6 +886,7 @@ impl Probe {
                                            // cast
 pub fn monotonic_now_nanos() -> u64 {
     use std::{sync::OnceLock, time::Instant};
+    // The origin of the process's monotonic clock: every thread's stamp counts from the same one.
     static LAUNCH: OnceLock<Instant> = OnceLock::new();
     let start = LAUNCH.get_or_init(Instant::now);
     start.elapsed().as_nanos() as u64
@@ -930,6 +1063,8 @@ fn peak_rss_bytes_self() -> u64 {
 
 std::thread_local! {
     /// How often this thread asked the allocator to return freed pages.
+    // Per thread because the allocator's thread-local heap is what the call purges (mimalloc), and
+    // the layout passes a test counts all run on its own thread.
     static ALLOCATOR_PURGES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
@@ -943,6 +1078,8 @@ pub fn allocator_purges_on_this_thread() -> u64 {
 
 std::thread_local! {
     /// A layout pass of this thread freed memory since it was last handed back.
+    // Per thread for the same reason as `ALLOCATOR_PURGES`: the memory a pass freed sits in the
+    // freeing thread's allocator heap, and that thread's idle loop is what hands it back.
     static FREED_MEMORY_OWED: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
 
@@ -986,6 +1123,7 @@ pub fn hint_purge_allocator() {
         unsafe {
             libmimalloc_sys::mi_collect(true);
         }
+        // `AZ_PROFILE` read once from the environment.
         static PURGE_TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         if *PURGE_TRACE.get_or_init(azul_core::profile::memory_enabled) {
             let (rss, _) = current_rss_bytes();
@@ -1255,6 +1393,7 @@ pub fn malloc_heap_bytes() -> u64 {
     #[cfg(all(target_os = "linux", target_env = "gnu", not(miri)))]
     {
         type Mallinfo2Fn = unsafe extern "C" fn() -> libc::mallinfo2;
+        // The address of the C library's `mallinfo2`, looked up once: a fact about the loaded libc.
         static MALLINFO2: std::sync::OnceLock<Option<Mallinfo2Fn>> = std::sync::OnceLock::new();
         let resolved = MALLINFO2.get_or_init(|| unsafe {
             // RTLD_DEFAULT is NULL on glibc; the libc crate doesn't define
@@ -1384,7 +1523,8 @@ pub fn start_peak_sampler() {
     #[cfg(target_os = "macos")]
     {
         use std::sync::atomic::Ordering;
-        // Idempotent — only spawns once.
+        // Idempotent — only spawns once. One sampler thread per process: it watches the process's
+        // footprint, and `PEAK_PHYS_FOOTPRINT` below is what it publishes.
         static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
         if STARTED.swap(true, Ordering::AcqRel) {
             return;
@@ -1403,6 +1543,7 @@ pub fn start_peak_sampler() {
     }
 }
 
+// The high-water mark of the PROCESS's own footprint, written by the one sampler thread.
 #[cfg(feature = "probe")]
 static PEAK_PHYS_FOOTPRINT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
@@ -1472,10 +1613,11 @@ pub fn emit_phase_heap(label: &str) {
     let Some(p) = azul_core::profile::out_path() else {
         return;
     };
+    // The call numbers of ONE process-wide file (`AZ_PROFILE_OUT`), so they count in the process.
     static CALL_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     // Auto-increment on every "start" label; "end" and intermediates reuse
     // the current id so all phases in one regenerate_layout invocation share
-    // a call number.
+    // a call number. (KEEP, like `CALL_ID`: the numbering of that one file.)
     static CURRENT_CALL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let call_id = if label == "start" {
         let next = CALL_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -1577,17 +1719,20 @@ mod autotest_generated {
 
     /// Clear this thread's event buffer so a test's assertions hold even when
     /// the suite runs with `--test-threads=1` (all tests on one thread share
-    /// the same thread-local `EVENTS`). Also force recording ON: these tests
+    /// the thread's profiler state). Also make THIS THREAD record: these tests
     /// assert on drained events, and without `AZ_PROFILE` in the environment
-    /// the lazy gate would otherwise leave every span inert.
-    fn reset() {
-        Probe::set_recording(true);
+    /// the lazy gate would otherwise leave every span inert. The choice is the
+    /// returned guard's, not the process's: tests running side by side do not
+    /// switch each other's recording.
+    fn reset() -> ThreadRecording {
+        let recording = Probe::record_on_this_thread(true);
         Probe::drop_events();
         assert_eq!(
             Probe::peek_len(),
             0,
             "drop_events must leave an empty buffer"
         );
+        recording
     }
 
     fn span_ns(ev: &Event) -> Option<u64> {
@@ -1670,7 +1815,7 @@ mod autotest_generated {
 
     #[test]
     fn span_round_trips_name_through_drain() {
-        reset();
+        let _recording = reset();
         {
             let _g = Probe::span("autotest_span_round_trip");
         }
@@ -1690,7 +1835,7 @@ mod autotest_generated {
 
     #[test]
     fn nested_spans_drop_inner_first_and_outer_duration_is_the_larger() {
-        reset();
+        let _recording = reset();
         {
             let _outer = Probe::span("outer");
             {
@@ -1717,7 +1862,7 @@ mod autotest_generated {
 
     #[test]
     fn forgotten_span_guard_records_nothing() {
-        reset();
+        let _recording = reset();
         core::mem::forget(Probe::span("forgotten"));
         let events = Probe::drain();
         assert!(
@@ -1728,7 +1873,7 @@ mod autotest_generated {
 
     #[test]
     fn many_spans_do_not_lose_or_reorder_events() {
-        reset();
+        let _recording = reset();
         const N: usize = 10_000;
         let names: Vec<&'static str> = (0..N).map(|i| leak(format!("phase_{i}"))).collect();
         for &name in &names {
@@ -1753,7 +1898,7 @@ mod autotest_generated {
 
     #[test]
     fn span_survives_hostile_unicode_and_huge_names() {
-        reset();
+        let _recording = reset();
         let hostile: Vec<&'static str> = vec![
             "",
             "\0embedded\0nul\0",
@@ -1783,7 +1928,7 @@ mod autotest_generated {
 
     #[test]
     fn drain_is_empty_the_second_time() {
-        reset();
+        let _recording = reset();
         drop(Probe::span("once"));
         let first = Probe::drain();
         let second = Probe::drain();
@@ -1799,7 +1944,7 @@ mod autotest_generated {
 
     #[test]
     fn sample_rss_round_trips_every_numeric_boundary() {
-        reset();
+        let _recording = reset();
         let boundaries: [u64; 8] = [
             0,
             1,
@@ -1830,7 +1975,7 @@ mod autotest_generated {
 
     #[test]
     fn sample_rss_zero_is_recorded_not_skipped() {
-        reset();
+        let _recording = reset();
         Probe::sample_rss("zero", 0);
         let events = Probe::drain();
         if Probe::enabled() {
@@ -1848,7 +1993,7 @@ mod autotest_generated {
 
     #[test]
     fn peek_len_tracks_pushes_and_drop_events_clears() {
-        reset();
+        let _recording = reset();
         assert_eq!(Probe::peek_len(), 0);
         for i in 0..64u64 {
             Probe::sample_rss("tick", i);
@@ -1868,7 +2013,7 @@ mod autotest_generated {
 
     #[test]
     fn drop_events_on_an_empty_buffer_is_a_no_op() {
-        reset();
+        let _recording = reset();
         for _ in 0..100 {
             Probe::drop_events();
             assert_eq!(Probe::peek_len(), 0);
@@ -1877,7 +2022,7 @@ mod autotest_generated {
 
     #[test]
     fn peek_len_is_side_effect_free() {
-        reset();
+        let _recording = reset();
         Probe::sample_rss("keep", 7);
         let expected = if Probe::enabled() { 1 } else { 0 };
         for _ in 0..100 {
@@ -1893,7 +2038,7 @@ mod autotest_generated {
 
     #[test]
     fn event_buffer_is_per_thread() {
-        reset();
+        let _recording = reset();
         Probe::sample_rss("main_thread", 1);
 
         let child_len = std::thread::spawn(|| {
@@ -1904,6 +2049,9 @@ mod autotest_generated {
                 0,
                 "buffers must not be shared across threads"
             );
+            // Recording is each thread's own choice here: the parent's does not
+            // reach it.
+            let _recording = Probe::record_on_this_thread(true);
             Probe::sample_rss("child_thread", 2);
             let drained = Probe::drain();
             for ev in &drained {
@@ -1938,7 +2086,7 @@ mod autotest_generated {
 
     #[test]
     fn imp_facade_parity() {
-        reset();
+        let _recording = reset();
         {
             let _g = imp::open("imp_open");
         }
@@ -2096,7 +2244,7 @@ mod autotest_generated {
 
     #[test]
     fn print_drained_events_accepts_a_real_drain() {
-        reset();
+        let _recording = reset();
         {
             let _a = Probe::span("layout");
             let _b = Probe::span("layout");
@@ -2141,7 +2289,7 @@ mod autotest_generated {
 
     #[test]
     fn sample_peak_rss_emits_exactly_one_labelled_event() {
-        reset();
+        let _recording = reset();
         sample_peak_rss("autotest_peak_rss");
         let events = Probe::drain();
         if Probe::enabled() {
@@ -2173,7 +2321,7 @@ mod autotest_generated {
 
     #[test]
     fn sample_phase_peak_emits_exactly_one_labelled_event() {
-        reset();
+        let _recording = reset();
         sample_phase_peak("autotest_phase_peak");
         let events = Probe::drain();
         if Probe::enabled() {
@@ -2187,7 +2335,7 @@ mod autotest_generated {
 
     #[test]
     fn reset_peak_is_repeatable_and_side_effect_free_on_the_event_buffer() {
-        reset();
+        let _recording = reset();
         for _ in 0..100 {
             reset_peak();
         }
@@ -2200,7 +2348,7 @@ mod autotest_generated {
 
     #[test]
     fn hint_purge_allocator_is_repeatable_and_emits_nothing() {
-        reset();
+        let _recording = reset();
         for _ in 0..50 {
             hint_purge_allocator();
         }
@@ -2233,58 +2381,52 @@ mod autotest_generated {
             return;
         }
 
-        // A probe that returns a plausible constant is worse than one that
-        // returns nothing, because it reads as evidence. Prove it MOVES, and
-        // moves in the right direction by roughly the right amount.
-        //
-        // 8 MiB: far above allocator bookkeeping noise, and above glibc's
-        // MMAP_THRESHOLD only if that has been tuned up — so ask for it as
-        // many smaller blocks that are certain to come from the heap proper
-        // rather than a fresh mmap that `uordblks` would not count.
-        const BLOCK: usize = 64 * 1024;
-        const BLOCKS: usize = 128;
-        const TOTAL: u64 = (BLOCK * BLOCKS) as u64;
+        // The counter is PROCESS-GLOBAL and this binary's several thousand other
+        // tests allocate and free megabytes on other threads throughout, so a
+        // before / during / after triple taken here is signal plus whatever they
+        // did in the same microseconds: it failed both ways within one afternoon
+        // (once with `during` BELOW `before`, once with `after` above
+        // `during - TOTAL/2`), and retrying until a quiet window came along only
+        // made the failure rarer. The measurement runs in a process of its own
+        // (`allocator_stats_tests::quiet_process`), where nothing else allocates.
+        super::allocator_stats_tests::quiet_process::run(
+            module_path!(),
+            "malloc_heap_bytes_actually_tracks_live_heap",
+            || {
+                // A probe that returns a plausible constant is worse than one that
+                // returns nothing, because it reads as evidence. Prove it MOVES, and
+                // moves in the right direction by roughly the right amount.
+                //
+                // 8 MiB: far above allocator bookkeeping noise, and above glibc's
+                // MMAP_THRESHOLD only if that has been tuned up — so ask for it as
+                // many smaller blocks that are certain to come from the heap proper
+                // rather than a fresh mmap that `uordblks` would not count.
+                const BLOCK: usize = 64 * 1024;
+                const BLOCKS: usize = 128;
+                const TOTAL: u64 = (BLOCK * BLOCKS) as u64;
 
-        // BEST OF SEVERAL, not one reading. The counter is PROCESS-GLOBAL and
-        // this runs inside a test binary whose several thousand other tests
-        // allocate and free megabytes on other threads throughout — so a
-        // single before/during/after triple is signal plus whatever they did
-        // in the same microseconds, and which dominates is luck. It failed
-        // both ways within one afternoon: once with `during` BELOW `before`
-        // (another thread freed more than this allocated), once with `after`
-        // above `during - TOTAL/2`.
-        //
-        // Retrying does not weaken the assertion. A quiet window arrives
-        // quickly, and a probe that genuinely does not track the heap - the
-        // thing this test exists to catch - fails EVERY attempt.
-        const ATTEMPTS: usize = 32;
-        let mut last = (0_u64, 0_u64, 0_u64);
-        for _ in 0..ATTEMPTS {
-            let before = malloc_heap_bytes();
-            assert!(before > 0, "a live process holds a non-zero heap");
+                let before = malloc_heap_bytes();
+                assert!(before > 0, "a live process holds a non-zero heap");
 
-            let mut ballast: Vec<Vec<u8>> = Vec::with_capacity(BLOCKS);
-            for _ in 0..BLOCKS {
-                // Touch it: a Vec that is never written may not be committed.
-                ballast.push(vec![0xAB_u8; BLOCK]);
-            }
-            let during = malloc_heap_bytes();
+                let mut ballast: Vec<Vec<u8>> = Vec::with_capacity(BLOCKS);
+                for _ in 0..BLOCKS {
+                    // Touch it: a Vec that is never written may not be committed.
+                    ballast.push(vec![0xAB_u8; BLOCK]);
+                }
+                let during = malloc_heap_bytes();
 
-            drop(ballast);
-            let after = malloc_heap_bytes();
+                drop(ballast);
+                let after = malloc_heap_bytes();
 
-            let grew = during >= before + TOTAL / 2;
-            let shrank = after < during - TOTAL / 2;
-            if grew && shrank {
-                return;
-            }
-            last = (before, during, after);
-        }
-
-        let (before, during, after) = last;
-        panic!(
-            "in {ATTEMPTS} attempts the probe never tracked a {TOTAL} B allocate-and-free (last: \
-             before={before}, during={during}, after={after}) — it is not measuring the heap"
+                assert!(
+                    during >= before + TOTAL / 2,
+                    "the probe did not see a {TOTAL} B allocation: before={before}, during={during}"
+                );
+                assert!(
+                    after < during - TOTAL / 2,
+                    "the probe did not see a {TOTAL} B free: during={during}, after={after}"
+                );
+            },
         );
     }
 
@@ -2310,7 +2452,7 @@ mod autotest_generated {
 
     #[test]
     fn emit_phase_heap_survives_hostile_labels() {
-        reset();
+        let _recording = reset();
         let huge = "L".repeat(65_536);
         let labels: Vec<&str> = vec![
             "",
@@ -2336,7 +2478,7 @@ mod autotest_generated {
 
     #[test]
     fn emit_phase_heap_extra_survives_numeric_boundaries() {
-        reset();
+        let _recording = reset();
         for extra in [0u64, 1, u64::MAX / 2, u64::MAX - 1, u64::MAX] {
             emit_phase_heap_extra("autotest_extra", extra);
             emit_phase_heap_extra("", extra);
@@ -2709,6 +2851,19 @@ impl AllocatorStats {
             100.0 * self.free_in_arena_bytes as f64 / self.arena_bytes as f64
         }
     }
+
+    /// What a `mallinfo2` answer says, field for field: the one place the mirror of glibc's
+    /// struct is read, so a test can hand it a struct of its own and know exactly what comes out.
+    #[allow(clippy::cast_possible_truncation)] // usize -> u64 never truncates on a target glibc runs on
+    const fn from_mallinfo2(mi: &MallInfo2) -> Self {
+        Self {
+            live_bytes: mi.uordblks as u64,
+            free_in_arena_bytes: mi.fordblks as u64,
+            mmapped_bytes: mi.hblkhd as u64,
+            arena_bytes: mi.arena as u64,
+            releasable_bytes: mi.keepcost as u64,
+        }
+    }
 }
 
 /// Query the allocator, or `None` if it cannot be asked.
@@ -2789,13 +2944,7 @@ pub fn allocator_stats() -> Option<AllocatorStats> {
         type MallInfo2Fn = unsafe extern "C" fn() -> MallInfo2;
         let f: MallInfo2Fn = unsafe { core::mem::transmute(sym) };
         let mi = unsafe { f() };
-        Some(AllocatorStats {
-            live_bytes: mi.uordblks as u64,
-            free_in_arena_bytes: mi.fordblks as u64,
-            mmapped_bytes: mi.hblkhd as u64,
-            arena_bytes: mi.arena as u64,
-            releasable_bytes: mi.keepcost as u64,
-        })
+        Some(AllocatorStats::from_mallinfo2(&mi))
     }
 }
 
@@ -2803,10 +2952,123 @@ pub fn allocator_stats() -> Option<AllocatorStats> {
 mod allocator_stats_tests {
     use super::*;
 
+    /// Runs a measurement in a PROCESS of its own.
+    ///
+    /// `mallinfo2` and `mstats` count what the whole process allocates, and the test harness runs the
+    /// binary's other tests on other threads: a before / after pair taken inside it measures the test
+    /// plus whatever the others did in the same microseconds, which is why such a pair could only be
+    /// asserted loosely and still failed at random. In a process where nothing else runs the pair is
+    /// exact, so the test re-executes its own binary for exactly one test, on one thread, and asserts
+    /// there (as the negative control of `text3_shaping_cache_identity` does).
+    pub(in crate::probe) mod quiet_process {
+        /// Set in the environment of the re-executed binary: that process is the measurement.
+        const CHILD: &str = "AZ_PROBE_QUIET_PROCESS";
+        /// What the child prints once its measurement ran: a child that ran NO test (a name that
+        /// matches nothing exits 0 as well) must not pass for one that measured.
+        const MEASURED: &str = "AZ_PROBE_QUIET_PROCESS_MEASURED";
+
+        /// Runs `measure` in a process of its own: `module` is the `module_path!()` of the test and
+        /// `test` its function name.
+        pub(in crate::probe) fn run(module: &str, test: &str, measure: impl FnOnce()) {
+            if std::env::var_os(CHILD).is_some() {
+                measure();
+                println!("{MEASURED}");
+                return;
+            }
+            // libtest names a test by its path inside the crate.
+            let inside = module.split_once("::").map_or(module, |(_, inside)| inside);
+            let name = format!("{inside}::{test}");
+            let exe = std::env::current_exe().expect("the path of this test binary");
+            let out = std::process::Command::new(exe)
+                .env(CHILD, "1")
+                .args(["--exact", name.as_str(), "--test-threads=1", "--nocapture"])
+                .output()
+                .expect("re-executing the test binary");
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert!(
+                out.status.success(),
+                "the measurement of {name} failed in its own process:\n{stdout}\n{stderr}"
+            );
+            assert!(
+                stdout.contains(MEASURED),
+                "the child process ran no test named {name}:\n{stdout}\n{stderr}"
+            );
+        }
+    }
+
+    /// glibc's `struct mallinfo2` is ten `size_t`s in this order (`malloc.h`, `man mallinfo2`):
+    /// arena, ordblks, smblks, hblks, hblkhd, usmblks, fsmblks, uordblks, fordblks, keepcost. The
+    /// mirror must put every field where glibc does, or `allocator_stats` reads another field's
+    /// number: pinned by position, which is exact, and not by an allocation, which other threads
+    /// move.
+    #[test]
+    fn the_mallinfo2_mirror_has_glibcs_layout() {
+        use core::mem::{offset_of, size_of};
+        let word = size_of::<usize>();
+        assert_eq!(size_of::<MallInfo2>(), 10 * word);
+        assert_eq!(offset_of!(MallInfo2, arena), 0);
+        assert_eq!(offset_of!(MallInfo2, ordblks), word);
+        assert_eq!(offset_of!(MallInfo2, smblks), 2 * word);
+        assert_eq!(offset_of!(MallInfo2, hblks), 3 * word);
+        assert_eq!(offset_of!(MallInfo2, hblkhd), 4 * word);
+        assert_eq!(offset_of!(MallInfo2, usmblks), 5 * word);
+        assert_eq!(offset_of!(MallInfo2, fsmblks), 6 * word);
+        assert_eq!(offset_of!(MallInfo2, uordblks), 7 * word);
+        assert_eq!(offset_of!(MallInfo2, fordblks), 8 * word);
+        assert_eq!(offset_of!(MallInfo2, keepcost), 9 * word);
+    }
+
+    /// Every statistic is the field of `mallinfo2` it is named for: ten different numbers, one per
+    /// field, so a statistic read from another field comes out as another number.
+    #[test]
+    fn each_statistic_comes_from_its_own_field_of_mallinfo2() {
+        let mi = MallInfo2 {
+            arena: 1,
+            ordblks: 2,
+            smblks: 3,
+            hblks: 4,
+            hblkhd: 5,
+            usmblks: 6,
+            fsmblks: 7,
+            uordblks: 8,
+            fordblks: 9,
+            keepcost: 10,
+        };
+        assert_eq!(
+            AllocatorStats::from_mallinfo2(&mi),
+            AllocatorStats {
+                live_bytes: 8,
+                free_in_arena_bytes: 9,
+                mmapped_bytes: 5,
+                arena_bytes: 1,
+                releasable_bytes: 10,
+            }
+        );
+    }
+
+    /// Fragmentation is the freed share of the arena, and an empty arena has none.
+    #[test]
+    fn fragmentation_is_the_freed_share_of_the_arena() {
+        let stats = |free_in_arena_bytes, arena_bytes| AllocatorStats {
+            free_in_arena_bytes,
+            arena_bytes,
+            ..AllocatorStats::default()
+        };
+        assert!((stats(25, 100).fragmentation_pct() - 25.0).abs() < f64::EPSILON);
+        assert!((stats(100, 100).fragmentation_pct() - 100.0).abs() < f64::EPSILON);
+        assert!(stats(0, 0).fragmentation_pct().abs() < f64::EPSILON);
+    }
+
     /// On a glibc host the allocator must answer, and its numbers must be
     /// self-consistent. A test process has always allocated something, so a
     /// zero `live_bytes` means the struct layout is wrong — which is the
     /// failure mode a hand-written `#[repr(C)]` mirror invites.
+    ///
+    /// The relations asserted are identities of ONE `mallinfo2` call, whatever the other threads
+    /// of the process do meanwhile: glibc adds, arena by arena and each under its lock,
+    /// `system_mem - avail` to `uordblks`, `avail` to `fordblks` and `system_mem` to `arena`, and
+    /// `keepcost` is the top chunk of the main arena, which `avail` holds.
     #[test]
     #[cfg(all(unix, not(target_os = "macos")))]
     fn allocator_stats_are_self_consistent_or_absent() {
@@ -2819,11 +3081,19 @@ mod allocator_stats_tests {
             "a running test process has live allocations; 0 means the mallinfo2 struct layout is \
              wrong"
         );
-        assert!(
-            a.arena_bytes >= a.free_in_arena_bytes,
-            "free-in-arena ({}) cannot exceed the arena ({})",
+        assert_eq!(
+            a.live_bytes + a.free_in_arena_bytes,
+            a.arena_bytes,
+            "live ({}) + freed-but-held ({}) is the arena ({}) in every mallinfo2 answer",
+            a.live_bytes,
             a.free_in_arena_bytes,
             a.arena_bytes
+        );
+        assert!(
+            a.releasable_bytes <= a.free_in_arena_bytes,
+            "the trailing space malloc_trim could return ({}) is part of the freed-but-held ({})",
+            a.releasable_bytes,
+            a.free_in_arena_bytes
         );
         let pct = a.fragmentation_pct();
         assert!(
@@ -2841,79 +3111,76 @@ mod allocator_stats_tests {
     /// `uordblks`/`live_bytes` at all. That split is the whole reason a
     /// full-window pixmap shows up in `[anon]` rather than `[heap]`, and it
     /// is worth pinning rather than discovering again.
+    ///
+    /// The counters are the whole PROCESS's, so the measurement runs in a process of its own
+    /// ([`quiet_process`]): there nothing else allocates between the two samples and the deltas
+    /// are exact, where in the harness's process the other tests' threads moved them by as much
+    /// as the test allocated.
     #[test]
     #[cfg(all(unix, not(target_os = "macos")))]
     fn arena_and_mmap_allocations_move_the_right_counters() {
-        // ARENA allocations are tracked, and that is what this feature needs:
-        // the live-vs-freed-but-held split for churn. Verified, pinned.
-        //
-        // BEST OF SEVERAL. 32 MiB of 16 KiB blocks was chosen so the delta
-        // would dominate whatever else the suite is doing concurrently, and
-        // that turned out not to be enough: `mallinfo2` is PROCESS-GLOBAL, the
-        // harness runs thousands of tests on other threads, and one run saw
-        // only 4 MiB of the 32 because those threads freed ~28 MiB inside the
-        // same window. A quiet window arrives quickly; a counter that does not
-        // track arena allocations at all fails every attempt, which is the
-        // property this pins.
-        const ATTEMPTS: usize = 32;
-        let mut last = (0_u64, 0_u64);
-        let mut arena_ok = false;
-        for _ in 0..ATTEMPTS {
-            let Some(before_small) = allocator_stats() else {
-                return;
-            };
-            let small: Vec<Vec<u8>> = (0..2048).map(|_| vec![7u8; 16 * 1024]).collect();
-            let small = core::hint::black_box(small);
-            let Some(after_small) = allocator_stats() else {
-                return;
-            };
-            let grew = after_small
-                .live_bytes
-                .saturating_sub(before_small.live_bytes);
-            drop(small);
-            if grew > 16 * 1024 * 1024 {
-                arena_ok = true;
-                break;
-            }
-            last = (before_small.live_bytes, after_small.live_bytes);
-        }
-        assert!(
-            arena_ok,
-            "in {ATTEMPTS} attempts, 32 MiB of arena allocations never raised live_bytes by well \
-             over 16 MiB (last: {} -> {})",
-            last.0, last.1
-        );
+        quiet_process::run(
+            module_path!(),
+            "arena_and_mmap_allocations_move_the_right_counters",
+            || {
+                // ARENA allocations are tracked, and that is what this feature needs:
+                // the live-vs-freed-but-held split for churn.
+                let Some(before_small) = allocator_stats() else {
+                    return;
+                };
+                let small: Vec<Vec<u8>> = (0..2048).map(|_| vec![7u8; 16 * 1024]).collect();
+                let small = core::hint::black_box(small);
+                let Some(after_small) = allocator_stats() else {
+                    return;
+                };
+                let grew = after_small
+                    .live_bytes
+                    .saturating_sub(before_small.live_bytes);
+                assert!(
+                    grew >= 32 * 1024 * 1024,
+                    "32 MiB of arena allocations raised live_bytes by {grew} bytes ({} -> {})",
+                    before_small.live_bytes,
+                    after_small.live_bytes
+                );
+                assert!(
+                    after_small.mmapped_bytes < before_small.mmapped_bytes + 1024 * 1024,
+                    "16 KiB blocks are arena blocks, not mmapped ones ({} -> {})",
+                    before_small.mmapped_bytes,
+                    after_small.mmapped_bytes
+                );
+                drop(small);
 
-        // A LARGE allocation goes to mmap instead, moving `mmapped_bytes`
-        // while leaving the arena counters alone.
-        //
-        // `black_box` is load-bearing. Without it LLVM deletes an allocation
-        // whose result is never read, no counter moves, and the test "proves"
-        // the field is broken — which is exactly the wrong conclusion an
-        // earlier version of this test reached.
-        let Some(before_big) = allocator_stats() else {
-            return;
-        };
-        let mut big: Vec<u8> = vec![7u8; 64 * 1024 * 1024];
-        big[12345] = 9;
-        let big = core::hint::black_box(big);
-        let Some(after_big) = allocator_stats() else {
-            return;
-        };
-        assert!(
-            after_big.mmapped_bytes > before_big.mmapped_bytes,
-            "a 64 MiB allocation must raise mmapped_bytes ({} -> {})",
-            before_big.mmapped_bytes,
-            after_big.mmapped_bytes
+                // A LARGE allocation goes to mmap instead, moving `mmapped_bytes`
+                // while leaving the arena counters alone.
+                //
+                // `black_box` is load-bearing. Without it LLVM deletes an allocation
+                // whose result is never read, no counter moves, and the test "proves"
+                // the field is broken — which is exactly the wrong conclusion an
+                // earlier version of this test reached.
+                let Some(before_big) = allocator_stats() else {
+                    return;
+                };
+                let mut big: Vec<u8> = vec![7u8; 64 * 1024 * 1024];
+                big[12345] = 9;
+                let big = core::hint::black_box(big);
+                let Some(after_big) = allocator_stats() else {
+                    return;
+                };
+                assert!(
+                    after_big.mmapped_bytes >= before_big.mmapped_bytes + 64 * 1024 * 1024,
+                    "a 64 MiB allocation must raise mmapped_bytes by 64 MiB ({} -> {})",
+                    before_big.mmapped_bytes,
+                    after_big.mmapped_bytes
+                );
+                assert!(
+                    after_big.live_bytes.abs_diff(before_big.live_bytes) < 1024 * 1024,
+                    "an mmapped block is not an arena block: live_bytes stays ({} -> {})",
+                    before_big.live_bytes,
+                    after_big.live_bytes
+                );
+                drop(big);
+            },
         );
-        // NOT asserted: that `live_bytes` is UNCHANGED across the mmap.
-        // It should be — an mmapped block is not an arena block — but
-        // `mallinfo2` is PROCESS-GLOBAL and the test harness runs tests in
-        // parallel, so other threads' allocations move it between the two
-        // samples. That assertion passed alone and failed in the full suite.
-        // Only deltas large enough to dominate concurrent noise (64 MiB) are
-        // safe to assert here.
-        drop(big);
     }
 
     #[test]

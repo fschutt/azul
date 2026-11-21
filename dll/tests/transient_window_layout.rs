@@ -1509,7 +1509,7 @@ extern "C" fn eyedropper_layout(data: RefAny, _info: LayoutCallbackInfo) -> Dom 
 #[test]
 fn the_eyedropper_answer_is_routed_to_the_picker_that_asked() {
     use azul_css::props::basic::color::ColorU;
-    use azul_layout::managers::eyedropper::{in_flight_anywhere, push_result, EyedropperResult};
+    use azul_layout::managers::eyedropper::EyedropperResult;
 
     let reported = Arc::new(std::sync::Mutex::new(Vec::new()));
     let app_data = Arc::new(RefCell::new(RefAny::new(EyedropperApp {
@@ -1546,7 +1546,9 @@ fn the_eyedropper_answer_is_routed_to_the_picker_that_asked() {
     // Headless reads no screen: the request was issued on the popup's
     // manager and answered "cancelled" in the same pass.
     let lw = popup.get_layout_window().unwrap();
-    assert!(!lw.eyedropper_manager.has_pending_async() || in_flight_anywhere());
+    // The app's eyedropper channel: the popup's requests, and where the answers are parked.
+    let channel = lw.app_services.eyedropper.clone();
+    assert!(!lw.eyedropper_manager.has_pending_async() || channel.in_flight_anywhere());
     let _ = popup.process_window_events(0);
     assert!(
         reported.lock().unwrap().is_empty(),
@@ -1567,12 +1569,12 @@ fn the_eyedropper_answer_is_routed_to_the_picker_that_asked() {
         .get_layout_window_mut()
         .unwrap()
         .eyedropper_manager
-        .begin_request();
+        .begin_request(&channel);
     assert!(
-        in_flight_anywhere(),
+        channel.in_flight_anywhere(),
         "a pick in flight keeps popups from light-dismissing"
     );
-    push_result(EyedropperResult {
+    channel.push_result(EyedropperResult {
         request_id: id,
         color: Some(ColorU {
             r: 10,
@@ -1583,7 +1585,7 @@ fn the_eyedropper_answer_is_routed_to_the_picker_that_asked() {
     });
     popup.snapshot_window_state_baseline("t.pump");
     let _ = popup.process_window_events(0);
-    assert!(!in_flight_anywhere());
+    assert!(!channel.in_flight_anywhere());
     let got = reported.lock().unwrap().clone();
     assert_eq!(
         got.last().copied(),

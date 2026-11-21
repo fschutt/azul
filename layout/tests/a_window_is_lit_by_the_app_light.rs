@@ -244,7 +244,7 @@ fn the_sheen_is_a_layer_over_the_material_that_follows_the_cursor() {
     );
     assert_eq!(sheen_values(&lw, opacity, transform).0, Some(0.0), "at rest the sheen is off");
 
-    let renders = azul_layout::texture::materials::renders_on_this_thread();
+    let renders = lw.material_renderer.renders();
     let list = lw
         .get_layout_result(&DomId::ROOT_ID)
         .expect("laid out")
@@ -265,7 +265,7 @@ fn the_sheen_is_a_layer_over_the_material_that_follows_the_cursor() {
         );
     }
     assert_eq!(
-        azul_layout::texture::materials::renders_on_this_thread() - renders,
+        lw.material_renderer.renders() - renders,
         0,
         "the cursor drew the material again"
     );

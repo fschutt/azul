@@ -5085,7 +5085,12 @@ define_class!(
                     // The user may have changed the wallpaper while away: the
                     // metals read it again (one `stat` when it is the same)
                     // and the window redraws when it changed.
-                    if crate::desktop::wallpaper::refresh() {
+                    if macos_window
+                        .common
+                        .layout_window
+                        .as_ref()
+                        .is_some_and(crate::desktop::wallpaper::refresh)
+                    {
                         macos_window.request_redraw();
                     }
                     macos_window.dynamic_selector_context.window_focused = true;
@@ -6175,8 +6180,12 @@ unsafe extern "C" {
 }
 
 impl PlatformWindow for MacOSWindow {
-    fn start_native_eyedropper(&mut self, request_id: u64) -> bool {
-        crate::desktop::eyedropper::macos::start(request_id)
+    fn start_native_eyedropper(
+        &mut self,
+        request_id: u64,
+        channel: &azul_layout::managers::eyedropper::EyedropperChannel,
+    ) -> bool {
+        crate::desktop::eyedropper::macos::start(request_id, channel)
     }
 
     fn webview_backend(
@@ -7078,6 +7087,7 @@ impl MacOSWindow {
         options: WindowCreateOptions,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache: Arc<FcFontCache>,
@@ -7094,6 +7104,7 @@ impl MacOSWindow {
             options,
             app_data,
             undo_manager,
+            app_shared,
             config,
             shared_icon_provider,
             Some(fc_cache),
@@ -7109,6 +7120,7 @@ impl MacOSWindow {
         options: WindowCreateOptions,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         mtm: MainThreadMarker,
@@ -7117,6 +7129,7 @@ impl MacOSWindow {
             options,
             app_data,
             undo_manager,
+            app_shared,
             config,
             shared_icon_provider,
             None,
@@ -7132,6 +7145,7 @@ impl MacOSWindow {
         mut options: WindowCreateOptions,
         app_data: RefAny,
         undo_manager: event::SharedUndoManager,
+        app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
         config: azul_core::resources::AppConfig,
         shared_icon_provider: azul_core::icon::SharedIconProvider,
         fc_cache_opt: Option<Arc<FcFontCache>>,
@@ -7151,6 +7165,7 @@ impl MacOSWindow {
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &config.system_style,
+            app_shared.mode(),
         );
         // For materials, leave background_color as None - renderer handles transparency
 
@@ -7826,7 +7841,12 @@ impl MacOSWindow {
         // top-level window builds its own manager over the shared fc_cache.
         let fc_cache = fc_cache_opt.unwrap_or_else(|| Arc::new(FcFontCache::build()));
         let mut layout_window = match parent_lw {
-            Some(parent) => LayoutWindow::from_font_manager(parent.font_manager.clone_shared()),
+            Some(parent) => {
+                let child = LayoutWindow::from_font_manager(parent.font_manager.clone_shared());
+                // Its metals read the desktop's wallpaper like any window's.
+                crate::desktop::wallpaper::install(&child);
+                child
+            }
             // Shares the app-level manager's font pools instead of starting a
             // private universe; falls back to a fresh one when there is none.
             None => crate::desktop::shell2::common::layout::layout_window_sharing_fonts(
@@ -7848,9 +7868,7 @@ impl MacOSWindow {
         layout_window.current_window_state = current_window_state.clone();
         layout_window.renderer_type = Some(renderer_type);
         layout_window.routes = config.routes.clone();
-        layout_window.set_app_localization(&config);
-        layout_window.set_app_e2e(&config);
-        layout_window.set_app_node_identity(&config);
+        app_shared.seed_window(&mut layout_window, &config);
         // `<webview>`s are WKWebViews (`webview::MacWebViews`).
         layout_window
             .webviews
@@ -7957,8 +7975,9 @@ impl MacOSWindow {
             system_style,
             app_data_arc,
             undo_manager,
+            app_shared,
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.owner_window_id = owner_window_id;
         common.renderer_resources = renderer_resources;
         common.render_api = wr_render_api;
@@ -9754,53 +9773,45 @@ impl MacOSWindow {
         }
         if !keep_caches() {
             // A5-18: the GPU backend's kept text halos (up to 96 MB of pictures) are
-            // this thread's, and every GPU window on it paints from them. What no
-            // window's display lists paint goes: the pictures of labels that left
+            // this window's own (`LayoutWindow::text_halo_store`), and its lists paint
+            // from them. What no list paints goes: the pictures of labels that left
             // the view and of the sizes before the last zoom. What a list paints
-            // stays while its window can be seen: the renderer holds the same
+            // stays while the window can be seen: the renderer holds the same
             // bytes for as long as a list names their keys, and a list translated
             // without a scan finds its pictures there
-            // (`cpurender::release_text_halos`). So first every window's lists mark
-            // what they paint (a window that made no scan lately would lose its
-            // pictures to the windows that did).
+            // (`TextHaloStore::release_text_halos`). So first the window's lists
+            // mark what they paint.
             //
             // A5-20: a window NOBODY sees (the Dock, a hidden app) gives back the
             // pictures its own lists paint as well. First the renderer's keys
-            // (which is what frees them), then the thread forgets this window's
-            // use, so that only what the other windows mark below is kept.
+            // (which is what frees them), then the store forgets this window's
+            // use, so that nothing is marked and everything it keeps goes. No
+            // other window is involved: the pictures of every window are its own.
             let full = reason == MemoryRelease::NotShown && halo_release_is_full();
             if full {
                 self.release_halo_images_of_a_hidden_window();
-                azul_layout::cpurender::text_halos_forget_use();
-            }
-            let me: *const Self = &*self;
-            let painted_by = |window: &Self| {
-                // A GPU window whose pictures were not given back paints from them.
-                let Some(layout_window) = window.common.layout_window.as_ref().filter(|lw| {
-                    window.common.render_api.is_some()
-                        && lw.gpu_state_manager.halo_release
-                            == azul_layout::managers::gpu_state::HaloRelease::Kept
-                }) else {
-                    return;
-                };
-                let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
-                azul_layout::cpurender::text_halos_in_use(
-                    layout_window.layout_results.values().map(|result| &result.display_list),
-                    dpi,
-                );
-            };
-            for window in registry::get_all_window_ptrs() {
-                if !core::ptr::eq(window.cast_const(), me) {
-                    // SAFETY: a registered window is alive, this is the main thread
-                    // (`release_memory_of_every_window`), and it is not `self`.
-                    painted_by(unsafe { &*window });
+                if let Some(layout_window) = self.common.layout_window.as_ref() {
+                    layout_window.text_halo_store.text_halos_forget_use();
                 }
             }
-            painted_by(&*self);
-            // The halos' glyphs and the shadows kept per list only make the next
-            // halo cheaper: they go when no window of the thread is on screen.
-            let not_shown = reason == MemoryRelease::NotShown && registry::window_count() <= 1;
-            let _ = azul_layout::cpurender::release_text_halos(not_shown);
+            if let Some(layout_window) = self.common.layout_window.as_ref() {
+                // A GPU window whose pictures were not given back paints from them.
+                if self.common.render_api.is_some()
+                    && layout_window.gpu_state_manager.halo_release
+                        == azul_layout::managers::gpu_state::HaloRelease::Kept
+                {
+                    let dpi =
+                        layout_window.current_window_state.size.get_hidpi_factor().inner.get();
+                    layout_window.text_halo_store.text_halos_in_use(
+                        layout_window.layout_results.values().map(|result| &result.display_list),
+                        dpi,
+                    );
+                }
+                // The halos' glyphs and the shadows kept per list only make the next
+                // halo cheaper: they go when nobody sees the window.
+                let not_shown = reason == MemoryRelease::NotShown;
+                let _ = layout_window.text_halo_store.release_text_halos(not_shown);
+            }
         }
         if plan.staging_bitmap {
             if let Some(ref cpu_view) = self.cpu_view {

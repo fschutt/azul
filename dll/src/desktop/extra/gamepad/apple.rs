@@ -26,7 +26,7 @@
 use core::ptr;
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
-use azul_layout::managers::gamepad::push_gamepad_state;
+use azul_layout::managers::gamepad::GamepadStates;
 use objc::{class, msg_send, runtime::Object, sel, sel_impl};
 
 use super::{apply_axial_deadzone, apply_radial_deadzone};
@@ -108,8 +108,8 @@ unsafe fn axis(stick: *mut Object, sel_name: objc::runtime::Sel) -> f32 {
     v
 }
 
-/// Snapshot every connected controller.
-pub fn poll() {
+/// Snapshot every connected controller into the app's `states` queue.
+pub fn poll(states: &GamepadStates) {
     unsafe {
         let cls = class!(GCController);
         let controllers: *mut Object = msg_send![cls, controllers];
@@ -360,7 +360,7 @@ pub fn poll() {
                 }
             }
 
-            push_gamepad_state(GamepadState {
+            states.push(GamepadState {
                 id: GamepadId { id },
                 connected: true,
                 buttons,

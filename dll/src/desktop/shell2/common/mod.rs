@@ -20,6 +20,8 @@ pub mod gl_loader;
 
 // Unified cross-platform modules
 pub mod accessibility;
+/// What the app chose (its mode, its language) and configured, shared by every window of it.
+pub mod app_shared;
 pub mod capability_pump;
 pub mod clipboard;
 pub mod debug_server;
@@ -81,6 +83,8 @@ use azul_css::system::DarkLightMode;
 /// dark app / `AZ_THEME` pin on a light desktop starts dark. (It used to pick
 /// by the DESKTOP's theme and start on the desktop's canvas.)
 ///
+/// `app_mode` is the app's mode as its [`app_shared::AppShared`] holds it.
+///
 /// Only applies to an `Opaque` window - a material (blur/acrylic/mica) is
 /// composited by the platform and must keep `background_color` unset so the
 /// renderer clears to transparent and the material shows through.
@@ -92,6 +96,7 @@ use azul_css::system::DarkLightMode;
 pub fn resolve_initial_background_color(
     options: &mut azul_layout::window_state::WindowCreateOptions,
     system_style: &azul_css::system::SystemStyle,
+    app_mode: azul_core::window::OptionDarkLightMode,
 ) {
     use azul_core::window::WindowBackgroundMaterial;
 
@@ -104,7 +109,7 @@ pub fn resolve_initial_background_color(
     ) {
         return;
     }
-    let mode = event::initial_window_theme(options.mode, system_style.mode);
+    let mode = event::initial_window_theme(app_mode, options.mode, system_style.mode);
     options.window_state.background_color =
         azul_css::props::basic::OptionColorU::Some(mode_background(
             mode,

@@ -9,7 +9,9 @@ use azul_core::{icon::SharedIconProvider, refany::RefAny, resources::AppConfig};
 use azul_css::system::SystemStyle;
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
-use super::super::common::{debug_server::LogCategory, event::SharedUndoManager};
+use super::super::common::{
+    app_shared::AppShared, debug_server::LogCategory, event::SharedUndoManager,
+};
 use crate::log_debug;
 
 /// Shared resources for all windows in a Linux application
@@ -48,6 +50,11 @@ pub struct AppResources {
     /// placeholder created in `new()` is overwritten there.
     pub undo_manager: SharedUndoManager,
 
+    /// What the app chose and configured, shared by every window of it: its mode and language
+    /// (a window opened after a switch starts in them), the natural-scrolling preference the
+    /// compositor reports, the two config flags. The App's own, like `undo_manager`.
+    pub app_shared: Arc<AppShared>,
+
     /// System styling detected at startup (theme, colors, fonts, etc.)
     pub system_style: Arc<SystemStyle>,
 
@@ -64,7 +71,8 @@ impl AppResources {
         fc_cache: Arc<FcFontCache>,
         font_registry: Option<Arc<FcFontRegistry>>,
     ) -> Self {
-        Self::new_with_font_manager(config, fc_cache, font_registry, None)
+        let app_shared = Arc::new(AppShared::new(&config));
+        Self::new_with_font_manager(config, fc_cache, font_registry, None, app_shared)
     }
 
     /// As `new`, but adopting the app-level font manager so every window on this
@@ -76,6 +84,8 @@ impl AppResources {
         font_manager: Option<
             std::sync::Arc<azul_layout::font_traits::FontManager<azul_css::props::basic::FontRef>>,
         >,
+        // The App's own choices, shared by every window on this connection.
+        app_shared: Arc<AppShared>,
     ) -> Self {
         // Create empty app data (user can set this later)
         let app_data = Arc::new(RefCell::new(RefAny::new(())));
@@ -105,6 +115,7 @@ impl AppResources {
             // Placeholder; overwritten by LinuxWindow::new_with_resources with the
             // App's owned manager so all Linux windows share one history.
             undo_manager: SharedUndoManager::new(),
+            app_shared,
             system_style,
             icon_provider,
         }

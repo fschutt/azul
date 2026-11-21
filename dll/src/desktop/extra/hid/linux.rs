@@ -336,7 +336,7 @@ thread_local! {
 ///
 /// Called on start and on demand; hidraw offers no hotplug signal without
 /// libudev, so re-enumeration is how a newly plugged device is noticed.
-pub fn enumerate() {
+pub fn enumerate(channel: &azul_layout::managers::hid::HidChannel) {
     let mut devices = Vec::new();
     let mut open = Vec::new();
     let Ok(entries) = std::fs::read_dir("/dev") else {
@@ -354,7 +354,7 @@ pub fn enumerate() {
         }
     }
     OPEN.with(|slot| *slot.borrow_mut() = open);
-    azul_layout::managers::hid::set_hid_devices(devices);
+    channel.set_devices(devices);
 }
 
 /// Read whatever every open device has queued, without blocking.
@@ -363,7 +363,7 @@ pub fn enumerate() {
 /// given a thread: HID reports are small and infrequent relative to a frame,
 /// and a thread per device would be dozens of threads on a machine with a
 /// keyboard, mouse, headset and controller attached.
-pub fn poll() {
+pub fn poll(channel: &azul_layout::managers::hid::HidChannel) {
     OPEN.with(|slot| {
         let devices = slot.borrow();
         for dev in devices.iter() {
@@ -379,7 +379,7 @@ pub fn poll() {
                     break;
                 }
                 let n = n as usize;
-                azul_layout::managers::hid::push_hid_report(HidReport {
+                channel.push_report(HidReport {
                     device: dev.info.clone(),
                     // hidraw prepends the report id ONLY on devices whose
                     // descriptor uses ids; the kernel does not tell us which,

@@ -1048,6 +1048,9 @@ pub struct MapTileCache {
     /// cache, so a shared pool stays attached through every relayout and is
     /// released when the map leaves the tree and this cache drops.
     pub setup: MapSetup,
+    /// What this map's tile workers have written to the disk cache folder,
+    /// shared by every worker it starts ([`TileFetchInit::disk_usage`]).
+    pub disk_usage: Arc<disk_cache::FolderUsage>,
     /// The tiles the view needs, as the last render or zoom gesture computed
     /// them. `None` until the first one. Queued tiles outside it are forgotten
     /// by the next spawn pass (see [`MapTileCache::drop_unwanted_pending`]).
@@ -1114,7 +1117,7 @@ pub const RETRY_FAILED_SECS: f64 = 15.0;
 
 impl MapTileCache {
     #[must_use]
-    pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
+    pub fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
         let active_look = layer.theme.look(MapColorScheme::Light);
         Self {
             layer,
@@ -1132,6 +1135,7 @@ impl MapTileCache {
             on_pin_tap: OptionMapPinTap::None,
             on_mount: OptionMapMount::None,
             setup: MapSetup::new(),
+            disk_usage: Arc::new(disk_cache::FolderUsage::default()),
             wanted: None,
             drawn: BTreeMap::new(),
             view_marker: AzString::from_const_str(""),
@@ -1715,6 +1719,10 @@ pub struct TileFetchInit {
     pub cache_dir: AzString,
     /// That folder's cap ([`MapSetup::disk_cache_max_bytes`]).
     pub cache_max_bytes: u64,
+    /// The ledger of what the map's workers have written to that folder:
+    /// every job of one map carries the same one ([`MapTileCache::disk_usage`]),
+    /// so the workers book into one count and the folder stays under its cap.
+    pub disk_usage: Arc<disk_cache::FolderUsage>,
     /// The language the labels are in where a feature names itself in it
     /// (BCP 47, `de-DE`): the window's active language when the job was
     /// queued. A tile decoded earlier keeps its labels until it is decoded
@@ -3480,6 +3488,7 @@ fn tile_fetch_init(cache: &MapTileCache, key: TileStyleKey, language: &AzString)
         client: cache.setup.http_client.clone(),
         cache_dir: cache.setup.disk_cache_dir.clone(),
         cache_max_bytes: cache.setup.disk_cache_max_bytes,
+        disk_usage: Arc::clone(&cache.disk_usage),
         language: language.clone(),
     }
 }

@@ -3,7 +3,7 @@
 //! Uses CoreMotion's **pull** API (`startAccelerometerUpdates` +
 //! `accelerometerData`, no handler block): [`start`] creates the manager and
 //! begins sampling; [`poll`] — called once per layout pass — reads the
-//! latest sample of each sensor and parks it through `push_sensor_reading`,
+//! latest sample of each sensor and parks it in the app's `SensorChannel`,
 //! which the pass then folds into `SensorManager`. The pull API avoids the
 //! `NSOperationQueue` + handler-block plumbing the push API needs, and the
 //! per-frame poll cadence matches how the manager is consumed anyway.
@@ -52,7 +52,7 @@
 use std::sync::atomic::{AtomicPtr, Ordering};
 
 use azul_core::sensors::{SensorKind, SensorReading};
-use azul_layout::managers::sensors::push_sensor_reading;
+use azul_layout::managers::sensors::SensorChannel;
 use objc2::rc::Retained;
 use objc2_core_motion::CMMotionManager;
 
@@ -65,8 +65,11 @@ const UPDATE_INTERVAL_S: f64 = 1.0 / 60.0;
 static MANAGER: AtomicPtr<CMMotionManager> = AtomicPtr::new(core::ptr::null_mut());
 
 /// Create the motion manager and begin sampling every available sensor.
-/// Called once per process via the dispatcher's OnceLock.
-pub fn start() {
+/// Called once per process via the dispatcher's OnceLock; `channel` is the app's, which the
+/// handler blocks of the push-only sensors keep a clone of.
+pub fn start(channel: &std::sync::Arc<SensorChannel>) {
+    #[cfg(not(target_os = "ios"))]
+    let _ = channel;
     #[cfg(target_os = "ios")]
     start_proximity();
     unsafe {
@@ -96,7 +99,7 @@ pub fn start() {
     }
 
     #[cfg(target_os = "ios")]
-    start_push_only_sensors();
+    start_push_only_sensors(channel);
 }
 
 /// `CMAltimeter` (pressure) and `CMPedometer` (steps).
@@ -110,7 +113,7 @@ pub fn start() {
 /// error and never again. That degrades to "no readings", which is the same
 /// outcome as absent hardware and needs no separate handling.
 #[cfg(target_os = "ios")]
-fn start_push_only_sensors() {
+fn start_push_only_sensors(channel: &std::sync::Arc<SensorChannel>) {
     use block2::RcBlock;
     use objc2_core_motion::{CMAltimeter, CMPedometer};
     use objc2_foundation::{NSDate, NSOperationQueue};
@@ -119,6 +122,7 @@ fn start_push_only_sensors() {
         if CMAltimeter::isRelativeAltitudeAvailable() {
             let altimeter = CMAltimeter::new();
             let queue = NSOperationQueue::new();
+            let channel = std::sync::Arc::clone(channel);
             let handler = RcBlock::new(
                 move |data: *mut objc2_core_motion::CMAltitudeData,
                       _err: *mut objc2_foundation::NSError| {
@@ -127,7 +131,7 @@ fn start_push_only_sensors() {
                     };
                     // KILOPASCALS, like iio and unlike the WinRT barometer.
                     let kpa = data.pressure().doubleValue() as f32;
-                    push_sensor_reading(SensorReading {
+                    channel.push_reading(SensorReading {
                         kind: SensorKind::Barometer,
                         x: super::units::kpa_to_hpa(kpa),
                         y: 0.0,
@@ -155,13 +159,14 @@ fn start_push_only_sensors() {
             // to take differences against their own baseline rather than to
             // expect an absolute origin.
             let from = NSDate::dateWithTimeIntervalSinceNow(0.0);
+            let channel = std::sync::Arc::clone(channel);
             let handler = RcBlock::new(
                 move |data: *mut objc2_core_motion::CMPedometerData,
                       _err: *mut objc2_foundation::NSError| {
                     let Some(data) = data.as_ref() else {
                         return;
                     };
-                    push_sensor_reading(SensorReading {
+                    channel.push_reading(SensorReading {
                         kind: SensorKind::StepCounter,
                         x: data.numberOfSteps().floatValue(),
                         y: 0.0,
@@ -202,11 +207,10 @@ fn start_proximity() {
 /// Publish `UIDevice.proximityState` when it changes. A boolean, so the
 /// typed `Near` / `Far` answer is the whole truth (8e-i-a-i).
 #[cfg(target_os = "ios")]
-fn poll_proximity() {
+fn poll_proximity(channel: &SensorChannel) {
     use core::sync::atomic::AtomicU8;
 
     use azul_core::sensors::Proximity;
-    use azul_layout::managers::sensors::push_proximity;
     use objc2::runtime::AnyObject;
 
     /// 2 = not yet read; UIKit's answer is published on every change.
@@ -223,7 +227,7 @@ fn poll_proximity() {
         let near: bool = objc2::msg_send![device, proximityState];
         let now = u8::from(near);
         if LAST.swap(now, Ordering::Relaxed) != now {
-            push_proximity(if near {
+            channel.push_proximity(if near {
                 Proximity::Near
             } else {
                 Proximity::Far
@@ -260,11 +264,11 @@ pub fn has_motion_hardware() -> bool {
 
 /// Read the latest sample of each sensor and park it for the layout pass.
 /// No-op until [`start`] has published the manager.
-pub fn poll() {
+pub fn poll(channel: &SensorChannel) {
     // Independent of CoreMotion: a device with no IMU can still have the
     // proximity sensor.
     #[cfg(target_os = "ios")]
-    poll_proximity();
+    poll_proximity(channel);
     let ptr = MANAGER.load(Ordering::Acquire);
     if ptr.is_null() {
         return;
@@ -275,7 +279,7 @@ pub fn poll() {
     unsafe {
         if let Some(d) = mgr.accelerometerData() {
             let a = d.acceleration();
-            push_sensor_reading(SensorReading {
+            channel.push_reading(SensorReading {
                 kind: SensorKind::Accelerometer,
                 x: a.x as f32 * G_TO_MS2,
                 y: a.y as f32 * G_TO_MS2,
@@ -285,7 +289,7 @@ pub fn poll() {
         }
         if let Some(d) = mgr.gyroData() {
             let r = d.rotationRate();
-            push_sensor_reading(SensorReading {
+            channel.push_reading(SensorReading {
                 kind: SensorKind::Gyroscope,
                 x: r.x as f32,
                 y: r.y as f32,
@@ -295,7 +299,7 @@ pub fn poll() {
         }
         if let Some(d) = mgr.magnetometerData() {
             let m = d.magneticField();
-            push_sensor_reading(SensorReading {
+            channel.push_reading(SensorReading {
                 kind: SensorKind::Magnetometer,
                 x: m.x as f32,
                 y: m.y as f32,
@@ -308,7 +312,7 @@ pub fn poll() {
         if let Some(d) = mgr.deviceMotion() {
             let ts = (d.timestamp() * 1000.0) as u64;
             let g = d.gravity();
-            push_sensor_reading(SensorReading {
+            channel.push_reading(SensorReading {
                 kind: SensorKind::Gravity,
                 x: g.x as f32 * G_TO_MS2,
                 y: g.y as f32 * G_TO_MS2,
@@ -316,7 +320,7 @@ pub fn poll() {
                 timestamp_ms: ts,
             });
             let u = d.userAcceleration();
-            push_sensor_reading(SensorReading {
+            channel.push_reading(SensorReading {
                 kind: SensorKind::LinearAcceleration,
                 x: u.x as f32 * G_TO_MS2,
                 y: u.y as f32 * G_TO_MS2,
@@ -327,7 +331,7 @@ pub fn poll() {
             // and the WinRT `SensorQuaternion` reads beside it. `w` is
             // recoverable for a unit quaternion, which an attitude always is.
             let q = d.attitude().quaternion();
-            push_sensor_reading(SensorReading {
+            channel.push_reading(SensorReading {
                 kind: SensorKind::RotationVector,
                 x: q.x as f32,
                 y: q.y as f32,

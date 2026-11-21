@@ -65,8 +65,9 @@ use std::sync::{
 
 use azul_core::notification::{Notification, NotificationEvent, NotificationSound};
 use azul_css::AzString;
-use azul_layout::managers::notification::{queue_notification_event, wire};
+use azul_layout::managers::notification::wire;
 
+use super::queue_notification_event;
 use crate::desktop::shell2::windows::dlopen::{
     encode_wide, Win32Libraries, HICON, HINSTANCE, HWND, LPARAM, LRESULT, WNDCLASSW, WPARAM,
 };
@@ -582,7 +583,7 @@ pub(super) mod toast {
 
     use azul_core::notification::{Notification, NotificationEvent};
     use azul_css::AzString;
-    use azul_layout::managers::notification::{queue_notification_event, wire};
+    use azul_layout::managers::notification::wire;
     use windows::{
         core::{IInspectable, Interface, HSTRING},
         Data::Xml::Dom::XmlDocument,
@@ -595,7 +596,10 @@ pub(super) mod toast {
     };
 
     use super::WM_AZ_TOAST_WAKE;
-    use crate::desktop::shell2::windows::dlopen::{encode_wide, Win32Libraries, HWND};
+    use crate::desktop::{
+        notifications::queue_notification_event,
+        shell2::windows::dlopen::{encode_wide, Win32Libraries, HWND},
+    };
 
     /// Every toast of this app is in one group, so a withdraw can name it in
     /// the Action Center history.
@@ -1068,7 +1072,7 @@ pub(super) mod toast {
 pub(super) mod activator {
     use std::sync::{OnceLock, PoisonError};
 
-    use azul_layout::managers::notification::{queue_notification_event, wire};
+    use azul_layout::managers::notification::wire;
     use windows::{
         core::{implement, IUnknown, Interface, Ref, BOOL, GUID, PCWSTR},
         Win32::{
@@ -1085,6 +1089,7 @@ pub(super) mod activator {
     };
 
     use super::LAUNCH;
+    use crate::desktop::notifications::queue_notification_event;
 
     /// A wide C string as a `String`; empty for null.
     fn wide(s: &PCWSTR) -> String {

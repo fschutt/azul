@@ -1461,7 +1461,7 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     };
     // Web/headless: skip the GPU transform/opacity sync in layout_dom_recursive
     // (display-list-only, no GPU here, and GpuValueCache::synchronize mis-lifts
-    // to wasm → OOB). Heap field, not the SKIP_DISPLAY_LIST static (whose
+    // to wasm → OOB). Heap field (a normal struct read), not a static (whose
     // store/load is unreliable in the lifted wasm).
     lw.skip_gpu_sync = true;
     let mut ws = FullWindowState::default();
@@ -1476,7 +1476,7 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
     // surface (those symbols are classified Leaf in symbol_table.rs, so
     // the transitive walk never descends into the ~300+ painter fns).
     // Positions are computed BEFORE the (now-skipped) display-list step.
-    azul_layout::solver3::set_skip_display_list(true);
+    lw.display_list_options.skip = true;
 
     // Call the positioning solver directly (not the public
     // `layout_and_generate_display_list`, whose tail does virtual-view

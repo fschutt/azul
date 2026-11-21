@@ -72,6 +72,7 @@ mod autotest_generated {
                 image_cache: &self.images,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
+                registered_fonts: None,
                 system_style: self.style.clone(),
                 active_route: self.route.as_ref(),
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
@@ -116,6 +117,33 @@ mod autotest_generated {
         let info2 = LayoutCallbackInfo::new(&rd2, WindowSize::default(), DarkLightMode::Light);
         let none: Option<LayoutSize> = info2.get_max_monitor_size().into();
         assert_eq!(none, None);
+    }
+
+    /// The app's registered fonts ride the ref data as an opaque handle, which the layout crate
+    /// downcasts (`FontCacheSnapshot::from_layout_info`): the info hands out the very value the
+    /// host put in, the type the layout crate asks for or none, and nothing where the host has
+    /// none.
+    #[test]
+    fn an_info_hands_out_the_registered_fonts_its_ref_data_holds() {
+        let fixture = Fixture::new();
+        let plain = fixture.ref_data();
+        let info = LayoutCallbackInfo::new(&plain, WindowSize::default(), DarkLightMode::Light);
+        assert!(info.registered_fonts().is_none(), "the host has none to hand over");
+
+        let handle: Arc<u32> = Arc::new(7);
+        let erased: &(dyn core::any::Any + Send + Sync) = &handle;
+        let mut rd = fixture.ref_data();
+        rd.registered_fonts = Some(erased);
+        let info = LayoutCallbackInfo::new(&rd, WindowSize::default(), DarkLightMode::Light);
+        let held = info
+            .registered_fonts()
+            .and_then(|any| any.downcast_ref::<Arc<u32>>());
+        assert!(held.is_some_and(|held| Arc::ptr_eq(held, &handle)), "the value the host handed in");
+        assert!(
+            info.registered_fonts()
+                .is_some_and(|any| any.downcast_ref::<Arc<u64>>().is_none()),
+            "a handle of another type is no registry of the layout crate"
+        );
     }
 
     /// `/user/:id` with a plain and a non-ASCII parameter.
@@ -1400,6 +1428,7 @@ mod size_query_tests {
                 image_cache: &self.image_cache,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
+                registered_fonts: None,
                 system_style: self.style.clone(),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
@@ -1585,6 +1614,7 @@ mod system_style_dependency_tests {
                 image_cache: &self.image_cache,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
+                registered_fonts: None,
                 system_style: alloc::sync::Arc::clone(&self.style),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
@@ -1807,6 +1837,7 @@ mod global_hotkey_recorder_tests {
                 image_cache: &self.image_cache,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
+                registered_fonts: None,
                 system_style: alloc::sync::Arc::clone(&self.style),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),
@@ -2095,6 +2126,7 @@ mod app_theme_tests {
                 image_cache: &self.image_cache,
                 gl_context: &self.gl,
                 system_fonts: &self.fonts,
+                registered_fonts: None,
                 system_style: alloc::sync::Arc::clone(&self.style),
                 active_route: None,
                 monitors: crate::window::MonitorVec::from_const_slice(&[]),

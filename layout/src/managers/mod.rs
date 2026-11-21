@@ -26,6 +26,9 @@
 //! classified) drives all of them from one place.
 
 pub mod a11y;
+/// What the windows of one app share: the queues between the platform and the windows, owned by
+/// the app instead of by the process.
+pub mod app_services;
 /// Which window an app-level event (tray click, notification click, global
 /// hotkey) runs against: the most recently focused, else the oldest.
 pub mod app_target;
@@ -63,6 +66,8 @@ pub mod scroll_registration;
 pub mod scroll_state;
 pub mod selection;
 pub mod sensors;
+/// A queue that every clone of it shares: how the platform's threads hand things to a window.
+pub mod shared_queue;
 pub mod text_edit;
 pub mod text_input;
 /// Which node a background thread belongs to; the workers of unmounted nodes.

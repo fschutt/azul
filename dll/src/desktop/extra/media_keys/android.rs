@@ -25,9 +25,17 @@
 
 use azul_core::media_session::{MediaControlKind, MediaControlRequest, NowPlayingInfo};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_control, push_media_key};
+#[cfg(feature = "jni")]
+use azul_layout::managers::media_keys::MediaKeyQueues;
 
 use super::media_keycode_to_key;
+
+/// The App's media queues, for the JNI entry points below: they carry no context, so they read
+/// them where `App::run` put them (`process_app`).
+#[cfg(feature = "jni")]
+fn queues() -> Option<MediaKeyQueues> {
+    crate::desktop::process_app::services().map(|services| services.media_keys)
+}
 
 /// A transport button arrived from the session's callback.
 #[cfg(feature = "jni")]
@@ -41,7 +49,9 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnMedia
         // Parked, not handled here: this runs on Android's media-button
         // thread and the engine's key pass belongs to the main one. Same
         // channel MPRIS, `MPRemoteCommandCenter` and SMTC use.
-        push_media_key(key);
+        if let Some(queues) = queues() {
+            queues.push_media_key(key);
+        }
     }
 }
 
@@ -55,21 +65,20 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnMedia
     _class: *mut core::ffi::c_void,
     position_ms: i64,
 ) {
-    push_media_control(MediaControlRequest {
-        kind: MediaControlKind::SeekAbsolute,
-        position_us: position_ms.saturating_mul(1000),
-        uri: AzString::from_const_str(""),
-        track_id: AzString::from_const_str(""),
-        volume: 0.0,
-    });
+    if let Some(queues) = queues() {
+        queues.push_media_control(MediaControlRequest {
+            kind: MediaControlKind::SeekAbsolute,
+            position_us: position_ms.saturating_mul(1000),
+            uri: AzString::from_const_str(""),
+            track_id: AzString::from_const_str(""),
+            volume: 0.0,
+        });
+    }
 }
 
 /// Claim the media session. Idempotent and quiet.
 #[cfg(feature = "jni")]
 pub fn start() {
-    if !azul_layout::window::expose_system_media_controls() {
-        return;
-    }
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if STARTED.set(()).is_err() {
         return;
@@ -227,7 +236,6 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnAudio
     use std::sync::atomic::Ordering;
 
     use azul_core::media_session::SystemAudioChange;
-    use azul_layout::managers::media_keys::push_system_audio_change;
 
     let change = match focus_change {
         1 => {
@@ -251,5 +259,7 @@ pub unsafe extern "system" fn Java_com_azul_media_AzulMediaSession_nativeOnAudio
         }
         _ => return,
     };
-    push_system_audio_change(change);
+    if let Some(queues) = queues() {
+        queues.push_system_audio_change(change);
+    }
 }

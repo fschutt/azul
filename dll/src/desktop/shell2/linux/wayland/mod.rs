@@ -2264,6 +2264,7 @@ impl WaylandWindow {
         crate::desktop::shell2::common::resolve_initial_background_color(
             &mut options,
             &resources.system_style,
+            resources.app_shared.mode(),
         );
 
         // Extract create_callback before consuming options
@@ -2325,9 +2326,9 @@ impl WaylandWindow {
                 WindowError::PlatformError(format!("LayoutWindow::new failed: {:?}", e))
             })?;
         layout_window.routes = resources.config.routes.clone();
-        layout_window.set_app_localization(&resources.config);
-        layout_window.set_app_e2e(&resources.config);
-        layout_window.set_app_node_identity(&resources.config);
+        resources
+            .app_shared
+            .seed_window(&mut layout_window, &resources.config);
         layout_window.webviews.set_platform(super::webview::platform());
 
         let mut common = event::CommonWindowState::new(
@@ -2360,8 +2361,9 @@ impl WaylandWindow {
             resources.system_style.clone(),
             resources.app_data.clone(),
             resources.undo_manager.clone(),
+            resources.app_shared.clone(),
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
         common.gl_context_ptr = None.into();
         common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();
@@ -3039,15 +3041,16 @@ impl WaylandWindow {
                 layout_window.current_window_state = window.common.current_window_state().clone();
                 layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                 layout_window.routes = window.resources.config.routes.clone();
-                layout_window.set_app_localization(&window.resources.config);
-                layout_window.set_app_e2e(&window.resources.config);
-                layout_window.set_app_node_identity(&window.resources.config);
+                window
+                    .resources
+                    .app_shared
+                    .seed_window(&mut layout_window, &window.resources.config);
                 layout_window.webviews.set_platform(super::webview::platform());
                 // Initialize monitor cache once at window creation
                 if let Ok(mut guard) = layout_window.monitors.lock() {
                     *guard = crate::desktop::display::refresh_monitors();
                 }
-                window.common.layout_window = Some(layout_window);
+                window.common.set_layout_window(layout_window);
                 // A fresh layout window starts with no tablet-device list;
                 // re-publish what the descriptive listeners accumulated.
                 window.sync_tablet_devices();
@@ -3106,15 +3109,16 @@ impl WaylandWindow {
                         window.common.current_window_state().clone();
                     layout_window.renderer_type = Some(azul_core::window::RendererType::Hardware);
                     layout_window.routes = window.resources.config.routes.clone();
-                    layout_window.set_app_localization(&window.resources.config);
-                    layout_window.set_app_e2e(&window.resources.config);
-                    layout_window.set_app_node_identity(&window.resources.config);
+                    window
+                        .resources
+                        .app_shared
+                        .seed_window(&mut layout_window, &window.resources.config);
                     layout_window.webviews.set_platform(super::webview::platform());
                     // Initialize monitor cache once at window creation
                     if let Ok(mut guard) = layout_window.monitors.lock() {
                         *guard = crate::desktop::display::refresh_monitors();
                     }
-                    window.common.layout_window = Some(layout_window);
+                    window.common.set_layout_window(layout_window);
                     // Fresh layout window: re-publish the tablet-device list.
                     window.sync_tablet_devices();
                 }
@@ -5279,9 +5283,15 @@ impl WaylandWindow {
                 self.axis_inverted.1 = inverted;
                 // The compositor's own word on natural scrolling (9b-ii-b-i-a):
                 // "inverted" = the deltas run against the physical motion =
-                // natural scrolling is on. Published as the platform's
-                // preference; the engine never flips on top of it.
-                azul_layout::window::set_global_system_natural_scroll(Some(inverted));
+                // natural scrolling is on. Reported as the platform's
+                // preference, to this window and to the app (a window opened
+                // later starts with it); the engine never flips on top of it.
+                self.resources
+                    .app_shared
+                    .set_system_natural_scroll(Some(inverted));
+                if let Some(lw) = self.common.layout_window.as_mut() {
+                    lw.scroll_manager.set_system_natural_scroll(Some(inverted));
+                }
             }
             _ => {}
         }
@@ -6400,7 +6410,12 @@ impl WaylandWindow {
         self.common.note_focus_gained();
         self.dynamic_selector_context.window_focused = true;
         // A changed wallpaper is read again for the metals.
-        if crate::desktop::wallpaper::refresh() {
+        if self
+            .common
+            .layout_window
+            .as_ref()
+            .is_some_and(crate::desktop::wallpaper::refresh)
+        {
             self.request_redraw();
         }
 
@@ -9984,14 +9999,19 @@ impl WaylandPopup {
             .map_err(|e| format!("LayoutWindow::new failed: {e:?}"))?,
         };
         layout_window.routes = parent.resources.config.routes.clone();
-        layout_window.set_app_localization(&parent.resources.config);
-        layout_window.set_app_e2e(&parent.resources.config);
-        layout_window.set_app_node_identity(&parent.resources.config);
+        parent
+            .resources
+            .app_shared
+            .seed_window(&mut layout_window, &parent.resources.config);
         layout_window.webviews.set_platform(super::webview::platform());
         // Seed with the parent window's image map so css-id / url("...")
         // images inside the popup resolve (whole-map seed at creation).
         if let Some(parent_lw) = parent.common.layout_window.as_ref() {
             layout_window.seed_image_id_map(parent_lw.image_id_map_snapshot());
+            // The seeded images include the parent's material images, which
+            // draw with the parent's renderer: the popup reads that one as
+            // its own (the frames they drew, the wallpapers they reflect).
+            layout_window.material_renderer = parent_lw.material_renderer.clone();
         }
         let mut common = event::CommonWindowState::new(
             current_window_state,
@@ -10002,8 +10022,9 @@ impl WaylandPopup {
             parent.resources.system_style.clone(),
             parent.common.app_data.clone(),
             parent.resources.undo_manager.clone(),
+            parent.resources.app_shared.clone(),
         );
-        common.layout_window = Some(layout_window);
+        common.set_layout_window(layout_window);
         common.cpu_hit_tester = Some(azul_layout::headless::CpuHitTester::new());
         common.gl_context_ptr = None.into();
         common.regen = crate::desktop::shell2::common::event::RegenerationState::idle_initial();

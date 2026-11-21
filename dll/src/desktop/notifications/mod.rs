@@ -58,14 +58,32 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use azul_core::notification::{Notification, NotificationEvent, OptionNotificationCallback};
 use azul_css::{AzString, OptionU64};
 use azul_layout::managers::{
+    app_services::AppServices,
     notification::{
         self as queue, NotificationDelivery, NotificationRegistry, NotificationRequest,
         ScheduledNotifications,
     },
-    permission::{push_async_result, Capability, PermissionQuality, PermissionState},
+    permission::{Capability, PermissionQuality, PermissionState},
 };
 
-use crate::desktop::extra::capability::PlatformCapability;
+use crate::desktop::{extra::capability::PlatformCapability, process_app};
+
+/// Report an event the platform produced (a click, a dismissal, a failure) to the App's
+/// notification mailbox, from whatever thread the OS calls back on: its callbacks hold no
+/// context, so the App is the one [`process_app`] holds. `false` when the mailbox is full or no
+/// App runs (the event is dropped).
+pub(super) fn queue_notification_event(event: NotificationEvent) -> bool {
+    process_app::services()
+        .is_some_and(|services| services.notifications.queue_notification_event(event))
+}
+
+/// Park an answer about the notification permission in the App's async permission queue (the
+/// permission manager folds it); nothing when no App runs.
+pub(super) fn push_async_result(capability: Capability, state: PermissionState) {
+    if let Some(services) = process_app::services() {
+        services.permission.push((capability, state));
+    }
+}
 
 /// `pub` for its JNI entry point (`nativeOnNotificationEvent`), which Java
 /// resolves by symbol name - like `extra::media_keys::android`.
@@ -102,11 +120,11 @@ pub fn use_headless_backend() {
     HEADLESS.store(true, Ordering::Relaxed);
 }
 
-/// Install the app-level handler (`AppConfig::notification_handler`): where
-/// events go that no notification callback owns. Called by `App::run` before
-/// the run loop starts, so the tap that launched the app finds it.
-pub fn set_app_handler(handler: OptionNotificationCallback) {
-    queue::set_app_notification_handler(handler);
+/// Install the app-level handler (`AppConfig::notification_handler`) in the notification queues
+/// of `services`: where events go that no notification callback owns. Called by `App::run`
+/// before the run loop starts, so the tap that launched the app finds it.
+pub fn set_app_handler(services: &AppServices, handler: OptionNotificationCallback) {
+    services.notifications.set_app_notification_handler(handler);
 }
 
 /// What must happen before the app finishes launching, so a notification
@@ -388,7 +406,9 @@ impl NotificationService {
         let notification = self.registry.admit(notification);
         let result: Result<(), String> = match &mut self.backend {
             Backend::Headless => {
-                queue::record_posted_notification(&notification);
+                if let Some(services) = process_app::services() {
+                    services.notifications.record_posted_notification(&notification);
+                }
                 Ok(())
             }
             #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -411,7 +431,7 @@ impl NotificationService {
             let mut event =
                 NotificationEvent::failed(notification.id.clone(), AzString::from(reason));
             event.payload = notification.payload.clone();
-            if !queue::queue_notification_event(event) {
+            if !queue_notification_event(event) {
                 crate::plog_warn!(
                     "[notifications] the failure of {:?} was not reported to the app: the \
                      event mailbox is full",
@@ -437,7 +457,7 @@ impl NotificationService {
                 ),
             );
             event.payload = refused.payload.clone();
-            let _ = queue::queue_notification_event(event);
+            let _ = queue_notification_event(event);
         }
         deadline::set(self.held.next_due_ms());
     }
@@ -461,7 +481,9 @@ impl NotificationService {
         }
         match &mut self.backend {
             Backend::Headless => {
-                queue::record_withdrawn_notification(id);
+                if let Some(services) = process_app::services() {
+                    services.notifications.record_withdrawn_notification(id);
+                }
             }
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             Backend::Apple(n) => n.withdraw(id),
@@ -524,11 +546,11 @@ fn with_service<R>(f: impl FnOnce(&mut NotificationService) -> R) -> Option<R> {
 /// Hand every queued post / withdraw - and a pending permission request - to
 /// the backend. Main thread only; a no-op (the service is not even started)
 /// while nothing is queued.
-pub fn dispatch_queued_requests() {
-    if queue::take_notification_permission_request() {
+pub fn dispatch_queued_requests(services: &AppServices) {
+    if services.notifications.take_notification_permission_request() {
         request_permission();
     }
-    let requests = queue::drain_notification_requests();
+    let requests = services.notifications.drain_notification_requests();
     if requests.is_empty() {
         return;
     }
@@ -618,24 +640,28 @@ fn platform_request_permission() {
 /// hands them to [`defer_deliveries`].
 #[must_use]
 pub fn pump_notifications() -> Vec<NotificationDelivery> {
-    dispatch_queued_requests();
-    let mut out = queue::drain_notification_deliveries();
+    let Some(services) = process_app::services() else {
+        return Vec::new();
+    };
+    dispatch_queued_requests(&services);
+    let notifications = &services.notifications;
+    let mut out = notifications.drain_notification_deliveries();
     let started = SERVICE
         .try_with(|cell| cell.try_borrow().map(|s| s.is_some()).unwrap_or(false))
         .unwrap_or(false);
-    if !started && !queue::has_queued_events() {
+    if !started && !notifications.has_queued_events() {
         return out;
     }
     let routed = with_service(|service| {
         service.post_due();
         service.pump_platform();
-        let events = queue::drain_notification_events();
+        let events = notifications.drain_notification_events();
         if events.is_empty() {
             return Vec::new();
         }
         service
             .registry
-            .set_app_handler(queue::app_notification_handler());
+            .set_app_handler(notifications.app_notification_handler());
         service.registry.route(events)
     })
     .unwrap_or_default();
@@ -650,8 +676,12 @@ pub fn pump_notifications() -> Vec<NotificationDelivery> {
 pub fn defer_deliveries(deliveries: Vec<NotificationDelivery>) {
     let count = deliveries.len();
     let mut dropped = 0usize;
+    let services = process_app::services();
     for delivery in deliveries {
-        if !queue::queue_notification_delivery(delivery) {
+        let parked = services
+            .as_ref()
+            .is_some_and(|s| s.notifications.queue_notification_delivery(delivery));
+        if !parked {
             dropped += 1;
         }
     }
@@ -680,7 +710,9 @@ pub fn needs_polling() -> bool {
                 .unwrap_or(false)
         })
         .unwrap_or(false);
-    live || queue::has_queued_requests() || queue::has_queued_events()
+    live || process_app::services().is_some_and(|services| {
+        services.notifications.has_queued_requests() || services.notifications.has_queued_events()
+    })
 }
 
 /// Tear the backend down before the process exits: on Windows this removes
@@ -715,20 +747,29 @@ pub(crate) fn invoke_deliveries<W: crate::desktop::shell2::common::event::Platfo
     use crate::desktop::shell2::common::event::MenuInvocation;
 
     let mut needs_redraw = false;
+    // The window's handle on the App's notification queues: the slot its callbacks read the
+    // event from.
+    let channels = window
+        .get_layout_window()
+        .map(|lw| lw.app_services.notifications.clone());
     for delivery in deliveries {
         let NotificationDelivery { callback, event } = delivery;
         let menu_callback = azul_core::menu::CoreMenuCallback {
             refany: callback.refany,
             callback: callback.callback,
         };
-        let result = queue::with_current_notification_event(&event, || {
+        let run = || {
             window.invoke_menu_callback(
                 menu_callback,
                 MenuInvocation::Native {
                     site: "notification",
                 },
             )
-        });
+        };
+        let result = match &channels {
+            Some(slot) => slot.with_current_notification_event(&event, run),
+            None => run(),
+        };
         if !matches!(result, ProcessEventResult::DoNothing) {
             needs_redraw = true;
         }

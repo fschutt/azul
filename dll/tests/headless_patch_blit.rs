@@ -13,8 +13,7 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, solver3::display_list::set_dl_patching_enabled,
-    window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -47,10 +46,13 @@ fn page_dom() -> StyledDom {
 fn run(patching: bool) -> (Vec<u8>, bool) {
     // Honest (refined) damage is REQUIRED here: with full-strength damage
     // the whole frame repaints and the blit is unfalsifiable.
-    azul_layout::cpurender::set_dl_diff_refinements(true);
-    set_dl_patching_enabled(patching);
+    assert!(
+        azul_layout::cpurender::dl_diff_refinements_enabled(),
+        "premise: honest (refined) damage (AZ_DL_DIFF_REFINE=0 turns it off)"
+    );
     let font_cache = FcFontCache::build();
     let mut lw = LayoutWindow::new(font_cache).unwrap();
+    lw.display_list_options.patching = patching;
     let rr = RendererResources::default();
     let cb = ExternalSystemCallbacks::rust_internal();
     let mut dbg = None;
@@ -93,8 +95,6 @@ fn run(patching: bool) -> (Vec<u8>, bool) {
         .expect("render_frame must retain a pixmap")
         .data()
         .to_vec();
-    // Restore the default for tests running after us in-process.
-    set_dl_patching_enabled(true);
     (frame, blit_applied)
 }
 

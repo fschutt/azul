@@ -4,7 +4,7 @@
 //! directly (no CoreWindow) — it must go through `IUserConsentVerifierInterop`
 //! with a real top-level HWND. We use the foreground window (the app's window
 //! when the user triggers the prompt). Mirrors apple.rs (spawn thread ->
-//! push_biometric_result). Availability is opaque about modality, so
+//! the result queue). Availability is opaque about modality, so
 //! `Available` reports a generic `Fingerprint`.
 
 // windows 0.62's async lives in `windows-future`; its blocking `Async` trait is
@@ -13,7 +13,7 @@
 use std::future::IntoFuture;
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
-use azul_layout::managers::biometric::push_biometric_result;
+use azul_layout::managers::shared_queue::SharedQueue;
 use windows::{
     core::{factory, HSTRING},
     Security::Credentials::UI::{
@@ -44,11 +44,12 @@ pub fn probe_availability() -> BiometricKind {
 }
 
 /// Show the Hello prompt; deliver the outcome async via the result channel.
-pub fn request(prompt: &BiometricPrompt) {
+pub fn request(prompt: &BiometricPrompt, results: &SharedQueue<BiometricResult>) {
     let message = HSTRING::from(prompt.reason.as_str());
+    let results = results.clone();
     std::thread::spawn(move || {
         let result = run(message).unwrap_or(BiometricResult::Error);
-        push_biometric_result(result);
+        results.push(result);
     });
 }
 

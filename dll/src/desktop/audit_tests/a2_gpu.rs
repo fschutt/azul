@@ -56,6 +56,7 @@ fn translated(
         pipeline,
         DeviceIntSize::new(1200, 640),
         &RendererResources::default(),
+        &azul_layout::cpurender::TextHaloStore::new(),
         DpiScaleFactor::new(dpi),
         Vec::new(),
         layout_results,

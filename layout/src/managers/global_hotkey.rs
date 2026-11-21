@@ -47,13 +47,13 @@
 //! the manager: they hold a [`HotkeySink`], a small bounded mailbox with an
 //! optional loop waker, and the manager drains it on the loop thread.
 //!
-//! Which App a window belongs to is found without threading the handle
-//! through every window constructor: `App::run` makes its handle the event
-//! loop thread's CURRENT app ([`SharedGlobalHotkeys::enter`]) for as long as
-//! the loop runs, and every `LayoutWindow` built on that thread joins it
-//! ([`SharedGlobalHotkeys::current_or_detached`]). A `LayoutWindow` built
-//! anywhere else (a test, the web server) gets a detached manager of its own
-//! with no backend, where every declaration reads `Failed(Unsupported)`.
+//! Which App a window belongs to is told to the window when it is opened:
+//! the shells hand the app's `AppServices` (which holds the app's
+//! [`SharedGlobalHotkeys`]) to every window they create
+//! (`LayoutWindow::join_app`), and the window takes its place in that manager
+//! ([`WindowHotkeys::new`]). A `LayoutWindow` that never joined an app (a
+//! test, the web server) has a detached manager of its own with no backend,
+//! where every declaration reads `Failed(Unsupported)`.
 //!
 //! # The backend seam
 //!
@@ -69,7 +69,6 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use core::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use azul_core::{
@@ -307,14 +306,6 @@ impl HotkeySink {
 /// back.
 pub type WindowSeq = u64;
 
-static NEXT_WINDOW_SEQ: AtomicU64 = AtomicU64::new(1);
-
-/// The next window's sequence number.
-#[must_use]
-pub fn next_window_seq() -> WindowSeq {
-    NEXT_WINDOW_SEQ.fetch_add(1, Ordering::Relaxed)
-}
-
 /// Which declaration set: the `AppConfig`'s, or one window's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum HotkeySource {
@@ -474,6 +465,8 @@ pub struct GlobalHotkeyManager {
     generation: u64,
     pending_relayout: BTreeSet<HotkeySource>,
     app: Option<AppSource>,
+    /// The sequence number of the next window to join ([`Self::next_window_seq`]).
+    next_window_seq: WindowSeq,
 }
 
 impl core::fmt::Debug for GlobalHotkeyManager {
@@ -516,7 +509,16 @@ impl GlobalHotkeyManager {
             generation: 0,
             pending_relayout: BTreeSet::new(),
             app: None,
+            next_window_seq: 1,
         }
+    }
+
+    /// The next window's sequence number: monotonic, never reused, and this
+    /// manager's own (it numbers the windows of its app).
+    pub fn next_window_seq(&mut self) -> WindowSeq {
+        let seq = self.next_window_seq;
+        self.next_window_seq += 1;
+        seq
     }
 
     /// The `AppConfig`'s declarations (`global_hotkeys`, and the derived
@@ -1177,6 +1179,9 @@ fn same_accelerators(
 pub struct SharedGlobalHotkeys {
     manager: Arc<Mutex<GlobalHotkeyManager>>,
     sink: HotkeySink,
+    /// The press whose callback runs right now (see [`Self::with_delivered_event`]): the
+    /// app's one event loop runs one callback at a time.
+    delivering: Arc<Mutex<Option<GlobalHotkeyEvent>>>,
 }
 
 impl core::fmt::Debug for SharedGlobalHotkeys {
@@ -1199,30 +1204,6 @@ impl Default for SharedGlobalHotkeys {
     }
 }
 
-std::thread_local! {
-    /// The App whose loop runs on this thread (see [`SharedGlobalHotkeys::enter`]).
-    static CURRENT_APP: core::cell::RefCell<Option<SharedGlobalHotkeys>> =
-        const { core::cell::RefCell::new(None) };
-    /// The press whose callback runs right now (see [`with_delivered_event`]).
-    static DELIVERING: core::cell::Cell<Option<GlobalHotkeyEvent>> =
-        const { core::cell::Cell::new(None) };
-}
-
-/// Restores the previous current App when the scope ends (see
-/// [`SharedGlobalHotkeys::enter`]).
-#[must_use = "the App stays current only while this scope is alive"]
-#[derive(Debug)]
-pub struct AppHotkeysScope {
-    previous: Option<SharedGlobalHotkeys>,
-}
-
-impl Drop for AppHotkeysScope {
-    fn drop(&mut self) {
-        let previous = self.previous.take();
-        CURRENT_APP.with(|current| *current.borrow_mut() = previous);
-    }
-}
-
 impl SharedGlobalHotkeys {
     /// A new manager with no backend.
     #[must_use]
@@ -1232,6 +1213,7 @@ impl SharedGlobalHotkeys {
         Self {
             manager: Arc::new(Mutex::new(manager)),
             sink,
+            delivering: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1252,25 +1234,33 @@ impl SharedGlobalHotkeys {
         Arc::ptr_eq(&self.manager, &other.manager)
     }
 
-    /// Make this the CURRENT App of the calling (event-loop) thread until the
-    /// returned scope is dropped: every `LayoutWindow` built on this thread
-    /// meanwhile joins it. `App::run` does this around the whole loop.
-    pub fn enter(&self) -> AppHotkeysScope {
-        let previous = CURRENT_APP.with(|current| current.borrow_mut().replace(self.clone()));
-        AppHotkeysScope { previous }
+    /// The next window's sequence number (see [`GlobalHotkeyManager::next_window_seq`]).
+    #[must_use]
+    pub fn next_window_seq(&self) -> WindowSeq {
+        self.lock().next_window_seq()
     }
 
-    /// The App whose loop runs on this thread, if any.
-    #[must_use]
-    pub fn current() -> Option<Self> {
-        CURRENT_APP.with(|current| current.borrow().clone())
+    /// Run `f` - a fired global hotkey's callback - with `event` readable through
+    /// [`Self::delivered_event`] (`CallbackInfo::get_global_hotkey_event`). The previous
+    /// value is restored afterwards, also on unwind.
+    #[allow(clippy::must_use_candidate)] // returns what `f` returns: a caller may want only its effect
+    pub fn with_delivered_event<R>(&self, event: GlobalHotkeyEvent, f: impl FnOnce() -> R) -> R {
+        struct Restore<'a>(&'a Mutex<Option<GlobalHotkeyEvent>>, Option<GlobalHotkeyEvent>);
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                *lock_or_recover(self.0) = self.1.take();
+            }
+        }
+        let previous = lock_or_recover(&self.delivering).replace(event);
+        let _restore = Restore(&self.delivering, previous);
+        f()
     }
 
-    /// The current App's handle, or a detached manager of its own (no
-    /// backend: every declaration reads `Failed(Unsupported)`).
+    /// The press whose callback runs right now; `None` outside a global hotkey's own
+    /// callback.
     #[must_use]
-    pub fn current_or_detached() -> Self {
-        Self::current().unwrap_or_default()
+    pub fn delivered_event(&self) -> Option<GlobalHotkeyEvent> {
+        *lock_or_recover(&self.delivering)
     }
 
     /// See [`GlobalHotkeyManager::install_backend`].
@@ -1553,17 +1543,16 @@ impl WindowHotkeys {
     /// A new window of the App behind `shared`.
     #[must_use]
     pub fn new(shared: SharedGlobalHotkeys) -> Self {
-        Self {
-            shared,
-            seq: next_window_seq(),
-        }
+        let seq = shared.next_window_seq();
+        Self { shared, seq }
     }
 
-    /// A new window of the App whose loop runs on this thread, or of a
-    /// detached manager of its own (see [`SharedGlobalHotkeys::current_or_detached`]).
+    /// A new window of a manager of its own, no app's: no backend, so every
+    /// declaration reads `Failed(Unsupported)` (a test, the web server, a window
+    /// before it joins its app).
     #[must_use]
-    pub fn for_current_app() -> Self {
-        Self::new(SharedGlobalHotkeys::current_or_detached())
+    pub fn detached() -> Self {
+        Self::new(SharedGlobalHotkeys::new())
     }
 
     /// The App's handle.
@@ -1615,26 +1604,4 @@ impl Drop for WindowHotkeys {
     fn drop(&mut self) {
         self.shared.forget_source(self.source());
     }
-}
-
-/// Run `f` - a fired global hotkey's callback - with `event` readable through
-/// [`delivered_event`] (`CallbackInfo::get_global_hotkey_event`).
-pub fn with_delivered_event<R>(event: GlobalHotkeyEvent, f: impl FnOnce() -> R) -> R {
-    struct Restore(Option<GlobalHotkeyEvent>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            let previous = self.0;
-            DELIVERING.with(|delivering| delivering.set(previous));
-        }
-    }
-    let previous = DELIVERING.with(|delivering| delivering.replace(Some(event)));
-    let _restore = Restore(previous);
-    f()
-}
-
-/// The press whose callback runs right now on this thread; `None` outside a
-/// global hotkey's own callback.
-#[must_use]
-pub fn delivered_event() -> Option<GlobalHotkeyEvent> {
-    DELIVERING.with(core::cell::Cell::get)
 }

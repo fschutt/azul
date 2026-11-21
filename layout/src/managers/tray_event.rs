@@ -8,61 +8,99 @@
 //! * everything else - a click on the icon (`Activate`), a middle click, a scroll, a context-menu
 //!   request, a menu item WITHOUT a callback. The OS reports those on whatever thread it likes (a
 //!   D-Bus dispatch, an AppKit action), which cannot hold a `CallbackInfo`, so they are queued
-//!   into the [mailbox](queue_tray_event) here.
+//!   into the [mailbox](TrayEvents::queue_tray_event) of the app's [`TrayEvents`].
 //!
 //! Nothing used to drain that mailbox: a plain click on a tray icon never
 //! reached the app. Now the dll's app-event collector drains it every loop
 //! iteration and [routes](route_tray_events) each event to the tray's own
 //! callback (`TrayIconData::callback`), which runs through
 //! `invoke_menu_callback` - the notification's shape - with the event
-//! installed as the [current event](with_current_tray_event) for
+//! installed as the [current event](TrayEvents::with_current_tray_event) for
 //! `CallbackInfo::get_tray_event`.
 
-use alloc::vec::Vec;
-use core::cell::RefCell;
+use alloc::{sync::Arc, vec::Vec};
+use std::sync::{Mutex, PoisonError};
 
 use azul_core::{
     menu::{CoreMenuCallback, OptionCoreMenuCallback},
     tray::TrayEvent,
 };
 
+use super::shared_queue::SharedQueue;
+
 /// Bound on the mailbox: an app whose loop never drains it (or a panel that
 /// floods scroll events while a callback blocks) must not grow it without
 /// limit. The notification mailbox uses the same bound.
 pub const MAX_QUEUED_TRAY_EVENTS: usize = 256;
 
-static PENDING: std::sync::Mutex<Vec<TrayEvent>> = std::sync::Mutex::new(Vec::new());
+/// The tray events of one app: the mailbox the platform queues them in, and the slot of the
+/// event whose delivery runs right now. The tray's callbacks (on whatever thread the OS reports
+/// them) hold a clone; the app's loop drains it and runs the deliveries. A clone is another
+/// handle on the SAME mailbox and slot.
+#[derive(Debug, Clone, Default)]
+pub struct TrayEvents {
+    pending: SharedQueue<TrayEvent>,
+    current: Arc<Mutex<Option<TrayEvent>>>,
+}
 
-/// Queue an event from a platform callback, on any thread. Never blocks for
-/// long and never panics - it runs inside an Objective-C action or a D-Bus
-/// handler, where unwinding would abort the process. Returns `false` when
-/// the mailbox is full and the event was dropped.
-pub fn queue_tray_event(event: TrayEvent) -> bool {
-    let mut q = PENDING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if q.len() >= MAX_QUEUED_TRAY_EVENTS {
-        return false;
+// A queue operation hands items over or says whether the item was taken: a caller that only
+// wants the queue emptied, or the event parked, rightly ignores the answer.
+#[allow(clippy::must_use_candidate)]
+impl TrayEvents {
+    /// A new mailbox and slot of their own, shared with nobody.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
     }
-    q.push(event);
-    true
-}
 
-/// Take every queued event, in arrival order.
-pub fn drain_tray_events() -> Vec<TrayEvent> {
-    let mut q = PENDING
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
+    /// Queue an event from a platform callback, on any thread. Never blocks for
+    /// long and never panics - it runs inside an Objective-C action or a D-Bus
+    /// handler, where unwinding would abort the process. Returns `false` when
+    /// the mailbox is full and the event was dropped.
+    pub fn queue_tray_event(&self, event: TrayEvent) -> bool {
+        self.pending
+            .push_up_to(event, MAX_QUEUED_TRAY_EVENTS)
+            .is_ok()
+    }
 
-/// Is an event waiting? The Linux loops do not park while one is (it was
-/// queued on the loop thread itself, by a D-Bus handler, after this
-/// iteration's collector ran).
-pub fn has_queued_tray_events() -> bool {
-    PENDING
-        .lock()
-        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
+    /// Take every queued event, in arrival order.
+    pub fn drain_tray_events(&self) -> Vec<TrayEvent> {
+        self.pending.drain()
+    }
+
+    /// Is an event waiting? The Linux loops do not park while one is (it was
+    /// queued on the loop thread itself, by a D-Bus handler, after this
+    /// iteration's collector ran).
+    #[must_use]
+    pub fn has_queued_tray_events(&self) -> bool {
+        !self.pending.is_empty()
+    }
+
+    /// Run `f` with `event` as the event `CallbackInfo::get_tray_event` reports.
+    /// The previous value is restored afterwards, also on unwind.
+    #[allow(clippy::must_use_candidate)] // returns what `f` returns: a caller may want only its effect
+    pub fn with_current_tray_event<R>(&self, event: &TrayEvent, f: impl FnOnce() -> R) -> R {
+        struct Restore<'a>(&'a Mutex<Option<TrayEvent>>, Option<TrayEvent>);
+        impl Drop for Restore<'_> {
+            fn drop(&mut self) {
+                *self.0.lock().unwrap_or_else(PoisonError::into_inner) = self.1.take();
+            }
+        }
+        let previous = self
+            .current
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .replace(*event);
+        let _restore = Restore(&self.current, previous);
+        f()
+    }
+
+    /// The tray event the running callback was delivered for, or `None` outside
+    /// a tray delivery.
+    #[must_use]
+    pub fn current_tray_event(&self) -> Option<TrayEvent> {
+        *self.current.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 /// One tray event and the callback it runs.
@@ -90,34 +128,4 @@ pub fn route_tray_events(
             event,
         })
         .collect()
-}
-
-std::thread_local! {
-    /// Set for the duration of one delivery, on the event-loop thread.
-    static CURRENT_EVENT: RefCell<Option<TrayEvent>> = const { RefCell::new(None) };
-}
-
-/// Run `f` with `event` as the event `CallbackInfo::get_tray_event` reports.
-/// The previous value is restored afterwards, also on unwind.
-pub fn with_current_tray_event<R>(event: &TrayEvent, f: impl FnOnce() -> R) -> R {
-    struct Restore(Option<TrayEvent>);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            let previous = self.0.take();
-            let _ = CURRENT_EVENT.try_with(|slot| slot.replace(previous));
-        }
-    }
-    let previous = CURRENT_EVENT.with(|slot| slot.replace(Some(*event)));
-    let _restore = Restore(previous);
-    f()
-}
-
-/// The tray event the running callback was delivered for, or `None` outside
-/// a tray delivery.
-#[must_use]
-pub fn current_tray_event() -> Option<TrayEvent> {
-    CURRENT_EVENT
-        .try_with(|slot| *slot.borrow())
-        .ok()
-        .flatten()
 }

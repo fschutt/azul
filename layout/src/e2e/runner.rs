@@ -3548,13 +3548,15 @@ impl Runner {
                 // The request is recorded (a scenario can assert the widget
                 // asked); there is no screen to read headless, so the answer
                 // is an immediate "cancelled" on the next pass.
-                let id = self.layout_window.eyedropper_manager.begin_request();
-                crate::managers::eyedropper::push_result(
-                    crate::managers::eyedropper::EyedropperResult {
-                        request_id: id,
-                        color: None,
-                    },
-                );
+                let channel = self.layout_window.app_services.eyedropper.clone();
+                let id = self
+                    .layout_window
+                    .eyedropper_manager
+                    .begin_request(&channel);
+                channel.push_result(crate::managers::eyedropper::EyedropperResult {
+                    request_id: id,
+                    color: None,
+                });
                 ProcessEventResult::DoNothing
             }
             CallbackChange::ShowTooltip { .. } => {
@@ -4828,7 +4830,19 @@ fn run_e2e_test_keeping_runner(
     test: &E2eTest,
     initial_dom: Option<StyledDom>,
 ) -> (E2eTestResult, Runner) {
-    run_e2e_test_inner(test, initial_dom, None)
+    run_e2e_test_inner(test, initial_dom, None, None)
+}
+
+/// [`run_e2e_test_keeping_runner`] in a window that belongs to the app behind `services`
+/// (`LayoutWindow::join_app`): the queues the scenario's ops reach (the notification mailbox
+/// and recorder, ...) are the test's own, so it can fill them before the scenario runs and read
+/// them after.
+#[cfg(test)]
+fn run_e2e_test_in_app(
+    test: &E2eTest,
+    services: &crate::managers::app_services::AppServices,
+) -> (E2eTestResult, Runner) {
+    run_e2e_test_inner(test, None, None, Some(services))
 }
 
 /// [`run_e2e_test`] as an application's window runs it: `app_data` is the
@@ -4840,15 +4854,17 @@ pub(crate) fn run_e2e_test_with_app(
     app_data: RefAny,
     config: &azul_core::resources::AppConfig,
 ) -> E2eTestResult {
-    run_e2e_test_inner(test, None, Some((app_data, config))).0
+    run_e2e_test_inner(test, None, Some((app_data, config)), None).0
 }
 
 fn run_e2e_test_inner(
     test: &E2eTest,
     initial_dom: Option<StyledDom>,
     app: Option<(RefAny, &azul_core::resources::AppConfig)>,
+    services: Option<&crate::managers::app_services::AppServices>,
 ) -> (E2eTestResult, Runner) {
-    let (results, runner) = run_e2e_tests_in_one_window(core::slice::from_ref(test), initial_dom, app);
+    let (results, runner) =
+        run_e2e_tests_in_one_window(core::slice::from_ref(test), initial_dom, app, services);
     let result = match results {
         Ok(results) => results
             .into_iter()
@@ -4874,6 +4890,7 @@ fn run_e2e_tests_in_one_window(
     tests: &[E2eTest],
     initial_dom: Option<StyledDom>,
     app: Option<(RefAny, &azul_core::resources::AppConfig)>,
+    services: Option<&crate::managers::app_services::AppServices>,
 ) -> (Result<Vec<E2eTestResult>, String>, Runner) {
     let Some(test) = tests.first() else {
         return (
@@ -4916,6 +4933,9 @@ fn run_e2e_tests_in_one_window(
         None => (800.0, 600.0, 96, false),
     };
     let mut runner = Runner::new(w, h, dpi, animations);
+    if let Some(services) = services {
+        runner.layout_window.join_app(services);
+    }
     if let Some(dom) = initial_dom {
         // The mount-less `regenerate_layout` arm takes the CURRENT tree back
         // out of `layout_results`, so laying the document out once here is
@@ -4934,6 +4954,7 @@ fn run_e2e_tests_in_one_window(
         wait_for_render: false,
         dom_id: None,
         response_tx: tx,
+        answered: Mutex::new(None),
     };
     let mut app_data = match app {
         Some((data, config)) => {
@@ -5512,6 +5533,7 @@ mod tests {
                 wait_for_render: false,
                 dom_id: None,
                 response_tx: tx,
+                answered: Mutex::new(None),
             };
             let needs_update = runner.with_callback_info(&changes, |ci| {
                 process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
@@ -5584,6 +5606,7 @@ mod tests {
                 wait_for_render: false,
                 dom_id: None,
                 response_tx: tx,
+                answered: Mutex::new(None),
             };
             let needs_update = runner.with_callback_info(&changes, |ci| {
                 process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)
@@ -5690,6 +5713,7 @@ mod tests {
                 wait_for_render: false,
                 dom_id: None,
                 response_tx: tx,
+                answered: Mutex::new(None),
             };
             let needs_update = runner.with_callback_info(&changes, |ci| {
                 process_debug_event(&request, ci, &mut app_data, &component_map, &mut session)

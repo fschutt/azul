@@ -60,6 +60,7 @@ use azul_layout::window_state::WindowCreateOptions;
 use rust_fontconfig::{registry::FcFontRegistry, FcFontCache};
 
 use super::common::{
+    app_shared::AppShared,
     debug_server,
     debug_server::LogCategory,
     event::{PlatformWindow, SharedUndoManager},
@@ -478,6 +479,7 @@ fn queue_extra_windows(window: &mut impl PlatformWindow, extra_windows: Vec<Wind
 fn run_headless(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
+    app_shared: Arc<AppShared>,
     mut config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -525,15 +527,21 @@ fn run_headless(
     let shared_icon_provider = SharedIconProvider::from_handle(icon_provider_handle);
 
     let app_data_arc = Arc::new(RefCell::new(app_data));
-    let mut window = HeadlessWindow::new(
+    let mut window = HeadlessWindow::with_app_shared(
         root_window,
         app_data_arc,
         undo_manager,
+        app_shared,
         config,
         shared_icon_provider,
         fc_cache,
         font_registry,
     )?;
+    // The app's fonts, as every window of the other shells has them through the app's font
+    // manager.
+    if let Some(font_manager) = font_manager.as_ref() {
+        window.share_registered_fonts(&font_manager.registered_fonts);
+    }
     for options in extra_windows.into_iter().rev() {
         window.queue_window_create(options);
     }
@@ -657,6 +665,7 @@ fn setup_debug_and_e2e(
 pub fn run(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
+    app_shared: Arc<AppShared>,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -726,6 +735,7 @@ pub fn run(
         return run_headless(
             app_data,
             undo_manager,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -760,6 +770,7 @@ pub fn run(
                 return run_linux_windows(
                     app_data,
                     undo_manager,
+                    app_shared,
                     config,
                     fc_cache,
                     font_registry,
@@ -864,6 +875,7 @@ pub fn run(
             root_window,
             app_data.clone(),
             undo_manager.clone(),
+            app_shared.clone(),
             config.clone(),
             shared_icon_provider.clone(),
             fc_cache.clone(),
@@ -1066,6 +1078,9 @@ pub fn run(
                                     pending_create,
                                     app_data.clone(),
                                     undo_manager.clone(),
+                                    // The child shares its parent's app: a mode or a
+                                    // language the app chose reaches it.
+                                    window.common.app.clone(),
                                     config_c.clone(),
                                     shared_icon_provider.clone(),
                                     fc_cache.clone(),
@@ -1258,6 +1273,9 @@ pub fn run(
                                         pending_create,
                                         app_data.clone(),
                                         undo_manager.clone(),
+                                        // The child shares its parent's app: a mode or a
+                                        // language the app chose reaches it.
+                                        window.common.app.clone(),
                                         config.clone(),
                                         shared_icon_provider.clone(),
                                         fc_cache.clone(),
@@ -1502,6 +1520,7 @@ fn run_before_main_loop_waits(work: Box<dyn FnMut()>) {
 pub(super) static mut INITIAL_OPTIONS: Option<(
     RefAny,
     SharedUndoManager,
+    Arc<AppShared>,
     AppConfig,
     Arc<FcFontCache>,
     Option<Arc<FcFontRegistry>>,
@@ -1515,6 +1534,7 @@ pub(super) static mut INITIAL_OPTIONS: Option<(
 pub fn run(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
+    app_shared: Arc<AppShared>,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -1548,6 +1568,7 @@ pub fn run(
         return run_headless(
             app_data,
             undo_manager,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -1568,6 +1589,7 @@ pub fn run(
         INITIAL_OPTIONS = Some((
             app_data,
             undo_manager,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -1591,6 +1613,7 @@ pub fn run(
 pub(super) static mut ANDROID_INITIAL_OPTIONS: Option<(
     RefAny,
     SharedUndoManager,
+    Arc<AppShared>,
     AppConfig,
     Arc<FcFontCache>,
     Option<Arc<FcFontRegistry>>,
@@ -1624,6 +1647,7 @@ pub(super) static mut ANDROID_DEBUG_CHANNEL: Option<(
 pub fn run(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
+    app_shared: Arc<AppShared>,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -1646,6 +1670,7 @@ pub fn run(
         return run_headless(
             app_data,
             undo_manager,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -1675,6 +1700,7 @@ pub fn run(
         ANDROID_INITIAL_OPTIONS = Some((
             app_data,
             undo_manager,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -1697,6 +1723,7 @@ fn is_synthesized_message(message: u32) -> bool {
 pub fn run(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
+    app_shared: Arc<AppShared>,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -1730,6 +1757,7 @@ pub fn run(
         return run_headless(
             app_data,
             undo_manager,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -1779,6 +1807,7 @@ pub fn run(
         font_registry.clone(),
         app_data_arc.clone(),
         undo_manager.clone(),
+        app_shared.clone(),
         font_manager.clone(),
     )?;
     queue_extra_windows(&mut window, extra_windows);
@@ -2055,6 +2084,8 @@ pub fn run(
                             window.font_registry.clone(),
                             window.common.app_data.clone(),
                             window.common.undo_manager.clone(),
+                            // The child shares its parent's app.
+                            window.common.app.clone(),
                             // The app-level manager: the parent derived from it
                             // too, so parent and child share the same font pools
                             // and only the fc_cache snapshot differs (warmed at
@@ -2232,6 +2263,7 @@ pub fn run(
 pub fn run(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
+    app_shared: Arc<AppShared>,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -2299,6 +2331,7 @@ pub fn run(
         return run_headless(
             app_data,
             undo_manager,
+            app_shared,
             config,
             fc_cache,
             font_registry,
@@ -2314,6 +2347,7 @@ pub fn run(
     run_linux_windows(
         app_data,
         undo_manager,
+        app_shared,
         config,
         fc_cache,
         font_registry,
@@ -2343,6 +2377,7 @@ pub fn run(
 fn run_linux_windows(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
+    app_shared: Arc<AppShared>,
     config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -2379,6 +2414,8 @@ fn run_linux_windows(
         // Adopt the app-level manager so every window on this connection
         // shares one set of font pools.
         font_manager,
+        // And the app's own choices (mode, language, natural scroll), shared the same way.
+        app_shared,
     ));
 
     log_debug!(
@@ -2743,7 +2780,12 @@ fn run_linux_windows(
                             // toplevel is the eyedropper's loupe, and the popup that
                             // asked (the color picker) has to survive to hear the
                             // answer (see managers/eyedropper.rs module docs).
-                            if !azul_layout::managers::eyedropper::in_flight_anywhere() {
+                            if !wayland_window
+                                .common
+                                .layout_window
+                                .as_ref()
+                                .is_some_and(|lw| lw.app_services.eyedropper.in_flight_anywhere())
+                            {
                                 wayland_window.dismiss_active_popup();
                             }
 
@@ -3005,6 +3047,7 @@ fn wait_for_linux_window_activity() -> Result<(), WindowError> {
 pub fn run_tray_only(
     app_data: RefAny,
     undo_manager: SharedUndoManager,
+    app_shared: Arc<AppShared>,
     mut config: AppConfig,
     fc_cache: Arc<FcFontCache>,
     font_registry: Option<Arc<FcFontRegistry>>,
@@ -3039,15 +3082,19 @@ pub fn run_tray_only(
     // The callback context. `WindowCreateOptions::default()` is never shown -
     // HeadlessWindow creates no OS window - it only shapes the stub's state.
     let app_data_arc = Arc::new(RefCell::new(app_data));
-    let mut headless = HeadlessWindow::new(
+    let mut headless = HeadlessWindow::with_app_shared(
         WindowCreateOptions::default(),
         app_data_arc,
         undo_manager,
+        app_shared,
         config,
         shared_icon_provider.clone(),
         fc_cache,
         font_registry.clone(),
     )?;
+    if let Some(font_manager) = font_manager.as_ref() {
+        headless.share_registered_fonts(&font_manager.registered_fonts);
+    }
 
     // Same warm-then-install as the windowed path: the registry scans on
     // background threads, so block on the fonts this icon needs rather than

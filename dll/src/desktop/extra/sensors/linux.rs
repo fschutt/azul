@@ -40,7 +40,7 @@ use std::{
 };
 
 use azul_core::sensors::{SensorKind, SensorReading};
-use azul_layout::managers::sensors::push_sensor_reading;
+use azul_layout::managers::sensors::SensorChannel;
 
 use super::units;
 
@@ -48,8 +48,8 @@ use super::units;
 pub fn start() {}
 
 /// Scan the iio devices and push the latest accelerometer / gyroscope /
-/// magnetometer reading from each device that exposes one.
-pub fn poll() {
+/// magnetometer reading from each device that exposes one, into the app's `channel`.
+pub fn poll(channel: &SensorChannel) {
     let dir = match fs::read_dir("/sys/bus/iio/devices") {
         Ok(d) => d,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -76,13 +76,13 @@ pub fn poll() {
     for entry in dir.flatten() {
         let dev = entry.path();
         if let Some(r) = read_axes(&dev, "in_accel", SensorKind::Accelerometer, now_ms) {
-            push_sensor_reading(r);
+            channel.push_reading(r);
         }
         if let Some(r) = read_axes(&dev, "in_anglvel", SensorKind::Gyroscope, now_ms) {
-            push_sensor_reading(r);
+            channel.push_reading(r);
         }
         if let Some(r) = read_axes(&dev, "in_magn", SensorKind::Magnetometer, now_ms) {
-            push_sensor_reading(r);
+            channel.push_reading(r);
         }
 
         // The FUSED channels (8e-i-a). The ledger's note said "Linux and
@@ -92,7 +92,7 @@ pub fn poll() {
         // years, and a machine without the hardware simply has no such files,
         // which is the same no-op every other channel here already gets.
         if let Some(r) = read_axes(&dev, "in_gravity", SensorKind::Gravity, now_ms) {
-            push_sensor_reading(r);
+            channel.push_reading(r);
         }
         // A MODIFIER on the accelerometer, not a channel of its own - hence
         // `in_accel_linear_x_raw` and not `in_linear_accel_x_raw`.
@@ -102,10 +102,10 @@ pub fn poll() {
             SensorKind::LinearAcceleration,
             now_ms,
         ) {
-            push_sensor_reading(r);
+            channel.push_reading(r);
         }
         if let Some(r) = read_quaternion(&dev, now_ms) {
-            push_sensor_reading(r);
+            channel.push_reading(r);
         }
 
         // The SCALAR channels. Each carries its value in `x` and leaves
@@ -134,7 +134,7 @@ pub fn poll() {
             ),
         ] {
             if let Some(v) = read_scalar(&dev, prefix) {
-                push_sensor_reading(SensorReading {
+                channel.push_reading(SensorReading {
                     kind,
                     x: convert.map_or(v, |f| f(v)),
                     y: 0.0,
@@ -146,7 +146,7 @@ pub fn poll() {
                 // in its native unit - no verdict is invented for it.
                 if kind == SensorKind::Proximity {
                     use azul_core::sensors::{DistanceUnit, Proximity, ProximityDistance};
-                    azul_layout::managers::sensors::push_proximity(Proximity::Distance(
+                    channel.push_proximity(Proximity::Distance(
                         ProximityDistance {
                             value: v,
                             unit: DistanceUnit::Meters,

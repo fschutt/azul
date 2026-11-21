@@ -16,7 +16,6 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
-    cpurender::{text_halo_slots_in_this_thread, text_halos},
     overlay::ContentChange,
     solver3::display_list::DisplayListItem,
     window::LayoutWindow,
@@ -245,6 +244,7 @@ fn painted(view: &Recorder) -> Vec<(ImageKey, [u32; 4])> {
         PipelineId(0, 0),
         DeviceIntSize::new(2000, 2000),
         &view.window.renderer_resources,
+        &view.window.text_halo_store,
         DpiScaleFactor::new(view.dpi),
         Vec::new(),
         &BTreeMap::new(),
@@ -274,7 +274,9 @@ fn standing_in(view: &Recorder) -> usize {
         .expect("the root DOM is laid out")
         .display_list
         .clone();
-    text_halos(&list.items, view.dpi, None)
+    view.window
+        .text_halo_store
+        .text_halos(&list.items, view.dpi, None)
         .iter()
         .filter(|halo| halo.stand_in)
         .count()
@@ -311,10 +313,15 @@ struct Settled {
 ///   rects - and every key of it is held;
 /// - the window comes to rest with every label on its own picture, and then
 ///   asks for no frame.
-fn a_zoom_settles(dpi: f32) -> Settled {
+///
+/// `slots`: whether a label's own picture takes the place of the one that stood
+/// in for it (`TextHaloStore::text_halo_slots`: on, as the environment leaves it, or
+/// the switch off).
+fn a_zoom_settles(dpi: f32, slots: bool) -> Settled {
     const LABELS: usize = 12;
     draw_this_many_halos_a_frame_in_this_thread(4);
     let mut view = Recorder::new(dpi);
+    view.window.text_halo_store.text_halo_slots(slots);
     // Whatever this thread counted before is not this window's.
     publish_gpu_frame(&view.window, 0, 0, 0);
 
@@ -402,8 +409,7 @@ fn a_zoom_settles(dpi: f32) -> Settled {
 /// that drew it; `translation_env` with `halos_drawn()` back in it sends the
 /// list in every follow-up.
 fn no_frame_before_the_last_sends_a_list(dpi: f32) {
-    text_halo_slots_in_this_thread(true);
-    let seen = a_zoom_settles(dpi);
+    let seen = a_zoom_settles(dpi, true);
     assert_eq!(
         seen.with_a_list_before_the_last, 0,
         "a follow-up frame before the last one sent a display list"
@@ -438,8 +444,7 @@ fn a4_no_halo_frame_before_the_last_sends_a_list_at_2x() {
 /// takes a place) makes the last follow-up add the eight images and send the
 /// list.
 fn every_picture_takes_the_place_of_its_stand_in(dpi: f32) {
-    text_halo_slots_in_this_thread(true);
-    let seen = a_zoom_settles(dpi);
+    let seen = a_zoom_settles(dpi, true);
     assert_eq!(
         (seen.with_a_list, seen.items),
         (0, 0),
@@ -465,7 +470,7 @@ fn a4_the_frames_after_a_settle_send_pictures_and_no_list_at_2x() {
     every_picture_takes_the_place_of_its_stand_in(2.0);
 }
 
-/// The switch (`AZ_HALO_SLOTS=0`, here per thread): every picture has a slot and
+/// The switch (`AZ_HALO_SLOTS=0`, here per window): every picture has a slot and
 /// a rect of its own and is shown when it is drawn, as before. A label's own
 /// picture is then another image in another rect than its stand-in, the list
 /// that painted the stand-in does not paint it, and every follow-up frame that
@@ -474,9 +479,7 @@ fn a4_the_frames_after_a_settle_send_pictures_and_no_list_at_2x() {
 /// back to.
 #[test]
 fn a4_without_slots_every_follow_up_after_a_settle_sends_the_list() {
-    text_halo_slots_in_this_thread(false);
-    let seen = a_zoom_settles(2.0);
-    text_halo_slots_in_this_thread(true);
+    let seen = a_zoom_settles(2.0, false);
     assert_eq!(seen.with_a_list, seen.follow_ups, "each follow-up drew pictures and sent the list");
     assert!(seen.items > 0);
     assert_eq!((seen.replaced, seen.added), (0, 8), "eight new images, none replaced");
@@ -651,6 +654,7 @@ fn rects_bound_to(view: &Recorder, id: webrender::api::PropertyBindingId) -> usi
         PipelineId(0, 0),
         DeviceIntSize::new(2000, 2000),
         &view.window.renderer_resources,
+        &view.window.text_halo_store,
         DpiScaleFactor::new(view.dpi),
         Vec::new(),
         &BTreeMap::new(),
@@ -1080,13 +1084,14 @@ mod a_settle_sent_without_the_wait {
     }
 
     /// A map of twelve labels whose zoom settles, then another view, on a
-    /// thread of its own (the kept halos are a thread's): what every pass
-    /// handed over, and how many passes went without the wait.
+    /// thread of its own (the frame's halo budget and the GPU counters are a
+    /// thread's): what every pass handed over, and how many passes went without
+    /// the wait.
     fn two_settles(in_step: bool) -> (Vec<Handed>, usize) {
         std::thread::spawn(move || {
-            text_halo_slots_in_this_thread(true);
             draw_this_many_halos_a_frame_in_this_thread(4);
             let mut shell = Shell::new(in_step);
+            shell.view.window.text_halo_store.text_halo_slots(true);
             let key = OpacityKey::unique();
 
             // The window's first frame is in step, whatever it sends.

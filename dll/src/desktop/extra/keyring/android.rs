@@ -8,7 +8,9 @@
 //! Android `KeyStore` (an AES key with `setUserAuthenticationRequired(true)`
 //! when biometry-bound — a `Get` then shows `BiometricPrompt`) and calls
 //! back into `nativeOnKeyringResult` with a result code (+ the secret
-//! string for a successful `Get`).
+//! string for a successful `Get`), which parks the answer in the app's
+//! `KeyringChannels::results` (reached through `process_app`: a JNI entry
+//! point carries no context).
 //!
 //! Pending (non-Rust): the `AzulKeyring.java` helper plus the manifest
 //! `USE_BIOMETRIC` permission. Until it ships, `find_class` fails and ops
@@ -18,7 +20,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::keyring::{KeyringRequest, KeyringResult};
-use azul_layout::managers::keyring::push_keyring_result;
+use azul_layout::managers::shared_queue::SharedQueue;
 
 // One op in flight at a time; a nonzero handle drops a late result from a
 // superseded op (the user could re-tap before the first prompt resolves).
@@ -28,7 +30,7 @@ static REQUEST_HANDLE: AtomicU64 = AtomicU64::new(0);
 static HANDLE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[cfg(target_os = "android")]
-pub fn request(req: &KeyringRequest) {
+pub fn request(req: &KeyringRequest, results: &SharedQueue<KeyringResult>) {
     let handle = HANDLE_COUNTER.fetch_add(1, Ordering::Relaxed);
     REQUEST_HANDLE.store(handle, Ordering::Relaxed);
     let ok = attach(|env, activity| {
@@ -90,13 +92,13 @@ pub fn request(req: &KeyringRequest) {
     });
     if ok.is_none() {
         REQUEST_HANDLE.store(0, Ordering::Relaxed);
-        push_keyring_result(KeyringResult::Unavailable);
+        results.push(KeyringResult::Unavailable);
     }
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn request(req: &KeyringRequest) {
-    let _ = req;
+pub fn request(req: &KeyringRequest, results: &SharedQueue<KeyringResult>) {
+    let _ = (req, results);
 }
 
 /// Attach the current thread to the published JavaVM and run `f` with the
@@ -162,5 +164,8 @@ pub unsafe extern "system" fn Java_com_azul_keyring_AzulKeyring_nativeOnKeyringR
         5 => KeyringResult::Unavailable,
         _ => KeyringResult::Error,
     };
-    push_keyring_result(result);
+    // The JNI entry has no context: the App's services are where `App::run` put them.
+    if let Some(services) = crate::desktop::process_app::services() {
+        services.keyring.results.push(result);
+    }
 }

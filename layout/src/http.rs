@@ -534,6 +534,9 @@ fn lost_get_result() -> HttpGetResult {
 #[cfg(feature = "std")]
 std::thread_local! {
     /// Whether this thread runs the app's event loop ([`mark_event_loop_thread`]).
+    ///
+    /// KEPT per thread: it is a fact about the OS thread, asked from wherever a blocking request
+    /// is made (a callback, a worker), where no handle to the app exists.
     static EVENT_LOOP_THREAD: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
 }
 

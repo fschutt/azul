@@ -40,12 +40,17 @@
 //! `nativeOnTouchpad`. Without a capture `touchpad_active` stays false.
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
-use azul_layout::managers::gamepad::push_gamepad_state;
-
 use super::{apply_axial_deadzone, apply_radial_deadzone};
 
-/// Register the input-device listener.
-///
+/// Park a pad's state in the app's `GamepadStates` queue. The input callbacks are JNI entry
+/// points the Java listener calls (`nativeOnButton`, ...), which carry no context pointer: the
+/// App's services are read where `App::run` put them (`process_app`).
+fn push_gamepad_state(state: GamepadState) {
+    if let Some(services) = crate::desktop::process_app::services() {
+        services.gamepad.push(state);
+    }
+}
+
 /// A no-op on the Rust side: the listener is a Java object, and registering
 /// it is the Java half's job at activity start. Kept so the dispatcher's
 /// `start()` has the same shape on every platform.

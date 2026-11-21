@@ -26,6 +26,7 @@
 
 use alloc::{collections::btree_map::BTreeMap, vec::Vec};
 
+use super::shared_queue::SharedQueue;
 use azul_core::{
     dom::DomNodeId,
     events::{EventData, EventProvider, EventSource as CoreEventSource, EventType, SyntheticEvent},
@@ -407,39 +408,20 @@ impl PermissionManager {
     }
 }
 
-// ────────── Async result channel (platform backend → manager) ─────────
-//
-// When a `Subscribe` fires an OS prompt, the result arrives later on an
-// arbitrary thread (an iOS completion handler / Android
-// `onRequestPermissionsResult`) where there's no handle to the live
-// `PermissionManager` (it lives inside the window's `LayoutWindow`). The
-// platform backend parks the resolved state here; the layout pass drains
-// it once per frame via [`drain_async_results`] and applies each through
-// [`PermissionManager::set_status`]. Pure Rust — no platform dependency,
-// so it satisfies SUPER_PLAN_2 §0.5's "no platform deps in azul-layout".
+// ────────── Async result queue (platform backend → manager) ────────────
 
-static ASYNC_RESULTS: std::sync::Mutex<Vec<(Capability, PermissionState)>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Park an async permission result. Called by a platform backend (in the
-/// dll) when an OS prompt resolves. Thread-safe; recovers from a poisoned
-/// lock so one panicking applier can't wedge delivery forever.
-pub fn push_async_result(capability: Capability, state: PermissionState) {
-    let mut q = ASYNC_RESULTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push((capability, state));
-}
-
-/// Drain everything parked by [`push_async_result`], in arrival order.
-/// Called once per layout pass; the caller applies each result through
-/// [`PermissionManager::set_status`] and relayouts if any changed.
-pub fn drain_async_results() -> Vec<(Capability, PermissionState)> {
-    let mut q = ASYNC_RESULTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
+/// The queue the platform backends park resolved permission prompts in, for the layout pass to
+/// fold into the manager.
+///
+/// When a `Subscribe` fires an OS prompt, the result arrives later on an arbitrary thread (an
+/// iOS completion handler / Android `onRequestPermissionsResult`) where there's no handle to the
+/// live `PermissionManager` (it lives inside the window's `LayoutWindow`): the backend is handed
+/// a clone of this queue with the request and parks the resolved state in it; the layout pass
+/// drains it once per frame (`drain`) and applies each result through
+/// [`PermissionManager::set_status`], relaying out if any changed. The queue belongs to the app
+/// (`AppServices::permission`), shared by its windows. Pure Rust — no platform dependency, so it
+/// satisfies `SUPER_PLAN_2` §0.5's "no platform deps in azul-layout".
+pub type AsyncPermissionResults = SharedQueue<(Capability, PermissionState)>;
 
 #[cfg(test)]
 mod tests {
@@ -626,20 +608,15 @@ mod tests {
 
     #[test]
     fn async_results_round_trip_through_manager() {
-        // The channel is a process-global and libtest runs tests in parallel:
-        // serialize against every other test that touches it.
-        let _serialize = autotest_generated::lock_async_channel();
-        // The channel is a process-global; clear anything a prior test or
-        // ordering left behind so this test is self-contained.
-        drop(drain_async_results());
+        let owner = AsyncPermissionResults::default();
 
-        push_async_result(
+        owner.push((
             Capability::Camera,
             PermissionState::Granted(PermissionQuality::Full),
-        );
-        push_async_result(Capability::Geolocation, PermissionState::Denied);
+        ));
+        owner.push((Capability::Geolocation, PermissionState::Denied));
 
-        let drained = drain_async_results();
+        let drained = owner.drain();
         assert_eq!(drained.len(), 2, "both parked results drain in order");
         // Arrival order preserved.
         assert_eq!(drained[0].0, Capability::Camera);
@@ -658,7 +635,7 @@ mod tests {
         );
 
         // A second drain is empty — the queue was taken, not copied.
-        assert!(drain_async_results().is_empty());
+        assert!(owner.drain().is_empty());
     }
 }
 
@@ -781,18 +758,6 @@ mod autotest_generated {
 
     fn ts(tick: u64) -> Instant {
         Instant::Tick(SystemTick::new(tick))
-    }
-
-    /// Serializes every test that touches the process-global `ASYNC_RESULTS`
-    /// queue. libtest runs tests in parallel threads inside one process, so
-    /// without this a concurrent `push_async_result` would corrupt another
-    /// test's drain. Recovers from poisoning so one failing test cannot wedge
-    /// the rest of the suite.
-    pub(super) fn lock_async_channel() -> std::sync::MutexGuard<'static, ()> {
-        static ASYNC_CHANNEL_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        ASYNC_CHANNEL_TEST_LOCK
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     // ── Capability: enum hygiene ────────────────────────────────────────
@@ -1657,63 +1622,29 @@ mod autotest_generated {
         assert_eq!(mgr.get_pending_events(ts(0))[0].target, foreign);
     }
 
-    // ── async channel (process-global) ──────────────────────────────────
+    // ── async queue ────────────────────────────────────────────────────────
 
     #[test]
     fn async_channel_preserves_arrival_order_across_all_states() {
-        let _serialize = lock_async_channel();
-        drop(drain_async_results());
+        let owner = AsyncPermissionResults::default();
 
         for state in ALL_STATES {
-            push_async_result(Capability::Camera, state);
+            owner.push((Capability::Camera, state));
         }
-        let drained = drain_async_results();
+        let drained = owner.drain();
         assert_eq!(drained.len(), ALL_STATES.len());
         for (i, state) in ALL_STATES.iter().enumerate() {
             assert_eq!(drained[i], (Capability::Camera, *state));
         }
         assert!(
-            drain_async_results().is_empty(),
+            owner.drain().is_empty(),
             "the queue is taken, not copied"
         );
     }
 
     #[test]
-    fn async_channel_recovers_from_a_poisoned_lock() {
-        let _serialize = lock_async_channel();
-        drop(drain_async_results());
-
-        // Poison the global mutex the way a panicking applier would: unwind
-        // out of a live guard. (The panic message below is expected output if
-        // this test ever fails; libtest swallows it while it passes.)
-        let unwound = std::panic::catch_unwind(|| {
-            let _guard = ASYNC_RESULTS.lock().unwrap();
-            panic!("intentional: poisoning ASYNC_RESULTS");
-        });
-        assert!(
-            unwound.is_err(),
-            "the panic must have unwound through the guard"
-        );
-        assert!(
-            ASYNC_RESULTS.is_poisoned(),
-            "the lock should now be poisoned"
-        );
-
-        // Documented contract: delivery keeps working after a poisoning.
-        push_async_result(Capability::Geolocation, PermissionState::Denied);
-        let drained = drain_async_results();
-        assert_eq!(
-            drained,
-            [(Capability::Geolocation, PermissionState::Denied)].to_vec(),
-            "a poisoned lock must not wedge permission delivery forever"
-        );
-        assert!(drain_async_results().is_empty());
-    }
-
-    #[test]
     fn async_channel_survives_concurrent_pushers() {
-        let _serialize = lock_async_channel();
-        drop(drain_async_results());
+        let owner = AsyncPermissionResults::default();
 
         const THREADS: usize = 8;
         const PER_THREAD: usize = 50;
@@ -1721,9 +1652,10 @@ mod autotest_generated {
         let handles: Vec<_> = (0..THREADS)
             .map(|t| {
                 let cap = ALL_CAPS[t];
+                let sink = owner.clone();
                 std::thread::spawn(move || {
                     for _ in 0..PER_THREAD {
-                        push_async_result(cap, PermissionState::Granted(PermissionQuality::Full));
+                        sink.push((cap, PermissionState::Granted(PermissionQuality::Full)));
                     }
                 })
             })
@@ -1732,20 +1664,20 @@ mod autotest_generated {
             h.join().expect("a pusher thread panicked");
         }
 
-        let drained = drain_async_results();
+        let drained = owner.drain();
         assert_eq!(drained.len(), THREADS * PER_THREAD, "results were lost");
         for cap in ALL_CAPS.iter().take(THREADS) {
             let count = drained.iter().filter(|(c, _)| c == cap).count();
             assert_eq!(count, PER_THREAD, "{cap:?} lost results");
         }
-        assert!(drain_async_results().is_empty());
+        assert!(owner.drain().is_empty());
     }
 
     #[test]
     fn draining_an_empty_async_channel_is_safe_and_repeatable() {
-        let _serialize = lock_async_channel();
+        let owner = AsyncPermissionResults::default();
         for _ in 0..3 {
-            assert!(drain_async_results().is_empty());
+            assert!(owner.drain().is_empty());
         }
     }
 }

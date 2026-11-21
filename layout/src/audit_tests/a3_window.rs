@@ -347,12 +347,31 @@ extern "C" fn label_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> Vi
 
 /// A window whose view holds `count` labels, laid out; the view's document.
 fn label_window(count: usize) -> (LayoutWindow, DomId) {
+    label_window_under(count, crate::window::WindowSwitches::default())
+}
+
+/// [`label_window`] for a window that binds a state colour when a state first PAINTS it (the
+/// binding of A3-window-50), not from the build of the list (A3-window-55): for the tests of
+/// the decoration patch, which is what still shows every restyle that is not the value of a
+/// bound colour (a border, a shadow, a gradient, a node without a key).
+fn label_window_bound_when_painted(count: usize) -> (LayoutWindow, DomId) {
+    let mut switches = crate::window::WindowSwitches::default();
+    switches.set_state_colors_from_the_build(Some(false));
+    label_window_under(count, switches)
+}
+
+/// [`label_window`] with the window's switches chosen before its first layout.
+fn label_window_under(
+    count: usize,
+    switches: crate::window::WindowSwitches,
+) -> (LayoutWindow, DomId) {
     let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
         Dom::create_virtual_view(RefAny::new(Labels(count)), VirtualViewCallback::create(label_page))
             .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
     );
     let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    lw.switches = switches;
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(600.0, 400.0);
     lw.current_window_state = ws.clone();
@@ -370,25 +389,6 @@ fn label_window(count: usize) -> (LayoutWindow, DomId) {
         .find(|dom| **dom != DomId::ROOT_ID)
         .expect("the view's document");
     (lw, child)
-}
-
-/// While this lives, the windows this thread builds bind a state colour when a state first
-/// PAINTS it (the binding of A3-window-50), not from the build of the list (A3-window-55):
-/// for the tests of the decoration patch, which is what still shows every restyle that is
-/// not the value of a bound colour (a border, a shadow, a gradient, a node without a key).
-struct BoundWhenPainted;
-
-impl BoundWhenPainted {
-    fn on_this_thread() -> Self {
-        crate::window::set_state_colors_from_the_build_on_this_thread(Some(false));
-        Self
-    }
-}
-
-impl Drop for BoundWhenPainted {
-    fn drop(&mut self) {
-        crate::window::set_state_colors_from_the_build_on_this_thread(None);
-    }
 }
 
 /// The span of label `i` and its text, as the hover manager enters and leaves them.
@@ -451,8 +451,7 @@ fn hover(lw: &mut LayoutWindow, child: DomId, i: usize, enters: bool) -> Vec<Str
 /// frame); entering and leaving.
 #[test]
 fn a_hover_colour_patched_into_the_list_is_the_list_a_build_gives() {
-    let _binding = BoundWhenPainted::on_this_thread();
-    let (mut lw, child) = label_window(12);
+    let (mut lw, child) = label_window_bound_when_painted(12);
     for label in [0_usize, 1, 2, 9, 10, 11] {
         for enters in [true, false] {
             let patched = hover(&mut lw, child, label, enters);
@@ -475,8 +474,7 @@ fn a_hover_colour_patched_into_the_list_is_the_list_a_build_gives() {
 /// every other item is the item it was, in its place. 400 labels: a build emits them all.
 #[test]
 fn a_hover_over_one_label_of_many_touches_that_labels_items_alone() {
-    let _binding = BoundWhenPainted::on_this_thread();
-    let (mut lw, child) = label_window(400);
+    let (mut lw, child) = label_window_bound_when_painted(400);
     let before = lines(&lw.layout_results[&child].display_list);
     assert!(before.len() >= 400, "harness: the view's list holds the labels ({})", before.len());
     lw.frame_report.reset_counters();
@@ -603,8 +601,7 @@ fn painted_lines(lw: &LayoutWindow, dom: DomId) -> Vec<String> {
 /// colour after the leave).
 #[test]
 fn a_hover_that_comes_again_is_a_value_and_no_list() {
-    let _binding = BoundWhenPainted::on_this_thread();
-    let (mut lw, child) = label_window(40);
+    let (mut lw, child) = label_window_bound_when_painted(40);
     let at_rest = lines(&lw.layout_results[&child].display_list);
     // Label 9 (9 % 3 == 0: no background of its own).
     let hovered = hover(&mut lw, child, 9, true);
@@ -639,8 +636,7 @@ fn a_hover_that_comes_again_is_a_value_and_no_list() {
 /// has no key and its leave is a patch.
 #[test]
 fn a_state_colour_without_a_key_still_takes_the_patch() {
-    let _binding = BoundWhenPainted::on_this_thread();
-    let (mut lw, child) = label_window(40);
+    let (mut lw, child) = label_window_bound_when_painted(40);
     let at_rest = lines(&lw.layout_results[&child].display_list);
     lw.frame_report.reset_counters();
     drop(hover(&mut lw, child, 10, true));
@@ -750,8 +746,7 @@ fn a_build_binds_one_rect_per_node_with_a_state_colour_and_none_else() {
     let items = lw.layout_results[&child].display_list.items.len();
 
     let (plain_items, plain_bound, plain_keys) = {
-        let _binding = BoundWhenPainted::on_this_thread();
-        let (plain, plain_child) = label_window(12);
+        let (plain, plain_child) = label_window_bound_when_painted(12);
         (
             plain.layout_results[&plain_child].display_list.items.len(),
             bound(&plain, plain_child),
@@ -780,15 +775,13 @@ fn a_build_binds_one_rect_per_node_with_a_state_colour_and_none_else() {
 /// (not caught here: see `a_node_whose_rect_the_list_does_not_bind_takes_the_patch`).
 #[test]
 fn a_pointer_swept_over_labels_it_never_touched_writes_values_and_changes_no_list() {
-    use crate::window::STATE_COLOR_WRITES;
-
     const SWEPT: usize = 12;
     for labels in [40_usize, 160] {
         let (mut lw, child) = label_window(labels);
         let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
         let at_rest = painted_lines(&lw, child);
         lw.frame_report.reset_counters();
-        STATE_COLOR_WRITES.with(|written| written.set(0));
+        lw.work.reset();
         let mut steps: Vec<Vec<String>> = Vec::new();
         for label in 0..SWEPT {
             for enters in [true, false] {
@@ -806,7 +799,7 @@ fn a_pointer_swept_over_labels_it_never_touched_writes_values_and_changes_no_lis
             "{labels} labels: the view's list is the allocation it was"
         );
         assert_eq!(
-            STATE_COLOR_WRITES.with(core::cell::Cell::get),
+            lw.work.state_color_writes(),
             2 * SWEPT,
             "{labels} labels: a value per enter and per leave"
         );
@@ -1276,12 +1269,10 @@ fn a_view_rendered_again_has_another_generation_only_with_another_dom() {
 /// every DOM (400 labels here, 12,470 in a map view) to find none.
 #[test]
 fn a_frame_of_an_unchanged_dom_walks_no_layout_node_for_callback_images() {
-    use crate::window::CALLBACK_IMAGE_SCAN;
-
     let (mut lw, child) = label_window(400);
-    CALLBACK_IMAGE_SCAN.with(|scanned| scanned.set(0));
+    lw.work.reset();
     lw.prepare_frame_content();
-    let first = CALLBACK_IMAGE_SCAN.with(std::cell::Cell::get);
+    let first = lw.work.callback_image_scan();
     assert!(first >= 400, "harness: the first frame walks each DOM once ({first})");
 
     lw.prepare_frame_content();
@@ -1289,7 +1280,7 @@ fn a_frame_of_an_unchanged_dom_walks_no_layout_node_for_callback_images() {
     let _ = hover(&mut lw, child, 3, true);
     lw.prepare_frame_content();
     assert_eq!(
-        CALLBACK_IMAGE_SCAN.with(std::cell::Cell::get),
+        lw.work.callback_image_scan(),
         first,
         "frames (and a hover) over unchanged DOMs walk no layout node"
     );
@@ -1851,10 +1842,10 @@ fn css_diff_of_a_move(count: usize) -> (usize, usize) {
     let shift = Arc::new(AtomicUsize::new(0));
     let (mut lw, _child) = moved_label_window(count, &shift);
     shift.store(5, Ordering::SeqCst);
-    crate::window::CSS_DIFF_WORK.with(|work| work.set((0, 0)));
+    lw.work.reset();
     let ws = lw.current_window_state.clone();
     render_the_view_again(&mut lw, &ws);
-    crate::window::CSS_DIFF_WORK.with(core::cell::Cell::get)
+    lw.work.css_diff_work()
 }
 
 /// The size sweep of A3-window-31: the diff of a view whose labels all moved takes a step per
@@ -1907,10 +1898,10 @@ fn a_view_rendered_again_under_another_window_context_is_laid_out_without_a_diff
     let mut ws = lw.current_window_state.clone();
     ws.size.dimensions = LogicalSize::new(700.0, 400.0);
     lw.current_window_state = ws.clone();
-    crate::window::CSS_DIFF_WORK.with(|work| work.set((0, 0)));
+    lw.work.reset();
     render_the_view_again(&mut lw, &ws);
 
-    let (_, types) = crate::window::CSS_DIFF_WORK.with(core::cell::Cell::get);
+    let (_, types) = lw.work.css_diff_work();
     assert_eq!(types, 0, "no property was resolved on both sides");
     assert_eq!(
         first_left(&lw),
@@ -1974,7 +1965,12 @@ const BOXES_SHEET: &str = ".t { position: absolute; top: 0px; width: 20px; heigh
 fn a_box_whose_own_insets_moved_is_left_to_its_fingerprint() {
     let old = boxes_page(BOXES_SHEET, &[vec![own_left(10.0)], vec![own_left(20.0)], vec![own_left(30.0)]]);
     let new = boxes_page(BOXES_SHEET, &[vec![own_left(15.0)], vec![own_left(25.0)], vec![own_left(35.0)]]);
-    let diff = crate::window::css_diff_between(&old, &new, &boxes_in_place(3))
+    let diff = crate::window::css_diff_between(
+        &old,
+        &new,
+        &boxes_in_place(3),
+        &crate::window::WindowWork::default(),
+    )
         .expect("the two pages have the same context");
     assert!(diff.is_empty(), "no box is named: {diff:?}");
 }
@@ -1991,7 +1987,12 @@ fn a_box_whose_own_width_moved_with_its_insets_is_named_in_the_css_diff() {
         BOXES_SHEET,
         &[vec![own_left(15.0)], vec![own_left(25.0), own_width(30.0)], vec![own_left(35.0)]],
     );
-    let diff = crate::window::css_diff_between(&old, &new, &boxes_in_place(3))
+    let diff = crate::window::css_diff_between(
+        &old,
+        &new,
+        &boxes_in_place(3),
+        &crate::window::WindowWork::default(),
+    )
         .expect("the two pages have the same context");
     let named: Vec<NodeId> = diff.iter().map(|(node, _)| *node).collect();
     assert_eq!(named, vec![NodeId::new(2)], "the box whose width moved, and no other");
@@ -2008,7 +2009,12 @@ fn an_inset_a_stylesheet_moved_is_named_in_the_css_diff() {
     let own = [vec![], vec![], vec![]];
     let old = boxes_page(".t { position: absolute; left: 5px; width: 20px; height: 10px; }", &own);
     let new = boxes_page(".t { position: absolute; left: 9px; width: 20px; height: 10px; }", &own);
-    let diff = crate::window::css_diff_between(&old, &new, &boxes_in_place(3))
+    let diff = crate::window::css_diff_between(
+        &old,
+        &new,
+        &boxes_in_place(3),
+        &crate::window::WindowWork::default(),
+    )
         .expect("the two pages have the same context");
     let named: Vec<NodeId> = diff.iter().map(|(node, _)| *node).collect();
     assert_eq!(
@@ -2088,11 +2094,11 @@ fn a_fading_bar_of_the_window_asks_for_frames_with_a_view_in_the_window() {
 fn a_frame_computes_a_scrollbar_fade_for_no_box_of_a_page_without_bars() {
     for labels in [40, 160] {
         let (mut lw, _child) = label_window(labels);
-        crate::window::SCROLLBAR_FADE_WORK.with(|work| work.set(0));
+        lw.work.reset();
         let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
         let _ = lw.refresh_scrollbar_gpu_cache_for_cpu_frame();
         assert_eq!(
-            crate::window::SCROLLBAR_FADE_WORK.with(core::cell::Cell::get),
+            lw.work.scrollbar_fade_work(),
             0,
             "{labels} labels, no bar: no box's fade is computed"
         );
@@ -2109,8 +2115,8 @@ fn a_frame_computes_a_scrollbar_fade_for_no_box_of_a_page_without_bars() {
 
 // -- A3-window-22 / -23 / -24: what the font chains of a DOM were resolved for -----------------
 
-fn font_resolutions() -> usize {
-    crate::window::FONT_RESOLUTIONS.with(core::cell::Cell::get)
+fn font_resolutions(lw: &LayoutWindow) -> usize {
+    lw.work.font_resolutions()
 }
 
 /// A3-window-22: a view that renders again with the font stacks and the characters it had
@@ -2123,9 +2129,9 @@ fn a_view_rendered_again_with_the_stacks_and_characters_it_had_resolves_no_font(
     let ws = lw.current_window_state.clone();
     // The same labels, five pixels further right: another DOM, the same text.
     shift.store(5, Ordering::SeqCst);
-    crate::window::FONT_RESOLUTIONS.with(|ran| ran.set(0));
+    lw.work.reset();
     render_the_view_again(&mut lw, &ws);
-    assert_eq!(font_resolutions(), 0, "the chains of the view's last pass answer for it");
+    assert_eq!(font_resolutions(&lw), 0, "the chains of the view's last pass answer for it");
 }
 
 /// A page of one line of text, laid out in `lw` as a rebuild of the window's DOM.
@@ -2154,15 +2160,15 @@ fn a_rebuilt_page_resolves_its_fonts_again_for_a_character_it_did_not_have() {
     lw.current_window_state = ws.clone();
     lay_out_text(&mut lw, &ws, "abc");
 
-    crate::window::FONT_RESOLUTIONS.with(|ran| ran.set(0));
+    lw.work.reset();
     // "cabcab", not "cab cab": the space is a character "abc" did not have, and by the rule
     // this test pins it is another requirement (the test resolved once here, rightly).
     lay_out_text(&mut lw, &ws, "cabcab");
-    assert_eq!(font_resolutions(), 0, "the same characters in another order");
+    assert_eq!(font_resolutions(&lw), 0, "the same characters in another order");
     lay_out_text(&mut lw, &ws, "abd");
-    assert_eq!(font_resolutions(), 1, "`d` is new: the chains were resolved for a, b, c");
+    assert_eq!(font_resolutions(&lw), 1, "`d` is new: the chains were resolved for a, b, c");
     lay_out_text(&mut lw, &ws, "abc");
-    assert_eq!(font_resolutions(), 1, "`c` was covered before and still is");
+    assert_eq!(font_resolutions(&lw), 1, "`c` was covered before and still is");
 }
 
 /// A3-window-23: the font collector may run on the keep-set of the window's own DOM only
@@ -2242,7 +2248,7 @@ fn a_nodes_layout_rect_is_found_without_a_walk_of_the_layout_tree() {
     for labels in [40, 160] {
         let (lw, child) = label_window(labels);
         let last = NodeId::new(1 + 2 * (labels - 1));
-        crate::window::LAYOUT_NODE_LOOKUPS.with(|work| work.set(0));
+        lw.work.reset();
         let rect = lw
             .get_node_layout_rect(DomNodeId {
                 dom: child,
@@ -2250,7 +2256,7 @@ fn a_nodes_layout_rect_is_found_without_a_walk_of_the_layout_tree() {
             })
             .expect("the last label has a box");
         assert_eq!(
-            crate::window::LAYOUT_NODE_LOOKUPS.with(core::cell::Cell::get),
+            lw.work.layout_node_lookups(),
             1,
             "{labels} labels: one lookup"
         );
@@ -2333,8 +2339,8 @@ fn a_bar_that_shows_moves_the_value_generation_and_a_resting_one_does_not() {
 
 // -- A3-window-06: the per-frame search for callback backgrounds -------------------------------
 
-fn background_items_scanned() -> usize {
-    crate::window::BACKGROUND_ITEM_SCAN.with(core::cell::Cell::get)
+fn background_items_scanned(lw: &LayoutWindow) -> usize {
+    lw.work.background_item_scan()
 }
 
 /// The budget of A3-window-06: with a callback image registered by name (every window of a
@@ -2343,8 +2349,7 @@ fn background_items_scanned() -> usize {
 /// walked once more, and only that list.
 #[test]
 fn a_frame_over_the_lists_of_the_frame_before_walks_no_item_for_callback_backgrounds() {
-    let _binding = BoundWhenPainted::on_this_thread();
-    let (mut lw, child) = label_window(40);
+    let (mut lw, child) = label_window_bound_when_painted(40);
     lw.image_cache.add_css_image_id(
         "probe".into(),
         azul_core::resources::ImageRef::callback(
@@ -2353,18 +2358,18 @@ fn a_frame_over_the_lists_of_the_frame_before_walks_no_item_for_callback_backgro
         ),
     );
     lw.prepare_frame_content();
-    assert!(background_items_scanned() > 0, "the first frame walks the lists");
+    assert!(background_items_scanned(&lw) > 0, "the first frame walks the lists");
 
-    crate::window::BACKGROUND_ITEM_SCAN.with(|scanned| scanned.set(0));
+    lw.work.reset();
     lw.prepare_frame_content();
     lw.prepare_frame_content();
-    assert_eq!(background_items_scanned(), 0, "the same lists: nothing is walked");
+    assert_eq!(background_items_scanned(&lw), 0, "the same lists: nothing is walked");
 
     // A hover colour is spliced into the view's list (or the list is built again).
     let _ = hover(&mut lw, child, 3, true);
     lw.prepare_frame_content();
     assert_eq!(
-        background_items_scanned(),
+        background_items_scanned(&lw),
         lw.layout_results[&child].display_list.items.len(),
         "the view's list, once; the window's own was not touched"
     );
@@ -2726,7 +2731,7 @@ fn a_move_of_a_drag(
 ) -> (usize, usize, u32, u32, crate::overlay::ContentDirtyTier, (f32, f32)) {
     use azul_core::{dom::DomNodeId, styled_dom::NodeHierarchyItemId};
 
-    use crate::{solver3::display_list::node_patch::MOVE_ITEM_VISITS, window::MOVED_BOXES};
+    use crate::solver3::display_list::node_patch::MOVE_ITEM_VISITS;
 
     let (mut lw, child) = turned_label_window(count, 150.0, 10.0, 12.0);
     let id = DomNodeId {
@@ -2737,12 +2742,12 @@ fn a_move_of_a_drag(
     let _ = write_label(&mut lw, child, 178.0, 33.0, 12.0);
     let before = lw.get_node_position(id).expect("the label is laid out");
     lw.frame_report.reset_counters();
-    MOVED_BOXES.with(|boxes| boxes.set(0));
+    lw.work.reset();
     MOVE_ITEM_VISITS.with(|items| items.set(0));
     let tier = write_label(&mut lw, child, 181.0, 36.0, 12.0);
     let after = lw.get_node_position(id).expect("the label is laid out");
     (
-        MOVED_BOXES.with(core::cell::Cell::get),
+        lw.work.moved_boxes(),
         MOVE_ITEM_VISITS.with(core::cell::Cell::get),
         lw.frame_report.layout_passes,
         lw.frame_report.dl_rebuilds,
@@ -3085,7 +3090,7 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
 
     use crate::{
         overlay::{ContentChange, ContentDirtyTier},
-        solver3::display_list::{set_moved_run_policy_on_this_thread, MovedRunPolicy},
+        solver3::display_list::MovedRunPolicy,
     };
 
     const BEFORE: f32 = 10.7;
@@ -3104,16 +3109,16 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
     };
     let (fresh, fresh_child) = rows_window(AFTER);
 
-    // The pass as it is (the default policy: a moved box is painted anew).
-    set_moved_run_policy_on_this_thread(Some(MovedRunPolicy::TweenFramesTranslate));
+    // The pass as it is (the default policy: a moved box is painted anew), whatever the
+    // environment says: this window's own option.
     let (mut lw, child) = rows_window(BEFORE);
+    lw.display_list_options.moved_runs = MovedRunPolicy::TweenFramesTranslate;
     assert!(
         same_bits(&lw, child, &fresh, fresh_child).is_err(),
         "premise: before the pass the rows stand where the lower box put them"
     );
     grow(&mut lw, child);
     let painted = same_bits(&lw, child, &fresh, fresh_child);
-    set_moved_run_policy_on_this_thread(None);
     if let Err(difference) = painted {
         panic!("after the pass: {difference}");
     }

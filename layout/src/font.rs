@@ -518,6 +518,9 @@ pub mod parsed {
     #[cfg(target_family = "wasm")]
     pub(crate) fn monotonic_now_nanos() -> u64 {
         use std::sync::atomic::{AtomicU64, Ordering};
+        // KEPT process-wide (browser wasm only): the stand-in for the clock the platform lacks;
+        // the parsed fonts it stamps are shared by every window, so their "last used" order is
+        // the process's.
         static TICK: AtomicU64 = AtomicU64::new(1);
         TICK.fetch_add(1, Ordering::Relaxed)
     }

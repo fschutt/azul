@@ -684,6 +684,12 @@ pub struct ScrollManager {
     /// this flag must stay at its default there (we preserve current behavior) and
     /// primarily controls mouse-wheel direction on platforms that don't pre-apply.
     natural_scroll: bool,
+    /// The PLATFORM's natural-scrolling preference, where a backend reported one
+    /// (`AppConfig::natural_scroll = System` reads it): `None` = the platform said
+    /// nothing (X11, mobile, or no reader yet). The shell that builds the window reads
+    /// what its platform has (macOS, Windows) and keeps it current where the
+    /// compositor reports changes (Wayland's `axis_relative_direction`).
+    system_natural_scroll: Option<bool>,
     /// Whether the pointing device's scroll motion is inverted relative to
     /// the surface — "natural scrolling". Set by the backends that report it
     /// (macOS `isDirectionInvertedFromDevice`, Wayland
@@ -825,17 +831,7 @@ impl ScrollManager {
     /// Creates a new empty `ScrollManager`
     #[must_use]
     pub fn new() -> Self {
-        // `AppConfig::natural_scroll` (9b-ii-b-i-a): `Enabled` flips in the
-        // engine; `System` and `Disabled` do not - the platform already
-        // applied the user's preference to the deltas it hands over, and
-        // `System` only makes that preference readable.
-        let mut m = Self {
-            natural_scroll: matches!(
-                crate::window::natural_scroll_mode(),
-                azul_core::resources::NaturalScroll::Enabled
-            ),
-            ..Self::default()
-        };
+        let mut m = Self::default();
         // Power-user / test override: this env var wins so the direction can
         // be flipped without a rebuild and so tests are hermetic.
         #[cfg(feature = "std")]
@@ -845,12 +841,32 @@ impl ScrollManager {
         m
     }
 
+    /// Take `AppConfig::natural_scroll` (9b-ii-b-i-a): `Enabled` flips in the
+    /// engine; `System` and `Disabled` do not - the platform already applied
+    /// the user's preference to the deltas it hands over, and `System` only
+    /// makes that preference readable. The shell hands every window it builds
+    /// the app's mode. `AZ_NATURAL_SCROLL` wins over it, as over every other
+    /// source of the direction.
+    pub fn adopt_app_natural_scroll(&mut self, mode: azul_core::resources::NaturalScroll) {
+        #[cfg(feature = "std")]
+        if std::env::var_os("AZ_NATURAL_SCROLL").is_some() {
+            return;
+        }
+        self.natural_scroll = matches!(mode, azul_core::resources::NaturalScroll::Enabled);
+    }
+
     /// The platform's natural-scrolling preference, where a backend reported
     /// one (9b-ii-b-i-a): what `AppConfig::natural_scroll = System` reads.
     /// `None` = the platform said nothing (X11, mobile, or no reader yet).
     #[must_use]
-    pub fn system_natural_scroll(&self) -> Option<bool> {
-        crate::window::system_natural_scroll()
+    pub const fn system_natural_scroll(&self) -> Option<bool> {
+        self.system_natural_scroll
+    }
+
+    /// A backend reports the platform's natural-scrolling preference
+    /// ([`Self::system_natural_scroll`]).
+    pub const fn set_system_natural_scroll(&mut self, natural: Option<bool>) {
+        self.system_natural_scroll = natural;
     }
 
     /// Set the scroll-direction preference. `true` = natural (content follows the

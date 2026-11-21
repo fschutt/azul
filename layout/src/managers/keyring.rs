@@ -4,19 +4,20 @@
 //! Request-driven, mirroring [`crate::managers::biometric`]:
 //!
 //! - A **callback** calls `CallbackInfo::keyring_store/get/delete(...)`, which parks a
-//!   [`KeyringRequest`] in the request channel.
+//!   [`KeyringRequest`] in the request queue of the app's [`KeyringChannels`].
 //! - The dll **layout pass** drains it and dispatches to the platform backend
 //!   (`dll::desktop::extra::keyring`) — Keychain / `KeyStore` / libsecret / `CredentialLocker`. A
-//!   biometry-bound `Get` shows the OS prompt; the outcome is parked in the result channel.
+//!   biometry-bound `Get` shows the OS prompt; the outcome is parked in the result queue.
 //! - The layout pass folds the latest result into the manager via
 //!   [`KeyringManager::set_last_result`]; callbacks read it with
 //!   `CallbackInfo::get_keyring_result()`.
 //!
-//! No platform deps (`SUPER_PLAN_2` §0.5); the channels are the same
-//! poison-recovering `Mutex<Vec<_>>` pattern as the geolocation /
-//! biometric managers.
+//! No platform deps (`SUPER_PLAN_2` §0.5). The queues are [`KeyringChannels`], owned by the app
+//! (`AppServices`) and shared by its windows, as in the biometric manager.
 
 use alloc::vec::Vec;
+
+use super::shared_queue::SharedQueue;
 
 // `KeyringRequest` / `KeyringResult` live in `azul-core` so they cross the
 // FFI without a cyclic dep on `azul-layout`. Re-exported for the existing
@@ -118,86 +119,71 @@ impl EventProvider for KeyringManager {
     }
 }
 
-// ────────── Request channel (callback → platform backend) ─────────────
+// ────────── The channels (callback → platform backend → manager) ──────
 
-/// Each queued op with the namespace its callback named.
-static PENDING_REQUESTS: std::sync::Mutex<Vec<(KeyringNamespace, KeyringRequest)>> =
-    std::sync::Mutex::new(Vec::new());
-
-/// Queue a keyring op from a callback, in the app's own namespace. Drained by
-/// the dll layout pass and dispatched to the native keyring. Thread-safe;
-/// poison-recovering.
-pub fn push_keyring_request(request: KeyringRequest) {
-    push_keyring_request_in(KeyringNamespace::app(), request);
+/// The two queues between a window's callbacks and the platform's keyring: the ops a callback
+/// asked for (each with the namespace its callback named), and the outcomes the platform parked.
+/// Every window of an app holds clones of the app's pair (`LayoutWindow::join_app`); the dll
+/// layout pass drains the requests once per pass and dispatches each to the platform backend.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct KeyringChannels {
+    /// Ops a callback queued, each with the namespace its callback named.
+    pub requests: SharedQueue<(KeyringNamespace, KeyringRequest)>,
+    /// Outcomes the platform backend parked, on any thread (a biometry-bound `Get` resolves from
+    /// the OS prompt's reply), for the layout pass to fold into the manager.
+    pub results: SharedQueue<KeyringResult>,
 }
 
-/// Queue a keyring op from a callback, in `namespace`.
-pub fn push_keyring_request_in(namespace: KeyringNamespace, request: KeyringRequest) {
-    let mut q = PENDING_REQUESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push((namespace, request));
-}
+// A queue operation hands items over or says whether the item was taken: a caller that only
+// wants the queue emptied, or the event parked, rightly ignores the answer.
+#[allow(clippy::must_use_candidate)]
+impl KeyringChannels {
+    /// Queue a keyring op from a callback, in the app's own namespace.
+    pub fn push_request(&self, request: KeyringRequest) {
+        self.push_request_in(KeyringNamespace::app(), request);
+    }
 
-/// Drain every queued keyring op with its namespace, in arrival order. Called
-/// once per layout pass; the dll dispatches each to the platform backend.
-pub fn drain_keyring_requests_in() -> Vec<(KeyringNamespace, KeyringRequest)> {
-    let mut q = PENDING_REQUESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
+    /// Queue a keyring op from a callback, in `namespace`.
+    pub fn push_request_in(&self, namespace: KeyringNamespace, request: KeyringRequest) {
+        self.requests.push((namespace, request));
+    }
 
-/// [`drain_keyring_requests_in`] without the namespaces.
-#[must_use]
-pub fn drain_keyring_requests() -> Vec<KeyringRequest> {
-    drain_keyring_requests_in()
-        .into_iter()
-        .map(|(_, request)| request)
-        .collect()
-}
+    /// Take every queued keyring op with its namespace, in arrival order. Called once per layout
+    /// pass; the dll dispatches each to the platform backend.
+    pub fn drain_requests_in(&self) -> Vec<(KeyringNamespace, KeyringRequest)> {
+        self.requests.drain()
+    }
 
-/// MWA-C-biometric/keyring: see `biometric::has_queued_requests` — pump
-/// arming must count parked-but-undispatched requests.
-pub fn has_queued_requests() -> bool {
-    PENDING_REQUESTS
-        .lock()
-        .map_or_else(|e| !e.into_inner().is_empty(), |q| !q.is_empty())
-}
+    /// [`Self::drain_requests_in`] without the namespaces.
+    #[must_use]
+    pub fn drain_requests(&self) -> Vec<KeyringRequest> {
+        self.drain_requests_in()
+            .into_iter()
+            .map(|(_, request)| request)
+            .collect()
+    }
 
-// ────────── Result channel (platform backend → manager) ───────────────
+    /// MWA-C-biometric/keyring: see `BiometricChannels::has_queued_requests` — pump arming must
+    /// count parked-but-undispatched requests.
+    #[must_use]
+    pub fn has_queued_requests(&self) -> bool {
+        !self.requests.is_empty()
+    }
 
-static PENDING_RESULTS: std::sync::Mutex<Vec<KeyringResult>> = std::sync::Mutex::new(Vec::new());
+    /// Take every parked keyring result, in arrival order (a test clears the queue with it). A
+    /// window's pass takes only its own: [`Self::drain_results_up_to`].
+    pub fn drain_results(&self) -> Vec<KeyringResult> {
+        self.results.drain()
+    }
 
-/// Park a keyring result delivered by a platform backend (in the dll).
-/// Thread-safe; poison-recovering (a biometry-bound `Get` resolves from
-/// the OS prompt's reply on an arbitrary thread).
-pub fn push_keyring_result(result: KeyringResult) {
-    let mut q = PENDING_RESULTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    q.push(result);
-}
-
-/// Drain every parked keyring result, in arrival order (a test clears the channel with it). A
-/// window's pass takes only its own: [`drain_keyring_results_up_to`].
-pub fn drain_keyring_results() -> Vec<KeyringResult> {
-    let mut q = PENDING_RESULTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    core::mem::take(&mut *q)
-}
-
-/// Drain the oldest `max` parked keyring results. A window passes the number of its ops in
-/// flight, so it takes only answers it waits for: the answers are not tagged with the window that
-/// asked, and with several windows open another window's pass would otherwise take one, fire the
-/// `KeyringResult` event there, and leave the asking window's callback waiting forever.
-pub fn drain_keyring_results_up_to(max: usize) -> Vec<KeyringResult> {
-    let mut q = PENDING_RESULTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let take = max.min(q.len());
-    q.drain(..take).collect()
+    /// Take the oldest `max` parked keyring results. A window passes the number of its ops in
+    /// flight, so it takes only answers it waits for: the answers are not tagged with the window
+    /// that asked, and with several windows open another window's pass would otherwise take one,
+    /// fire the `KeyringResult` event there, and leave the asking window's callback waiting
+    /// forever.
+    pub fn drain_results_up_to(&self, max: usize) -> Vec<KeyringResult> {
+        self.results.drain_up_to(max)
+    }
 }
 
 #[cfg(test)]
@@ -243,36 +229,30 @@ mod tests {
 
     #[test]
     fn requests_round_trip_through_channel() {
-        // Process-global; serialize against every other channel test, then
-        // clear residue.
-        let _guard = autotest_generated::lock_channels();
-        drop(drain_keyring_requests());
+        let owner = KeyringChannels::default();
 
-        push_keyring_request(KeyringRequest::Store {
+        owner.push_request(KeyringRequest::Store {
             key: AzString::from_const_str("token"),
             secret: AzString::from_const_str("abc"),
             require_biometry: true,
         });
-        push_keyring_request(KeyringRequest::Get {
+        owner.push_request(KeyringRequest::Get {
             key: AzString::from_const_str("token"),
         });
-        let drained = drain_keyring_requests();
+        let drained = owner.drain_requests();
         assert_eq!(drained.len(), 2, "both queued requests drain in order");
         assert!(matches!(drained[0], KeyringRequest::Store { .. }));
         assert!(matches!(drained[1], KeyringRequest::Get { .. }));
-        assert!(drain_keyring_requests().is_empty());
+        assert!(owner.drain_requests().is_empty());
     }
 
     #[test]
     fn results_round_trip_through_manager() {
-        // Process-global; serialize against every other channel test, then
-        // clear residue.
-        let _guard = autotest_generated::lock_channels();
-        drop(drain_keyring_results());
+        let owner = KeyringChannels::default();
 
-        push_keyring_result(KeyringResult::NotFound);
-        push_keyring_result(KeyringResult::Retrieved(AzString::from_const_str("s"))); // last wins
-        let drained = drain_keyring_results();
+        owner.results.push(KeyringResult::NotFound);
+        owner.results.push(KeyringResult::Retrieved(AzString::from_const_str("s"))); // last wins
+        let drained = owner.drain_results();
         assert_eq!(drained.len(), 2);
 
         let mut mgr = KeyringManager::new();
@@ -286,29 +266,28 @@ mod tests {
             Some("s"),
             "the last applied result wins"
         );
-        assert!(drain_keyring_results().is_empty());
+        assert!(owner.drain_results().is_empty());
     }
 
     /// A window takes only the answers to the ops it sent out: with two windows open, the other
     /// one's pass leaves them in the channel for the window whose callback waits for them.
     #[test]
     fn a_window_takes_at_most_as_many_keyring_results_as_it_has_ops_in_flight() {
-        let _guard = autotest_generated::lock_channels();
-        drop(drain_keyring_results());
+        let owner = KeyringChannels::default();
 
-        push_keyring_result(KeyringResult::NotFound);
-        push_keyring_result(KeyringResult::Stored);
+        owner.results.push(KeyringResult::NotFound);
+        owner.results.push(KeyringResult::Stored);
         assert!(
-            drain_keyring_results_up_to(0).is_empty(),
+            owner.drain_results_up_to(0).is_empty(),
             "a window that asked nothing takes nothing"
         );
         assert_eq!(
-            drain_keyring_results_up_to(1),
+            owner.drain_results_up_to(1),
             alloc::vec![KeyringResult::NotFound],
             "the oldest answer first"
         );
-        assert_eq!(drain_keyring_results_up_to(5), alloc::vec![KeyringResult::Stored]);
-        assert!(drain_keyring_results().is_empty());
+        assert_eq!(owner.drain_results_up_to(5), alloc::vec![KeyringResult::Stored]);
+        assert!(owner.drain_results().is_empty());
     }
 }
 
@@ -346,23 +325,10 @@ mod pump_provider_tests {
 
 #[cfg(test)]
 mod autotest_generated {
-    use std::sync::{Mutex, PoisonError};
-
     use azul_core::task::SystemTick;
     use azul_css::AzString;
 
     use super::*;
-
-    /// The request/result channels are process-global statics and `cargo
-    /// test` runs tests in parallel threads, so EVERY test that pushes to or
-    /// drains a channel must hold this lock — otherwise one test's pushes
-    /// land inside another's drain window. Shared with the hand-written
-    /// `tests` module above.
-    static CHANNEL_LOCK: Mutex<()> = Mutex::new(());
-
-    pub(super) fn lock_channels() -> std::sync::MutexGuard<'static, ()> {
-        CHANNEL_LOCK.lock().unwrap_or_else(PoisonError::into_inner)
-    }
 
     fn ts() -> Instant {
         Instant::Tick(SystemTick::new(0))
@@ -410,12 +376,11 @@ mod autotest_generated {
     }
 
     #[test]
-    fn new_carries_no_hidden_global_state_between_instances() {
-        // The manager is per-App, but the channels are process-global — a
-        // fresh manager must not pick up anything parked in them.
-        let _guard = lock_channels();
-        drop(drain_keyring_results());
-        push_keyring_result(KeyringResult::Retrieved(AzString::from("leaked")));
+    fn new_carries_no_hidden_state_between_instances() {
+        // The manager is per-App and the queues are the app's — a fresh manager
+        // must not pick up anything parked in them.
+        let owner = KeyringChannels::default();
+        owner.results.push(KeyringResult::Retrieved(AzString::from("leaked")));
 
         let mgr = KeyringManager::new();
         assert_eq!(
@@ -425,7 +390,7 @@ mod autotest_generated {
         );
 
         // The parked result is still there — new() did not consume it.
-        assert_eq!(drain_keyring_results().len(), 1);
+        assert_eq!(owner.drain_results().len(), 1);
     }
 
     // ── getter: KeyringManager::last_result ────────────────────────────
@@ -774,19 +739,18 @@ mod autotest_generated {
     /// there; one that names none runs in the app's own (an empty service).
     #[test]
     fn a_queued_request_keeps_the_namespace_its_callback_named() {
-        let _guard = lock_channels();
-        drop(drain_keyring_requests_in());
+        let owner = KeyringChannels::default();
 
-        push_keyring_request_in(
+        owner.push_request_in(
             KeyringNamespace::create(AzString::from("io.azlin.shared")),
             KeyringRequest::Get {
                 key: AzString::from("azul-storage/s3/d_1"),
             },
         );
-        push_keyring_request(KeyringRequest::Delete {
+        owner.push_request(KeyringRequest::Delete {
             key: AzString::from("note"),
         });
-        let drained = drain_keyring_requests_in();
+        let drained = owner.drain_requests_in();
         assert_eq!(
             drained,
             vec![
@@ -804,27 +768,26 @@ mod autotest_generated {
                 ),
             ]
         );
-        assert!(drain_keyring_requests_in().is_empty());
+        assert!(owner.drain_requests_in().is_empty());
     }
 
     #[test]
     fn request_channel_is_fifo_across_every_variant() {
-        let _guard = lock_channels();
-        drop(drain_keyring_requests());
+        let owner = KeyringChannels::default();
 
-        push_keyring_request(KeyringRequest::Store {
+        owner.push_request(KeyringRequest::Store {
             key: AzString::from("k1"),
             secret: AzString::from("s1"),
             require_biometry: true,
         });
-        push_keyring_request(KeyringRequest::Get {
+        owner.push_request(KeyringRequest::Get {
             key: AzString::from("k2"),
         });
-        push_keyring_request(KeyringRequest::Delete {
+        owner.push_request(KeyringRequest::Delete {
             key: AzString::from("k3"),
         });
 
-        let drained = drain_keyring_requests();
+        let drained = owner.drain_requests();
         assert_eq!(drained.len(), 3);
         assert_eq!(
             drained[0],
@@ -849,66 +812,59 @@ mod autotest_generated {
         );
 
         // The queue was taken, not copied.
-        assert!(drain_keyring_requests().is_empty());
+        assert!(owner.drain_requests().is_empty());
     }
 
     #[test]
     fn draining_an_empty_channel_is_an_empty_vec_not_a_panic() {
-        let _guard = lock_channels();
-        drop(drain_keyring_requests());
-        drop(drain_keyring_results());
+        let owner = KeyringChannels::default();
 
         for _ in 0..3 {
-            assert!(drain_keyring_requests().is_empty());
-            assert!(drain_keyring_results().is_empty());
+            assert!(owner.drain_requests().is_empty());
+            assert!(owner.drain_results().is_empty());
         }
-        assert!(!has_queued_requests());
+        assert!(!owner.has_queued_requests());
     }
 
     #[test]
     fn has_queued_requests_tracks_only_the_request_channel() {
-        let _guard = lock_channels();
-        drop(drain_keyring_requests());
-        drop(drain_keyring_results());
-        assert!(!has_queued_requests(), "empty queue → nothing to pump");
+        let owner = KeyringChannels::default();
+        assert!(!owner.has_queued_requests(), "empty queue → nothing to pump");
 
-        // A parked *result* is not a queued *request* — the two statics must
+        // A parked *result* is not a queued *request* — the two queues must
         // not be conflated, or the pump would arm on its own output.
-        push_keyring_result(KeyringResult::Stored);
-        assert!(!has_queued_requests());
+        owner.results.push(KeyringResult::Stored);
+        assert!(!owner.has_queued_requests());
 
-        push_keyring_request(KeyringRequest::Get {
+        owner.push_request(KeyringRequest::Get {
             key: AzString::from("k"),
         });
         assert!(
-            has_queued_requests(),
+            owner.has_queued_requests(),
             "a parked-but-undispatched request arms the pump"
         );
         // Reading the predicate does not consume the request.
-        assert!(has_queued_requests());
+        assert!(owner.has_queued_requests());
 
-        assert_eq!(drain_keyring_requests().len(), 1);
-        assert!(!has_queued_requests(), "draining disarms it");
-
-        drop(drain_keyring_results());
+        assert_eq!(owner.drain_requests().len(), 1);
+        assert!(!owner.has_queued_requests(), "draining disarms it");
     }
 
     #[test]
     fn request_channel_preserves_nul_unicode_and_megabyte_payloads() {
-        let _guard = lock_channels();
-        drop(drain_keyring_requests());
+        let owner = KeyringChannels::default();
 
         let big = "s".repeat(1 << 20);
-        push_keyring_request(KeyringRequest::Store {
+        owner.push_request(KeyringRequest::Store {
             key: AzString::from(NASTY_BYTES),
             secret: AzString::from(NASTY_UNICODE),
             require_biometry: false,
         });
-        push_keyring_request(KeyringRequest::Get {
+        owner.push_request(KeyringRequest::Get {
             key: AzString::from(big.clone()),
         });
 
-        let drained = drain_keyring_requests();
+        let drained = owner.drain_requests();
         assert_eq!(drained.len(), 2);
 
         let KeyringRequest::Store {
@@ -935,17 +891,16 @@ mod autotest_generated {
 
     #[test]
     fn request_channel_keeps_arrival_order_under_many_pushes() {
-        let _guard = lock_channels();
-        drop(drain_keyring_requests());
+        let owner = KeyringChannels::default();
 
         const N: usize = 1_000;
         for i in 0..N {
-            push_keyring_request(KeyringRequest::Get {
+            owner.push_request(KeyringRequest::Get {
                 key: AzString::from(format!("key-{i}")),
             });
         }
 
-        let drained = drain_keyring_requests();
+        let drained = owner.drain_requests();
         assert_eq!(drained.len(), N);
         for (i, req) in drained.iter().enumerate() {
             let KeyringRequest::Get { key } = req else {
@@ -953,7 +908,7 @@ mod autotest_generated {
             };
             assert_eq!(key.as_str(), format!("key-{i}"), "FIFO order at {i}");
         }
-        assert!(drain_keyring_requests().is_empty());
+        assert!(owner.drain_requests().is_empty());
     }
 
     #[test]
@@ -961,17 +916,17 @@ mod autotest_generated {
         // The channel is documented thread-safe: a biometry-bound Get can
         // resolve on an arbitrary thread. Lost or duplicated entries here
         // would mean a dropped keyring op.
-        let _guard = lock_channels();
-        drop(drain_keyring_requests());
+        let owner = KeyringChannels::default();
 
         const THREADS: usize = 8;
         const PER_THREAD: usize = 50;
 
         let handles: Vec<_> = (0..THREADS)
             .map(|t| {
+                let sink = owner.clone();
                 std::thread::spawn(move || {
                     for i in 0..PER_THREAD {
-                        push_keyring_request(KeyringRequest::Delete {
+                        sink.push_request(KeyringRequest::Delete {
                             key: AzString::from(format!("t{t}-{i}")),
                         });
                     }
@@ -982,7 +937,7 @@ mod autotest_generated {
             h.join().expect("pushing thread must not panic");
         }
 
-        let drained = drain_keyring_requests();
+        let drained = owner.drain_requests();
         assert_eq!(
             drained.len(),
             THREADS * PER_THREAD,
@@ -1008,17 +963,16 @@ mod autotest_generated {
 
     #[test]
     fn result_channel_folds_into_the_manager_with_last_write_winning() {
-        let _guard = lock_channels();
-        drop(drain_keyring_results());
+        let owner = KeyringChannels::default();
 
         let mut mgr = KeyringManager::new();
         mgr.mark_requests_dispatched(3);
 
-        push_keyring_result(KeyringResult::Denied);
-        push_keyring_result(KeyringResult::NotFound);
-        push_keyring_result(KeyringResult::Retrieved(AzString::from(NASTY_UNICODE)));
+        owner.results.push(KeyringResult::Denied);
+        owner.results.push(KeyringResult::NotFound);
+        owner.results.push(KeyringResult::Retrieved(AzString::from(NASTY_UNICODE)));
 
-        let drained = drain_keyring_results();
+        let drained = owner.drain_results();
         assert_eq!(drained.len(), 3, "results drain in arrival order");
         assert_eq!(drained[0], KeyringResult::Denied);
         assert_eq!(drained[1], KeyringResult::NotFound);
@@ -1036,7 +990,7 @@ mod autotest_generated {
         assert_eq!(mgr.in_flight, 0, "all three dispatched ops retired");
         assert!(!mgr.has_pending_async());
         assert!(mgr.pending_event);
-        assert!(drain_keyring_results().is_empty());
+        assert!(owner.drain_results().is_empty());
     }
 }
 

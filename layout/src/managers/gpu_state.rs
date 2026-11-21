@@ -163,7 +163,7 @@ pub struct GpuStateManager {
     pub scrollbar_fade_active: bool,
     /// Whether the last scan of the display lists for text halos left some of
     /// them undrawn (a frame draws a bounded number of new ones,
-    /// `cpurender::within_halo_budget`): the lists were translated with a
+    /// `TextHaloStore::within_halo_budget`): the lists were translated with a
     /// blurred shadow where a halo is still to come, so the platform loop has
     /// to keep generating frames - each of which scans again and draws the next
     /// ones - until none is left ([`Self::frames_owed`]). Set and cleared by

@@ -143,13 +143,6 @@ fn build_profile_banner() {
 
 #[test]
 fn pagination_phase_breakdown() {
-    // `Probe`'s recording flag is a process-global atomic (the buffer it gates
-    // is thread-local). This file shares a binary with `probe_gate`, which
-    // deliberately flips that flag on and off; without this lock the phase
-    // breakdown below would attribute a truncated or a phantom profile
-    // depending on the interleaving. See `crate::PROBE_LOCK`.
-    let _serialised = crate::probe_lock();
-
     build_profile_banner();
     let html = sample_html(30);
     let fc = build_font_cache();

@@ -192,33 +192,18 @@ impl App {
 
         // Apply the AppConfig system-animation overrides ON TOP of discovery:
         // the user's scroll physics (momentum / overscroll / wheel-vs-trackpad
-        // curves) must survive the discovery overwrite above, and the tween
-        // configuration becomes the app-global default LayoutWindows read.
+        // curves) must survive the discovery overwrite above.
+        //
+        // Nothing else of the config is published anywhere: every window takes the tween
+        // configuration and the natural-scroll mode from the config it is built with
+        // (`LayoutWindow::set_app_settings`), and the app's MODE, its language, the platform's
+        // natural-scrolling preference and the two platform flags from the app's `AppShared`
+        // (made in `AppInternal::create`, handed to every window the run loop builds).
         if let azul_css::props::style::scrollbar::OptionScrollPhysics::Some(p) =
             app_config.system_animations.scroll_physics
         {
             app_config.system_style.scroll_physics = p;
         }
-        azul_layout::window::set_global_system_animations(app_config.system_animations.clone());
-        azul_layout::window::set_global_synthesize_pinch_from_ctrl_wheel(
-            app_config.synthesize_pinch_from_ctrl_wheel,
-        );
-        // Natural scrolling (9b-ii-b-i-a): the mode every ScrollManager reads,
-        // and - for `System` - the platform's preference, read once here
-        // (Wayland keeps it current from the compositor's own events).
-        azul_layout::window::set_global_natural_scroll(app_config.natural_scroll);
-        if app_config.natural_scroll == azul_core::resources::NaturalScroll::System {
-            azul_layout::window::set_global_system_natural_scroll(
-                crate::desktop::extra::natural_scroll::read_system_preference(),
-            );
-        }
-        azul_layout::window::set_global_expose_system_media_controls(
-            app_config.expose_system_media_controls,
-        );
-        // The app's MODE (follow the desktop, or pin light / dark): every
-        // window built from now on starts in it, and `CallbackInfo::set_mode`
-        // switches it for all of them.
-        azul_layout::window::set_app_mode(app_config.mode);
         // The app THEME (`@theme(<name>)`): every window built from now on
         // builds and styles for it; `CallbackInfo::set_theme` switches it
         // (a DOM rebuild of every window).
@@ -230,13 +215,6 @@ impl App {
         // sheen, and the shadows that follow the light are lit from it;
         // `CallbackInfo::set_app_light` moves it for all of them.
         azul_core::light::set_app_light(app_config.light);
-        // What the metals reflect: the platform's wallpaper reader, run the
-        // first time a metal is drawn.
-        crate::desktop::wallpaper::install();
-        // The font faces the app ships (`AppConfig::add_font`): every font
-        // manager built from now on - each window's, the PDF writer's -
-        // registers them, before the first window exists.
-        azul_layout::text3::cache::set_app_fonts(app_config.bundled_fonts.as_ref());
         // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy
         // per-app file, `azul_css::rice`), in the `AZ_RICING` mode. Installed
         // HERE, with the real home directory, so a test or a tool that never
@@ -351,13 +329,13 @@ impl App {
         crate::desktop::tray::TrayIcon::is_available()
     }
 
-    /// Make this App's global-hotkey manager the event-loop thread's current
-    /// App for as long as the returned scope lives, and choose the
-    /// platform's backend for it (built at the first sync, so a run that
-    /// turns out headless installs the simulation first and never touches
-    /// the OS). Every window the loop builds joins the manager.
-    fn enter_global_hotkeys(&self) -> azul_layout::managers::global_hotkey::AppHotkeysScope {
-        let scope = self.ptr.global_hotkeys.enter();
+    /// Make this App's services the ones the platform callbacks and the run loops reach
+    /// ([`crate::desktop::process_app`]), and choose the platform's global-hotkey backend for
+    /// it (built at the first sync, so a run that turns out headless installs the simulation
+    /// first and never touches the OS). Every window the loop builds joins the App's services
+    /// (`LayoutWindow::join_app`), hotkey manager included.
+    fn start_app_services(&self) {
+        crate::desktop::process_app::register(self.ptr.undo_manager.services());
         crate::desktop::global_hotkey::choose_platform_backend();
         // The AppConfig's own set: the static list is declared now, the
         // derived callback runs at the loop's first hotkey pump - after the
@@ -368,7 +346,6 @@ impl App {
             config.global_hotkeys_callback.to_option(),
             self.ptr.data.clone(),
         );
-        scope
     }
 
     /// Run with a tray and NO window.
@@ -396,18 +373,22 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
-        // A tray utility is exactly the app that notifies - and whose
-        // notifications get clicked after it restarted.
-        crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
         // A tray utility's summon key is exactly what global hotkeys are for:
         // the stub window and the tray timer act on this App's manager.
-        let _global_hotkeys = self.enter_global_hotkeys();
+        self.start_app_services();
+        // A tray utility is exactly the app that notifies - and whose
+        // notifications get clicked after it restarted.
+        crate::desktop::notifications::set_app_handler(
+            self.ptr.undo_manager.services(),
+            config.notification_handler.clone(),
+        );
 
         #[cfg(target_os = "macos")]
         {
             if let Err(e) = crate::desktop::shell2::run_tray_only(
                 data,
                 undo_manager,
+                self.ptr.app_shared.clone(),
                 config,
                 fc_cache,
                 font_registry,
@@ -449,19 +430,18 @@ impl App {
         let fc_cache = (*self.ptr.fc_cache).clone();
         let font_registry = self.ptr.font_registry.clone();
         let undo_manager = self.ptr.undo_manager.clone();
-        // This App's global hotkeys, for the whole run: every window the loop
-        // builds declares into this manager, and the loop's pumps sync it.
-        let _global_hotkeys = self.enter_global_hotkeys();
+        // This App's services (global hotkeys included), for the whole run: every window the loop
+        // builds joins them and declares its hotkeys into this manager, and the loop's pumps
+        // sync it.
+        self.start_app_services();
 
         // The app-level notification handler, before any run loop exists: the
         // tap that LAUNCHED the app is delivered during launch, and there is
         // no notification callback in this fresh process for it to reach.
-        crate::desktop::notifications::set_app_handler(config.notification_handler.clone());
-
-        // Publish the AppConfig snapshot the engine services read outside
-        // callbacks: the updater (manifest URL, version, mode) and the
-        // system dialogs (support mailbox, changelog URL).
-        azul_layout::appenv::set_app_env(azul_layout::appenv::AppEnv::from_config(&config));
+        crate::desktop::notifications::set_app_handler(
+            self.ptr.undo_manager.services(),
+            config.notification_handler.clone(),
+        );
 
         // Arm the ACTION JOURNAL for apps that declared a problem-report
         // mailbox: the breadcrumb trail has to be recorded BEFORE the
@@ -472,34 +452,6 @@ impl App {
         ) {
             azul_layout::journal::set_enabled(true);
         }
-
-        // Hand the CPU dialogs the driver-provisioning entry points. They
-        // live in the dll (`video_codec::provision`) and the dialogs live
-        // BELOW it in azul-layout, so the dll publishes fn pointers rather
-        // than the type. `check` is inspection only; `remediate` is the
-        // consent-gated, pkexec-elevated repair.
-        azul_layout::appenv::set_gpu_provision_hooks(azul_layout::appenv::GpuProvisionHooks {
-            check: || {
-                let c = crate::unified::video_codec::provision::VideoStartupCheck::run();
-                azul_layout::appenv::GpuProvisionReport {
-                    hw_decode_ready: c.hw_decode_ready,
-                    boot_safe: c.boot_safe,
-                    can_remediate: c.can_remediate,
-                    needs_reboot: c.needs_reboot,
-                    summary: c.summary.as_str().to_string(),
-                    detail: c.detail.as_str().to_string(),
-                }
-            },
-            remediate: |on_step| {
-                let o = crate::unified::video_codec::provision::VideoStartupCheck::
-                    remediate_with_progress(on_step);
-                azul_layout::appenv::GpuProvisionOutcome {
-                    ok: o.ok,
-                    reboot_required: o.reboot_required,
-                    message: o.message.as_str().to_string(),
-                }
-            },
-        });
 
         // ENGINE TELEMETRY (dll feature "telemetry"): initialised for every
         // app, but the TIER stays OFF unless AZ_TELEMETRY / the config files
@@ -568,6 +520,7 @@ impl App {
             let err = crate::desktop::shell2::run(
                 data,
                 undo_manager,
+                self.ptr.app_shared.clone(),
                 config,
                 fc_cache,
                 font_registry,
@@ -590,7 +543,7 @@ impl App {
 
         // A callback reads the clipboard outside a paste through the shells'
         // own transports.
-        azul_layout::managers::clipboard::set_system_clipboard_reader(Some(
+        self.ptr.undo_manager.services().clipboard.install(Some(
             crate::desktop::shell2::common::clipboard::read_clipboard_for_callbacks,
         ));
 
@@ -598,6 +551,7 @@ impl App {
         let err = crate::desktop::shell2::run(
             data,
             undo_manager,
+            self.ptr.app_shared.clone(),
             config,
             fc_cache,
             font_registry,
@@ -611,7 +565,7 @@ impl App {
         // The last window's workers were told to stop when it closed, without
         // the window waiting for them; the process gives them their grace now,
         // before it ends.
-        azul_layout::managers::thread_owner::join_stopping_workers();
+        self.ptr.undo_manager.services().stopping_workers.join_all();
 
         // Telemetry: persist + upload whatever the interval uploader has not
         // sent yet. Without this a SHORT run (an e2e drive, a screenshot
@@ -679,7 +633,9 @@ pub struct AppInternal {
     /// Consumers take `clone_shared()` copies: those share the two pools while
     /// keeping a private `fc_cache` field, so each window can still swap in its
     /// own registry snapshot at layout time (`replace_fc_cache`) without
-    /// disturbing anyone else.
+    /// disturbing anyone else. They share the app's registered fonts the same way
+    /// (`FontManager::registered_fonts`: the faces the app ships and the ones it
+    /// registers while it runs, made in `AppInternal::create`).
     ///
     /// `Option` because building it can fail; the app still runs, callers fall
     /// back to constructing their own as before. `Arc` so this stays a thin
@@ -690,6 +646,12 @@ pub struct AppInternal {
     /// to every window so a callback's `undo_app_state` / `redo_app_state` /
     /// `commit_undo_snapshot` operates on one shared history.
     pub undo_manager: crate::desktop::shell2::common::event::SharedUndoManager,
+    /// What the app chose and configured that every window of it reads - its light / dark mode
+    /// (`CallbackInfo::set_mode`), its language (`set_locale`), the platform's natural-scrolling
+    /// preference, the two platform flags, the GPU provisioning hooks - owned by the App and
+    /// handed to every window the run loop builds, like the undo manager. A window opened after
+    /// a switch starts in what the app chose; two apps (or two tests) never share a choice.
+    pub app_shared: Arc<crate::desktop::shell2::common::app_shared::AppShared>,
     /// App-global global-hotkey manager (`Arc<Mutex<..>>`), the undo
     /// manager's twin: owned by the App, shared with every window, the run
     /// loop and the tray-only stub. `run()` makes it the loop thread's
@@ -797,6 +759,15 @@ impl AppInternal {
         #[cfg(any(miri, feature = "web"))]
         let (fc_cache, font_registry) = (Arc::new(FcFontCache::default()), None);
 
+        // The fonts of this app: the faces it ships (`AppConfig::add_font`), registered before
+        // the first window exists, and the ones it registers while it runs
+        // (`CallbackInfo::register_font`), in ONE registry that belongs to the app. The app's
+        // font manager is made on it and every window takes its share of that manager
+        // (`FontManager::clone_shared`), so each window draws with the faces and a face
+        // registered through one is seen by all.
+        let registered_fonts = Arc::new(azul_layout::text3::fontreg::RegisteredFonts::default());
+        registered_fonts.set_app_fonts(app_config.bundled_fonts.as_ref());
+
         #[cfg(all(
             feature = "logging",
             feature = "fern_logger",
@@ -825,6 +796,16 @@ impl AppInternal {
             None,
         );
 
+        // The App's undo history and services come as one handle (see `SharedUndoManager`); the
+        // hotkey manager the App exposes is the one its windows join.
+        let undo_manager = crate::desktop::shell2::common::event::SharedUndoManager::new();
+        let global_hotkeys = undo_manager.services().hotkeys.clone();
+        // The app's mode, its language and the platform's natural-scrolling preference (read once
+        // here, for `NaturalScroll::System`), from the config before it moves into the app.
+        let app_shared = Arc::new(crate::desktop::shell2::common::app_shared::AppShared::for_app(
+            &app_config,
+        ));
+
         Self {
             windows: WindowCreateOptionsVec::from_const_slice(&[]),
             data: initial_data,
@@ -834,13 +815,17 @@ impl AppInternal {
             // ONE manager, built here rather than per-window. `FcFontCache` is
             // internally Arc-shared, so the clone tracks whatever the scout
             // threads discover later.
-            font_manager: azul_layout::font_traits::FontManager::new((*fc_cache).clone())
-                .ok()
-                .map(Arc::new),
+            font_manager: azul_layout::font_traits::FontManager::with_registered_fonts(
+                (*fc_cache).clone(),
+                registered_fonts,
+            )
+            .ok()
+            .map(Arc::new),
             fc_cache: Box::new(fc_cache),
             font_registry,
-            undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),
-            global_hotkeys: azul_layout::managers::global_hotkey::SharedGlobalHotkeys::new(),
+            undo_manager,
+            app_shared,
+            global_hotkeys,
         }
     }
 }

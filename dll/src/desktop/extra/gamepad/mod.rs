@@ -7,7 +7,7 @@
 //!
 //! | Platform | Backend | Sample → channel |
 //! |----------|---------|------------------|
-//! | desktop (Win / Linux / **macOS**) | `gilrs` | per-frame [`poll`] snapshots each pad → `push_gamepad_state` |
+//! | desktop (Win / Linux / **macOS**) | `gilrs` | per-frame [`poll`] snapshots each pad → the app's `GamepadStates` |
 //! | iOS | `GCController` (raw objc) | [`poll`] reads the current controller snapshot |
 //! | Android | `InputDevice` / `InputManager` (JNI) | push from the input callback |
 //!
@@ -15,7 +15,7 @@
 //! Apple path here is **iOS-only** `GCController`. [`ensure_started`] does
 //! any one-time native subscription (a no-op on desktop — gilrs lazily
 //! initialises on first poll); [`poll`] pulls the current state each frame.
-//! The layout pass drains the parked states (`drain_gamepad_states`) into
+//! The layout pass drains the parked states (`GamepadStates::drain`) into
 //! the manager, where `CallbackInfo::get_gamepad_state` reads them.
 //!
 //! All three backends are real. The deadzone helpers are shared here rather
@@ -296,15 +296,17 @@ pub fn stop_all_rumble() {
     apple::stop_all_rumble();
 }
 
-/// Pull the current state of every connected pad into the async channel.
+/// Pull the current state of every connected pad into the app's `states` queue.
 /// Called once per layout pass (after [`ensure_started`]).
-pub fn poll() {
+pub fn poll(states: &azul_layout::managers::gamepad::GamepadStates) {
     #[cfg(not(any(target_os = "ios", target_os = "android")))]
-    desktop::poll();
+    desktop::poll(states);
     #[cfg(target_os = "ios")]
-    apple::poll();
+    apple::poll(states);
     // Android is push-based (the InputDevice JNI callback parks states), so
     // there's nothing to pull here.
+    #[cfg(target_os = "android")]
+    let _ = states;
 }
 
 /// Accumulated per-pad state for a PUSH-DRIVEN backend.

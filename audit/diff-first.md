@@ -1001,10 +1001,10 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
     list, and exit 1.47 names no node.
   Examples: `AZ_DIFF_FIRST=text,nodes,style` = the state before the second half; `AZ_DIFF_FIRST=tree` = every
   changed rebuild of the window's DOM down exit 1.47; `AZ_DIFF_FIRST=text,nodes,style,tree` = everything but views.
-A test picks its steps per thread: `window::set_diff_first_steps_on_this_thread(Some(&[..]))`,
-`set_diff_first_on_this_thread(Some(bool))`. Which path a rebuild took: `window::kept_dom_rebuilds_on_this_thread()`
-(exit 1.46), `window::tree_rebuilds_that_kept_rows_on_this_thread()` (exit 1.47 and a view's re-render, when rows
-were kept), `styled_dom::nodes_cascaded_on_this_thread()`, `styled_dom::compact_cache_rebuilds_on_this_thread()`
+A test picks its steps per window: `lw.switches.set_diff_first_steps(Some(&[..]))`,
+`lw.switches.set_diff_first(Some(bool))` (`LayoutWindow::switches`, `window::WindowSwitches`). Which path a rebuild
+took: `lw.work.kept_dom_rebuilds()` (exit 1.46), `lw.work.tree_rebuilds_that_kept_rows()` (exit 1.47 and a view's
+re-render, when rows were kept; `LayoutWindow::work`, `window::WindowWork`), `styled_dom::nodes_cascaded_on_this_thread()`, `styled_dom::compact_cache_rebuilds_on_this_thread()`
 (whole cascades). The pre-cascade exit for an identical rebuild is older than the switch and not under it.
 For the step `list`: `solver3::display_list::lists_patched_after_a_named_cascade_on_this_thread()` (the passes
 that took its arm), `runs_painted_by_patched_builds_on_this_thread()` and `cached_runs_copied_on_this_thread()`

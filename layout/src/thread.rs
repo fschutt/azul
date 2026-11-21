@@ -758,11 +758,18 @@ impl Drop for ThreadInner {
 /// The shell's wake for its event loop (`set_thread_wake`). Called from the worker's
 /// thread after it sent the UI thread a message or ended, so the write-back runs at
 /// once instead of at the next poll.
+///
+/// KEPT process-wide: a worker is created by user code through the C API
+/// (`Thread::create`) before any window sees it, so nothing on its thread holds a
+/// handle to a window or an app; the loop it wakes is the process's one, and the
+/// wake itself is a context-free `extern "C" fn()` (a main-queue dispatch, a posted
+/// message, a pipe write).
 #[cfg(feature = "std")]
 static THREAD_WAKE: Mutex<Option<extern "C" fn()>> = Mutex::new(None);
 
 /// Set while a wake is on its way to the UI thread and its poll has not run yet:
-/// a worker that sends a thousand messages in a burst wakes the loop once.
+/// a worker that sends a thousand messages in a burst wakes the loop once. KEPT
+/// process-wide with [`THREAD_WAKE`], whose coalescing it is.
 #[cfg(feature = "std")]
 static THREAD_WAKE_PENDING: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);

@@ -21,13 +21,16 @@
 //! macOS), and none of them can hold a `CallbackInfo`. A menu item that
 //! carries its own callback comes back from [`pump_tray`]; everything else -
 //! a click on the icon, a middle click, a scroll, a menu item without a
-//! callback - is posted into a process-wide mailbox
-//! (`azul_layout::managers::tray_event`), and [`take_tray_deliveries`] routes
+//! callback - is posted into the App's mailbox
+//! (`azul_layout::managers::tray_event::TrayEvents`, reached through
+//! [`crate::desktop::process_app`]), and [`take_tray_deliveries`] routes
 //! it to the tray's own callback (`TrayIconData::callback`). The run loops'
 //! app-event collector (`desktop::app_events`) calls both every iteration.
 
 use azul_core::tray::{TrayEvent, TrayIconData};
 use azul_layout::managers::tray_event::{self as events, TrayDelivery};
+
+use crate::desktop::process_app;
 
 #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
 mod linux;
@@ -73,20 +76,23 @@ impl core::fmt::Display for TrayError {
     }
 }
 
-/// Post an event from a platform callback into the tray event mailbox
-/// (`azul_layout::managers::tray_event`). Never blocks the caller for long
+/// Post an event from a platform callback into the App's tray event mailbox
+/// (`azul_layout::managers::tray_event::TrayEvents`). Never blocks the caller for long
 /// and never panics across an FFI boundary (a poisoned lock is recovered,
 /// and a full mailbox drops the event - losing one tray click beats aborting
-/// the process from inside an objc / D-Bus / Win32 callback).
+/// the process from inside an objc / D-Bus / Win32 callback). Nothing is posted
+/// before an App registered its services.
 pub(crate) fn queue_tray_event(ev: TrayEvent) {
-    let _ = events::queue_tray_event(ev);
+    if let Some(services) = process_app::services() {
+        let _ = services.tray.queue_tray_event(ev);
+    }
 }
 
 /// Take everything queued since the last call, unrouted. The run loops use
 /// [`take_tray_deliveries`], which calls this.
 #[must_use]
 pub fn drain_tray_events() -> Vec<TrayEvent> {
-    events::drain_tray_events()
+    process_app::services().map_or_else(Vec::new, |services| services.tray.drain_tray_events())
 }
 
 /// Every tray event queued since the last call, routed to the live tray's

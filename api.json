@@ -20905,7 +20905,7 @@
                                     "`register_font` for bytes the app keeps as well (`SharedBytes`): the",
                                     "registry keeps that very allocation - every window's font cache and every",
                                     "face loaded from it share it with the app's handle - and copies nothing.",
-                                    "The bytes stay alive for the process, whatever the app does with its",
+                                    "The bytes stay alive for the life of the app, whatever the app does with its",
                                     "handle afterwards. Returns `false` for bytes that are no font."
                                 ],
                                 "fn_args": [
@@ -131447,11 +131447,17 @@
                                 "doc": [
                                     "Wrap a font manager into an ABI handle.",
                                     "Snapshot for use inside a LAYOUT callback: builds family resolution +",
-                                    "fallback chains over the system font cache the callback exposes. No",
-                                    "per-window embedded fonts exist yet at layout time, so nothing is",
-                                    "lost versus `CallbackInfo::get_font_cache_clone` - this is the",
-                                    "off-thread-pagination input an app can hand to",
-                                    "`Pdf::compute_pagination` without ever seeing the internal manager."
+                                    "fallback chains over the system font cache the callback exposes, and",
+                                    "the app's registered fonts the window draws with - the faces the app",
+                                    "ships (`AppConfig::add_font`) and the ones it registered while it",
+                                    "runs - which the callback's info carries: the snapshot measures with",
+                                    "the faces the screen does. No per-window embedded fonts exist yet at",
+                                    "layout time, so nothing is lost versus",
+                                    "`CallbackInfo::get_font_cache_clone` - this is the off-thread-pagination",
+                                    "input an app can hand to `Pdf::compute_pagination` without ever seeing",
+                                    "the internal manager. A host that has no registered fonts to hand over",
+                                    "(a web page) gets a snapshot with registered fonts of its own: only",
+                                    "the faces azul bundles."
                                 ],
                                 "fn_args": [
                                     {

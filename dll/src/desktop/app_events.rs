@@ -29,7 +29,7 @@ use azul_core::{events::ProcessEventResult, menu::CoreMenuCallback};
 use azul_layout::managers::{
     app_target::{pick_app_target, AppTargetCandidate},
     notification::NotificationDelivery,
-    tray_event::{with_current_tray_event, TrayDelivery},
+    tray_event::TrayDelivery,
 };
 
 use crate::desktop::shell2::common::event::{CommonWindowState, MenuInvocation, PlatformWindow};
@@ -120,13 +120,21 @@ impl AppEvents {
                 MenuInvocation::Native { site: "tray_menu" },
             ));
         }
+        // The window's handle on the App's tray events: the slot its callbacks read.
+        let tray_events = window
+            .get_layout_window()
+            .map(|lw| lw.app_services.tray.clone());
         for delivery in tray {
             let TrayDelivery { callback, event } = delivery;
             // Installed for the call, so the callback can ask
             // `CallbackInfo::get_tray_event` which event it runs for.
-            result = result.max(with_current_tray_event(&event, || {
+            let run = || {
                 window.invoke_menu_callback(callback, MenuInvocation::Native { site: "tray" })
-            }));
+            };
+            result = result.max(match &tray_events {
+                Some(slot) => slot.with_current_tray_event(&event, run),
+                None => run(),
+            });
         }
         if !notifications.is_empty()
             && crate::desktop::notifications::invoke_deliveries(window, notifications)

@@ -8,10 +8,10 @@
 //!
 //! | Platform | Subscribe | Sample → channel |
 //! |----------|-----------|------------------|
-//! | iOS / macOS | `CMMotionManager` start*Updates (objc2-core-motion) | update handler block → `push_sensor_reading` |
-//! | Android | `SensorManager.registerListener` (JNI via `AzulSensors`) | `onSensorChanged` → `nativeOnSensorReading` → `push_sensor_reading` |
-//! | Linux | iio sysfs (`/sys/bus/iio/devices`, pull) | `poll` reads raw*scale → `push_sensor_reading` |
-//! | Windows | `Windows.Devices.Sensors` `GetDefault()` | `poll` reads `GetCurrentReading()` → `push_sensor_reading` |
+//! | iOS / macOS | `CMMotionManager` start*Updates (objc2-core-motion) | update handler block → the app's `SensorChannel` |
+//! | Android | `SensorManager.registerListener` (JNI via `AzulSensors`) | `onSensorChanged` → `nativeOnSensorReading` → the app's `SensorChannel` |
+//! | Linux | iio sysfs (`/sys/bus/iio/devices`, pull) | `poll` reads raw*scale → the app's `SensorChannel` |
+//! | Windows | `Windows.Devices.Sensors` `GetDefault()` | `poll` reads `GetCurrentReading()` → the app's `SensorChannel` |
 //!
 //! All ELEVEN `SensorKind`s are now produced on Android, and the fused ones
 //! (rotation vector, gravity, linear acceleration) on all four platforms.
@@ -161,40 +161,49 @@ pub mod windows;
 /// from `regenerate_layout` every frame; the OnceLock makes only the first
 /// call do the native registration (CoreMotion start / JNI `registerListener`),
 /// after which it's a cheap atomic read.
-pub fn ensure_started() {
+///
+/// `channel` is the app's: the platform's callbacks (a CoreMotion handler, the WinRT hinge event)
+/// keep a clone of it and park their readings in it. Android's JNI entry points carry no context
+/// and read the App's services from `process_app`.
+pub fn ensure_started(channel: &std::sync::Arc<azul_layout::managers::sensors::SensorChannel>) {
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    STARTED.get_or_init(start);
+    STARTED.get_or_init(|| start(channel));
 }
 
-fn start() {
+fn start(channel: &std::sync::Arc<azul_layout::managers::sensors::SensorChannel>) {
+    // Only the backends with a platform callback keep the channel.
+    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "windows")))]
+    let _ = channel;
     // Brackets the native motion-sensor registration. A reading never arriving
     // is normal (a desktop with no accelerometer → get_sensor_reading stays
     // None, NOT a crash); this log lets the self-test report "unavailable" vs.
     // pinpoint a backend that aborts during start (C4).
     crate::plog_info!("[sensors] starting motion-sensor backend");
     #[cfg(any(target_os = "ios", target_os = "macos"))]
-    apple::start();
+    apple::start(channel);
     #[cfg(target_os = "android")]
     android::start();
     #[cfg(target_os = "linux")]
     linux::start();
     #[cfg(target_os = "windows")]
-    windows::start();
+    windows::start(channel);
     // Other targets: no motion sensors wired — `get_sensor_reading` stays `None`.
     crate::plog_info!("[sensors] motion-sensor backend start complete");
 }
 
-/// Pull the latest sample from each sensor into the async channel. Called
+/// Pull the latest sample from each sensor into the app's `channel`. Called
 /// once per layout pass (after [`ensure_started`]). Apple-only: CoreMotion's
 /// pull API needs a per-frame read, whereas Android pushes from its JNI
 /// callback. A no-op until [`ensure_started`] has run and on Android/desktop.
-pub fn poll() {
+pub fn poll(channel: &azul_layout::managers::sensors::SensorChannel) {
     #[cfg(any(target_os = "ios", target_os = "macos"))]
-    apple::poll();
+    apple::poll(channel);
     #[cfg(target_os = "linux")]
-    linux::poll();
+    linux::poll(channel);
     #[cfg(target_os = "windows")]
-    windows::poll();
+    windows::poll(channel);
+    #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "windows")))]
+    let _ = channel;
 }
 
 #[cfg(test)]

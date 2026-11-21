@@ -957,6 +957,7 @@ fn measure_journal_on() -> bool {
 /// bridge (`TaffyBridge::compute_child_layout`: a final layout served from
 /// taffy's cache is not one).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static MEASURES_JOURNALED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static FINAL_LAYOUTS_COMPUTED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -980,6 +981,7 @@ impl core::fmt::Debug for TaffyPassMemo {
 /// their style memos takes (`audit_tests::a3_solver`: a bridge costs a pointer
 /// per node of the document, not a `Style` per node).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static BRIDGES_MADE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static STYLE_CELL_BYTES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -989,6 +991,7 @@ thread_local! {
 /// (`TaffyBridge::compute_child_layout`: the row algorithm run over the row's
 /// items to answer how wide the row is; an answer found again is not a run).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static WIDTH_ONLY_ROW_RUNS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -998,6 +1001,7 @@ thread_local! {
 /// memos were made (`audit_tests::a3_solver`: once per node and pass, however
 /// many bridges the pass makes).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static STYLE_CONVERSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static STYLE_CELLS_MADE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -2092,6 +2096,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 /// thread (`audit_tests::a3_solver`: one per run of a container, not one per
 /// child asked for).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static CHILD_LISTS_BUILT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -6098,7 +6103,7 @@ mod a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times_tests {
         ws.size.dimensions = LogicalSize::new(1000.0, 700.0);
         lw.current_window_state = ws.clone();
 
-        Probe::set_recording(true);
+        let recording = Probe::record_on_this_thread(true);
         let _ = Probe::drain();
         lw.layout_and_generate_display_list(
             styled,
@@ -6109,7 +6114,7 @@ mod a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times_tests {
         )
         .expect("the page lays out");
         let events = Probe::drain();
-        Probe::set_recording(false);
+        drop(recording);
 
         assert!(lw.layout_results.contains_key(&DomId::ROOT_ID));
         let paragraphs = 2 * PARAGRAPHS;

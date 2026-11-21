@@ -862,6 +862,8 @@ mod set {
     /// folder.
     #[cfg(not(target_arch = "wasm32"))]
     fn with_process_fonts<R>(f: impl FnOnce(&FcFontCache) -> R) -> R {
+        // An OS fact (the fonts installed), scanned once: a scan per owner would walk every font
+        // folder again, and the index never changes after the scan.
         static FONTS: std::sync::OnceLock<FcFontCache> = std::sync::OnceLock::new();
         f(FONTS.get_or_init(crate::font::loading::build_font_cache))
     }
@@ -874,7 +876,8 @@ mod set {
 
     #[cfg(target_arch = "wasm32")]
     thread_local! {
-        /// The system fonts, scanned once on first use.
+        /// The system fonts, scanned once on first use: an OS fact; the web has one thread, whose
+        /// scan is the process's.
         static SYSTEM_FONTS: core::cell::OnceCell<FcFontCache> = const { core::cell::OnceCell::new() };
     }
 

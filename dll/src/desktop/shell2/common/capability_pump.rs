@@ -1,8 +1,9 @@
 //! Single-threaded capability pump (MWA-A1).
 //!
 //! Six managers (gamepad, sensors, geolocation, permission, biometric,
-//! keyring) receive data from native backends through process-global
-//! channels in `azul_layout::managers::*`. Historically those channels were
+//! keyring) receive data from native backends through the app's channels
+//! (`azul_layout::managers::app_services::AppServices`, held by every window
+//! as `LayoutWindow::app_services`). Historically those channels were
 //! drained only inside `regenerate_layout()`, which runs only when something
 //! *else* already caused UI work — so an idle app (blocked in WaitMessage /
 //! select / the NSApp run loop) never observed a pad press, a GPS fix, or a
@@ -56,21 +57,21 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // touch it while some node actually listens for GamepadInput.
     if lw.gamepad_manager.has_listeners() {
         crate::desktop::extra::gamepad::ensure_started();
-        crate::desktop::extra::gamepad::poll();
+        crate::desktop::extra::gamepad::poll(&lw.app_services.gamepad);
     }
-    for state in azul_layout::managers::gamepad::drain_gamepad_states() {
+    for state in lw.app_services.gamepad.drain() {
         changed |= lw.gamepad_manager.set_state(state);
     }
 
     // Sensors: CoreMotion / WinRT registration is listener-gated the same way.
     if lw.sensor_manager.has_listeners() {
-        crate::desktop::extra::sensors::ensure_started();
-        crate::desktop::extra::sensors::poll();
+        crate::desktop::extra::sensors::ensure_started(&lw.app_services.sensors);
+        crate::desktop::extra::sensors::poll(&lw.app_services.sensors);
     }
-    for reading in azul_layout::managers::sensors::drain_sensor_readings() {
+    for reading in lw.app_services.sensors.drain_readings() {
         changed |= lw.sensor_manager.set_reading(reading);
     }
-    if let Some(proximity) = azul_layout::managers::sensors::take_proximity() {
+    if let Some(proximity) = lw.app_services.sensors.take_proximity() {
         changed |= lw.sensor_manager.set_proximity(proximity);
     }
 
@@ -83,16 +84,14 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // Polling is skipped when nothing is open, which is the cost on a machine
     // with no accessible hidraw node.
     {
-        static ENUMERATED: core::sync::atomic::AtomicBool =
-            core::sync::atomic::AtomicBool::new(false);
-        if !ENUMERATED.swap(true, core::sync::atomic::Ordering::Relaxed) {
-            crate::desktop::extra::hid::enumerate();
+        if lw.app_services.hid.claim_enumeration() {
+            crate::desktop::extra::hid::enumerate(&lw.app_services.hid);
         }
-        crate::desktop::extra::hid::poll();
+        crate::desktop::extra::hid::poll(&lw.app_services.hid);
     }
     // `None` means UNCHANGED, not empty: treating it as empty would clear the
     // device list on every pass that did not re-enumerate.
-    if let Some(devices) = azul_layout::managers::hid::take_hid_devices() {
+    if let Some(devices) = lw.app_services.hid.take_devices() {
         lw.hid_manager.set_devices(devices);
         changed = true;
     }
@@ -101,7 +100,7 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // slice). Nothing ever cleared it before, so `get_hid_reports` answered
     // the whole process history and the buffer grew without bound.
     drop(lw.hid_manager.take_reports());
-    for report in azul_layout::managers::hid::drain_hid_reports() {
+    for report in lw.app_services.hid.drain_reports() {
         lw.hid_manager.push_report(report);
         changed = true;
     }
@@ -117,16 +116,16 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // Geolocation: fixes / errors are pushed by the native subscription's
     // OS-thread callbacks; folding raises the manager's pending flags
     // (GeolocationFix / GeolocationError provider events).
-    for fix in azul_layout::managers::geolocation::drain_location_fixes() {
+    for fix in lw.app_services.geolocation.drain_fixes() {
         changed |= lw.geolocation_manager.set_latest_fix(fix);
     }
-    for error in azul_layout::managers::geolocation::drain_location_errors() {
+    for error in lw.app_services.geolocation.drain_errors() {
         lw.geolocation_manager.set_last_error(error);
         changed = true;
     }
 
     // Permission: async prompt outcomes parked by OS completion handlers.
-    for (capability, state) in azul_layout::managers::permission::drain_async_results() {
+    for (capability, state) in lw.app_services.permission.drain() {
         changed |= lw.permission_manager.set_status(capability, state);
     }
 
@@ -137,33 +136,33 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // request and must dispatch a BiometricResult event.
     lw.biometric_manager
         .set_availability(crate::desktop::extra::biometric::availability_cached());
-    let bio_requests = azul_layout::managers::biometric::drain_biometric_requests();
+    let bio_requests = lw.app_services.biometric.requests.drain();
     if !bio_requests.is_empty() {
         lw.biometric_manager
             .mark_requests_dispatched(bio_requests.len() as u32);
         changed = true;
     }
     for prompt in &bio_requests {
-        crate::desktop::extra::biometric::request(prompt);
+        crate::desktop::extra::biometric::request(prompt, &lw.app_services.biometric.results);
     }
-    for result in azul_layout::managers::biometric::drain_biometric_results() {
+    for result in lw.app_services.biometric.results.drain() {
         lw.biometric_manager.set_last_result(result);
         changed = true;
     }
 
     // Keyring: same request → native backend → parked-result shape.
-    let keyring_requests = azul_layout::managers::keyring::drain_keyring_requests_in();
+    let keyring_requests = lw.app_services.keyring.drain_requests_in();
     if !keyring_requests.is_empty() {
         lw.keyring_manager
             .mark_requests_dispatched(keyring_requests.len() as u32);
         changed = true;
     }
     for (namespace, req) in &keyring_requests {
-        crate::desktop::extra::keyring::request(namespace, req);
+        crate::desktop::extra::keyring::request(namespace, req, &lw.app_services.keyring.results);
     }
     // Only the answers this window waits for: another window's pass leaves them for it.
     let awaited = usize::try_from(lw.keyring_manager.in_flight).unwrap_or(usize::MAX);
-    for result in azul_layout::managers::keyring::drain_keyring_results_up_to(awaited) {
+    for result in lw.app_services.keyring.drain_results_up_to(awaited) {
         lw.keyring_manager.set_last_result(result);
         changed = true;
     }
@@ -175,18 +174,19 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // into a logged `Failed` instead of silence. Events are NOT delivered
     // here: a delivery needs a window to invoke against, which the run loops
     // have and this pass does not.
-    crate::desktop::notifications::dispatch_queued_requests();
+    crate::desktop::notifications::dispatch_queued_requests(&lw.app_services);
 
     // Eyedropper: only the results addressed to THIS window's requests (the
     // loupe / system sampler answers by request id; another window's pick
     // stays in the channel for that window).
     let issued = lw.eyedropper_manager.issued().to_vec();
     if !issued.is_empty() {
-        for result in azul_layout::managers::eyedropper::drain_results_for(&issued) {
-            if lw
-                .eyedropper_manager
-                .fold_result(result.request_id, result.color)
-            {
+        for result in lw.app_services.eyedropper.drain_results_for(&issued) {
+            if lw.eyedropper_manager.fold_result(
+                &lw.app_services.eyedropper,
+                result.request_id,
+                result.color,
+            ) {
                 changed = true;
             }
         }
@@ -224,11 +224,11 @@ pub fn desired_interval_ms(lw: &LayoutWindow) -> Option<u64> {
         // not yet dispatched → in_flight still 0) must arm the timer too,
         // or a prompt queued by a DoNothing callback would wait for an
         // unrelated event before being shown.
-        || azul_layout::managers::biometric::has_queued_requests()
-        || azul_layout::managers::keyring::has_queued_requests()
+        || lw.app_services.biometric.has_queued_requests()
+        || lw.app_services.keyring.has_queued_requests()
         // A notification posted by a DoNothing callback must not wait for
         // an unrelated event to reach the OS.
-        || azul_layout::managers::notification::has_queued_requests()
+        || lw.app_services.notifications.has_queued_requests()
         || lw.eyedropper_manager.has_pending_async()
         // Resumable-API requests (file dialogs, device lists, ...) completed or still pending.
         || azul_layout::request::has_work()

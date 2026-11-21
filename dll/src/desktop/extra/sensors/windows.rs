@@ -35,7 +35,7 @@ use std::{
 };
 
 use azul_core::sensors::{SensorKind, SensorReading};
-use azul_layout::managers::sensors::push_sensor_reading;
+use azul_layout::managers::sensors::SensorChannel;
 use windows::Devices::Sensors::{
     Accelerometer, AccelerometerReadingType, Barometer, Gyrometer, HingeAngleSensor, LightSensor,
     Magnetometer, OrientationSensor, Pedometer, PedometerStepKind, ProximitySensor,
@@ -95,7 +95,7 @@ pub fn has_motion_hardware() -> bool {
         || Magnetometer::GetDefault().is_ok()
 }
 
-pub fn start() {
+pub fn start(channel: &std::sync::Arc<SensorChannel>) {
     let s = Sensors {
         accel: Accelerometer::GetDefault().ok(),
         gyro: Gyrometer::GetDefault().ok(),
@@ -155,7 +155,7 @@ pub fn start() {
     }
     let _ = SENSORS.set(s);
 
-    start_async_sensors();
+    start_async_sensors(std::sync::Arc::clone(channel));
 }
 
 /// The pedometer and the hinge sensor, which have no synchronous `GetDefault`.
@@ -164,10 +164,10 @@ pub fn start() {
 /// `IAsyncOperation` blocks until the platform answers and this is called from
 /// the layout pass. On the overwhelmingly common machine that has neither, the
 /// operation completes with an error almost immediately and the thread exits.
-fn start_async_sensors() {
+fn start_async_sensors(channel: std::sync::Arc<SensorChannel>) {
     std::thread::Builder::new()
         .name("azul-sensors-winrt".into())
-        .spawn(|| {
+        .spawn(move || {
             use std::future::IntoFuture;
 
             use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
@@ -222,11 +222,11 @@ fn start_async_sensors() {
                 let handler = windows::Foundation::TypedEventHandler::<
                     HingeAngleSensor,
                     windows::Devices::Sensors::HingeAngleSensorReadingChangedEventArgs,
-                >::new(|_sender, args| {
+                >::new(move |_sender, args| {
                     if let Some(args) = args.as_ref() {
                         if let Ok(r) = args.Reading() {
                             if let Ok(deg) = r.AngleInDegrees() {
-                                push_sensor_reading(SensorReading {
+                                channel.push_reading(SensorReading {
                                     kind: SensorKind::HingeAngle,
                                     x: deg as f32,
                                     y: 0.0,
@@ -247,7 +247,7 @@ fn start_async_sensors() {
         .ok();
 }
 
-pub fn poll() {
+pub fn poll(channel: &SensorChannel) {
     // The typed proximity answer (8e-i-a-ii), before the IMU gate below: a
     // machine can have the one without the other. `DistanceInMillimeters` is
     // OPTIONAL (an `IReference`) - present only on a ranging sensor - and
@@ -264,7 +264,7 @@ pub fn poll() {
                 None if r.IsDetected().unwrap_or(false) => Proximity::Near,
                 None => Proximity::Far,
             };
-            azul_layout::managers::sensors::push_proximity(proximity);
+            channel.push_proximity(proximity);
         }
     }
 
@@ -277,7 +277,7 @@ pub fn poll() {
         if let Ok(r) = a.GetCurrentReading() {
             if let (Ok(x), Ok(y), Ok(z)) = (r.AccelerationX(), r.AccelerationY(), r.AccelerationZ())
             {
-                push_sensor_reading(SensorReading {
+                channel.push_reading(SensorReading {
                     kind: SensorKind::Accelerometer,
                     x: x as f32 * G_TO_MS2,
                     y: y as f32 * G_TO_MS2,
@@ -294,7 +294,7 @@ pub fn poll() {
                 r.AngularVelocityY(),
                 r.AngularVelocityZ(),
             ) {
-                push_sensor_reading(SensorReading {
+                channel.push_reading(SensorReading {
                     kind: SensorKind::Gyroscope,
                     x: x as f32 * DEG_TO_RAD,
                     y: y as f32 * DEG_TO_RAD,
@@ -310,7 +310,7 @@ pub fn poll() {
                 (r.MagneticFieldX(), r.MagneticFieldY(), r.MagneticFieldZ())
             {
                 // Already microtesla.
-                push_sensor_reading(SensorReading {
+                channel.push_reading(SensorReading {
                     kind: SensorKind::Magnetometer,
                     x,
                     y,
@@ -332,7 +332,7 @@ pub fn poll() {
         if let Ok(r) = a.GetCurrentReading() {
             if let (Ok(x), Ok(y), Ok(z)) = (r.AccelerationX(), r.AccelerationY(), r.AccelerationZ())
             {
-                push_sensor_reading(SensorReading {
+                channel.push_reading(SensorReading {
                     kind,
                     x: x as f32 * G_TO_MS2,
                     y: y as f32 * G_TO_MS2,
@@ -350,7 +350,7 @@ pub fn poll() {
                     // `SensorKind::RotationVector` carries the VECTOR PART and
                     // drops `w`, matching Android's `TYPE_ROTATION_VECTOR`.
                     // `w` is recoverable for a unit quaternion.
-                    push_sensor_reading(SensorReading {
+                    channel.push_reading(SensorReading {
                         kind: SensorKind::RotationVector,
                         x,
                         y,
@@ -365,7 +365,7 @@ pub fn poll() {
     if let Some(l) = &s.light {
         if let Ok(r) = l.GetCurrentReading() {
             if let Ok(lux) = r.IlluminanceInLux() {
-                push_sensor_reading(SensorReading {
+                channel.push_reading(SensorReading {
                     kind: SensorKind::AmbientLight,
                     x: lux,
                     y: 0.0,
@@ -381,7 +381,7 @@ pub fn poll() {
             if let Ok(hpa) = r.StationPressureInHectopascals() {
                 // ALREADY hectopascals - the one platform that needs no
                 // pressure conversion, unlike iio's kilopascals.
-                push_sensor_reading(SensorReading {
+                channel.push_reading(SensorReading {
                     kind: SensorKind::Barometer,
                     x: hpa as f32,
                     y: 0.0,
@@ -408,7 +408,7 @@ pub fn poll() {
             .filter_map(|k| readings.Lookup(k).ok())
             .filter_map(|r| r.CumulativeSteps().ok())
             .sum();
-            push_sensor_reading(SensorReading {
+            channel.push_reading(SensorReading {
                 kind: SensorKind::StepCounter,
                 x: total as f32,
                 y: 0.0,

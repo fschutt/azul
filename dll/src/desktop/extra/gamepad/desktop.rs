@@ -2,7 +2,7 @@
 //!
 //! [`poll`] pumps gilrs's event queue (which refreshes its internal per-pad
 //! state), then snapshots every connected pad into a [`GamepadState`] and
-//! parks it via `push_gamepad_state`; the layout pass folds the latest per
+//! parks it in the app's `GamepadStates`; the layout pass folds the latest per
 //! id into the `GamepadManager`. A `Disconnected` event parks an empty
 //! (`connected = false`) state so the manager can clear that pad.
 //!
@@ -19,7 +19,7 @@
 use std::cell::RefCell;
 
 use azul_core::gamepad::{GamepadButton, GamepadId, GamepadState};
-use azul_layout::managers::gamepad::push_gamepad_state;
+use azul_layout::managers::gamepad::GamepadStates;
 use gilrs::{Axis, Button, EventType, Gilrs, PowerInfo};
 
 use super::{apply_axial_deadzone, apply_radial_deadzone};
@@ -80,7 +80,7 @@ fn power_info_to_battery(info: PowerInfo) -> f32 {
     }
 }
 
-pub fn poll() {
+pub fn poll(states: &GamepadStates) {
     GILRS.with(|cell| {
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
@@ -118,7 +118,7 @@ pub fn poll() {
         while let Some(ev) = gilrs.next_event() {
             if matches!(ev.event, EventType::Disconnected) {
                 crate::plog_info!("[gamepad] pad {} disconnected", usize::from(ev.id));
-                push_gamepad_state(GamepadState::empty(GamepadId {
+                states.push(GamepadState::empty(GamepadId {
                     id: usize::from(ev.id) as u32,
                 }));
             }
@@ -196,7 +196,7 @@ pub fn poll() {
                 .find(|i| i.id == usize::from(gid) as u32)
                 .map_or("", |i| i.serial.as_str());
             super::overlay_hid_motion(&mut state, v, p, serial, twins);
-            push_gamepad_state(state);
+            states.push(state);
         }
     });
 }

@@ -1371,10 +1371,15 @@ pub enum DismissCause {
 /// Escape counts for `dismiss=outside` and `dismiss=escape`; focus loss for
 /// `outside` and `outside-only` (whose content answers Escape itself).
 /// `dismiss=none` never dismisses — the app closes it.
+///
+/// `pick_in_flight`: a screen-colour pick of the app is running (its eyedropper channel has one in
+/// flight). The loupe window (or the system sampler) takes the focus, and the popup that asked must
+/// survive that to hear the answer: while a pick runs, nothing dismisses a popup.
 #[must_use]
 pub fn popup_dismiss_cause(
     previous: &FullWindowState,
     current: &FullWindowState,
+    pick_in_flight: bool,
 ) -> Option<DismissCause> {
     // A transient window carries its policy in the mailbox. A window-based
     // MENU (no mailbox, `Menu` type) light-dismisses by definition — this is
@@ -1403,7 +1408,7 @@ pub fn popup_dismiss_cause(
     }
     // The eyedropper's loupe window (or the system sampler) takes the
     // focus; the popup that asked must survive that to hear the answer.
-    if azul_layout::managers::eyedropper::in_flight_anywhere() {
+    if pick_in_flight {
         return None;
     }
     // `outside-only`: the content answers Escape (a dialog's cancelable
@@ -1791,7 +1796,12 @@ mod tests {
             popup_create_options(0xABCD, &parent, &w, Dom::create_div(), None, false, None, &[]);
         as_dialog_window(&mut opts.window_state, "Save changes?");
         assert_eq!(opts.mode, OptionDarkLightMode::Some(DarkLightMode::Dark));
-        super::super::resolve_initial_background_color(&mut opts, &light_desktop);
+        // The app does not pin a mode: the dialog follows its parent's.
+        super::super::resolve_initial_background_color(
+            &mut opts,
+            &light_desktop,
+            OptionDarkLightMode::None,
+        );
         let dark = super::super::mode_background(
             DarkLightMode::Dark,
             &light_desktop,
@@ -1967,14 +1977,18 @@ mod tests {
             let mut after = mk(policy);
             press_escape(&mut after);
             assert_eq!(
-                popup_dismiss_cause(&before, &after),
+                popup_dismiss_cause(&before, &after, false),
                 Some(DismissCause::Escape),
                 "{policy:?}"
             );
             // Held Escape is not a new press.
             let mut held = mk(policy);
             press_escape(&mut held);
-            assert_eq!(popup_dismiss_cause(&held, &after), None, "{policy:?} held");
+            assert_eq!(
+                popup_dismiss_cause(&held, &after, false),
+                None,
+                "{policy:?} held"
+            );
         }
 
         let mut focused = mk(TransientDismiss::Outside);
@@ -1982,13 +1996,18 @@ mod tests {
         let mut unfocused = mk(TransientDismiss::Outside);
         unfocused.window_focused = false;
         assert_eq!(
-            popup_dismiss_cause(&focused, &unfocused),
+            popup_dismiss_cause(&focused, &unfocused, false),
             Some(DismissCause::FocusLost)
         );
         assert_eq!(
-            popup_dismiss_cause(&unfocused, &unfocused),
+            popup_dismiss_cause(&unfocused, &unfocused, false),
             None,
             "never focused: no edge"
+        );
+        assert_eq!(
+            popup_dismiss_cause(&focused, &unfocused, true),
+            None,
+            "a pick in flight takes the focus: the popup stays to hear the answer"
         );
 
         let mut f2 = mk(TransientDismiss::Escape);
@@ -1996,7 +2015,7 @@ mod tests {
         let mut u2 = mk(TransientDismiss::Escape);
         u2.window_focused = false;
         assert_eq!(
-            popup_dismiss_cause(&f2, &u2),
+            popup_dismiss_cause(&f2, &u2, false),
             None,
             "escape-only ignores focus"
         );
@@ -2005,7 +2024,7 @@ mod tests {
         let mut after = mk(TransientDismiss::None);
         press_escape(&mut after);
         assert_eq!(
-            popup_dismiss_cause(&before, &after),
+            popup_dismiss_cause(&before, &after, false),
             None,
             "none never dismisses"
         );

@@ -388,6 +388,7 @@ pub fn white_space_runs(
 /// went through [`white_space_runs_general`] (`audit_tests::a3_solver::ifc`:
 /// plain labels do not).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static WHITE_SPACE_RUNS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static WHITE_SPACE_GENERAL_RUNS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };

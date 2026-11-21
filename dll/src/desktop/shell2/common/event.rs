@@ -2897,10 +2897,17 @@ pub fn ime_sync_key(window_focused: bool, layout_window: Option<&LayoutWindow>) 
 /// App-global undo/redo manager handle, shared (Arc) between the App and every
 /// window. The actual mini-git manager only exists under the `json` feature;
 /// without it every method is a no-op so the type can be threaded unconditionally.
+///
+/// It is also the handle every window of the App is given at creation, so it carries the
+/// App's [`AppServices`] too: the queues between the platform and the windows (the
+/// notification mailbox, the gamepad states, the hotkey manager, ...). A window that is
+/// handed this handle joins the App's services (`LayoutWindow::join_app`); a handle made
+/// by [`SharedUndoManager::new`] starts a set of its own, which is what every test gets.
 #[derive(Clone, Debug)]
 pub struct SharedUndoManager {
     #[cfg(feature = "json")]
     inner: Arc<std::sync::Mutex<azul_layout::json::RefAnyUndoManager>>,
+    services: azul_layout::managers::app_services::AppServices,
 }
 
 impl SharedUndoManager {
@@ -2910,7 +2917,24 @@ impl SharedUndoManager {
             inner: Arc::new(std::sync::Mutex::new(
                 azul_layout::json::RefAnyUndoManager::new(0),
             )),
+            services: azul_layout::managers::app_services::AppServices::new(),
         }
+    }
+
+    /// A handle that carries `services` as the App's: an App that wants to observe or prepare
+    /// them (the global hotkey manager of a test's recording backend), before its windows join.
+    #[must_use]
+    pub fn with_services(services: azul_layout::managers::app_services::AppServices) -> Self {
+        Self {
+            services,
+            ..Self::new()
+        }
+    }
+
+    /// The queues and slots this App's windows, run loop and platform backends share.
+    #[must_use]
+    pub const fn services(&self) -> &azul_layout::managers::app_services::AppServices {
+        &self.services
     }
 
     /// Snapshot current app state into history. No-op (returns false) without json.
@@ -3170,8 +3194,8 @@ pub enum IncrementalRelayout {
 ///
 /// 1. `AZ_MODE=light|dark` pins it (a screenshot run must not follow the machine), exactly as it
 ///    pins the cascade's context;
-/// 2. else the APP's mode (`AppConfig::mode`, or the last `CallbackInfo::set_mode`) when it
-///    pins one;
+/// 2. else the APP's mode (`app`: `AppConfig::mode`, or the last `CallbackInfo::set_mode`,
+///    as [`super::app_shared::AppShared::mode`] holds it) when it pins one;
 /// 3. else this window's own request, `WindowCreateOptions::theme`;
 /// 4. else what the OS probe said (`SystemStyle::theme`, discovered at startup — on
 ///    macOS/Windows/Linux this IS the appearance probe; iOS and Android never write it, so they
@@ -3183,16 +3207,6 @@ pub enum IncrementalRelayout {
 /// is a creation seed that lasts until the desktop next changes, as before.
 #[must_use]
 pub fn initial_window_theme(
-    requested: azul_core::window::OptionDarkLightMode,
-    probed: azul_css::system::DarkLightMode,
-) -> azul_core::window::DarkLightMode {
-    initial_window_theme_for(azul_layout::window::app_mode(), requested, probed)
-}
-
-/// [`initial_window_theme`] with the app's mode passed in rather than read
-/// from the app-global one.
-#[must_use]
-pub fn initial_window_theme_for(
     app: azul_core::window::OptionDarkLightMode,
     requested: azul_core::window::OptionDarkLightMode,
     probed: azul_css::system::DarkLightMode,
@@ -3275,6 +3289,10 @@ pub struct CommonWindowState {
     /// A callback's `commit_undo_snapshot` / `undo_app_state` / `redo_app_state`
     /// drives this; undo/redo relayouts all windows.
     pub undo_manager: SharedUndoManager,
+    /// What the app chose and configured, shared by every window of it, owned by the App like
+    /// the undo manager: its mode and language (a window opened after a switch starts in them),
+    /// the natural-scrolling preference and the two config flags the platform layers read.
+    pub app: Arc<super::app_shared::AppShared>,
     /// Hit-tester for fast asynchronous hit-testing (updated on layout changes).
     /// `None` only during initialization on X11/Wayland before WebRender is set up.
     /// Not used in CPU mode — see `cpu_hit_tester` instead.
@@ -3643,7 +3661,7 @@ impl CommonWindowState {
     /// `requested_theme` is `WindowCreateOptions::theme`: the app's explicit
     /// light/dark request for this window, `None` = follow the system. The
     /// window's theme is SEEDED here, once for every backend, from
-    /// [`initial_window_theme`] — until this existed each shell copied
+    /// [`initial_window_theme`] (under the mode of `app`) — until this existed each shell copied
     /// `options.window_state.theme` (the `LightMode` default) and a window on
     /// a dark desktop started light, was re-cascaded dark a poll later, and
     /// `WindowCreateOptions::theme` had no reader at all.
@@ -3657,6 +3675,7 @@ impl CommonWindowState {
         system_style: Arc<azul_css::system::SystemStyle>,
         app_data: Arc<RefCell<RefAny>>,
         undo_manager: SharedUndoManager,
+        app: Arc<super::app_shared::AppShared>,
     ) -> Self {
         // A window built from `SystemStyle::default()` carries
         // `Platform::Unknown`, which `OsCondition::from_system_platform` maps to
@@ -3675,8 +3694,13 @@ impl CommonWindowState {
             azul_css::system::Platform::current(),
         );
         let mut current_window_state = current_window_state;
-        current_window_state.mode = initial_window_theme(requested_theme, system_style.mode);
+        current_window_state.mode =
+            initial_window_theme(app.mode(), requested_theme, system_style.mode);
         let desktop_theme = system_style.mode;
+        // Newer than every window the App has made, never focused.
+        let app_order = azul_layout::managers::app_target::WindowActivationOrder::for_new_window(
+            &undo_manager.services().activation_clock,
+        );
         Self {
             layout_window: None,
             current_window_state,
@@ -3690,6 +3714,7 @@ impl CommonWindowState {
             system_style,
             app_data,
             undo_manager,
+            app,
             hit_tester: None,
             cpu_hit_tester: None,
             last_hovered_node: None,
@@ -3703,7 +3728,7 @@ impl CommonWindowState {
             content_repaint_pending: false,
             defer_content_layout: false,
             a11y_dirty: true,
-            app_order: azul_layout::managers::app_target::WindowActivationOrder::for_new_window(),
+            app_order,
             desktop_theme,
             renderer_clear_color: None,
             close_unconfirmed: false,
@@ -3722,13 +3747,13 @@ impl CommonWindowState {
     }
 
     /// The app's mode as this window applies it: the window's
-    /// `LayoutWindow` mirror, or - before it has one - the app-global
-    /// choice.
+    /// `LayoutWindow` mirror, or - before it has one - the app's own
+    /// choice ([`Self::app`]).
     #[must_use]
     pub fn app_mode(&self) -> azul_core::window::OptionDarkLightMode {
         self.layout_window
             .as_ref()
-            .map_or_else(azul_layout::window::app_mode, |lw| lw.mode)
+            .map_or_else(|| self.app.mode(), |lw| lw.mode)
     }
 
     /// The light / dark this window must show now: the desktop's, under the
@@ -3897,7 +3922,17 @@ impl CommonWindowState {
     /// `WM_SETFOCUS`), next to its `window_focused = true`. Stamps the
     /// activation clock that decides where app-level events run.
     pub fn note_focus_gained(&mut self) {
-        self.app_order.note_focused();
+        self.app_order
+            .note_focused(&self.undo_manager.services().activation_clock);
+    }
+
+    /// Give this window its `LayoutWindow`, which joins the App behind this window's
+    /// `undo_manager` first (`LayoutWindow::join_app`): it uses the App's queues and takes its
+    /// place in the App's global hotkeys from its first callback on. Every backend installs its
+    /// layout window through here, right after building it.
+    pub fn set_layout_window(&mut self, mut layout_window: LayoutWindow) {
+        layout_window.join_app(self.undo_manager.services());
+        self.layout_window = Some(layout_window);
     }
 
     /// Everything a layout pass needs from here, as disjoint borrows — see
@@ -4324,6 +4359,11 @@ macro_rules! impl_platform_window_getters {
         fn get_undo_manager(&self) -> &$crate::desktop::shell2::common::event::SharedUndoManager {
             &self.$field.undo_manager
         }
+        fn get_app_shared(
+            &self,
+        ) -> &Arc<$crate::desktop::shell2::common::app_shared::AppShared> {
+            &self.$field.app
+        }
         fn get_common_mut(
             &mut self,
         ) -> &mut $crate::desktop::shell2::common::event::CommonWindowState {
@@ -4725,6 +4765,11 @@ pub trait PlatformWindow {
 
     /// Get the app-global undo/redo manager (shared across all windows)
     fn get_undo_manager(&self) -> &SharedUndoManager;
+
+    /// What the app chose and configured, shared by every window of it: its mode, its
+    /// language, the natural-scrolling preference, the two config flags
+    /// ([`CommonWindowState::app`]).
+    fn get_app_shared(&self) -> &Arc<super::app_shared::AppShared>;
 
     // Scrollbar State
 
@@ -5749,9 +5794,13 @@ pub trait PlatformWindow {
     fn apply_window_shape(&mut self, _rects: &[azul_layout::cpurender::ShapeRect]) {}
 
     /// Start the OS's own eyedropper for `request_id` (macOS: the system
-    /// sampler). `true` if one started - the answer arrives through
-    /// `azul_layout::managers::eyedropper::push_result`. The default has none.
-    fn start_native_eyedropper(&mut self, _request_id: u64) -> bool {
+    /// sampler). `true` if one started - the answer arrives through the app's `channel`
+    /// (`EyedropperChannel::push_result`). The default has none.
+    fn start_native_eyedropper(
+        &mut self,
+        _request_id: u64,
+        _channel: &azul_layout::managers::eyedropper::EyedropperChannel,
+    ) -> bool {
         false
     }
 
@@ -5767,13 +5816,20 @@ pub trait PlatformWindow {
     /// neither can serve is answered "cancelled" so the asking callback is
     /// not left waiting.
     fn dispatch_eyedropper_requests(&mut self) {
-        for req in azul_layout::managers::eyedropper::drain_requests() {
-            if self.start_native_eyedropper(req.request_id) {
+        // The app's channel: the picks its windows queued, and where the answers are parked.
+        let Some(channel) = self
+            .get_layout_window()
+            .map(|lw| lw.app_services.eyedropper.clone())
+        else {
+            return;
+        };
+        for req in channel.drain_requests() {
+            if self.start_native_eyedropper(req.request_id, &channel) {
                 continue;
             }
             let dpi = self.get_current_window_state().size.dpi;
             match self.capture_screen_for_eyedropper().and_then(|shot| {
-                crate::desktop::eyedropper::loupe_window(shot, req.request_id, dpi)
+                crate::desktop::eyedropper::loupe_window(shot, req.request_id, dpi, &channel)
             }) {
                 Some(options) => {
                     log_debug!(
@@ -5783,7 +5839,7 @@ pub trait PlatformWindow {
                     );
                     self.queue_window_create(options);
                 }
-                None => crate::desktop::eyedropper::finish(req.request_id, None),
+                None => crate::desktop::eyedropper::finish(&channel, req.request_id, None),
             }
         }
     }
@@ -5950,7 +6006,11 @@ pub trait PlatformWindow {
             return;
         }
 
-        if let Some(cause) = popup_dismiss_cause(&previous, &current) {
+        // A pick the app runs keeps its popups open (the loupe takes the focus).
+        let pick_in_flight = self
+            .get_layout_window()
+            .is_some_and(|lw| lw.app_services.eyedropper.in_flight_anywhere());
+        if let Some(cause) = popup_dismiss_cause(&previous, &current, pick_in_flight) {
             // A window-based MENU (a fallback / headless menu window) has no
             // mailbox and no parent node to post to: it just closes, and its
             // owner takes the rest of the chain down with it. It used to stay
@@ -7804,8 +7864,8 @@ pub trait PlatformWindow {
                 // here; dispatched right away (the loupe is queued, or the
                 // system sampler starts) rather than on the next pump.
                 if let Some(lw) = self.get_layout_window_mut() {
-                    let id = lw.eyedropper_manager.begin_request();
-                    azul_layout::managers::eyedropper::push_request(
+                    let id = lw.eyedropper_manager.begin_request(&lw.app_services.eyedropper);
+                    lw.app_services.eyedropper.push_request(
                         azul_layout::managers::eyedropper::EyedropperRequest { request_id: id },
                     );
                 }
@@ -8361,7 +8421,12 @@ pub trait PlatformWindow {
                 // and later through its own channel when it cannot (Android's
                 // delayed grant): both land as `SystemAudioChange` events.
                 use azul_core::media_session::SystemAudioChange;
-                let answer = crate::desktop::extra::media_keys::set_system_audio_takeover(*active);
+                let answer = self.get_layout_window().and_then(|lw| {
+                    crate::desktop::extra::media_keys::set_system_audio_takeover(
+                        *active,
+                        &lw.app_services.media_keys,
+                    )
+                });
                 if let Some(lw) = self.get_layout_window_mut() {
                     lw.media_session_manager.set_system_audio_active(*active);
                     if *active {
@@ -8794,7 +8859,7 @@ pub trait PlatformWindow {
                 // (`get_locale` / `is_rtl`) and that input moved, in which case
                 // its DOM is stale and has to be rebuilt. The choice is the
                 // app's: a window built afterwards (a dialog) starts in it.
-                azul_layout::window::set_app_locale(Some(locale.as_str()));
+                self.get_app_shared().set_locale(Some(locale.as_str()));
                 let rebuild = match self.get_layout_window_mut() {
                     Some(lw) => {
                         let change = lw.set_locale(locale.as_str());
@@ -8820,7 +8885,7 @@ pub trait PlatformWindow {
                 // built from now on starts in it (`LayoutWindow::new`,
                 // `initial_window_theme`), then every other open window
                 // adopts it through its own trigger, then this one.
-                azul_layout::window::set_app_mode(*mode);
+                self.get_app_shared().set_mode(*mode);
                 self.adopt_app_mode_in_other_windows();
 
                 let Some(target) = self.mirror_app_mode() else {
@@ -11485,13 +11550,13 @@ pub trait PlatformWindow {
         }
     }
 
-    /// Mirror the app-global mode (`azul_layout::window::app_mode`) into this
+    /// Mirror the app's mode (`CommonWindowState::app`) into this
     /// window and answer the light / dark the window must now show, when that
     /// differs from the one it shows (`None`: nothing to write). The decision
     /// is `CommonWindowState::resolved_window_mode` - the desktop's light /
     /// dark under the app's mode and `AZ_MODE`.
     fn mirror_app_mode(&mut self) -> Option<azul_core::window::DarkLightMode> {
-        let mode = azul_layout::window::app_mode();
+        let mode = self.get_app_shared().mode();
         let common = self.get_common_mut();
         if let Some(lw) = common.layout_window.as_mut() {
             lw.mode = mode;
@@ -11918,30 +11983,35 @@ pub trait PlatformWindow {
         // the Win32 `WM_APPCOMMAND` arm does: neither transport has a release,
         // and leaving the key latched would make it look held forever.
         if depth == 0 {
-            crate::desktop::extra::media_keys::ensure_started(self.get_raw_window_handle());
+            let window = self.get_raw_window_handle();
+            let exposed = self.get_app_shared().expose_system_media_controls();
+            if let Some(lw) = self.get_layout_window() {
+                crate::desktop::extra::media_keys::ensure_started(window, exposed, &lw.app_services);
+            }
             // SEEKS (9h-i-a-i-a) ride the same drain: into the media session
             // manager, whose `EventProvider` impl turns each into a
             // `MediaControl` event at the root on this pass. And the other
             // direction: a position jump the app reported is announced to
             // the desktop (MPRIS `Seeked`) so its scrubber re-syncs.
-            for request in azul_layout::managers::media_keys::drain_media_controls() {
-                if let Some(lw) = self.get_layout_window_mut() {
+            if let Some(lw) = self.get_layout_window_mut() {
+                for request in lw.app_services.media_keys.drain_media_controls() {
                     lw.media_session_manager.push_request(request);
                 }
             }
             // SESSION CHANGES (the screen locked, the machine sleeps), from
-            // the platform's observers: each window reads the process's log
+            // the platform's observers: each window reads the app's log
             // for itself and the change is a `SessionChange` event at its
             // root on this pass.
-            crate::desktop::extra::session::ensure_started();
             if let Some(lw) = self.get_layout_window_mut() {
-                lw.device_event_manager.read_session_log();
+                crate::desktop::extra::session::ensure_started(&lw.app_services.session);
+                lw.device_event_manager
+                    .read_session_log(&lw.app_services.session);
             }
             // SYSTEM AUDIO CHANGES (9h-i-a-i-d-i) ride the same drain: an iOS
             // interruption or an Android focus change becomes a
             // `SystemAudioChange` event on this pass.
-            for change in azul_layout::managers::media_keys::drain_system_audio_changes() {
-                if let Some(lw) = self.get_layout_window_mut() {
+            if let Some(lw) = self.get_layout_window_mut() {
+                for change in lw.app_services.media_keys.drain_system_audio_changes() {
                     lw.media_session_manager.push_system_audio_change(change);
                 }
             }
@@ -11951,7 +12021,10 @@ pub trait PlatformWindow {
             {
                 crate::desktop::extra::media_keys::announce_seeked(position_us);
             }
-            let keys = azul_layout::managers::media_keys::drain_media_keys();
+            let keys = self
+                .get_layout_window()
+                .map(|lw| lw.app_services.media_keys.drain_media_keys())
+                .unwrap_or_default();
             for key in keys {
                 use azul_core::window::OptionVirtualKeyCode;
                 self.get_common_mut()
@@ -12001,7 +12074,10 @@ pub trait PlatformWindow {
         // first answer a request meant for the other, which is a coin flip.
         if depth == 0 {
             let id = self.registry_window_id();
-            if azul_layout::managers::window_activation::take_raise_request(id) {
+            if self
+                .get_layout_window()
+                .is_some_and(|lw| lw.app_services.raise.take_raise_request(id))
+            {
                 let handle = self.get_raw_window_handle();
                 if !crate::desktop::extra::window_activation::raise_window(handle) {
                     // A REFUSAL IS AN ANSWER, not a failure to retry: Windows
@@ -12054,7 +12130,15 @@ pub trait PlatformWindow {
                 .and_then(|lw| lw.media_session_manager.take_if_dirty());
             if let Some(info) = announce {
                 let window = self.get_raw_window_handle();
-                crate::desktop::extra::media_keys::publish_now_playing(&info, window);
+                let exposed = self.get_app_shared().expose_system_media_controls();
+                if let Some(lw) = self.get_layout_window() {
+                    crate::desktop::extra::media_keys::publish_now_playing(
+                        &info,
+                        window,
+                        exposed,
+                        &lw.app_services,
+                    );
+                }
             }
         }
 
@@ -17147,12 +17231,12 @@ mod initial_window_theme_tests {
             return;
         }
         assert_eq!(
-            initial_window_theme(OptionDarkLightMode::None, DarkLightMode::Dark),
+            initial_window_theme(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Dark),
             DarkLightMode::Dark,
             "a dark desktop must not start a light window"
         );
         assert_eq!(
-            initial_window_theme(OptionDarkLightMode::None, DarkLightMode::Light),
+            initial_window_theme(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Light),
             DarkLightMode::Light
         );
     }
@@ -17163,11 +17247,19 @@ mod initial_window_theme_tests {
             return;
         }
         assert_eq!(
-            initial_window_theme(OptionDarkLightMode::Some(DarkLightMode::Light), DarkLightMode::Dark),
+            initial_window_theme(
+                OptionDarkLightMode::None,
+                OptionDarkLightMode::Some(DarkLightMode::Light),
+                DarkLightMode::Dark
+            ),
             DarkLightMode::Light
         );
         assert_eq!(
-            initial_window_theme(OptionDarkLightMode::Some(DarkLightMode::Dark), DarkLightMode::Light),
+            initial_window_theme(
+                OptionDarkLightMode::None,
+                OptionDarkLightMode::Some(DarkLightMode::Dark),
+                DarkLightMode::Light
+            ),
             DarkLightMode::Dark
         );
     }
@@ -17187,7 +17279,10 @@ mod initial_window_theme_tests {
             OptionDarkLightMode::Some(DarkLightMode::Dark),
         ] {
             for probed in [DarkLightMode::Light, DarkLightMode::Dark] {
-                assert_eq!(initial_window_theme(requested, probed), expected);
+                assert_eq!(
+                    initial_window_theme(OptionDarkLightMode::None, requested, probed),
+                    expected
+                );
             }
         }
     }
@@ -17197,7 +17292,6 @@ mod initial_window_theme_tests {
     /// old order alone.
     #[test]
     fn the_apps_pin_beats_the_windows_request_and_the_probe() {
-        use super::initial_window_theme_for;
         if pinned() {
             return;
         }
@@ -17209,7 +17303,7 @@ mod initial_window_theme_tests {
             for probed in [DarkLightMode::Light, DarkLightMode::Dark] {
                 for pin in [DarkLightMode::Light, DarkLightMode::Dark] {
                     assert_eq!(
-                        initial_window_theme_for(OptionDarkLightMode::Some(pin), requested, probed),
+                        initial_window_theme(OptionDarkLightMode::Some(pin), requested, probed),
                         pin,
                         "app pin {pin:?} vs request {requested:?} on a {probed:?} desktop"
                     );
@@ -17217,7 +17311,7 @@ mod initial_window_theme_tests {
             }
         }
         assert_eq!(
-            initial_window_theme_for(
+            initial_window_theme(
                 OptionDarkLightMode::None,
                 OptionDarkLightMode::Some(DarkLightMode::Light),
                 DarkLightMode::Dark
@@ -17226,7 +17320,7 @@ mod initial_window_theme_tests {
             "following the desktop, the window's own request still seeds it"
         );
         assert_eq!(
-            initial_window_theme_for(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Dark),
+            initial_window_theme(OptionDarkLightMode::None, OptionDarkLightMode::None, DarkLightMode::Dark),
             DarkLightMode::Dark
         );
     }
@@ -17499,6 +17593,20 @@ mod paint_restyle_tests {
     }
 
     fn page() -> Page {
+        page_under(azul_layout::window::WindowSwitches::default())
+    }
+
+    /// [`page`] for a window that binds a state colour when a state first PAINTS it
+    /// (A3-window-50) and not from the build of the list (A3-window-55,
+    /// `AZ_EAGER_STATE_COLORS`): for the guards of the decoration patch.
+    fn page_bound_when_painted() -> Page {
+        let mut switches = azul_layout::window::WindowSwitches::default();
+        switches.set_state_colors_from_the_build(Some(false));
+        page_under(switches)
+    }
+
+    /// [`page`] with the window's switches chosen before its first layout.
+    fn page_under(switches: azul_layout::window::WindowSwitches) -> Page {
         let mut sidebar = Dom::create_div().with_css("width: 100px; height: 300px; overflow: hidden;");
         for i in 0..1_000 {
             sidebar = sidebar.with_child(Dom::create_div().with_css(if i % 2 == 0 {
@@ -17516,6 +17624,7 @@ mod paint_restyle_tests {
             );
         let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
         lw.system_animations_override = Some(SystemAnimations::default());
+        lw.switches = switches;
         let mut ws = FullWindowState::default();
         ws.size.dimensions = LogicalSize::new(500.0, 300.0);
         lw.layout_and_generate_display_list(
@@ -17730,30 +17839,11 @@ mod paint_restyle_tests {
         );
     }
 
-    /// While this lives, the windows this thread builds bind a state colour when a state
-    /// first PAINTS it (A3-window-50) and not from the build of the list (A3-window-55,
-    /// `AZ_EAGER_STATE_COLORS`): for the guards of the decoration patch.
-    struct BoundWhenPainted;
-
-    impl BoundWhenPainted {
-        fn on_this_thread() -> Self {
-            azul_layout::window::set_state_colors_from_the_build_on_this_thread(Some(false));
-            Self
-        }
-    }
-
-    impl Drop for BoundWhenPainted {
-        fn drop(&mut self) {
-            azul_layout::window::set_state_colors_from_the_build_on_this_thread(None);
-        }
-    }
-
     /// The decoration patch (A3-window-07), with the binding of A3-window-50: the first
     /// enter paints the label's run into the view's list, the leave is the key's value.
     #[test]
     fn a_hover_over_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
-        let _binding = BoundWhenPainted::on_this_thread();
-        a_hover_over_a_label(1);
+        a_hover_over_a_label(page_bound_when_painted(), 1);
     }
 
     /// Audit A4-23, the eager binding (A3-window-55, the default): the label's background is
@@ -17763,13 +17853,12 @@ mod paint_restyle_tests {
     /// Mutation: `bind_state_colors` given no nodes (the enter paints a run: 1 patch).
     #[test]
     fn a_hover_over_a_label_is_the_value_of_a_colour_key_from_its_first_enter() {
-        a_hover_over_a_label(0);
+        a_hover_over_a_label(page(), 0);
     }
 
     /// The pointer enters and leaves the label; the enter paints `patches_of_the_enter` runs
     /// into the view's list.
-    fn a_hover_over_a_label(patches_of_the_enter: u32) {
-        let mut page = page();
+    fn a_hover_over_a_label(mut page: Page, patches_of_the_enter: u32) {
         let before = (
             list_of(&page, DomId::ROOT_ID),
             list_of(&page, page.child),
@@ -17809,20 +17898,18 @@ mod paint_restyle_tests {
     /// The decoration patch for `:active`, with the binding of A3-window-50.
     #[test]
     fn a_press_on_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
-        let _binding = BoundWhenPainted::on_this_thread();
-        a_press_on_a_label(1);
+        a_press_on_a_label(page_bound_when_painted(), 1);
     }
 
     /// The eager binding for `:active` (A3-window-55): the press is a value already.
     #[test]
     fn a_press_on_a_label_is_the_value_of_a_colour_key_from_the_first_press() {
-        a_press_on_a_label(0);
+        a_press_on_a_label(page(), 0);
     }
 
     /// The label is pressed and released; the press paints `patches_of_the_press` runs into
     /// the view's list.
-    fn a_press_on_a_label(patches_of_the_press: u32) {
-        let mut page = page();
+    fn a_press_on_a_label(mut page: Page, patches_of_the_press: u32) {
         let before = (
             list_of(&page, DomId::ROOT_ID),
             list_of(&page, page.child),

@@ -536,7 +536,10 @@ pub(crate) fn gl_state_around_materials(
     if !gl_ptr.is_gl_usable() {
         return None;
     }
-    let on_gpu = azul_layout::texture::materials::material_shader_compiles(&gl_ptr);
+    // The window's own renderer is the one that compiles the shader here, and
+    // the one whose materials the frame path draws below.
+    let mut window = LayoutWindow::new(FcFontCache::build()).ok()?;
+    let on_gpu = window.material_renderer.shader_compiles(&gl_ptr);
     let names = gl.gen_textures(4);
     for (unit, &name) in names.iter().enumerate() {
         gl.active_texture(glconst::TEXTURE0 + unit as u32);
@@ -550,7 +553,6 @@ pub(crate) fn gl_state_around_materials(
 
     let mut state = FullWindowState::default();
     state.size.dimensions = LogicalSize::new(260.0, 120.0);
-    let mut window = LayoutWindow::new(FcFontCache::build()).ok()?;
     window.renderer_type = Some(RendererType::Hardware);
     window.current_window_state = state.clone();
     window
@@ -1265,14 +1267,15 @@ mod retained_list_tests {
         );
 
         // The picture a frame draws when it draws every halo at once: a window of
-        // its own, the halos kept by now.
+        // its own (it keeps halos of its own), whose first frame has no budget.
         drop(gpu);
+        crate::desktop::wr_translate2::draw_every_halo_in_this_thread();
         let mut gpu = GpuSession::new(600.0, 340.0, 2.0).expect("a second session");
         gpu.lay_out(halo_page()).expect("the page lays out");
         let reference = gpu.present(true).expect("the reference frame");
         assert!(
             !gpu.window.gpu_state_manager.frames_owed(),
-            "the halos are kept: nothing is owed"
+            "every halo is drawn in the first frame: nothing is owed"
         );
         let whole = (0, 0, last.width, last.height);
         assert!(

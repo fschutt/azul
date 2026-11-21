@@ -827,9 +827,6 @@ impl Titlebar {
             dom::{EventFilter, HoverEventFilter},
         };
 
-        #[derive(Debug, Clone, Copy)]
-        struct DragMarker;
-
         // Build styles BEFORE moving self.title. The look is the pinned
         // theme's, or - unpinned - both themes' in their `@theme` blocks.
         let look = TitlebarLook::of(&self, show_buttons);
@@ -838,6 +835,9 @@ impl Titlebar {
 
         // ── Title node with drag callbacks ──
         let title_classes = IdOrClassVec::from_vec(vec![Class("csd-title".into())]);
+        // The three callbacks share one drag state (`RefAny` clones share the value): the
+        // fractional pixels the manual move loop has not applied yet travel in it.
+        let drag = RefAny::new(callbacks::TitlebarDrag::default());
 
         let title_node = Dom::create_div()
             .with_ids_and_classes(title_classes)
@@ -850,7 +850,7 @@ impl Titlebar {
                         cb: callbacks::titlebar_drag_start as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    refany: RefAny::new(DragMarker),
+                    refany: drag.clone(),
                 },
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::Drag),
@@ -858,7 +858,7 @@ impl Titlebar {
                         cb: callbacks::titlebar_drag as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    refany: RefAny::new(DragMarker),
+                    refany: drag.clone(),
                 },
                 CoreCallbackData {
                     event: EventFilter::Hover(HoverEventFilter::DoubleClick),
@@ -866,7 +866,7 @@ impl Titlebar {
                         cb: callbacks::titlebar_double_click as usize,
                         ctx: azul_core::refany::OptionRefAny::None,
                     },
-                    refany: RefAny::new(DragMarker),
+                    refany: drag,
                 },
             ].into());
 
@@ -1673,9 +1673,20 @@ pub mod callbacks {
 
     use crate::callbacks::CallbackInfo;
 
+    /// MWA-C-csd: what the title node's drag callbacks share: the fractional-residual carry
+    /// for the manual drag loop - rounding alone still loses up to half a pixel per event in a
+    /// consistent direction, so very slow trackpad drags crawled. It travels as the callbacks'
+    /// own data, so each titlebar carries its own and a callback given other data (a test's
+    /// `()`) just rounds.
+    #[derive(Debug, Clone, Copy, Default)]
+    pub(crate) struct TitlebarDrag {
+        residual_x: f32,
+        residual_y: f32,
+    }
+
     /// `DragStart` - on Wayland, initiate compositor-managed move immediately.
     /// On other platforms, just acknowledge (movement happens in `titlebar_drag`).
-    pub extern "C" fn titlebar_drag_start(_data: RefAny, mut info: CallbackInfo) -> Update {
+    pub extern "C" fn titlebar_drag_start(mut data: RefAny, mut info: CallbackInfo) -> Update {
         // On Wayland, window position is Uninitialized (compositor hides it).
         // We must use xdg_toplevel_move via begin_interactive_move().
         // MWA-B9 (D2): macOS ALSO takes the native path — the backend maps
@@ -1693,8 +1704,9 @@ pub mod callbacks {
         } else {
             // MWA-C-csd: reset the fractional-residual accumulator for the
             // manual move loop (see titlebar_drag).
-            RESIDUAL_X_BITS.store(0f32.to_bits(), core::sync::atomic::Ordering::Relaxed);
-            RESIDUAL_Y_BITS.store(0f32.to_bits(), core::sync::atomic::Ordering::Relaxed);
+            if let Some(mut drag) = data.downcast_mut::<TitlebarDrag>() {
+                *drag = TitlebarDrag::default();
+            }
             // MWA-C-csd: dragging a maximized window restores it first —
             // the native paths get this from the OS drag loop, but the
             // manual loop moved the still-maximized frame around.
@@ -1707,14 +1719,6 @@ pub mod callbacks {
         Update::DoNothing
     }
 
-    /// MWA-C-csd: fractional-residual carry for the manual drag loop -
-    /// rounding alone still loses up to half a pixel per event in a
-    /// consistent direction, so very slow trackpad drags crawled. Only one
-    /// interactive drag exists at a time and callbacks run on the UI
-    /// thread; atomics keep this no_std-friendly (f32 stored as bits).
-    static RESIDUAL_X_BITS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-    static RESIDUAL_Y_BITS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
-
     /// Drag - apply incremental screen-space delta to the CURRENT window position.
     ///
     /// Uses `get_drag_delta_screen_incremental()` (frame-to-frame delta) instead of
@@ -1726,7 +1730,7 @@ pub mod callbacks {
     /// On Wayland: this is a no-op because the compositor manages the move
     /// (initiated by `begin_interactive_move()` in `titlebar_drag_start`).
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
-    pub extern "C" fn titlebar_drag(_data: RefAny, mut info: CallbackInfo) -> Update {
+    pub extern "C" fn titlebar_drag(mut data: RefAny, mut info: CallbackInfo) -> Update {
         use azul_core::{geom::PhysicalPositionI32, window::WindowPosition};
 
         let delta = info.get_drag_delta_screen_incremental();
@@ -1735,17 +1739,22 @@ pub mod callbacks {
         if let (azul_core::geom::OptionDragDelta::Some(d), WindowPosition::Initialized(pos)) =
             (delta, current_pos)
         {
-            use core::sync::atomic::Ordering;
             // MWA-C-csd: full fractional-residual carry (upgrades MWA-B9's
             // round-only fix). Each event applies the integer part of
             // delta + residual and carries the remainder, so arbitrarily
             // slow drags advance losslessly.
-            let total_x = d.dx + f32::from_bits(RESIDUAL_X_BITS.load(Ordering::Relaxed));
-            let total_y = d.dy + f32::from_bits(RESIDUAL_Y_BITS.load(Ordering::Relaxed));
+            let mut carry = data.downcast_mut::<TitlebarDrag>();
+            let (residual_x, residual_y) = carry
+                .as_deref()
+                .map_or((0.0, 0.0), |drag| (drag.residual_x, drag.residual_y));
+            let total_x = d.dx + residual_x;
+            let total_y = d.dy + residual_y;
             let apply_x = total_x.round();
             let apply_y = total_y.round();
-            RESIDUAL_X_BITS.store((total_x - apply_x).to_bits(), Ordering::Relaxed);
-            RESIDUAL_Y_BITS.store((total_y - apply_y).to_bits(), Ordering::Relaxed);
+            if let Some(drag) = carry.as_deref_mut() {
+                drag.residual_x = total_x - apply_x;
+                drag.residual_y = total_y - apply_y;
+            }
             let new_pos = WindowPosition::Initialized(PhysicalPositionI32::new(
                 pos.x + apply_x as i32,
                 pos.y + apply_y as i32,

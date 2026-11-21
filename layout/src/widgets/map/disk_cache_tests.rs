@@ -4,6 +4,7 @@
 
 use std::{
     path::PathBuf,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 
@@ -104,13 +105,18 @@ fn expires_counts_from_the_servers_date_and_last_modified_alone_gives_a_tenth_of
 
 #[test]
 fn an_empty_folder_name_means_no_disk_cache() {
-    assert!(TileDiskCache::open("", 1 << 20).is_none());
+    assert!(TileDiskCache::open("", 1 << 20, &Arc::default()).is_none());
 }
 
 #[test]
 fn a_stored_tile_comes_back_fresh_until_its_time_and_stale_with_its_validators_after() {
     let dir = folder("fresh");
-    let cache = TileDiskCache::open(dir.to_str().expect("utf-8 temp dir"), 1 << 20).expect("open");
+    let cache = TileDiskCache::open(
+        dir.to_str().expect("utf-8 temp dir"),
+        1 << 20,
+        &Arc::default(),
+    )
+    .expect("open");
     cache.store_at(URL, &[1, 2, 3], &policy(2_000, Some("\"v1\"")), at(1_000));
     let hit = cache.lookup_at(URL, 1_999, at(1_001)).expect("stored");
     assert!(hit.fresh);
@@ -130,7 +136,12 @@ fn a_stored_tile_comes_back_fresh_until_its_time_and_stale_with_its_validators_a
 #[test]
 fn a_304_renews_a_stale_tile_and_keeps_its_bytes_and_its_etag() {
     let dir = folder("renew");
-    let cache = TileDiskCache::open(dir.to_str().expect("utf-8 temp dir"), 1 << 20).expect("open");
+    let cache = TileDiskCache::open(
+        dir.to_str().expect("utf-8 temp dir"),
+        1 << 20,
+        &Arc::default(),
+    )
+    .expect("open");
     cache.store_at(URL, &[9, 9], &policy(100, Some("\"v1\"")), at(10));
     assert!(cache.renew_at(URL, &policy(5_000, None), at(20)));
     let hit = cache.lookup_at(URL, 4_999, at(21)).expect("renewed");
@@ -143,7 +154,12 @@ fn a_304_renews_a_stale_tile_and_keeps_its_bytes_and_its_etag() {
 #[test]
 fn a_no_store_answer_removes_what_was_kept() {
     let dir = folder("nostore");
-    let cache = TileDiskCache::open(dir.to_str().expect("utf-8 temp dir"), 1 << 20).expect("open");
+    let cache = TileDiskCache::open(
+        dir.to_str().expect("utf-8 temp dir"),
+        1 << 20,
+        &Arc::default(),
+    )
+    .expect("open");
     cache.store_at(URL, &[1], &policy(100, None), at(10));
     let forbidden = CachePolicy {
         store: false,
@@ -157,7 +173,12 @@ fn a_no_store_answer_removes_what_was_kept() {
 #[test]
 fn the_folder_stays_under_its_cap_by_dropping_the_least_recently_used_tiles() {
     let dir = folder("lru");
-    let cache = TileDiskCache::open(dir.to_str().expect("utf-8 temp dir"), 3_500).expect("open");
+    let cache = TileDiskCache::open(
+        dir.to_str().expect("utf-8 temp dir"),
+        3_500,
+        &Arc::default(),
+    )
+    .expect("open");
     let url = |n: u32| format!("https://tiles.invalid/planet/1/3/{n}/0.pbf");
     let body = vec![7u8; 1024];
     cache.store_at(&url(1), &body, &policy(10_000, None), at(1));
