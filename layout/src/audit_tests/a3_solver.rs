@@ -1291,6 +1291,38 @@ fn a_relatively_positioned_box_inside_an_absolute_one_is_shifted_once_per_pass()
     );
 }
 
+/// A3-solver-46. The positioning pass reads a box's static position from its slot of the
+/// position vector and writes the box's final position into the same slot. A pass that does not
+/// derive that slot from the flow again (an incremental pass that lays out another subtree)
+/// solves from last pass's FINAL position. For a box with all insets `auto` in an `rtl`
+/// containing block the solve is `x = static.x - margin-right` (`right` is set to the static
+/// position, CSS 2.2 10.3.7), so the box moved left by its right margin on every such pass.
+///
+/// `body(0) > [.c(1) > .p(2), .g(3) > .x(4)]`: `.x` gets another width; its parent `.g` has a
+/// definite height, so `.x` alone is laid out again and `.c` with its box `.p` is not touched.
+/// Whatever x a fresh layout gives `.p` (F), the incremental pass gave F - 10.
+///
+/// Mutation: the static position read from the slot in the `Rtl` arm (no `flow_static_position`)
+/// puts `.p` 10 px further left than a fresh layout.
+#[test]
+fn a_box_at_its_static_position_in_an_rtl_block_does_not_drift_by_its_margin() {
+    let page = || {
+        Dom::create_body()
+            .with_child(div_class("c").with_child(div_class("p")))
+            .with_child(div_class("g").with_child(div_class("x")))
+    };
+    let base = "body { margin: 0; } \
+                .c { direction: rtl; position: relative; width: 400px; height: 100px; } \
+                .p { position: absolute; width: 50px; height: 20px; margin-right: 10px; } \
+                .g { height: 50px; } .x { height: 20px; }";
+    let (first, second) = (
+        format!("{base} .x {{ width: 100px; }}"),
+        format!("{base} .x {{ width: 150px; }}"),
+    );
+    let incremental = restyled(page, &first, &second);
+    assert_as_in_a_fresh_layout(&incremental, &fresh(page, &second), &[1, 2, 3, 4]);
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
