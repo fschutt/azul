@@ -78,9 +78,12 @@ const MAX_HALOS: usize = 16 * 1024;
 const MAX_HALO_PIXELS: u64 = 1 << 21;
 
 /// The CPU renderer keeps at most this many halos ([`CpuHalo`]) ...
-const MAX_CPU_HALOS: usize = 4096;
-/// ... holding at most this many bytes of coverage (one byte a pixel).
-const MAX_CPU_HALO_BYTES: usize = 32 * 1024 * 1024;
+const MAX_CPU_HALOS: usize = 16_384;
+/// ... holding at most this many bytes of coverage (one byte a pixel). At a scale factor of 2
+/// the halo of a label of 150 x 40 px is 300 x 80 = 24 KB, and a turned label keeps a second
+/// picture for its ink: the 1,567 labels and 923 turned ones of the Tuebingen view are 60 MB.
+/// A frame that uses more is not made to drop what it uses ([`begin_cpu_halo_frame`]).
+const MAX_CPU_HALO_BYTES: usize = 96 * 1024 * 1024;
 /// The most pixels one kept CPU halo may cover. A larger shadow (a page of shadowed text) is
 /// drawn as before, over the part that lands, so a repaint of a strip of it stays the strip's cost.
 pub(super) const MAX_CPU_HALO_PIXELS: u64 = 1 << 17;
@@ -109,6 +112,27 @@ thread_local! {
     /// Tests: keep no halo, so a shadow is drawn the way it was before halos were kept.
     #[cfg(test)]
     static CPU_HALOS_OFF: Cell<bool> = const { Cell::new(false) };
+}
+
+thread_local! {
+    /// The memo's clock at the start of the frame before the one being painted, and at the
+    /// start of this one ([`begin_cpu_halo_frame`]).
+    static CPU_HALO_FRAMES: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
+}
+
+/// The start of a frame that paints, on the thread that paints it: from here on the halos
+/// this thread keeps are not dropped to make room while they were used by this frame or the
+/// frame before (`ImageMemo::keep_used_since`). The store is an LRU with a bound, and a
+/// frame with more halos than the bound holds evicted, while it painted, the halos it still
+/// needed and drew every one of them again on every frame: the fault the GPU's halo cache
+/// had (A5-01), here as cost instead of flicker.
+pub fn begin_cpu_halo_frame() {
+    CPU_HALOS.with(|halos| {
+        let mut halos = halos.borrow_mut();
+        let (_, last) = CPU_HALO_FRAMES.with(Cell::get);
+        CPU_HALO_FRAMES.with(|frames| frames.set((last, halos.clock())));
+        halos.keep_used_since(Some(last));
+    });
 }
 
 /// The CPU renderer's kept halos while the bands of a repaint run (`bands`): the memo of the

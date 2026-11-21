@@ -1271,6 +1271,8 @@ impl CpuBackend {
                     .map(|list| Arc::as_ptr(list) as usize),
             )
             .collect();
+        // The halos this frame and the frame before use are not evicted while it paints.
+        cpurender::begin_cpu_halo_frame();
         // A kept surface whose list was replaced by one that differs in a few items (a tile
         // that arrived during a zoom, a label that was edited) is repaired, not dropped.
         if let Err(e) = cpurender::refresh_retained_surfaces(
