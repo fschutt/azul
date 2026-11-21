@@ -12,13 +12,13 @@ rustc 1.91.0 (the pinned toolchain), macOS aarch64. Logs: `<scratchpad>/verify/<
 
 | crate | compiles | tests compile | tests | notes |
 |---|---|---|---|---|
-| azul-css | yes (lib, 0 errors) | not yet | | |
-| azul-core | yes (lib, 0 errors; to be checked again after the merge of A6 `e60317650`, which changes `styled_dom.rs`) | not yet | | |
-| azul-layout | lib: 16 errors in 3 classes fixed (`4651bf19f`); next check pending | not yet | | |
+| azul-css | yes | yes | `cargo test -p azul-css --no-fail-fast`: lib 2942 passed, 14 integration targets passed, 0 failed | 1 test corrected (`66` below) |
+| azul-core | yes | yes | `cargo test -p azul-core`: lib 3119 passed, 30 integration targets and the doc tests passed, 0 failed | |
+| azul-layout | yes (default features, and `--features e2e-server`) | yes (`--lib --tests`, 1 error fixed) | running | 17 errors fixed in all |
 | azul-dll | not yet (needs `target/codegen`: `azul-doc codegen all`) | | | |
 
-In progress: step 3 (azul-layout lib). Builds are paused on the coordinator's word (the one build slot is lent to a
-printpdf release); merges and reading go on.
+In progress: step 4, `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast`.
+Next: the failures of that run; then `azul-doc codegen all` and azul-dll.
 
 The gate of the base (`e02646d9a`; from the previous session's `gate-b3.sh` and its logs, the numbers of the commit
 message were attached to the wrong suites):
@@ -33,7 +33,11 @@ message were attached to the wrong suites):
 
 ## Tests changed by the verifier
 
-(none yet)
+- `css/src/props/style/box_shadow.rs` `scale_for_dpi_quantizes_below_the_fixed_point_precision` (commit after
+  `f4519ce3a`'s fix, subject "a css test pinned FloatValue's truncation ..."): it scaled 8 px by 0.0001 and asked 0;
+  0.0008 truncated to 0 and rounds to 0.001 since A3-core-14 (`fb8751e41`, `FloatValue::new` rounds, on purpose; its
+  commit says a value computed at run time escapes its literal scan). Now: factor 0.00005 -> all zero, factor 0.0001
+  -> `[0, 0, 0, 0.001]`. Code unchanged.
 
 ## Open (what still fails / needs a decision)
 
@@ -62,3 +66,15 @@ message were attached to the wrong suites):
   @bf57ffc9a (A1-58/-59 conic gradients, A1-60), `audit/A10` @7d549eebe (notes only). `audit/A3-solver`,
   `audit/A3-window`, `audit/A4` hold only merges of integration (nothing to take). `audit/diff-first` not merged
   (waits for the coordinator's word).
+- builds resumed (coordinator: "continue"). Merged, no conflicts: `audit/A1` @f2ecfda91 (A1-47 borders), `audit/A4`
+  @8a7af63ed (notes), `audit/A3-window` @914e54179 and `audit/A3-solver` @ceb7587af (no tree change). Head `ee64815dc`.
+- `cargo check -p azul-core`: 0 errors. `cargo check -p azul-layout`: 0 errors (93 warnings). **css, core and layout
+  libs compile.**
+- `cargo check -p azul-css --tests`: 0 errors. `cargo check -p azul-core --tests`: 0 errors.
+  `cargo check -p azul-layout --features e2e-server --lib --tests`: 1 error (E0597 in a test helper of
+  `text3/cache/unified_layout.rs`, A8-23's test module: the tail expression's iterator outlived the local), fixed;
+  second run 0 errors.
+- `cargo test -p azul-css`: lib 2941 passed, 1 failed (`scale_for_dpi_quantizes_below_the_fixed_point_precision`: see
+  "Tests changed"); after the correction `cargo test -p azul-css --no-fail-fast`: 2942 + 14 integration targets, 0 failed.
+- `cargo test -p azul-core`: lib 3119 passed, every integration target and the doc tests passed, 0 failed.
+- `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast`: started.
