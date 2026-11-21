@@ -3008,6 +3008,20 @@ impl StyledDom {
             })
     }
 
+    /// What a DOM cascaded AT REST owes the states its nodes were given afterwards, flag by
+    /// flag: the whole cascade where a rule names a raised state left of its subject
+    /// ([`Self::restyle_for_raised_states`]), else the inheritance passes where a node in a
+    /// state hands its children a value ([`Self::a_raised_state_hands_values_down`]). The
+    /// tail of every rebuild that styles its DOM at rest: the shell's, after the
+    /// reconciliation, and the one of a rebuild that reconciled first and could keep no row
+    /// (`cascade_at_rest`, then this).
+    pub fn let_raised_states_in(&mut self) {
+        let cascaded = self.restyle_for_raised_states();
+        if !cascaded && self.a_raised_state_hands_values_down() {
+            self.recompute_inheritance_for_states();
+        }
+    }
+
     /// Which nodes drop and which take `:focus-within` when the focus moves
     /// from `lost` to `gained`: the two ancestor chains without the part
     /// they share, which holds the focus before and after.

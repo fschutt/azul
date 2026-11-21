@@ -14206,7 +14206,15 @@ mod tests {
             let mut window = a3w_texts_window(&state);
             a3w_change(&state, |app| app.texts[2] = "another text".to_string());
             let before = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
-            a3w_rebuild(&mut window, diff_first);
+            // The step `text` alone: with the later steps on, a text with a handler is a
+            // node changed where it stands (`nodes`), and a page with a mover is reconciled
+            // before it is styled or not at all (`tree`) - other exits, other tests.
+            let steps: &[azul_layout::window::DiffFirstStep] = if diff_first {
+                &[azul_layout::window::DiffFirstStep::Text]
+            } else {
+                &[]
+            };
+            df_rebuild(&mut window, steps);
             azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - before
         };
         assert_eq!(cascades_of(|_| {}, true), 0, "premise: a plain text change keeps the cascade");
@@ -14223,13 +14231,15 @@ mod tests {
     // styled DOM, the reconciliation, the equivalence walk - is what it must agree with.
 
     /// One row of [`df_layout`]: its text, which `df-k<kind>` class it wears, which of
-    /// [`DF_PLACES`] is its inline style, and its id (0: none).
+    /// [`DF_PLACES`] is its inline style, its id (0: none), and how many `div.df-extra`
+    /// boxes follow its cell (a subtree that comes and goes inside the row).
     #[derive(Clone)]
     struct DfRow {
         text: String,
         kind: usize,
         place: usize,
         id: usize,
+        extra: usize,
     }
 
     /// The app state of [`df_layout`]: the rows, whether the list is `df-dense`, and whether
@@ -14271,18 +14281,27 @@ mod tests {
             if !DF_PLACES[row.place].is_empty() {
                 node = node.with_css(DF_PLACES[row.place]);
             }
-            list = list.with_child(node.with_child(
+            let mut node = node.with_child(
                 Dom::create_span().with_class("df-cell".into()).with_child(
                     Dom::create_text_do_not_use_without_block_level_wrapper(row.text.clone()),
                 ),
-            ));
+            );
+            for n in 0..row.extra {
+                node = node.with_child(
+                    Dom::create_div().with_class("df-extra".into()).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper(format!("x{n}")),
+                    ),
+                );
+            }
+            list = list.with_child(node);
         }
         let mut sheet = String::from(
             ".df-list { padding: 2px; } .df-row { padding: 4px; background: #eeeeee; } \
              .df-dense .df-row { padding: 1px; } .df-k1 { background: #ddddff; width: 200px; } \
              .df-k2 { color: #aa0000; font-size: 18px; } .df-k3 { margin-top: 3px; } \
              #df-id1 { background: #00ff00; } .df-row:hover { background: #ffff00; color: \
-             #0000aa; }",
+             #0000aa; } .df-extra { height: 6px; background: #cccccc; } .df-k2 .df-extra { \
+             height: 9px; }",
         );
         if siblings {
             sheet.push_str(" .df-k1 + .df-row { margin-left: 6px; }");
@@ -14305,6 +14324,7 @@ mod tests {
                     kind: i % 4,
                     place: 0,
                     id: 0,
+                    extra: 0,
                 })
                 .collect(),
             dense: false,
@@ -14373,9 +14393,13 @@ mod tests {
         lines
     }
 
-    /// The step `kind` of the random walk of [`df_walk`] applied to `page`: texts (0, 1), the
-    /// class of a row (2, 3), its inline style (4), the list's class (5), a row's id (6),
-    /// several rows at once (7), a row added or taken (8: both paths in full), nothing (9).
+    /// The step `kind` of the random walk of [`df_walk`] applied to `page`. Nodes changed
+    /// where they stand: texts (0, 1), the class of a row (2, 3), the list's class (5), a
+    /// row's id (6), several rows at once (7), nothing (9). The TREE or a sheet changed
+    /// (the step `tree`; without it both windows take the full path): a row's own sheet
+    /// (4: `Dom::with_css`), a row added or taken (8), a row moved (10), a subtree inside a
+    /// row that comes or goes (11), a row added, another taken and a third restyled at
+    /// once (12), the first and the last row exchanged (13).
     fn df_mutate(page: &mut DfPage, kind: usize, picks: [usize; 6]) {
         const WORDS: [&str; 8] = ["", "a", "41", "42", "Tuebingen", "one two", "x y z", "row"];
         let rows = page.rows.len();
@@ -14405,10 +14429,36 @@ mod tests {
                             kind: picks[3] % 4,
                             place: picks[4] % 4,
                             id: 0,
+                            extra: 0,
                         },
                     );
                 }
             }
+            10 => {
+                let row = page.rows.remove(picks[0] % rows);
+                page.rows.insert(picks[1] % rows, row);
+            }
+            11 => {
+                let at = picks[0] % rows;
+                page.rows[at].extra = (page.rows[at].extra + 1 + picks[3] % 2) % 3;
+            }
+            12 => {
+                page.rows[picks[2] % rows].kind = picks[5] % 4;
+                page.rows.insert(
+                    picks[1] % (rows + 1),
+                    DfRow {
+                        text: format!("came {}", picks[0]),
+                        kind: picks[3] % 4,
+                        place: 0,
+                        id: 0,
+                        extra: picks[4] % 2,
+                    },
+                );
+                if page.rows.len() > 9 {
+                    let _ = page.rows.remove(picks[0] % page.rows.len());
+                }
+            }
+            13 => page.rows.swap(0, rows - 1),
             _ => {}
         }
     }
@@ -14417,8 +14467,14 @@ mod tests {
     /// on and one down the full path: after every rebuild both hold the same nodes, states,
     /// resolved styles, compact entries, tags, boxes and display list. With `pointer`, the
     /// pointer is put over a row first and moved to another one every few steps, in both;
-    /// `siblings` is whether the page's sheet has its sibling rule.
-    fn df_walk(steps: &[azul_layout::window::DiffFirstStep], pointer: bool, siblings: bool) {
+    /// `siblings` is whether the page's sheet has its sibling rule. Answers how many of the
+    /// rebuilds were reconciled before they were styled and kept rows (the step `tree`).
+    fn df_walk(
+        steps: &[azul_layout::window::DiffFirstStep],
+        pointer: bool,
+        siblings: bool,
+    ) -> usize {
+        let kept_rows_before = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
         for seed in [1u64, 7, 20261121] {
             let state_first = df_state_with(12, siblings);
             let state_full = df_state_with(12, siblings);
@@ -14438,7 +14494,7 @@ mod tests {
                         let _ = step(window, HeadlessEvent::MouseMove { x: 40.0, y });
                     }
                 }
-                let kind = next(10);
+                let kind = next(14);
                 let picks = [next(64), next(64), next(64), next(64), next(64), next(64)];
                 df_change(&state_first, |page| df_mutate(page, kind, picks));
                 df_change(&state_full, |page| df_mutate(page, kind, picks));
@@ -14460,16 +14516,131 @@ mod tests {
                 );
             }
         }
+        azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept_rows_before
     }
 
     /// How to read a failure: the message names the seed, the step and its kind
     /// ([`df_mutate`]) and the first differing line. A `node` / `item` line is the layout or
     /// the list, a `style` / `compact` line the cascade, `tags` the hit-test tags. A
-    /// difference at a step of kind 8 is not this path (both windows take the full path).
+    /// difference at a step whose kind changes the tree (4, 8, 10-13) is not this path:
+    /// without the step `tree` both windows take the full path there.
     #[test]
     fn a_rebuild_that_changed_nodes_leaves_what_the_full_path_leaves() {
         use azul_layout::window::DiffFirstStep;
-        df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], false, true);
+        let _ = df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], false, true);
+    }
+
+    /// The walks with the step `tree` (and the three before it): a rebuild that adds, takes,
+    /// moves or exchanges rows, grows or shrinks a subtree inside a row or changes a row's
+    /// own sheet is reconciled before it is styled, keeps the rows of the nodes that are
+    /// what they were, and leaves what the full path leaves - nodes, states, resolved
+    /// styles, compact entries, tags, boxes and display list. A difference at a step of
+    /// kind 4, 8 or 10-13 is this path; a `style` / `compact` line is the cascade that kept
+    /// rows (`StyledDom::cascade_reusing`), a `node` / `item` line the layout or the list.
+    #[test]
+    fn a_rebuild_that_changed_the_tree_leaves_what_the_full_path_leaves() {
+        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree};
+        let kept = df_walk(&[Text, Nodes, Style, Tree], false, false);
+        assert!(kept >= 20, "premise: rebuilds that change the tree keep rows ({kept} did)");
+        let _ = df_walk(&[Text, Nodes, Style, Tree], false, true);
+        // The step alone: every rebuild the fingerprints do not call identical takes it
+        // (a changed text, a changed class too).
+        let alone = df_walk(&[Tree], false, false);
+        assert!(alone >= 20, "premise: the step alone keeps rows too ({alone} rebuilds did)");
+    }
+
+    /// The same with the pointer over a row, moved every few steps: the hover follows the
+    /// row through the reconciliation BEFORE the cascade, which runs once under it. The
+    /// hover rule hands the row's text a colour (`.df-row:hover { color }`).
+    #[test]
+    fn a_rebuild_that_changed_the_tree_under_the_pointer_leaves_what_the_full_path_leaves() {
+        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree};
+        let _ = df_walk(&[Text, Nodes, Style, Tree], true, false);
+        let _ = df_walk(&[Text, Nodes, Style, Tree], true, true);
+    }
+
+    /// `(whole cascades, nodes the cascade ran for, boxes the solver built fresh, rebuilds
+    /// that kept rows)` when `added` rows come at the end of a page of `rows` rows (3 nodes
+    /// a row, 2 above them; no sibling rule), with `steps` on.
+    fn df_cost_of_rows_that_come(
+        rows: usize,
+        added: usize,
+        steps: &[azul_layout::window::DiffFirstStep],
+    ) -> (usize, usize, usize, usize) {
+        let state = df_state_with(rows, false);
+        let mut window = df_window(&state);
+        df_change(&state, |page| {
+            for i in 0..added {
+                page.rows.push(DfRow {
+                    text: format!("came {i}"),
+                    kind: i % 4,
+                    place: 0,
+                    id: 0,
+                    extra: 0,
+                });
+            }
+        });
+        let whole = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        let nodes = azul_core::styled_dom::nodes_cascaded_on_this_thread();
+        let kept = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        df_rebuild(&mut window, steps);
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        (
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - whole,
+            azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
+            lw.layout_cache.last_reconcile_fresh,
+            azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept,
+        )
+    }
+
+    /// Rows that come are styled and laid out, and no other node: 40 rows are 120 nodes, in
+    /// a page of 300 rows and in one of 1,200. The cascade's count is exact (a row that
+    /// comes at the end leaves every other node its data, its ancestors, its state and -
+    /// the sheet has no sibling and no structural rule - all a rule can read of its place);
+    /// the boxes built fresh do not grow with the page (the rows before keep their ids, so
+    /// the solver keeps their boxes). Down the full path the same rebuild cascades every
+    /// node, once.
+    #[test]
+    fn rows_that_come_are_styled_and_laid_out_and_no_other_node() {
+        use azul_layout::window::DiffFirstStep;
+
+        let (whole_small, nodes_small, fresh_small, kept_small) =
+            df_cost_of_rows_that_come(300, 40, &DiffFirstStep::ALL);
+        let (whole_large, nodes_large, fresh_large, kept_large) =
+            df_cost_of_rows_that_come(1200, 40, &DiffFirstStep::ALL);
+        assert_eq!((kept_small, kept_large), (1, 1), "reconciled first, rows kept");
+        assert_eq!((whole_small, whole_large), (0, 0), "no cascade over the whole DOM");
+        assert_eq!((nodes_small, nodes_large), (120, 120), "the rows that came: 3 nodes each");
+        assert!(fresh_small >= 40, "premise: the solver built the new rows ({fresh_small})");
+        assert!(
+            fresh_large <= fresh_small,
+            "four times the rows, the same boxes: fresh {fresh_small} -> {fresh_large}"
+        );
+
+        // The reference: the full path styles the whole page, in one cascade (the shell does
+        // not build the compact cache a second time for a tree out of one cascade).
+        let (whole_full, nodes_full, _, kept_full) = df_cost_of_rows_that_come(300, 40, &[]);
+        assert_eq!(kept_full, 0, "every step off: the full path");
+        assert_eq!(whole_full, 1, "one cascade, one compact cache");
+        assert_eq!(nodes_full, 2 + 340 * 3, "over every node");
+    }
+
+    /// The case of the trace: about 500 nodes appear among about 3,500 (167 rows after
+    /// 1,166). The cascade runs for the 501 nodes that came.
+    #[test]
+    fn five_hundred_nodes_among_3500_are_styled_alone() {
+        use azul_layout::window::DiffFirstStep;
+
+        let (whole, nodes, fresh, kept) = df_cost_of_rows_that_come(1166, 167, &DiffFirstStep::ALL);
+        assert_eq!(kept, 1, "reconciled first, rows kept");
+        assert_eq!(whole, 0, "no cascade over the whole DOM");
+        assert_eq!(nodes, 501, "167 rows of 3 nodes");
+        // The solver: the rows that came (a box per row at least, three nodes per row at
+        // most, and what the reconcile builds around them), not the 3,500 nodes before.
+        assert!(
+            (167..=501 + 64).contains(&fresh),
+            "the solver builds the boxes of the rows that came: {fresh} fresh"
+        );
     }
 
     /// The same walks with the step `style`: the cascade runs for the nodes a change reaches
@@ -14478,15 +14649,15 @@ mod tests {
     #[test]
     fn a_rebuild_that_styled_its_changed_nodes_leaves_what_the_full_path_leaves() {
         use azul_layout::window::DiffFirstStep;
-        df_walk(&DiffFirstStep::ALL, false, false);
-        df_walk(&DiffFirstStep::ALL, false, true);
+        let _ = df_walk(&DiffFirstStep::ALL, false, false);
+        let _ = df_walk(&DiffFirstStep::ALL, false, true);
     }
 
     #[test]
     fn a_rebuild_that_styled_its_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves()
     {
         use azul_layout::window::DiffFirstStep;
-        df_walk(&DiffFirstStep::ALL, true, false);
+        let _ = df_walk(&DiffFirstStep::ALL, true, false);
     }
 
     /// The same walk with the pointer over a row (a `:hover` rule holds for it), moved every
@@ -14494,7 +14665,7 @@ mod tests {
     #[test]
     fn a_rebuild_that_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves() {
         use azul_layout::window::DiffFirstStep;
-        df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], true, true);
+        let _ = df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], true, true);
     }
 
     /// What one changed class costs with every step on, in a page of `rows` rows without the
@@ -14660,8 +14831,10 @@ mod tests {
                 .collect()
         };
         assert_eq!(on("0"), Vec::<&str>::new());
-        assert_eq!(on("1"), vec!["text", "nodes", "style"]);
-        assert_eq!(on(""), vec!["text", "nodes", "style"]);
+        assert_eq!(on("1"), vec!["text", "nodes", "style", "tree", "view"]);
+        assert_eq!(on(""), vec!["text", "nodes", "style", "tree", "view"]);
+        assert_eq!(on("tree"), vec!["tree"]);
+        assert_eq!(on("text,nodes,style"), vec!["text", "nodes", "style"], "the state before `tree`");
         assert_eq!(on("text"), vec!["text"]);
         assert_eq!(on("nodes, style"), vec!["nodes", "style"]);
         assert_eq!(on("text,bogus"), vec!["text"], "an unknown name beside a known one is skipped");
