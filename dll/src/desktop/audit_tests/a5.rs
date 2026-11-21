@@ -439,3 +439,102 @@ fn a5_a_zoom_that_settles_keeps_every_halo_at_1x() {
 fn a5_a_zoom_that_settles_keeps_every_halo_at_2x() {
     a_zoom_that_settles_keeps_every_halo(2.0);
 }
+
+/// A5-15 (review of A4-27, invariant I-g: the kept pictures are a thread's, the
+/// slot keys a window's). The sequence, with two windows A and B on one thread:
+///
+/// 1. A paints a label with the picture `old` from slot 1 (A's key K1 shows it).
+/// 2. B's scans draw the label's picture at another size into the place of
+///    `old`: slot 1 shows `new` now, and `old` has no slot.
+/// 3. A's next scan finds `old` as a label's own picture - it gets slot 2 - and,
+///    further down its list, a label painted with `new` from slot 1. The slots
+///    are registered in list order: slot 2 first (a new key K2 shows `old`,
+///    `old` resolves to K2), then slot 1 (K1 is given `new`).
+///
+/// Giving K1 its new picture removed the registration of the picture K1 had
+/// shown - `old`, which K2 shows since a moment ago. The label of slot 2 was
+/// then translated to WebRender's own shadow (no spread: no outline), and stayed
+/// so: slot 2 "shows `old` already", so no later scan registered it again.
+///
+/// Mutation: the `resolved.key == key` guard removed from the `TextHalo` arm of
+/// `plan_overlay_image_uploads` leaves `old` unregistered: this fails.
+#[test]
+fn a5_15_a_picture_given_a_new_slot_stays_registered_when_its_old_slot_shows_another() {
+    use azul_core::resources::{
+        IdNamespace, ImageDirtyRect, ImageRef, ImageSlot, RawImage, RawImageData, RawImageFormat,
+    };
+
+    use crate::desktop::wr_translate2::plan_overlay_image_uploads;
+
+    let picture = |fill: u8| {
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![fill; 4 * 2 * 4].into()),
+            width: 4,
+            height: 2,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::new().into(),
+        })
+        .expect("a picture")
+    };
+    let namespace = IdNamespace(7);
+    let (old, new) = (picture(1), picture(2));
+    let registered = |rr: &RendererResources, image: &ImageRef| {
+        rr.currently_registered_images
+            .get(&image.get_hash())
+            .map(|resolved| resolved.key)
+    };
+
+    // 1. The window paints `old` from slot 1.
+    let mut rr = RendererResources::default();
+    let first = plan_overlay_image_uploads(
+        [(ImageSlot::TextHalo(1), &old, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert_eq!(first.len(), 1);
+    assert!(!first[0].update, "a slot's first picture adds its key");
+    let key_1 = first[0].key;
+
+    // 3. `old` from slot 2, then `new` from slot 1.
+    let second = plan_overlay_image_uploads(
+        [
+            (ImageSlot::TextHalo(2), &old, ImageDirtyRect::All),
+            (ImageSlot::TextHalo(1), &new, ImageDirtyRect::All),
+        ]
+        .into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert_eq!(second.len(), 2);
+    assert!(!second[0].update, "slot 2 is new: its key is added");
+    assert!(second[1].update, "slot 1 keeps its key: new pixels under it");
+    let key_2 = second[0].key;
+    assert_ne!(key_2, key_1);
+    assert_eq!(second[1].key, key_1);
+    assert_eq!(
+        registered(&rr, &old),
+        Some(key_2),
+        "the picture slot 2 paints resolves to slot 2's key"
+    );
+    assert_eq!(registered(&rr, &new), Some(key_1));
+    assert_eq!(rr.image_key_map.get(&key_1), Some(&new.get_hash()));
+    assert_eq!(rr.image_key_map.get(&key_2), Some(&old.get_hash()));
+
+    // The order one window alone produces (the slot that changed first): the
+    // old picture's registration under K1 is removed, as before.
+    let mut rr = RendererResources::default();
+    let _ = plan_overlay_image_uploads(
+        [(ImageSlot::TextHalo(1), &old, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    let replaced = plan_overlay_image_uploads(
+        [(ImageSlot::TextHalo(1), &new, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert!(replaced[0].update);
+    assert_eq!(registered(&rr, &old), None, "a replaced picture is forgotten");
+    assert!(!rr.image_last_seen_epoch.contains_key(&old.get_hash()));
+}
