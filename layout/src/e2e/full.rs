@@ -738,6 +738,13 @@ pub struct FrameReportResponse {
     /// the whole-list scans), and the sum since `reset_frame_counters`.
     pub cpu_last: CpuCountersJson,
     pub cpu_since_reset: CpuCountersJson,
+    /// A9-07: the process's resident memory when this report was built, bytes
+    /// (`phys_footprint` on macOS, `VmRSS` on Linux, the working set on Windows:
+    /// `probe::current_rss_bytes`). 0 without the `probe` feature.
+    pub rss_bytes: u64,
+    /// The most the process has had resident, bytes (`getrusage` `ru_maxrss`, the peak
+    /// working set on Windows: `probe::peak_rss_bytes_pub`). 0 without the `probe` feature.
+    pub peak_rss_bytes: u64,
 }
 
 /// [`azul_layout::cpu_counters::CpuFrameCounters`] for the E2E API.
@@ -8721,6 +8728,14 @@ fn build_frame_report_response(
             })
             .collect::<Vec<_>>()
     };
+    // A9-07: sampled when the report is read, so a frame pays nothing for it.
+    #[cfg(all(feature = "probe", not(feature = "web_lift")))]
+    let (rss_bytes, peak_rss_bytes) = (
+        azul_layout::probe::current_rss_bytes().0,
+        azul_layout::probe::peak_rss_bytes_pub(),
+    );
+    #[cfg(not(all(feature = "probe", not(feature = "web_lift"))))]
+    let (rss_bytes, peak_rss_bytes) = (0_u64, 0_u64);
     FrameReportResponse {
         frame_index: report.frame_index,
         dl_rebuilds: report.dl_rebuilds,
@@ -8746,6 +8761,34 @@ fn build_frame_report_response(
         test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
         cpu_last: (&report.cpu_last).into(),
         cpu_since_reset: (&report.cpu_since_reset).into(),
+        rss_bytes,
+        peak_rss_bytes,
+    }
+}
+
+/// A9-07: the frame report says how much memory the process holds.
+#[cfg(all(test, feature = "std"))]
+mod audit_a9_report_tests {
+    use super::*;
+
+    #[test]
+    fn a9_07_frame_report_carries_resident_memory() {
+        let report = azul_layout::window::FrameReport::default();
+        let response = build_frame_report_response(&report, 100.0);
+        #[cfg(all(
+            feature = "probe",
+            not(feature = "web_lift"),
+            any(target_os = "macos", target_os = "linux", target_os = "windows")
+        ))]
+        {
+            assert!(response.rss_bytes > 0, "a running process holds memory");
+            assert!(response.peak_rss_bytes > 0);
+        }
+        #[cfg(not(feature = "probe"))]
+        assert_eq!((response.rss_bytes, response.peak_rss_bytes), (0, 0));
+        // It is in the JSON the runner hands out.
+        let json = serde_json::to_value(&response).expect("serialisable");
+        assert!(json.get("rss_bytes").is_some() && json.get("peak_rss_bytes").is_some());
     }
 }
 
