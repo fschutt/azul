@@ -86,11 +86,27 @@ pub fn level_of(level: LogLevel) -> Level {
     }
 }
 
+/// Whether a run that asked for no logs is printing its errors: the filter is at
+/// Error (`log_filter::LEVEL_WHEN_NOT_ASKED`, or an `AZ_LOG=error`) and nothing
+/// switched the stderr copy off (`AZ_LOG_STDERR=0`; `AZ_LOG=off` leaves no level).
+///
+/// In the lean build the `log` facade's own logger prints those errors. In a build
+/// whose gate is the only stderr writer (`debug-server`, `e2e-scripting`: the
+/// shipped `build-dll`) the gate has to, or an ordinary run fails in silence: the
+/// echo of `log_filter` is off unless a log was asked for, and `log_active()` is
+/// false without a debug server collecting.
+fn quiet_run_prints_errors() -> bool {
+    log_filter::min_level() == Some(Level::Error) && !stderr_explicitly_disabled()
+}
+
 /// Whether a sink is listening at all. Checked before the filter because it is
 /// the cheaper of the two and the more often false.
 #[must_use]
 pub fn sink_available() -> bool {
-    super::debug_server::log_active() || log_filter::stderr_echo() || log_file().is_some()
+    super::debug_server::log_active()
+        || log_filter::stderr_echo()
+        || log_file().is_some()
+        || quiet_run_prints_errors()
 }
 
 /// Whether a passing record should go to stderr.
@@ -161,7 +177,8 @@ const fn facade_writes_stderr(_level: LogLevel) -> bool {
 /// its own `eprintln!`. False when the `log`-facade path below will print the
 /// same record, so a record is written to stderr exactly once.
 fn gate_writes_stderr(level: LogLevel) -> bool {
-    echo_to_stderr() && !facade_writes_stderr(level)
+    (echo_to_stderr() || (matches!(level, LogLevel::Error) && quiet_run_prints_errors()))
+        && !facade_writes_stderr(level)
 }
 
 /// How many times a record at `level` would be written to stderr.
@@ -572,6 +589,34 @@ mod tests {
         log_filter::set_stderr_echo(true);
         assert!(should_log(LogCategory::Platform, Level::Error));
         log_filter::set_stderr_echo(false);
+    }
+
+    /// A run that asked for no logs prints its errors, once, and nothing else, in every build: its
+    /// filter is at Error, and that level has a sink - the `log` facade's logger in the lean build,
+    /// the gate itself where the gate is the only writer (the shipped `build-dll`, which the
+    /// real-stderr test below caught printing nothing on the macOS and Windows runs of
+    /// 2026-11-21). Any level above Error, `AZ_LOG=off` or `AZ_LOG_STDERR=0` takes it away.
+    #[test]
+    fn a_quiet_run_has_a_sink_for_its_errors_and_for_nothing_else() {
+        let _serial = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        log_filter::set_stderr_echo(false);
+        log_filter::set_min_level(Some(Level::Error));
+        assert!(quiet_run_prints_errors());
+        assert!(sink_available(), "the errors of a quiet run have a sink");
+        assert!(should_log(LogCategory::Platform, Level::Error));
+        assert!(!should_log(LogCategory::Platform, Level::Debug), "a quiet run is at Error");
+        assert_eq!(
+            stderr_writer_count(LogLevel::Error),
+            1,
+            "one writer for an error of a quiet run: the gate or the facade, not both, not neither"
+        );
+        // Asked for more than errors: the echo is the filter's, not this rule's.
+        log_filter::set_min_level(Some(Level::Warn));
+        assert!(!quiet_run_prints_errors());
+        // AZ_LOG=off leaves no level at all.
+        log_filter::set_min_level(None);
+        assert!(!quiet_run_prints_errors());
+        log_filter::set_min_level(Some(Level::Debug));
     }
 
     #[test]
