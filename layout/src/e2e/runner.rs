@@ -4838,7 +4838,7 @@ fn run_e2e_test_keeping_runner(
 /// and recorder, ...) are the test's own, so it can fill them before the scenario runs and read
 /// them after.
 #[cfg(test)]
-pub(crate) fn run_e2e_test_in_app(
+fn run_e2e_test_in_app(
     test: &E2eTest,
     services: &crate::managers::app_services::AppServices,
 ) -> (E2eTestResult, Runner) {

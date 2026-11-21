@@ -201,10 +201,10 @@ fn the_trays_callback_reads_which_event_it_runs_for() {
     let update = deliver(&mut lw, deliveries.remove(0));
     assert_eq!(update, Update::DoNothing, "the callback's answer comes back");
 
-    let (events, calls) = seen_by(&data);
+    let (seen, calls) = seen_by(&data);
     assert_eq!(calls, 1, "the tray's callback ran exactly once");
     assert_eq!(
-        events,
+        seen,
         vec![TrayEvent::simple(TrayEventType::Activate)],
         "it saw the click it was delivered for"
     );
