@@ -9,7 +9,8 @@
 //!
 //! - **clip_stack** – tracks nested clip chain IDs (`PushClip` / `PopClip`)
 //! - **spatial_stack** – tracks spatial nodes (`PushScrollFrame` / `PushReferenceFrame`)
-//! - **offset_stack** – converts absolute window coordinates to frame-relative coordinates
+//! - no offset stack: the items are in absolute window coordinates, which are a scroll frame's own
+//!   (it makes no new origin), so nothing is subtracted (`current_offset!()` is zero)
 //!
 //! Called from `generate_frame` in `wr_translate2.rs`.
 
@@ -422,6 +423,64 @@ thread_local! {
     pub(crate) static TRANSLATIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// The radii of a radial gradient's ending shape (CSS Images 3, 3.2.1): the
+/// shape `shape` sized by `size` about `center` in a box of `extent`, all in
+/// the same units; `(rx, ry)`, equal for a circle.
+///
+/// A circle to a side takes the distance to that side, to a corner the
+/// distance to that corner. An ellipse to a side takes the two distances to
+/// the sides. An ellipse to a CORNER passes through that corner with the
+/// proportions it would have to the SIDE of the same kind: the side ellipse
+/// grown by sqrt(2), because the corner (dx, dy) lies on the ellipse
+/// (k dx, k dy) exactly when 1/k^2 + 1/k^2 = 1. The two corner arms used to
+/// hand WebRender the side distances themselves: `radial-gradient(ellipse
+/// farthest-corner, ..)` - the CSS default - in a centred 200 x 100 box ended
+/// at radii 100 x 50, at the sides, where it has to end at 141.4 x 70.7, in
+/// the corners (the CPU renderer's `radial_gradient_radii` has it since
+/// A1-51).
+pub(crate) fn radial_gradient_radii(
+    shape: &azul_css::props::style::background::Shape,
+    size: &azul_css::props::style::background::RadialGradientSize,
+    center: (f32, f32),
+    extent: (f32, f32),
+) -> (f32, f32) {
+    use azul_css::props::style::background::{RadialGradientSize, Shape};
+
+    let (center_x, center_y) = center;
+    let (width, height) = extent;
+    // The distances to the nearer and to the farther side, per axis.
+    let (near_x, near_y) = (center_x.min(width - center_x), center_y.min(height - center_y));
+    let (far_x, far_y) = (center_x.max(width - center_x), center_y.max(height - center_y));
+    match (shape, size) {
+        (Shape::Circle, RadialGradientSize::ClosestSide) => {
+            let r = near_x.min(near_y);
+            (r, r)
+        }
+        (Shape::Circle, RadialGradientSize::FarthestSide) => {
+            let r = far_x.max(far_y);
+            (r, r)
+        }
+        (Shape::Circle, RadialGradientSize::ClosestCorner) => {
+            let r = (near_x * near_x + near_y * near_y).sqrt();
+            (r, r)
+        }
+        (Shape::Circle, RadialGradientSize::FarthestCorner) => {
+            let r = (far_x * far_x + far_y * far_y).sqrt();
+            (r, r)
+        }
+        (Shape::Ellipse, RadialGradientSize::ClosestSide) => (near_x, near_y),
+        (Shape::Ellipse, RadialGradientSize::FarthestSide) => (far_x, far_y),
+        (Shape::Ellipse, RadialGradientSize::ClosestCorner) => (
+            near_x * core::f32::consts::SQRT_2,
+            near_y * core::f32::consts::SQRT_2,
+        ),
+        (Shape::Ellipse, RadialGradientSize::FarthestCorner) => (
+            far_x * core::f32::consts::SQRT_2,
+            far_y * core::f32::consts::SQRT_2,
+        ),
+    }
+}
+
 /// [`translate_displaylist_with_zoom_frame`] for a list without a zoom frame:
 /// every reference frame of the list is placed where the list opens it.
 pub fn translate_displaylist_to_wr(
@@ -592,7 +651,11 @@ pub fn translate_displaylist_with_zoom_frame(
     // When we enter a scroll frame, items inside have absolute coordinates but
     // WebRender expects coordinates relative to the scroll frame's content_rect origin.
     // We push the scroll frame's origin when entering, and subtract it from all coordinates.
-    let offset_stack: Vec<(f32, f32)> = vec![(0.0, 0.0)];
+    //
+    // There is no such stack any more (A2-gpu's row): nothing ever pushed to
+    // it, because a scroll frame makes no new origin (see `PushScrollFrame`),
+    // so the "current offset" is zero wherever it is asked for. The arms still
+    // pass it to `resolve_rect` and the text helpers, as a constant.
 
     // Helper to apply current offset to a rect
     let apply_offset = |rect: LayoutRect, offset: (f32, f32)| -> LayoutRect {
@@ -616,7 +679,7 @@ pub fn translate_displaylist_with_zoom_frame(
     }
     macro_rules! current_offset {
         () => {
-            offset_stack.last().copied().unwrap_or((0.0, 0.0))
+            (0.0_f32, 0.0_f32)
         };
     }
 
@@ -1394,33 +1457,52 @@ pub fn translate_displaylist_with_zoom_frame(
                 // CRITICAL: The clip must be in parent space so it stays stationary while content
                 // scrolls! If we define it in scroll space, the clip would scroll
                 // with the content (wrong).
-                let scroll_clip_id = builder.define_clip_rect(parent_space, adjusted_frame_rect);
+                //
+                // A box's own scroll frame comes directly after the `PushClip`
+                // of the same box (the builder pushes the clip, then the
+                // frame, with one rect): that clip - this very rect, on this
+                // very parent node, or its rounded form - is already the top
+                // of the clip stack, and a second clip node saying the same
+                // was defined here for every scroll box (A2-gpu's row). Such
+                // a frame takes the chain that is there. A frame without that
+                // clip in front of it - the viewport's frame, a frame opened
+                // again around a box painted outside it - defines its own, as
+                // before: it is the only thing that clips its content.
+                let clipped_by_the_item_before = current_clip != WrClipChainId::INVALID
+                    && item_index
+                        .checked_sub(1)
+                        .and_then(|before| display_list.items.get(before))
+                        .is_some_and(|before| {
+                            matches!(
+                                before,
+                                DisplayListItem::PushClip { bounds, .. } if bounds.0 == clip_bounds.0
+                            )
+                        });
 
-                log_trace!(
-                    LogCategory::DisplayList,
-                    "[CLIP DEBUG] PushScrollFrame: scroll_clip_id={:?}, parent_space={:?}, \
-                     adjusted_frame_rect={:?}",
-                    scroll_clip_id,
-                    parent_space,
-                    adjusted_frame_rect
-                );
-
-                log_trace!(
-                    LogCategory::DisplayList,
-                    "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on \
-                     parent_space={:?} with frame_rect={:?}",
-                    scroll_clip_id,
-                    parent_space,
-                    frame_rect
-                );
-
-                // Create a clip chain with this clip, parented to the current clip chain
+                // The chain this frame's clip is parented to, if it defines one.
                 let parent_clip = if current_clip == WrClipChainId::INVALID {
                     None
                 } else {
                     Some(current_clip)
                 };
-                let scroll_clip_chain = builder.define_clip_chain(parent_clip, [scroll_clip_id]);
+                let scroll_clip_chain = if clipped_by_the_item_before {
+                    current_clip
+                } else {
+                    let scroll_clip_id =
+                        builder.define_clip_rect(parent_space, adjusted_frame_rect);
+
+                    log_trace!(
+                        LogCategory::DisplayList,
+                        "[compositor2] PushScrollFrame: defined scroll_clip_id={:?} on \
+                         parent_space={:?} with frame_rect={:?}",
+                        scroll_clip_id,
+                        parent_space,
+                        frame_rect
+                    );
+
+                    // A clip chain with this clip, parented to the current clip chain
+                    builder.define_clip_chain(parent_clip, [scroll_clip_id])
+                };
 
                 log_trace!(
                     LogCategory::DisplayList,
@@ -2206,82 +2288,15 @@ pub fn translate_displaylist_with_zoom_frame(
                 };
                 let center = LayoutPoint::new(center_x, center_y);
 
-                // Compute radius based on shape and size keyword (in DPI-scaled coordinates)
-                use azul_css::props::style::background::RadialGradientSize;
-                let radius = match (&gradient.shape, &gradient.size) {
-                    // Circle: same radius in both directions
-                    (
-                        azul_css::props::style::background::Shape::Circle,
-                        RadialGradientSize::ClosestSide,
-                    ) => {
-                        let r = center_x
-                            .min(center_y)
-                            .min(scaled_width - center_x)
-                            .min(scaled_height - center_y);
-                        LayoutSize::new(r, r)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Circle,
-                        RadialGradientSize::FarthestSide,
-                    ) => {
-                        let r = center_x
-                            .max(center_y)
-                            .max(scaled_width - center_x)
-                            .max(scaled_height - center_y);
-                        LayoutSize::new(r, r)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Circle,
-                        RadialGradientSize::ClosestCorner,
-                    ) => {
-                        let dx = center_x.min(scaled_width - center_x);
-                        let dy = center_y.min(scaled_height - center_y);
-                        let r = (dx * dx + dy * dy).sqrt();
-                        LayoutSize::new(r, r)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Circle,
-                        RadialGradientSize::FarthestCorner,
-                    ) => {
-                        let dx = center_x.max(scaled_width - center_x);
-                        let dy = center_y.max(scaled_height - center_y);
-                        let r = (dx * dx + dy * dy).sqrt();
-                        LayoutSize::new(r, r)
-                    }
-                    // Ellipse: different radius for x and y
-                    (
-                        azul_css::props::style::background::Shape::Ellipse,
-                        RadialGradientSize::ClosestSide,
-                    ) => {
-                        let rx = center_x.min(scaled_width - center_x);
-                        let ry = center_y.min(scaled_height - center_y);
-                        LayoutSize::new(rx, ry)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Ellipse,
-                        RadialGradientSize::FarthestSide,
-                    ) => {
-                        let rx = center_x.max(scaled_width - center_x);
-                        let ry = center_y.max(scaled_height - center_y);
-                        LayoutSize::new(rx, ry)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Ellipse,
-                        RadialGradientSize::ClosestCorner,
-                    ) => {
-                        let dx = center_x.min(scaled_width - center_x);
-                        let dy = center_y.min(scaled_height - center_y);
-                        LayoutSize::new(dx, dy)
-                    }
-                    (
-                        azul_css::props::style::background::Shape::Ellipse,
-                        RadialGradientSize::FarthestCorner,
-                    ) => {
-                        let dx = center_x.max(scaled_width - center_x);
-                        let dy = center_y.max(scaled_height - center_y);
-                        LayoutSize::new(dx, dy)
-                    }
-                };
+                // The radii of the ending shape, by its shape and size keyword
+                // (in DPI-scaled coordinates).
+                let (radius_x, radius_y) = radial_gradient_radii(
+                    &gradient.shape,
+                    &gradient.size,
+                    (center_x, center_y),
+                    (scaled_width, scaled_height),
+                );
+                let radius = LayoutSize::new(radius_x, radius_y);
 
                 // Convert extend mode
                 let extend_mode = match gradient.extend_mode {
@@ -5521,5 +5536,126 @@ mod audit_a4_tests {
             }
         });
         assert_eq!(scroll_frames, 0);
+    }
+
+    /// A1's row for A4. An ellipse to a CORNER passes through that corner with
+    /// the proportions of the ellipse to the side of the same kind: the side
+    /// radii times sqrt(2). By hand, a 200 x 100 box:
+    /// centred (100, 50): `ellipse farthest-corner` (the CSS default) has radii
+    /// 100 sqrt(2) x 50 sqrt(2) = 141.42 x 70.71 - the corner (100, 50) is on
+    /// it: (100 / 141.42)^2 + (50 / 70.71)^2 = 1/2 + 1/2. It was 100 x 50: the
+    /// gradient ended at the sides.
+    /// centre (50, 20): near sides 50, 20, far sides 150, 80: closest-corner
+    /// 70.71 x 28.28 (was 50 x 20), farthest-corner 212.13 x 113.14 (was
+    /// 150 x 80). The sides and the circles are what they were.
+    /// Mutation: `* SQRT_2` dropped from either corner arm.
+    #[test]
+    fn an_ellipse_to_a_corner_has_the_proportions_of_the_ellipse_to_the_side() {
+        use azul_css::props::style::background::{RadialGradientSize as Size, Shape};
+
+        use super::radial_gradient_radii;
+
+        let close = |got: (f32, f32), want: (f32, f32)| {
+            (got.0 - want.0).abs() < 0.01 && (got.1 - want.1).abs() < 0.01
+        };
+        let centred =
+            |shape, size| radial_gradient_radii(&shape, &size, (100.0, 50.0), (200.0, 100.0));
+        let got = centred(Shape::Ellipse, Size::FarthestCorner);
+        assert!(close(got, (141.42, 70.71)), "{got:?}");
+        let on_it = (100.0 / got.0).powi(2) + (50.0 / got.1).powi(2);
+        assert!((on_it - 1.0).abs() < 1e-4, "the corner is on the ellipse: {on_it}");
+        assert!(close(centred(Shape::Ellipse, Size::ClosestCorner), (141.42, 70.71)));
+        assert!(close(centred(Shape::Ellipse, Size::FarthestSide), (100.0, 50.0)));
+
+        let off = |shape, size| radial_gradient_radii(&shape, &size, (50.0, 20.0), (200.0, 100.0));
+        assert!(close(off(Shape::Ellipse, Size::ClosestCorner), (70.71, 28.28)));
+        assert!(close(off(Shape::Ellipse, Size::FarthestCorner), (212.13, 113.14)));
+        assert!(close(off(Shape::Ellipse, Size::ClosestSide), (50.0, 20.0)));
+        assert!(close(off(Shape::Ellipse, Size::FarthestSide), (150.0, 80.0)));
+        assert!(close(off(Shape::Circle, Size::ClosestSide), (20.0, 20.0)));
+        assert!(close(off(Shape::Circle, Size::FarthestSide), (150.0, 150.0)));
+        assert!(close(off(Shape::Circle, Size::ClosestCorner), (53.85, 53.85)));
+        assert!(close(off(Shape::Circle, Size::FarthestCorner), (170.0, 170.0)));
+    }
+
+    /// A2-gpu's row for A4. What clips an item under a scroll frame is the
+    /// frame's rect on the frame's parent node, once: a box's own scroll frame
+    /// comes directly after the `PushClip` of the same rect and takes that
+    /// clip's chain (it used to define a second clip node saying the same); a
+    /// scroll frame without that clip in front of it - or behind a clip of
+    /// another rect - still defines its own, the only thing that clips its
+    /// content to it.
+    /// Mutations: `clipped_by_the_item_before` forced true leaves the bare
+    /// frame's rect without a clip (0 clips, the rect unclipped); forced false
+    /// defines two clips for the box.
+    #[test]
+    fn an_item_under_a_scroll_frame_is_clipped_to_the_frames_rect_once() {
+        use webrender::api::{units::LayoutRect, ClipChainId};
+
+        let frame_rect = rect(20.0, 30.0, 200.0, 100.0);
+        let scroll_frame = || DisplayListItem::PushScrollFrame {
+            clip_bounds: frame_rect.into(),
+            content_size: azul_core::geom::LogicalSize::new(200.0, 400.0),
+            scroll_id: 77,
+        };
+        let clip_of = |r: azul_core::geom::LogicalRect| DisplayListItem::PushClip {
+            bounds: r.into(),
+            border_radius: Default::default(),
+        };
+        // (the rects of the clips the list defines, the clip chain of its one
+        // painted rect and that chain's parent)
+        let clips = |items: Vec<DisplayListItem>| {
+            let list = built(items, 1.0);
+            let mut rects: Vec<LayoutRect> = Vec::new();
+            let mut chains: Vec<(ClipChainId, Option<ClipChainId>, usize)> = Vec::new();
+            let mut painted = None;
+            let mut iter = list.iter();
+            while let Some(item) = iter.next() {
+                match item.item() {
+                    DisplayItem::RectClip(clip) => rects.push(clip.clip_rect),
+                    DisplayItem::ClipChain(chain) => {
+                        chains.push((chain.id, chain.parent, item.clip_chain_items().iter().count()));
+                    }
+                    DisplayItem::Rectangle(r) => painted = Some(r.common.clip_chain_id),
+                    _ => {}
+                }
+            }
+            let painted = painted.expect("the rect is painted");
+            let chain = chains.iter().find(|c| c.0 == painted).copied();
+            (rects, chain)
+        };
+        let device = LayoutRect::from_origin_and_size(
+            webrender::api::units::LayoutPoint::new(20.0, 30.0),
+            webrender::api::units::LayoutSize::new(200.0, 100.0),
+        );
+
+        // A scroll box: its clip, then its frame.
+        let (rects, chain) = clips(vec![
+            clip_of(frame_rect),
+            scroll_frame(),
+            blue_rect(),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopClip,
+        ]);
+        assert_eq!(rects, vec![device], "the frame's rect, once");
+        let (_, parent, links) = chain.expect("the rect under the frame has a clip chain");
+        assert_eq!((parent, links), (None, 1), "the box's one clip and nothing above it");
+
+        // A frame with no clip in front of it (the viewport's): its own clip.
+        let (rects, chain) = clips(vec![scroll_frame(), blue_rect(), DisplayListItem::PopScrollFrame]);
+        assert_eq!(rects, vec![device]);
+        assert_eq!(chain.map(|c| (c.1, c.2)), Some((None, 1)));
+
+        // A frame behind a clip of ANOTHER rect: both clip.
+        let (rects, chain) = clips(vec![
+            clip_of(rect(0.0, 0.0, 300.0, 300.0)),
+            scroll_frame(),
+            blue_rect(),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::PopClip,
+        ]);
+        assert_eq!(rects.len(), 2);
+        assert_eq!(rects[1], device, "the frame's own clip");
+        assert!(chain.is_some_and(|c| c.1.is_some() && c.2 == 1), "chained to the clip above it");
     }
 }
