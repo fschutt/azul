@@ -1788,7 +1788,7 @@ impl DomLayoutResult {
     /// write goes to this result's own copy, so the cache keeps the tree its
     /// next pass starts from, as it did when every pass handed over a copy.
     pub fn layout_tree_mut(&mut self) -> &mut LayoutTree {
-        Arc::make_mut(&mut self.layout_tree)
+        solver3::cache::own_mut(&mut self.layout_tree)
     }
 
     /// Puts the atomic inline children of the inline formatting context at
@@ -10109,6 +10109,9 @@ impl LayoutWindow {
         // Desktop (skip_gpu_sync == false) is unchanged.
         if self.skip_gpu_sync {
             if let Some(tree) = self.layout_cache.tree.clone() {
+                // Another result: what the registration raised beside the tree of
+                // the one before is derived again (see the same call below).
+                self.scroll_manager.forget_raised_bars(dom_id);
                 self.layout_results.insert(
                     dom_id,
                     DomLayoutResult {
@@ -10678,6 +10681,13 @@ impl LayoutWindow {
             .tree
             .clone()
             .ok_or(solver3::LayoutError::InvalidTree)?;
+        // The pass made this DOM's result anew: the scrollbars the registration
+        // raised beside the tree of the result before it (a view's published
+        // extent, `ScrollManager::raise_bars`) are derived again by the
+        // registration that follows - also when the pass hands the SAME tree on
+        // (nothing changed), which their own check by tree cannot see. Before
+        // the thumbs' update below reads this tree.
+        self.scroll_manager.forget_raised_bars(dom_id);
 
         // Get scroll IDs from cache (they were computed during layout_document)
         let scroll_ids = self.layout_cache.scroll_ids.clone();
@@ -20793,9 +20803,10 @@ impl LayoutWindow {
 
         // Iterate over all nodes with scrollbar info
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
-            // Check if node needs scrollbars
-            let warm = layout_tree.warm(LayoutNodeId::new(node_idx));
-            let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
+            // Check if node needs scrollbars: the layout's answer, or the one the
+            // registration raised beside the tree (a view's published extent).
+            let Some(scrollbar_info) = scroll_manager.scrollbar_info(dom_id, node_idx, layout_tree)
+            else {
                 continue;
             };
 
@@ -27866,6 +27877,12 @@ impl LayoutWindow {
         // Use the ifc_layout_index we found earlier (correct layout tree index)
         let mut reshape_extent: Option<LogicalSize> = None;
         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+            // The writes below make the tree this result's own. The scrollbars
+            // the registration raised beside it go into it first, so that it
+            // holds every flag, as it did when the registration wrote them
+            // there: the plan below and the list this edit builds read them.
+            self.scroll_manager
+                .settle_raised_bars(dom_id, &mut layout_result.layout_tree);
             let old_size = layout_result
                 .layout_tree
                 .get(LayoutNodeId::new(ifc_layout_index))
@@ -28832,6 +28849,15 @@ impl LayoutWindow {
         // keystroke's list after a presented reflow does not blit by it.
         if dom_id == DomId::ROOT_ID {
             self.retain_running_color_keys();
+        }
+
+        // The build reads the scrollbars from the tree (`paint_scrollbars`): the
+        // ones the registration raised beside it go into it first. One copy of
+        // the tree if the solver's cache still shares it, none for a DOM
+        // without raised bars (`ScrollManager::settle_raised_bars`).
+        if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+            self.scroll_manager
+                .settle_raised_bars(dom_id, &mut layout_result.layout_tree);
         }
 
         // Get all the data we need from the layout result

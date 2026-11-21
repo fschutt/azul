@@ -831,6 +831,28 @@ thread_local! {
     pub(crate) static TREE_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// `tree` to write to after its pass (a text edit's reshape, the scrollbars a
+/// display-list build must find in it): the tree itself when nothing else
+/// holds it, a copy of every node of it while the solver's cache still shares
+/// it - the cache keeps the tree its next pass starts from.
+pub fn own_mut(tree: &mut alloc::sync::Arc<LayoutTree>) -> &mut LayoutTree {
+    #[cfg(test)]
+    {
+        if alloc::sync::Arc::strong_count(tree) > 1 {
+            TREE_WRITE_COPIES.with(|copies| copies.set(copies.get() + 1));
+        }
+    }
+    alloc::sync::Arc::make_mut(tree)
+}
+
+/// How many times a write to a result's tree on this thread copied the whole tree because
+/// the solver's cache still shared it ([`own_mut`]): what a test reads.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TREE_WRITE_COPIES: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
 /// The persistent cache that holds the layout state between frames.
 // Independent per-pass state FLAGS, not a state machine to enum-ify: each
 // bool is set by a different stage and read by a different consumer.

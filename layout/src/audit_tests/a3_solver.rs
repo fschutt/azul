@@ -1922,6 +1922,7 @@ fn labels_that_moved_are_solved_again() {
 
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
+mod raised_bars;
 mod sizing;
 mod styles;
 mod taffy;
