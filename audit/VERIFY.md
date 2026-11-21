@@ -344,8 +344,23 @@ editor's pin moves once, after the last green merge of the round, on its word):
   every real-renderer test makes; once per thread; test code only; no assertion changed). After it the dll lib
   in parallel three times: 3,875 / 0 / 9 ignored each (logs `541-1..3`; 72.5, 69.8, 69.6 s; before 70.0,
   70.3 s). **2b IS GREEN at `b57add4e7`.**
-- 2c `audit/A5` at `dbde1ccf5`, 2d `audit/dom-builder` at `234ec3de2` (a second `api.json` addition: the Rust
-  outputs once more): NOT merged yet.
+- **2c `audit/A5` at `dbde1ccf5`: MERGED as `ff653f3f4`** (no conflict: `gpu_state.rs` holds both `HaloRelease`
+  and `ZoomFrameState`; a first local merge made before the renderer turn was taken back with `git reset --hard
+  0e38a2020` on the unpushed tip and made again). Layout: 0 compile errors, lib 10,921 / 0 / 1 ignored,
+  `tests/all` 3,060 / 0 / 5 (log `552`). dll lib and `headless_lifecycle`: NOT RUN YET: the disk fell to 7.3 GB
+  during the layout step (the chain's guard refused the dll build: "DISK: only 7 GB free, not building") and the
+  coordinator stopped all builds. Not of this verifier's making by `du`: `azul-target` 4.0 GB then (3.3 GB after
+  deleting the three `libazul_layout` rlibs + rmeta and `libazul.rlib`: the next dll build makes the one it
+  needs), `verify` 0.2 GB, the m4p worktree's `mapedit3/target` 0.2 GB, `target/codegen` 87 MB; deleted too: the
+  e2e-feature units of the pin in the shared editor target (806 MB, today 13:05-13:14; the next `scripts/e2e.sh`
+  rebuilds them). Free after that: 8.9 GB. A dll test build needs 1.2-1.5 GB (+ 0.25 GB for the layout library):
+  it must not start under about 10.3 GB free, or it ends under the floor of 8.5 GB. TO DO for 2c: `run <log> test
+  -p azul-dll --lib --no-fail-fast` (the 563 new lines of `audit_tests/a5.rs`, `macos/mod.rs`,
+  `wr_translate2.rs`) and `--test headless_lifecycle`; then the report.
+- 2d `audit/dom-builder` at `234ec3de2` (a second `api.json` addition: the Rust outputs once more; a dry
+  `merge-tree` against `ff653f3f4` shows no conflict): NOT merged yet.
+- DISK RULE (the coordinator's, from 14:50): before EVERY build `df -h /`; under 9.0 GB delete first; under 8.7 GB
+  do not start and tell the coordinator; delete the previous step's test binaries BEFORE a build, not after.
 - At the end of the round: the Linux / Windows `cargo check`; then, on the coordinator's word, the editor's pin
   (bindings from the new `target/codegen`), and one `AZ_PATCH_DEBUG=1` e2e run for row 6.
 <!-- STATE4-END -->
