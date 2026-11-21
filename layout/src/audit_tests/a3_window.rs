@@ -732,3 +732,135 @@ fn a_canvas_that_comes_with_a_re_render_is_drawn_by_the_next_frame() {
         "the canvas that came with the re-render is drawn"
     );
 }
+
+// -- A3-window-20: a view that states its version is kept over a rebuild of the window's DOM ---
+
+/// The window's DOM with the view of [`watched_page`] (another colour on every render), its
+/// node stating `version` or none. Every call builds new nodes with new data, as an app's
+/// layout callback does.
+fn versioned_page(calls: &Arc<AtomicUsize>, version: Option<u64>) -> StyledDom {
+    let mut view = Dom::create_virtual_view(
+        RefAny::new(Watched(Arc::clone(calls))),
+        VirtualViewCallback::create(watched_page),
+    )
+    .with_css("position: absolute; left: 0px; top: 0px; width: 300px; height: 300px;");
+    if let Some(version) = version {
+        view.set_virtual_view_version(version);
+    }
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(view);
+    StyledDom::create(&mut dom, azul_css::css::Css::empty())
+}
+
+/// A window laid out from [`versioned_page`].
+fn versioned_window(calls: &Arc<AtomicUsize>, version: Option<u64>) -> (LayoutWindow, FullWindowState) {
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_new_generation(
+        versioned_page(calls, version),
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    (lw, ws)
+}
+
+fn rebuild(lw: &mut LayoutWindow, ws: &FullWindowState, calls: &Arc<AtomicUsize>, version: Option<u64>) {
+    lw.layout_new_generation(
+        versioned_page(calls, version),
+        ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out again");
+}
+
+/// THE COUNT: a rebuild of the window's DOM (`RefreshDom`) whose view states the version it
+/// was rendered for invokes the view's callback 0 times, lays its document out 0 times and
+/// leaves its display list where it is. Another version renders it; a view without a version
+/// is rendered by every rebuild, as before.
+#[test]
+fn a_rebuild_with_an_unchanged_view_version_invokes_no_view_callback() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (mut lw, ws) = versioned_window(&calls, Some(7));
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "harness: the first layout renders the view");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    let list = Arc::clone(&lw.layout_results[&child].display_list);
+    let generation = lw.dom_generation(child);
+
+    for _ in 0..3 {
+        rebuild(&mut lw, &ws, &calls, Some(7));
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the same version: the callback is not invoked");
+    assert_eq!(lw.dom_generation(child), generation, "the view's document was not laid out");
+    assert!(
+        Arc::ptr_eq(&list, &lw.layout_results[&child].display_list),
+        "the view's display list is the one it was"
+    );
+
+    rebuild(&mut lw, &ws, &calls, Some(8));
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "another version: the view is rendered");
+    rebuild(&mut lw, &ws, &calls, Some(8));
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "and kept again while that version stands");
+
+    rebuild(&mut lw, &ws, &calls, None);
+    rebuild(&mut lw, &ws, &calls, None);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        4,
+        "a view without a version is rendered by every rebuild"
+    );
+}
+
+/// The shells' "DOM unchanged" exits of a rebuild queue every view for a re-render, all but a
+/// view that states the version it was rendered for; an explicit request renders it anyway.
+#[test]
+fn the_unchanged_dom_exit_of_a_rebuild_keeps_a_view_that_states_its_version() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (mut lw, ws) = versioned_window(&calls, Some(7));
+    let (_, view) = *lw
+        .virtual_view_manager
+        .all_view_keys()
+        .first()
+        .expect("the page holds a view");
+    let mut drain = |lw: &mut LayoutWindow| {
+        let _ = lw.process_pending_virtual_view_updates(
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+        );
+    };
+
+    lw.queue_virtual_view_reinvoke_after_rebuild();
+    drain(&mut lw);
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "the same version: nothing is queued");
+
+    // The rebuild handed the view's node another version (its payload is carried onto the
+    // retained node).
+    lw.layout_results
+        .get_mut(&DomId::ROOT_ID)
+        .expect("the root's result")
+        .styled_dom
+        .node_data
+        .as_container_mut()[view]
+        .set_virtual_view_version(8);
+    lw.queue_virtual_view_reinvoke_after_rebuild();
+    drain(&mut lw);
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "another version: the view is rendered");
+    lw.queue_virtual_view_reinvoke_after_rebuild();
+    drain(&mut lw);
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "and kept while that version stands");
+
+    // What the app asks for by name is done.
+    lw.queue_all_virtual_view_reinvoke();
+    drain(&mut lw);
+    assert_eq!(calls.load(Ordering::SeqCst), 3, "an explicit re-render ignores the version");
+}

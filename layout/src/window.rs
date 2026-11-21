@@ -3591,11 +3591,25 @@ impl LayoutWindow {
         // all child results and re-invoke every view - user code and a cold
         // child layout per view per animation frame. A new generation (the
         // app re-rendered from its model) re-renders every view, as before.
-        let (kept_views, kept_doms) = if new_generation {
-            (BTreeSet::new(), BTreeSet::new())
-        } else {
-            self.unchanged_virtual_views(&root_dom)
-        };
+        //
+        // A new generation keeps a view all the same when its node says it shows what it
+        // showed: the same callback and the same VERSION as it was last rendered for
+        // (`NodeData::set_virtual_view_version`). The engine cannot know what a view's
+        // callback reads, so only the app can say so; a view without a version renders
+        // again. Every rebuild of the window's DOM - a panel that opens, a selection -
+        // used to render every view again: for a map view its callback over 12,470 labels,
+        // then their styling, reconciliation and layout.
+        let (kept_views, kept_doms) = self.unchanged_virtual_views(&root_dom, new_generation);
+        if new_generation {
+            // The node the view is kept for is the rebuilt one: later relayouts compare
+            // against it (its data may be another allocation than the one before).
+            let nodes = root_dom.node_data.as_container();
+            for (host, node) in kept_views.iter().filter(|(host, _)| *host == DomId::ROOT_ID) {
+                if let Some(view) = nodes.get(*node).and_then(|nd| nd.get_virtual_view_node_ref()) {
+                    self.virtual_view_manager.record_invoked_node(*host, *node, view);
+                }
+            }
+        }
 
         // The arena of every child dom outlives the clear below, so re-materialization
         // can reconcile against it: in its retired result while this pass runs
@@ -3740,7 +3754,10 @@ impl LayoutWindow {
                 // (see `layout_new_generation`); the equality rule is safe on
                 // any pass, since dropping an entry the DOM already equals
                 // changes nothing on screen.
-                if new_generation {
+                // A view kept over a new generation (its version stands) is not a DOM
+                // the app just built: the rules of a new generation are not its.
+                let built_anew = new_generation && !kept_doms.contains(&dom_id);
+                if built_anew {
                     self.content_overlay
                         .gc_acked_text(dom_id, self.acked_text_revision);
                 }
@@ -3750,7 +3767,7 @@ impl LayoutWindow {
                     // A value the app SET (rendered something other than the
                     // text the user typed over) beats the typing - only a DOM
                     // the app just built can say so.
-                    if new_generation {
+                    if built_anew {
                         self.content_overlay.gc_app_set_text(dom_id, styled_dom);
                     }
                     self.content_overlay.gc_converged_text(dom_id, styled_dom);
@@ -12371,9 +12388,16 @@ impl LayoutWindow {
     ///
     /// Identity, not equality of content: a host rebuilt by the app hands in
     /// new nodes (another dataset instance), and its views render again.
+    ///
+    /// `rebuilt`: `root_dom` is a new generation (the app built its DOM again). Its nodes are
+    /// new ones, so identity cannot hold; a view of the root is kept when its node states
+    /// the version it was last rendered for, with the same callback
+    /// (`NodeData::set_virtual_view_version`). The views inside a kept child are the nodes
+    /// they were, as in a relayout.
     fn unchanged_virtual_views(
         &self,
         root_dom: &StyledDom,
+        rebuilt: bool,
     ) -> (BTreeSet<(DomId, NodeId)>, BTreeSet<DomId>) {
         let mut views: BTreeSet<(DomId, NodeId)> = BTreeSet::new();
         let mut doms: BTreeSet<DomId> = BTreeSet::new();
@@ -12403,8 +12427,19 @@ impl LayoutWindow {
                 let current = node_data
                     .get(node)
                     .and_then(|nd| nd.get_virtual_view_node_ref());
-                let unchanged = current.is_some()
-                    && current == self.virtual_view_manager.invoked_node(host, node);
+                let invoked = self.virtual_view_manager.invoked_node(host, node);
+                let unchanged = if rebuilt && host == DomId::ROOT_ID {
+                    match (current, invoked) {
+                        (Some(now), Some(before)) => {
+                            now.version.is_some()
+                                && now.version == before.version
+                                && now.callback == before.callback
+                        }
+                        _ => false,
+                    }
+                } else {
+                    current.is_some() && current == invoked
+                };
                 if unchanged && self.layout_results.contains_key(&nested) {
                     views.insert((host, node));
                     doms.insert(nested);
@@ -29940,6 +29975,58 @@ impl LayoutWindow {
         let mut updates: BTreeMap<DomId, FastBTreeSet<NodeId>> = BTreeMap::new();
         for (dom_id, node_id) in self.virtual_view_manager.all_view_keys() {
             updates.entry(dom_id).or_default().insert(node_id);
+        }
+        self.queue_virtual_view_updates(updates);
+    }
+
+    /// [`Self::queue_all_virtual_view_reinvoke`] for a REBUILD that left the window's DOM as
+    /// it was (the shells' two "DOM unchanged" exits of a `RefreshDom`): the data behind a
+    /// view may have changed all the same, so every view is queued - EXCEPT a view of the
+    /// window's DOM whose node states the version it was last rendered for, with the same
+    /// callback (`NodeData::set_virtual_view_version`: the app says the view shows what it
+    /// showed), and the views inside such a view's document. A kept view is recorded for
+    /// the node the rebuild handed in, as the layout funnel does for a new generation.
+    pub fn queue_virtual_view_reinvoke_after_rebuild(&mut self) {
+        let keys = self.virtual_view_manager.all_view_keys();
+        // The views of the window's DOM the rebuild keeps, each with the node it now has.
+        let mut kept: BTreeMap<NodeId, azul_core::dom::VirtualViewNode> = BTreeMap::new();
+        if let Some(root) = self.layout_results.get(&DomId::ROOT_ID) {
+            let nodes = root.styled_dom.node_data.as_container();
+            for (host, node) in keys.iter().filter(|(host, _)| *host == DomId::ROOT_ID) {
+                let now = nodes.get(*node).and_then(|nd| nd.get_virtual_view_node_ref());
+                let before = self.virtual_view_manager.invoked_node(*host, *node);
+                if let (Some(now), Some(before)) = (now, before) {
+                    if now.version.is_some()
+                        && now.version == before.version
+                        && now.callback == before.callback
+                    {
+                        kept.insert(*node, now.clone());
+                    }
+                }
+            }
+        }
+        let mut updates: BTreeMap<DomId, FastBTreeSet<NodeId>> = BTreeMap::new();
+        for (dom_id, node_id) in keys {
+            // The view of the window's DOM this view is in (itself, or the one whose
+            // document holds it, however deep). Bounded: a chain is no longer than the
+            // views there are.
+            let mut top = (dom_id, node_id);
+            let mut steps = 0_usize;
+            while top.0 != DomId::ROOT_ID && steps <= kept.len() + 64 {
+                let Some(holder) = self.virtual_view_manager.host_of_nested_dom(top.0) else {
+                    break;
+                };
+                top = holder;
+                steps += 1;
+            }
+            if top.0 == DomId::ROOT_ID && kept.contains_key(&top.1) {
+                continue;
+            }
+            updates.entry(dom_id).or_default().insert(node_id);
+        }
+        for (node, view) in &kept {
+            self.virtual_view_manager
+                .record_invoked_node(DomId::ROOT_ID, *node, view);
         }
         self.queue_virtual_view_updates(updates);
     }

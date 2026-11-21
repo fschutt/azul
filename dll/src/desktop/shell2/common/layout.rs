@@ -813,8 +813,10 @@ pub fn regenerate_layout(
             // none, so a `RefreshDom` whose only change lived inside a dataset
             // left the view showing last frame's data until some unrelated
             // event relaid out. Queue them all — the frame path drains the
-            // queue (`drain_virtual_view_updates`) before it paints.
-            layout_window.queue_all_virtual_view_reinvoke();
+            // queue (`drain_virtual_view_updates`) before it paints. All but a
+            // view whose node states the version it was rendered for: the app
+            // says its data did not change (`set_virtual_view_version`).
+            layout_window.queue_virtual_view_reinvoke_after_rebuild();
             // A caret an app asked for with this rebuild (it reset an editor's
             // content - AzMail's reply puts it at the top - or acked a structural
             // edit) is placed by the tail of a full layout, which this exit never
@@ -1390,8 +1392,9 @@ pub fn regenerate_layout(
             if !window_size_changed && !overlay_retires {
                 // Same rule as the pre-cascade exit above: the DOM is
                 // equivalent, the transferred datasets / VirtualView refanys
-                // are not necessarily — re-invoke every view in place.
-                layout_window.queue_all_virtual_view_reinvoke();
+                // are not necessarily — re-invoke every view in place (all but a
+                // view that states the version it was rendered for).
+                layout_window.queue_virtual_view_reinvoke_after_rebuild();
                 // And the caret an app asked for with this rebuild (the pre-cascade
                 // exit above says why).
                 let _ = layout_window.place_pending_caret_without_layout();
