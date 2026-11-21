@@ -2322,19 +2322,21 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                 use webrender::api::units::LayoutTransform;
                 // Translation scaled by DPI: compositor2 lays items out in
                 // logical px x dpi_scale, and a transform acts in that space.
+                // The perspective column is divided by it, as in the list's
+                // own value (`compositor2`, `PushReferenceFrame`; A2-gpu-01).
                 let wr_transform = LayoutTransform::new(
                     transform.m[0][0],
                     transform.m[0][1],
                     transform.m[0][2],
-                    transform.m[0][3],
+                    transform.m[0][3] / dpi_scale,
                     transform.m[1][0],
                     transform.m[1][1],
                     transform.m[1][2],
-                    transform.m[1][3],
+                    transform.m[1][3] / dpi_scale,
                     transform.m[2][0],
                     transform.m[2][1],
                     transform.m[2][2],
-                    transform.m[2][3],
+                    transform.m[2][3] / dpi_scale,
                     transform.m[3][0] * dpi_scale,
                     transform.m[3][1] * dpi_scale,
                     transform.m[3][2] * dpi_scale,

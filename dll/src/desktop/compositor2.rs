@@ -1530,19 +1530,23 @@ pub fn translate_displaylist_to_wr(
                 // IMPORTANT: Scale the translation components (m[3][0], m[3][1], m[3][2]) by DPI
                 // because the transform operates in the same coordinate space as display list
                 // items, which are all scaled from CSS (logical) pixels to physical pixels.
+                // The perspective column (m[0][3], m[1][3], m[2][3]) multiplies a
+                // coordinate that is now dpi times as large, so it is divided by it:
+                // the matrix in device px is S^-1 * M * S with S = diag(dpi, dpi, dpi, 1)
+                // (audit A2-gpu-01).
                 let wr_transform = LayoutTransform::new(
                     initial_transform.m[0][0],
                     initial_transform.m[0][1],
                     initial_transform.m[0][2],
-                    initial_transform.m[0][3],
+                    initial_transform.m[0][3] / dpi_scale,
                     initial_transform.m[1][0],
                     initial_transform.m[1][1],
                     initial_transform.m[1][2],
-                    initial_transform.m[1][3],
+                    initial_transform.m[1][3] / dpi_scale,
                     initial_transform.m[2][0],
                     initial_transform.m[2][1],
                     initial_transform.m[2][2],
-                    initial_transform.m[2][3],
+                    initial_transform.m[2][3] / dpi_scale,
                     initial_transform.m[3][0] * dpi_scale,
                     initial_transform.m[3][1] * dpi_scale,
                     initial_transform.m[3][2] * dpi_scale,
@@ -4612,5 +4616,69 @@ mod audit_a4_tests {
         }
         assert_eq!(rects, 64, "what paints is translated");
         assert_eq!(hit_tests, 0, "the hit areas stay with azul's hit tester");
+    }
+
+    /// The matrices of the reference frames of `items` as WebRender is handed
+    /// them at `dpi`, with their spatial keys, in list order.
+    fn frames(
+        items: Vec<DisplayListItem>,
+        dpi: f32,
+    ) -> Vec<(webrender::api::SpatialTreeItemKey, webrender::api::units::LayoutTransform)> {
+        use webrender::api::{PropertyBinding, ReferenceTransformBinding, SpatialTreeItem};
+
+        let list = built(items, dpi);
+        let mut out = Vec::new();
+        list.iter_spatial_tree(|item| {
+            if let SpatialTreeItem::ReferenceFrame(f) = item {
+                let ReferenceTransformBinding::Static { binding } = &f.reference_frame.transform
+                else {
+                    panic!("compositor2 opens static frames");
+                };
+                let transform = match binding {
+                    PropertyBinding::Value(t) | PropertyBinding::Binding(_, t) => *t,
+                };
+                out.push((f.reference_frame.key, transform));
+            }
+        });
+        out
+    }
+
+    fn framed(
+        key: azul_core::resources::TransformKey,
+        transform: azul_core::transform::ComputedTransform3D,
+    ) -> Vec<DisplayListItem> {
+        let r = rect(40.0, 20.0, 30.0, 10.0);
+        vec![
+            DisplayListItem::PushReferenceFrame {
+                transform_key: key,
+                initial_transform: transform,
+                bounds: r.into(),
+            },
+            DisplayListItem::Rect {
+                bounds: r.into(),
+                color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                border_radius: Default::default(),
+            },
+            DisplayListItem::PopReferenceFrame,
+        ]
+    }
+
+    /// A2-gpu-01 (applied by A4). `perspective(500px)` has m[2][3] = -1/500 in
+    /// CSS px. On a 2x window every coordinate is twice as large, so the same
+    /// picture needs -1/1000: a point 100 CSS px deep (200 device px) has
+    /// w = 1 - 200/1000 = 0.8, as at 1x (1 - 100/500). The translation row is
+    /// multiplied (10 px -> 20). Before: -1/500 at 2x, w = 0.6.
+    /// Mutation: dropping `/ dpi_scale` in the `PushReferenceFrame` arm fails this.
+    #[test]
+    fn a_perspective_reaches_webrender_in_device_pixels() {
+        let mut m = azul_core::transform::ComputedTransform3D::IDENTITY;
+        m.m[2][3] = -1.0 / 500.0;
+        m.m[3][0] = 10.0;
+        for (dpi, m34, m41) in [(1.0f32, -0.002f32, 10.0f32), (2.0, -0.001, 20.0)] {
+            let frames = frames(framed(azul_core::resources::TransformKey::unique(), m), dpi);
+            let (_, transform) = frames.first().copied().expect("the transformed frame");
+            assert!((transform.m34 - m34).abs() < 1e-7, "dpi {dpi}: m34 {}", transform.m34);
+            assert!((transform.m41 - m41).abs() < 1e-5, "dpi {dpi}: m41 {}", transform.m41);
+        }
     }
 }
