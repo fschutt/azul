@@ -432,6 +432,272 @@ pub(crate) fn commit(list: &mut DisplayList, patches: &[DecorationPatch], placem
     list.frame_index.clear();
 }
 
+/// A3-core-26 (a), by area A1: the ink table ([`DisplayList::text_ink`]) through a patch.
+/// A list patched by [`commit`] or moved by [`move_frame`] knows for every text run the ink a
+/// build of the changed document knows.
+#[cfg(test)]
+mod audit_a1_ink_tests {
+    use super::*;
+
+    fn pen(index: u32, x: f32, y: f32) -> GlyphInstance {
+        GlyphInstance {
+            index,
+            point: LogicalPosition { x, y },
+            size: LogicalSize { width: 0.0, height: 0.0 },
+        }
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    fn fill(x: f32, y: f32, w: f32, h: f32, rgb: [u8; 3]) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: rect(x, y, w, h).into(),
+            color: ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
+            border_radius: BorderRadius::default(),
+        }
+    }
+
+    /// A 1000-unit face: glyph 1 a letter (box 50 .. 550, -200 .. 700), glyph 2 a swash that
+    /// reaches 2.4 em right of its pen (box 0 .. 2400, 0 .. 700).
+    fn boxes(id: u16) -> Option<[i16; 4]> {
+        match id {
+            1 => Some([50, -200, 550, 700]),
+            2 => Some([0, 0, 2400, 700]),
+            _ => None,
+        }
+    }
+
+    /// The layout box of label `i`.
+    const fn label_box(i: usize) -> usize {
+        10 + i
+    }
+
+    /// A label as a build paints it: its background-and-border run and the glyphs of its
+    /// text at 20 px.
+    type Label = (Vec<DisplayListItem>, Vec<GlyphInstance>);
+
+    /// The background-and-border run of label `i` as a build paints it alone (what
+    /// `plan_one` hands to [`commit`]).
+    fn background_run(i: usize, background: &[DisplayListItem]) -> DisplayList {
+        let mut builder = DisplayListBuilder::with_debug(false);
+        builder.set_current_layout(Some((label_box(i), EmitPhase::BgBorder)));
+        for item in background {
+            builder.push_item(item.clone());
+        }
+        builder.set_current_layout(None);
+        builder.build()
+    }
+
+    /// The list a build gives for `labels`: per label its background run (tagged as the
+    /// build tags it) and its text run with the ink of its glyphs, as the generator's
+    /// `push_run` announces it.
+    fn built(labels: &[Label]) -> DisplayList {
+        let everything = rect(-10_000.0, -10_000.0, 20_000.0, 20_000.0);
+        let mut builder = DisplayListBuilder::with_debug(false);
+        for (i, (background, glyphs)) in labels.iter().enumerate() {
+            builder.set_current_layout(Some((label_box(i), EmitPhase::BgBorder)));
+            for item in background {
+                builder.push_item(item.clone());
+            }
+            builder.set_current_layout(Some((label_box(i), EmitPhase::Content)));
+            builder.next_text_ink = text_ink_of_run(glyphs, 20.0, 1000.0, boxes);
+            builder.push_item(DisplayListItem::Text {
+                glyphs: glyphs.clone(),
+                font_hash: FontHash::from_hash(1),
+                font_size_px: 20.0,
+                color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                clip_rect: everything.into(),
+                line_box: everything.into(),
+                source_node_index: Some(label_box(i)),
+            });
+        }
+        builder.set_current_layout(None);
+        builder.build()
+    }
+
+    fn patch_of(i: usize, background: &[DisplayListItem]) -> DecorationPatch {
+        DecorationPatch {
+            layout_index: label_box(i),
+            run: background_run(i, background),
+            content_follows: true,
+            subtree: vec![label_box(i)],
+            proofs: vec![(label_box(i), None)],
+        }
+    }
+
+    /// `list` patched with the new backgrounds of the labels `changed`.
+    fn patched(mut list: DisplayList, changed: &[(usize, &[DisplayListItem])]) -> DisplayList {
+        let patches: Vec<DecorationPatch> = changed.iter().map(|(i, background)| patch_of(*i, background)).collect();
+        let placements = locate(&list, &patches).expect("the runs have their places");
+        commit(&mut list, &patches, &placements);
+        list
+    }
+
+    /// The same table, and the same answer of the list for every item.
+    fn assert_same_ink(got: &DisplayList, want: &DisplayList, what: &str) {
+        assert_eq!(got.items.len(), want.items.len(), "{what}: the items");
+        assert_eq!(got.text_ink, want.text_ink, "{what}: the ink table");
+        for i in 0..want.items.len() {
+            assert_eq!(got.visual_bounds_of(i), want.visual_bounds_of(i), "{what}: item {i}");
+        }
+    }
+
+    /// Two labels, each a grey box and a text; label 1 ends in the wide swash, whose ink
+    /// (to x = 300 + 12 + 48 + 3 = 363) the item's own estimate (to 300 + 12 + 20 = 332)
+    /// does not hold.
+    fn two_labels() -> Vec<Label> {
+        vec![
+            (vec![fill(90.0, 30.0, 60.0, 30.0, [200, 200, 200])], vec![pen(1, 100.0, 50.0), pen(1, 112.0, 50.0)]),
+            (vec![fill(290.0, 30.0, 60.0, 30.0, [200, 200, 200])], vec![pen(1, 300.0, 50.0), pen(2, 312.0, 50.0)]),
+        ]
+    }
+
+    /// A3-core-26 (a): a patched list's ink table is a rebuilt list's.
+    /// - a colour patch (a hover colour: one item for one item): nothing moves;
+    /// - a patch that changes the item count (a border comes: one item becomes two, and two
+    ///   labels patched at once): the runs behind it move by one, their entries with them;
+    /// - a run the list did not hold (label 0 without a background gets one: an insert) and
+    ///   a run that goes (two items become none);
+    /// - a table shorter than the list (a list from before the table, a table nobody
+    ///   filled): no entry is put under a wrong item - every run answers with its estimate
+    ///   or with its own ink.
+    /// Premise of each: the swash's ink is what the list answers for label 1's run (to x =
+    /// 363), at the run's index after the patch.
+    /// Mutations: `commit` without the `text_ink.splice` leaves the table as it was: after
+    /// the border patch label 0's entry lies under the border and both runs answer with
+    /// their estimates (the first assertion of that block); without the `resize` before it
+    /// the splice of the short table panics (a range past the table's end).
+    #[test]
+    fn a_patched_lists_ink_table_is_a_rebuilt_lists() {
+        let labels = two_labels();
+        let ink_end = |list: &DisplayList, at: usize| {
+            let b = list.visual_bounds_of(at).expect("a run has bounds");
+            b.origin.x + b.size.width
+        };
+        let ends_at = |list: &DisplayList, at: usize, x: f32| (ink_end(list, at) - x).abs() <= 0.01;
+        assert!(ends_at(&built(&labels), 3, 363.0), "premise: the swash is held");
+        let estimate = built(&labels).items[3].visual_bounds().expect("a run has bounds");
+        assert!(estimate.origin.x + estimate.size.width < 340.0, "premise: the estimate ends before it: {estimate:?}");
+
+        // A colour patch.
+        let red = [fill(90.0, 30.0, 60.0, 30.0, [255, 0, 0])];
+        let mut want = labels.clone();
+        want[0].0 = red.to_vec();
+        let got = patched(built(&labels), &[(0, &red[..])]);
+        assert_same_ink(&got, &built(&want), "a colour patch");
+        assert!(ends_at(&got, 3, 363.0));
+
+        // A border comes on both labels: one item becomes two, twice.
+        let framed = |x: f32| [fill(x, 30.0, 60.0, 30.0, [255, 0, 0]), fill(x, 30.0, 60.0, 2.0, [0, 0, 0])];
+        let (first, second) = (framed(90.0), framed(290.0));
+        let mut want = labels.clone();
+        want[0].0 = first.to_vec();
+        want[1].0 = second.to_vec();
+        let got = patched(built(&labels), &[(0, &first[..]), (1, &second[..])]);
+        assert_same_ink(&got, &built(&want), "a border on both labels");
+        assert_eq!(got.items.len(), 6);
+        assert!(got.text_ink[2].is_some() && got.text_ink[5].is_some(), "the runs' entries moved with the runs");
+        assert!(ends_at(&got, 5, 363.0));
+
+        // The border goes again: two items become none on label 0.
+        let nothing: [DisplayListItem; 0] = [];
+        let got = patched(built(&want), &[(0, &nothing[..])]);
+        let mut bare = want.clone();
+        bare[0].0 = Vec::new();
+        assert_same_ink(&got, &built(&bare), "a run that goes");
+        // And comes back: an insert before the content run.
+        let got = patched(built(&bare), &[(0, &first[..])]);
+        assert_same_ink(&got, &built(&want), "a run the list did not hold");
+        assert!(ends_at(&got, 5, 363.0));
+
+        // A table shorter than the list.
+        let mut short = built(&labels);
+        short.text_ink.clear();
+        let got = patched(short, &[(0, &first[..])]);
+        assert_eq!(got.items.len(), 5);
+        for i in 0..got.items.len() {
+            assert_eq!(got.text_ink_at(i), None, "item {i}: no ink was known, none is claimed");
+            assert_eq!(got.visual_bounds_of(i), got.items[i].visual_bounds(), "item {i}: the estimate");
+        }
+        let mut half = built(&labels);
+        half.text_ink.truncate(2);
+        let got = patched(half, &[(1, &second[..])]);
+        assert_eq!(got.text_ink_at(1), built(&labels).text_ink_at(1), "the entry in front of the patch stays");
+        assert_eq!(got.text_ink_at(4), None, "label 1's run had no entry and gets none");
+        assert_eq!(got.visual_bounds_of(4), got.items[4].visual_bounds());
+    }
+
+    /// A3-core-26 (a): a frame moved where it lies ([`move_frame`]) keeps the ink of its
+    /// runs, moved with them: the entry is relative to the run's first pen, and the pens
+    /// move. Label 1 in a reference frame, moved by (25.5, -8): the list answers for its run
+    /// what a build of the moved label answers - the swash's end at 363 + 25.5 = 388.5 -
+    /// and the run in front of the frame answers as before.
+    /// Mutation: an entry kept as an absolute rect (or dropped by the move) answers 363, or
+    /// the estimate's 357.5.
+    #[test]
+    fn a_frame_moved_where_it_lies_keeps_the_ink_of_its_runs() {
+        let framed = |dx: f32, dy: f32| {
+            let labels = two_labels();
+            let everything = rect(-10_000.0, -10_000.0, 20_000.0, 20_000.0);
+            let mut builder = DisplayListBuilder::with_debug(false);
+            let run = |builder: &mut DisplayListBuilder, glyphs: &[GlyphInstance], dx: f32, dy: f32| {
+                let glyphs: Vec<GlyphInstance> = glyphs.iter().map(|g| pen(g.index, g.point.x + dx, g.point.y + dy)).collect();
+                builder.next_text_ink = text_ink_of_run(&glyphs, 20.0, 1000.0, boxes);
+                builder.push_item(DisplayListItem::Text {
+                    glyphs,
+                    font_hash: FontHash::from_hash(1),
+                    font_size_px: 20.0,
+                    color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                    clip_rect: everything.into(),
+                    line_box: everything.into(),
+                    source_node_index: None,
+                });
+            };
+            run(&mut builder, &labels[0].1, 0.0, 0.0);
+            builder.push_item(DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 7 },
+                initial_transform: azul_core::transform::ComputedTransform3D::IDENTITY,
+                bounds: rect(290.0 + dx, 30.0 + dy, 60.0, 30.0).into(),
+            });
+            builder.push_item(fill(290.0 + dx, 30.0 + dy, 60.0, 30.0, [200, 200, 200]));
+            run(&mut builder, &labels[1].1, dx, dy);
+            builder.push_item(DisplayListItem::PopReferenceFrame);
+            builder.build()
+        };
+        let mut moved = framed(0.0, 0.0);
+        assert!(matches!(moved.items[1], DisplayListItem::PushReferenceFrame { .. }));
+        move_frame(&mut moved, 1, 4, LogicalPosition { x: 25.5, y: -8.0 }, &[]);
+        let fresh = framed(25.5, -8.0);
+        let near = |a: Option<LogicalRect>, b: Option<LogicalRect>| match (a, b) {
+            (Some(a), Some(b)) => {
+                (a.origin.x - b.origin.x).abs() <= 0.01
+                    && (a.origin.y - b.origin.y).abs() <= 0.01
+                    && (a.size.width - b.size.width).abs() <= 0.01
+                    && (a.size.height - b.size.height).abs() <= 0.01
+            }
+            (None, None) => true,
+            _ => false,
+        };
+        for i in 0..fresh.items.len() {
+            assert!(
+                near(moved.visual_bounds_of(i), fresh.visual_bounds_of(i)),
+                "item {i}: {:?}, a build of the moved label: {:?}",
+                moved.visual_bounds_of(i),
+                fresh.visual_bounds_of(i)
+            );
+        }
+        assert!(moved.text_ink_at(3).is_some(), "the moved run's entry is its own");
+        let b = moved.visual_bounds_of(3).expect("a run has bounds");
+        assert!((b.origin.x + b.size.width - 388.5).abs() <= 0.01, "the swash's end moved: {b:?}");
+        assert_eq!(moved.visual_bounds_of(0), framed(0.0, 0.0).visual_bounds_of(0), "the run in front stays");
+    }
+}
+
 /// Where the run of each patch lies in the list AFTER [`commit`] put the runs in at
 /// `placements`: `(first item, items)` per patch. A run in front of another one moved it by
 /// the difference between what it replaced and what it is.
