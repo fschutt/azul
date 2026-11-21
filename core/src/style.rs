@@ -65,7 +65,7 @@ impl CascadeInfoVec {
 /// looked at. A restyle's cost is the first, so tests read it to see which rules a node is tried
 /// against; the cache that cascades keeps one (`CssPropertyCache::match_work`). It is no part of
 /// what the cache is: two caches that differ in nothing else are equal.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct MatchWork {
     /// How often [`matches_html_element_metered`] ran.
     pub(crate) attempts: WorkCount,

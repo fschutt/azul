@@ -3074,7 +3074,6 @@ impl CssPropertyCache {
         node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
     ) -> Vec<TagIdToNodeIdMapping> {
-        self.tag_id_passes.bump();
         // Tag ID generation: determine which nodes need hit-test tags for
         // hover/click/scroll events. Uses compact cache for display/overflow
         // checks instead of get_property_slow (which searches 6 data structures).
@@ -3082,6 +3081,7 @@ impl CssPropertyCache {
             DISPLAY_MASK, DISPLAY_SHIFT, OVERFLOW_MASK, OVERFLOW_X_SHIFT, OVERFLOW_Y_SHIFT,
         };
 
+        self.tag_id_passes.bump();
         let compact_cache = self.compact_cache.as_ref();
         let node_data_container = &node_data.internal;
 

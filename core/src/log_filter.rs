@@ -499,9 +499,10 @@ pub fn level_from_env() -> Option<Level> {
     level_for(asked_for_logs(), parse(&raw).0)
 }
 
-/// Configure the process's filter from `AZ_LOG` (and `AZ_LOG_STDERR`). Idempotent; the first
-/// caller wins and later ones are no-ops, so an explicit [`set_min_level`] made
-/// before any logging is not clobbered.
+/// Configure the process's filter from `AZ_LOG` (and `AZ_LOG_STDERR`).
+///
+/// Idempotent; the first caller wins and later ones are no-ops, so an explicit
+/// [`set_min_level`] made before any logging is not clobbered.
 pub fn init_from_env() {
     if PROCESS.initialised.swap(true, Ordering::SeqCst) {
         return;

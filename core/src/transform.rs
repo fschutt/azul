@@ -366,6 +366,7 @@ impl ComputedTransform3D {
     }
 
     /// Computes the matrix of a rect from a `&[StyleTransform]`.
+    #[must_use]
     pub fn from_style_transform_vec(
         t_vec: &[StyleTransform],
         transform_origin: &StyleTransformOrigin,
