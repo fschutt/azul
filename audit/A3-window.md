@@ -292,7 +292,7 @@ enough to implement from; they are `blocked (a)` in the ledger's words (block A3
 tables they touch (`core/src/prop_cache.rs`, 6.9k lines, and the compact cache in `css/`) were not read in full by
 this session and a remap of them cannot be proven by reading the half of it.
 Switch for everything built here: `AZ_DIFF_FIRST=0` turns the path off (default on); a test picks a path for its
-own thread with `azul_layout::window::set_diff_first_on_this_thread`.
+own window with `lw.switches.set_diff_first` (`LayoutWindow::switches`).
 
 **What "unchanged" means.** The early diff is `fingerprint_dom` (`core/src/diff.rs`), one pre-order walk of the
 fresh `Dom` BEFORE anything is styled. Per node it gives `structure` (every compared field of the node table
@@ -1250,8 +1250,8 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   reads them. A bound rect is no opaque fill for `FrameIndex` (a button face with a hover rule is not an
   occluder any more).
 - switch: `AZ_EAGER_STATE_COLORS=0` = the binding of row 50 (a node is bound when a state first paints it).
-  Default ON: the user's directive (row 1 of this round). A test picks one for its thread with
-  `window::set_state_colors_from_the_build_on_this_thread`.
+  Default ON: the user's directive (row 1 of this round). A test picks one for its window with
+  `lw.switches.set_state_colors_from_the_build` (`LayoutWindow::switches`).
 - not served by a value (they take the patch or the build as before): a state rule that changes more than the
   background (border, shadow, text colour: row 38), a gradient or image under a state, an inline box painted
   by its line, a table part, the root and `body` (the canvas), `:focus-within` / `:seat-focus` / drag states,
@@ -1665,7 +1665,7 @@ sweep test.
 **What a test failure of round 6 most likely is:** a test elsewhere that reads the RAW colour of a rect
 after a hover through the shell, or counts the rects / items of a node that has a `:hover` / `:active` /
 `:focus` background (the eager binding adds a see-through rect and binds the rect): read through
-`for_each_bound_color`, or run that test with `set_state_colors_from_the_build_on_this_thread(Some(false))`.
+`for_each_bound_color`, or run that test on a window whose `switches.set_state_colors_from_the_build(Some(false))`.
 
 ## Integration
 - `9c486a5a3` on this branch is A3-core's `b37653684` cherry-picked (A3-core-08, `core/src/gpu.rs` +
