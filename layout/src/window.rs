@@ -18708,19 +18708,23 @@ impl LayoutWindow {
         let changed: Vec<usize> = replaced.iter().map(|(index, _)| *index).collect();
         let reached = retained.nodes_reached_by_changes(&changed);
         let span_restyle = crate::probe::Probe::span("regen_restyle_changed_nodes");
-        // The whole cascade over the kept DOM, under the states its nodes are in. The cascade
-        // before is kept beside it for the diff below.
-        let _ = reuse_styles;
+        // The cascade before is kept beside the new one for the diff below.
         let old_cache = retained.get_css_property_cache().clone();
-        let css = old_cache.retained_author_css.clone();
-        retained.restyle(css);
-        // As a DOM that was just created reads: its inherited rows without the resting
-        // values the compact cache answers (`StyledDom`'s creation prunes them, a restyle
-        // does not). The diff below compares rows, and a row that differs only by that
-        // names its node.
-        retained
-            .get_css_property_cache_mut()
-            .prune_compact_normal_props();
+        // The cascade for the reached nodes alone (`style`), every other node keeping its
+        // rows; where that cannot be (`CssPropertyCache::recascade_nodes` says when), and
+        // without the step, the whole cascade over the kept DOM, under the states its nodes
+        // are in.
+        if !(reuse_styles && retained.restyle_changed_nodes(&reached)) {
+            let css = old_cache.retained_author_css.clone();
+            retained.restyle(css);
+            // As a DOM that was just created reads: its inherited rows without the resting
+            // values the compact cache answers (`StyledDom`'s creation prunes them, a
+            // restyle does not). The diff below compares rows, and a row that differs only
+            // by that names its node.
+            retained
+                .get_css_property_cache_mut()
+                .prune_compact_normal_props();
+        }
         drop(span_restyle);
 
         let span_diff = crate::probe::Probe::span("regen_css_diff_changed_nodes");

@@ -2252,6 +2252,46 @@ impl StyledDom {
         reached
     }
 
+    /// Styles the nodes `dirty` names (`dirty[node]`) again and keeps every other node's
+    /// styles: [`CssPropertyCache::recascade_nodes`] under the retained sheet and the states
+    /// the nodes are in, then the hit-test tags and the `:backdrop` flags, as
+    /// [`Self::restyle`] ends. For a DOM whose named nodes are the ones a change reaches
+    /// ([`Self::nodes_reached_by_changes`]); the proof is on `recascade_nodes`.
+    ///
+    /// `false`, having changed nothing, where the whole cascade has to run
+    /// ([`Self::restyle`]): see `recascade_nodes`.
+    pub fn restyle_changed_nodes(&mut self, dirty: &[bool]) -> bool {
+        let states = self.node_states();
+        let mut css = core::mem::take(
+            &mut self
+                .css_property_cache
+                .downcast_mut()
+                .retained_author_css,
+        );
+        let done = self.css_property_cache.downcast_mut().recascade_nodes(
+            &mut css,
+            &self.node_data.as_container(),
+            &self.node_hierarchy,
+            &self.non_leaf_nodes,
+            &self.cascade_info.as_container(),
+            &states,
+            dirty,
+        );
+        self.css_property_cache.downcast_mut().retained_author_css = css;
+        if !done {
+            return false;
+        }
+        // The tags read the nodes' display, overflow and state rules: made again, as after
+        // every cascade.
+        let new_tag_ids = self
+            .css_property_cache
+            .downcast_mut()
+            .generate_tag_ids(&self.node_data.as_container(), &self.node_hierarchy);
+        self.tag_ids_to_node_ids = new_tag_ids.into();
+        self.sync_backdrop_state();
+        true
+    }
+
     pub fn restyle_retained(&mut self) {
         let css = self
             .css_property_cache
@@ -4493,6 +4533,37 @@ pub fn compact_cache_rebuilds_on_this_thread() -> usize {
     #[cfg(feature = "std")]
     {
         COMPACT_CACHE_REBUILDS.with(core::cell::Cell::get)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        0
+    }
+}
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Nodes the cascade ran for on this thread ([`nodes_cascaded_on_this_thread`]).
+    static NODES_CASCADED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Count `nodes` nodes a cascade ran for: every node of the DOM for a whole cascade
+/// (`CssPropertyCache::restyle_cascade`), the named ones for a cascade over a few nodes
+/// (`CssPropertyCache::recascade_nodes`).
+pub(crate) fn count_nodes_cascaded(nodes: usize) {
+    #[cfg(feature = "std")]
+    NODES_CASCADED.with(|n| n.set(n.get() + nodes));
+    #[cfg(not(feature = "std"))]
+    let _ = nodes;
+}
+
+/// For how many nodes this thread ran the cascade (matched rules, inherited rows, computed
+/// values, compact entries): what the tests of a rebuild read to say it styled the nodes it
+/// changed and not the DOM. Always 0 without `std`.
+#[must_use]
+pub fn nodes_cascaded_on_this_thread() -> usize {
+    #[cfg(feature = "std")]
+    {
+        NODES_CASCADED.with(core::cell::Cell::get)
     }
     #[cfg(not(feature = "std"))]
     {
