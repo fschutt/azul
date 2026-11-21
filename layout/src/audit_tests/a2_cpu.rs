@@ -1464,3 +1464,59 @@ fn a2_cpu_25_a_matrix_with_a_perspective_term_is_neither_the_identity_nor_a_tran
         px(&frame, 205, 30)
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// A translucent box between pixels (A2-cpu-26)
+// ---------------------------------------------------------------------------------------------
+
+/// A2-cpu-26. A square box covers the same pixels whether its colour is opaque or not.
+///
+/// Hand-computed at dpi 1: a box x 62.8 .. 73.2, y 10 .. 15. Opaque, both edges are rounded:
+/// columns `round(62.8) .. round(73.2)` = 63 .. 72. At alpha 128 they were truncated: 62 .. 72,
+/// so a box that fades moved its left edge by a pixel. Expected: 63 .. 72 at any alpha. And a box
+/// x 62.1 .. 62.3 rounds to no column: nothing is painted (truncated it was the inverted bar
+/// `62 ..= 61`).
+///
+/// mutation: `round_edge(rect.x)` -> `rect.x as i32` in the translucent branch of `render_rect`
+/// fails here (column 62 is tinted).
+#[test]
+fn a2_cpu_26_a_translucent_box_covers_the_columns_the_opaque_box_covers() {
+    let boxed = |x: f32, w: f32, alpha: u8| {
+        let page = list(vec![
+            rect(0.0, 0.0, 120.0, 30.0, [255, 255, 255]),
+            DisplayListItem::Rect {
+                bounds: wlr(x, 10.0, w, 5.0),
+                color: ColorU {
+                    r: 220,
+                    g: 0,
+                    b: 0,
+                    a: alpha,
+                },
+                border_radius: BorderRadius::default(),
+            },
+        ]);
+        let mut frame = AzulPixmap::new(120, 30).expect("a pixmap");
+        frame.fill(255, 255, 255, 255);
+        let mut glyphs = GlyphCache::new();
+        render_display_list_damaged(
+            &page,
+            &mut frame,
+            1.0,
+            &RendererResources::default(),
+            &font_manager(),
+            &mut glyphs,
+            &CpuRenderState::new(ScrollOffsetMap::new()),
+            &[lr(0.0, 0.0, 120.0, 30.0)],
+        )
+        .expect("the damage repaints");
+        // The columns of row 12 that are not the page's white.
+        (0..120_u32)
+            .filter(|x| px(&frame, *x, 12) != [255, 255, 255])
+            .collect::<Vec<u32>>()
+    };
+    let columns: Vec<u32> = (63..73).collect();
+    assert_eq!(boxed(62.8, 10.4, 255), columns, "opaque: columns 63 .. 72");
+    assert_eq!(boxed(62.8, 10.4, 128), columns, "at alpha 128: the same columns");
+    assert_eq!(boxed(62.1, 0.2, 255), Vec::<u32>::new(), "opaque, no column wide: nothing");
+    assert_eq!(boxed(62.1, 0.2, 128), Vec::<u32>::new(), "at alpha 128: nothing either");
+}

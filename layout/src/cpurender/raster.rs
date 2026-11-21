@@ -4349,14 +4349,25 @@ fn render_rect(
                 (c.y + c.height) as i32 - 1,
             );
         }
-        rb.blend_bar(
-            rect.x as i32,
-            rect.y as i32,
-            (rect.x + rect.width) as i32 - 1,
-            (rect.y + rect.height) as i32 - 1,
-            &agg_color,
-            255, // cover=255: alpha is already in the color
+        // The edges of the opaque fill above (`round_edge`), not truncated ones: a box at
+        // x = 62.8 began at column 62 while it was translucent and at column 63 once it was
+        // opaque (a fade moved its edge by a pixel), and one that truncates to no width
+        // (x = 62.1, 0.2 wide) was the inverted bar `62 ..= 61`.
+        let (bx0, by0) = (round_edge(rect.x), round_edge(rect.y));
+        let (bx1, by1) = (
+            round_edge(rect.x + rect.width),
+            round_edge(rect.y + rect.height),
         );
+        if bx1 > bx0 && by1 > by0 {
+            rb.blend_bar(
+                bx0,
+                by0,
+                bx1 - 1,
+                by1 - 1,
+                &agg_color,
+                255, // cover=255: alpha is already in the color
+            );
+        }
     } else {
         // Rounded rect: needs the full rasterizer for curved corners
         let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
