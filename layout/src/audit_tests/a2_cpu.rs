@@ -1520,3 +1520,66 @@ fn a2_cpu_26_a_translucent_box_covers_the_columns_the_opaque_box_covers() {
     assert_eq!(boxed(62.1, 0.2, 255), Vec::<u32>::new(), "opaque, no column wide: nothing");
     assert_eq!(boxed(62.1, 0.2, 128), Vec::<u32>::new(), "at alpha 128: nothing either");
 }
+
+// ---------------------------------------------------------------------------------------------
+// The windowed (structural) diff: a frame whose matrix changed (A2-cpu-28)
+// ---------------------------------------------------------------------------------------------
+
+/// A2-cpu-28. Two lists of different lengths in which a frame's matrix changed: the frame is
+/// damaged by what it paints, not by its box.
+///
+/// Hand-computed: a frame F, box (10, 10) 20 x 20, holds box A (10, 10) 20 x 20 and box B
+/// (10, 40) 20 x 20 (B is past F's box). The new list has one more item in front of F and F
+/// built with `translate(50, 0)`. The lists pair from the end (pop, B, A are equal: the suffix),
+/// so the changed window is F's push alone (and the new item). The push was damaged by its
+/// box: (10, 10) 20 x 20 and (60, 10) 20 x 20. B, painted at (10, 40) before and at (60, 40)
+/// now, was in no rect. Expected: F's extent (10, 10) 20 x 50 at both places: (10, 10) 20 x 50
+/// and (60, 10) 20 x 50.
+///
+/// mutation: `reference_frame_extent_walked(all, at)` -> `item.bounds()` for a frame in
+/// `windowed_structural_damage` fails here.
+#[test]
+fn a2_cpu_28_a_frame_whose_matrix_changed_in_a_structural_diff_is_damaged_by_what_it_paints() {
+    use crate::cpurender::compute_display_list_damage;
+
+    let frame = |tx: f32| DisplayListItem::PushReferenceFrame {
+        transform_key: azul_core::resources::TransformKey { id: 3 },
+        initial_transform: translation(tx, 0.0),
+        bounds: wlr(10.0, 10.0, 20.0, 20.0),
+    };
+    let tail = || {
+        vec![
+            rect(10.0, 10.0, 20.0, 20.0, [200, 0, 0]),
+            rect(10.0, 40.0, 20.0, 20.0, [0, 0, 200]),
+            DisplayListItem::PopReferenceFrame,
+        ]
+    };
+    let mut before = vec![rect(0.0, 0.0, 300.0, 100.0, [255, 255, 255]), frame(0.0)];
+    before.extend(tail());
+    let mut now = vec![
+        rect(0.0, 0.0, 300.0, 100.0, [255, 255, 255]),
+        rect(200.0, 5.0, 4.0, 4.0, [0, 200, 0]),
+        frame(50.0),
+    ];
+    now.extend(tail());
+    let none = ScrollOffsetMap::new();
+    let damage = compute_display_list_damage(&list(before), &list(now), &none, &none)
+        .expect("a local change: rects, not a full repaint");
+    let covers = |want: LogicalRect| {
+        damage.iter().any(|r| {
+            r.origin.x <= want.origin.x + 0.01
+                && r.origin.y <= want.origin.y + 0.01
+                && r.origin.x + r.size.width >= want.origin.x + want.size.width - 0.01
+                && r.origin.y + r.size.height >= want.origin.y + want.size.height - 0.01
+        })
+    };
+    assert!(
+        covers(lr(10.0, 10.0, 20.0, 50.0)),
+        "where the frame painted A and B before: {damage:?}"
+    );
+    assert!(
+        covers(lr(60.0, 10.0, 20.0, 50.0)),
+        "where it paints them now, 50 px to the right: {damage:?}"
+    );
+    assert!(covers(lr(200.0, 5.0, 4.0, 4.0)), "the item that came: {damage:?}");
+}

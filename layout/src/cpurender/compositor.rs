@@ -4901,7 +4901,10 @@ fn windowed_structural_damage(
     let mut skipped_nonpainting = false;
     // A window item under a perspective transform: no rect covers its image.
     let mut unmappable = false;
-    let mut collect_window = |items: &[DisplayListItem],
+    // `all` is one list and `window` its changed middle: a frame pushed inside the window is
+    // read down to its pop, which may lie past the window (in the equal suffix).
+    let mut collect_window = |all: &[DisplayListItem],
+                              window: core::ops::Range<usize>,
                               offsets: &ScrollOffsetMap,
                               frames: &FrameStack,
                               live: &dyn Fn(
@@ -4910,7 +4913,8 @@ fn windowed_structural_damage(
     ) -> azul_core::transform::ComputedTransform3D| {
         let mut stack = stack.clone();
         let mut frames = frames.clone();
-        for item in items {
+        for at in window {
+            let item = &all[at];
             match item {
                 DisplayListItem::PushReferenceFrame {
                     transform_key,
@@ -4971,7 +4975,15 @@ fn windowed_structural_damage(
             // un-expanded rects left the moved shadow's fringe stale — the
             // Switch toggle's 2830 stale px — and, for Text, the LCD
             // subpixel fringe one column outside the box.
-            let Some(b) = item.visual_bounds().or_else(|| item.bounds()) else {
+            // A frame in the window is damaged by what it PAINTS (its box and everything down
+            // to its pop: `reference_frame_extent_walked`), not by its box alone: its matrix
+            // may be what changed, and what it paints past its box (an overflowing child, a
+            // shadow) can lie in the equal suffix, where no item is damaged.
+            let painted = match item {
+                DisplayListItem::PushReferenceFrame { .. } => reference_frame_extent_walked(all, at),
+                _ => item.visual_bounds().or_else(|| item.bounds()),
+            };
+            let Some(b) = painted else {
                 continue;
             };
             let (ox, oy) = *stack.last().unwrap_or(&(0.0, 0.0));
@@ -4998,13 +5010,15 @@ fn windowed_structural_damage(
     };
 
     collect_window(
-        &o[prefix..o.len() - suffix],
+        o,
+        prefix..o.len() - suffix,
         old_offsets,
         &frames_old,
         &|key, built| values.old_matrix(key, built),
     );
     collect_window(
-        &n[prefix..n.len() - suffix],
+        n,
+        prefix..n.len() - suffix,
         new_offsets,
         &frames_new,
         &|key, built| values.new_matrix(key, built),
