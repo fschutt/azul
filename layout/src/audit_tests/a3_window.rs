@@ -864,3 +864,77 @@ fn the_unchanged_dom_exit_of_a_rebuild_keeps_a_view_that_states_its_version() {
     drain(&mut lw);
     assert_eq!(calls.load(Ordering::SeqCst), 3, "an explicit re-render ignores the version");
 }
+
+// -- A4-09: an image replaced in place leaves the list as the GPU renderer holds it -------------
+
+/// A picture of `size` x `size` pixels, another one on every call.
+fn picture(size: usize) -> azul_core::resources::ImageRef {
+    azul_core::resources::ImageRef::null_image(
+        size,
+        size,
+        azul_core::resources::RawImageFormat::BGRA8,
+        Vec::new(),
+    )
+}
+
+/// A tile that arrives for a node whose slot already shows a picture of the same size changes
+/// pixels, not the list the renderer holds: the list keeps its identity as the GPU record
+/// knows it (`display_list_is_held`), so it is not translated and sent again. The FIRST
+/// picture of a node, a picture of another size, and a list that had changed since it was
+/// sent are still owed to the renderer.
+#[test]
+fn an_image_replaced_in_place_leaves_the_list_the_renderer_holds() {
+    use crate::overlay::ContentChange;
+
+    let dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_image(picture(4)).with_css("width: 40px; height: 30px;"),
+    );
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        StyledDom::create_from_dom(dom),
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let (root, tile) = (DomId::ROOT_ID, NodeId::new(1));
+    const ENV: u64 = 7;
+    let sent = |lw: &mut LayoutWindow| {
+        lw.gpu_state_manager
+            .note_display_lists_submitted(&lw.layout_results, ENV);
+    };
+    let held = |lw: &LayoutWindow| {
+        lw.gpu_state_manager
+            .display_list_is_held(root, &lw.layout_results[&root].display_list, ENV)
+    };
+    let arrive = |lw: &mut LayoutWindow, image: azul_core::resources::ImageRef| {
+        let _ = lw.apply_content_change(ContentChange::Image {
+            dom_id: root,
+            node_id: tile,
+            image,
+            dirty_rect: None,
+        });
+    };
+
+    sent(&mut lw);
+    assert!(held(&lw), "harness: the renderer holds the list it was sent");
+
+    // The first picture of the node: its slot is new, the list names it for the first time.
+    arrive(&mut lw, picture(4));
+    assert!(!held(&lw), "the first picture of a node is a change of the list");
+
+    // The renderer took it; the next tile of the same size is pixels only.
+    sent(&mut lw);
+    arrive(&mut lw, picture(4));
+    assert!(held(&lw), "a picture of the same size in a keyed slot leaves the list held");
+
+    // A list that changed for another reason since it was sent stays owed.
+    lw.regenerate_display_list_for_dom(root);
+    assert!(!held(&lw), "harness: a rebuilt list is not the one that was sent");
+    arrive(&mut lw, picture(4));
+    assert!(!held(&lw), "a change still owed to the renderer is not marked as sent");
+}

@@ -11401,6 +11401,14 @@ impl LayoutWindow {
             Some(rect) if same_shape && !from_callback => ImageDirtyRect::Partial(rect),
             _ => ImageDirtyRect::All,
         };
+        // A4-09: the node's slot in the overlay already shows a picture of this size (a tile
+        // that is drawn again, a video's next frame): a renderer that keys the slot keeps
+        // the key, and the list item it holds for it - same key, same rect - stays right.
+        let slot_keeps_its_shape = !image.is_callback()
+            && self
+                .content_overlay
+                .image_for_node(dom_id, node_id)
+                .is_some_and(|shown| !shown.is_callback() && shown.get_size() == image.get_size());
         self.content_overlay
             .set_image_with_dirty(dom_id, node_id, image.clone(), dirty);
         self.content_journal.record(AppliedChange::Image {
@@ -11412,10 +11420,33 @@ impl LayoutWindow {
 
         match tier {
             ContentDirtyTier::Paint => {
+                // A4-09: is the list, before the patch, the one the GPU renderer was sent?
+                // (Its record holds a `Weak`: `Arc::make_mut` below moves a patched list to
+                // another allocation, which reads as "a list the renderer is owed".)
+                let renderer_holds_it = slot_keeps_its_shape
+                    && self.layout_results.get(&dom_id).is_some_and(|lr| {
+                        self.gpu_state_manager
+                            .submitted_display_lists
+                            .get(&dom_id)
+                            .is_some_and(|sent| {
+                                core::ptr::eq(sent.as_ptr(), Arc::as_ptr(&lr.display_list))
+                            })
+                    });
                 // Patch the stored display list in place: the item keeps its
                 // geometry, only the ImageRef changes. The backend's DL diff
                 // sees the identity change and damages exactly those bounds.
                 let _ = self.patch_display_list(dom_id, |list| list.patch_node_image(node_id, image));
+                // The renderer's list names the slot's key and the same rect: it still
+                // describes the patched list, and the pixels travel as an image update.
+                // Sending the list again translated all of it (17,495 items of a map view)
+                // and rebuilt the scene for every tile that arrived. Only when the list was
+                // the one sent: a change still owed to the renderer stays owed.
+                if renderer_holds_it {
+                    if let Some(lr) = self.layout_results.get(&dom_id) {
+                        self.gpu_state_manager
+                            .note_one_display_list_submitted(dom_id, &lr.display_list);
+                    }
+                }
                 // THE frame gate of a content update: a tile nobody can see
                 // (scrolled out, below the window, the window minimized)
                 // keeps its patched item for the next frame painted for any
