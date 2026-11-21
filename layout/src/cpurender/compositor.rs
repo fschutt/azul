@@ -4810,8 +4810,18 @@ fn windowed_structural_damage(
     // live matrix, which an animation may have moved in between).
     let mut frames_old = FrameStack::default();
     let mut frames_new = FrameStack::default();
+    // The reach of the text shadows open at the prefix boundary (A2-cpu-29): a run in the
+    // changed window under a shadow pushed in the equal prefix paints its halo that far past
+    // its ink.
+    let mut open_shadows: Vec<f32> = Vec::new();
     for item in &n[..prefix] {
         match item {
+            DisplayListItem::PushTextShadow { shadow } => {
+                open_shadows.push(super::raster::text_shadow_reach(core::slice::from_ref(shadow)));
+            }
+            DisplayListItem::PopTextShadow => {
+                open_shadows.pop();
+            }
             DisplayListItem::PushScrollFrame { scroll_id, .. } => {
                 let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
                 let (sx, sy) = new_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
@@ -4881,6 +4891,9 @@ fn windowed_structural_damage(
     ) -> azul_core::transform::ComputedTransform3D| {
         let mut stack = stack.clone();
         let mut frames = frames.clone();
+        // The shadows of the prefix that are still open (a push inside a window was ruled
+        // out above; a pop inside it closes one of the prefix's).
+        let mut shadows = open_shadows.clone();
         for at in window {
             let item = &all[at];
             match item {
@@ -4895,6 +4908,9 @@ fn windowed_structural_damage(
                         LogicalPosition { x: o.x - ax, y: o.y - ay },
                         live(transform_key.id, *initial_transform),
                     );
+                }
+                DisplayListItem::PopTextShadow => {
+                    shadows.pop();
                 }
                 DisplayListItem::PopReferenceFrame => frames.pop(),
                 DisplayListItem::PushScrollFrame { scroll_id, .. } => {
@@ -4964,11 +4980,16 @@ fn windowed_structural_damage(
             };
             // Mirror the paired path's rule: LCD subpixel AA (the shipping
             // default) bleeds 1 logical px past the glyph ink.
+            // Under text shadows that are open: by the halo, their reach and the slack
+            // (A2-cpu-29), as the paired path does.
             if matches!(item, DisplayListItem::Text { .. }) {
-                visual.origin.x -= 1.0;
-                visual.origin.y -= 1.0;
-                visual.size.width += 2.0;
-                visual.size.height += 2.0;
+                let pad = shadows
+                    .iter()
+                    .fold(1.0_f32, |pad, reach| pad.max(reach + TEXT_SHADOW_DAMAGE_SLACK));
+                visual.origin.x -= pad;
+                visual.origin.y -= pad;
+                visual.size.width += 2.0 * pad;
+                visual.size.height += 2.0 * pad;
             }
             match frames.map(visual) {
                 Some(painted) => damage.push(painted),
@@ -5138,10 +5159,9 @@ fn compute_display_list_damage_impl(
     let mut frames_old = FrameStack::default();
     let mut frames_new = FrameStack::default();
     let mut mapped = 0usize;
-    // The text shadows open at the current item: for one that differs between the two
-    // lists, how far the old and the new shadow paint past a run (`text_shadow_reach`);
-    // `None` for one that is the same in both.
-    let mut shadows: Vec<Option<(f32, f32)>> = Vec::new();
+    // The text shadows open at the current item: how far the old and the new shadow paint
+    // past a run (`text_shadow_reach`), and whether the shadow differs between the two lists.
+    let mut shadows: Vec<(f32, f32, bool)> = Vec::new();
 
     for (idx, (old_item, new_item)) in old.items.iter().zip(new.items.iter()).enumerate() {
         // Compare discriminant first (cheap)
@@ -5232,12 +5252,11 @@ fn compute_display_list_damage_impl(
                 DisplayListItem::PushTextShadow { shadow: old_shadow },
                 DisplayListItem::PushTextShadow { shadow: new_shadow },
             ) => {
-                shadows.push((old_shadow != new_shadow).then(|| {
-                    (
-                        super::raster::text_shadow_reach(core::slice::from_ref(old_shadow)),
-                        super::raster::text_shadow_reach(core::slice::from_ref(new_shadow)),
-                    )
-                }));
+                shadows.push((
+                    super::raster::text_shadow_reach(core::slice::from_ref(old_shadow)),
+                    super::raster::text_shadow_reach(core::slice::from_ref(new_shadow)),
+                    old_shadow != new_shadow,
+                ));
                 continue;
             }
             (DisplayListItem::PopTextShadow, _) => {
@@ -5246,7 +5265,7 @@ fn compute_display_list_damage_impl(
             }
             (DisplayListItem::Text { .. }, DisplayListItem::Text { .. }) => {
                 let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
-                for &(old_reach, new_reach) in shadows.iter().flatten() {
+                for &(old_reach, new_reach, _) in shadows.iter().filter(|shadow| shadow.2) {
                     for (run, acc, reach) in
                         [(old_item, acc_old, old_reach), (new_item, acc_new, new_reach)]
                     {
@@ -5608,15 +5627,32 @@ fn compute_display_list_damage_impl(
                     }
                 }
             }
+            // A2-cpu-29: a run under text shadows paints their halo past its ink, whether the
+            // shadow changed or not (`render_text_shadow`: the ink moved by the offset, grown
+            // by the blur and the spread). How far, for the old and for the new run; 0 for
+            // anything but a run and for a run under no shadow. A run that changed under a
+            // shadow that did not was damaged by its ink and the fringe alone: the halo of
+            // the old run stayed where it was, the new one's was cut at the damage rect.
+            let (old_halo, new_halo) = if shadows.is_empty()
+                || !matches!(new_item, DisplayListItem::Text { .. })
+            {
+                (0.0, 0.0)
+            } else {
+                let (o, n) = shadows
+                    .iter()
+                    .fold((0.0_f32, 0.0_f32), |(o, n), shadow| (o.max(shadow.0), n.max(shadow.1)));
+                (o + TEXT_SHADOW_DAMAGE_SLACK, n + TEXT_SHADOW_DAMAGE_SLACK)
+            };
             // Round-3: a pure translation by the hint's delta, inside its
             // region, is a MOVE — the caller blits it; no damage here.
+            // (With its halo inside the region: what the blit does not move is damaged.)
             if let Some(h) = hint {
                 if let Some(ob) = old_item.visual_bounds() {
-                    let inside = ob.origin.x >= h.region_old.origin.x - 0.5
-                        && ob.origin.y >= h.region_old.origin.y - 0.5
-                        && ob.origin.x + ob.size.width
+                    let inside = ob.origin.x - old_halo >= h.region_old.origin.x - 0.5
+                        && ob.origin.y - old_halo >= h.region_old.origin.y - 0.5
+                        && ob.origin.x + ob.size.width + old_halo
                             <= h.region_old.origin.x + h.region_old.size.width + 0.5
-                        && ob.origin.y + ob.size.height
+                        && ob.origin.y + ob.size.height + old_halo
                             <= h.region_old.origin.y + h.region_old.size.height + 0.5;
                     if inside && items_equal_translated(old_item, new_item, h.delta) {
                         let vr = LogicalRect {
@@ -5652,33 +5688,43 @@ fn compute_display_list_damage_impl(
             } else {
                 0.0
             };
-            let inflate = |r: LogicalRect| LogicalRect {
-                origin: LogicalPosition {
-                    x: r.origin.x - fringe,
-                    y: r.origin.y - fringe,
-                },
-                size: LogicalSize {
-                    width: 2.0f32.mul_add(fringe, r.size.width),
-                    height: 2.0f32.mul_add(fringe, r.size.height),
-                },
+            // By the fringe, or by the halo of the shadows the run is under (A2-cpu-29).
+            let inflate = |r: LogicalRect, halo: f32| {
+                let pad: f32 = if halo > fringe { halo } else { fringe };
+                LogicalRect {
+                    origin: LogicalPosition {
+                        x: r.origin.x - pad,
+                        y: r.origin.y - pad,
+                    },
+                    size: LogicalSize {
+                        width: 2.0f32.mul_add(pad, r.size.width),
+                        height: 2.0f32.mul_add(pad, r.size.height),
+                    },
+                }
             };
             if let Some(ob) = old_item.visual_bounds() {
-                damage.push(inflate(LogicalRect {
-                    origin: LogicalPosition {
-                        x: ob.origin.x - acc_old.0,
-                        y: ob.origin.y - acc_old.1,
+                damage.push(inflate(
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: ob.origin.x - acc_old.0,
+                            y: ob.origin.y - acc_old.1,
+                        },
+                        size: ob.size,
                     },
-                    size: ob.size,
-                }));
+                    old_halo,
+                ));
             }
             if let Some(nb) = new_item.visual_bounds() {
-                damage.push(inflate(LogicalRect {
-                    origin: LogicalPosition {
-                        x: nb.origin.x - acc_new.0,
-                        y: nb.origin.y - acc_new.1,
+                damage.push(inflate(
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: nb.origin.x - acc_new.0,
+                            y: nb.origin.y - acc_new.1,
+                        },
+                        size: nb.size,
                     },
-                    size: nb.size,
-                }));
+                    new_halo,
+                ));
             }
         }
     }
