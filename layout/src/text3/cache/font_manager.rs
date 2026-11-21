@@ -824,10 +824,11 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// of the same family wins. Faces of one family are told apart by their
     /// own weight and style. A face whose bytes do not parse is skipped.
     ///
-    /// The shells need not call it: the app's registry holds the faces
+    /// The desktop shells need not call it: the app's registry holds the faces
     /// (`RegisteredFonts::set_app_fonts`, called by `AppInternal::create`) and every manager
-    /// made on it registers them by itself. For a manager that has no such registry (a test, a
-    /// tool).
+    /// made on that registry registers them by itself. It is for a manager that has no such
+    /// registry: a test, a tool, and the iOS and Android shells, which have no app-level font
+    /// manager.
     pub fn register_app_fonts(&mut self, fonts: &[azul_core::resources::NamedFont]) {
         for font in fonts {
             let bytes = font.bytes.as_ref();

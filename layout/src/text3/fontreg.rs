@@ -24,6 +24,11 @@
 //! any other. An app makes ONE (`AppInternal::create`), its font manager hands that to every
 //! window it makes (`FontManager::clone_shared` shares it) and a child window takes the one of
 //! its parent, so that a face registered through one window is seen by all of them.
+//!
+//! A layout callback is handed the registry of its window with its info
+//! (`LayoutCallbackInfo::registered_fonts`, opaque to azul-core): the font cache snapshot it makes
+//! (`FontCacheSnapshot::from_layout_info`) is built on it, so that a document it paginates is
+//! measured with the faces the screen draws with.
 
 use std::{
     borrow::Cow,
