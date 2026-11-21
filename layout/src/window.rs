@@ -3936,15 +3936,20 @@ std::thread_local! {
 
 /// Whether a write of `left` / `top` alone moves the node's boxes and items WHERE THEY LIE
 /// (`LayoutWindow::move_node_in_place`, A3-window-49) instead of laying its document out.
-/// OFF unless the environment says `AZ_MOVE_IN_PLACE=1`: the move writes `old + delta`, and
-/// that is not, in the last bit of an `f32`, the position a solve from the new insets gives
-/// nor the item a paint from that position gives. What a write leaves must be bit for bit
-/// what a fresh layout gives (the next pass would see the box "moved" by an ulp, and two
-/// windows that reached one DOM by two paths would not hold the same list), so until the
-/// move computes both the solver's and the painter's way (the design is in
-/// `audit/A3-window.md`, row 49) a write of an inset takes the pass of
-/// `relayout_child_dom_in_place`, which does. A `transform` value alone is exact (it moves
-/// no box and no item) and is not switched.
+/// ON unless the environment says `AZ_MOVE_IN_PLACE=0`.
+///
+/// The move writes `old + delta`, which is not, in the last bit of an `f32`, the position
+/// a solve from the new insets gives nor the item a paint from that position gives. That
+/// is accepted for a drag, and only here: (1) the drift is bounded by the gesture - a few
+/// units in the last place per move, thousandths of a pixel after hundreds of moves;
+/// (2) it corrects itself - every move drops the box's `AbsPlacement` and the solver's
+/// kept list, so the first pass of the document solves the box from the insets as written
+/// and paints every item from the solved positions; (3) every kept structure is moved by
+/// the same delta, so positions, items and the hit tester's boxes agree with each other;
+/// (4) nothing is carried from one gesture to the next. (A run COPIED by a patched pass
+/// has none of that - it would drift pass after pass with nothing to reset it - which is
+/// why that copy is exact and this move need not be.) The exact move is designed in
+/// `audit/A3-window.md`, row 49.
 #[must_use]
 pub fn move_in_place_enabled() -> bool {
     static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
@@ -3952,7 +3957,7 @@ pub fn move_in_place_enabled() -> bool {
         return on;
     }
     *FROM_ENVIRONMENT
-        .get_or_init(|| std::env::var_os("AZ_MOVE_IN_PLACE").is_some_and(|value| value == "1"))
+        .get_or_init(|| std::env::var_os("AZ_MOVE_IN_PLACE").is_none_or(|value| value != "0"))
 }
 
 /// Chooses the answer of [`move_in_place_enabled`] for the calling thread, whatever the
@@ -12227,8 +12232,8 @@ impl LayoutWindow {
         if !dl_patching_enabled() || self.text_edit_manager.tween.is_active() {
             return None;
         }
-        // A box is not moved where it lies while that is not bit for bit what a layout
-        // gives (`move_in_place_enabled`): the pass of the general path places it.
+        // The switch of the move (`move_in_place_enabled`): off, the pass of the general
+        // path places the box.
         if moves && !move_in_place_enabled() {
             return None;
         }
@@ -12622,23 +12627,15 @@ impl LayoutWindow {
                 }
             }
             if let Some((push, pop)) = frame {
-                // The cache's own hold on the list, as for every patch of a kept list
-                // (`patch_display_list`): let go of for the write, so that a list nobody
-                // else holds is written where it lies, and taken back. A cache that holds
-                // another list is emptied: its next pass builds from the boxes as they are.
-                let cache_holds_it = cache
-                    .cached_display_list
-                    .as_ref()
-                    .map(|cached| Arc::ptr_eq(&cached.5, &result.display_list));
-                match cache_holds_it {
-                    Some(true) => {
-                        if let Some(cached) = cache.cached_display_list.as_mut() {
-                            drop(core::mem::take(&mut cached.5));
-                        }
-                    }
-                    Some(false) => cache.cached_display_list = None,
-                    None => {}
-                }
+                // The solver's cache lets go of its list, and does not get the moved one:
+                // the items of the frame are now `old + delta`, an ulp away from what a
+                // paint from the solved position gives, and a pass that kept this list
+                // would copy the run of a box that it finds where the move left it. With
+                // no kept list the next pass of the document paints every item from its
+                // solved positions: the drift of a drag ends at the first pass. (It also
+                // leaves the list with one holder less: a list nobody else holds is
+                // written where it lies.)
+                cache.cached_display_list = None;
                 node_patch::move_frame(
                     Arc::make_mut(&mut result.display_list),
                     push,
@@ -12646,11 +12643,6 @@ impl LayoutWindow {
                     delta,
                     &proven_inside,
                 );
-                if cache_holds_it == Some(true) {
-                    if let Some(cached) = cache.cached_display_list.as_mut() {
-                        cached.5 = Arc::clone(&result.display_list);
-                    }
-                }
             }
             // The list changed outside a layout pass: what the last pass recorded about
             // its own patch and move describes this list no longer.

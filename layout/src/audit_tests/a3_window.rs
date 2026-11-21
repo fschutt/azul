@@ -2675,24 +2675,6 @@ fn turned_label_window(count: usize, left: f32, top: f32, degrees: f32) -> (Layo
 /// The span of label 2 of [`turned_label_page`].
 const DRAGGED: usize = 5;
 
-/// While this lives, a write of `left` / `top` alone on this thread moves the box where it
-/// lies (`window::move_in_place_enabled`, off by default: the move is `old + delta`, an ulp
-/// away from what a layout gives). For the tests of that move.
-struct MovedWhereItLies;
-
-impl MovedWhereItLies {
-    fn on_this_thread() -> Self {
-        crate::window::set_move_in_place_on_this_thread(Some(true));
-        Self
-    }
-}
-
-impl Drop for MovedWhereItLies {
-    fn drop(&mut self) {
-        crate::window::set_move_in_place_on_this_thread(None);
-    }
-}
-
 /// The app writes label 2's style: another place, another angle.
 fn write_label(
     lw: &mut LayoutWindow,
@@ -2719,7 +2701,6 @@ fn a_move_of_a_drag(
 
     use crate::{solver3::display_list::node_patch::MOVE_ITEM_VISITS, window::MOVED_BOXES};
 
-    let _moves = MovedWhereItLies::on_this_thread();
     let (mut lw, child) = turned_label_window(count, 150.0, 10.0, 12.0);
     let id = DomNodeId {
         dom: child,
@@ -2830,7 +2811,6 @@ fn same_lists(got: &DisplayList, want: &DisplayList) -> Result<(), String> {
 /// test build, the last assertion fails without it).
 #[test]
 fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
-    let _moves = MovedWhereItLies::on_this_thread();
     let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
     drop(write_label(&mut lw, child, 175.0, 31.0, 12.0));
     drop(write_label(&mut lw, child, 178.0, 33.0, 12.0));
@@ -2912,6 +2892,37 @@ fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
 /// position (the bits of the two `f32`s), and the lists the same items for the same nodes and
 /// paint calls (an `f32` prints as the shortest text that reads back to its bits).
 fn same_bits(got: &LayoutWindow, dom: DomId, want: &LayoutWindow, want_dom: DomId) -> Result<(), String> {
+    same_within(got, dom, want, want_dom, 0)
+}
+
+/// How many `f32`s lie between `a` and `b` (0: the same number; a unit in the last place
+/// apart: 1): the distance in the float's own steps, whatever its exponent.
+fn ulps_apart(a: f32, b: f32) -> u64 {
+    if a == b {
+        return 0;
+    }
+    if a.is_nan() || b.is_nan() || a.is_sign_negative() != b.is_sign_negative() {
+        return u64::MAX;
+    }
+    u64::from(a.to_bits().abs_diff(b.to_bits()))
+}
+
+/// [`same_bits`] with every coordinate allowed to lie up to `ulps` units in the last place
+/// from the other document's (0: bit for bit; a zero of either sign is the same place).
+fn same_within(
+    got: &LayoutWindow,
+    dom: DomId,
+    want: &LayoutWindow,
+    want_dom: DomId,
+    ulps: u64,
+) -> Result<(), String> {
+    let near = |a: f32, b: f32| ulps_apart(a, b) <= ulps;
+    let near_rect = |a: LogicalRect, b: LogicalRect| {
+        near(a.origin.x, b.origin.x)
+            && near(a.origin.y, b.origin.y)
+            && near(a.size.width, b.size.width)
+            && near(a.size.height, b.size.height)
+    };
     let (got, want) = (&got.layout_results[&dom], &want.layout_results[&want_dom]);
     if got.calculated_positions.len() != want.calculated_positions.len() {
         return Err("another number of boxes".to_string());
@@ -2922,20 +2933,12 @@ fn same_bits(got: &LayoutWindow, dom: DomId, want: &LayoutWindow, want_dom: DomI
         .zip(&want.calculated_positions)
         .enumerate()
     {
-        if (a.x.to_bits(), a.y.to_bits()) != (b.x.to_bits(), b.y.to_bits()) {
+        if !(near(a.x, b.x) && near(a.y, b.y)) {
             return Err(format!("box {i} stands at {a:?}, a fresh layout puts it at {b:?}"));
         }
     }
-    // The items: kind, node and paint call, then every coordinate by its bits (not the
-    // items' `Debug` text: a frame prints its key, which is another one in another window).
-    let bits = |r: LogicalRect| {
-        [
-            r.origin.x.to_bits(),
-            r.origin.y.to_bits(),
-            r.size.width.to_bits(),
-            r.size.height.to_bits(),
-        ]
-    };
+    // The items: kind, node and paint call, then every coordinate (not the items' `Debug`
+    // text: a frame prints its key, which is another one in another window).
     let (got, want) = (&got.display_list, &want.display_list);
     if got.items.len() != want.items.len() {
         return Err(format!("{} items against {}", got.items.len(), want.items.len()));
@@ -2947,12 +2950,10 @@ fn same_bits(got: &LayoutWindow, dom: DomId, want: &LayoutWindow, want_dom: DomI
         {
             return Err(format!("item {i}: {a:?} against {b:?}"));
         }
-        if a.bounds().map(bits) != b.bounds().map(bits) {
-            return Err(format!(
-                "item {i}: bounds {:?}, a fresh layout: {:?}",
-                a.bounds(),
-                b.bounds()
-            ));
+        match (a.bounds(), b.bounds()) {
+            (Some(x), Some(y)) if near_rect(x, y) => {}
+            (None, None) => {}
+            (x, y) => return Err(format!("item {i}: bounds {x:?}, a fresh layout: {y:?}")),
         }
         if let (
             DisplayListItem::Text { glyphs: x, .. },
@@ -2961,23 +2962,19 @@ fn same_bits(got: &LayoutWindow, dom: DomId, want: &LayoutWindow, want_dom: DomI
         {
             let same = x.len() == y.len()
                 && x.iter().zip(y).all(|(p, q)| {
-                    p.index == q.index
-                        && (p.point.x.to_bits(), p.point.y.to_bits())
-                            == (q.point.x.to_bits(), q.point.y.to_bits())
+                    p.index == q.index && near(p.point.x, q.point.x) && near(p.point.y, q.point.y)
                 });
             if !same {
                 return Err(format!("item {i}: other glyphs"));
             }
         }
-        let proof = |list: &DisplayList| {
-            list.uniform_text_bgs
-                .get(i)
-                .copied()
-                .flatten()
-                .map(|(colour, rect)| (colour, bits(rect.0)))
-        };
-        if proof(got) != proof(want) {
-            return Err(format!("item {i}: another proven background"));
+        match (
+            got.uniform_text_bgs.get(i).copied().flatten(),
+            want.uniform_text_bgs.get(i).copied().flatten(),
+        ) {
+            (Some((c, r)), Some((d, s))) if c == d && near_rect(r.0, s.0) => {}
+            (None, None) => {}
+            _ => return Err(format!("item {i}: another proven background")),
         }
     }
     Ok(())
@@ -3067,27 +3064,114 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
     }
 }
 
-/// A label dragged by its `left` / `top` (the default path: each write is a pass of its
-/// document) stands and is painted BIT FOR BIT as a fresh layout of the moved DOM, at
-/// places whose sums do not come out even in an `f32` (59.8, 255.8, 61.8: the positions of
-/// the verifier's report). A tolerance would hide what the next pass then sees: a box
-/// "moved" by an ulp.
-/// Mutations: `move_in_place_enabled` answering `true` (the move writes `old + delta`: the
-/// premise names the tier `Paint`; without the premise `same_bits` names the label's box or
-/// item an ulp off).
+/// A label dragged by its `left` / `top` to places whose sums do not come out even in an
+/// `f32` (59.8, 255.8, 61.8: the positions of the verifier's report), in two parts.
+///
+/// (a) While it is dragged, each write is a move where the label lies (`old + delta`): every
+/// box and item stands within a few units in the last place of where a fresh layout of the
+/// moved DOM puts it - at most [`ULPS_A_MOVE`] per move made since the last pass, counted in
+/// the float's own steps, not in pixels - and what the window keeps agrees with itself bit
+/// for bit: the solver's positions with the result's, the label's frame with the label's box.
+///
+/// (b) After the next pass of the document (another label gets another width: no move),
+/// every box and item is BIT FOR BIT what a fresh layout that saw the same writes holds. This
+/// is the guard that matters: the drift of a drag must not survive a pass. It stands on what
+/// the move drops - the box's `AbsPlacement` (the pass solves the box from its insets) and
+/// the solver's kept list (the pass paints every item from the solved positions; a pass that
+/// kept the list would copy the run of a box it finds where the move left it). It does not
+/// need the patched build to paint a moved box (the diff-first owner's fix of
+/// `try_copy_cached_run`): there is no kept list to copy from.
+/// Mutations: the `AbsPlacement` not dropped by the move (the solver's check panics in a
+/// test build; without it (b) names the label's box); `cached_display_list` given the moved
+/// list back in `move_node_in_place` ((b) names an item of the label an ulp off, for the
+/// places where the label's solved position is the moved one and its items are not);
+/// `+ delta` -> `- delta` ((a) names the box).
 #[test]
 fn a_label_written_to_places_that_do_not_add_exactly_stands_bit_for_bit() {
+    use crate::overlay::ContentDirtyTier;
+
+    /// What one move can add to the distance from a fresh layout, in units in the last
+    /// place: the rounding of the delta, the rounding of `old + delta`, and for an item
+    /// the rounding its own `position + k` already carried, each up to half a step of the
+    /// larger operand (two steps of a sum in the binade below).
+    const ULPS_A_MOVE: u64 = 4;
+
+    // Another label gets another width: a write that is no move, so a pass of the document.
+    let widen = |lw: &mut LayoutWindow, dom: DomId| {
+        let tier = lw
+            .apply_content_change(crate::overlay::ContentChange::NodeStyle {
+                dom_id: dom,
+                node_id: NodeId::new(1),
+                style: azul_css::css::Css::parse_inline(
+                    "position: absolute; left: 10px; top: 10px; width: 64px; height: 12px; \
+                     font-size: 12px; line-height: 1; white-space: pre;",
+                ),
+            })
+            .tier;
+        assert_eq!(tier, ContentDirtyTier::Relayout, "premise: a width is a pass");
+    };
+
     let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
-    for (left, top) in [(59.8, 255.8), (61.8, 255.9), (63.7, 257.3)] {
-        assert_eq!(
-            write_label(&mut lw, child, left, top, 12.0),
-            crate::overlay::ContentDirtyTier::Relayout,
-            "premise: a write of an inset is a pass of the label's document"
-        );
-        let (fresh, fresh_child) = turned_label_window(40, left, top, 12.0);
-        if let Err(difference) = same_bits(&lw, child, &fresh, fresh_child) {
-            panic!("the label written to ({left}, {top}): {difference}");
+    let label_box = lw.layout_results[&child].layout_tree.dom_to_layout[&NodeId::new(DRAGGED)][0]
+        .index();
+    let places = [(59.8, 255.8), (61.8, 255.9), (63.7, 257.3), (64.1, 258.6), (61.8, 255.8)];
+    let (mut since_a_pass, mut moves) = (0_u64, 0_usize);
+    for (left, top) in places {
+        match write_label(&mut lw, child, left, top, 12.0) {
+            ContentDirtyTier::Paint => {
+                since_a_pass += 1;
+                moves += 1;
+            }
+            _ => since_a_pass = 0,
         }
+        // (a) within the bound of a fresh layout...
+        let (fresh, fresh_child) = turned_label_window(40, left, top, 12.0);
+        if let Err(difference) =
+            same_within(&lw, child, &fresh, fresh_child, ULPS_A_MOVE * since_a_pass)
+        {
+            panic!("({left}, {top}), {since_a_pass} moves since a pass: {difference}");
+        }
+        // ...and in agreement with itself, bit for bit.
+        let result = &lw.layout_results[&child];
+        let bits = |p: LogicalPosition| (p.x.to_bits(), p.y.to_bits());
+        for (i, (kept, shown)) in lw.child_layout_caches[&child]
+            .calculated_positions
+            .iter()
+            .zip(&result.calculated_positions)
+            .enumerate()
+        {
+            assert_eq!(bits(*kept), bits(*shown), "({left}, {top}): the solver's box {i}");
+        }
+        let frame = result
+            .display_list
+            .items
+            .iter()
+            .enumerate()
+            .find_map(|(i, item)| match item {
+                DisplayListItem::PushReferenceFrame { bounds, .. }
+                    if result.display_list.node_mapping.get(i).copied().flatten()
+                        == Some(NodeId::new(DRAGGED)) =>
+                {
+                    Some(bounds.0.origin)
+                }
+                _ => None,
+            })
+            .expect("the label opens a reference frame");
+        assert_eq!(
+            bits(frame),
+            bits(result.calculated_positions[label_box]),
+            "({left}, {top}): the label's frame is at the label's box"
+        );
+    }
+    assert!(moves >= 3, "premise: the writes of the drag are moves where the label lies ({moves})");
+
+    // (b) the next pass ends the drift.
+    widen(&mut lw, child);
+    let (last_left, last_top) = places[places.len() - 1];
+    let (mut fresh, fresh_child) = turned_label_window(40, last_left, last_top, 12.0);
+    widen(&mut fresh, fresh_child);
+    if let Err(difference) = same_bits(&lw, child, &fresh, fresh_child) {
+        panic!("after the pass that follows the drag: {difference}");
     }
 }
 
@@ -3209,7 +3293,6 @@ fn a_dragged_box_that_holds_a_float_stands_as_a_fresh_layout_puts_it() {
         .tier
     };
 
-    let _moves = MovedWhereItLies::on_this_thread();
     let (mut lw, child) = float_box_window(150.0, 40.0, 60.0);
     drop(write(&mut lw, child, 175.0, 61.0));
     drop(write(&mut lw, child, 178.0, 63.0));
