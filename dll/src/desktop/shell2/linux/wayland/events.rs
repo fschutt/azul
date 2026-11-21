@@ -381,6 +381,24 @@ pub(super) extern "C" fn wl_surface_enter_handler(
     }
 }
 
+/// The compositor's preferred scale changed and `size.dpi` (its whole-DPI
+/// rounding) did not: no DPI event, but the shm buffers and the frame are
+/// sized with the scale itself (A10-10), so they are made anew and the frame
+/// is repainted in full at the new factor.
+fn apply_frame_scale_change(window: &mut WaylandWindow) {
+    #[cfg(feature = "cpurender")]
+    {
+        window.cpu_backend.force_full_repaint = true;
+    }
+    window.publish_frame_factor();
+    let (w, h) = {
+        let d = &window.common.current_window_state().size.dimensions;
+        (d.width as i32, d.height as i32)
+    };
+    window.resize_surface(w, h);
+    window.request_redraw();
+}
+
 /// Publish an OS-driven DPI change: snapshot the diff baseline, write
 /// `size.dpi`, recreate the shm buffers at the new physical size, schedule the
 /// frame and run the shared pass.
@@ -399,6 +417,15 @@ fn apply_os_dpi_change(window: &mut WaylandWindow, new_dpi: u32) {
             ws.size.dpi = new_dpi;
         },
     );
+    // A CPU frame at another scale is repainted in full (A10-08): the list's
+    // diff is in logical px, and the frame kept (top-left, or cropped) from
+    // the old scale shares no pixel with the new one.
+    #[cfg(feature = "cpurender")]
+    {
+        window.cpu_backend.force_full_repaint = true;
+    }
+    // The layout side learns the frame's factor before it lays out for it.
+    window.publish_frame_factor();
     window
         .common
         .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
@@ -469,11 +496,19 @@ pub(super) extern "C" fn wp_fractional_scale_preferred_scale_handler(
     let old_dpi = window.common.current_window_state().size.dpi;
     // dpi = scale × 96 = scale_120 × 96 / 120, rounded to the nearest integer
     // (size.dpi is u32; the exact ×120 value stays in preferred_scale_120).
-    let new_dpi = (scale_120 * 96 + 60) / 120;
+    let new_dpi = azul_layout::window::present_geometry::dpi_of_preferred_scale(scale_120);
+    let factor_before = window.frame_factor();
     window.preferred_scale_120 = Some(scale_120);
 
     if new_dpi == old_dpi {
-        return; // e.g. the initial preferred_scale(120) on a 1.0 output
+        // e.g. the initial preferred_scale(120) on a 1.0 output: nothing to
+        // do. But two scales can round to the same whole DPI (132/120 and
+        // 133/120 are both DPI 106), and buffers and frame are sized with the
+        // scale itself (A10-10): then they are made anew without a DPI change.
+        if window.frame_factor() != factor_before {
+            apply_frame_scale_change(window);
+        }
+        return;
     }
 
     log_info!(

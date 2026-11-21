@@ -1173,6 +1173,9 @@ mod retained_list_tests {
         let Some(mut gpu) = GpuSession::new(600.0, 340.0, 2.0) else {
             return;
         };
+        // Four halos a frame, whatever the machine: the premise below held only
+        // where ninety-six halos took longer to draw than a frame's budget.
+        crate::desktop::wr_translate2::draw_this_many_halos_a_frame_in_this_thread(4);
         gpu.lay_out(halo_page()).expect("the page lays out");
         let first = gpu.present(true).expect("the first frame");
         assert!(

@@ -1315,6 +1315,41 @@ pub(crate) fn drag_classification_target(
     drag_source.or(event_target)
 }
 
+/// The nodes of `styled_dom` that listen to a WINDOW event
+/// (`EventFilter::Window`), in node order: where a window event's callbacks
+/// are looked for.
+///
+/// From `StyledDom::nodes_with_window_callbacks`, the list the styled DOM is
+/// built with and nothing read. A window event used to be planned by walking
+/// every node of every DOM and comparing each of its callbacks - once per
+/// event and window filter of a pass: every pointer move walked the 12,500
+/// nodes of a map's view (and their 4,700 label handlers) to find the two
+/// nodes that listen to the window, a move that changed the hovered label
+/// five times (leave, enter, out, over, move).
+///
+/// The list is right for as long as the DOM lives: `StyledDom::create` makes
+/// it, `append_child_with_index` (and so `append_under_rightmost` and
+/// `insert_runtime_child`) extends it, and a rebuild that keeps the DOM
+/// carries new handlers onto it only when every node's handler EVENTS are the
+/// ones it had (`NodeField::Callbacks` is compared: `hash_shape`,
+/// `reads_alike`), so no node starts to listen to the window in place. A node
+/// that stopped (`DeleteNode` empties its handlers) stays listed and matches
+/// nothing. Sorted and without doubles whatever the list holds: a callback
+/// runs once, in node order, as the walk ran it.
+pub(crate) fn nodes_listening_to_window_events(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+) -> Vec<NodeId> {
+    let mut nodes: Vec<NodeId> = styled_dom
+        .nodes_with_window_callbacks
+        .as_ref()
+        .iter()
+        .filter_map(|id| id.into_crate_internal())
+        .collect();
+    nodes.sort_unstable();
+    nodes.dedup();
+    nodes
+}
+
 #[cfg(test)]
 mod drag_classification_tests {
     use azul_core::{
@@ -4164,14 +4199,32 @@ impl CommonWindowState {
         // all. `cpu_hit_tester` is therefore allocated and rebuilt on EVERY
         // backend now, GPU included — it used to be `None` there.
         // CPU path: layout-based hit tester
-        if let Some(ref cpu_ht) = self.cpu_hit_tester {
+        if let Some(cpu_ht) = self.cpu_hit_tester.as_mut() {
             // SAFETY: neither layout_results nor the managers are modified by
             // hit testing
             let lw = unsafe { &*layout_results_ptr };
+            // A view that panned or scrolled since the tester was built had
+            // its item's `content_offset` re-pointed in place (no layout, so
+            // no rebuild of the tester): its child's boxes are hit where the
+            // item puts them NOW. One item read per child dom.
+            cpu_ht.sync_view_placements(&lw.layout_results);
             let resolve = |d: DomId, n: NodeId| lw.scroll_manager.get_current_offset(d, n);
             // Same map the CPU raster paints reference frames from.
             let resolve_tf = |d: DomId, n: NodeId| lw.gpu_state_manager.painted_transform_of(d, n);
-            let nodes = cpu_ht.hit_test_scrolled(position, &resolve, &resolve_tf);
+            // The stamps of the maps `resolve_tf` reads: while a dom's are
+            // what they were, each of its reference frames has the matrix it
+            // had, and the tester's kept bounds of where every turned label
+            // is painted still hold (2,118 matrix look-ups per pointer move
+            // in a city map otherwise).
+            let frame_stamps = |d: DomId| {
+                lw.gpu_state_manager
+                    .get_cache(d)
+                    .map_or([0; 6], azul_core::gpu::GpuValueCache::transform_stamps)
+            };
+            cpu_ht.sync_frame_bounds(&resolve_tf, &frame_stamps);
+            let cpu_ht = &*cpu_ht;
+            let nodes =
+                cpu_ht.hit_test_scrolled_stamped(position, &resolve, &resolve_tf, &frame_stamps);
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
                 cpu_ht,
                 &nodes,
@@ -10254,11 +10307,15 @@ pub trait PlatformWindow {
                             }
                         }
                         EventFilter::Window(_) => {
-                            // Window events fire on ALL nodes with matching callback
+                            // Window events fire on ALL nodes with matching
+                            // callback - found through the list every styled
+                            // DOM keeps of its window listeners, not by a walk
+                            // over every node of every DOM for every event of
+                            // every pass (a pointer move is one, a hover change
+                            // five: see `nodes_listening_to_window_events`).
                             for (dom_id, lr) in &layout_window.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
-                                for node_idx in 0..ndc.len() {
-                                    let node_id = NodeId::new(node_idx);
+                                for node_id in nodes_listening_to_window_events(&lr.styled_dom) {
                                     if let Some(nd) = ndc.get(node_id) {
                                         for cb in nd.get_callbacks().as_ref().iter() {
                                             if cb.event == *filter {
@@ -12272,6 +12329,17 @@ pub trait PlatformWindow {
             }
         }
 
+        // The hover change between the pointer's last two hit tests has been
+        // determined (the enter / leave events above) and the tooltip timer
+        // has seen it: it is told once. Without this every later pass that
+        // ran without a new hit test - a key, a window event, the re-run
+        // after a callback rebuilt the DOM - found the same two frames and
+        // sent the same events, restyled `:hover` and re-armed the tooltip
+        // again.
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.hover_manager.mark_hover_changes_delivered();
+        }
+
         // MWA-A3c: incremental :hover restyle. Enter/leave events dispatched
         // to callbacks, but the styled DOM's :hover flags were never updated
         // outside a full DOM regeneration — pure-CSS hover styling was dead
@@ -12578,8 +12646,17 @@ pub trait PlatformWindow {
             // armed drag-autoscroll and scrolled the UI away. `user-select:
             // none` is honoured too, through the engine's own
             // `is_text_selectable`.
+            // Asked at the press EDGE only (the one moment the answer is
+            // read, below): on every other pass - every pointer move - the
+            // hit nodes are not collected and no ancestor or child of theirs
+            // is walked.
+            let press_edge = left_down
+                && self
+                    .get_layout_window()
+                    .is_some_and(|lw| !lw.prev_left_down);
             let press_targets: Vec<azul_core::dom::DomNodeId> = hit_test_for_dispatch
                 .as_ref()
+                .filter(|_| press_edge)
                 .map(|ht| {
                     ht.hovered_nodes
                         .iter()
@@ -12594,7 +12671,7 @@ pub trait PlatformWindow {
                         .collect()
                 })
                 .unwrap_or_default();
-            let press_on_editable = press_targets.iter().any(|dnid| {
+            let press_on_editable = press_edge && press_targets.iter().any(|dnid| {
                 if self.node_is_window_drag_region(*dnid) {
                     return false;
                 }

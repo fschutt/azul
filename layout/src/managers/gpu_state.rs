@@ -14,7 +14,7 @@ use std::collections::HashMap;
 use azul_core::{
     dom::{DomId, NodeId, ScrollbarOrientation},
     geom::{LogicalPosition, LogicalRect, LogicalSize},
-    gpu::{GpuEventChanges, GpuTransformKeyEvent, GpuValueCache},
+    gpu::{GpuEventChanges, GpuTransformKeyEvent, GpuValueCache, TransformChannel},
     resources::TransformKey,
     task::{Duration, SystemTimeDiff},
     transform::ComputedTransform3D,
@@ -437,6 +437,32 @@ impl GpuStateManager {
         self.caches.get(&dom_id)
     }
 
+    /// The write generation of the bound values of EVERY DOM of the window:
+    /// one number that is another one after any cache gained or lost a key,
+    /// had a value written that differs from what it held
+    /// (`GpuValueCache::value_generation`), or after a DOM's cache appeared
+    /// or went. A frame that finds the number it last read has no bound
+    /// value to read again: no copy of the values (`WindowGpuValues::of_doms`),
+    /// no comparison with the previous ones, no walk for the compositor
+    /// (`synchronize_gpu_values`).
+    ///
+    /// NOT yet safe to skip work by: until the cache's maps are private,
+    /// every writer outside `GpuValueCache`'s own methods has to say so
+    /// (`audit/A2-gpu.md`, "Integration", lists them). Only equality is
+    /// meaningful.
+    #[must_use]
+    pub fn value_generation(&self) -> u64 {
+        // The DOM ids go in with the generations: a cache that went and
+        // another that came with the same count is another set.
+        const STEP: u64 = 0x9E37_79B9_7F4A_7C15;
+        self.caches.iter().fold(self.caches.len() as u64, |acc, (dom, cache)| {
+            (acc ^ dom.inner as u64)
+                .wrapping_mul(STEP)
+                .wrapping_add(cache.value_generation())
+                .rotate_left(17)
+        })
+    }
+
     pub fn get_or_create_cache(&mut self, dom_id: DomId) -> &mut GpuValueCache {
         self.caches.entry(dom_id).or_default()
     }
@@ -634,7 +660,7 @@ fn update_sticky_transform(
     node_id: NodeId,
     sticky: &crate::solver3::positioning::StickyConstraint,
 ) {
-    let Some(&key) = gpu_cache.sticky_transform_keys.get(&node_id) else {
+    let Some(key) = gpu_cache.transform_key(TransformChannel::Sticky, node_id) else {
         return;
     };
     let offset = sticky
@@ -644,10 +670,7 @@ fn update_sticky_transform(
     let now = sticky.shift_at(offset);
     let transform =
         ComputedTransform3D::new_translation(now.x - sticky.baked.x, now.y - sticky.baked.y, 0.0);
-    match gpu_cache
-        .sticky_current_transform_values
-        .insert(node_id, transform)
-    {
+    match gpu_cache.set_transform_value(TransformChannel::Sticky, node_id, transform) {
         Some(old) if old == transform => {}
         Some(old) => changes
             .transform_key_changes
@@ -666,20 +689,16 @@ fn update_scrollbar_transform_key(
     transform: ComputedTransform3D,
     orientation: ScrollbarOrientation,
 ) {
-    let (keys, values) = match orientation {
-        ScrollbarOrientation::Vertical => (
-            &mut gpu_cache.transform_keys,
-            &mut gpu_cache.current_transform_values,
-        ),
-        ScrollbarOrientation::Horizontal => (
-            &mut gpu_cache.h_transform_keys,
-            &mut gpu_cache.h_current_transform_values,
-        ),
+    // Through the cache's write methods: a thumb that moved moves the write
+    // generation, one that stayed where it was does not.
+    let channel = match orientation {
+        ScrollbarOrientation::Vertical => TransformChannel::ScrollbarVertical,
+        ScrollbarOrientation::Horizontal => TransformChannel::ScrollbarHorizontal,
     };
 
-    if let Some(existing_transform) = values.get(&node_id) {
-        if *existing_transform != transform {
-            let Some(&transform_key) = keys.get(&node_id) else {
+    if let Some(existing_transform) = gpu_cache.transform_value(channel, node_id) {
+        if existing_transform != transform {
+            let Some(transform_key) = gpu_cache.transform_key(channel, node_id) else {
                 return;
             };
             changes
@@ -687,15 +706,14 @@ fn update_scrollbar_transform_key(
                 .push(GpuTransformKeyEvent::Changed(
                     node_id,
                     transform_key,
-                    *existing_transform,
+                    existing_transform,
                     transform,
                 ));
-            values.insert(node_id, transform);
+            gpu_cache.set_transform_value(channel, node_id, transform);
         }
     } else {
         let transform_key = TransformKey::unique();
-        keys.insert(node_id, transform_key);
-        values.insert(node_id, transform);
+        gpu_cache.set_transform(channel, node_id, transform_key, transform);
         changes
             .transform_key_changes
             .push(GpuTransformKeyEvent::Added(
@@ -720,37 +738,17 @@ impl crate::managers::NodeIdRemap for GpuStateManager {
             return;
         };
 
-        remap_hashmap(&mut cache.transform_keys, map);
-        remap_hashmap(&mut cache.current_transform_values, map);
-        remap_hashmap(&mut cache.h_transform_keys, map);
-        remap_hashmap(&mut cache.h_current_transform_values, map);
-        remap_hashmap(&mut cache.css_transform_keys, map);
-        remap_hashmap(&mut cache.css_current_transform_values, map);
-        remap_hashmap(&mut cache.opacity_keys, map);
-        remap_hashmap(&mut cache.current_opacity_values, map);
-        // The ANIMATION channel (`LayoutWindow::tick_animations` writes a
-        // FLIP's transform and opacity here under the node's id every tick).
-        // Left behind, a value stayed under the OLD id and the unrelated node
-        // that inherited that slot after the rebuild was painted through a
-        // reference frame with a stranger's transform (a `<p>` mounted over
-        // a widget mid-move: painted off-screen).
-        remap_hashmap(&mut cache.anim_transform_keys, map);
-        remap_hashmap(&mut cache.anim_current_transform_values, map);
-        remap_hashmap(&mut cache.anim_opacity_keys, map);
-        remap_hashmap(&mut cache.anim_current_opacity_values, map);
-        // The STICKY channel: the next sync re-keys every sticky node anyway,
-        // but until then a moved box keeps its own translation.
-        remap_hashmap(&mut cache.sticky_transform_keys, map);
-        remap_hashmap(&mut cache.sticky_current_transform_values, map);
-        // The SHEEN channel: a material that moved keeps its sheen layer.
-        remap_hashmap(&mut cache.sheen_transform_keys, map);
-        remap_hashmap(&mut cache.sheen_current_transform_values, map);
-        remap_hashmap(&mut cache.sheen_opacity_keys, map);
-        remap_hashmap(&mut cache.sheen_current_opacity_values, map);
-        remap_dom_hashmap(&mut cache.scrollbar_v_opacity_keys, dom, map);
-        remap_dom_hashmap(&mut cache.scrollbar_h_opacity_keys, dom, map);
-        remap_dom_hashmap(&mut cache.scrollbar_v_opacity_values, dom, map);
-        remap_dom_hashmap(&mut cache.scrollbar_h_opacity_values, dom, map);
+        // Every node-keyed map of the cache, as the cache lists them
+        // (`GpuValueCache::rekey_nodes`): the scrollbar thumbs, the CSS
+        // channel with the size each value was resolved against, the
+        // ANIMATION channel (`LayoutWindow::tick_animations` writes a FLIP's
+        // transform and opacity under the node's id every tick: left behind,
+        // a value stayed under the OLD id and the unrelated node that
+        // inherited that slot was painted through a stranger's transform),
+        // the STICKY and SHEEN channels, the bound background colours and
+        // the scrollbar fades. The maps used to be named here one by one,
+        // and a map added to the cache was a map this forgot.
+        cache.rekey_nodes(&mut NodeRemap { dom, map });
     }
 }
 
@@ -777,6 +775,23 @@ fn remap_dom_hashmap<V>(
         } else if let Some(new_id) = node_map.resolve(old_id) {
             map.insert((d, new_id), v);
         }
+    }
+}
+
+/// The node ids of one DOM's GPU value maps, rewritten after a rebuild:
+/// what `GpuStateManager::remap_node_ids` hands `GpuValueCache::rekey_nodes`.
+struct NodeRemap<'a> {
+    dom: DomId,
+    map: &'a crate::managers::NodeIdMap,
+}
+
+impl azul_core::gpu::RekeyNodes for NodeRemap<'_> {
+    fn node_map<V>(&mut self, map: &mut azul_core::gpu::NodeMap<V>) {
+        remap_hashmap(map, self.map);
+    }
+
+    fn dom_node_map<V>(&mut self, map: &mut azul_core::gpu::DomNodeMap<V>) {
+        remap_dom_hashmap(map, self.dom, self.map);
     }
 }
 
@@ -2539,5 +2554,163 @@ mod autotest_generated {
         // The second node overwrote the first within the same pass.
         let stored = m.get_cache(dom(0)).unwrap().current_transform_values[&NodeId::new(1)];
         assert!((stored.m[3][1] - 68.0).abs() < 0.01);
+    }
+}
+
+/// A2-gpu (audit 2026-11-21): the writes of this file go through the cache's
+/// write methods and move the write generation (`audit/A2-gpu.md`, A2-gpu-13).
+#[cfg(test)]
+mod audit_a2_gpu_tests {
+    use azul_core::{
+        gpu::OpacityChannel,
+        resources::OpacityKey,
+    };
+    use azul_css::props::basic::ColorU;
+
+    use super::*;
+    use crate::managers::{NodeIdMap, NodeIdRemap};
+
+    fn tx(x: f32, y: f32) -> ComputedTransform3D {
+        ComputedTransform3D::new_translation(x, y, 0.0)
+    }
+
+    /// A scroll moves a thumb by whole pixels, and most frames of a glide
+    /// leave it where it is (`quantize_thumb_offset`): the write generation
+    /// moves with the thumb, not with the frame.
+    ///
+    /// First write (0, 10): an `Added` event, the generation moves. The same
+    /// offset again: no event, the generation stays. (0, 11): `Changed`, it
+    /// moves. The horizontal thumb of the same node is a channel of its own.
+    ///
+    /// Mutation: `gpu_cache.set_transform_value(channel, node_id, transform)`
+    /// replaced by a direct `current_transform_values.insert` fails "a thumb
+    /// that moved".
+    #[test]
+    fn a_thumb_that_moves_moves_the_write_generation_and_one_that_stays_does_not() {
+        let node = NodeId::new(3);
+        let mut cache = GpuValueCache::default();
+        let mut changes = GpuEventChanges::empty();
+        let start = cache.value_generation();
+
+        update_scrollbar_transform_key(
+            &mut cache,
+            &mut changes,
+            node,
+            tx(0.0, 10.0),
+            ScrollbarOrientation::Vertical,
+        );
+        let added = cache.value_generation();
+        assert_ne!(added, start, "a thumb was keyed");
+        assert_eq!(changes.transform_key_changes.len(), 1);
+
+        update_scrollbar_transform_key(
+            &mut cache,
+            &mut changes,
+            node,
+            tx(0.0, 10.0),
+            ScrollbarOrientation::Vertical,
+        );
+        assert_eq!(cache.value_generation(), added, "a thumb that stayed");
+        assert_eq!(changes.transform_key_changes.len(), 1);
+
+        update_scrollbar_transform_key(
+            &mut cache,
+            &mut changes,
+            node,
+            tx(0.0, 11.0),
+            ScrollbarOrientation::Vertical,
+        );
+        let moved = cache.value_generation();
+        assert_ne!(moved, added, "a thumb that moved");
+        assert_eq!(
+            cache.transform_value(TransformChannel::ScrollbarVertical, node),
+            Some(tx(0.0, 11.0))
+        );
+
+        update_scrollbar_transform_key(
+            &mut cache,
+            &mut changes,
+            node,
+            tx(4.0, 0.0),
+            ScrollbarOrientation::Horizontal,
+        );
+        assert_ne!(cache.value_generation(), moved);
+        assert_eq!(
+            cache.transform_value(TransformChannel::ScrollbarHorizontal, node),
+            Some(tx(4.0, 0.0))
+        );
+        assert_eq!(
+            cache.transform_value(TransformChannel::ScrollbarVertical, node),
+            Some(tx(0.0, 11.0)),
+            "the vertical thumb is another channel"
+        );
+        assert_ne!(
+            cache.transform_key(TransformChannel::ScrollbarHorizontal, node),
+            cache.transform_key(TransformChannel::ScrollbarVertical, node)
+        );
+    }
+
+    /// A rebuild that renumbers a DOM's nodes moves every value of its cache
+    /// with its node: also the bound background colour and the animation
+    /// channel, and the window's write generation moves. Node 1 becomes node
+    /// 8; node 2 is unmounted.
+    ///
+    /// Mutation: `cache.rekey_nodes(&mut NodeRemap { dom, map })` removed
+    /// from `remap_node_ids` fails every "follows its node".
+    #[test]
+    fn a_rebuild_moves_every_value_with_its_node_and_the_window_generation() {
+        let (old, new, gone) = (NodeId::new(1), NodeId::new(8), NodeId::new(2));
+        let dom = DomId { inner: 0 };
+        let mut manager = GpuStateManager::default();
+        let empty = manager.value_generation();
+        let red = ColorU::new(255, 0, 0, 255);
+        let (css_key, anim_key, color_key, fade_key);
+        {
+            let cache = manager.get_or_create_cache(dom);
+            css_key = cache.key_transform(TransformChannel::Css, old, tx(1.0, 1.0));
+            anim_key = cache.key_transform(TransformChannel::Animation, old, tx(2.0, 2.0));
+            let _ = cache.key_transform(TransformChannel::Animation, gone, tx(9.0, 9.0));
+            let _ = cache.key_opacity(OpacityChannel::Animation, old, 0.5);
+            color_key = cache.key_color(old, red);
+            fade_key = OpacityKey::unique();
+            cache.set_scrollbar_opacity(ScrollbarOrientation::Vertical, dom, old, fade_key, 0.25);
+        }
+        let written = manager.value_generation();
+        assert_ne!(written, empty, "a cache with values is another set than none");
+
+        manager.remap_node_ids(dom, &NodeIdMap::from_pairs([(old, new)]));
+
+        assert_ne!(manager.value_generation(), written, "renumbered nodes are another set");
+        let cache = manager.get_cache(dom).expect("the DOM's cache");
+        assert_eq!(cache.transform_key(TransformChannel::Css, new), Some(css_key));
+        assert_eq!(cache.transform_value(TransformChannel::Css, new), Some(tx(1.0, 1.0)));
+        assert_eq!(
+            cache.transform_key(TransformChannel::Animation, new),
+            Some(anim_key),
+            "the animation channel follows its node"
+        );
+        assert_eq!(cache.opacity_value(OpacityChannel::Animation, new), Some(0.5));
+        assert_eq!(cache.color_key(new), Some(color_key), "the colour key follows its node");
+        assert_eq!(cache.color_value(new), Some(red));
+        assert_eq!(
+            cache.scrollbar_opacity_key(ScrollbarOrientation::Vertical, dom, new),
+            Some(fade_key)
+        );
+        assert_eq!(cache.transform_key(TransformChannel::Css, old), None);
+        assert_eq!(cache.color_key(old), None);
+        assert_eq!(
+            cache.transform_key(TransformChannel::Animation, gone),
+            None,
+            "an unmounted node's value is dropped"
+        );
+        // The frame of the renumbered node: its CSS matrix, then its slide.
+        let (frame_key, product) = cache.reference_frame_of(new).expect("a frame");
+        assert_eq!(frame_key, css_key);
+        assert_eq!(product, tx(3.0, 3.0));
+
+        // A second DOM's cache is part of the window's generation.
+        let before = manager.value_generation();
+        let _ = manager.get_or_create_cache(DomId { inner: 1 });
+        assert_ne!(manager.value_generation(), before);
     }
 }

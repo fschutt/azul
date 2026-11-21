@@ -759,6 +759,303 @@ impl FrameDamage {
     }
 }
 
+/// The arithmetic of a CPU present, shared by every shell (audit A10): pure
+/// functions, so each flip and each rounding is written once and tested on
+/// every platform, not inside an Objective-C method or a window procedure.
+///
+/// The spaces (`audit/A10.md`, "Spaces"):
+/// - *buffer px*: device pixels of the frame, origin top-left, y down. What
+///   [`FrameDamage::to_rects_physical`] returns and the row order of every
+///   CPU frame (row 0 is the top row).
+/// - *bottom-left px*: the same pixels, origin bottom-left, y up. The backing
+///   space of an AppKit view that is not `isFlipped`, and the space of an
+///   `NSBitmapImageRep`'s source rect.
+/// - *logical px*: buffer px divided by the DPI factor (AppKit points, CSS px).
+pub mod present_geometry {
+    /// `(x, y, width, height)` in device pixels.
+    pub type PxRect = (u32, u32, u32, u32);
+
+    /// Device pixels per logical pixel of a window whose state says `dpi`:
+    /// `dpi / 96`, and 1.0 for a DPI of 0 (a window that was never told).
+    ///
+    /// THE factor of a frame (with [`super::LayoutWindow::frame_scale`], which
+    /// adds the one case `dpi` cannot hold). It is NOT
+    /// `WindowSize::get_hidpi_factor()`: that one is a `FloatValue`, three
+    /// decimals, cut off, so DPI 128 (4/3) reads 1.333 there and 1.333_333_4
+    /// here, and a window 1280 logical px wide is 1706.67 -> 1707 px with this
+    /// one and 1706.24 -> 1706 px with that one. (At 125 % and 150 % the two
+    /// are the same number.) Nothing that sizes or places a frame may use
+    /// that one.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)] // a DPI is far below 2^24
+    pub fn frame_dpi_factor(dpi: u32) -> f32 {
+        if dpi == 0 {
+            1.0
+        } else {
+            dpi as f32 / 96.0
+        }
+    }
+
+    /// The scale a Wayland compositor prefers for a surface, from the
+    /// numerator wp-fractional-scale-v1 sends (`scale_120 / 120`).
+    #[must_use]
+    #[allow(clippy::cast_precision_loss)]
+    pub fn preferred_scale(scale_120: u32) -> f32 {
+        scale_120 as f32 / 120.0
+    }
+
+    /// The whole DPI (96 per 1.0) nearest to a preferred scale: what
+    /// `size.dpi` holds for it. Exact only when `scale_120` is a multiple of
+    /// 5 (125 % = 150 -> 120, 150 % = 180 -> 144); 110 % = 132 -> 105.6 -> 106,
+    /// which is a factor of 1.104, not 1.1.
+    #[must_use]
+    pub const fn dpi_of_preferred_scale(scale_120: u32) -> u32 {
+        (scale_120.saturating_mul(96).saturating_add(60)) / 120
+    }
+
+    /// The factor of a Wayland window's frames and buffers.
+    ///
+    /// On the fractional path (the compositor sent a preferred scale AND the
+    /// surface has a viewport to map the buffer back to surface units) it is
+    /// the compositor's own `scale_120 / 120`: the surface is
+    /// `round(units * scale_120 / 120)` device pixels, and only a buffer of
+    /// exactly that size is shown 1:1. `size.dpi / 96` is that scale rounded
+    /// to a whole DPI: at 110 % it is 106 / 96 = 1.104, and 1000 units become
+    /// a 1104 px buffer for an 1100 px surface, resampled as a whole.
+    /// Otherwise (integer scales) it is [`frame_dpi_factor`].
+    #[must_use]
+    pub fn wayland_frame_scale(dpi: u32, preferred_scale_120: Option<u32>, has_viewport: bool) -> f32 {
+        match preferred_scale_120 {
+            Some(scale_120) if has_viewport && scale_120 > 0 => preferred_scale(scale_120),
+            _ => frame_dpi_factor(dpi),
+        }
+    }
+
+    /// Whether what a shell last handed to its window system still shows the
+    /// frame: no frame was rendered since, or exactly one was and it changed
+    /// nothing (its present damage is `None`). A shell that presents whole
+    /// frames (a layer's `contents`) has nothing to do then.
+    ///
+    /// `frames_now` and `frames_at_last_present` count rendered frames
+    /// (`FrameTimings::frame_count`); `None` = nothing was presented yet.
+    /// Two or more frames since the last present are never "shown": the
+    /// damage of the last one says nothing about the one before it.
+    #[must_use]
+    pub fn frame_already_shown(
+        frames_now: u64,
+        frames_at_last_present: Option<u64>,
+        last_damage_is_none: bool,
+    ) -> bool {
+        match frames_at_last_present {
+            None => false,
+            Some(then) if frames_now == then => true,
+            Some(then) => frames_now == then.saturating_add(1) && last_damage_is_none,
+        }
+    }
+
+    /// The size in device pixels of the CPU frame of a `logical_w` x
+    /// `logical_h` window at `dpi_factor`: the formula of
+    /// `CpuBackend::render_frame` (`(logical * dpi).ceil()`, in `f32`), for a
+    /// shell that has to make its buffer exactly as large as the frame.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn frame_size_px(logical_w: f32, logical_h: f32, dpi_factor: f32) -> (u32, u32) {
+        (
+            (logical_w * dpi_factor).ceil() as u32,
+            (logical_h * dpi_factor).ceil() as u32,
+        )
+    }
+
+    /// The logical length whose CPU frame is exactly `px` device pixels long
+    /// at `dpi_factor` ([`frame_size_px`]).
+    ///
+    /// A shell that learns its size in device pixels (X11, Win32) stores
+    /// `px / dpi` as the logical size, and the frame is `ceil(logical * dpi)`
+    /// of that. In `f32` the product can land a few ulps ABOVE `px`, and the
+    /// ceiling then makes the frame one pixel larger than the window: 1003 px
+    /// at 175 % is 573.142_88 logical, times 1.75 is 1003.000_06, a 1004 px
+    /// frame. This returns the largest `f32` at or below `px / dpi` that
+    /// renders to `px` (one ulp lower where the round trip overshoots:
+    /// 573.142_82, times 1.75 is 1002.999_94, a 1003 px frame).
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    pub fn logical_len_for_px(px: u32, dpi_factor: f32) -> f32 {
+        if !(dpi_factor > 0.0) {
+            return px as f32;
+        }
+        let mut len = px as f32 / dpi_factor;
+        // One step is enough for every integer DPI from 96 to 384 and every
+        // length up to 4096 px (checked exhaustively); four bound the loop.
+        for _ in 0..4 {
+            if !(len > 0.0) || (len * dpi_factor).ceil() as u32 <= px {
+                break;
+            }
+            // The next `f32` towards zero (`len` is positive and finite here).
+            len = f32::from_bits(len.to_bits() - 1);
+        }
+        len
+    }
+
+    /// The length in device pixels of a toplevel surface `logical` surface
+    /// units long at the fractional scale `scale`, as a Wayland compositor
+    /// computes it: "rounded halfway away from zero" (wp-fractional-scale-v1).
+    ///
+    /// A buffer of exactly this size is shown 1:1; any other size is
+    /// resampled over the whole surface. `ceil` (the CPU frame's own rounding,
+    /// [`frame_size_px`]) is one pixel more wherever the product's fraction is
+    /// below one half: 1001 units at 125 % are 1251.25, a 1251 px surface and
+    /// a 1252 px frame.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn surface_len_px(logical: f32, scale: f32) -> u32 {
+        (logical * scale).round() as u32
+    }
+
+    /// `rect` (buffer px, y down) in bottom-left px (y up) of a buffer
+    /// `buf_h` pixels high, and back: the flip is its own inverse.
+    ///
+    /// `y' = buf_h - (y + height)`: the rect's BOTTOM edge measured from the
+    /// buffer's bottom. A rect that reaches below the buffer is cut at 0.
+    #[must_use]
+    pub const fn flip_rect_y(rect: PxRect, buf_h: u32) -> PxRect {
+        let (x, y, w, h) = rect;
+        (x, buf_h.saturating_sub(y.saturating_add(h)), w, h)
+    }
+
+    /// The rows and columns of a `width` x `height` buffer that a rect in
+    /// bottom-left px covers, as half-open TOP-DOWN ranges `(x0, x1, y0, y1)`:
+    /// rounded outward (a pixel the rect touches is in), clamped to the
+    /// buffer. The inverse of [`flip_rect_y`] for a fractional rect.
+    ///
+    /// `y0 = floor(height - (y + h))`, `y1 = ceil(height - y)`. The whole
+    /// buffer when `full`, and when the rect is empty or not a number: the
+    /// caller was asked to draw and has to draw something.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    pub fn rows_of_bottom_left_rect(
+        full: bool,
+        rect: (f64, f64, f64, f64),
+        width: usize,
+        height: usize,
+    ) -> (usize, usize, usize, usize) {
+        let (x, y, w, h) = rect;
+        if full || !(w > 0.0 && h > 0.0) || width == 0 || height == 0 {
+            return (0, width, 0, height);
+        }
+        let fw = width as f64;
+        let fh = height as f64;
+        let x0 = x.floor().clamp(0.0, fw) as usize;
+        let x1 = (x + w).ceil().clamp(0.0, fw) as usize;
+        let y0 = (fh - (y + h)).floor().clamp(0.0, fh) as usize;
+        let y1 = (fh - y).ceil().clamp(0.0, fh) as usize;
+        (x0.min(x1), x1, y0.min(y1), y1)
+    }
+
+    /// The bounding box of `rects`, `None` when there is none. What AppKit
+    /// hands a `drawRect:` for several invalidated rects, and so what one
+    /// present of them copies.
+    #[must_use]
+    pub fn bounding_rect(rects: &[PxRect]) -> Option<PxRect> {
+        let mut it = rects.iter().filter(|r| r.2 > 0 && r.3 > 0);
+        let &(x, y, w, h) = it.next()?;
+        let (mut x0, mut y0) = (x, y);
+        let (mut x1, mut y1) = (x.saturating_add(w), y.saturating_add(h));
+        for &(x, y, w, h) in it {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x.saturating_add(w));
+            y1 = y1.max(y.saturating_add(h));
+        }
+        Some((x0, y0, x1 - x0, y1 - y0))
+    }
+
+    /// The pixels `rects` cover, counting a pixel once per rect: what a
+    /// present of them copies at most (the cost model of `audit/A10.md`).
+    #[must_use]
+    pub fn area_px(rects: &[PxRect]) -> u64 {
+        rects.iter().map(|r| u64::from(r.2) * u64::from(r.3)).sum()
+    }
+}
+
+/// Frame-sized byte buffers that a shell hands to its window system and gets
+/// back some time later (Core Graphics calls a data provider's release
+/// callback when the layer lets go of the image): kept and handed out again
+/// instead of allocated and freed per present (audit A10-11).
+///
+/// At a steady frame size two buffers alternate (the one on screen and the
+/// one being filled), so a run of presents allocates twice.
+#[derive(Debug, Default)]
+pub struct FrameBufferPool {
+    free: Vec<Box<[u8]>>,
+    allocations: u64,
+}
+
+impl FrameBufferPool {
+    /// How many returned buffers are kept; more are freed.
+    pub const KEPT: usize = 3;
+
+    /// An empty pool.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            free: Vec::new(),
+            allocations: 0,
+        }
+    }
+
+    /// A buffer of exactly `len` bytes. Its contents are whatever the last
+    /// frame left in it: the caller overwrites all of it.
+    #[must_use]
+    pub fn take(&mut self, len: usize) -> Box<[u8]> {
+        if let Some(i) = self.free.iter().position(|buffer| buffer.len() == len) {
+            return self.free.swap_remove(i);
+        }
+        // Another frame size: the kept buffers fit no frame any more.
+        self.free.clear();
+        self.allocations += 1;
+        vec![0_u8; len].into_boxed_slice()
+    }
+
+    /// The window system is done with `buffer`.
+    pub fn give_back(&mut self, buffer: Box<[u8]>) {
+        if self.free.len() < Self::KEPT {
+            self.free.push(buffer);
+        }
+    }
+
+    /// How many buffers were allocated so far (the count the tests read).
+    #[must_use]
+    pub const fn allocations(&self) -> u64 {
+        self.allocations
+    }
+}
+
+impl LayoutWindow {
+    /// THE factor of this window's frame, device pixels per logical pixel:
+    /// what every shell hands `CpuBackend::render_frame` and sizes its buffer
+    /// with, and so the grid everything that has to land on whole device
+    /// pixels is snapped on.
+    ///
+    /// `size.dpi / 96` ([`present_geometry::frame_dpi_factor`]), unless the
+    /// shell knows the factor more exactly than a whole DPI can say
+    /// ([`Self::set_frame_scale`]: a Wayland compositor's preferred scale of
+    /// 110 % is 1.1, and DPI 106 is 1.104). Never
+    /// `WindowSize::get_hidpi_factor()`, which is cut to three decimals.
+    #[must_use]
+    pub fn frame_scale(&self) -> f32 {
+        self.frame_clock.frame_scale().unwrap_or_else(|| {
+            present_geometry::frame_dpi_factor(self.current_window_state.size.dpi)
+        })
+    }
+
+    /// The shell says what the frame's factor exactly is (`None`: `size.dpi /
+    /// 96` again). Through `&self`: a shell holds the window shared while it
+    /// renders.
+    pub fn set_frame_scale(&self, exact: Option<f32>) {
+        self.frame_clock.set_frame_scale(exact);
+    }
+}
+
 /// How long this window's frames take, for the app itself: what
 /// `CallbackInfo::get_frame_timings` answers ([`LayoutWindow::frame_timings`]).
 ///
@@ -786,6 +1083,10 @@ pub struct FrameTimings {
     pub layout_us: u64,
 }
 
+/// The text halo counters, among the window's own records: what
+/// `CallbackInfo::get_text_halo_stats` answers, next to [`FrameTimings`].
+pub use crate::cpurender::TextHaloStats;
+
 /// The clock behind [`FrameTimings`]: atomics, because a frame is presented
 /// by renderers that only borrow the window
 /// ([`LayoutWindow::note_frame_presented`]).
@@ -801,9 +1102,30 @@ pub struct FrameClock {
     interval_ns: core::sync::atomic::AtomicU64,
     work_ns: core::sync::atomic::AtomicU64,
     layout_ns: core::sync::atomic::AtomicU64,
+    /// The frame's exact factor when `size.dpi` cannot hold it, as the bits
+    /// of an `f32`; 0 = none (`LayoutWindow::frame_scale`, A10-10).
+    frame_scale_bits: core::sync::atomic::AtomicU32,
 }
 
 impl FrameClock {
+    /// See `LayoutWindow::set_frame_scale`. A factor that is not a positive
+    /// finite number is no factor.
+    pub fn set_frame_scale(&self, exact: Option<f32>) {
+        let bits = exact
+            .filter(|scale| scale.is_finite() && *scale > 0.0)
+            .map_or(0, f32::to_bits);
+        self.frame_scale_bits.store(bits, Ordering::Relaxed);
+    }
+
+    /// See `LayoutWindow::frame_scale`.
+    #[must_use]
+    pub fn frame_scale(&self) -> Option<f32> {
+        match self.frame_scale_bits.load(Ordering::Relaxed) {
+            0 => None,
+            bits => Some(f32::from_bits(bits)),
+        }
+    }
+
     /// Work for the next frame starts at `now` (nanoseconds); the first
     /// start since the last presented frame counts.
     pub fn note_work(&self, now: u64) {
@@ -963,6 +1285,11 @@ pub struct FrameReport {
     /// a steady state must pin: a view that reports a different size every
     /// time it is handed the box it asked for would show up here every frame.
     pub virtual_view_size_passes: u32,
+    /// What the GPU backend's scans did with the text halos it keeps as pictures
+    /// ([`crate::cpurender::TextHaloStats`]): the last scan's numbers (drawn, dropped, left,
+    /// painted with a stand-in), the sums of this thread and what is kept. Per thread, not per
+    /// window, and not reset with the counters. Filled in by [`LayoutWindow::frame_report_synced`].
+    pub text_halos: crate::cpurender::TextHaloStats,
     /// The work of the last CPU frame ([`crate::cpu_counters`]): pixels cleared and blitted, items
     /// walked and painted, text runs and glyphs rasterised, halos drawn, isolated groups opened
     /// and their pixels, retained surfaces used, items of the scans of a whole list. Filled in by
@@ -1074,10 +1401,63 @@ impl FrameReport {
             (_, FrameDamage::None) | (FrameDamage::Full, _) => {}
             (_, FrameDamage::Full) => *acc = FrameDamage::Full,
             (FrameDamage::None, FrameDamage::Rects(r)) => *acc = FrameDamage::Rects(r.clone()),
-            (FrameDamage::Rects(a), FrameDamage::Rects(b)) => a.extend(b.iter().copied()),
+            (FrameDamage::Rects(a), FrameDamage::Rects(b)) => {
+                a.extend(b.iter().copied());
+                if a.len() > MAX_ACCUMULATED_DAMAGE_RECTS {
+                    Self::compact_accumulated(a);
+                }
+            }
         }
     }
+
+    /// A9-01: keeps an accumulated rect list bounded. Nothing resets it outside the E2E
+    /// harness, and a frame that is never `Full` (the macOS GPU path records WebRender's
+    /// dirty rects every frame) appended to it for the life of the window. First every
+    /// rect one of the last few kept ones covers is dropped (the union is unchanged: the
+    /// same rect every frame collapses to one); if that leaves more than half the bound,
+    /// the list becomes its bounding box (a superset of the union).
+    fn compact_accumulated(rects: &mut Vec<LogicalRect>) {
+        const RECENT: usize = 16;
+        let covers = |k: &LogicalRect, r: &LogicalRect| {
+            k.origin.x <= r.origin.x
+                && k.origin.y <= r.origin.y
+                && r.origin.x + r.size.width <= k.origin.x + k.size.width
+                && r.origin.y + r.size.height <= k.origin.y + k.size.height
+        };
+        let mut kept: Vec<LogicalRect> = Vec::with_capacity(rects.len());
+        for r in rects.iter() {
+            if !kept.iter().rev().take(RECENT).any(|k| covers(k, r)) {
+                kept.push(*r);
+            }
+        }
+        if kept.len() > MAX_ACCUMULATED_DAMAGE_RECTS / 2 {
+            let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+            let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for r in &kept {
+                x0 = x0.min(r.origin.x);
+                y0 = y0.min(r.origin.y);
+                x1 = x1.max(r.origin.x + r.size.width);
+                y1 = y1.max(r.origin.y + r.size.height);
+            }
+            kept.clear();
+            if x0 <= x1 && y0 <= y1 {
+                kept.push(LogicalRect::new(
+                    LogicalPosition { x: x0, y: y0 },
+                    LogicalSize {
+                        width: x1 - x0,
+                        height: y1 - y0,
+                    },
+                ));
+            }
+        }
+        *rects = kept;
+    }
 }
+
+/// A9-01: more accumulated damage rects than this are compacted
+/// (`FrameReport::compact_accumulated`). An E2E step between two counter resets stays far
+/// below it, so what the damage assertions read is unchanged.
+pub const MAX_ACCUMULATED_DAMAGE_RECTS: usize = 4096;
 
 /// Result of a layout pass for a single DOM, before display list generation
 #[derive(Debug)]
@@ -3298,6 +3678,7 @@ impl LayoutWindow {
         let cpu = self.cpu_frame_counters();
         report.cpu_last = cpu.last;
         report.cpu_since_reset = cpu.since_reset;
+        report.text_halos = crate::cpurender::text_halo_stats();
         report
     }
 
@@ -4734,6 +5115,24 @@ impl LayoutWindow {
         .unwrap_or_else(LogicalPosition::zero)
     }
 
+    /// Device pixels per logical pixel of the window's CPU frame: `dpi / 96`,
+    /// the factor every shell hands `CpuBackend::render_frame` (headless, X11,
+    /// macOS, Windows: `ws.size.dpi as f32 / 96.0`). NOT
+    /// `WindowSize::get_hidpi_factor()`, which is a `FloatValue`: three
+    /// decimals, cut off, so a scale of 4/3 (dpi 128) reads 1.333 there and
+    /// 1.3333334 here. Whatever has to land on whole device pixels of the
+    /// frame (a view's content offset) is snapped with this one.
+    #[allow(clippy::cast_precision_loss)] // a dpi is far below 2^24
+    #[must_use]
+    pub fn frame_dpi_factor(&self) -> f32 {
+        let dpi = self.current_window_state.size.dpi;
+        if dpi == 0 {
+            1.0
+        } else {
+            dpi as f32 / 96.0
+        }
+    }
+
     pub fn virtual_view_content_offset(&self, dom_id: DomId, node_id: NodeId) -> LogicalPosition {
         let window_origin = self
             .virtual_view_manager
@@ -4749,7 +5148,10 @@ impl LayoutWindow {
         // then moves the view's pixels and paints the strip that came in
         // (`execute_virtual_view_shift`) instead of the whole view, which it
         // did for every frame of a wheel glide (9.3 px, 8.9 px, ...).
-        let s = self.current_window_state.size.get_hidpi_factor().inner.get();
+        // The grid is the FRAME's (`frame_dpi_factor`), not `get_hidpi_factor()`'s:
+        // that one keeps three decimals, cut off (4/3 is 1.333), and an offset
+        // snapped on its grid is no whole device pixel of a frame rendered at 4/3.
+        let s = self.frame_dpi_factor();
         let snap = |v: f32| {
             if s.is_finite() && s > 0.0 {
                 (v * s).round() / s
@@ -12552,10 +12954,9 @@ impl LayoutWindow {
                 .sheen_current_opacity_values
                 .retain(|node, _| wanted.contains(node));
             for node in &wanted {
-                cache
-                    .sheen_transform_keys
-                    .entry(*node)
-                    .or_insert_with(azul_core::resources::TransformKey::unique);
+                // Not `entry()`: a `&mut` to the stamped map restamps it whether or not a
+                // key is minted.
+                let _ = cache.ensure_transform_key(azul_core::gpu::TransformChannel::Sheen, *node);
                 cache
                     .sheen_opacity_keys
                     .entry(*node)
@@ -15148,6 +15549,16 @@ impl LayoutWindow {
     ///   should stop `TOOLTIP_DELAY_TIMER_ID` and hide any currently-visible tooltip.
     /// - `NoChange` if the hovered node hasn't changed between frames.
     pub fn handle_hover_change_for_tooltip(&self, hover_time_ms: u32) -> TooltipTimerAction {
+        // The two newest hit tests are a change once: a pass that runs
+        // without a new one (a key, a timer's state change) must not start
+        // the delay again or hide a tooltip that is showing
+        // (`HoverManager::hover_change_pending`).
+        if !self
+            .hover_manager
+            .hover_change_pending(&crate::managers::hover::InputPointId::Mouse)
+        {
+            return TooltipTimerAction::NoChange;
+        }
         let current_hover = self.hover_manager.current_hover_node();
         let previous_hover = self.hover_manager.previous_hover_node();
 
@@ -19221,13 +19632,13 @@ impl LayoutWindow {
             // `transform` property, which an animating node generally does not
             // have — so writing only the value published a transform nothing
             // could read, and the element jumped instead of moving.
-            cache
-                .anim_transform_keys
-                .entry(node_id)
-                .or_insert_with(azul_core::resources::TransformKey::unique);
-            cache
-                .anim_current_transform_values
-                .insert(node_id, flip_to_matrix(t));
+            // The key the node has, or a new one, and the value: one write that restamps
+            // the channel only when something changed (`entry()` restamped every tick).
+            let _ = cache.key_transform(
+                azul_core::gpu::TransformChannel::Animation,
+                node_id,
+                flip_to_matrix(t),
+            );
             cache
                 .anim_opacity_keys
                 .entry(node_id)
@@ -20445,8 +20856,62 @@ impl LayoutWindow {
     /// what changed since the last pass - a patch, or nothing at all
     /// (`A11yManager::refresh`). It used to rebuild and publish the whole
     /// tree each time: ~3 ms per frame of a tween on `AzWidgets`.
+    ///
+    /// With [`crate::managers::a11y::A11yManager::on_demand`] set it only
+    /// notes that a pass is due: the walk of every exposed node of every
+    /// DOM (12,000 labels of a map view: milliseconds per layout pass, read
+    /// by nobody while no screen reader is attached) waits for
+    /// [`Self::a11y_update_on_demand`].
     #[cfg(feature = "a11y")]
     pub fn update_a11y_tree(&mut self) {
+        if self.a11y_manager.on_demand {
+            self.a11y_manager.stale = true;
+            return;
+        }
+        self.update_a11y_tree_now();
+    }
+
+    /// "Is an update pending" for a shell that builds the tree on demand
+    /// ([`crate::managers::a11y::A11yManager::on_demand`]): a layout, a
+    /// scroll or an edit asked for a pass that has not run. The shell then
+    /// calls its adapter's `update_if_active` with a closure that calls
+    /// [`Self::a11y_update_on_demand`].
+    #[cfg(feature = "a11y")]
+    #[must_use]
+    pub const fn a11y_update_pending(&self) -> bool {
+        self.a11y_manager.update_pending()
+    }
+
+    /// "Build it now": the update a platform adapter is owed, for a shell
+    /// that builds the tree on demand
+    /// ([`crate::managers::a11y::A11yManager::on_demand`]). To be called
+    /// from INSIDE the adapter's `update_if_active` closure, which the
+    /// adapter runs only while an assistive technology is active - so with
+    /// none active no node is visited and the retained tree does not
+    /// advance.
+    ///
+    /// Runs the pass that is due (a layout, a scroll or an edit asked for
+    /// one; also when no tree was built yet) and hands out
+    /// (`A11yManager::hand_to_adapter`):
+    ///
+    /// - `full == true`, for an adapter that holds no tree (it was just
+    ///   activated, or it did not take the previous update): the whole
+    ///   tree. The first update after an activation must be asked for this
+    ///   way;
+    /// - `full == false`: what changed since the last call, as a patch
+    ///   (without a node when nothing changed).
+    #[cfg(feature = "a11y")]
+    pub fn a11y_update_on_demand(&mut self, full: bool) -> accesskit::TreeUpdate {
+        if self.a11y_manager.stale || self.a11y_manager.retained.nodes.is_empty() {
+            self.a11y_manager.stale = false;
+            self.update_a11y_tree_now();
+        }
+        self.a11y_manager.hand_to_adapter(full)
+    }
+
+    /// The accessibility pass itself ([`Self::update_a11y_tree`]).
+    #[cfg(feature = "a11y")]
+    fn update_a11y_tree_now(&mut self) {
         let _p = crate::probe::Probe::span("a11y_update_tree");
         self.a11y_tree_updates = self.a11y_tree_updates.saturating_add(1);
         // This pass builds the bounds from the offsets as they are now.
@@ -20612,6 +21077,11 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn update_a11y_tree_incremental(&mut self) {
+        if self.a11y_manager.on_demand {
+            // Built on demand: the next pass asked for finds the edit.
+            self.a11y_manager.stale = true;
+            return;
+        }
         if !self.a11y_manager.tree_initialized {
             // First time — need full tree
             return self.update_a11y_tree();
@@ -21582,6 +22052,22 @@ impl LayoutWindow {
         // this rect straight to the platform IME, which places the candidate
         // window in screen coordinates — without this the popup appears at the
         // top-left of the window instead of under the caret.
+        //
+        // Through the frames the dom's view is painted in, not by adding the
+        // dom's origin: a host that scales or turns the view (a view in a
+        // zoomed panel) scales and turns the rect about the view's place too
+        // (`headless::nested_dom_rect_to_window`, audit A6-07).
+        let in_window = crate::headless::nested_dom_rect_to_window(
+            &self.layout_results,
+            block.dom(),
+            on_screen,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        );
+        if in_window.is_some() {
+            return in_window;
+        }
+        // The window's own dom, or a corner that is not drawn: the offset.
         let host_offset = self.window_space_offset_of_dom(block.dom());
         Some(LogicalRect::new(
             LogicalPosition::new(
@@ -22577,11 +23063,10 @@ impl LayoutWindow {
             .map(layout_rect_to_logical)
             .map_or((0.0, 0.0), |r| (r.size.width / 2.0, r.size.height / 2.0));
         let cache = self.gpu_state_manager.caches.entry(dom).or_default();
-        cache
-            .anim_transform_keys
-            .entry(node)
-            .or_insert_with(azul_core::resources::TransformKey::unique);
-        cache.anim_current_transform_values.insert(
+        // `key_transform`, not `entry()` on the keys (which restamps the stamped map on
+        // every sample).
+        let _ = cache.key_transform(
+            azul_core::gpu::TransformChannel::Animation,
             node,
             azul_core::transform::ComputedTransform3D {
                 m: [
@@ -22602,6 +23087,9 @@ impl LayoutWindow {
             .entry(node)
             .or_insert_with(OpacityKey::unique);
         cache.anim_current_opacity_values.insert(node, smp.opacity);
+        // The opacity maps are plain maps: their writer says so (the transform above
+        // stamped itself).
+        cache.note_value_write();
     }
 
     /// Runs a single timer, similar to `CallbacksOfHitTest.call()`
@@ -29475,12 +29963,25 @@ impl LayoutWindow {
             let extent = self.selection_extent(block);
             let global_hit = self.hittest_text_block(dom_id, current_position, extent);
             if let Some((hit_block, hit_cursor)) = global_hit {
-                if hit_block != block
-                    && self.set_cross_block_selection(block, anchor, hit_block, hit_cursor)
-                {
-                    self.text_edit_manager.mark_dirty();
-                    self.regenerate_display_list_for_dom(dom_id);
-                    return Some(vec![dom_node_id]);
+                if hit_block != block {
+                    // The selection, and the manager's repaint latch, as they
+                    // are before this move: a move that ends on the caret
+                    // position the drag already ended on sets the selection
+                    // it had, and owes no list and no frame (audit A6-14,
+                    // the cross-block half).
+                    let before = self.text_edit_manager.get_cross_block_selection().cloned();
+                    let list_dirty_before = self.text_edit_manager.display_list_dirty;
+                    if self.set_cross_block_selection(block, anchor, hit_block, hit_cursor) {
+                        if before.is_some()
+                            && self.text_edit_manager.get_cross_block_selection() == before.as_ref()
+                        {
+                            self.text_edit_manager.display_list_dirty = list_dirty_before;
+                            return None;
+                        }
+                        self.text_edit_manager.mark_dirty();
+                        self.regenerate_display_list_for_dom(dom_id);
+                        return Some(vec![dom_node_id]);
+                    }
                 }
             }
         }
@@ -29496,12 +29997,13 @@ impl LayoutWindow {
         let moved = !self.same_caret_position(block, anchor, focus);
 
         // Back inside the anchor block: a single-node range again.
+        let mut changed = self.text_edit_manager.get_cross_block_selection().is_some();
         self.text_edit_manager.clear_cross_block_selection();
 
         // Update primary selection: Cursor → Range(anchor, focus)
         let mc = self.text_edit_manager.multi_cursor.as_mut()?;
         if let Some(primary) = mc.get_primary_mut() {
-            primary.selection = if moved {
+            let selection = if moved {
                 Selection::Range(SelectionRange {
                     start: anchor,
                     end: focus,
@@ -29509,6 +30011,15 @@ impl LayoutWindow {
             } else {
                 Selection::Cursor(anchor)
             };
+            changed |= primary.selection != selection;
+            primary.selection = selection;
+        }
+        // A pointer move that ends on the caret position the drag already
+        // ended on changes no highlight: no list is owed, and no frame. (A
+        // drag over text crosses a letter a few times a second and moves 60
+        // to 120 times: every one of those moves rebuilt the DOM's list.)
+        if !changed {
+            return None;
         }
 
         self.text_edit_manager.mark_dirty();
@@ -31484,6 +31995,11 @@ impl LayoutWindow {
             self.gpu_state_manager.scrollbar_fade_left_ms.remove(&child);
             self.gpu_state_manager.scrollbar_fade_ends.remove(&child);
             self.gl_texture_cache.solved_textures.remove(&child);
+            // A9-04: and what is kept per child DOM: a remounted view gets a new nested
+            // `DomId`, so nothing reads these again (a 12.5k-node child: 200 KB of
+            // fingerprints and its whole layout cache, per unmount).
+            self.child_dom_fingerprints.remove(&child);
+            self.child_layout_caches.remove(&child);
         }
     }
 }
