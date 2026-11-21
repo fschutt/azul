@@ -225,7 +225,37 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
 ## State for a successor (CURRENT; kept by the second verifier, who took over at `a23a72fde`)
 
 <!-- STATE-BEGIN -->
-(see the end of the log: "second verifier")
+Tree: `audit/integration`, clean. Merged since the first verifier's hand-over: `audit/A4` at `a1fc02edf`
+(`d6ff63ad7`), `audit/A3-solver` at `79a700d1f` (`1fc01c22b`), `audit/A1` at `6c4d7265a` (`45720ab97`),
+`audit/A3-window` at `1af12829a` (`f1e2af9c8`); verifier commits `2f34d89fa` (guard fixtures), `b1a7898b2`
+(compile fix), `270e178c9` (swept-pointer harness), `13545f86c` (widgets golden).
+
+Results on this tree (targeted builds, whole suites run from the binaries; NOT yet the gate):
+- layout lib 10897 / 1 / 1 ignored: the 1 is the swept-pointer harness, corrected after the run (`270e178c9`),
+  not yet confirmed by a build;
+- layout `tests/all` 3060 / 0 / 5 after the widgets golden (`13545f86c`);
+- dll lib 3846 / 7 / 9 ignored: the 7 are diff-first's (list in the log below);
+- core lib: not run again (7 failing at the last gate, all diff-first's); css: unchanged since the last gate.
+
+Open, with whom:
+- `audit/diff-first`: the coordinator names the tip. It brings the slider fix `6c43652f1`, the fix in
+  `try_copy_cached_run` (switch `AZ_DL_TRANSLATE_MOVED_RUNS=1`), fixes for the 7 core and the 7 dll failures.
+  EXPECT a conflict in `solver3/display_list.rs` `try_copy_cached_run` (it now holds A1's `next_text_ink` line and
+  A3-window's `binding`): all must be present; its commit message says how the lines read.
+- After that merge: run `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`
+  once with `AZ_DL_TRANSLATE_MOVED_RUNS=1` and tell the coordinator whether it fails (a real guard) or passes.
+
+Next commands (after `source <scratchpad>/verify/env.sh`; delete stale binaries and `libazul*` first:
+`find $S/azul-target/debug/deps -maxdepth 1 -type f -perm +111 ! -name '*.dylib' -delete; rm -f
+$S/azul-target/debug/deps/libazul*`):
+1. `git merge --no-ff <diff-first tip>`; `run NN test -p azul-core --lib`; `run NN test -p azul-layout --features
+   e2e-server --lib --test all --no-run` and run both binaries whole (cwd `layout/`); `run NN test -p azul-dll --lib
+   --no-run` and run the binary whole (cwd `dll/`).
+2. THE GATE (step 4 of the assignment): css lib, core lib, layout lib + all, dll lib, `headless_lifecycle`, the two
+   cross checks (delete `<target>/<triple>` after each), fork tests only if the disk allows. MILESTONE 5 to the
+   coordinator; no push.
+3. On its answer: the pin pass (`<scratchpad>/wt/m4p-integration/audit/PIN_PASS.md`), telling it before the build.
+Disk: 10 GB free with the target directory at about 2.5 GB; a dll test build needs about 1 GB.
 <!-- STATE-END -->
 
 ## State for a successor (the FIRST verifier's hand-over at `a23a72fde`; superseded by the section above)
@@ -376,3 +406,16 @@ What is left for the checkpoint, in order:
   `every_label_is_laid_out_as_in_a_fresh_window_after_mixed_measures` passes; `dl_patch_golden` 3 of 3. Failing:
   the golden `the_widget_doms_lay_out_as_their_golden_dump`: taken (`13545f86c`, "Tests changed"), golden suite
   6 of 6 after it.
+- `cargo test -p azul-dll --lib` on the same tree (build log `55-build-dll-tests`: 0 errors; run log `56-dll-lib`):
+  **3846 passed, 7 failed, 9 ignored** (was 3834 / 16). FIXED: A1's
+  `idle_cpu::a_visible_spinners_frame_damages_only_its_own_rect` (A1-66 `6c4d7265a`, the bound restated by the
+  owner with its arithmetic, accepted by the coordinator), A3-window's two restated `retained_list_tests` (10 of 10
+  now), plus its new dll tests; `shell2::common::event` 94 / 0; the dll's `audit_tests::` 53 / 0. The 7 failing
+  are diff-first's (messages verbatim: `<scratchpad>/verify/56-failures.txt`):
+  `shell2::headless::tests::dragging_the_slider_leaves_no_thumb_behind`,
+  `::a_changed_text_takes_the_full_path_where_the_reconciliation_has_work`,
+  `::a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`,
+  `::a_rebuild_that_changed_nodes_leaves_what_the_full_path_leaves`,
+  `::a_rebuild_that_styled_its_changed_nodes_leaves_what_the_full_path_leaves`,
+  `::a_rebuild_that_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves`,
+  `::a_rebuild_that_styled_its_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves`.
