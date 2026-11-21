@@ -23,6 +23,7 @@ const BEING_BUILT: &str = "a DOM being built: it is merged where it is laid out"
 const REFILLED: &str = "a native menu's items, taken over from the window's DOM after every layout";
 const POPUP: &str = "a menu popup's own copy of the menu it shows, gone when it closes";
 const BACKEND: &str = "the backend's own surface handles, never an app's data";
+const FIXTURE: &str = "test fixture: lives for one test, never survives a rebuild";
 
 /// The holders the walk need not reach, and why: a path ending in `/`
 /// covers a directory, and `*` every type of its path.
@@ -136,6 +137,12 @@ const NOT_WALKED: &[(&str, &str, &str)] = &[
     ("layout/src/transient.rs", "OpenTransientWindow", BACKEND),
     ("layout/src/transient.rs", "TransientWindowManager", BACKEND),
     ("layout/src/solver3/pagination.rs", "MarginBoxCustom", APP),
+    ("dll/src/desktop/audit_tests/a5.rs", "Recorder", FIXTURE),
+    ("layout/src/audit_tests/a10/layer.rs", "Window", FIXTURE),
+    ("layout/src/audit_tests/a2_cpu.rs", "Stage", FIXTURE),
+    ("layout/src/audit_tests/a3_solver/raised_bars.rs", "ViewWindow", FIXTURE),
+    ("layout/src/audit_tests/a3_window.rs", "WatchedWindow", FIXTURE),
+    ("layout/src/audit_tests/a6.rs", "Scene", FIXTURE),
 ];
 
 /// Walks that do not name their fields, and why.
