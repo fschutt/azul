@@ -1670,3 +1670,66 @@ fn a_subtree_that_comes_or_goes_is_mounted_or_unmounted_at_its_root() {
     assert!(went.entered.is_empty() && went.mounted.is_empty(), "nothing came");
     assert_eq!(went.unmounted.len(), 1, "unmounted once, at the panel: {:?}", went.unmounted);
 }
+
+// -- A3-window-44: a geometry write to a node of a view's document lays that document out -------
+
+/// The place and the cost of label 3 of a view of `labels` labels after `set_node_style` gave it
+/// another `left` and `top`: `(how far its box moved, list builds, nodes of the view's document
+/// the solver took over by the diff)`.
+fn a_label_written_to_another_place(labels: usize) -> ((f32, f32), usize, usize) {
+    use azul_core::{dom::DomNodeId, styled_dom::NodeHierarchyItemId};
+
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let (mut lw, child) = label_window(labels);
+    // Label 3 (a plain one: no background, no transform of its own): its span is node 7 of
+    // the view's document, at left 10 + 3 * 70 = 220, top 10.
+    let span = NodeId::new(1 + 2 * 3);
+    let id = DomNodeId {
+        dom: child,
+        node: NodeHierarchyItemId::from_crate_internal(Some(span)),
+    };
+    let before = lw.get_node_position(id).expect("the label is laid out");
+    lw.frame_report.reset_counters();
+    let result = lw.apply_content_change(ContentChange::NodeStyle {
+        dom_id: child,
+        node_id: span,
+        style: azul_css::css::Css::parse_inline(
+            "position: absolute; left: 245px; top: 31px; width: 60px; height: 12px; font-size: \
+             12px; line-height: 1; white-space: pre; cursor: pointer; :hover { background: \
+             rgba(66, 134, 244, 0.35); }",
+        ),
+    });
+    assert_eq!(result.tier, ContentDirtyTier::Relayout, "`left` and `top` are geometry");
+    let after = lw.get_node_position(id).expect("the label is laid out");
+    (
+        (after.x - before.x, after.y - before.y),
+        lw.frame_report.dl_rebuilds as usize,
+        lw.child_layout_caches[&child].last_fingerprint_skips,
+    )
+}
+
+/// A label of a map view dragged with `left` / `top` (one `set_node_style` per mouse move):
+/// its box is where the style puts it, 25 px right and 21 px down of (220, 10). The write built
+/// the view's whole list from the boxes of the layout before it and laid nothing out: the label
+/// stayed where it was until the view rendered again.
+#[test]
+fn a_label_written_to_another_place_is_laid_out_there() {
+    let (moved, list_builds, _) = a_label_written_to_another_place(40);
+    assert_eq!(moved, (25.0, 21.0), "left 220 -> 245, top 10 -> 31");
+    assert_eq!(list_builds, 0, "no list is built from the boxes of the layout before the write");
+}
+
+/// The pass that places it compares the written node alone: every other node of the view's
+/// document is taken over by the diff, at 40 labels (81 nodes) and at 160 (321).
+#[test]
+fn the_pass_after_a_write_compares_the_written_node_alone() {
+    for labels in [40usize, 160] {
+        let nodes = 1 + 2 * labels;
+        let (_, _, taken_over) = a_label_written_to_another_place(labels);
+        assert!(
+            taken_over + 4 >= nodes,
+            "{labels} labels: {taken_over} of {nodes} nodes taken over without a comparison"
+        );
+    }
+}

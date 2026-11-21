@@ -11397,11 +11397,15 @@ impl LayoutWindow {
             .iter()
             .any(|key| key.is_none_or(|ty| ty.can_trigger_relayout()));
         // A host that lays out on the tier (`host_lays_out`) does it once for
-        // all of a callback's changes.
+        // all of a callback's changes - of the window's own DOM. A view's
+        // document is laid out here: the host's pass keeps a view whose host
+        // node did not change and never reaches its document.
         if needs_relayout && dom_id == DomId::ROOT_ID {
             if !self.host_lays_out {
                 self.relayout_root_dom_in_place();
             }
+        } else if needs_relayout {
+            self.relayout_child_dom_in_place(dom_id, node_id);
         } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
             self.regenerate_display_list_for_dom(dom_id);
         }
@@ -11720,6 +11724,13 @@ impl LayoutWindow {
                 if !self.host_lays_out {
                     self.relayout_root_dom_in_place();
                 }
+            } else if needs_relayout {
+                // A geometry property of a node in a view's document: that
+                // document is laid out again, in place (the window's pass
+                // keeps the view and does not reach it). Only its list was
+                // built here, from the boxes of the layout before the write:
+                // the node stayed where it was until the view rendered again.
+                self.relayout_child_dom_in_place(dom_id, node_id);
             } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
                 // The full-write path rebuilds the DL inline (its historical
                 // contract); a host rebuilds the root's list once, on the
@@ -12164,6 +12175,79 @@ impl LayoutWindow {
             #[cfg(feature = "std")]
             eprintln!("[azul][layout] relayout after a runtime CSS change failed: {e:?}");
             drop(e);
+        }
+    }
+
+    /// [`Self::relayout_root_dom_in_place`] for the document of a `VirtualView`: `child` is
+    /// laid out again over its existing `StyledDom`, for the box it has, after the app wrote a
+    /// geometry property of its node `written` (`set_node_style`, `set_css_property`).
+    ///
+    /// Nothing else lays such a document out. The window's pass keeps a view whose host node
+    /// is unchanged (`unchanged_virtual_views`) and `follow_host_in_kept_view` returns at
+    /// once while the host's values, the mode, the texts and the box did not move. The
+    /// write used to end in `regenerate_display_list_for_dom`: the document's whole list
+    /// built from the positions of the layout BEFORE the write, so a label dragged with
+    /// `left` / `top` (a map editor's move tool: one `set_node_style` per mouse move, 12,470
+    /// nodes and 17,495 items rebuilt each time) stayed where it was until its view rendered
+    /// again.
+    ///
+    /// The solver is told that `written` and what is below it are the nodes that moved: every
+    /// other node is as its box was laid out from, unless a text or a restyle of this document
+    /// is still owed a pass (then the solver compares every node, as a pass without the diff).
+    fn relayout_child_dom_in_place(&mut self, child: DomId, written: NodeId) {
+        let Some(previous) = self.layout_results.remove(&child) else {
+            return;
+        };
+        // As for the root: the pass takes the tree as its own only when this result no
+        // longer holds it.
+        drop(previous.layout_tree);
+        let viewport = previous.viewport;
+        let nothing_else_owed = !self.content_changed_doms.contains(&child)
+            && !self.css_dirty_waiting.contains_key(&child)
+            && !self
+                .pending_css_dirty
+                .as_ref()
+                .is_some_and(|(dom, _)| *dom == child);
+        if nothing_else_owed {
+            if let Some(cache) = self.child_layout_caches.get_mut(&child) {
+                let hierarchy = previous.styled_dom.node_hierarchy.as_container();
+                let n = previous.styled_dom.node_data.as_ref().len();
+                let mut clean = vec![true; n];
+                if let Some(flag) = clean.get_mut(written.index()) {
+                    *flag = false;
+                }
+                // Pre-order: a parent is before its children, so one pass carries the mark
+                // down the subtree.
+                for index in 0..n {
+                    let parent_clean = hierarchy
+                        .get(NodeId::new(index))
+                        .and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id)
+                        .is_none_or(|parent| clean.get(parent.index()).copied().unwrap_or(false));
+                    clean[index] = clean[index] && parent_clean;
+                }
+                cache.dom_diff_clean = Some(clean);
+            }
+        }
+        let window_state = self.current_window_state.clone();
+        let system_callbacks = ExternalSystemCallbacks::rust_internal();
+        let mut debug_messages = None;
+        let renderer_resources = core::mem::take(&mut self.renderer_resources);
+        let result = self.layout_dom_recursive_with_viewport(
+            previous.styled_dom,
+            &window_state,
+            &renderer_resources,
+            &system_callbacks,
+            &mut debug_messages,
+            Some(viewport),
+        );
+        self.renderer_resources = renderer_resources;
+        match result {
+            Ok(()) => self.reapply_overlay_text_of(child),
+            Err(e) => {
+                #[cfg(feature = "std")]
+                eprintln!("[azul][layout] relayout of a view's document after a runtime CSS change failed: {e:?}");
+                drop(e);
+            }
         }
     }
 
