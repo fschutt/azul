@@ -17,7 +17,7 @@ helpers there: `env.sh` (`run <log> <cargo args>`, `summ <log>`), `errs.py` (err
 | azul-css | yes | yes | `cargo test -p azul-css --no-fail-fast`: lib 2942 passed, 0 failed; 14 integration targets passed |
 | azul-core | yes | yes | `cargo test -p azul-core`: lib 3119 passed, 0 failed; 30 integration targets + doc tests passed |
 | azul-layout | yes (default features and `--features e2e-server`) | yes (`--lib --tests`) | run 1 (before round 2's merges): lib 10795 passed / 19 failed / 1 ignored; `tests/all` 3051 passed / 9 failed / 5 ignored. 22 of the 28 settled, 6 open (below). Run 2 (after round 2's merges): see the log |
-| azul-dll | not yet (needs `target/codegen`: `azul-doc codegen all`) | | |
+| azul-dll | yes: `cargo check -p azul-dll` (default features, macOS), `--no-default-features --features link-static,serde-json,png` (the editor's set) and the same + `e2e-scripting`: 0 errors each, no fix needed | yes (`cargo check -p azul-dll --lib --tests`: 0 errors) | running |
 
 Compile errors fixed so far: 17 (16 in the layout lib, 1 in a layout test), all classes listed in the log.
 
@@ -36,13 +36,31 @@ Merged into `audit/integration` by the verifier (all without conflict unless sai
   A10-06's stamp of a repaired surface is in the body), `audit/A10` @21a441eee, `audit/A3-solver` @9bdd811f2,
   `audit/A4` @921340f35, `audit/A5` @8a9e74233.
 - round 3: `audit/A3-solver` at `7f6081e84`, `audit/A5` at `844d40676`.
+- round 4: `audit/A1` at `6ec61ce06` then `b23bfc358` (A1-62 .. A1-65), `audit/A3-solver` at `fc4ffd21d`,
+  `audit/A10` at `e45d1da96`, `audit/A4` at `65e8bfa2e`, `audit/A3-window` at `022638f7e` then `d68713628`.
 - NOT merged (the coordinator's word is needed): `audit/diff-first` beyond `cfc4d6d72`, `audit/A3-window` beyond
   `257052358`, `audit/dom-builder`, `audit/A8`'s successor work.
 
-Generated code: `css/src/codegen/lower_types.rs` is current (`python3 css/tools/gen_codegen_lowering.py`: no change
-after round 2). `target/codegen` (the dll's bindings) is NOT made yet: `cargo build -p azul-doc` then
-`<target>/debug/azul-doc codegen all` from the worktree root (it writes `<worktree>/target/codegen`; `dll/build.rs`
-finds it there; of its about 940 MB only `*.rs`, `api.json.br` and `material_icons.ttf.br` are needed).
+Generated code:
+- `css/src/codegen/lower_types.rs` (tracked): current (`python3 css/tools/gen_codegen_lowering.py`: no change after
+  any merge round since `5db5f406d`).
+- `<worktree>/target/codegen` (untracked; what `dll/build.rs` checks and `dll/src/lib.rs` includes), made from
+  the `api.json` of head `f55c9cd9f` (unchanged by every merge since): CURRENT are the Rust outputs
+  `dll_api_internal.rs`, `dll_api_external.rs`, `reexports.rs`, `python_api.rs`, `php_api.rs`, `memtest.rs`,
+  `azul.rs`, and `api.json.br` (made here with the `brotli` CLI, quality 11, from the minified `api.json`: the
+  generator writes it last) and `material_icons.ttf.br` (copied from the editor's codegen directory: the same font).
+  How: `cargo build -p azul-doc` (dev profile; 0 errors), `<target>/debug/azul-doc codegen all` from the worktree
+  root, STOPPED after step 13 of 35 (memtest): the unoptimised generator needs minutes per language binding and
+  its 0.9 GB of output would have taken the disk under the floor.
+- STALE / not made in this pass: every other language binding of `codegen all` (C and C++ headers `azul.h`,
+  `azul*.hpp`, `azul.cppm`; C#, Lua, Pascal, PHP source, Nim, Odin, D, Crystal, Julia, Lisp, Ada, ... : steps
+  14-35). The pin pass / a release must run the whole generator:
+  `cargo build -r -p azul-doc -j 2 && <target>/release/azul-doc codegen all` from the repository root (as
+  `mapedit3/scripts/azul-codegen.sh` does): about 0.9 GB of output in `target/codegen` plus the release build of
+  `azul-doc` (a few GB of target). The api.json changes it has to pick up: `TextHaloStats` +
+  `CallbackInfo.get_text_halo_stats` (A5), `FrameTimings` + 24 `gpu_*` fields (A4, the last is `gpu_tiles_drawn`),
+  `Dom::with_virtual_view_version` / `set_virtual_view_version` (A3-window), `SharedBytes` +
+  `CallbackInfo.register_font_shared` (A8), `StyledDom::focusable_nodes` / `nodes_with_markers` (A6).
 
 ## Reverted commits
 
@@ -77,6 +95,12 @@ Pre-existing tests whose expectation an area changed on purpose (the area's note
   and lines its commit predicts), A3-solver-48 (list items' `ic=`, and `list-style-position-001-notref.html`
   reflowed by it), A3-core-24 (`border-spacing` in em: `separated-border-model-007/-008`), A3-core-14
   (`mail_corpus/exploration/03_outlook_reply.html`: 1/64 px).
+
+- (after merge round 4) `cpurender/compositor.rs` autotests
+  `a_change_inside_a_view_inside_a_scaled_frame_is_damaged_through_the_live_matrix` (40x20 @ (120,100) ->
+  50x30 @ (115,95)) and `the_damage_inside_a_view_goes_through_the_frames_around_the_view` (80x60 @ (100,80) ->
+  90x70 @ (95,75)): A1-64 `6ec61ce06` grows a rect mapped through a composited frame by 2 px x its scale + 1 px
+  where it lands: 2 x 2 + 1 = 5 px a side, exactly; the arithmetic is in the tests' comments.
 
 Audit tests with a wrong premise (blind):
 - `34fc04d1f` `unified_layout.rs` test helper: E0597 (compile).
@@ -115,7 +139,9 @@ Each fails alone and deterministically; none of `AZ_CPU_THREADS=1`, `AZ_CPU_RETA
 | 9 | `audit_tests::a3_window::a_patched_frame_of_a_colour_fade_copies_no_list` (round 2) | `a3_window.rs:2582` "harness: the fade's frames are patches (0)" | A3-window |
 | 10 | `cpurender::raster::audit_a1_tests::a_walk_through_the_grids_paints_the_items_of_the_walk_that_tests_every_item` (round 2) | seed 11, view, dpi 1, damage 44.5x106.5 @ (495.5, 254.5): the grid walk paints 25 items, the every-item walk 26 (item 754 of the view's list is missing) | A1 (A1-07b `525d647fc`) |
 
-Rows 4, 5 and 6 are fixed since merge round 3 (see the log); rows 1, 2, 3, 7, 8, 9, 10 are open.
+Rows 4, 5 and 6 are fixed since merge round 3, rows 3 and 10 since round 4 (see the log). Rows 1, 2 (A1-62, A1-64
+merged; not confirmed yet) and 7, 8, 9 (A3-window `4856559a5`, `91ca03104`, `022638f7e` merged; not confirmed yet)
+are decided by run 3.
 
 Other things found, routed by the coordinator:
 - A node placed by a per-node `Dom::with_css` string (the editor's tiles and symbols, `map.rs` 673-808) does not
@@ -131,10 +157,9 @@ commit predicted, so that bug was real.
 
 ## Not done yet / next
 
-1. A last full run of the layout suites after the last merge (run 2's totals are in the log).
-2. `azul-doc` build + `codegen all`; `cargo check -p azul-dll` (default features; then
-   `--no-default-features --features link-static,serde-json,png`, the editor's set; then with `e2e-scripting`).
-3. `cargo test -p azul-dll --lib`, `--test headless_lifecycle`.
+1. Run 3 of the layout suites (after merge round 4): running; its totals go into the log.
+2. (done) `azul-doc` build + codegen; the dll checks.
+3. `cargo test -p azul-dll --lib` (running after run 3), `--test headless_lifecycle`.
 4. `cargo check -p azul-dll --target x86_64-unknown-linux-gnu`, `--target x86_64-pc-windows-gnu` (both installed).
 5. The webrender fork's own tests (A4 changed the fork; "the fork's tests run with the fork's own test command").
 
@@ -180,4 +205,15 @@ commit predicted, so that bug was real.
   row 6(b) is FIXED by `7f6081e84` (the ten floats are on one line again) and the three `vertical-align` documents
   read as their old golden again (96 px line box, `fs=1`): row 6(a) is no longer red, the defect it showed
   (`font-size: 1in` reaches the glyphs as 1 px) is still there and with the text owner.
-- `cargo build -p azul-doc` (dev profile): started.
+- `cargo build -p azul-doc` (dev profile): 0 errors (1 min 38 s). Codegen: see "Generated code".
+- merge round 4 (see "Merged"): no conflicts. `cargo test -p azul-layout ... --no-run`: 0 errors.
+  Groups run from the rebuilt lib binary (before A3-window `022638f7e`): `cpurender audit_tests::a2_cpu
+  audit_tests::a10 audit_tests::a1 widgets::node_graph cpu_backend e2e::cpu_view`: 1061 passed, 4 failed:
+  two compositor expectations moved by A1-64 (corrected, `Tests changed`), and the two random a2_cpu tests,
+  which stopped in the harness line of `Stage::write` (a veil write answered `Unchanged` for a value that was
+  not the last written; `022638f7e`'s `91ca03104` fixes a "before" read after the inline write: run again with it).
+  Rows 3 and 10 passed in that run (FIXED by A1-63 `978eccb67` and A1-65).
+- **azul-dll compiles**: `cargo check -p azul-dll` 0 errors (webrender fork and macOS shell included);
+  `cargo check -p azul-dll --lib --tests` 0 errors; `--no-default-features --features link-static,serde-json,png`
+  0 errors; the same + `e2e-scripting` 0 errors. No fix was needed in the dll.
+- run 3 of the layout suites and `cargo test -p azul-dll --lib --no-fail-fast`: started (one after the other).
