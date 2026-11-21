@@ -260,6 +260,7 @@ fn node_without_flat(node: &NodeData) -> NodeData {
         Box::new(NodeDataExt {
             attributes: extra.attributes.clone(),
             virtual_view: extra.virtual_view.clone(),
+            transient_content: extra.transient_content.clone(),
             dataset: extra.dataset.clone(),
             svg_data: extra.svg_data.clone(),
             menu_bar: extra.menu_bar.clone(),

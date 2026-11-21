@@ -524,7 +524,7 @@ pub enum NodeField {
 
 impl NodeField {
     /// Every row of the table.
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::NodeType,
         Self::Callbacks,
         Self::Style,
