@@ -34,6 +34,14 @@ use crate::{
     transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
 };
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// Tests: how many CSS matrices [`GpuValueCache`] has built on this thread
+    /// (`css_transform_of`): the cascade lookups and the matrix products of
+    /// one node's `transform`.
+    static CSS_MATRICES_BUILT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Caches GPU transform and opacity keys and their current values for all nodes.
 ///
 /// This cache stores the `WebRender` keys and computed values for nodes with
@@ -54,6 +62,19 @@ pub struct GpuValueCache {
     pub css_transform_keys: HashMap<NodeId, TransformKey>,
     /// Current CSS transform values (keyed by node ID)
     pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    /// The border-box size (logical px) each value of
+    /// [`Self::css_current_transform_values`] was resolved against: what its
+    /// `transform-origin` and `translate()` percentages were taken of.
+    ///
+    /// A value is a function of the cascade and of this size, and one layout
+    /// pass asks for it three times with one cascade (the sync before layout,
+    /// the display-list builder, the refresh after layout). The sync builds
+    /// the matrix and compares it; the other two find the size they ask for
+    /// here and take the value as it is ([`Self::reference_frame_at`],
+    /// [`Self::refresh_transform_values`]). An entry exists only for a value
+    /// THIS type's methods resolved from the cascade; an event applied from
+    /// outside drops it, and a value without an entry is built again.
+    css_transform_sizes: HashMap<NodeId, (f32, f32)>,
     /// ANIMATION transform keys (keyed by node ID).
     ///
     /// A separate channel from `css_transform_keys` on purpose. That map is
@@ -213,6 +234,12 @@ impl GpuValueCache {
     /// built after layout, so it bakes this pass's matrix: a renderer that
     /// reads the list's own value (a `VirtualView`'s list on the CPU, a
     /// screenshot) draws the same as one that reads the live value.
+    ///
+    /// Where the cache's value was resolved against this very `size` (the
+    /// steady state: the layout kept the node's box) it IS that matrix and
+    /// nothing is built. `styled_dom` must be the DOM the cache was last
+    /// synchronized with ([`Self::synchronize_with_sizes`], which every
+    /// display-list build runs first).
     #[must_use]
     pub fn reference_frame_at(
         &self,
@@ -223,10 +250,19 @@ impl GpuValueCache {
         let css = self
             .css_transform_keys
             .get(&node)
-            .filter(|_| self.css_current_transform_values.contains_key(&node))
-            .zip(Self::css_transform_of(styled_dom, node, size));
-        css.map(|(key, transform)| (*key, transform))
-            .or_else(|| self.reference_frame_of(node))
+            .zip(self.css_current_transform_values.get(&node))
+            .and_then(|(key, live)| {
+                // The value the cache holds was resolved against this very
+                // size from this cascade (`css_transform_sizes`): it is the
+                // matrix a build would give, without the build.
+                let at_size = if self.css_transform_sizes.get(&node) == Some(&size) {
+                    Some(*live)
+                } else {
+                    Self::css_transform_of(styled_dom, node, size)
+                };
+                at_size.map(|transform| (*key, transform))
+            });
+        css.or_else(|| self.reference_frame_of(node))
     }
 
     /// The matrix `node` is painted with now ([`Self::reference_frame_of`]),
@@ -476,8 +512,19 @@ impl GpuValueCache {
     ) -> GpuEventChanges {
         Self::init_simd_features();
 
-        let transform_key_changes = self.compute_transform_events(styled_dom, node_size);
+        // Every node with a CSS transform and the size its matrix was just
+        // resolved against (one build per node: the only one of this pass
+        // when the layout that follows keeps the node's size).
+        let mut resolved_at: Vec<(NodeId, (f32, f32))> =
+            Vec::with_capacity(self.css_transform_keys.len());
+        let transform_key_changes =
+            self.compute_transform_events(styled_dom, node_size, &mut resolved_at);
         self.apply_transform_events(&transform_key_changes);
+        for (node_id, size) in resolved_at {
+            if self.css_transform_sizes.get(&node_id) != Some(&size) {
+                self.css_transform_sizes.insert(node_id, size);
+            }
+        }
 
         let opacity_key_changes = self.compute_opacity_events(styled_dom);
         self.apply_opacity_events(&opacity_key_changes);
@@ -573,6 +620,8 @@ impl GpuValueCache {
         let transform_prop =
             css_property_cache.get_transform(node_data, &node_id, styled_node_state);
         let t = transform_prop.as_ref().and_then(|v| v.get_property())?;
+        #[cfg(all(test, feature = "std"))]
+        CSS_MATRICES_BUILT.with(|built| built.set(built.get() + 1));
         let default_transform_origin = StyleTransformOrigin::default();
         let transform_origin =
             css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
@@ -595,24 +644,43 @@ impl GpuValueCache {
     /// (the display list's baked matrix is only the fallback for a key
     /// nothing has published), so a corrected value reaches the screen in
     /// the same frame.
+    ///
+    /// Only a value whose node has another size than the one it was
+    /// resolved against is built again: call this after
+    /// [`Self::synchronize_with_sizes`] of the SAME `styled_dom` (the layout
+    /// pass does), which has just read every value from the cascade.
     pub fn refresh_transform_values(
         &mut self,
         styled_dom: &StyledDom,
         node_size: &dyn Fn(NodeId) -> Option<(f32, f32)>,
     ) -> usize {
         let node_count = styled_dom.node_data.len();
-        let nodes: Vec<NodeId> = self.css_transform_keys.keys().copied().collect();
-        let mut changed = 0;
-        for node_id in nodes {
+        // The values whose size is another one than they were resolved
+        // against (a node the layout resized, a node laid out for the first
+        // time): usually none, and then nothing is built and nothing
+        // allocated. The cascade is the one the sync of this pass read, so
+        // the same size is the same matrix.
+        let mut stale: Vec<(NodeId, (f32, f32))> = Vec::new();
+        for node_id in self.css_transform_keys.keys() {
             if node_id.index() >= node_count {
                 continue;
             }
-            let Some(size) = node_size(node_id) else {
+            let Some(size) = node_size(*node_id) else {
                 continue;
             };
+            if self.css_transform_sizes.get(node_id) == Some(&size)
+                && self.css_current_transform_values.contains_key(node_id)
+            {
+                continue;
+            }
+            stale.push((*node_id, size));
+        }
+        let mut changed = 0;
+        for (node_id, size) in stale {
             let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
                 continue;
             };
+            self.css_transform_sizes.insert(node_id, size);
             if self.css_current_transform_values.get(&node_id) != Some(&fresh) {
                 self.css_current_transform_values.insert(node_id, fresh);
                 changed += 1;
@@ -650,6 +718,7 @@ impl GpuValueCache {
         let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
             return false;
         };
+        self.css_transform_sizes.insert(node_id, size);
         if self.css_current_transform_values.insert(node_id, fresh) != Some(fresh) {
             self.note_value_write();
         }
@@ -687,10 +756,14 @@ impl GpuValueCache {
         Some(key)
     }
 
+    /// Computes CSS-transform change events against the cached values
+    /// (read-only). `resolved_at` receives every node that has a transform
+    /// now, with the size its matrix was resolved against.
     fn compute_transform_events(
         &self,
         styled_dom: &StyledDom,
         node_size: &dyn Fn(NodeId) -> Option<(f32, f32)>,
+        resolved_at: &mut Vec<(NodeId, (f32, f32))>,
     ) -> Vec<GpuTransformKeyEvent> {
         let css_property_cache = styled_dom.get_css_property_cache();
         let node_states = styled_dom.styled_nodes.as_container();
@@ -738,22 +811,29 @@ impl GpuValueCache {
                     self.css_current_transform_values.get(&node_id)
                 };
 
+                // `resolved_at` takes the node in every arm that leaves the
+                // cache holding `new`, the matrix resolved against `size`.
                 match (existing_transform, current_transform) {
                     (None, None) => None, // no new transform, no old transform
-                    (None, Some(new)) => Some(GpuTransformKeyEvent::Added(
-                        node_id,
-                        TransformKey::unique(),
-                        new,
-                    )),
+                    (None, Some(new)) => {
+                        resolved_at.push((node_id, size));
+                        Some(GpuTransformKeyEvent::Added(
+                            node_id,
+                            TransformKey::unique(),
+                            new,
+                        ))
+                    }
                     // A value that is what it was is no event: a map's 2 000
                     // labels each reported `Changed(old, old)` on every sync.
-                    (Some(old), Some(new)) if *old == new => None,
-                    (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(
-                        node_id,
-                        self.css_transform_keys.get(&node_id).copied()?,
-                        *old,
-                        new,
-                    )),
+                    (Some(old), Some(new)) if *old == new => {
+                        resolved_at.push((node_id, size));
+                        None
+                    }
+                    (Some(old), Some(new)) => {
+                        let key = self.css_transform_keys.get(&node_id).copied()?;
+                        resolved_at.push((node_id, size));
+                        Some(GpuTransformKeyEvent::Changed(node_id, key, *old, new))
+                    }
                     (Some(_old), None) => Some(GpuTransformKeyEvent::Removed(
                         node_id,
                         self.css_transform_keys.get(&node_id).copied()?,
@@ -783,20 +863,26 @@ impl GpuValueCache {
         let mut wrote = false;
         for event in events {
             match &event {
+                // An event says nothing of the size its value was resolved
+                // against: the entry goes, and `synchronize_with_sizes` (which
+                // knows the size) writes it again after this.
                 GpuTransformKeyEvent::Added(node_id, key, matrix) => {
                     wrote |= self.css_transform_keys.insert(*node_id, *key) != Some(*key);
                     wrote |= self.css_current_transform_values.insert(*node_id, *matrix)
                         != Some(*matrix);
+                    self.css_transform_sizes.remove(node_id);
                 }
                 GpuTransformKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
                     wrote |= self
                         .css_current_transform_values
                         .insert(*node_id, *new_state)
                         != Some(*new_state);
+                    self.css_transform_sizes.remove(node_id);
                 }
                 GpuTransformKeyEvent::Removed(node_id, _key) => {
                     wrote |= self.css_transform_keys.remove(node_id).is_some();
                     wrote |= self.css_current_transform_values.remove(node_id).is_some();
+                    self.css_transform_sizes.remove(node_id);
                 }
             }
         }
@@ -1071,5 +1157,100 @@ mod audit_a2_gpu_tests {
             .all(|e| matches!(e, GpuTransformKeyEvent::Changed(..))));
         assert!(third.opacity_key_changes.is_empty());
         assert_ne!(cache.value_generation(), generation);
+    }
+
+    /// A2-gpu-08. One layout pass asked for every CSS matrix three times with
+    /// one cascade: the sync before layout, the display-list builder
+    /// (`reference_frame_at`), the refresh after layout. 2 118 labels: 6 354
+    /// cascade walks and matrix products per pass.
+    ///
+    /// 20 transformed nodes. First pass, sizes unknown before layout: 20
+    /// (sync at (0, 0)) + 20 (list at 100 x 40) + 20 (refresh at 100 x 40) =
+    /// 60 builds, as before. Second pass, nothing changed: 20 + 0 + 0 = 20
+    /// builds (was 60), no event, and the list bakes the matrix a build
+    /// gives. One node resized by the layout: 1 build by the list and 1 by
+    /// the refresh, none for the 19 others.
+    ///
+    /// Mutations: the size comparison dropped from `reference_frame_at`
+    /// (always build) fails "one build per transformed node"; the size
+    /// comparison dropped from `refresh_transform_values` fails it too; a
+    /// `refresh_transform_values` that skips every node fails "the refresh
+    /// publishes the resized node's matrix".
+    #[cfg(feature = "std")]
+    #[test]
+    fn a_pass_that_changes_nothing_builds_each_matrix_once() {
+        let styled = labels(40);
+        let small = |_: NodeId| Some((100.0_f32, 40.0_f32));
+        let built = || CSS_MATRICES_BUILT.with(|count| count.get());
+        let mut cache = GpuValueCache::empty();
+
+        // The first pass: nothing is laid out yet when the sync runs.
+        let before = built();
+        let _ = cache.synchronize_with_sizes(&styled, &|_| None);
+        let transformed: Vec<NodeId> = cache.css_transform_keys.keys().copied().collect();
+        assert_eq!(transformed.len(), 20);
+        assert_eq!(built() - before, 20, "the sync builds each matrix once");
+        for node in &transformed {
+            let _ = cache.reference_frame_at(&styled, *node, (100.0, 40.0));
+        }
+        assert_eq!(built() - before, 40, "the first list is built at sizes the sync did not know");
+        assert_eq!(cache.refresh_transform_values(&styled, &small), 20);
+        assert_eq!(built() - before, 60);
+
+        // The second pass changes nothing.
+        let before = built();
+        let events = cache.synchronize_with_sizes(&styled, &small);
+        assert!(events.transform_key_changes.is_empty());
+        let frames: Vec<(TransformKey, ComputedTransform3D)> = transformed
+            .iter()
+            .map(|node| {
+                cache
+                    .reference_frame_at(&styled, *node, (100.0, 40.0))
+                    .expect("a transformed node opens a frame")
+            })
+            .collect();
+        assert_eq!(cache.refresh_transform_values(&styled, &small), 0);
+        assert_eq!(
+            built() - before,
+            20,
+            "one build per transformed node in a pass that changes nothing"
+        );
+        for (node, (key, baked)) in transformed.iter().zip(&frames) {
+            assert_eq!(cache.css_transform_keys.get(node), Some(key));
+            assert_eq!(
+                GpuValueCache::css_transform_of(&styled, *node, (100.0, 40.0)),
+                Some(*baked),
+                "the list bakes what a build gives"
+            );
+        }
+
+        // The layout resizes one node: the list and the refresh build its
+        // matrix at the new size, nobody else's.
+        let resized = transformed[0];
+        let sizes = move |node: NodeId| {
+            Some(if node == resized {
+                (300.0_f32, 40.0_f32)
+            } else {
+                (100.0, 40.0)
+            })
+        };
+        let before = built();
+        let at_new_size = cache
+            .reference_frame_at(&styled, resized, (300.0, 40.0))
+            .expect("a frame")
+            .1;
+        assert_eq!(built() - before, 1);
+        assert_ne!(
+            cache.css_current_transform_values.get(&resized),
+            Some(&at_new_size),
+            "harness: another size is another matrix (the origin is 50% 50%)"
+        );
+        assert_eq!(cache.refresh_transform_values(&styled, &sizes), 1);
+        assert_eq!(
+            cache.css_current_transform_values.get(&resized),
+            Some(&at_new_size),
+            "the refresh publishes the resized node's matrix"
+        );
+        assert_eq!(built() - before, 2);
     }
 }
