@@ -3298,6 +3298,35 @@ fn scrollbar_fade_work(boxes: usize) {
 #[inline(always)]
 const fn scrollbar_fade_work(_boxes: usize) {}
 
+std::thread_local! {
+    /// The choice of [`set_diff_first_on_this_thread`] for the calling thread.
+    static DIFF_FIRST_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether a rebuild of a DOM is diffed against the build before it BEFORE it is styled, and
+/// styled, reconciled and laid out only for what that diff names (`audit/A3-window.md`, "The
+/// diff-first pipeline"). On unless the environment says `AZ_DIFF_FIRST=0`: then every rebuild
+/// whose fingerprints moved takes the full path (the cascade, the reconciliation, the
+/// equivalence check), which is the path the diff-first one must agree with.
+#[must_use]
+pub fn diff_first_enabled() -> bool {
+    static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if let Some(on) = DIFF_FIRST_ON_THIS_THREAD.with(core::cell::Cell::get) {
+        return on;
+    }
+    *FROM_ENVIRONMENT
+        .get_or_init(|| std::env::var_os("AZ_DIFF_FIRST").is_none_or(|value| value != "0"))
+}
+
+/// Chooses the path of [`diff_first_enabled`] for the calling thread, whatever the environment
+/// says (`None`: the environment's again). For a test that runs one rebuild down both paths
+/// and compares what they leave: the tests of a process share its environment and run side by
+/// side, one per thread.
+pub fn set_diff_first_on_this_thread(on: Option<bool>) {
+    DIFF_FIRST_ON_THIS_THREAD.with(|choice| choice.set(on));
+}
+
 /// How many steps `LayoutWindow::get_node_layout_rect` took on this thread to find a node's
 /// box (one per call now): what a test reads to say the lookup does not walk the tree.
 #[cfg(test)]
@@ -36771,6 +36800,39 @@ pub(crate) fn css_diff_between(
         out.push((m.new_node_id, worst));
     }
     Some(out)
+}
+
+/// Whether any node of `styled_dom` declares `animation: move` under the state it is in: the
+/// nodes a rebuild slides to their new places ([`LayoutWindow::finish_reconciliation`]). A
+/// rebuild that keeps the styled DOM without a reconciliation asks this first, because it
+/// seeds no slide. A declared-only lookup per node; nothing is cascaded.
+#[must_use]
+pub fn styled_dom_declares_a_move(styled_dom: &StyledDom) -> bool {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+
+    let cache = &styled_dom.css_property_cache.ptr;
+    let nodes = styled_dom.node_data.as_ref();
+    let states = styled_dom.styled_nodes.as_ref();
+    nodes
+        .iter()
+        .zip(states.iter())
+        .enumerate()
+        .any(|(index, (node, state))| {
+            cache
+                .get_property_if_declared(
+                    node,
+                    &NodeId::new(index),
+                    &state.styled_node_state,
+                    &CssPropertyType::Animation,
+                )
+                .and_then(|property| match property {
+                    CssProperty::Animation(value) => value.get_property().cloned(),
+                    _ => None,
+                })
+                .as_ref()
+                .and_then(declared_move)
+                .is_some()
+        })
 }
 
 /// The motion `animation: move <duration> [timing]` asks a node's moves for

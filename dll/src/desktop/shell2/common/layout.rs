@@ -913,6 +913,144 @@ pub fn regenerate_layout(
         reconcile_transient_windows(layout_window, current_window_state);
         return Ok(LayoutRegenerateResult::LayoutChanged);
     }
+    // 1.45. DIFF FIRST, step 1: A REBUILD THAT CHANGED NOTHING BUT TEXTS.
+    //
+    // The fingerprints of this build against the last one name the nodes that differ before
+    // anything is styled. When every one of them is a text whose characters changed and nothing
+    // else did (`azul_core::diff::texts_alone_changed`: the same tree, the same nodes, the same
+    // styles), the retained StyledDom is still the styled DOM of this build but for those
+    // characters: no selector reads them, so its cascade stands. The texts are written onto
+    // it and it is laid out again, the solver told which nodes moved - instead of the cascade
+    // of every node, the reconciliation with its copies and the equivalence walk, all to learn
+    // that a counter went from 41 to 42.
+    //
+    // What a full rebuild would do beyond that, and this path does not, keeps it off: a text
+    // with a handler (the reconciliation tells an `Update` handler), a localizable text (the
+    // translation pass), a node that declares `animation: move` (the reconciliation slides
+    // it). `AZ_DIFF_FIRST=0` turns the path off.
+    let changed_texts: Option<Vec<usize>> = match (
+        &precascade,
+        layout_window.last_dom_fingerprints.as_ref(),
+    ) {
+        (Some((fp, _)), Some(prev))
+            if azul_layout::window::diff_first_enabled()
+                && !theme_rebuild
+                && !csd_changed_precheck
+                && fp.style_root == prev.style_root =>
+        {
+            azul_core::diff::texts_alone_changed(prev, fp)
+        }
+        _ => None,
+    };
+    let texts_adoptable = changed_texts.as_ref().is_some_and(|changed| {
+        layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .is_some_and(|lr| {
+                let retained = lr.styled_dom.node_data.as_ref();
+                precascade
+                    .as_ref()
+                    .is_some_and(|(fp, _)| retained.len() == fp.structure.len())
+                    && azul_core::diff::fresh_texts_are_adoptable(retained, &user_dom, changed)
+                    && !azul_layout::window::styled_dom_declares_a_move(&lr.styled_dom)
+            })
+    });
+    if let (true, Some(changed)) = (texts_adoptable, changed_texts) {
+        let _span_texts = azul_layout::probe::Probe::span("regen_texts_only");
+        let (fp, transfers) = precascade.expect("a diff of two builds has this build's");
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] only texts changed ({} nodes) - keeping the cascade",
+            changed.len()
+        );
+        phases.mark("texts_only");
+
+        let mut old_result = layout_window
+            .layout_results
+            .remove(&azul_core::dom::DomId::ROOT_ID)
+            .expect("checked by texts_adoptable");
+        let mut retained = core::mem::take(&mut old_result.styled_dom);
+        // The rest of the old result goes before the pass: its hold on the layout tree would
+        // make the solver copy the tree to write it.
+        drop(old_result);
+
+        // The values every build makes anew, as the pre-cascade skip carries them.
+        let repointing =
+            azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
+        layout_window.repoint_merged_datasets(&repointing);
+        azul_core::diff::adopt_fresh_texts(retained.node_data.as_mut(), &user_dom, &changed);
+
+        // The runtime states, as the pre-cascade skip writes them: a cascade only for a state
+        // that came with this call.
+        let states_before: Vec<_> = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| n.styled_node_state.clone())
+            .collect();
+        let mut retained = raise_runtime_states(retained, layout_window, current_window_state);
+        let states_changed = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| &n.styled_node_state)
+            .ne(states_before.iter());
+        let drag_state_raised = retained.styled_nodes.as_ref().iter().any(|n| {
+            n.styled_node_state.dragging || n.styled_node_state.drag_over
+        });
+        if states_changed || drag_state_raised {
+            let _ = retained.restyle_for_raised_states();
+        }
+
+        // The diff, handed to the solver: a node is clean when it and its ancestors are what
+        // they were. Not when a state came with the rebuild: the solver reads the states of
+        // the nodes it fingerprints, and this diff does not know them.
+        if !states_changed {
+            let n = retained.node_data.as_ref().len();
+            let hierarchy = retained.node_hierarchy.as_container();
+            let mut clean = vec![true; n];
+            for index in &changed {
+                if let Some(flag) = clean.get_mut(*index) {
+                    *flag = false;
+                }
+            }
+            for i in 0..n {
+                let parent_clean = hierarchy
+                    .get(azul_core::id::NodeId::new(i))
+                    .and_then(|h| h.parent_id())
+                    .map_or(true, |p| clean.get(p.index()).copied().unwrap_or(false));
+                clean[i] = clean[i] && parent_clean;
+            }
+            layout_window.layout_cache.dom_diff_clean = Some(clean);
+        }
+        layout_window.last_dom_fingerprints = Some(fp);
+
+        azul_layout::probe::emit_phase_heap("before_layout_dl");
+        phases.mark("before_layout_dl_texts_only");
+        // A new generation, as on every path the layout callback ran on.
+        layout_window
+            .layout_new_generation(
+                retained,
+                current_window_state,
+                renderer_resources,
+                &ExternalSystemCallbacks::rust_internal(),
+                debug_messages,
+            )
+            .map_err(|e| format!("Layout error: {:?}", e))?;
+        azul_layout::probe::emit_phase_heap("after_layout_and_dl");
+        phases.mark("after_layout_and_dl");
+        layout_window.current_window_state = current_window_state.clone();
+        publish_scroll_state(layout_window);
+
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] COMPLETE (texts only, the cascade kept)"
+        );
+        phases.mark("end_texts_only");
+        phases.report();
+        reconcile_transient_windows(layout_window, current_window_state);
+        return Ok(LayoutRegenerateResult::LayoutChanged);
+    }
     let prev_dom_fingerprints = layout_window.last_dom_fingerprints.take();
     if let Some((fp, _)) = &precascade {
         // Full produce ahead — record what we are about to adopt.
