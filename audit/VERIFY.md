@@ -523,3 +523,37 @@ Test files changed by the second verifier, each with its reason (details under "
 Non-test code changed by the second verifier: `layout/src/solver3/display_list.rs` (`b1a7898b2`:
 `DisplayListGenerator::new` is no `const fn`, E0015). Merge conflicts resolved: `try_copy_cached_run` (A1 x
 A3-window), `DomGenerations` (A3-window x diff-first): both sides kept in each.
+
+### Pin pass (the editor on the verified commit; no push anywhere)
+
+Worktree `<scratchpad>/wt/m4p-integration` (m4p branch `audit/integration`, made a FULL checkout: `git
+sparse-checkout disable`; the build includes `public/img/` and `mapedit3/assets/`; two empty placeholder files
+`fly.toml` / `rustfmt.toml` were restored to HEAD). Environment of every cargo command:
+`<scratchpad>/verify/pinenv.sh` (`prun <log> <cargo args>` runs in `mapedit3/` through `cg`):
+`CARGO_TARGET_DIR=$HOME/Development/m4p/mapedit3/target`, `CARGO_INCREMENTAL=0`,
+`AZ_CODEGEN_DIR=<worktree>/mapedit3/target/azul-codegen`, and the fetch rewrite
+`CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1
+GIT_CONFIG_KEY_0=url.file:///Users/fschutt/Development/azul-m4p.insteadOf
+GIT_CONFIG_VALUE_0=https://github.com/fschutt/azul` (cargo found `98a2ebd8b` with it at the first try).
+
+- manifest: the four `rev` lines -> `98a2ebd8bd2508c8f2703679c138b1c4929d22ac`, the comment rewritten, `default =
+  ["azul-view-version", "azul-transformed-hit-test", "azul-shared-bytes"]`.
+- lock files: `cargo update -p printpdf` in `mapedit3/`: 11 packages (the eight azul packages at the new rev,
+  printpdf 0.12.13 -> 0.12.14, rust-fontconfig 5.0.2 -> 5.1.0, agg-rust-azul 1.1.4 -> 1.1.5); at the root (after
+  `git sparse-checkout add /m4p-setup/`): printpdf 0.12.14. `cargo tree -d`: no second azul, printpdf, allsorts,
+  rsa, rust-fontconfig.
+- bindings, by hand (what `scripts/azul-codegen.sh` does after its `codegen all`: `cp -R
+  <src>/target/codegen/. <out>/` and `echo <rev> > <out>/.rev`): copied from `<azul worktree>/target/codegen`
+  (made by the first verifier from the `api.json` of `f55c9cd9f`; `git diff f55c9cd9f 98a2ebd8b -- api.json` is
+  empty) into `<m4p worktree>/mapedit3/target/azul-codegen`: `api.json.br`, `azul.rs`, `dll_api_external.rs`,
+  `dll_api_internal.rs`, `material_icons.ttf.br`, `memtest.rs`, `php_api.rs`, `python_api.rs`, `reexports.rs`,
+  `.rev` = the full hash. NOT made: the other languages' bindings (0.9 GB; the final pin runs the script). The
+  shared `~/Development/m4p/mapedit3/target/azul-codegen` (rev `e02646d9a...`) was not touched. The build READ
+  the worktree's bindings: `AZ_CODEGEN_DIR_RESOLVED=<m4p worktree>/mapedit3/target/azul-codegen` in
+  `target/debug/build/azul-dll-*/output` (the `[env]` of `mapedit3/.cargo/config.toml` is relative to the crate).
+  The scripts read `mapedit3/target/...` of their own checkout: in the worktree `target/samples`,
+  `target/berlin-10k-de.mapjson` and `target/release` are symlinks into the shared target directory.
+- `cargo check` (default features): 2 kinds of errors in the editor's blind code, fixed in m4p `22725f9`:
+  `m4p_types::GlobalOptions` -> `m4p_types::config::GlobalOptions` (A7-editor-41, `project_io.rs` x 2, `pdf.rs`);
+  `Recorder`'s derived `Default` with `[u64; 35]` (E0277) written out (`frames.rs`). Then 0 errors.
+- m4p commits: `22725f9` (the two compile fixes), `8cf454d` (the pin). Not pushed.
