@@ -25,7 +25,7 @@
 //!
 //! What holds the ring, the sink, the scenario tag and the findings said once is a
 //! [`Diagnostics`]; a test of the recorder itself makes one of its own. The free functions of
-//! this module ask the process's: its emitters are lints and warnings at some thirty places of
+//! this module ask the process's: its emitters are lints and warnings at some twenty places of
 //! azul-core and azul-layout that carry no window and no app (a lint that runs on a DOM, a
 //! warning of a getter), and the e2e harness reads what they said through
 //! [`recorded`]. Giving the ring to a window would take a `&Diagnostics` (or the findings as
