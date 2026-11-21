@@ -844,6 +844,7 @@ pub fn publish_gpu_frame(
     frame.texture_upload_px = wr.texture_upload_px;
     frame.scene_build_us = wr.scene_build_ns / 1_000;
     frame.frame_build_us = wr.frame_build_ns / 1_000;
+    frame.tiles_drawn = wr.tiles_drawn;
     frame.blocked_us = blocked_us;
     frame.render_us = render_us;
     frame.draw_calls = draw_calls;

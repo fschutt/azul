@@ -1127,10 +1127,13 @@ pub struct FrameTimings {
     pub gpu_frame_build_us: u64,
     /// GPU path, last frame: Time drawing the frame: texture uploads and draw calls (UI thread).
     pub gpu_render_us: u64,
+    /// GPU path, last frame: Picture cache tiles whose content the renderer drew again (a tile
+    /// that is only moved or scaled by the compositor is not one; whole process, like the glyphs).
+    pub gpu_tiles_drawn: u64,
 }
 
 /// How many counters [`GpuFrameCounters`] has.
-pub const GPU_FRAME_COUNTERS: usize = 23;
+pub const GPU_FRAME_COUNTERS: usize = 24;
 
 /// What the GPU path (the translation to the renderer's display lists, the
 /// transactions, the renderer's threads and its draw) did for one frame:
@@ -1188,13 +1191,17 @@ pub struct GpuFrameCounters {
     pub frame_build_us: u64,
     /// Time drawing the frame: texture uploads and draw calls (UI thread).
     pub render_us: u64,
+    /// Picture cache tiles whose content the renderer drew again (whole
+    /// process). A zoom step or a pan that the tiles of a view serve draws
+    /// none: the compositor moves or scales the tiles it has (audit A4-29).
+    pub tiles_drawn: u64,
 }
 
 impl GpuFrameCounters {
     /// The counters in the order of the fields.
     #[must_use]
     pub const fn to_array(&self) -> [u64; GPU_FRAME_COUNTERS] {
-        [self.transactions, self.lists_translated, self.items_translated, self.list_bytes, self.resource_adds, self.resource_updates, self.resource_deletes, self.resource_bytes, self.dynamic_properties, self.scene_builds, self.frame_builds, self.glyphs_rasterized, self.texture_uploads, self.texture_upload_px, self.draw_calls, self.translate_us, self.resources_us, self.values_us, self.transaction_us, self.blocked_us, self.scene_build_us, self.frame_build_us, self.render_us]
+        [self.transactions, self.lists_translated, self.items_translated, self.list_bytes, self.resource_adds, self.resource_updates, self.resource_deletes, self.resource_bytes, self.dynamic_properties, self.scene_builds, self.frame_builds, self.glyphs_rasterized, self.texture_uploads, self.texture_upload_px, self.draw_calls, self.translate_us, self.resources_us, self.values_us, self.transaction_us, self.blocked_us, self.scene_build_us, self.frame_build_us, self.render_us, self.tiles_drawn]
     }
 
     /// [`Self::to_array`] back.
@@ -1224,6 +1231,7 @@ impl GpuFrameCounters {
             scene_build_us: a[20],
             frame_build_us: a[21],
             render_us: a[22],
+            tiles_drawn: a[23],
         }
     }
 
@@ -1417,6 +1425,7 @@ impl FrameClock {
             gpu_scene_build_us: gpu.scene_build_us,
             gpu_frame_build_us: gpu.frame_build_us,
             gpu_render_us: gpu.render_us,
+            gpu_tiles_drawn: gpu.tiles_drawn,
         }
     }
 }
