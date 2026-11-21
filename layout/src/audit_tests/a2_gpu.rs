@@ -10,6 +10,9 @@
 //! The other half - that the translation really hands `WebRender` those values - is
 //! `azul-dll`'s `desktop::audit_tests::a2_gpu`.
 
+// The window and the CPU rasteriser are behind these two (both default) features.
+#![cfg(all(feature = "text_layout", feature = "cpurender"))]
+
 use std::{collections::BTreeMap, sync::Arc};
 
 use azul_core::{
