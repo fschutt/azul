@@ -768,9 +768,9 @@ impl FrameDamage {
 ///   [`FrameDamage::to_rects_physical`] returns and the row order of every
 ///   CPU frame (row 0 is the top row).
 /// - *bottom-left px*: the same pixels, origin bottom-left, y up. The backing
-///   space of an AppKit view that is not `isFlipped`, and the space of an
+///   space of an `AppKit` view that is not `isFlipped`, and the space of an
 ///   `NSBitmapImageRep`'s source rect.
-/// - *logical px*: buffer px divided by the DPI factor (AppKit points, CSS px).
+/// - *logical px*: buffer px divided by the DPI factor (`AppKit` points, CSS px).
 pub mod present_geometry {
     /// `(x, y, width, height)` in device pixels.
     pub type PxRect = (u32, u32, u32, u32);
@@ -781,7 +781,7 @@ pub mod present_geometry {
     /// THE factor of a frame (with [`super::LayoutWindow::frame_scale`], which
     /// adds the one case `dpi` cannot hold). It is NOT
     /// `WindowSize::get_hidpi_factor()`: that one is a `FloatValue`, three
-    /// decimals, cut off, so DPI 128 (4/3) reads 1.333 there and 1.333_333_4
+    /// decimals, cut off, so DPI 128 (4/3) reads 1.333 there and `1.333_333_4`
     /// here, and a window 1280 logical px wide is 1706.67 -> 1707 px with this
     /// one and 1706.24 -> 1706 px with that one. (At 125 % and 150 % the two
     /// are the same number.) Nothing that sizes or places a frame may use
@@ -841,7 +841,7 @@ pub mod present_geometry {
     /// Two or more frames since the last present are never "shown": the
     /// damage of the last one says nothing about the one before it.
     #[must_use]
-    pub fn frame_already_shown(
+    pub const fn frame_already_shown(
         frames_now: u64,
         frames_at_last_present: Option<u64>,
         last_damage_is_none: bool,
@@ -873,12 +873,14 @@ pub mod present_geometry {
     /// `px / dpi` as the logical size, and the frame is `ceil(logical * dpi)`
     /// of that. In `f32` the product can land a few ulps ABOVE `px`, and the
     /// ceiling then makes the frame one pixel larger than the window: 1003 px
-    /// at 175 % is 573.142_88 logical, times 1.75 is 1003.000_06, a 1004 px
+    /// at 175 % is `573.142_88` logical, times 1.75 is `1003.000_06`, a 1004 px
     /// frame. This returns the largest `f32` at or below `px / dpi` that
     /// renders to `px` (one ulp lower where the round trip overshoots:
-    /// 573.142_82, times 1.75 is 1002.999_94, a 1003 px frame).
+    /// `573.142_82`, times 1.75 is `1002.999_94`, a 1003 px frame).
     #[must_use]
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    // `!(x > 0.0)` is meant: it holds for NaN too (a NaN size or scale is none)
+    #[allow(clippy::neg_cmp_op_on_partial_ord)]
     pub fn logical_len_for_px(px: u32, dpi_factor: f32) -> f32 {
         if !(dpi_factor > 0.0) {
             return px as f32;
@@ -951,7 +953,7 @@ pub mod present_geometry {
         (x0.min(x1), x1, y0.min(y1), y1)
     }
 
-    /// The bounding box of `rects`, `None` when there is none. What AppKit
+    /// The bounding box of `rects`, `None` when there is none. What `AppKit`
     /// hands a `drawRect:` for several invalidated rects, and so what one
     /// present of them copies.
     #[must_use]
@@ -1671,7 +1673,7 @@ impl FrameReport {
     }
 
     /// A9-01: keeps an accumulated rect list bounded. Nothing resets it outside the E2E
-    /// harness, and a frame that is never `Full` (the macOS GPU path records WebRender's
+    /// harness, and a frame that is never `Full` (the macOS GPU path records `WebRender`'s
     /// dirty rects every frame) appended to it for the life of the window. First every
     /// rect one of the last few kept ones covers is dropped (the union is unchanged: the
     /// same rect every frame collapses to one); if that leaves more than half the bound,
@@ -3289,6 +3291,8 @@ pub struct DomGenerations {
     /// reference frames of its nodes, and the push of each by the node that owns it
     /// (`node_patch::frame_owners`): where a node that is moved finds its items without a
     /// walk of the list (`LayoutWindow::move_node_in_place`).
+    // a record's own types, documented where it is declared
+    #[allow(clippy::type_complexity)]
     frame_owners: BTreeMap<DomId, ((u64, u64), BTreeMap<NodeId, usize>)>,
     /// Boxes were moved where they lie since the shell last built its hit-test index from
     /// the layout results (`LayoutWindow::take_boxes_moved_in_place`).
@@ -3490,7 +3494,7 @@ fn state_colored_nodes(
         if node.index() == 0
             || matches!(
                 data.get_node_type(),
-                azul_core::dom::NodeType::Body | azul_core::dom::NodeType::Html
+                NodeType::Body | NodeType::Html
             )
         {
             continue;
@@ -3615,7 +3619,7 @@ impl CharSet {
     #[must_use]
     pub fn of_dom(styled_dom: &StyledDom) -> Self {
         let mut out = Self::default();
-        for node in styled_dom.node_data.as_ref().iter() {
+        for node in styled_dom.node_data.as_ref() {
             if let NodeType::Text(text) = node.get_node_type() {
                 for c in text.as_str().chars() {
                     out.insert(c);
@@ -10094,10 +10098,7 @@ impl LayoutWindow {
             let typed_text_pending = dom_id != DomId::ROOT_ID
                 && self
                     .content_overlay
-                    .iter_text()
-                    .filter(|((d, _), _)| *d == dom_id)
-                    .next()
-                    .is_some();
+                    .iter_text().any(|((d, _), _)| *d == dom_id);
             let font_requirements_unchanged = stacks_unchanged
                 && !typed_text_pending
                 && self
@@ -13708,10 +13709,9 @@ impl LayoutWindow {
         let viewport = previous.viewport;
         let nothing_else_owed = !self.content_changed_doms.contains(&child)
             && !self.css_dirty_waiting.contains_key(&child)
-            && !self
+            && self
                 .pending_css_dirty
-                .as_ref()
-                .is_some_and(|(dom, _)| *dom == child);
+                .as_ref().is_none_or(|(dom, _)| *dom != child);
         if nothing_else_owed {
             if let Some(cache) = self.child_layout_caches.get_mut(&child) {
                 let hierarchy = previous.styled_dom.node_hierarchy.as_container();
@@ -15608,14 +15608,11 @@ impl LayoutWindow {
         // for its own: the retained tree stays warm and re-solves the nodes whose styles
         // moved. With no cascade to diff against (the old DOM's was set aside) the view
         // lays out cold.
-        let displaced = match restyled {
-            Some(dirt) => self.stage_css_dirt_for_pass(child_dom_id, dirt),
-            None => {
-                if styles_moved {
-                    self.child_layout_caches.remove(&child_dom_id);
-                }
-                None
+        let displaced = if let Some(dirt) = restyled { self.stage_css_dirt_for_pass(child_dom_id, dirt) } else {
+            if styles_moved {
+                self.child_layout_caches.remove(&child_dom_id);
             }
+            None
         };
         // Step `view`: the nodes that are what they were under the id they had, for the
         // reconcile of the pass below (a layout cache that was just dropped lays out cold).
@@ -16328,8 +16325,8 @@ impl LayoutWindow {
     /// the GPU shell keeps WHICH items of a list have one while the list lives,
     /// and asks this of those items alone).
     #[must_use]
-    pub fn image_of_item(
-        item: &crate::solver3::display_list::DisplayListItem,
+    pub const fn image_of_item(
+        item: &solver3::display_list::DisplayListItem,
     ) -> Option<&ImageRef> {
         use crate::solver3::display_list::DisplayListItem;
 
@@ -21112,6 +21109,8 @@ impl LayoutWindow {
     /// layout's reconcile takes the fingerprint such a node had instead of hashing it again;
     /// a node the rebuild renumbered gains nothing from the flag (the reconcile lays it out
     /// anew, `DomDiff::keeps`), so it is not flagged. `None` when no node kept its rows.
+    // a tuple of this function's own types, spelled once where it is built: a named type would be used once
+    #[allow(clippy::type_complexity)]
     pub fn style_reconciled_dom(
         &mut self,
         dom_id: DomId,
@@ -30964,7 +30963,7 @@ impl LayoutWindow {
                     }
                 }
             }
-            cache.retain_colors(|node| stays(node));
+            cache.retain_colors(stays);
         }
         for (node, color) in colored {
             let _key = cache.key_color(*node, *color);
@@ -31114,7 +31113,7 @@ impl LayoutWindow {
             if !fading.contains(node) {
                 if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
                     if cache.color_key(*node).is_some() || cache.color_value(*node).is_some() {
-                        drop(cache.remove_color(*node));
+                        let _ = cache.remove_color(*node);
                     }
                 }
             }
@@ -31123,7 +31122,7 @@ impl LayoutWindow {
             // Values alone: the list is the list it was.
             if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
                 for (node, color) in &by_value {
-                    drop(cache.set_color_value(*node, *color));
+                    let _ = cache.set_color_value(*node, *color);
                 }
             }
             state_color_writes(by_value.len());
@@ -31286,7 +31285,7 @@ impl LayoutWindow {
                     .insert(*node);
             }
             for (node, color) in &by_value {
-                drop(cache.set_color_value(*node, *color));
+                let _ = cache.set_color_value(*node, *color);
             }
             state_color_writes(by_value.len());
         }
@@ -34306,6 +34305,8 @@ impl LayoutWindow {
     /// same one root migration and the e2e reconciliation use) and the state
     /// walk is the exhaustive [`Self::remap_node_ids`] driver — this function
     /// only finds the old arena and connects the two.
+    // a tuple of this function's own types, spelled once where it is built: a named type would be used once
+    #[allow(clippy::type_complexity)]
     fn reconcile_rematerialized_child(
         &mut self,
         child_dom_id: DomId,
@@ -39324,6 +39325,8 @@ enum ChildCascade {
     /// runs its cascade once the nodes are paired. With `(node count, sheets)` of the
     /// fingerprints of the render before and of this one
     /// (`DomFingerprints::sheets`), or `None` on the view's first render.
+    // a record's own types, documented where it is declared
+    #[allow(clippy::type_complexity)]
     Owed(Option<((usize, Vec<(usize, u64)>), (usize, Vec<(usize, u64)>))>),
     /// It is the document the view had, kept and styled where it stands
     /// (`LayoutWindow::restyle_kept_child`): there is nothing to reconcile. With the CSS diff
@@ -39502,14 +39505,11 @@ impl InheritedIdTables {
                     .iter()
                     .find(|(id, v)| types.get(*id as usize) == Some(&ty) && **v == *value)
                     .map(|(id, _)| *id);
-                let id = match found {
-                    Some(id) => id,
-                    None => {
-                        let id = u32::try_from(types.len()).unwrap_or(u32::MAX);
-                        types.push(ty);
-                        known.push((id, value));
-                        id
-                    }
+                let id = if let Some(id) = found { id } else {
+                    let id = u32::try_from(types.len()).unwrap_or(u32::MAX);
+                    types.push(ty);
+                    known.push((id, value));
+                    id
                 };
                 ids_of_buckets[side].push(id);
             }
@@ -39525,7 +39525,7 @@ impl InheritedIdTables {
 
 impl<'c> InheritedIds<'c> {
     /// For the cascade of `old_nodes` nodes and the one of `new_nodes`; nothing is read yet.
-    fn between(
+    const fn between(
         old_cache: &'c azul_core::prop_cache::CssPropertyCache,
         new_cache: &'c azul_core::prop_cache::CssPropertyCache,
         old_nodes: usize,
@@ -39579,7 +39579,7 @@ impl<'c> InheritedIds<'c> {
                     i += 1;
                     *a
                 }
-                (Some(_), Some(b)) | (None, Some(b)) => {
+                (Some(_) | None, Some(b)) => {
                     j += 1;
                     *b
                 }
@@ -39668,6 +39668,8 @@ fn types_to_compare(
 /// compared. The comparison of the root's reconciliation and of a view's re-render, one
 /// function: a property that was REMOVED counts as a change too, a dropped `width` is every bit
 /// as layout-affecting as a changed one.
+// a tuple of this function's own types, spelled once where it is built: a named type would be used once
+#[allow(clippy::type_complexity)]
 fn changed_styles<'c>(
     old_cache: &'c azul_core::prop_cache::CssPropertyCache,
     new_cache: &'c azul_core::prop_cache::CssPropertyCache,

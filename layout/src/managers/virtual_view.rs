@@ -3121,7 +3121,7 @@ mod audit_a3_window_tests {
         assert_eq!(m.debug_counts(), 60);
 
         // Every third node of the rebuilt dom unmounts, whichever dom it is.
-        let stays = |i: &usize| *i % 3 != 0;
+        let stays = |i: &usize| !(*i).is_multiple_of(3);
         let map = NodeIdMap::from_pairs((0..60_usize).filter(stays).map(|i| (n(i), n(i))));
         assert!(
             !m.nested_doms_dropped_by(ROOT, &map).is_empty(),

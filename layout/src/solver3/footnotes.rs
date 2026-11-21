@@ -183,7 +183,7 @@ impl FootnoteArea {
     #[must_use]
     pub fn content_max(&self, page_height: f32) -> f32 {
         self.max_height
-            .unwrap_or(page_height * FOOTNOTE_AREA_MAX_SHARE - self.chrome())
+            .unwrap_or_else(|| page_height * FOOTNOTE_AREA_MAX_SHARE - self.chrome())
             .max(0.0)
     }
 
@@ -362,7 +362,7 @@ pub const FOOTNOTE_AREA_MAX_SHARE: f32 = 0.8;
 impl Footnotes {
     /// Whether the canvas has no footnotes.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.notes.is_empty()
     }
 
@@ -747,7 +747,7 @@ pub fn collect_footnotes(
                 owner = Some(*o);
                 break;
             }
-            current = hierarchy.get(n).and_then(|h| h.parent_id());
+            current = hierarchy.get(n).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id);
         }
         dom_owner.insert(node, owner);
         owner

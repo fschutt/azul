@@ -339,7 +339,7 @@ pub struct AbsPlacement {
 impl AbsPlacement {
     /// The bits of a rectangle's origin and size.
     #[must_use]
-    pub fn rect_bits(rect: LogicalRect) -> [u32; 4] {
+    pub const fn rect_bits(rect: LogicalRect) -> [u32; 4] {
         [
             rect.origin.x.to_bits(),
             rect.origin.y.to_bits(),
@@ -350,7 +350,7 @@ impl AbsPlacement {
 
     /// The bits of the pass's viewport and the context's viewport size.
     #[must_use]
-    pub fn viewport_bits(viewport: LogicalRect, viewport_size: LogicalSize) -> [u32; 6] {
+    pub const fn viewport_bits(viewport: LogicalRect, viewport_size: LogicalSize) -> [u32; 6] {
         let [x, y, w, h] = Self::rect_bits(viewport);
         [x, y, w, h, viewport_size.width.to_bits(), viewport_size.height.to_bits()]
     }
@@ -377,13 +377,13 @@ impl AbsPlacement {
 
     /// The position the pass gave the box.
     #[must_use]
-    pub fn final_position(&self) -> LogicalPosition {
+    pub const fn final_position(&self) -> LogicalPosition {
         LogicalPosition::new(f32::from_bits(self.final_bits.0), f32::from_bits(self.final_bits.1))
     }
 
     /// The used size the pass gave the box.
     #[must_use]
-    pub fn solved_size(&self) -> LogicalSize {
+    pub const fn solved_size(&self) -> LogicalSize {
         LogicalSize::new(f32::from_bits(self.solved_bits.0), f32::from_bits(self.solved_bits.1))
     }
 }
@@ -392,7 +392,7 @@ impl AbsInterior {
     /// The entry of a run in a box of `size` and `box_props` that reported
     /// `overflow_height`.
     #[must_use]
-    pub fn new(
+    pub const fn new(
         size: LogicalSize,
         box_props: &super::geometry::PackedBoxProps,
         overflow_height: f32,
@@ -1531,7 +1531,7 @@ pub(crate) fn restyled_in_size_only(
 /// Not under a flex or grid container (taffy places its absolutely
 /// positioned children with the container) or a part of a table.
 #[must_use]
-pub(crate) fn restyled_out_of_flow_box_stands_alone(
+pub(crate) const fn restyled_out_of_flow_box_stands_alone(
     position: LayoutPosition,
     parent_fc: Option<FormattingContext>,
     any_columns: bool,

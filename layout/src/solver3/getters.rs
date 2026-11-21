@@ -3992,8 +3992,8 @@ pub fn is_hidden_footnote_mark(styled_dom: &StyledDom, node_id: NodeId) -> bool 
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let host = match node.get_node_type() {
         // The call stands in place of its footnote: the sibling before it.
-        NodeType::FootnoteCall => hierarchy.get(node_id).and_then(|n| n.next_sibling_id()),
-        NodeType::FootnoteMarker => hierarchy.get(node_id).and_then(|n| n.parent_id()),
+        NodeType::FootnoteCall => hierarchy.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::next_sibling_id),
+        NodeType::FootnoteMarker => hierarchy.get(node_id).and_then(azul_core::styled_dom::NodeHierarchyItem::parent_id),
         _ => return false,
     };
     !host.is_some_and(|host| is_footnote(styled_dom, host))
@@ -4175,6 +4175,8 @@ pub fn get_vertical_align_for_node(
 /// node's style without building: the 12,000 labels of a map view and their
 /// texts build a handful of styles, not 24,000.
 #[derive(Default, Debug)]
+// the columns of the memo, named after what they are keyed by
+#[allow(clippy::struct_field_names)]
 pub struct StyleCache {
     /// Key: (node, pseudo-state, viewport w/h bits, cascade epoch). The epoch
     /// (`CssPropertyCache::cascade_epoch`) makes a restyle, a context change
@@ -5539,7 +5541,7 @@ fn build_font_selector_stack_memo_themed(
 /// key hashes (`build_font_selector_stack_memo_themed`) - kept beside the
 /// stack and compared when the key hits.
 type FontStackMemoInputs = (
-    Vec<azul_css::props::basic::font::StyleFontFamily>,
+    Vec<StyleFontFamily>,
     Option<azul_css::system::Platform>,
     Option<String>,
     core::mem::Discriminant<FcWeight>,
@@ -5547,6 +5549,8 @@ type FontStackMemoInputs = (
 );
 
 /// The inputs of one stack, as the memo keeps them.
+// the references are the style's own fields, as its callers (and the tests) hold them
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn font_stack_memo_inputs(
     font_families: &StyleFontFamilyVec,
     platform: Option<&azul_css::system::Platform>,
@@ -5565,6 +5569,8 @@ fn font_stack_memo_inputs(
 
 /// The stack of the memo entry `entry`, if the entry was built from exactly
 /// these inputs (`None`: its key is another input's hash too).
+// the references are the style's own fields, as its callers (and the tests) hold them
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn font_stack_memo_answer(
     entry: &(FontStackMemoInputs, Vec<FontSelector>),
     font_families: &StyleFontFamilyVec,
@@ -7903,7 +7909,7 @@ thread_local! {
             ScrollbarBaseKey,
             ComputedScrollbarStyle,
         )>,
-    > = core::cell::RefCell::new(None);
+    > = const { core::cell::RefCell::new(None) };
 }
 
 /// How often [`get_scrollbar_style`] was asked, and how often it made the
@@ -7951,19 +7957,15 @@ pub fn get_scrollbar_style(
     // language, container name, theme chain and system colours are heap
     // values) for every node of every layout pass that asked.
     let fallback_ctx;
-    let ctx: &azul_css::dynamic_selector::DynamicSelectorContext = match styled_dom
+    let ctx: &azul_css::dynamic_selector::DynamicSelectorContext = if let Some(cascaded) = styled_dom
         .get_css_property_cache()
         .dynamic_context
-        .as_deref()
-    {
-        Some(cascaded) => cascaded,
-        None => {
-            fallback_ctx = system_style.map_or_else(
-                azul_css::dynamic_selector::DynamicSelectorContext::default,
-                azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
-            );
-            &fallback_ctx
-        }
+        .as_deref() { cascaded } else {
+        fallback_ctx = system_style.map_or_else(
+            azul_css::dynamic_selector::DynamicSelectorContext::default,
+            azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
+        );
+        &fallback_ctx
     };
     // AZ_DUMP_SCROLLBAR_OS=1 prints, once, which OS the UA cascade actually
     // resolved against. `DynamicSelectorContext::default()` carries
@@ -7986,8 +7988,8 @@ pub fn get_scrollbar_style(
                     "NONE"
                 },
                 ctx.os,
-                azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx).visibility,
-                azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx).width,
+                azul_core::ua_css::evaluate_ua_scrollbar_css(ctx).visibility,
+                azul_core::ua_css::evaluate_ua_scrollbar_css(ctx).width,
             );
         }
     }

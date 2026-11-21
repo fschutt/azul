@@ -211,6 +211,8 @@ fn frame_cpu_halos() -> Option<SharedCpuHalos> {
 }
 
 /// The halo kept under `key`: `Some(None)` for a shadow that is not kept, `None` for one not seen.
+// three states, as the doc says: `None` unknown, `Some(None)` known absent, `Some(Some(_))` known present
+#[allow(clippy::option_option)]
 pub(super) fn kept_cpu_halo(key: u64) -> Option<Option<Arc<CpuHalo>>> {
     if let Some(shared) = frame_cpu_halos() {
         return shared.lock().ok().and_then(|mut halos| halos.get(&key));
@@ -231,6 +233,8 @@ pub(super) fn keep_cpu_halo(key: u64, halo: Option<Arc<CpuHalo>>) {
 }
 
 /// Whether this thread keeps the CPU renderer's halos (always, outside tests).
+// Not `const`: the tests' build reads a thread-local, which a `const fn` cannot.
+#[allow(clippy::missing_const_for_fn)]
 pub(super) fn cpu_halos_are_kept() -> bool {
     #[cfg(test)]
     {
@@ -529,9 +533,13 @@ pub struct TextHalosReleased {
 /// the one standing in). For [`release_text_halos`]: the kept pictures are a
 /// thread's, and the windows of a thread each hold lists that paint from them; a
 /// window that made no scan lately has its pictures marked as used by this.
+// The named lifetime stays: clippy and `single_use_lifetimes` would elide it, but an anonymous
+// lifetime in `impl Trait` is unstable (E0658) on the pinned 1.91 toolchain, so their suggestion
+// does not compile.
+#[allow(clippy::needless_lifetimes, single_use_lifetimes)]
 pub fn text_halos_in_use<'a>(lists: impl IntoIterator<Item = &'a Arc<DisplayList>>, dpi: f32) {
     for list in lists {
-        let _ = text_halos_of_list(list, dpi, None);
+        let _unused = text_halos_of_list(list, dpi, None);
     }
 }
 
@@ -581,6 +589,7 @@ pub fn text_halos_forget_use() {
 /// since frames may be drawing halos right now.
 ///
 /// Nothing is released while a scan is under way (it returns zeros).
+#[must_use] 
 pub fn release_text_halos(not_shown: bool) -> TextHalosReleased {
     if BUDGET.with(|budget| budget.get().is_some()) {
         return TextHalosReleased::default();
@@ -1176,6 +1185,8 @@ fn dilation_reach(spread_px: f32) -> i32 {
 /// not sent again (audit A4). The stand-in itself is stretched into it: by `k`,
 /// and by a pixel or two more or less along each edge.
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // device px
+// pixel and geometry math keeps the names of its formulas: x, y, w, h, r, g, b, a
+#[allow(clippy::many_single_char_names)]
 fn slot_rect(kept: &Kept, k: f32, reach: i32) -> (i32, i32, i32, i32) {
     let (x0, y0, x1, y1) = kept.ink;
     let own = kept.reach;
@@ -1247,7 +1258,7 @@ struct Entry {
 }
 
 /// Gives `kept` a slot if it has none ([`Kept::slot`]).
-fn slotted(kept: &mut Kept, next_slot: &mut u64) {
+const fn slotted(kept: &mut Kept, next_slot: &mut u64) {
     if kept.slot == 0 {
         kept.slot = *next_slot;
         *next_slot += 1;
@@ -1374,6 +1385,8 @@ impl HaloCache {
     /// Entry `id` used as a shadow's own picture: what it keeps (`None`: the
     /// shadow cannot be a picture). `counted`: its first such use in a scan
     /// counts in the scan's numbers.
+    // three states, as the doc says: `None` unknown, `Some(None)` known absent, `Some(Some(_))` known present
+    #[allow(clippy::option_option)]
     fn use_own(&mut self, id: u64, counted: bool) -> Option<Option<Kept>> {
         self.clock += 1;
         let entry = self.entries.get_mut(&id)?;
@@ -1403,7 +1416,7 @@ impl HaloCache {
     ) -> Option<Kept> {
         let id = *self.by_shape.get(&shape)?;
         let entry = self.entries.get_mut(&id)?;
-        let kept = entry.kept.as_mut().filter(|kept| fits(&**kept))?;
+        let kept = entry.kept.as_mut().filter(|kept| fits(kept))?;
         slotted(kept, &mut self.next_slot);
         let kept = kept.clone();
         self.clock += 1;
@@ -1442,24 +1455,21 @@ impl HaloCache {
             return false;
         }
         while !self.fits(bytes) {
-            let dropped = match self.next_victim() {
-                Some(oldest) => oldest,
-                None => {
-                    let Some(stand_in) = replacing
-                        .and_then(|shape| self.by_shape.get(&shape).copied())
-                        .filter(|id| {
-                            self.entries.get(id).is_some_and(|entry| {
-                                entry.own_in != self.scan
-                                    && self.entries.len() <= self.max_entries
-                                    && self.bytes - entry.bytes + bytes <= self.max_bytes
-                            })
+            let dropped = if let Some(oldest) = self.next_victim() { oldest } else {
+                let Some(stand_in) = replacing
+                    .and_then(|shape| self.by_shape.get(&shape).copied())
+                    .filter(|id| {
+                        self.entries.get(id).is_some_and(|entry| {
+                            entry.own_in != self.scan
+                                && self.entries.len() <= self.max_entries
+                                && self.bytes - entry.bytes + bytes <= self.max_bytes
                         })
-                    else {
-                        self.refused_room = true;
-                        return false;
-                    };
-                    stand_in
-                }
+                    })
+                else {
+                    self.refused_room = true;
+                    return false;
+                };
+                stand_in
             };
             self.remove(dropped);
             self.stats.evicted += 1;
@@ -1477,7 +1487,7 @@ impl HaloCache {
             let mut victims: Vec<(u64, u64)> = self
                 .entries
                 .iter()
-                .filter(|(_, entry)| droppable(*entry))
+                .filter(|(_, entry)| droppable(entry))
                 .map(|(id, entry)| (entry.last_used, *id))
                 .collect();
             // The newest first: the one used longest ago is popped first.
@@ -1488,7 +1498,7 @@ impl HaloCache {
         let victims = self.victims.as_mut()?;
         while let Some(id) = victims.pop() {
             // Still kept, and not used by this scan since the list was made.
-            if self.entries.get(&id).is_some_and(|entry| droppable(entry)) {
+            if self.entries.get(&id).is_some_and(&droppable) {
                 return Some(id);
             }
         }
@@ -1498,6 +1508,8 @@ impl HaloCache {
     /// The small picture kept for `text` and `geometry` (a [`Scope::preview`]
     /// drawn before), made the stand-in of `shape` again: `Some(None)` when what
     /// is kept is the note that there is no such picture, `None` when nothing is.
+    // three states, as the doc says: `None` unknown, `Some(None)` known absent, `Some(Some(_))` known present
+    #[allow(clippy::option_option)]
     fn kept_preview(&mut self, text: u64, geometry: &[i32], shape: u64) -> Option<Option<Kept>> {
         let id = self.find(text, geometry)?;
         self.clock += 1;
@@ -1515,7 +1527,7 @@ impl HaloCache {
     }
 
     /// A slot no picture of this cache is painted from ([`TextHalo::slot`]).
-    fn new_slot(&mut self) -> u64 {
+    const fn new_slot(&mut self) -> u64 {
         let slot = self.next_slot;
         self.next_slot += 1;
         slot
@@ -1635,10 +1647,9 @@ impl HaloCache {
     ) -> Option<u64> {
         let id = self.next_id;
         self.insert(sought, geometry, Some(kept), box_bytes, false);
-        if !self
+        if self
             .entries
-            .get(&stood)
-            .is_some_and(|entry| entry.kept.is_some())
+            .get(&stood).is_none_or(|entry| entry.kept.is_none())
         {
             return None;
         }
@@ -2751,8 +2762,8 @@ mod audit_a5_tests {
         let alpha: Vec<u8> = bytes[16..32].chunks_exact(4).map(|p| p[3]).collect();
         assert_eq!(alpha, [0, 200, 200, 0]);
 
-        assert_eq!(ink_box(&vec![0u8; 8 * 6 * 4], 8, 6), None, "nothing paints");
-        assert!(cropped(&vec![0u8; 8 * 6 * 4], buffer, (104, 53), 24.0, 0, None).is_none());
+        assert_eq!(ink_box(&[0u8; 8 * 6 * 4], 8, 6), None, "nothing paints");
+        assert!(cropped(&[0u8; 8 * 6 * 4], buffer, (104, 53), 24.0, 0, None).is_none());
         // Ink in the box's corner: there is no pixel to leave clear beyond it.
         let mut corner = vec![0u8; 8 * 6 * 4];
         corner[..4].copy_from_slice(&[255; 4]);

@@ -890,7 +890,7 @@ pub struct DisplayList {
     /// shows while the key has no value. A table on the list, like
     /// `uniform_text_bgs`, so the `Rect` variant stays unchanged.
     pub color_bindings: Vec<Option<ColorKey>>,
-    /// The carets of the list: `(index of its `CursorRect` item, the colour the
+    /// The carets of the list: `(index of its ``CursorRect`` item, the colour the
     /// caret is painted in while it shows)`, in list order. The blink flips the
     /// item's alpha between that colour's and 0 IN PLACE
     /// ([`Self::set_carets_visible`]) instead of building the whole list again
@@ -3892,6 +3892,10 @@ fn is_exact_identity(m: &[[f32; 4]; 4]) -> bool {
 /// the frame's matrix `m` paints it: each corner `q` goes to `o + (L (q - o) + t) / w`, `w =
 /// m03 qx + m13 qy + m33` (1 for an affine matrix), as the rasteriser composites the frame.
 /// `None` when a corner is at or behind the eye (`w <= 0`) or is not finite: no box bounds it.
+// pixel and geometry math keeps the names of its formulas: x, y, w, h, r, g, b, a
+#[allow(clippy::many_single_char_names)]
+// `!(x > 0.0)` is meant: it holds for NaN too (a NaN size or scale is none)
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn frame_image(o: LogicalPosition, m: &[[f32; 4]; 4], inside: LogicalRect) -> Option<LogicalRect> {
     let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
     let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
@@ -3976,6 +3980,8 @@ pub(crate) fn hull_box(points: &[HullPoint]) -> Option<LogicalRect> {
 /// deg)`: the point goes to (0, 22.63), its radius is (0 + 2.83) x 1 = 2.83. Through a
 /// second `rotate(45 deg)`: (-16, 16), radius 5.66. The box of a point (x, y, r) is x - r
 /// .. x + r: here -21.66 .. -10.34, 10.34 .. 21.66.
+// pixel and geometry math keeps the names of its formulas: x, y, w, h, r, g, b, a
+#[allow(clippy::many_single_char_names)]
 pub(crate) fn hull_through(
     points: &mut [HullPoint],
     o: LogicalPosition,
@@ -4227,7 +4233,7 @@ pub(crate) struct FrameInner {
 }
 
 impl FrameInner {
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.transform_keys.is_empty()
             && self.opacity_keys.is_empty()
             && self.color_keys.is_empty()
@@ -4293,7 +4299,7 @@ enum ScopeKind {
 }
 
 /// `(kind, true)` for an item that opens a scope, `(kind, false)` for one that closes one.
-fn scope_of(item: &DisplayListItem) -> Option<(ScopeKind, bool)> {
+const fn scope_of(item: &DisplayListItem) -> Option<(ScopeKind, bool)> {
     Some(match item {
         DisplayListItem::PushClip { .. } => (ScopeKind::Clip, true),
         DisplayListItem::PopClip => (ScopeKind::Clip, false),
@@ -4351,25 +4357,25 @@ pub(crate) struct FrameIndex {
     opaque_fill_frames: Vec<Vec<usize>>,
     /// By the index of a frame's push: what its picture depends on besides its items, for the
     /// frames that bind anything inside ([`FrameInner`]).
-    inner: std::collections::HashMap<usize, FrameInner>,
+    inner: HashMap<usize, FrameInner>,
     /// By the index of a frame's push, for the frames that hold frames: what the frame paints
     /// itself and the frames directly inside it ([`FrameIndex::extent_with`]).
-    nesting: std::collections::HashMap<usize, FrameNest>,
+    nesting: HashMap<usize, FrameNest>,
     /// By the index of a `PushOpacity`, for the groups whose content paints past the group's
     /// own box: the box united with what the items down to the pop paint
     /// ([`FrameIndex::opacity_extent`]).
-    opacity_extents: std::collections::HashMap<usize, LogicalRect>,
+    opacity_extents: HashMap<usize, LogicalRect>,
     /// By the index of a `PushOpacity`, for the groups that hold reference frames: the group's
     /// box and what its own items paint, and the frames directly inside it
     /// ([`FrameIndex::opacity_extent_with`]).
-    opacity_nesting: std::collections::HashMap<usize, FrameNest>,
+    opacity_nesting: HashMap<usize, FrameNest>,
     /// By the index of a `PushOpacity`, for the groups a walk may step over
     /// ([`OpacityScope`], [`FrameIndex::opacity_scope_at`]).
-    opacity_scopes: std::collections::HashMap<usize, OpacityScope>,
+    opacity_scopes: HashMap<usize, OpacityScope>,
     /// What a renderer derives from the same items once and asks about per pass (the CPU
     /// renderer's `item_grid`): made by its first ask, and dropped with this index - that
     /// is, with the items it describes.
-    pub(crate) derived: std::sync::OnceLock<std::sync::Arc<dyn core::any::Any + Send + Sync>>,
+    pub(crate) derived: std::sync::OnceLock<Arc<dyn core::any::Any + Send + Sync>>,
 }
 
 /// A frame that holds frames: `own` is its box and what its own items paint (not what is
@@ -4392,6 +4398,8 @@ impl FrameIndex {
         let mut views = Vec::new();
         let mut opaque_fills = Vec::new();
         let mut opaque_fill_frames: Vec<Vec<usize>> = Vec::new();
+        // plain flags, set and read one by one: a state enum would not be simpler
+        #[allow(clippy::struct_excessive_bools)]
         struct Open {
             push: usize,
             frame_box: LogicalRect,
@@ -4410,8 +4418,8 @@ impl FrameIndex {
         }
         let mut open: Vec<Open> = Vec::new();
         let mut frames: Vec<FrameEntry> = Vec::new();
-        let mut inner: std::collections::HashMap<usize, FrameInner> = std::collections::HashMap::new();
-        let mut nesting: std::collections::HashMap<usize, FrameNest> = std::collections::HashMap::new();
+        let mut inner: HashMap<usize, FrameInner> = HashMap::new();
+        let mut nesting: HashMap<usize, FrameNest> = HashMap::new();
         // The opacity groups open at the item.
         struct Fading {
             push: usize,
@@ -4433,12 +4441,12 @@ impl FrameIndex {
             inner: FrameInner,
         }
         let mut fading: Vec<Fading> = Vec::new();
-        let mut opacity_scopes: std::collections::HashMap<usize, OpacityScope> =
-            std::collections::HashMap::new();
-        let mut opacity_extents: std::collections::HashMap<usize, LogicalRect> =
-            std::collections::HashMap::new();
-        let mut opacity_nesting: std::collections::HashMap<usize, FrameNest> =
-            std::collections::HashMap::new();
+        let mut opacity_scopes: HashMap<usize, OpacityScope> =
+            HashMap::new();
+        let mut opacity_extents: HashMap<usize, LogicalRect> =
+            HashMap::new();
+        let mut opacity_nesting: HashMap<usize, FrameNest> =
+            HashMap::new();
         // The scopes open at the item, outermost first: a frame is self-contained when the
         // scopes opened inside it are closed inside it, innermost first.
         let mut scopes: Vec<ScopeKind> = Vec::new();
@@ -4510,7 +4518,7 @@ impl FrameIndex {
             }
             // What each open opacity group paints (A2-gpu-06: a group fades all of it, not only
             // what lies in its node's box).
-            if let DisplayListItem::PopOpacity = item {
+            if matches!(item, DisplayListItem::PopOpacity) {
                 if let Some(group) = fading.pop() {
                     let group_box = group.group_box;
                     if let Some(content) = group.bounds.finish() {
@@ -4628,7 +4636,7 @@ impl FrameIndex {
                 }
                 _ => {}
             }
-            if let DisplayListItem::PopReferenceFrame = item {
+            if matches!(item, DisplayListItem::PopReferenceFrame) {
                 // An opacity group cannot be stepped over when this pop closes a frame that
                 // was open at the group's push (`open` is one shorter than it was then), a
                 // frame that left a scope open, or no frame at all.
@@ -4809,7 +4817,7 @@ impl FrameIndex {
         &self,
         items: &[DisplayListItem],
         push: usize,
-        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        transforms: &HashMap<usize, ComputedTransform3D>,
     ) -> Option<LogicalRect> {
         let frame = self.entry(push)?;
         let Some(nest) = self.nesting.get(&push) else {
@@ -4860,7 +4868,7 @@ impl FrameIndex {
         &self,
         items: &[DisplayListItem],
         push: usize,
-        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        transforms: &HashMap<usize, ComputedTransform3D>,
         reach: f32,
     ) -> Option<Vec<HullPoint>> {
         let mut out = Vec::new();
@@ -4874,7 +4882,7 @@ impl FrameIndex {
         &self,
         items: &[DisplayListItem],
         push: usize,
-        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        transforms: &HashMap<usize, ComputedTransform3D>,
         reach: f32,
         out: &mut Vec<HullPoint>,
     ) -> Option<()> {
@@ -4909,7 +4917,7 @@ impl FrameIndex {
         &self,
         items: &[DisplayListItem],
         child: usize,
-        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        transforms: &HashMap<usize, ComputedTransform3D>,
         reach: f32,
         out: &mut Vec<HullPoint>,
     ) -> Option<bool> {
@@ -4942,7 +4950,7 @@ impl FrameIndex {
         &self,
         items: &[DisplayListItem],
         push: usize,
-        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        transforms: &HashMap<usize, ComputedTransform3D>,
         reach: f32,
     ) -> Option<Vec<HullPoint>> {
         let nest = self.opacity_nesting.get(&push)?;
@@ -4978,7 +4986,7 @@ impl FrameIndex {
         &self,
         items: &[DisplayListItem],
         push: usize,
-        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+        transforms: &HashMap<usize, ComputedTransform3D>,
     ) -> Option<LogicalRect> {
         let Some(nest) = self.opacity_nesting.get(&push) else {
             return self.opacity_extent(push);
@@ -5021,14 +5029,14 @@ impl FrameIndex {
     }
 
     /// How many frames the list has.
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.frames.len()
     }
 }
 
 /// The [`FrameIndex`] a [`DisplayList`] keeps.
 #[derive(Default)]
-pub struct FrameIndexCell(std::sync::Mutex<Option<std::sync::Arc<FrameIndex>>>);
+pub struct FrameIndexCell(std::sync::Mutex<Option<Arc<FrameIndex>>>);
 
 impl FrameIndexCell {
     /// Drop the index: the items changed.
@@ -5055,19 +5063,19 @@ impl core::fmt::Debug for FrameIndexCell {
 impl DisplayList {
     /// The list's [`FrameIndex`], made on the first ask (and again when the items were replaced
     /// behind the list's back: another buffer or length).
-    pub(crate) fn frame_index(&self) -> std::sync::Arc<FrameIndex> {
+    pub(crate) fn frame_index(&self) -> Arc<FrameIndex> {
         let (ptr, len) = (self.items.as_ptr() as usize, self.items.len());
         if let Ok(mut slot) = self.frame_index.0.lock() {
             if let Some(index) = slot.as_ref() {
                 if index.items_ptr == ptr && index.items_len == len {
-                    return std::sync::Arc::clone(index);
+                    return Arc::clone(index);
                 }
             }
-            let index = std::sync::Arc::new(FrameIndex::of(self));
-            *slot = Some(std::sync::Arc::clone(&index));
+            let index = Arc::new(FrameIndex::of(self));
+            *slot = Some(Arc::clone(&index));
             return index;
         }
-        std::sync::Arc::new(FrameIndex::of(self))
+        Arc::new(FrameIndex::of(self))
     }
 }
 
@@ -6338,10 +6346,12 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     tags_by_node: core::cell::OnceCell<Vec<Option<u64>>>,
     /// The fonts the font manager has loaded, asked for once per list
     /// ([`DisplayListGenerator::loaded_fonts`]).
-    loaded_fonts: core::cell::OnceCell<std::sync::Arc<text3::cache::LoadedFonts<T>>>,
+    loaded_fonts: core::cell::OnceCell<Arc<text3::cache::LoadedFonts<T>>>,
     /// The glyph boxes of the faces the list's runs are drawn in, asked for once per face
     /// and glyph per build ([`DisplayListGenerator::run_ink`]): by the face's hash, the face
     /// (`None`: not loaded) and, by glyph id, the box once it was asked for.
+    // a record's own types, documented where it is declared
+    #[allow(clippy::type_complexity)]
     glyph_boxes: core::cell::RefCell<HashMap<u64, (Option<T>, Vec<Option<Option<[i16; 4]>>>)>>,
     /// The links of a box's [`ScrollChain`](crate::solver3::scroll_chain::ScrollChain)
     /// (their layout indices, outermost first) by the box's parent and how
@@ -7073,8 +7083,8 @@ where
     /// serves the build - the one the context's pass holds already, when the
     /// list is built by the pass that laid the page out
     /// ([`LayoutContext::loaded_fonts`], A3-solver-42).
-    fn loaded_fonts(&self) -> std::sync::Arc<text3::cache::LoadedFonts<T>> {
-        std::sync::Arc::clone(self.loaded_fonts.get_or_init(|| self.ctx.loaded_fonts()))
+    fn loaded_fonts(&self) -> Arc<text3::cache::LoadedFonts<T>> {
+        Arc::clone(self.loaded_fonts.get_or_init(|| self.ctx.loaded_fonts()))
     }
 
     /// What the scroll chain of the box at `node_index` depends on: its
@@ -7451,7 +7461,7 @@ where
                 DisplayListItem::Text {
                     source_node_index: Some(old),
                     ..
-                } => carried.get(*old).map_or(true, |new| *new == usize::MAX),
+                } => carried.get(*old).is_none_or(|new| *new == usize::MAX),
                 _ => false,
             });
             if uncarried {
@@ -15823,7 +15833,7 @@ fn paginate_pages_impl(
         // page's flow (`Footnotes::room_for_page`), so they start where it
         // ends at the earliest.
         if let Some(fragments) = note_plan.get(page_idx).filter(|f| !f.is_empty()) {
-            let notes_height: f32 = fragments.iter().map(|f| f.height()).sum();
+            let notes_height: f32 = fragments.iter().map(super::footnotes::NoteFragment::height).sum();
             let flow_bottom = header_space + sum_all_theads + (content_end_y - content_start_y);
             // The footnote area's box (`@page { @footnote }`): its bottom
             // margin edge at the bottom of the page area, its margin, rule
@@ -15848,9 +15858,9 @@ fn paginate_pages_impl(
                     )
                     .into(),
                     widths: StyleBorderWidths {
-                        top: rule.width.or(Some(CssPropertyValue::Exact(
-                            LayoutBorderTopWidth::default(),
-                        ))),
+                        top: rule.width.or_else(|| {
+                            Some(CssPropertyValue::Exact(LayoutBorderTopWidth::default()))
+                        }),
                         right: None,
                         bottom: None,
                         left: None,

@@ -135,9 +135,8 @@ fn the_blink_shows_and_hides_the_caret_with_no_display_list_rebuild() {
 #[test]
 fn a_list_without_a_recorded_caret_is_left_to_a_rebuild() {
     let mut lw = window_with_a_caret();
-    lw.layout_results
-        .get_mut(&DomId::ROOT_ID)
-        .map(|r| Arc::make_mut(&mut r.display_list).carets.clear());
+    if let Some(r) = lw.layout_results
+        .get_mut(&DomId::ROOT_ID) { Arc::make_mut(&mut r.display_list).carets.clear() }
     assert_eq!(lw.apply_caret_visibility_in_place(DomId::ROOT_ID), None);
 
     // A caret item the table does not know (spliced in from elsewhere): the same.

@@ -109,7 +109,7 @@ pub struct CpuFrameCounters {
 
 impl CpuFrameCounters {
     /// `self` plus `other`, counter by counter.
-    pub fn add(&mut self, other: &Self) {
+    pub const fn add(&mut self, other: &Self) {
         self.px_cleared += other.px_cleared;
         self.px_blitted += other.px_blitted;
         self.items_walked += other.items_walked;
@@ -215,6 +215,8 @@ pub struct CpuCounterState {
 /// A frame being rendered on this thread: counted from [`Self::begin`] to its drop, where its
 /// counters go to the window. (With the window: `crate::window` is `text_layout`'s.)
 #[cfg(feature = "text_layout")]
+// holds renderer state without a `Debug` of its own
+#[allow(missing_debug_implementations)]
 pub struct FrameScope<'a> {
     window: &'a crate::window::LayoutWindow,
 }

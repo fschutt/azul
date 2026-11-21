@@ -356,6 +356,8 @@ impl ColorInput {
 /// The colour input's DOM in `look`: the swatch (its colour, then the look's
 /// additions when the widget owns its style) with the picker popup as its
 /// transient child.
+// the cast picks the `From<fn pointer>` impl that `set_transient_content` needs: a fn item is another type
+#[allow(trivial_casts)]
 pub(crate) fn build(input: ColorInput, look: &ColorInputLook) -> Dom {
     use azul_core::{
         a11y::{AccessibilityInfo, AccessibilityRole},

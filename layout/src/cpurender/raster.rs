@@ -1509,7 +1509,7 @@ impl ReferenceFrameGroup {
             count(Counter::GroupPx, u64::from(width) * u64::from(height));
             count(
                 Counter::GroupPxPainted,
-                part.map_or(u64::from(width) * u64::from(height), |(x0, y0, x1, y1)| {
+                part.map_or_else(|| u64::from(width) * u64::from(height), |(x0, y0, x1, y1)| {
                     u64::from((x1 - x0) as u32) * u64::from((y1 - y0) as u32)
                 }),
             );
@@ -1865,7 +1865,7 @@ fn walk_uses_grids() -> bool {
     if GRID_OFF.with(std::cell::Cell::get) {
         return false;
     }
-    super::item_grid::grid_is_used()
+    item_grid::grid_is_used()
 }
 
 /// The rect outside which a walk culls every direct child of the level it is entering, in the
@@ -1889,6 +1889,8 @@ fn walk_uses_grids() -> bool {
 ///
 /// Example: a damage rect (40, 200) 100 x 30 at the offset (0, 1500) of a scrolled page, no
 /// shadow: [38.98, 1698.98, 141.02, 1731.02] (g = 1 + 1730 x 1e-5 = 1.02).
+// `!(x > 0.0)` is meant: it holds for NaN too (a NaN size or scale is none)
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn level_cull_rect(
     cull: &WalkCull,
     mask_stack: &[MaskEntry],
@@ -1896,7 +1898,7 @@ fn level_cull_rect(
     scroll_offset: (f32, f32),
     text_shadow_stack: &[StyleBoxShadow],
     dpi_factor: f32,
-) -> Option<(super::item_grid::Box4, bool)> {
+) -> Option<(item_grid::Box4, bool)> {
     // (Tests that paint "unculled" walk every item.)
     if !walk_culls_by_clip() {
         return None;
@@ -1942,6 +1944,8 @@ fn level_cull_rect(
 }
 
 /// Does the walk cull by the clip it paints under (always, outside tests)?
+// Not `const`: the tests' build reads a thread-local, which a `const fn` cannot.
+#[allow(clippy::missing_const_for_fn)]
 fn walk_culls_by_clip() -> bool {
     #[cfg(test)]
     {
@@ -3141,14 +3145,14 @@ pub(crate) fn walk_range(
     // where this walk is in each level it has entered: the children that can paint under its
     // cull there. The walk steps from one of them to the next; everything it visits goes
     // through the tests below as before.
-    let grid = (list.items.len() > super::item_grid::MIN_GRID_CHILDREN && walk_uses_grids())
+    let grid = (list.items.len() > item_grid::MIN_GRID_CHILDREN && walk_uses_grids())
         .then(|| {
             let index = frames.get_or_insert_with(|| list.frame_index());
-            super::item_grid::ItemGrid::of_list(list, index)
+            item_grid::ItemGrid::of_list(list, index)
         })
         .flatten()
         .filter(|grid| grid.has_levels());
-    let mut cursors: Vec<super::item_grid::Cursor> = Vec::new();
+    let mut cursors: Vec<item_grid::Cursor> = Vec::new();
     if let Some(grid) = grid.as_deref() {
         let rect = level_cull_rect(
             &cull,
@@ -3474,7 +3478,7 @@ pub(crate) fn walk_range(
         // (For a text run: its ink as the list knows it, which the `Text` arm checks the
         // backdrop under; the item alone has an estimate.)
         let run_ink = matches!(item, DisplayListItem::Text { .. })
-            .then(|| list.text_ink_at(item_idx).and(list.visual_bounds_of(item_idx)))
+            .then(|| list.text_ink_at(item_idx).and_then(|_| list.visual_bounds_of(item_idx)))
             .flatten();
         let scope_extent = frame.map(|f| f.extent).or(run_ink).or_else(|| {
             matches!(item, DisplayListItem::PushOpacity { .. })
@@ -3528,14 +3532,14 @@ pub(crate) fn walk_range(
 /// picture, the part of the surface a composite of it reads now, the part a walk of it paints
 /// now, and the group it is composited as.
 struct RetainedCandidate {
-    key: super::retained::SurfaceKey,
+    key: retained::SurfaceKey,
     /// Surface px, half-open: what the composite reads (the clip mapped back, and the taps).
     needed: [i32; 4],
     /// Surface px, half-open: what a walk paints (`group_visible_part`).
     part: [i32; 4],
     group: TransformGroup,
     list: std::sync::Arc<DisplayList>,
-    placement: super::retained::Placement,
+    placement: retained::Placement,
     /// (A10-06) The frame the shell shows as a layer, composited by the shell
     /// (`CpuRenderState::promote` without `composite`): the walk paints and keeps its
     /// surface and puts none of it into the pixels below.
@@ -3667,6 +3671,8 @@ fn paint_settings(
 /// pixel centres mapped back, `s = inv(matrix)(d + 0.5) - 0.5`, and reads the texels
 /// `floor(s)` and `floor(s) + 1`, at most one texel outside the clip mapped back.
 #[allow(clippy::too_many_arguments)]
+// the four coordinates are named where they are computed
+#[allow(clippy::tuple_array_conversions)]
 fn retained_candidate(
     list: &DisplayList,
     item: &DisplayListItem,
@@ -3729,7 +3735,7 @@ fn retained_candidate(
         return None;
     }
     let px = u64::from(g.width) * u64::from(g.height);
-    if px < super::retained::MIN_SURFACE_PX || !retained.can_keep((px as usize).saturating_mul(4)) {
+    if px < retained::MIN_SURFACE_PX || !retained.can_keep((px as usize).saturating_mul(4)) {
         return None;
     }
     let size = (g.width, g.height);
@@ -3743,7 +3749,7 @@ fn retained_candidate(
     let list_at = std::sync::Arc::as_ptr(&shared) as usize;
     let values = values_inside(inner, render_state)?;
     Some(RetainedCandidate {
-        key: super::retained::SurfaceKey {
+        key: retained::SurfaceKey {
             list: list_at,
             push: frame.push,
             size,
@@ -3763,7 +3769,7 @@ fn retained_candidate(
         },
         list: shared,
         // What `ReferenceFrameGroup::begin` pushes as the walk's offset inside the group.
-        placement: super::retained::Placement {
+        placement: retained::Placement {
             offset: (
                 scroll_offset.0 + g.x as f32 / dpi_factor,
                 scroll_offset.1 + g.y as f32 / dpi_factor,
@@ -3778,7 +3784,7 @@ fn retained_candidate(
 /// show as a layer of its own: the key of the frame's surface, the part of the surface that
 /// shows, and how the surface lands.
 pub(super) struct LayerCandidate {
-    pub(super) key: super::retained::SurfaceKey,
+    pub(super) key: retained::SurfaceKey,
     /// Surface px, half-open: what shows under the clip, with the taps of a composite.
     pub(super) needed: [i32; 4],
     /// Surface pixel -> device pixel of the frame, a column-vector homography.
@@ -3846,7 +3852,7 @@ pub(super) fn layer_candidate(
 /// "Opacity groups"): the key of the picture, where the group's whole device box lies in the
 /// target, and the part of it this walk blends.
 struct FadeCandidate {
-    key: super::retained::SurfaceKey,
+    key: retained::SurfaceKey,
     /// The device pixel of the target that the kept surface's pixel (0, 0) is: the corner of
     /// the group's whole box.
     origin: (i32, i32),
@@ -3854,12 +3860,12 @@ struct FadeCandidate {
     /// group's push sets aside and its pop blends, of the pixels that exist.
     region: [i32; 4],
     list: std::sync::Arc<DisplayList>,
-    placement: super::retained::Placement,
+    placement: retained::Placement,
 }
 
 impl FadeCandidate {
     /// `region` in the kept surface's own pixels: what a hit reads and what a miss keeps.
-    fn part(&self) -> [i32; 4] {
+    const fn part(&self) -> [i32; 4] {
         let ([x0, y0, x1, y1], (ox, oy)) = (self.region, self.origin);
         [x0 - ox, y0 - oy, x1 - ox, y1 - oy]
     }
@@ -3997,7 +4003,7 @@ fn fade_candidate(
         return None;
     }
     let px = u64::from(width as u32) * u64::from(height as u32);
-    if px < super::retained::MIN_SURFACE_PX || !retained.can_keep_fade((px as usize).saturating_mul(4)) {
+    if px < retained::MIN_SURFACE_PX || !retained.can_keep_fade((px as usize).saturating_mul(4)) {
         return None;
     }
     let region = [
@@ -4013,7 +4019,7 @@ fn fade_candidate(
     let values = values_inside(Some(&scope.inner), render_state)?;
     Some((
         FadeCandidate {
-            key: super::retained::SurfaceKey {
+            key: retained::SurfaceKey {
                 list: std::sync::Arc::as_ptr(&shared) as usize,
                 push,
                 size: (width as u32, height as u32),
@@ -4025,7 +4031,7 @@ fn fade_candidate(
             origin: (ox, oy),
             region,
             list: shared,
-            placement: super::retained::Placement {
+            placement: retained::Placement {
                 offset: (
                     scroll_offset.0 + ox as f32 / dpi_factor,
                     scroll_offset.1 + oy as f32 / dpi_factor,
@@ -4058,7 +4064,7 @@ fn blend_group_pixels(
     let op = (opacity * 255.0).clamp(0.0, 255.0) as u32;
     // `blend_pixel`'s levels, without its work where the group
     // painted nothing or painted opaque.
-    let blender = super::blend::Blender::new(op, blend);
+    let blender = blend::Blender::new(op, blend);
     for py in 0..h as i32 {
         let dy = y + py;
         if dy < 0 || dy >= ph {
@@ -4139,6 +4145,8 @@ impl TurnedMap {
 /// anchor), sharper (outlines turned, not pixels resampled); a halo is no longer cut at the
 /// frame's box.
 #[allow(clippy::too_many_arguments, clippy::too_many_lines, clippy::cast_possible_truncation)]
+// `!(x > 0.0)` is meant: it holds for NaN too (a NaN size or scale is none)
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn paint_turned_text_frame(
     list: &DisplayList,
     item: &DisplayListItem,
@@ -4462,7 +4470,7 @@ fn turned_run_picture(
     dpi_factor: f32,
     font_manager: &FontManager<FontRef>,
     glyph_cache: &mut GlyphCache,
-) -> Option<std::sync::Arc<super::text_halo::CpuHalo>> {
+) -> Option<std::sync::Arc<text_halo::CpuHalo>> {
     use std::hash::{Hash, Hasher};
 
     use super::text_halo::{cpu_halos_are_kept, keep_cpu_halo, kept_cpu_halo, CpuHalo, MAX_CPU_HALO_PIXELS};
@@ -4602,11 +4610,13 @@ const MAX_PATCHED_ITEMS: usize = 64;
 /// Example (scale factor 1, offset (0, 0)): a tile image at (205, 155) 40 x 40 is replaced:
 /// box [203, 153, 247, 197].
 #[allow(clippy::cast_possible_truncation, clippy::too_many_lines)]
+// pixel and geometry math keeps the names of its formulas: x, y, w, h, r, g, b, a
+#[allow(clippy::many_single_char_names)]
 fn stale_boxes(
     old: &DisplayList,
     new: &DisplayList,
-    key: &super::retained::SurfaceKey,
-    placement: &super::retained::Placement,
+    key: &retained::SurfaceKey,
+    placement: &retained::Placement,
     dpi_factor: f32,
     render_state: &CpuRenderState,
 ) -> Option<Vec<[i32; 4]>> {
@@ -4871,6 +4881,8 @@ pub fn refresh_retained_surfaces(
 /// shadow reach 3: painted box (100 - 10 + 30 - 3, 40 - 3) 66 x 26 = x 117 .. 183, y 37 .. 63.
 /// Under a damage rect (0, 0) 110 x 100 it paints nothing; under (0, 0) 120 x 100 it may.
 #[allow(clippy::too_many_arguments)]
+// `!(x > 0.0)` is meant: it holds for NaN too (a NaN size or scale is none)
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn frame_paints_nothing(
     item: &DisplayListItem,
     frame: &crate::solver3::display_list::FrameEntry,
@@ -5345,7 +5357,7 @@ pub fn render_display_list_damaged(
     };
     for sr in &rects {
         // One pass, or bands of rows on a few threads when the rect is large (`bands`).
-        let (painted, skipped) = super::bands::paint_rect(
+        let (painted, skipped) = bands::paint_rect(
             display_list,
             pixmap,
             dpi_factor,
@@ -5413,7 +5425,7 @@ pub fn render_display_list_whole(
     let _p = crate::probe::Probe::span("raster_whole");
     #[allow(clippy::cast_possible_wrap)] // a pixmap's sides
     let sr = SnappedRect::from_physical(0, 0, pixmap.width() as i32, pixmap.height() as i32, dpi_factor);
-    super::bands::paint_rect(
+    bands::paint_rect(
         display_list,
         pixmap,
         dpi_factor,
@@ -6277,7 +6289,7 @@ pub fn render_single_item(
                 .get(child_dom_id)
                 .cloned();
             #[cfg(feature = "std")]
-            if super::compositor::map_debug() {
+            if map_debug() {
                 eprintln!(
                     "[cpu-vview] VirtualView item: child_dom_id={} found={} items={} bounds={:?} \
                      avail_ids={:?}",
@@ -6346,7 +6358,7 @@ pub fn render_single_item(
         DisplayListItem::VirtualViewPlaceholder { .. } =>
         {
             #[cfg(feature = "std")]
-            if super::compositor::map_debug() {
+            if map_debug() {
                 eprintln!(
                     "[cpu-vview] VirtualViewPlaceholder hit (NOT swapped to a VirtualView item — \
                      nothing composites)"
@@ -7030,7 +7042,7 @@ impl From<azul_core::resources::TextAntialiasing> for TextAaSettings {
         };
         Self {
             mode,
-            lcd_blend: (mode != TextAa::Legacy).then(|| agg_rust::pixfmt_lcd::LcdBlendParams {
+            lcd_blend: (mode != TextAa::Legacy).then_some(agg_rust::pixfmt_lcd::LcdBlendParams {
                 contrast: config.lcd_contrast,
                 chroma_limit: config.lcd_chroma_limit,
                 coverage_gamma: config.lcd_coverage_gamma,
@@ -7071,7 +7083,7 @@ impl TextAaSettings {
 
     /// Whether text takes the RGB LCD subpixel path.
     #[must_use]
-    pub fn lcd_enabled(&self) -> bool {
+    pub const fn lcd_enabled(&self) -> bool {
         matches!(self.mode, TextAa::Lcd | TextAa::Legacy)
     }
 
@@ -8392,7 +8404,7 @@ fn render_text_shadow(
         })
         .collect();
     // A halo that was drawn before, at this place or another, is tinted and composited.
-    if super::text_halo::cpu_halos_are_kept()
+    if text_halo::cpu_halos_are_kept()
         && draw_kept_text_shadow(
             &shifted,
             &KeptShadow {
@@ -8547,63 +8559,60 @@ fn draw_kept_text_shadow(
     }
     let key = hasher.finish();
 
-    let halo = match kept_cpu_halo(key) {
-        Some(kept) => kept,
-        None => {
-            // The box the glyphs reach: nothing of the halo lies past it. Its edges are the
-            // whole pixels the key counts (the text paths clip to whole pixels), a pixel wider on
-            // the right and below than `text_shadow_boxes` needs when the clip ends on a pixel.
-            let r = shadow.reach.min(i32::MAX as u32) as i32;
-            let x0 = (source.x.floor() as i32).saturating_sub(r);
-            let y0 = (source.y.floor() as i32).saturating_sub(r);
-            let x1 = ((source.x + source.width).floor() as i32).saturating_add(r + 1);
-            let y1 = ((source.y + source.height).floor() as i32).saturating_add(r + 1);
-            let (width, height) = (i64::from(x1) - i64::from(x0), i64::from(y1) - i64::from(y0));
-            let drawn = if width <= 0
-                || height <= 0
-                || (width * height) as u64 > MAX_CPU_HALO_PIXELS
-            {
-                None
-            } else {
-                crate::cpu_counters::count(crate::cpu_counters::Counter::HalosDrawn, 1);
-                let buffer = PixelBox {
-                    x: x0,
-                    y: y0,
-                    width: width as u32,
-                    height: height as u32,
-                };
-                let run = BufferedRun {
-                    glyphs: shifted,
-                    font_hash: shadow.font_hash,
-                    font_size_px: shadow.font_size_px,
-                    clip_rect: shadow.shadow_clip_rect,
-                    clip: source,
-                };
-                blurred_glyph_coverage(
-                    &[run],
-                    ColorU::WHITE,
-                    buffer,
-                    shadow.radius,
-                    shadow.spread,
-                    renderer_resources,
-                    font_manager,
-                    dpi_factor,
-                    glyph_cache,
-                    scroll_offset,
-                )
-                .map(|(part, coverage)| {
-                    // Kept as the part the halo can paint (A8-29): the rest of the box is clear.
-                    std::sync::Arc::new(CpuHalo {
-                        width: part.width,
-                        height: part.height,
-                        offset: (part.x - anchor.0, part.y - anchor.1),
-                        coverage,
-                    })
-                })
+    let halo = if let Some(kept) = kept_cpu_halo(key) { kept } else {
+        // The box the glyphs reach: nothing of the halo lies past it. Its edges are the
+        // whole pixels the key counts (the text paths clip to whole pixels), a pixel wider on
+        // the right and below than `text_shadow_boxes` needs when the clip ends on a pixel.
+        let r = shadow.reach.min(i32::MAX as u32) as i32;
+        let x0 = (source.x.floor() as i32).saturating_sub(r);
+        let y0 = (source.y.floor() as i32).saturating_sub(r);
+        let x1 = ((source.x + source.width).floor() as i32).saturating_add(r + 1);
+        let y1 = ((source.y + source.height).floor() as i32).saturating_add(r + 1);
+        let (width, height) = (i64::from(x1) - i64::from(x0), i64::from(y1) - i64::from(y0));
+        let drawn = if width <= 0
+            || height <= 0
+            || (width * height) as u64 > MAX_CPU_HALO_PIXELS
+        {
+            None
+        } else {
+            crate::cpu_counters::count(crate::cpu_counters::Counter::HalosDrawn, 1);
+            let buffer = PixelBox {
+                x: x0,
+                y: y0,
+                width: width as u32,
+                height: height as u32,
             };
-            keep_cpu_halo(key, drawn.clone());
-            drawn
-        }
+            let run = BufferedRun {
+                glyphs: shifted,
+                font_hash: shadow.font_hash,
+                font_size_px: shadow.font_size_px,
+                clip_rect: shadow.shadow_clip_rect,
+                clip: source,
+            };
+            blurred_glyph_coverage(
+                &[run],
+                ColorU::WHITE,
+                buffer,
+                shadow.radius,
+                shadow.spread,
+                renderer_resources,
+                font_manager,
+                dpi_factor,
+                glyph_cache,
+                scroll_offset,
+            )
+            .map(|(part, coverage)| {
+                // Kept as the part the halo can paint (A8-29): the rest of the box is clear.
+                std::sync::Arc::new(CpuHalo {
+                    width: part.width,
+                    height: part.height,
+                    offset: (part.x - anchor.0, part.y - anchor.1),
+                    coverage,
+                })
+            })
+        };
+        keep_cpu_halo(key, drawn.clone());
+        drawn
     };
     let Some(halo) = halo else {
         return false;
@@ -9899,7 +9908,7 @@ fn render_border_sides(
             );
         }
         // The rows between the top and the bottom side: none when the two meet.
-        let between = iy as i32 <= (iy + ih) as i32 - 1;
+        let between = (iy as i32) < (iy + ih) as i32;
         // Left: between top and bottom
         if widths[3] > 0.0 && colors[3].a > 0 && between {
             let c = colors[3];
@@ -9981,7 +9990,7 @@ fn render_border_sides(
             colors,
             dashes: [pattern(0, wt), pattern(1, wr), pattern(2, wb), pattern(3, wl)],
         };
-        super::pixmap::agg_fill_spans_clipped(pixmap, &mut ring, FillingRule::EvenOdd, &mut spans, clip);
+        agg_fill_spans_clipped(pixmap, &mut ring, FillingRule::EvenOdd, &mut spans, clip);
     }
 }
 
@@ -10027,9 +10036,9 @@ impl agg_rust::renderer_scanline::SpanGenerator for BorderSideSpans {
             // How deep the pixel is in each side: top, right, bottom, left.
             let depth = [py - oy, ox + ow - px, oy + oh - py, px - ox];
             let mut owner: Option<(usize, f64)> = None;
-            for side in 0..4 {
-                if self.widths[side] > 0.0 {
-                    let d = depth[side] / self.widths[side];
+            for (side, (depth_of_side, width)) in depth.iter().zip(self.widths.iter()).enumerate() {
+                if *width > 0.0 {
+                    let d = depth_of_side / width;
                     if owner.is_none_or(|(_, least)| d < least) {
                         owner = Some((side, d));
                     }

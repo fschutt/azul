@@ -54,6 +54,9 @@
 // flags - the two fight each other (clippy documents the conflict). The crate
 // keeps `unreachable_pub` and `pub(crate)`.
 #![allow(clippy::redundant_pub_crate)]
+// `clippy::cargo` reads the feature names of every package of the workspace and reports them at each
+// crate it checks: `test-support` is azlin-keys' (a lane's crate), not a feature of this crate.
+#![allow(clippy::redundant_feature_names)]
 #![allow(
     // `unknown_lints` lets the two forward-compat lints below be listed even on
     // the CI toolchain (1.90), where they may not be known yet, without emitting an
@@ -66,6 +69,8 @@
     unused_variables,
     unused_mut,
     dead_code,
+    // a doc comment before a macro invocation (`thread_local!` of the tests' counters) is not used by rustdoc:
+    unused_doc_comments,
     // design lint, pervasive across the layout solver / renderer:
     clippy::too_many_arguments,
     // churny / 3rd-party, low value to scope:

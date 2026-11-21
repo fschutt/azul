@@ -561,7 +561,7 @@ fn painted_bounds(
 }
 
 /// No scroll frame has an offset: for a map through reference frames only.
-fn no_scroll(_: DomId, _: NodeId) -> Option<LogicalPosition> {
+const fn no_scroll(_: DomId, _: NodeId) -> Option<LogicalPosition> {
     None
 }
 
@@ -893,7 +893,7 @@ struct LiveValues<'a> {
 }
 
 /// A view's content where its boxes were placed (no move since).
-fn no_view_shift(_: DomId) -> LogicalPosition {
+const fn no_view_shift(_: DomId) -> LogicalPosition {
     LogicalPosition::zero()
 }
 
@@ -1097,7 +1097,7 @@ fn chain_to_local(
 }
 
 #[allow(clippy::cast_possible_truncation)] // a point back in the f32 the boxes are kept in
-fn plane_point(p: PlanePoint) -> LogicalPosition {
+const fn plane_point(p: PlanePoint) -> LogicalPosition {
     LogicalPosition {
         x: p.0 as f32,
         y: p.1 as f32,
@@ -1458,7 +1458,7 @@ fn compute_node_chains(
                 .map_or((0, 0), |p| (with_own[p], depth[p].saturating_add(1)));
             inherited[idx] = above;
             depth[idx] = deep;
-            let is_frame = nodes[idx].dom_node_id.is_some_and(|nid| has_transform(nid));
+            let is_frame = nodes[idx].dom_node_id.is_some_and(has_transform);
             with_own[idx] = if is_frame {
                 match u32::try_from(frames.len()) {
                     Ok(id) => {
@@ -2476,7 +2476,7 @@ impl CpuHitTester {
                 if let Some(owner) = owner {
                     frame_corners
                         .entry(owner)
-                        .or_insert(frame_box.inner().origin);
+                        .or_insert_with(|| frame_box.inner().origin);
                     // The matrix this frame was built with, for the time its
                     // key has no live value (A6-24). The node's OWN frame: the
                     // first it opens, and not the sheen layer a material's

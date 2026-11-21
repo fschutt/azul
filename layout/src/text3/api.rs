@@ -233,7 +233,7 @@ impl TextLayout {
 
     /// How many lines the layout has.
     #[must_use]
-    pub fn line_count(&self) -> usize {
+    pub const fn line_count(&self) -> usize {
         self.lines.len()
     }
 }
@@ -542,7 +542,7 @@ mod tests {
     fn a_text_is_laid_out_glyph_by_glyph_left_to_right() {
         let mono = font(MOCK_MONO_TTF);
         let options = TextLayoutOptions::create(10.0);
-        let layout = layout_text("Ab c", &[mono.clone()], &options).expect("laid out");
+        let layout = layout_text("Ab c", std::slice::from_ref(&mono), &options).expect("laid out");
         assert_eq!(layout.lines.len(), 1);
         let g = glyphs(&layout);
         assert_eq!(g.len(), 4, "{g:?}");
@@ -575,7 +575,7 @@ mod tests {
         // both mocks cover the same letters: everything in the first
         assert_eq!(font_runs(&[mono.clone(), wide.clone()], "ab cd"), vec![(0, 0, 5)]);
         // one font: one run, whatever it lacks
-        assert_eq!(font_runs(&[mono.clone()], "a\u{4E00}"), vec![(0, 0, 4)]);
+        assert_eq!(font_runs(std::slice::from_ref(&mono), "a\u{4E00}"), vec![(0, 0, 4)]);
         // a character neither has: the one that misses the fewest, the first on a tie
         assert_eq!(pick_font(&[mono.clone(), wide.clone()], "\u{4E00}"), 0);
         // laid out in the stack, each glyph carries its font
@@ -604,7 +604,7 @@ mod tests {
     #[test]
     fn a_width_breaks_the_lines_at_spaces() {
         let mono = font(MOCK_MONO_TTF);
-        let one = layout_text("aa bb cc", &[mono.clone()], &TextLayoutOptions::create(10.0)).unwrap();
+        let one = layout_text("aa bb cc", std::slice::from_ref(&mono), &TextLayoutOptions::create(10.0)).unwrap();
         assert_eq!(one.lines.len(), 1);
         let width: f32 = glyphs(&one).iter().map(|g| g.advance).sum();
         let options = TextLayoutOptions {

@@ -67,7 +67,7 @@ fn axis(from: i32, to: i32, scale: f64, shift: f64, extent: i32) -> Vec<Option<(
 
 /// `a` to `b` by `t / 256`, rounded, on the four channels of a packed pixel.
 #[inline]
-fn lerp(a: u32, b: u32, t: u32) -> u32 {
+const fn lerp(a: u32, b: u32, t: u32) -> u32 {
     let rb = ((a & 0x00ff_00ff) * (256 - t) + (b & 0x00ff_00ff) * t + 0x0080_0080) >> 8;
     let ag = ((a >> 8) & 0x00ff_00ff) * (256 - t) + ((b >> 8) & 0x00ff_00ff) * t + 0x0080_0080;
     (rb & 0x00ff_00ff) | (ag & 0xff00_ff00)

@@ -1256,7 +1256,7 @@ pub fn break_one_line<T: ParsedFontTrait>(
                 && cursor
                     .upcoming()
                     .next()
-                    .is_some_and(|item| is_collapsible_whitespace(item))
+                    .is_some_and(is_collapsible_whitespace)
             {
                 cursor.consume(1);
             } else {
@@ -2170,7 +2170,7 @@ pub fn position_one_line_between<T: ParsedFontTrait>(
         constraints.strut_descent,
     );
     let (line_ascent, line_descent) =
-        calculate_line_metrics(&line_items, constraints.vertical_align, constraints, strut);
+        calculate_line_metrics(line_items, constraints.vertical_align, constraints, strut);
     let line_box_height = line_ascent + line_descent;
 
     // The baseline for the entire line is determined by its tallest item.

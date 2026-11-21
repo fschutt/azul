@@ -92,7 +92,7 @@ impl Bound {
         Self::Box([xa.min(xb), ya.min(yb), xa.max(xb), ya.max(yb)])
     }
 
-    fn union(self, other: Self) -> Self {
+    const fn union(self, other: Self) -> Self {
         match (self, other) {
             (Self::Unbounded, _) | (_, Self::Unbounded) => Self::Unbounded,
             (Self::Empty, b) | (b, Self::Empty) => b,
@@ -128,7 +128,7 @@ enum Scope {
 
 /// `Some((scope, true))` for a push, `Some((scope, false))` for a pop, `None` for a leaf: the
 /// items of `DisplayListItem::is_state_management`, and no others.
-fn scope_of(item: &DisplayListItem) -> Option<(Scope, bool)> {
+const fn scope_of(item: &DisplayListItem) -> Option<(Scope, bool)> {
     Some(match item {
         DisplayListItem::PushClip { .. } => (Scope::Clip, true),
         DisplayListItem::PopClip => (Scope::Clip, false),
@@ -452,7 +452,7 @@ impl ItemGrid {
     }
 
     /// Whether any level of the list has a grid.
-    pub(crate) fn has_levels(&self) -> bool {
+    pub(crate) const fn has_levels(&self) -> bool {
         !self.levels.is_empty()
     }
 
@@ -485,6 +485,8 @@ impl ItemGrid {
         self.cursor(level, push + 1, rect)
     }
 
+    // a method like its siblings: the cursor belongs to the grid
+    #[allow(clippy::unused_self)]
     fn cursor(&self, level: &Level, first: usize, rect: Option<(Box4, bool)>) -> Option<Cursor> {
         let (q, by_clip) = rect?;
         Some(Cursor {

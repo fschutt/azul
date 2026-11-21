@@ -307,7 +307,7 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
         ctx.cache_map.column_pages.flows.insert(
             columns.dom_id,
             ColumnFlowRecord {
-                boxes: boxes.clone(),
+                boxes,
                 count: columns.geometry.count,
                 height: plan.height,
                 row_tops: plan.row_tops.clone(),

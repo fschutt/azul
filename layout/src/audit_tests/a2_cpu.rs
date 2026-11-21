@@ -765,7 +765,7 @@ fn random_step(s: &mut Stage, rng: &mut Lcg, badge: bool) -> String {
         }
         1 => {
             // As the editor starts a zoom: the pan goes into the transform (half the time).
-            let back = rng.next() % 2 == 0;
+            let back = rng.next().is_multiple_of(2);
             if back {
                 s.pan(0.0, 0.0);
             }
@@ -811,7 +811,7 @@ fn random_step(s: &mut Stage, rng: &mut Lcg, badge: bool) -> String {
 /// 1e-5 px off blends with weights one step apart (A2-cpu-16). A strip on the wrong side, a
 /// rect that was not repainted or a move by the wrong distance differ by whole colours.
 fn resample_noise(dpi: u32) -> u8 {
-    if dpi % 96 == 0 {
+    if dpi.is_multiple_of(96) {
         0
     } else {
         2

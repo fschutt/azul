@@ -933,6 +933,8 @@ struct A11yRebuild {
 /// 3. Translating `ActionRequest`s from screen readers into synthetic Azul events
 #[cfg(feature = "a11y")]
 #[derive(Debug)]
+// plain flags, set and read one by one: a state enum would not be simpler
+#[allow(clippy::struct_excessive_bools)]
 pub struct A11yManager {
     /// The root node ID of the accessibility tree (represents the window).
     pub root_id: A11yNodeId,

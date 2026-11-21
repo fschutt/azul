@@ -256,6 +256,8 @@ fn checks_interior_reuse() -> bool {
 /// The used size and the offset from its parent of every box below
 /// `node_index`, as bits: what an interior run of the box writes that the
 /// rest of the pass and the display list read.
+// a tuple of this function's own types, spelled once where it is built: a named type would be used once
+#[allow(clippy::type_complexity)]
 fn interior_state(tree: &LayoutTree, node_index: usize) -> Vec<(usize, Option<(u32, u32)>, Option<(u32, u32)>)> {
     let mut state = Vec::new();
     let mut stack: Vec<usize> = tree.children(node_index).to_vec();
@@ -322,6 +324,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
 /// # Panics
 ///
 /// Panics if a resolved offset (`top`/`bottom`) is None where both edges are expected.
+// a tuple of this function's own types, spelled once where it is built: a named type would be used once
+#[allow(clippy::type_complexity)]
 pub fn position_out_of_flow_elements_with_sticky<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &mut LayoutTree,
@@ -580,10 +584,10 @@ pub fn position_out_of_flow_elements_with_sticky<T: ParsedFontTrait>(
                                 ctx,
                                 tree,
                                 calculated_positions,
-                                *scroll_offsets,
+                                scroll_offsets,
                                 viewport,
                                 &boxes_below,
-                                &mut **constraints,
+                                constraints,
                             );
                         }
                     }
@@ -1273,10 +1277,10 @@ pub fn position_out_of_flow_elements_with_sticky<T: ParsedFontTrait>(
                         ctx,
                         tree,
                         calculated_positions,
-                        *scroll_offsets,
+                        scroll_offsets,
                         viewport,
                         &boxes_below,
-                        &mut **constraints,
+                        constraints,
                     );
                 }
             }
@@ -1334,10 +1338,10 @@ pub fn position_out_of_flow_elements_with_sticky<T: ParsedFontTrait>(
                             ctx,
                             tree,
                             calculated_positions,
-                            *scroll_offsets,
+                            scroll_offsets,
                             viewport,
                             &boxes_below,
-                            &mut **constraints,
+                            constraints,
                         );
                     }
                 }
@@ -1832,7 +1836,7 @@ pub fn adjust_relative_positions_of<T: ParsedFontTrait>(
         calculated_positions,
         viewport,
         (0..tree.nodes.len()).filter(|&node_index| {
-            !placed_now.is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false))
+            placed_now.is_none_or(|placed| placed.get(node_index).copied().unwrap_or(false))
         }),
         &mut shifted,
         &mut walk,
@@ -2350,7 +2354,7 @@ pub fn adjust_sticky_positions_of<T: ParsedFontTrait>(
     let mut constraints = Vec::new();
     for node_index in 0..tree.nodes.len() {
         let placed =
-            !placed_now.is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false));
+            placed_now.is_none_or(|placed| placed.get(node_index).copied().unwrap_or(false));
         if let Some(constraint) = shift_if_sticky(
             ctx,
             tree,

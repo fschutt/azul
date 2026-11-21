@@ -1984,24 +1984,24 @@ impl ScrollManager {
     pub fn raise_bars(
         &mut self,
         dom_id: DomId,
-        tree: &mut alloc::sync::Arc<LayoutTree>,
+        tree: &mut Arc<LayoutTree>,
         layout_index: usize,
         reqs: ScrollbarRequirements,
     ) {
-        if let Some(own) = alloc::sync::Arc::get_mut(tree) {
+        if let Some(own) = Arc::get_mut(tree) {
             if let Some(warm) = own.warm_mut(LayoutNodeId::new(layout_index)) {
                 warm.scrollbar_info = Some(reqs);
             }
             return;
         }
         let stands_for_tree = self.raised_bars.get(&dom_id).is_some_and(|raised| {
-            core::ptr::eq(raised.tree.as_ptr(), alloc::sync::Arc::as_ptr(tree))
+            core::ptr::eq(raised.tree.as_ptr(), Arc::as_ptr(tree))
         });
         if !stands_for_tree {
             self.raised_bars.insert(
                 dom_id,
                 RaisedBars {
-                    tree: alloc::sync::Arc::downgrade(tree),
+                    tree: Arc::downgrade(tree),
                     bars: BTreeMap::new(),
                 },
             );
@@ -2044,7 +2044,7 @@ impl ScrollManager {
     /// (`cache::own_mut`): the copy the registration made after every pass,
     /// made now only when such a reader follows the pass. Nothing to do, and
     /// no copy, for a DOM without raised bars.
-    pub fn settle_raised_bars(&mut self, dom_id: DomId, tree: &mut alloc::sync::Arc<LayoutTree>) {
+    pub fn settle_raised_bars(&mut self, dom_id: DomId, tree: &mut Arc<LayoutTree>) {
         let Some(raised) = self.raised_bars.remove(&dom_id) else {
             return;
         };
@@ -2052,7 +2052,7 @@ impl ScrollManager {
             tree: stood_for,
             bars,
         } = raised;
-        let same_tree = core::ptr::eq(stood_for.as_ptr(), alloc::sync::Arc::as_ptr(tree));
+        let same_tree = core::ptr::eq(stood_for.as_ptr(), Arc::as_ptr(tree));
         // The `Weak` goes before the write: a tree the result holds alone is
         // then written in place.
         drop(stood_for);

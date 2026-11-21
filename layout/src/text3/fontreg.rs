@@ -134,6 +134,8 @@ pub fn generation() -> u64 {
 /// cache holds this same allocation too (`FcFont.bytes: Arc<[u8]>`, put there
 /// by [`ensure_in`]); before, each cache held a copy and handing it out copied
 /// it twice more.
+// the guard's borrow is the entry: the value is cloned out before the guard goes
+#[allow(clippy::significant_drop_tightening)]
 pub(crate) fn shared_bytes(id: &FontId) -> Option<Arc<rust_fontconfig::FontBytes>> {
     let faces = FACES.read().ok()?;
     let face = faces.iter().find(|face| face.id == *id)?;

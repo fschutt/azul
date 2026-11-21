@@ -1,6 +1,6 @@
 //! The CPU frame: what every CPU-drawn window of every shell paints and presents.
 //!
-//! `CpuBackend` has a similar *purpose* to the WebRender pipeline (render-api, renderer,
+//! `CpuBackend` has a similar *purpose* to the `WebRender` pipeline (render-api, renderer,
 //! hit-tester) but is fully CPU-based and much simpler. It holds the retained compositor, the
 //! previous frame's lists, offsets and GPU values (everything the frame-to-frame damage diff
 //! needs) and renders the layout window's lists into a pixmap, repainting only what changed.
@@ -27,7 +27,7 @@ use crate::{
 // CpuBackend — replaces WebRender in headless / CPU-only windows
 // ---------------------------------------------------------------------------
 
-/// CPU-based rendering backend that replaces the WebRender pipeline.
+/// CPU-based rendering backend that replaces the `WebRender` pipeline.
 ///
 /// In the GPU path every window holds a `WrRenderApi` (for submitting
 /// display-lists, registering fonts/images), a `webrender::Renderer`
@@ -35,9 +35,9 @@ use crate::{
 /// queries).  `CpuBackend` fills the same role with a much simpler,
 /// fully CPU-based implementation:
 ///
-/// | GPU path               | CpuBackend equivalent                       |
+/// | GPU path               | `CpuBackend` equivalent                       |
 /// |------------------------|---------------------------------------------|
-/// | `WrRenderApi`          | not needed – fonts/images stay in LayoutWindow |
+/// | `WrRenderApi`          | not needed – fonts/images stay in `LayoutWindow` |
 /// | `webrender::Renderer`  | `cpurender::render()` (behind feature gate) |
 /// | `AsyncHitTester`       | `CpuHitTester` (layout-based)               |
 /// | `swapBuffers`          | no-op (or write PNG for screenshots)        |
@@ -63,7 +63,10 @@ use crate::{
 ///   the diff found nothing.
 ///
 /// Pure so the law can be tested without a window.
-pub fn frame_may_reuse_previous_pixels(
+#[must_use] 
+// the flags of one frame, named at the call
+#[allow(clippy::fn_params_excessive_bools)]
+pub const fn frame_may_reuse_previous_pixels(
     needs_resize: bool,
     resize_preserved_pixels: bool,
     clear_color_changed: bool,
@@ -130,6 +133,10 @@ pub fn present_by_moves(
     }
 }
 
+// plain flags, set and read one by one: a state enum would not be simpler
+#[allow(clippy::struct_excessive_bools)]
+// holds renderer state without a `Debug` of its own
+#[allow(missing_debug_implementations)]
 pub struct CpuBackend {
     /// CPU-based hit tester rebuilt after each layout pass.
     pub hit_tester: crate::headless::CpuHitTester,
@@ -173,17 +180,17 @@ pub struct CpuBackend {
     pub shape_from_alpha: bool,
     /// The shape of the last rendered frame when `shape_from_alpha` is on
     /// (`None` otherwise, or before the first frame). Physical pixels.
-    pub last_shape: Option<Vec<crate::cpurender::ShapeRect>>,
+    pub last_shape: Option<Vec<cpurender::ShapeRect>>,
     /// The shape the backend last handed to the OS, so an unchanged frame
     /// shape does not re-issue the (not free) OS call.
-    pub applied_shape: Option<Vec<crate::cpurender::ShapeRect>>,
+    pub applied_shape: Option<Vec<cpurender::ShapeRect>>,
     /// Last rendered pixmap (if CPU rendering is enabled).
     /// `None` when rendering is disabled (layout-only mode).
-    pub last_frame: Option<crate::cpurender::AzulPixmap>,
+    pub last_frame: Option<cpurender::AzulPixmap>,
     /// Retained compositor state with per-layer pixbufs. Made by the first full repaint that
     /// needs layers (`cpurender::full_repaint_needs_layers`), `None` until then and after a
     /// resize.
-    pub compositor: Option<crate::cpurender::CompositorState>,
+    pub compositor: Option<cpurender::CompositorState>,
     /// The frame's size in device pixels at the last `render_frame`, to tell a resize.
     pub last_frame_px: Option<(u32, u32)>,
     /// Glyph cache — persists across frames for text rendering.
@@ -204,7 +211,7 @@ pub struct CpuBackend {
     /// CHANGED on screen and must be blitted/uploaded to the window/GPU. For a
     /// scroll this is the whole shifted clip (the pixels moved), which is LARGER
     /// than the paint damage (the strip). The render-vs-present split (DAMAGE_
-    /// REGION_PLAN): small paint region, larger present region. Equals the paint
+    /// `REGION_PLAN)`: small paint region, larger present region. Equals the paint
     /// damage when nothing was pixel-shifted.
     pub last_present_damage: FrameDamage,
     /// The pixels the most recent `render_frame` MOVED inside the frame instead of painting
@@ -214,7 +221,7 @@ pub struct CpuBackend {
     /// presents `last_present_damage_after_moves`, which wins where it overlaps a `dst`; one
     /// that cannot ignores both and presents `last_present_damage`, which covers the moved
     /// clips whole. Empty for a full repaint and for a frame that moved nothing.
-    pub last_present_moves: Vec<crate::cpurender::PresentMove>,
+    pub last_present_moves: Vec<cpurender::PresentMove>,
     /// What a presenter that applied `last_present_moves` still has to present: the paint
     /// damage (the strips that came into view, what is painted over the moved content, every
     /// other change of the frame) and the boxes of moves that are not reported as moves (the
@@ -222,7 +229,7 @@ pub struct CpuBackend {
     /// 3.5 M px in `last_present_damage`.
     pub last_present_damage_after_moves: FrameDamage,
     /// Arc ptr of the display list the round-3 patch SHIFT was last applied
-    /// for. A buffers-held retry re-runs render_frame with the SAME list —
+    /// for. A buffers-held retry re-runs `render_frame` with the SAME list —
     /// re-applying the memmove would double-shift the retained pixels, so
     /// the hint is gated on ptr inequality (the retry then takes the plain
     /// diff, which damages the movers normally).
@@ -240,13 +247,13 @@ pub struct CpuBackend {
     /// call (dangle guard — the mapping dies with the pool). Consumed by
     /// `render_frame`; `last_frame` stays `None` afterwards. Never set in
     /// headless/e2e runs.
-    pub native_target: Option<crate::cpurender::AzulPixmap>,
+    pub native_target: Option<cpurender::AzulPixmap>,
     /// True when the LAST `render_frame` drew into a `native_target` — the
     /// shell branches its present on this (the pixels are already in the
     /// platform buffer; there is nothing to copy).
     pub rendered_native: bool,
     /// #32: the armed native target is a POOL-ORDER (B,G,R,A) buffer — an
-    /// ARGB8888 wl_shm slot whose commit swizzles the damage rects. In-target
+    /// ARGB8888 `wl_shm` slot whose commit swizzles the damage rects. In-target
     /// pixel moves (scroll shift, patch blit) must convert the moved block
     /// back to renderer order or the commit swizzle double-converts it
     /// (R/B-swapped scrolled content on the glass). Set by the shell at every
@@ -271,18 +278,18 @@ pub struct CpuBackend {
     /// sets it at every arming; it stays 0 on every shell whose buffer rows
     /// are tight. Only read while a target is armed.
     pub native_target_row_padding_px: u32,
-    /// Scroll offsets from the previous frame (scroll_id → (x,y)). Used to detect
+    /// Scroll offsets from the previous frame (`scroll_id` → (x,y)). Used to detect
     /// scroll-offset changes and damage the affected frame's viewport so its
     /// content re-renders at the new offset (#13 — the display list is unchanged
     /// on scroll, so the diff alone only catches the scrollbar).
-    pub previous_scroll_offsets: crate::cpurender::ScrollOffsetMap,
+    pub previous_scroll_offsets: cpurender::ScrollOffsetMap,
     /// Previous frame's `VirtualView` child-DOM display lists (keyed by child
     /// `DomId`). The parent display list's `VirtualView` item is unchanged when
     /// only the child re-renders (async tile writeback, etc.), so the parent-DL
     /// diff can't see it. Comparing child DLs frame-to-frame lets `render_frame`
-    /// damage the VirtualView region when its content changed — otherwise the
-    /// "nothing changed → skip" path freezes async VirtualView content. Without
-    /// this, the MapWidget showed only the placeholder grid on backends (Wayland)
+    /// damage the `VirtualView` region when its content changed — otherwise the
+    /// "nothing changed → skip" path freezes async `VirtualView` content. Without
+    /// this, the `MapWidget` showed only the placeholder grid on backends (Wayland)
     /// that don't get spurious WM expose events to force a full repaint.
     pub previous_vview_dls: BTreeMap<
         azul_core::dom::DomId,
@@ -295,7 +302,7 @@ pub struct CpuBackend {
     /// diff can't see them change. The values of EVERY DOM of the window: a node
     /// inside a `VirtualView` binds its key in the view's own cache, and a write
     /// of the value alone moves it there without a new list.
-    pub previous_gpu_values: crate::cpurender::WindowGpuValues,
+    pub previous_gpu_values: cpurender::WindowGpuValues,
     /// The write generation of the window's GPU values (`GpuStateManager::value_generation`)
     /// that `previous_gpu_values` was collected at; `None` while the backend holds no values
     /// it could use again (before its first frame, and while a frame's render state has
@@ -308,7 +315,7 @@ pub struct CpuBackend {
     /// The group surfaces kept between frames (`cpurender::retained`): the picture of a turned
     /// or scaled reference frame whose content did not change is composited again instead of
     /// painted again. Handed to every incremental frame's render state.
-    pub retained_frames: Arc<crate::cpurender::RetainedFrames>,
+    pub retained_frames: Arc<cpurender::RetainedFrames>,
     /// (A10-06) The shell composites layers and asks for the layer present
     /// (`cpurender::present_layer`): the picture of one reference frame of the window (the
     /// largest whose picture can be kept, a map view's) is not painted into the window's
@@ -319,10 +326,10 @@ pub struct CpuBackend {
     /// (A10-06) The layer the frame on screen is shown with, `None` when no frame is
     /// promoted: the window's frame alone is the picture then. A call that paints nothing
     /// because nothing changed leaves it as it is.
-    pub last_present_layer: Option<crate::cpurender::present_layer::PresentLayer>,
+    pub last_present_layer: Option<cpurender::present_layer::PresentLayer>,
     /// (A10-06) The plan `last_present_layer` was painted with: what the next frame is
     /// compared with (does the promotion start, stop, or go on), and the key of the surface.
-    pub promoted: Option<crate::cpurender::present_layer::LayerPlan>,
+    pub promoted: Option<cpurender::present_layer::LayerPlan>,
     /// (A10-06) Frames to pass before a frame is promoted again, after a promoted frame's
     /// surface was not complete when its frame was painted.
     pub present_layer_backoff: u32,
@@ -349,6 +356,7 @@ impl CpuBackend {
     /// `AppConfig::create` read from the environment once). `new()` is the
     /// backend of a window that belongs to no app - a test, a tool - and
     /// keeps the platform's default.
+    #[must_use] 
     pub fn for_config(config: &azul_core::resources::AppConfig) -> Self {
         #[allow(unused_mut)]
         let mut backend = Self::new();
@@ -358,6 +366,7 @@ impl CpuBackend {
         backend
     }
 
+    #[must_use] 
     pub fn new() -> Self {
         Self {
             hit_tester: crate::headless::CpuHitTester::new(),
@@ -386,12 +395,12 @@ impl CpuBackend {
             native_target_pool_order: false,
             native_target_holds_previous_frame: false,
             native_target_row_padding_px: 0,
-            previous_scroll_offsets: crate::cpurender::ScrollOffsetMap::new(),
+            previous_scroll_offsets: cpurender::ScrollOffsetMap::new(),
             previous_vview_dls: BTreeMap::new(),
-            previous_gpu_values: crate::cpurender::WindowGpuValues::default(),
+            previous_gpu_values: cpurender::WindowGpuValues::default(),
             previous_gpu_values_generation: None,
             previous_zombie_rects: Vec::new(),
-            retained_frames: Arc::new(crate::cpurender::RetainedFrames::new()),
+            retained_frames: Arc::new(cpurender::RetainedFrames::new()),
             promote_for_present: false,
             last_present_layer: None,
             promoted: None,
@@ -408,7 +417,7 @@ impl CpuBackend {
     /// its picture once, a repaint draws the halos and turned labels it shows.
     pub fn release_caches(&mut self) {
         self.retained_frames.clear();
-        crate::cpurender::release_cpu_halos();
+        cpurender::release_cpu_halos();
         self.compositor = None;
         // (A10-06) A promoted frame's picture was in the kept surface alone: not in the
         // window's frame. The next frame is painted in full (and is never skipped as idle),
@@ -425,7 +434,7 @@ impl CpuBackend {
     /// call (a surface held elsewhere is replaced, not completed, by the next part painted).
     pub fn with_present_layer_surface<R>(
         &self,
-        read: impl FnOnce(&crate::cpurender::AzulPixmap) -> R,
+        read: impl FnOnce(&cpurender::AzulPixmap) -> R,
     ) -> Option<R> {
         self.last_present_layer.as_ref()?;
         let plan = self.promoted.as_ref()?;
@@ -436,7 +445,7 @@ impl CpuBackend {
     /// Read the window's transparency / shape flags off the window state
     /// before a frame: what the frame is cleared to, and whether its shape
     /// is computed. Every backend's CPU present calls this first.
-    pub fn sync_window_flags(&mut self, state: &FullWindowState) {
+    pub const fn sync_window_flags(&mut self, state: &FullWindowState) {
         self.transparent = !matches!(
             state.flags.background_material,
             azul_core::window::WindowBackgroundMaterial::Opaque
@@ -447,7 +456,7 @@ impl CpuBackend {
     /// After a present: the frame's shape if it differs from the one the
     /// OS has (recorded as applied). `None` = nothing to do. A frame that
     /// painted nothing opaque keeps the OS shape (the window does not vanish).
-    pub fn take_changed_shape(&mut self) -> Option<Vec<crate::cpurender::ShapeRect>> {
+    pub fn take_changed_shape(&mut self) -> Option<Vec<cpurender::ShapeRect>> {
         let shape = self.last_shape.as_ref()?;
         if shape.is_empty() || self.applied_shape.as_ref() == Some(shape) {
             return None;
@@ -500,15 +509,12 @@ impl CpuBackend {
 
         // Get the layout result from layout results
         let dom_id = DomId { inner: 0 };
-        let result = match layout_window.layout_results.get(&dom_id) {
-            Some(result) => result,
-            None => {
-                self.last_frame_damage = FrameDamage::None;
-                self.last_present_damage = FrameDamage::None;
-                self.last_present_moves.clear();
-                self.last_present_damage_after_moves = FrameDamage::None;
-                return Vec::new();
-            }
+        let Some(result) = layout_window.layout_results.get(&dom_id) else {
+            self.last_frame_damage = FrameDamage::None;
+            self.last_present_damage = FrameDamage::None;
+            self.last_present_moves.clear();
+            self.last_present_damage_after_moves = FrameDamage::None;
+            return Vec::new();
         };
         let display_list = &result.display_list;
 
@@ -1192,18 +1198,18 @@ impl CpuBackend {
         if self.promote_for_present {
             if self.present_layer_backoff > 0 {
                 self.present_layer_backoff -= 1;
-            } else if !self.transparent
+            } else if !(self.transparent
                 // A resize and a change of the scale factor go through the window's frame
                 // alone (the first frame of a window is no resize).
-                && !(needs_resize && old_pw > 0 && old_ph > 0)
-                && !dpi_changed
+                || (needs_resize && old_pw > 0 && old_ph > 0)
+                || dpi_changed
                 // The layered compositor paints its own way.
-                && !cpurender::full_repaint_needs_layers(display_list)
-                && !self
+                || cpurender::full_repaint_needs_layers(display_list)
+                || self
                     .previous_display_list
                     .as_deref()
                     .is_some_and(cpurender::full_repaint_needs_layers)
-                && !std::env::var("AZ_CPU_FULL").is_ok_and(|v| v == "layers")
+                || std::env::var("AZ_CPU_FULL").is_ok_and(|v| v == "layers"))
             {
                 // The state the frame is painted with (the offsets, the values, the lists),
                 // for the plan and for the repair of kept surfaces whose list was replaced:
@@ -1335,20 +1341,17 @@ impl CpuBackend {
                     p.resize_reuse(pixel_w, pixel_h, 255, 255, 255, 255);
                     p
                 }
-                None => match cpurender::AzulPixmap::new(pixel_w, pixel_h) {
-                    Some(mut p) => {
-                        p.fill(255, 255, 255, 255);
-                        p
-                    }
-                    None => {
-                        // Same contract as the early returns at the top: a call
-                        // that produced no frame must not leave stale damage.
-                        self.last_frame_damage = FrameDamage::None;
-                        self.last_present_damage = FrameDamage::None;
-                        self.last_present_moves.clear();
-                        self.last_present_damage_after_moves = FrameDamage::None;
-                        return Vec::new();
-                    }
+                None => if let Some(mut p) = cpurender::AzulPixmap::new(pixel_w, pixel_h) {
+                    p.fill(255, 255, 255, 255);
+                    p
+                } else {
+                    // Same contract as the early returns at the top: a call
+                    // that produced no frame must not leave stale damage.
+                    self.last_frame_damage = FrameDamage::None;
+                    self.last_present_damage = FrameDamage::None;
+                    self.last_present_moves.clear();
+                    self.last_present_damage_after_moves = FrameDamage::None;
+                    return Vec::new();
                 },
             },
         };
@@ -1522,8 +1525,7 @@ impl CpuBackend {
                 .map(|k| k.inner)
                 .collect();
             eprintln!(
-                "[cpu-vview] render_frame: layout_results ids={:?}, vview_dls (id,items)={:?}",
-                all_ids, summary
+                "[cpu-vview] render_frame: layout_results ids={all_ids:?}, vview_dls (id,items)={summary:?}"
             );
             // Item-kind census of the ROOT display list being rendered + whether
             // the maps header's #2b2b2b background rect made it in.
@@ -1533,7 +1535,7 @@ impl CpuBackend {
             let mut vviews = 0;
             let mut other = 0;
             let mut dark_rect = false;
-            for it in display_list.items.iter() {
+            for it in &display_list.items {
                 match it {
                     I::Rect { color, .. } => {
                         rects += 1;
@@ -1578,7 +1580,7 @@ impl CpuBackend {
                         }
                         other => {
                             // Debug-print the variant; truncate to keep one line.
-                            let s = format!("{:?}", other);
+                            let s = format!("{other:?}");
                             s.chars().take(110).collect::<String>()
                         }
                     };
@@ -1809,8 +1811,8 @@ impl CpuBackend {
             static DL_N: AtomicUsize = AtomicUsize::new(0);
             let n = DL_N.fetch_add(1, Ordering::Relaxed);
             if n < 8 {
-                let _ = std::fs::create_dir_all(&dir);
-                let _ = std::fs::write(
+                let _unused = std::fs::create_dir_all(dir);
+                let _unused = std::fs::write(
                     format!("{dir}/dl_{n:03}.json"),
                     display_list.to_debug_json(),
                 );
@@ -1826,8 +1828,8 @@ impl CpuBackend {
             let n = FRAME_N.fetch_add(1, Ordering::Relaxed);
             if n < 40 {
                 if let Ok(bytes) = output.encode_png() {
-                    let _ = std::fs::create_dir_all(&dir);
-                    let _ = std::fs::write(
+                    let _unused = std::fs::create_dir_all(dir);
+                    let _unused = std::fs::write(
                         format!(
                             "{}/frame_{:03}_{}.png",
                             dir,

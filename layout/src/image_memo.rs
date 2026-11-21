@@ -66,7 +66,7 @@ impl<K: Hash + Eq + Copy, V: Clone> ImageMemo<K, V> {
     /// passes the reading at the start of the frame before the one it paints: a frame that
     /// uses more pictures than the bound holds must not drop, while it paints, the pictures
     /// it or the frame before used (it would draw each again on every frame). `None` lifts it.
-    pub fn keep_used_since(&mut self, since: Option<u64>) {
+    pub const fn keep_used_since(&mut self, since: Option<u64>) {
         self.keep_since = since;
     }
 

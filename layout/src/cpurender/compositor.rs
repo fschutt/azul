@@ -735,7 +735,7 @@ impl CompositorState {
                     // `opacity()` ... and no blur sent the full repaint here
                     // (`full_repaint_needs_layers`), got no layer and was painted
                     // unfiltered (A1-38).
-                    let needs_layer = super::raster::filters_need_a_layer(filters);
+                    let needs_layer = filters_need_a_layer(filters);
                     let (pw, ph) = if needs_layer {
                         layer_pixel_size(bounds.inner().size, dpi_factor, node_of(display_list, i))
                     } else {
@@ -3781,7 +3781,7 @@ pub fn execute_virtual_view_shift(
 
 /// An item that has bounds and paints nothing: no overlay to repaint after a move of the
 /// pixels under it (A2-cpu-19: a hit-test area over a view made every pan repaint the view).
-fn paints_nothing(item: &DisplayListItem) -> bool {
+const fn paints_nothing(item: &DisplayListItem) -> bool {
     matches!(
         item,
         DisplayListItem::HitTestArea { .. }
@@ -4476,7 +4476,7 @@ fn render_display_list_range(
             // with the frames inside it where their live matrices paint them, as the flat
             // walk takes it (A1-60).
             if matches!(item, DisplayListItem::Text { .. }) {
-                display_list.text_ink_at(i).and(display_list.visual_bounds_of(i))
+                display_list.text_ink_at(i).and_then(|_| display_list.visual_bounds_of(i))
             } else {
                 display_list
                     .frame_index()
@@ -4955,7 +4955,7 @@ fn inside_within_half_a_pixel(outer: &LogicalRect, r: &LogicalRect) -> bool {
 }
 
 /// Does `it` paint (for [`PaintedOverMovers`]: no state item, no hit-test area)?
-fn paints_for_a_mover(it: &DisplayListItem) -> bool {
+const fn paints_for_a_mover(it: &DisplayListItem) -> bool {
     !it.is_state_management() && !matches!(it, DisplayListItem::HitTestArea { .. })
 }
 
@@ -5280,7 +5280,7 @@ fn windowed_structural_damage(
     for item in &n[..prefix] {
         match item {
             DisplayListItem::PushTextShadow { shadow } => {
-                open_shadows.push(super::raster::text_shadow_reach(core::slice::from_ref(shadow)));
+                open_shadows.push(text_shadow_reach(core::slice::from_ref(shadow)));
             }
             DisplayListItem::PopTextShadow => {
                 open_shadows.pop();
@@ -5755,8 +5755,8 @@ fn compute_display_list_damage_impl(
                 DisplayListItem::PushTextShadow { shadow: new_shadow },
             ) => {
                 shadows.push((
-                    super::raster::text_shadow_reach(core::slice::from_ref(old_shadow)),
-                    super::raster::text_shadow_reach(core::slice::from_ref(new_shadow)),
+                    text_shadow_reach(core::slice::from_ref(old_shadow)),
+                    text_shadow_reach(core::slice::from_ref(new_shadow)),
                     old_shadow != new_shadow,
                 ));
                 continue;

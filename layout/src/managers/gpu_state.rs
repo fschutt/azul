@@ -103,7 +103,7 @@ pub struct GpuValueSource {
     /// caches were read, and the lists whose keys the values are bound by.
     /// Weak: it keeps the allocation, so a list built later never has the
     /// address of one of these.
-    lists: alloc::vec::Vec<(
+    lists: Vec<(
         DomId,
         alloc::sync::Weak<crate::solver3::display_list::DisplayList>,
     )>,
@@ -1159,16 +1159,13 @@ impl crate::managers::NodeIdRemap for GpuStateManager {
         // The view's zoom frame names its node too (audit A4-29): it follows
         // the node, and goes with it (the list that held it is built again).
         if let Some(node) = self.zoom_frames.get(&dom).map(|zoom| zoom.node) {
-            match map.resolve(node) {
-                Some(now) => {
-                    if let Some(zoom) = self.zoom_frames.get_mut(&dom) {
-                        zoom.node = now;
-                    }
+            if let Some(now) = map.resolve(node) {
+                if let Some(zoom) = self.zoom_frames.get_mut(&dom) {
+                    zoom.node = now;
                 }
-                None => {
-                    let _ = self.zoom_frames.remove(&dom);
-                    self.zoom_gesture_running = self.zoom_frames.values().any(|zoom| zoom.zooming);
-                }
+            } else {
+                let _ = self.zoom_frames.remove(&dom);
+                self.zoom_gesture_running = self.zoom_frames.values().any(|zoom| zoom.zooming);
             }
         }
         let Some(cache) = self.caches.get_mut(&dom) else {

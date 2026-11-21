@@ -277,7 +277,7 @@ impl GlyphCache {
     /// until the owner of the render target says otherwise: the renderer reads
     /// no environment variable for it.
     #[must_use]
-    pub fn text_aa(&self) -> crate::cpurender::TextAaSettings {
+    pub const fn text_aa(&self) -> crate::cpurender::TextAaSettings {
         self.text_aa
     }
 

@@ -29,6 +29,8 @@
 //! now, as a copied run does (`try_copy_cached_run`); a run without one keeps none, which
 //! every renderer paints correctly (the proof is only a faster path).
 
+// A part of the module above, split out of it: it takes the names of that module, and its tests take more of them.
+#[allow(clippy::wildcard_imports)]
 use super::*;
 
 /// How many boxes below a restyled node are looked at for the text runs whose proven

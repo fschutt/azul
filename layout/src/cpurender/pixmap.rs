@@ -1988,6 +1988,8 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
 /// Take a snapshot of a rectangular region of the pixmap.
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 #[must_use]
+// pixel and geometry math keeps the names of its formulas: x, y, w, h, r, g, b, a
+#[allow(clippy::many_single_char_names)]
 pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
     let mut snap = vec![0u8; (w as usize) * (h as usize) * 4];
     // Row by row, the columns that lie on the pixmap as one copy: every pixel was tested
@@ -2017,6 +2019,8 @@ pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> V
 /// `backdrop-filter`.
 // bounded image-dimension / non-negative-loop-index coordinate casts
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
+// pixel and geometry math keeps the names of its formulas: x, y, w, h, r, g, b, a
+#[allow(clippy::many_single_char_names)]
 pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y: i32) {
     // A side that does not fit an `i32` writes nothing, as the per-pixel loops this replaced
     // did (their `0..w as i32` was an empty range then): no source is 2^31 px wide, and the
@@ -4710,7 +4714,7 @@ mod audit_a1_tests {
             for sy in 0..5_i32 {
                 for sx in 0..6_i32 {
                     let (dx, dy) = (px_x.saturating_add(sx), px_y.saturating_add(sy));
-                    if dx < 0 || dx >= 9 || dy < 0 || dy >= 7 {
+                    if !(0..9).contains(&dx) || !(0..7).contains(&dy) {
                         continue;
                     }
                     if clip.is_some_and(|(cx0, cy0, cx1, cy1)| dx < cx0 || dx >= cx1 || dy < cy0 || dy >= cy1) {

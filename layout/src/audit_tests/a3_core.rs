@@ -588,6 +588,8 @@ fn a11y_pass(
 /// An update as something two managers can be compared by: whole tree or patch, the focus, and
 /// every node with its id, sorted.
 #[cfg(feature = "a11y")]
+// a test helper's own tuple, spelled once where it is built
+#[allow(clippy::type_complexity)]
 fn a11y_update_key(update: Option<&accesskit::TreeUpdate>) -> Option<(bool, u64, Vec<(u64, accesskit::Node)>)> {
     update.map(|update| {
         let mut nodes: Vec<(u64, accesskit::Node)> =
@@ -908,6 +910,8 @@ fn a_dom_that_declares_no_zoom_ratio_alignment_or_transform_is_not_asked_for_the
 /// `node_patch::plan_one` to ask about it (its `content_follows`), or a hover colour is
 /// inserted at the wrong place.
 #[test]
+// the index addresses more than one list and is the number the failure message names
+#[allow(clippy::needless_range_loop)]
 fn between_a_boxes_background_run_and_its_content_run_a_build_emits_only_what_the_patch_asks_about()
 {
     let label = |css: &str| Dom::create_span_with_text("label").with_css(css);

@@ -39,7 +39,7 @@ extern "C" fn watched_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> 
         .downcast_ref::<Watched>()
         .map(|watched| watched.0.fetch_add(1, Ordering::SeqCst))
         .expect("the view's data");
-    let colour = if call % 2 == 0 { "#ff0000" } else { "#00ff00" };
+    let colour = if call.is_multiple_of(2) { "#ff0000" } else { "#00ff00" };
     let mut watched = Dom::create_div()
         .with_css("position: absolute; left: 10px; top: 80px; width: 20px; height: 20px;");
     watched.add_callback(
@@ -2733,8 +2733,8 @@ fn a_move_of_a_drag(
         dom: child,
         node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(DRAGGED))),
     };
-    drop(write_label(&mut lw, child, 175.0, 31.0, 12.0));
-    drop(write_label(&mut lw, child, 178.0, 33.0, 12.0));
+    let _ = write_label(&mut lw, child, 175.0, 31.0, 12.0);
+    let _ = write_label(&mut lw, child, 178.0, 33.0, 12.0);
     let before = lw.get_node_position(id).expect("the label is laid out");
     lw.frame_report.reset_counters();
     MOVED_BOXES.with(|boxes| boxes.set(0));
@@ -2767,8 +2767,8 @@ fn a_move_of_a_label_drag_looks_at_that_label_alone() {
         assert_eq!(passes, 0, "{count} labels: no layout pass");
         assert_eq!(builds, 0, "{count} labels: no list build");
         assert_eq!(moved, (3.0, 3.0), "{count} labels: left 178 -> 181, top 33 -> 36");
-        assert!(boxes >= 1 && boxes <= 4, "{count} labels: the label's boxes, {boxes}");
-        assert!(items >= 2 && items <= 64, "{count} labels: the label's items, {items}");
+        assert!((1..=4).contains(&boxes), "{count} labels: the label's boxes, {boxes}");
+        assert!((2..=64).contains(&items), "{count} labels: the label's items, {items}");
     }
     assert_eq!(small.0, large.0, "the boxes looked at do not grow with the view");
     assert_eq!(small.1, large.1, "the items looked at do not grow with the view");
@@ -2839,8 +2839,8 @@ fn same_lists(got: &DisplayList, want: &DisplayList) -> Result<(), String> {
 #[test]
 fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
     let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
-    drop(write_label(&mut lw, child, 175.0, 31.0, 12.0));
-    drop(write_label(&mut lw, child, 178.0, 33.0, 12.0));
+    let _ = write_label(&mut lw, child, 175.0, 31.0, 12.0);
+    let _ = write_label(&mut lw, child, 178.0, 33.0, 12.0);
     assert_eq!(
         write_label(&mut lw, child, 181.5, 36.25, 12.0),
         crate::overlay::ContentDirtyTier::Paint,
@@ -3349,8 +3349,8 @@ fn a_dragged_box_that_holds_a_float_stands_as_a_fresh_layout_puts_it() {
     };
 
     let (mut lw, child) = float_box_window(150.0, 40.0, 60.0);
-    drop(write(&mut lw, child, 175.0, 61.0));
-    drop(write(&mut lw, child, 178.0, 63.0));
+    let _ = write(&mut lw, child, 175.0, 61.0);
+    let _ = write(&mut lw, child, 178.0, 63.0);
     assert_eq!(
         write(&mut lw, child, 181.5, 66.25),
         ContentDirtyTier::Paint,
@@ -3405,7 +3405,7 @@ fn a_dragged_box_that_holds_a_float_stands_as_a_fresh_layout_puts_it() {
 #[test]
 fn a_label_turned_where_it_lies_is_a_value_and_no_list() {
     let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
-    drop(write_label(&mut lw, child, 150.0, 10.0, 20.0));
+    let _ = write_label(&mut lw, child, 150.0, 10.0, 20.0);
     let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
     lw.frame_report.reset_counters();
     assert_eq!(
@@ -3494,12 +3494,12 @@ fn clearing_an_override_the_own_style_states_too_rebuilds_no_cascade() {
     };
 
     // The gesture: the widget writes the transform (inline style and override).
-    drop(lw.apply_content_change(ContentChange::NodeCss {
+    let _ = lw.apply_content_change(ContentChange::NodeCss {
         dom_id: root,
         node_id: node,
         props: vec![moved],
         override_only: false,
-    }));
+    });
     assert!(pinned(&lw), "harness: the write pinned its value");
     let shown = published(&lw);
 
@@ -3564,7 +3564,7 @@ fn a_patched_frame_of_a_colour_fade_copies_no_list() {
     )
     .expect("the page lays out");
     let (root, node) = (DomId::ROOT_ID, NodeId::new(1));
-    drop(lw.apply_content_change(ContentChange::NodeCss {
+    let _ = lw.apply_content_change(ContentChange::NodeCss {
         dom_id: root,
         node_id: node,
         props: vec![CssProperty::border_top_color(StyleBorderTopColor {
@@ -3576,7 +3576,7 @@ fn a_patched_frame_of_a_colour_fade_copies_no_list() {
             },
         })],
         override_only: false,
-    }));
+    });
     assert!(
         lw.css_transitions
             .iter()

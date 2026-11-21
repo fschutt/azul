@@ -5482,7 +5482,7 @@ impl CallbackInfo {
                 .map(|(id, r)| (*id, r.display_list.clone()))
                 .collect();
 
-        let render_state = CpuRenderState::new(scroll_offsets.clone())
+        let render_state = CpuRenderState::new(scroll_offsets)
             .with_gpu_values(crate::cpurender::WindowGpuValues::of_doms(
                 &layout_window.gpu_state_manager,
                 layout_window.layout_results.keys().copied(),
@@ -11088,15 +11088,15 @@ thread_local! {
 /// A6-18b): the markers of those nodes are compared, where every node of the
 /// DOM was asked for its marker (12,500 labels for the map's two marked nodes).
 pub(crate) fn node_by_marker(
-    styled_dom: &azul_core::styled_dom::StyledDom,
+    styled_dom: &StyledDom,
     want: &str,
-) -> Option<azul_core::dom::NodeId> {
+) -> Option<NodeId> {
     let nodes = styled_dom.node_data.as_container();
     styled_dom
         .nodes_with_markers
         .as_ref()
         .iter()
-        .filter_map(|id| id.into_crate_internal())
+        .filter_map(NodeHierarchyItemId::into_crate_internal)
         .find(|node| {
             #[cfg(test)]
             MARKERS_COMPARED.with(|compared| compared.set(compared.get() + 1));

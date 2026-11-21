@@ -310,7 +310,7 @@ struct IfcMeasureKey {
 }
 
 impl IfcMeasureKey {
-    fn of(constraints: &UnifiedConstraints) -> Self {
+    const fn of(constraints: &UnifiedConstraints) -> Self {
         Self {
             white_space_mode: constraints.white_space_mode,
             text_indent_bits: constraints.text_indent.to_bits(),
@@ -351,7 +351,7 @@ pub(crate) fn compute_dirty_ancestor_closure(
 /// each of its ancestors - as one flag per layout node.
 ///
 /// The intrinsic pass asks for every node it visits whether it is in the
-/// set, and the set was a `HashSet<usize>`: a SipHash per member to build it
+/// set, and the set was a `HashSet<usize>`: a `SipHash` per member to build it
 /// and one per visited node to ask it, on every pass. A flag is an index.
 /// The members are the same: [`Self::walk`] is that function's walk, and
 /// [`Self::insert`] answers as `HashSet::insert` does.
@@ -1755,7 +1755,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // state; it was a cascade lookup per flex container.
             !matches!(
                 crate::solver3::getters::get_wrap(self.ctx.styled_dom, dom_id, node_state),
-                crate::solver3::getters::MultiValue::Exact(
+                MultiValue::Exact(
                     LayoutFlexWrap::Wrap | LayoutFlexWrap::WrapReverse
                 )
             )

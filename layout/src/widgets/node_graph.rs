@@ -3009,12 +3009,12 @@ fn render_node(
 ///
 /// A key is known DOM-wide: two graphs in one DOM whose node ids overlap
 /// share keys and are matched in document order.
-fn node_key(node_id: NodeGraphNodeId) -> (&'static str, u64) {
+const fn node_key(node_id: NodeGraphNodeId) -> (&'static str, u64) {
     ("azul-nodegraph-node", node_id.inner)
 }
 
 /// As [`node_key`], for the DOM of a connection: its two ports.
-fn connection_key(connection: &ConnectionLocalDataset) -> (&'static str, u64, usize, u64, usize) {
+const fn connection_key(connection: &ConnectionLocalDataset) -> (&'static str, u64, usize, u64, usize) {
     (
         "azul-nodegraph-connection",
         connection.out_node_id.inner,
@@ -3580,7 +3580,7 @@ fn pan_mode() -> PanMode {
 
 /// The part of the graph's offset a node box or a wire carries in its own
 /// `transform`: all of it, or none when the containers carry it.
-fn offset_in_boxes(graph: &NodeGraph, pan: PanMode) -> (f32, f32) {
+const fn offset_in_boxes(graph: &NodeGraph, pan: PanMode) -> (f32, f32) {
     match pan {
         PanMode::Nodes => (graph.offset.x, graph.offset.y),
         PanMode::Containers => (0.0, 0.0),
@@ -8779,7 +8779,7 @@ mod audit_a3_solver_tests {
                 transform_of(of_nodes),
                 transform_of(&of_nodes.children.as_ref()[0].children.as_ref()[0]),
                 transform_of(&of_wires.children.as_ref()[0].children.as_ref()[0])
-                    .map(|list| list[0].clone()),
+                    .map(|list| list[0]),
             )
         };
         assert_eq!(

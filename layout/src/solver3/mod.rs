@@ -357,7 +357,7 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub content_overlay: Option<&'a crate::overlay::ContentOverlay>,
     /// System style containing colors, fonts, metrics, and theme information.
     /// Used for selection colors, caret styling, and other system-themed elements.
-    pub system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    pub system_style: Option<Arc<azul_css::system::SystemStyle>>,
     /// Callback to get the current system time. Used for profiling inside layout.
     /// On WASM targets (where `std::time::Instant::now()` panics), callers should
     /// supply a no-op or platform-specific implementation.
@@ -777,7 +777,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     preedit_text: Option<String>,
     image_cache: &azul_core::resources::ImageCache,
     content_overlay: Option<&crate::overlay::ContentOverlay>,
-    system_style: Option<std::sync::Arc<azul_css::system::SystemStyle>>,
+    system_style: Option<Arc<azul_css::system::SystemStyle>>,
     get_system_time_fn: azul_core::task::GetSystemTimeCallback,
     // The CSS DIFF, folded into the solver's own dirtiness. The solver's
     // reconcile compares DOM structure/content and is BLIND to a changed
@@ -792,7 +792,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // What each `VirtualView` last materialized - see
     // `LayoutContext::virtual_view_sizes`.
     virtual_view_sizes: &BTreeMap<(DomId, NodeId), LogicalSize>,
-) -> Result<std::sync::Arc<DisplayList>> {
+) -> Result<Arc<DisplayList>> {
     use crate::window::LayoutWindow;
 
     // Continuous media: `float: footnote` behaves as `float: none` here
@@ -1147,7 +1147,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // the window read it (a reconciled pass left the cache's own
             // tree in place).
             if cache.last_reconcile_was_skipped {
-                cache.tree = Some(alloc::sync::Arc::from(new_tree));
+                cache.tree = Some(Arc::from(new_tree));
             }
             return Ok(dl);
         }
@@ -1501,7 +1501,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
             cache.cache_map = std::mem::take(&mut ctx.cache_map);
             cache.record_full_emission();
-            return Ok(std::sync::Arc::new(DisplayList::default()));
+            return Ok(Arc::new(DisplayList::default()));
         }
         // The tree, its boxes and their places are the ones the cached list
         // was built from (nothing is dirty). Where a producer named the nodes
@@ -1547,7 +1547,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             dom_id,
             early_patch,
         )
-        .map(std::sync::Arc::new)?;
+        .map(Arc::new)?;
         // Refresh the structural-identity cache with what was JUST emitted.
         // This early exit re-emits precisely because something the cache key
         // could not see changed (a paint-only CSS diff, a GPU-key mint):
@@ -2654,7 +2654,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // caller's `DomLayoutResult`, and any virtual-view snapshot maps. Rare
     // post-build patches (`patch_node_image` / `patch_text_glyphs` / the
     // virtual-view placeholder swap) go through `Arc::make_mut`.
-    let display_list = std::sync::Arc::new(display_list);
+    let display_list = Arc::new(display_list);
     // Record the population fingerprint of the SAME GpuValueCache the emission
     // above consumed (the &-param is immutable for the whole pass, so entry
     // fingerprint == emission fingerprint). Keys minted after this call — the
@@ -2795,7 +2795,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         display_list.clone(),
     ));
 
-    cache.tree = Some(alloc::sync::Arc::from(new_tree)); // [g56] unbox the heap LayoutTree back into the cache
+    cache.tree = Some(Arc::from(new_tree)); // [g56] unbox the heap LayoutTree back into the cache
     cache.previous_positions =
         std::mem::replace(&mut cache.calculated_positions, calculated_positions);
     cache.viewport = Some(viewport);

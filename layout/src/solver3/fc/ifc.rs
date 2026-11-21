@@ -290,7 +290,7 @@ pub(super) fn ifc_extent(main_frag: &text3::cache::UnifiedLayout) -> LogicalSize
 
 /// [`ifc_extent`] from a layout's `bounds()` and the unclipped bounds of its
 /// overflow info: the one place the two are combined.
-fn extent_of(frag_bounds: text3::cache::Rect, unclipped: text3::cache::Rect) -> LogicalSize {
+const fn extent_of(frag_bounds: text3::cache::Rect, unclipped: text3::cache::Rect) -> LogicalSize {
     LogicalSize::new(
         frag_bounds.width.max(unclipped.width),
         frag_bounds.height.max(unclipped.height),

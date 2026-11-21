@@ -328,7 +328,7 @@ impl GlyphRunList {
     pub fn made(runs: Vec<crate::text3::glyphs::CompactGlyphRun>) -> Self {
         let cell = std::sync::OnceLock::new();
         // A new cell is empty: it takes the runs.
-        let _ = cell.set(runs);
+        let _unused = cell.set(runs);
         Self {
             deferred_from: None,
             runs: cell,
@@ -338,7 +338,7 @@ impl GlyphRunList {
     /// A list made from `dense` when it is first read: the runs
     /// `compute_glyph_runs` makes of a layout whose runs come from its
     /// dense view alone (`AZ_DENSE_TEXT` on, no combined block).
-    fn deferred(dense: Arc<crate::text3::dense::DenseText>) -> Self {
+    const fn deferred(dense: Arc<crate::text3::dense::DenseText>) -> Self {
         Self {
             deferred_from: Some(dense),
             runs: std::sync::OnceLock::new(),
@@ -1703,19 +1703,19 @@ impl DomBoxes {
     /// Approximate heap bytes of the table and its lists.
     #[must_use]
     pub fn heap_bytes(&self) -> usize {
-        self.slots.capacity() * core::mem::size_of::<DomBoxSlot>()
-            + self.lists.capacity() * core::mem::size_of::<Vec<LayoutNodeId>>()
+        self.slots.capacity() * size_of::<DomBoxSlot>()
+            + self.lists.capacity() * size_of::<Vec<LayoutNodeId>>()
             + self
                 .lists
                 .iter()
-                .map(|list| list.capacity() * core::mem::size_of::<LayoutNodeId>())
+                .map(|list| list.capacity() * size_of::<LayoutNodeId>())
                 .sum::<usize>()
     }
 
     /// How many lists the table allocated beside itself (one per node that
     /// holds none or more than one box): what a test reads.
     #[must_use]
-    pub fn list_count(&self) -> usize {
+    pub const fn list_count(&self) -> usize {
         self.lists.len()
     }
 
@@ -9564,7 +9564,7 @@ mod audit_a3_solver_tests {
             let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
             builder.reserve_nodes(n + 1);
             let reserved = builder.dom_to_layout.slot_capacity();
-            assert!(reserved >= n + 1, "the table has room for every DOM node");
+            assert!(reserved > n, "the table has room for every DOM node");
             let mut msgs = None;
             let root = builder.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
             for i in 1..=n {

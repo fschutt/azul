@@ -380,6 +380,8 @@ impl RetainedFrames {
 
     /// The kept surface of `key` when the box `needed` of it (surface px, what a composite
     /// reads) was painted: the composite may read it. `None` is a miss: the frame is painted.
+    // the guard's borrow is the entry: the value is cloned out before the guard goes
+    #[allow(clippy::significant_drop_tightening)]
     pub(crate) fn lookup(&self, key: &SurfaceKey, needed: [i32; 4]) -> Option<Arc<AzulPixmap>> {
         let mut inner = self.inner.lock().ok()?;
         // The FRAME's stamp ([`Self::begin_frame`] advances the clock), not one per lookup:
@@ -400,6 +402,8 @@ impl RetainedFrames {
     /// (A10-06) The parts of the box `needed` (surface px) of the surface kept for `key` that
     /// are NOT painted, as boxes: empty when [`Self::lookup`] of the same box would hit.
     /// `None` when no surface is kept for `key`. Not a use: nothing is stamped.
+    // the guard's borrow is the entry: the value is cloned out before the guard goes
+    #[allow(clippy::significant_drop_tightening)]
     pub(crate) fn missing(&self, key: &SurfaceKey, needed: [i32; 4]) -> Option<Vec<[i32; 4]>> {
         let inner = self.inner.lock().ok()?;
         let entry = inner.entries.iter().find(|entry| entry.key == *key)?;
@@ -411,6 +415,8 @@ impl RetainedFrames {
     /// with its frame like a lookup. The caller lets go of the surface before the next
     /// [`Self::commit`]: a part painted then is merged into a surface nobody else holds, and
     /// replaces one that somebody does.
+    // the guard's borrow is the entry: the value is cloned out before the guard goes
+    #[allow(clippy::significant_drop_tightening)]
     pub(crate) fn kept(&self, key: &SurfaceKey) -> Option<(Arc<AzulPixmap>, u64)> {
         let mut inner = self.inner.lock().ok()?;
         let clock = inner.clock;

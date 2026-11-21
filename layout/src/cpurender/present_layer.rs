@@ -137,7 +137,7 @@ impl LayerMatrix {
 /// lands and what clips it. Everything is in device pixels of the window's frame (origin top
 /// left, y down); the surface is RGBA8, premultiplied, top row first, tight rows, like the
 /// frame.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PresentLayer {
     /// Which picture the surface holds: another value for another list, frame, size, phase
     /// or set of values inside the frame (a hash of the surface's key).
@@ -156,7 +156,7 @@ pub struct PresentLayer {
 
 /// What [`plan`] found: the frame to promote this frame and what the backend needs to paint
 /// with it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayerPlan {
     /// `TransformKey::id` of the frame's push (`raster::PromoteFrame::transform_key`).
     pub(crate) transform_key: usize,
@@ -321,7 +321,7 @@ fn boxes_meet(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> bool {
 }
 
 /// An item that has bounds and paints nothing (`compositor::paints_nothing`, the same three).
-fn paints_nothing(item: &DisplayListItem) -> bool {
+const fn paints_nothing(item: &DisplayListItem) -> bool {
     matches!(
         item,
         DisplayListItem::HitTestArea { .. }
@@ -705,6 +705,8 @@ impl Scan<'_> {
 /// Promoted is the frame [`choose`] names, if its surface lands upright
 /// ([`LayerMatrix::is_upright`]) and shows somewhere.
 #[must_use]
+// `!(x > 0.0)` is meant: it holds for NaN too (a NaN size or scale is none)
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 pub(crate) fn plan(
     state: &CpuRenderState,
     frame_px: (u32, u32),

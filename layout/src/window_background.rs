@@ -40,7 +40,7 @@ pub fn mode_background(
 /// THE colour a window's canvas is cleared to - what shows wherever the app's
 /// content does not paint. Every renderer asks here: the CPU compositor per
 /// frame (`CpuBackend::render_frame`, the canvas of headless, macOS, X11,
-/// Wayland, Windows, iOS and Android), WebRender at creation
+/// Wayland, Windows, iOS and Android), `WebRender` at creation
 /// (`wr_translate2::default_renderer_options`) and whenever the answer moves
 /// (`CommonWindowState::sync_renderer_clear_color`).
 ///

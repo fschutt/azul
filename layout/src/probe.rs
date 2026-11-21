@@ -81,7 +81,7 @@ mod imp {
 
     #[cfg(not(test))]
     #[inline]
-    fn touched() {}
+    const fn touched() {}
 
     #[cfg(test)]
     pub(super) fn tls_touches() -> usize {

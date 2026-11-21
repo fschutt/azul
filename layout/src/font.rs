@@ -5046,7 +5046,7 @@ pub mod parsed {
                 let Some(copy) = provider.table_data(tag::GSUB).ok().flatten() else {
                     continue;
                 };
-                let from_copy = ReadScope::new(&copy.into_owned())
+                let from_copy = ReadScope::new(&copy)
                     .read::<LayoutTable<GSUB>>()
                     .ok()
                     .map(new_layout_cache);

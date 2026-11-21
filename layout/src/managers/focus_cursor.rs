@@ -525,11 +525,11 @@ fn collect_tab_order(
             .focusable_nodes
             .as_ref()
             .iter()
-            .filter_map(|id| id.into_crate_internal())
+            .filter_map(NodeHierarchyItemId::into_crate_internal)
             .filter(|n| {
                 #[cfg(test)]
                 TAB_STOP_CANDIDATES.with(|asked| asked.set(asked.get() + 1));
-                node_data.get(*n).is_some_and(|nd| nd.is_focusable())
+                node_data.get(*n).is_some_and(azul_core::dom::NodeData::is_focusable)
             })
             .collect();
         if focusable.is_empty() {

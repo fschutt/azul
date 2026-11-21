@@ -790,7 +790,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// path as production instead of a test-only bypass.
     pub fn register_builtin_mock_fonts(&mut self) {
         for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
-            let bytes: &'static [u8] = *bytes;
+            let bytes: &'static [u8] = bytes;
             self.register_named_font_styled(
                 family,
                 bytes,
@@ -1632,7 +1632,7 @@ mod audit_a8_tests {
         drop(Manager::new(FcFontCache::default()).expect("a manager"));
         assert_eq!(parses(), after_first, "the second manager parsed a built-in face");
         for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
-            let kept = format!("{:?}", static_face_style(*bytes));
+            let kept = format!("{:?}", static_face_style(bytes));
             assert_eq!(kept, format!("{:?}", parse_face_style(bytes, family)));
         }
         for face in crate::text3::ui_fonts::bundled_ui_fonts() {
@@ -1647,7 +1647,7 @@ mod audit_a8_tests {
     #[test]
     fn a_static_faces_bytes_are_one_shared_allocation() {
         for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
-            let (a, b) = (static_face_bytes(*bytes), static_face_bytes(*bytes));
+            let (a, b) = (static_face_bytes(bytes), static_face_bytes(bytes));
             assert!(Arc::ptr_eq(&a, &b), "{family}");
             assert_eq!(&a[..], *bytes);
             let patterns = rust_fontconfig::FcParseFontPatterns(bytes).expect("parses");

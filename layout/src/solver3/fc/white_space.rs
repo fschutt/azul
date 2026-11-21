@@ -342,6 +342,7 @@ pub fn split_text_for_whitespace(
 /// to "a b" before it shapes it, so a caret after the 'b' is byte 3 - of the
 /// collapsed text, not of the raw one. The case of the letters is
 /// presentation, and a stored value never takes it on.
+#[must_use] 
 pub fn white_space_runs(
     styled_dom: &StyledDom,
     dom_id: NodeId,

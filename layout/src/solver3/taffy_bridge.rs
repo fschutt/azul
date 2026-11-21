@@ -1048,7 +1048,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
             Some(cell) => {
                 #[cfg(test)]
                 STYLE_CELL_BYTES.with(|n| n.set(core::mem::size_of_val(cell)));
-                &**cell.get_or_init(|| Box::new(self.translate_style_to_taffy(dom_id)))
+                cell.get_or_init(|| Box::new(self.translate_style_to_taffy(dom_id)))
             }
             // A node the styled DOM does not have: nothing to memoise.
             None => &self.default_style,
@@ -1858,14 +1858,14 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     /// CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
     ///
     /// The root element's margin is already resolved and subtracted from
-    /// available_size by calculate_used_size_for_node() (sizing.rs). The
-    /// resulting margin-adjusted size is passed to Taffy as known_dimensions.
+    /// `available_size` by `calculate_used_size_for_node()` (sizing.rs). The
+    /// resulting margin-adjusted size is passed to Taffy as `known_dimensions`.
     ///
     /// Taffy's layout algorithm reads margin from the style and subtracts it
-    /// from known_dimensions internally. If we also pass the margin through
+    /// from `known_dimensions` internally. If we also pass the margin through
     /// the style, it gets subtracted twice:
-    ///   1. calculate_used_size_for_node: viewport - margin → available_size
-    ///   2. Taffy: known_dimensions - style.margin → content_area
+    ///   1. `calculate_used_size_for_node`: viewport - margin → `available_size`
+    ///   2. Taffy: `known_dimensions` - style.margin → `content_area`
     ///
     /// Zeroing the style margin for root nodes prevents this double-subtraction.
     /// This is NOT a hack — it's the correct integration point between Azul's
@@ -1884,7 +1884,7 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
                 .collect()
         });
         match cells.get(id.index()) {
-            Some(cell) => &**cell.get_or_init(|| {
+            Some(cell) => cell.get_or_init(|| {
                 let mut zeroed = style.clone();
                 zeroed.margin = Rect::zero();
                 Box::new(zeroed)
@@ -2741,12 +2741,12 @@ impl<T: ParsedFontTrait> TaffyBridge<'_, '_, T> {
     }
 
     /// `TaffyPassMemo::unrestored_writes`.
-    fn unrestored_writes(&self) -> u64 {
+    const fn unrestored_writes(&self) -> u64 {
         self.ctx.pass_memo.taffy.unrestored_writes
     }
 
     /// A computation wrote into the tree and leaves what it wrote.
-    fn note_unrestored_write(&mut self) {
+    const fn note_unrestored_write(&mut self) {
         let memo = &mut self.ctx.pass_memo.taffy;
         memo.unrestored_writes = memo.unrestored_writes.wrapping_add(1);
     }

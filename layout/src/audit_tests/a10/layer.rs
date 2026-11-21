@@ -216,7 +216,7 @@ fn painted_area(backend: &CpuBackend) -> f32 {
 }
 
 fn layer_of(backend: &CpuBackend, w: &Window, what: &str) -> PresentLayer {
-    backend.last_present_layer.clone().unwrap_or_else(|| {
+    backend.last_present_layer.unwrap_or_else(|| {
         panic!(
             "{what}: the picture is promoted to a layer. The window's lists (a frame is promoted \
              when it is the largest whose surface can be kept, in no group, mask, rounded clip \
