@@ -1920,6 +1920,31 @@ pub fn win32_wheel_pixels_per_notch(wheel_scroll_lines: u32, viewport_extent: f3
     }
 }
 
+/// Device pixels per logical pixel for a position a window system reports in
+/// device pixels (Win32 client coordinates, `ScreenToClient`): `dpi / 96`,
+/// the factor the window's frame is rendered at, and 1.0 for a DPI of 0.
+///
+/// NOT `WindowSize::get_hidpi_factor()`: that one is a `FloatValue`, three
+/// decimals, cut off. At DPI 128 (4/3) it reads 1.333 for a frame drawn at
+/// 1.333_333_4: a pointer on device pixel 3000 became 3000 / 1.333 = 2250.56
+/// logical, which the frame draws at pixel 3000.75; at DPI 110 it became
+/// 2620.09, drawn at pixel 3002.18. The box that was hit was not the box
+/// under the pointer, by up to 3 px at 4096 px. With `dpi / 96` the position
+/// is 2250.0 (2618.18), drawn at pixel 3000.0. At 100 / 125 / 150 / 175 /
+/// 200 % the two factors are the same number.
+///
+/// The number of `LayoutWindow::frame_scale()` (audit A10-17) for every shell
+/// that does not say its frame's factor itself.
+#[must_use]
+#[allow(clippy::cast_precision_loss)] // a DPI is far below 2^24
+pub fn pointer_scale(dpi: u32) -> f32 {
+    if dpi == 0 {
+        1.0
+    } else {
+        dpi as f32 / 96.0
+    }
+}
+
 /// Convert one axis of a scroll delta to the engine's raw-delta unit, PIXELS.
 ///
 /// A precise device (trackpad, `hasPreciseScrollingDeltas()`) already reports

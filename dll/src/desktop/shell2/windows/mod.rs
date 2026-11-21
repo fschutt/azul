@@ -2248,10 +2248,12 @@ impl Win32Window {
         unsafe {
             (self.win32.user32.ScreenToClient)(self.hwnd, &mut pt);
         }
-        let hf = self.common.current_window_state().size.get_hidpi_factor();
+        let hf = crate::desktop::shell2::common::event::pointer_scale(
+            self.common.current_window_state().size.dpi,
+        );
         let pos = azul_core::geom::LogicalPosition::new(
-            pt.x as f32 / hf.inner.get(),
-            pt.y as f32 / hf.inner.get(),
+            pt.x as f32 / hf,
+            pt.y as f32 / hf,
         );
         self.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
     }
@@ -3712,13 +3714,9 @@ impl Win32Window {
         if get_type(pointer_id, &mut ptype) == 0 {
             return false;
         }
-        let hf = self
-            .common
-            .current_window_state()
-            .size
-            .get_hidpi_factor()
-            .inner
-            .get();
+        let hf = crate::desktop::shell2::common::event::pointer_scale(
+            self.common.current_window_state().size.dpi,
+        );
 
         if ptype == PT_PEN {
             let get_pen = match self.win32.user32.GetPointerPenInfo {
@@ -4827,10 +4825,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // A held scrollbar thumb takes the move (not part of the normal
@@ -4893,7 +4893,7 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.GetCursorPos)(&mut pt);
                 }
-                let hf = hidpi_factor.inner.get();
+                let hf = hidpi_factor;
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
             };
             window.record_input_sample(logical_pos, button_state, false, false, Some(screen_pos));
@@ -5043,10 +5043,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Check for scrollbar hit FIRST (before state changes)
@@ -5128,7 +5130,7 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.GetCursorPos)(&mut pt);
                 }
-                let hf = hidpi_factor.inner.get();
+                let hf = hidpi_factor;
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
             };
             window.record_input_sample(
@@ -5180,10 +5182,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // End scrollbar drag if active (before state changes). The shared
@@ -5221,7 +5225,7 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.GetCursorPos)(&mut pt);
                 }
-                let hf = hidpi_factor.inner.get();
+                let hf = hidpi_factor;
                 azul_core::geom::LogicalPosition::new(pt.x as f32 / hf, pt.y as f32 / hf)
             };
             window.record_input_sample(
@@ -5277,10 +5281,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state BEFORE making changes
@@ -5328,10 +5334,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state BEFORE making changes
@@ -5386,10 +5394,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state
@@ -5414,10 +5424,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state
@@ -5458,10 +5470,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::geom::LogicalPosition;
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state
@@ -5646,10 +5660,12 @@ unsafe extern "system" fn window_proc(
 
             use azul_core::{geom::LogicalPosition, window::CursorPosition};
 
-            let hidpi_factor = window.common.current_window_state().size.get_hidpi_factor();
+            let hidpi_factor = crate::desktop::shell2::common::event::pointer_scale(
+                window.common.current_window_state().size.dpi,
+            );
             let logical_pos = LogicalPosition::new(
-                x as f32 / hidpi_factor.inner.get(),
-                y as f32 / hidpi_factor.inner.get(),
+                x as f32 / hidpi_factor,
+                y as f32 / hidpi_factor,
             );
 
             // Save previous state
@@ -6713,10 +6729,12 @@ unsafe extern "system" fn window_proc(
                 unsafe {
                     (window.win32.user32.ScreenToClient)(hwnd, &mut pt);
                 }
-                let hidpi = window.common.current_window_state().size.get_hidpi_factor();
+                let hidpi = crate::desktop::shell2::common::event::pointer_scale(
+                    window.common.current_window_state().size.dpi,
+                );
                 azul_core::geom::LogicalPosition::new(
-                    pt.x as f32 / hidpi.inner.get(),
-                    pt.y as f32 / hidpi.inner.get(),
+                    pt.x as f32 / hidpi,
+                    pt.y as f32 / hidpi,
                 )
             };
 

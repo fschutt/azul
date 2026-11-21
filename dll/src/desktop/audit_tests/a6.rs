@@ -120,3 +120,64 @@ mod window_listeners {
         );
     }
 }
+
+/// A6-15: a pointer position a window system reports in device pixels becomes the logical
+/// position the frame draws on that pixel: divided by the frame's factor (`dpi / 96`), not by
+/// the three-decimal `WindowSize::get_hidpi_factor()`.
+mod pointer_positions {
+    use crate::desktop::shell2::common::event::pointer_scale;
+
+    const WINDOWS_RS: &str = include_str!("../shell2/windows/mod.rs");
+
+    /// DPI 128 (a custom scale of 133 %, factor 4/3): device pixel (3000, 1500) is the logical
+    /// position (2250, 1125), which the frame draws on pixel (3000, 1500). With the factor cut
+    /// to 1.333 it was (2250.56, 1125.28), drawn on pixel (3000.75, 1500.38).
+    /// Mutation: `pointer_scale` answering the cut factor (`trunc(dpi / 96 * 1000) / 1000`)
+    /// fails the first comparison and the sweep (6,292 of its 40,970 pixels land on another
+    /// pixel, the worst 2.98 px away).
+    #[test]
+    fn a_pointer_is_at_the_logical_position_its_pixel_is_drawn_at() {
+        let scale = pointer_scale(128);
+        assert_eq!(3000.0_f32 / scale, 2250.0);
+        assert_eq!(1500.0_f32 / scale, 1125.0);
+        // What it was: the same division by the three-decimal factor.
+        assert!((3000.0_f32 / 1.333 - 2250.5627).abs() < 0.001);
+
+        // Every pixel column of a 4096 px window, at 100 .. 300 % and at the custom scales a
+        // three-decimal factor cannot hold (DPI 106, 110, 128): the position the pointer is
+        // given is drawn on the pixel the pointer is on.
+        for dpi in [96_u32, 106, 110, 120, 128, 144, 168, 192, 216, 288] {
+            let scale = pointer_scale(dpi);
+            for px in 0..=4096_u16 {
+                let px = f32::from(px);
+                let logical = px / scale;
+                let drawn = logical * scale;
+                assert!(
+                    (drawn - px).abs() < 0.001,
+                    "dpi {dpi}: pixel {px} is logical {logical}, which is drawn at {drawn}"
+                );
+            }
+        }
+
+        assert_eq!(pointer_scale(144), 1.5);
+        assert_eq!(pointer_scale(0), 1.0, "a window that was never told its DPI");
+    }
+
+    /// No Win32 handler divides a pointer position by the three-decimal factor (the mouse
+    /// messages, the wheel, `WM_POINTER`, `WM_GESTURE`, the OLE drag-over).
+    /// Mutation: `get_hidpi_factor()` back in one of them fails this.
+    #[test]
+    fn no_win32_pointer_position_is_divided_by_the_three_decimal_factor() {
+        for cut in [
+            "/ hidpi_factor.inner.get()",
+            "/ hf.inner.get()",
+            "/ hidpi.inner.get()",
+        ] {
+            assert!(
+                !WINDOWS_RS.contains(cut),
+                "windows/mod.rs divides a position by the cut factor: `{cut}`"
+            );
+        }
+        assert!(WINDOWS_RS.contains("common::event::pointer_scale("));
+    }
+}
