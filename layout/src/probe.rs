@@ -37,7 +37,7 @@ use core::marker::PhantomData;
 mod imp {
     use std::{
         cell::RefCell,
-        sync::atomic::{AtomicU8, Ordering},
+        sync::atomic::{AtomicBool, AtomicU8, Ordering},
         time::Instant,
     };
 
@@ -46,12 +46,46 @@ mod imp {
         /// Currently-open span count. Read when a span OPENS (its own
         /// depth) and decremented when it closes.
         static DEPTH: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
-        /// Names of the currently-open spans, outermost first. Maintained
-        /// UNCONDITIONALLY (even with recording off): this is what a crash
-        /// report reads as "what scope was the app in" — a diagnostic that
-        /// must not depend on AZ_PROFILE being set. Cost: one push/pop of a
-        /// `&'static str` per span.
+        /// Names of the currently-open spans, outermost first: what a crash
+        /// report reads as "what scope was the app in" ([`span_path`]). Kept
+        /// while a reader of it is installed ([`TRACK_SCOPE`]: the telemetry
+        /// panic hook), with recording on or off - that diagnostic must not
+        /// depend on AZ_PROFILE. Cost then: one push/pop of a `&'static str`
+        /// per span; without a reader, none.
         static SPAN_NAMES: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// Whether the names of the open spans are kept for [`span_path`]
+    /// (`Probe::track_scope`). It was unconditional: every span of a plain run
+    /// (the `probe` feature is default-on, and the solver opens about ten per
+    /// inline formatting context) pushed and popped a thread-local `RefCell<Vec>`
+    /// with recording off and no crash hook to read it, where the docs promise
+    /// an atomic load.
+    static TRACK_SCOPE: AtomicBool = AtomicBool::new(false);
+
+    pub(super) fn track_scope(on: bool) {
+        TRACK_SCOPE.store(on, Ordering::Relaxed);
+    }
+
+    // How often this thread's span bookkeeping touched a thread-local (tests
+    // only): a span that neither records nor keeps its name touches none.
+    #[cfg(test)]
+    thread_local! {
+        static TLS_TOUCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    #[cfg(test)]
+    fn touched() {
+        let _ = TLS_TOUCHES.try_with(|t| t.set(t.get() + 1));
+    }
+
+    #[cfg(not(test))]
+    #[inline]
+    fn touched() {}
+
+    #[cfg(test)]
+    pub(super) fn tls_touches() -> usize {
+        TLS_TOUCHES.try_with(std::cell::Cell::get).unwrap_or(0)
     }
 
     /// Whether spans/samples are RECORDED. The `probe` feature being compiled
@@ -101,18 +135,25 @@ mod imp {
     /// RAII guard that records its name + elapsed nanos on drop.
     /// `start == None` means recording was off when the span opened: the
     /// guard is inert (no clock read on open, no TLS touch on drop).
+    /// `scoped`: its name was pushed onto [`SPAN_NAMES`] when it opened, so
+    /// its drop pops it (and only then: a span opened while no reader was
+    /// installed pops nothing, whatever the flag says when it closes).
     #[derive(Debug)]
     pub struct Span {
         pub(crate) name: &'static str,
         pub(crate) start: Option<Instant>,
         pub(crate) depth: u16,
+        pub(crate) scoped: bool,
     }
 
     impl Drop for Span {
         fn drop(&mut self) {
-            let _ = SPAN_NAMES.try_with(|st| {
-                st.borrow_mut().pop();
-            });
+            if self.scoped {
+                let _ = SPAN_NAMES.try_with(|st| {
+                    touched();
+                    st.borrow_mut().pop();
+                });
+            }
             let Some(start) = self.start else { return };
             let dur_ns = start.elapsed().as_nanos() as u64;
             // try_with (not with): the lifted-to-wasm web backend has no real
@@ -120,8 +161,12 @@ mod imp {
             // inlined into layout_dom_recursive/layout_document, so they can't
             // be stubbed at the symbol level — use the non-panicking access.
             let depth = self.depth;
-            let _ = DEPTH.try_with(|d| d.set(d.get().saturating_sub(1)));
+            let _ = DEPTH.try_with(|d| {
+                touched();
+                d.set(d.get().saturating_sub(1));
+            });
             let _ = EVENTS.try_with(|cell| {
+                touched();
                 cell.borrow_mut().push(super::Event {
                     name: self.name,
                     kind: super::EventKind::Span { dur_ns },
@@ -132,16 +177,32 @@ mod imp {
     }
 
     pub(super) fn open(name: &'static str) -> Span {
-        let _ = SPAN_NAMES.try_with(|st| st.borrow_mut().push(name));
-        if !recording() {
+        open_gated(recording(), TRACK_SCOPE.load(Ordering::Relaxed), name)
+    }
+
+    /// [`open`] with the recording state and the crash-scope flag as
+    /// PARAMETERS, so a test can pin both without touching the process-global
+    /// flags (other tests' spans read them). Neither on: no thread-local is
+    /// touched, the guard is inert.
+    pub(super) fn open_gated(is_recording: bool, track_scope: bool, name: &'static str) -> Span {
+        let scoped = track_scope
+            && SPAN_NAMES
+                .try_with(|st| {
+                    touched();
+                    st.borrow_mut().push(name);
+                })
+                .is_ok();
+        if !is_recording {
             return Span {
                 name,
                 start: None,
                 depth: 0,
+                scoped,
             };
         }
         let depth = DEPTH
             .try_with(|d| {
+                touched();
                 let cur = d.get();
                 d.set(cur.saturating_add(1));
                 cur
@@ -151,6 +212,7 @@ mod imp {
             name,
             start: Some(Instant::now()),
             depth,
+            scoped,
         }
     }
 
@@ -455,6 +517,9 @@ mod imp {
     pub(super) const fn set_recording(_on: bool) {}
 
     #[inline]
+    pub(super) const fn track_scope(_on: bool) {}
+
+    #[inline]
     pub(super) const fn record_as_profile(_on: bool) {}
 
     #[inline]
@@ -523,14 +588,27 @@ impl Probe {
     /// Open a timed span. The returned guard records its name + nanos
     /// on drop into the thread-local event buffer — but ONLY while
     /// recording is on (any `AZ_PROFILE` mode, or [`Probe::set_recording`]).
-    /// With recording off the guard is inert and the call is one relaxed
-    /// atomic load: safe to leave in hot per-node paths.
+    /// With recording off the guard is inert and the call is two relaxed
+    /// atomic loads (recording, and whether a crash hook reads the open
+    /// spans' names: [`Probe::track_scope`]), no thread-local is touched:
+    /// safe to leave in hot per-node paths.
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
     #[must_use]
     pub fn span(name: &'static str) -> Span {
         imp::open(name)
+    }
+
+    /// Keep (`true`) or stop keeping the names of the open spans for
+    /// [`Probe::span_path`]. Off by default: a span that does not record then
+    /// touches no thread-local. The telemetry panic hook turns it on when it
+    /// is installed (it reads the path into a crash report).
+    #[inline]
+    // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
+    #[allow(clippy::missing_const_for_fn)]
+    pub fn track_scope(on: bool) {
+        imp::track_scope(on);
     }
 
     /// Force event recording on/off, overriding the lazy `AZ_PROFILE`
@@ -594,9 +672,11 @@ impl Probe {
     }
 
     /// The names of THIS thread's currently-open spans, outermost first,
-    /// joined with `" > "` (empty when none). Maintained even with recording
-    /// off — a crash report reads this as "what scope was the app in", and
-    /// that diagnostic must not depend on `AZ_PROFILE`.
+    /// joined with `" > "` (empty when none). Maintained while a reader is
+    /// installed ([`Probe::track_scope`]; the telemetry panic hook installs
+    /// itself as one), with recording on or off — a crash report reads this
+    /// as "what scope was the app in", and that diagnostic must not depend on
+    /// `AZ_PROFILE`. Spans opened before it was installed are not in it.
     #[inline]
     // const only in the no-`probe` stub config; enabled `imp::` calls are non-const
     #[allow(clippy::missing_const_for_fn)]
@@ -2945,4 +3025,44 @@ mod allocator_stats_tests {
 #[must_use]
 pub fn callback_name(fn_ptr: usize) -> &'static str {
     imp::resolve_fn_name(fn_ptr)
+}
+
+/// A11 (A3-solver's item 37): a span that does not record touches no thread-local unless a crash
+/// hook reads the open spans' names; when one does, the names are pushed and popped in balance.
+#[cfg(all(test, feature = "probe", not(target_family = "wasm"), not(feature = "web_lift")))]
+mod audit_a11_tests {
+    use super::imp;
+
+    /// Mutation: `open_gated` pushing the name whatever `track_scope` says (the old code) -> the
+    /// touches grow and the first assertion fails.
+    #[test]
+    fn a11_a_span_that_does_not_record_touches_no_thread_local() {
+        let before = imp::tls_touches();
+        {
+            let _outer = imp::open_gated(false, false, "a11.off");
+            let _inner = imp::open_gated(false, false, "a11.off.inner");
+        }
+        assert_eq!(imp::tls_touches(), before, "recording off and no scope reader: no thread-local access");
+        assert_eq!(imp::span_path(), "", "nothing was kept");
+    }
+
+    #[test]
+    fn a11_the_crash_scope_is_kept_while_a_reader_is_installed_and_stays_balanced() {
+        assert_eq!(imp::span_path(), "", "a test thread starts with no open span");
+        {
+            let _outer = imp::open_gated(false, true, "a11.scope");
+            let _inner = imp::open_gated(false, true, "a11.scope.inner");
+            assert_eq!(imp::span_path(), "a11.scope > a11.scope.inner");
+        }
+        assert_eq!(imp::span_path(), "", "popped when they close");
+        // a span opened without the reader pops nothing when it closes, the reader on or not
+        {
+            let unscoped = imp::open_gated(false, false, "a11.unscoped");
+            let scoped = imp::open_gated(false, true, "a11.scoped");
+            assert_eq!(imp::span_path(), "a11.scoped");
+            drop(scoped);
+            drop(unscoped);
+        }
+        assert_eq!(imp::span_path(), "");
+    }
 }
