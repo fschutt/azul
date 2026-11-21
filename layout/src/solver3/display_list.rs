@@ -5065,6 +5065,10 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// of the flow are painted there with the parts of them that region
     /// holds ([`DisplayListGenerator::region_part`]). `None` outside regions.
     painting_region: Option<usize>,
+    /// Every DOM node's hit-test tag by node index ([`tags_by_node`]), made
+    /// at the first lookup ([`DisplayListGenerator::tag_id_of`]): every box
+    /// asks for its tag, and each ask used to scan the DOM's whole tag list.
+    tags_by_node: core::cell::OnceCell<Vec<Option<u64>>>,
 }
 
 /// What the region being painted holds of a box (see
@@ -5642,6 +5646,22 @@ where
             open_clips: Vec::new(),
             canvas_painted: [None, None],
             painting_region: None,
+            tags_by_node: core::cell::OnceCell::new(),
+        }
+    }
+
+    /// The hit-test tag of DOM node `id`, the answer of [`get_tag_id`]: the
+    /// node's FIRST entry in the DOM's tag list, read from a table of the
+    /// whole list by node index that the first ask makes. A node past the
+    /// table (no node of this DOM) is still looked for in the list itself.
+    fn tag_id_of(&self, id: Option<NodeId>) -> Option<DisplayListTagId> {
+        let node_id = id?;
+        let tags = self
+            .tags_by_node
+            .get_or_init(|| tags_by_node(self.ctx.styled_dom));
+        match tags.get(node_id.index()) {
+            Some(tag) => tag.map(|tag| (tag, TAG_TYPE_DOM_NODE)),
+            None => get_tag_id(self.ctx.styled_dom, id),
         }
     }
 
@@ -6867,7 +6887,7 @@ where
                 let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
                 let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
                 if overflow_x.is_scroll() || overflow_y.is_scroll() {
-                    if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
+                    if let Some(tag_id) = self.tag_id_of(node.dom_node_id) {
                         builder.push_hit_test_area(node_bounds, tag_id);
                     }
                 }
@@ -9324,7 +9344,7 @@ where
         // NOTE: For scrollable containers (overflow: scroll/auto), the hit-test area
         // was already pushed in generate_for_stacking_context BEFORE the scroll frame,
         // so we skip it here to avoid duplicate hit-test areas that would scroll with content.
-        if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
+        if let Some(tag_id) = self.tag_id_of(node.dom_node_id) {
             let is_scrollable = if let Some(dom_id) = node.dom_node_id {
                 let styled_node_state = self.get_styled_node_state(dom_id);
                 let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
@@ -11868,7 +11888,7 @@ where
         // Push hit-test area for this inline-block element
         // This is critical for buttons and other inline-block elements to receive
         // mouse events and display the correct cursor (e.g., cursor: pointer)
-        if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, Some(node_id)) {
+        if let Some(tag_id) = self.tag_id_of(Some(node_id)) {
             builder.push_hit_test_area(border_box_bounds, tag_id);
         }
     }
@@ -12199,14 +12219,50 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
     content_size
 }
 
+/// How many entries of a DOM's tag list the tag lookups of this thread read
+/// ([`get_tag_id`], [`tags_by_node`]): what the size sweep of the tests reads
+/// to say a display list looks at the list once, not once per box.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TAG_LIST_READS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The hit-test tag of DOM node `id`: its first entry in the DOM's tag list,
+/// found by reading the list from the front. One ask costs the list, so a
+/// pass that asks for every box goes through
+/// [`DisplayListGenerator::tag_id_of`] instead.
 fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
     let node_id = id?;
     let tag_mapping = dom
         .tag_ids_to_node_ids
         .as_ref()
         .iter()
-        .find(|m| m.node_id.into_crate_internal() == Some(node_id))?;
+        .find(|m| {
+            #[cfg(test)]
+            TAG_LIST_READS.with(|n| n.set(n.get() + 1));
+            m.node_id.into_crate_internal() == Some(node_id)
+        })?;
     Some((tag_mapping.tag_id.inner, TAG_TYPE_DOM_NODE))
+}
+
+/// Every node's hit-test tag by node index, `None` for a node without one:
+/// for each node the FIRST of its entries in the DOM's tag list, the one
+/// [`get_tag_id`] finds. One read of the list.
+fn tags_by_node(dom: &StyledDom) -> Vec<Option<u64>> {
+    let mut tags = vec![None; dom.node_data.as_ref().len()];
+    for mapping in dom.tag_ids_to_node_ids.as_ref() {
+        #[cfg(test)]
+        TAG_LIST_READS.with(|n| n.set(n.get() + 1));
+        let Some(node) = mapping.node_id.into_crate_internal() else {
+            continue;
+        };
+        if let Some(slot) = tags.get_mut(node.index()) {
+            if slot.is_none() {
+                *slot = Some(mapping.tag_id.inner);
+            }
+        }
+    }
+    tags
 }
 
 /// Resolve an [`ImageSource`] (as carried by an inline `InlineContent::Image`)
