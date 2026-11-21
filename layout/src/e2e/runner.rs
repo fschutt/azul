@@ -1966,14 +1966,37 @@ impl Runner {
                                 }
                             }
                         }
-                        EventFilter::Window(_)
-                        | EventFilter::Application(_)
-                        | EventFilter::External(_) => {
-                            // Window / Application / External events fire on
-                            // EVERY node carrying a matching callback. External
-                            // (media, 11c) joins them because a player's state
-                            // change is not hit-tested: there is no node under
-                            // a `TimeUpdate`.
+                        EventFilter::Window(_) => {
+                            // Window events fire on EVERY node carrying a
+                            // matching callback: found through the list each
+                            // styled DOM keeps of its window listeners, as the
+                            // shells' dispatch does (A6-08), not by walking every
+                            // node of every DOM for every event of the pass (a
+                            // pointer move is one, a hover change five).
+                            for (dom_id, lr) in &lw.layout_results {
+                                let ndc = lr.styled_dom.node_data.as_container();
+                                for node_id in window_listeners(&lr.styled_dom) {
+                                    let Some(nd) = ndc.get(node_id) else { continue };
+                                    for cb in nd.get_callbacks().as_ref() {
+                                        if cb.event == *filter {
+                                            planned.push(PlannedInvocation {
+                                                dom_id: *dom_id,
+                                                node_id,
+                                                callback_data: cb.clone(),
+                                                event_type: event.event_type,
+                                                event_index,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        EventFilter::Application(_) | EventFilter::External(_) => {
+                            // Application / External events fire on EVERY node
+                            // carrying a matching callback (they have no list of
+                            // listeners and are rare). External (media, 11c)
+                            // joins them because a player's state change is not
+                            // hit-tested: there is no node under a `TimeUpdate`.
                             for (dom_id, lr) in &lw.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
                                 for node_idx in 0..ndc.len() {
@@ -4024,8 +4047,16 @@ impl Runner {
         // (shaping depends on font size and DPI, not on the viewport); DPI
         // changes never come through here (always a full regeneration).
         self.resize_pending = false;
-        if let Some(layout_result) = self.layout_window.layout_results.remove(&DomId::ROOT_ID) {
-            self.layout(layout_result.styled_dom, false);
+        // Only the styled DOM is kept: the rest of the old result (its `layout_tree`, the very
+        // `Arc` the solver's cache holds) goes before the pass. Held across it, the pass found the
+        // tree shared and copied it whole (`solver3::cache::unshare`) on every resize (A3-window-09).
+        let styled_dom = self
+            .layout_window
+            .layout_results
+            .remove(&DomId::ROOT_ID)
+            .map(|layout_result| layout_result.styled_dom);
+        if let Some(styled_dom) = styled_dom {
+            self.layout(styled_dom, false);
         }
         self.render_and_record();
     }
@@ -4758,6 +4789,22 @@ fn fail_result(test: &E2eTest, reason: &str) -> E2eTestResult {
 /// headlessly. Returns the server's own [`E2eTestResult`] (pass/fail + per-step
 /// results) — the same value the HTTP `run_e2e_tests` command produces.
 #[must_use]
+/// The nodes of `styled_dom` that listen to a window event (`EventFilter::Window`), in node order and
+/// once each: `StyledDom::nodes_with_window_callbacks`, the list `StyledDom::create` makes and the
+/// appends extend (the shells' `nodes_listening_to_window_events`, A6-08; a deleted node's emptied
+/// handlers match nothing).
+fn window_listeners(styled_dom: &StyledDom) -> Vec<NodeId> {
+    let mut nodes: Vec<NodeId> = styled_dom
+        .nodes_with_window_callbacks
+        .as_ref()
+        .iter()
+        .filter_map(|id| id.into_crate_internal())
+        .collect();
+    nodes.sort_unstable();
+    nodes.dedup();
+    nodes
+}
+
 pub fn run_e2e_test(test: &E2eTest) -> E2eTestResult {
     run_e2e_test_with_dom(test, None)
 }
@@ -8158,3 +8205,118 @@ mod hover_text_cost_tests;
 #[cfg(test)]
 #[path = "frame_timings_tests.rs"]
 mod frame_timings_tests;
+
+// A11: a resize in the runner hands the layout tree over instead of copying it (A3-window's note on
+// `relayout_only`). Needs A3-window's `TREE_COPIES` (bdc770f51, `solver3::cache`) merged first.
+#[cfg(test)]
+mod audit_a11_tests {
+    use azul_core::dom::Dom;
+
+    use super::*;
+
+    /// `assert_memory_growth` (A9's request): against a `snapshot_resources` baseline it passes within
+    /// its bound, names a missing snapshot, refuses an unknown parameter and a missing bound.
+    /// Mutation: the growth compared with `>=` 0 (any growth fails) -> the first scenario fails on
+    /// the bytes a run allocates; the check of `vs` removed -> the second passes.
+    #[cfg(feature = "probe")]
+    #[test]
+    fn a11_memory_growth_is_measured_against_a_snapshot() {
+        let run = |steps: serde_json::Value| -> E2eTestResult {
+            let test: E2eTest = serde_json::from_value(serde_json::json!({
+                "name": "a11_memory_growth",
+                "setup": { "window_width": 200, "window_height": 100, "dpi": 96 },
+                "steps": steps
+            }))
+            .expect("scenario json");
+            run_e2e_test(&test)
+        };
+        let ok = run(serde_json::json!([
+            { "op": "wait_frame" },
+            { "op": "snapshot_resources", "as": "warm" },
+            { "op": "wait_frame" },
+            { "op": "assert_memory_growth", "vs": "warm", "max_bytes": 1_u64 << 40 }
+        ]));
+        assert_eq!(ok.status, "pass", "{:#?}", ok.steps);
+        for steps in [
+            serde_json::json!([{ "op": "assert_memory_growth", "vs": "nowhere", "max_bytes": 1 }]),
+            serde_json::json!([{ "op": "snapshot_resources", "as": "a" },
+                               { "op": "assert_memory_growth", "vs": "a", "max_byte": 1 }]),
+            serde_json::json!([{ "op": "snapshot_resources", "as": "a" },
+                               { "op": "assert_memory_growth", "vs": "a" }]),
+        ] {
+            let bad = run(steps);
+            assert_eq!(bad.status, "fail", "{:#?}", bad.steps);
+        }
+    }
+
+    /// A6-08 in the runner: a window event is planned over the window listeners only. 300 nodes, two
+    /// of them listen to the window: the list is those two, and the same nodes a walk over every
+    /// node finds. Mutation: `window_listeners` answering every node (the walk) -> 300 != 2.
+    #[test]
+    fn a11_a_window_event_is_planned_over_the_window_listeners_only() {
+        use azul_core::events::{EventFilter, WindowEventFilter};
+        let mut body = Dom::create_body();
+        for i in 0..300 {
+            let mut div = Dom::create_div();
+            if i == 17 || i == 211 {
+                div = div.with_callback(EventFilter::Window(WindowEventFilter::MouseMove), RefAny::new(()), 0usize);
+            }
+            body = body.with_child(div);
+        }
+        let (css, _) = azul_css::parser2::new_from_str("div { height: 1px; }");
+        let styled_dom = StyledDom::create(&mut body, css);
+        let listeners = window_listeners(&styled_dom);
+        let ndc = styled_dom.node_data.as_container();
+        let walked = (0..ndc.len())
+            .map(NodeId::new)
+            .filter(|id| {
+                ndc.get(*id).is_some_and(|nd| {
+                    nd.get_callbacks().as_ref().iter().any(|cb| matches!(cb.event, EventFilter::Window(_)))
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(listeners.len(), 2, "{listeners:?}");
+        assert_eq!(listeners, walked);
+    }
+
+    /// Mutation: `relayout_only` keeping the whole old result alive across `self.layout(..)` (the
+    /// code before) -> each resize's pass finds the tree shared and copies it: the counter reads 3.
+    #[test]
+    fn a11_a_resize_in_the_runner_copies_no_layout_tree() {
+        let mut dom = Dom::create_body()
+            .with_child(Dom::create_div().with_child(Dom::create_div()))
+            .with_child(Dom::create_div());
+        let (css, _) = azul_css::parser2::new_from_str(
+            "* { margin: 0; padding: 0; } div { width: 50%; height: 20px; }",
+        );
+        let styled_dom = StyledDom::create(&mut dom, css);
+        let test: E2eTest = serde_json::from_value(serde_json::json!({
+            "name": "a11_resize_copies_no_tree",
+            "setup": { "window_width": 400, "window_height": 200, "dpi": 96 },
+            "steps": [ { "op": "wait_frame" } ]
+        }))
+        .expect("scenario json");
+        let (_result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
+
+        crate::solver3::cache::TREE_COPIES.with(|copies| copies.set(0));
+        for width in [380.0_f32, 360.0, 420.0] {
+            let mut state = runner.window_state.clone();
+            state.size.dimensions = LogicalSize::new(width, 200.0);
+            let result = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
+            runner.run_frame(result);
+        }
+        assert_eq!(
+            runner
+                .layout_window
+                .get_layout_result(&DomId::ROOT_ID)
+                .map(|lr| lr.viewport.size.width),
+            Some(420.0),
+            "the resizes were laid out"
+        );
+        assert_eq!(
+            crate::solver3::cache::TREE_COPIES.with(core::cell::Cell::get),
+            0,
+            "a resize copied the layout tree: something holds the old result across the pass"
+        );
+    }
+}

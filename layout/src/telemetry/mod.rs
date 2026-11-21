@@ -1232,6 +1232,8 @@ fn panic_message(info: &std::panic::PanicHookInfo<'_>) -> String {
 /// recoverable panic into a hang. The next launch (or the crash mailer)
 /// drains the queue.
 pub fn install_panic_hook() {
+    // the hook reads the open spans' names (`crash.scope`): keep them from now on
+    crate::probe::Probe::track_scope(true);
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         record_panic();

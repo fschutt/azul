@@ -73,6 +73,13 @@ impl NodeChangeSet {
 
     /// Inline CSS properties changed that affect paint only.
     pub const INLINE_STYLE_PAINT: u32 = 0b0000_0001_0000_0000;
+    /// The only inline CSS that changed are the values of the node's insets (`top`, `right`,
+    /// `bottom`, `left`: [`NodeDataFingerprint::inline_inset_hash`]); which insets it declares
+    /// did not change. The box may have to be placed again, and - where its size comes from
+    /// its insets (`left` and `right` with an `auto` width) - laid out again: a layout change
+    /// ([`Self::AFFECTS_LAYOUT`]), told apart from [`Self::INLINE_STYLE_LAYOUT`] so a layout
+    /// that can place a box again without laying out its interior may do so.
+    pub const INLINE_STYLE_INSETS: u32 = 0b0100_0000_0000_0000_0000;
     /// Styled node state changed (hover, active, focus, etc.).
     pub const STYLED_STATE: u32 = 0b0000_0010_0000_0000;
 
@@ -126,6 +133,7 @@ impl NodeChangeSet {
         | Self::TEXT_CONTENT
         | Self::IDS_AND_CLASSES
         | Self::INLINE_STYLE_LAYOUT
+        | Self::INLINE_STYLE_INSETS
         | Self::CHILDREN_CHANGED
         | Self::IMAGE_CHANGED
         | Self::CONTENTEDITABLE
@@ -257,6 +265,100 @@ fn hash_inline_style<H: core::hash::Hasher>(style: &azul_css::css::Css, h: &mut 
             }
         }
     }
+}
+
+/// How far a change of ONE static declaration of a node's own style reaches, for the node's
+/// change fingerprint ([`NodeDataFingerprint`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InlineReach {
+    /// The node's layout may depend on it: everything that is neither of the two below.
+    Layout,
+    /// An inset (`top`, `right`, `bottom`, `left`): where a positioned box is placed.
+    Inset,
+    /// A `transform` of at least one function, or an `opacity`, as an exact value: what the
+    /// display list binds by key and both renderers read live. No box depends on the VALUE;
+    /// that the node HAS a transform does (a transformed box is the containing block of its
+    /// positioned descendants), and that stays with [`InlineReach::Layout`].
+    GpuValue,
+}
+
+fn inline_reach(property: &azul_css::props::property::CssProperty) -> InlineReach {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+    match property {
+        CssProperty::Transform(value)
+            if value
+                .get_property()
+                .is_some_and(|functions| !functions.is_empty()) =>
+        {
+            InlineReach::GpuValue
+        }
+        CssProperty::Opacity(value) if value.get_property().is_some() => InlineReach::GpuValue,
+        other => match other.get_type() {
+            CssPropertyType::Top
+            | CssPropertyType::Right
+            | CssPropertyType::Bottom
+            | CssPropertyType::Left => InlineReach::Inset,
+            _ => InlineReach::Layout,
+        },
+    }
+}
+
+/// A node's own style as three hashes, by how far a change reaches ([`InlineReach`]):
+/// `(everything else, the values of its insets, the values of its transform and opacity)`.
+///
+/// A declaration of the second or third kind still counts in the FIRST hash with its
+/// property type and its rule's conditions (in declaration order): that the node declares
+/// it, and where among its declarations, is part of the style a layout was made with. Only
+/// its value is kept out. So two styles that differ in the first hash differ as before
+/// (a layout change), and two that agree in it declare the same insets and the same
+/// transform / opacity, with other values at most.
+fn hash_inline_style_by_reach(style: &azul_css::css::Css) -> (u64, u64, u64) {
+    use azul_css::css::CssDeclaration;
+    use core::hash::Hasher;
+
+    let mut rest = crate::hash::DefaultHasher::new();
+    let mut insets = crate::hash::DefaultHasher::new();
+    let mut gpu_values = crate::hash::DefaultHasher::new();
+    for rule in style.rules.as_ref() {
+        // The conditions are part of the style: the same declaration for
+        // `:hover` and for `:focus` is another style.
+        rule.conditions.as_slice().hash(&mut rest);
+        for d in rule.declarations.as_ref() {
+            match d {
+                CssDeclaration::Static(p) => match inline_reach(p) {
+                    InlineReach::Layout => p.hash(&mut rest),
+                    InlineReach::Inset => {
+                        p.get_type().hash(&mut rest);
+                        rule.conditions.as_slice().hash(&mut insets);
+                        p.hash(&mut insets);
+                    }
+                    InlineReach::GpuValue => {
+                        p.get_type().hash(&mut rest);
+                        rule.conditions.as_slice().hash(&mut gpu_values);
+                        p.hash(&mut gpu_values);
+                    }
+                },
+                other => other.hash(&mut rest),
+            }
+        }
+    }
+    (rest.finish(), insets.finish(), gpu_values.finish())
+}
+
+/// Whether the own (inline) styles of two matched nodes differ ONLY in what
+/// [`NodeDataFingerprint::diff`] does not call a layout of the node's interior: the values
+/// of its insets ([`NodeChangeSet::INLINE_STYLE_INSETS`]) and / or of an exact `transform`
+/// / `opacity` ([`NodeChangeSet::INLINE_STYLE_PAINT`]). `false` for equal styles and for any
+/// other difference (a declaration that comes or goes, another property, a condition).
+///
+/// The three hashes the fingerprint holds, compared the way it compares them: a caller that
+/// leaves such a node to the fingerprint - the CSS diff of a rebuild, which would otherwise
+/// name it as restyled and have its box built fresh - agrees with it by construction.
+#[must_use]
+pub fn inline_style_moved_in_place(old: &NodeData, new: &NodeData) -> bool {
+    let (old_rest, old_insets, old_gpu_values) = hash_inline_style_by_reach(&old.style);
+    let (new_rest, new_insets, new_gpu_values) = hash_inline_style_by_reach(&new.style);
+    old_rest == new_rest && (old_insets != new_insets || old_gpu_values != new_gpu_values)
 }
 
 /// Compare two matched `NodeData` instances field-by-field and return
@@ -553,6 +655,147 @@ fn key_work(steps: usize) {
 #[cfg(not(test))]
 #[inline(always)]
 const fn key_work(_steps: usize) {}
+
+/// How many steps the shallow tiers of `reconcile_dom` (B2, B3) took on this thread (an old node
+/// indexed, a queue entry popped): what the size sweep of the tests reads to say they are linear.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SHALLOW_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn shallow_work(steps: usize) {
+    SHALLOW_WORK.with(|work| work.set(work.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn shallow_work(_steps: usize) {}
+
+/// How many steps the subtree pass of `reconcile_dom` (A2) took on this thread (an old node
+/// indexed, a queue entry popped): what the size sweep of the tests reads to say it is linear.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SUBTREE_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn subtree_work(steps: usize) {
+    SUBTREE_WORK.with(|work| work.set(work.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn subtree_work(_steps: usize) {}
+
+/// How many nodes the merges of `transfer_states` visited on this thread to point the clones of
+/// a dropped dataset at the kept one (a node walked for them, a node entered in the index of
+/// `RefAnyHolders`): what the size sweep of the tests reads to say the merges of a rebuild are
+/// linear in its nodes.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static REPOINT_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn repoint_work(steps: usize) {
+    REPOINT_WORK.with(|work| work.set(work.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn repoint_work(_steps: usize) {}
+
+/// What the shallow tiers of [`reconcile_dom`] (B2, B3) ask of an old node's PARENT before a new
+/// node may take it: the gate that keeps a keyless match from carrying focus, scroll or dataset
+/// state across parents.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum ParentGate {
+    /// The new node's parent was matched to this old node: the old node is its child.
+    Node(NodeId),
+    /// The new node's parent is unmatched (or it has none): the old node's parent has this
+    /// reconciliation key (`None`: it has no parent).
+    Key(Option<u64>),
+}
+
+/// The old nodes the shallow tiers of [`reconcile_dom`] (B2: content hash, B3: structural hash)
+/// may still claim, one queue per (hash of the node, gate of its parent), each in document order.
+///
+/// The tiers used to search ONE queue per hash, over every old node of the DOM, for the first
+/// entry that was unconsumed and whose parent agreed - and an entry another pass had consumed
+/// never left its queue. A structural hash ignores a text node's text and every node's inline
+/// style, so all the text nodes of a DOM shared one queue and all the spans of one class
+/// another: each new node no earlier pass had matched walked thousands of consumed entries
+/// (a map view growing from 6,000 to 12,500 nodes: about 20 million steps a settle). Here an
+/// old node is entered only if it is still unconsumed, under the gates it can pass, and a claim
+/// pops the front of one queue: every entry is looked at once.
+#[derive(Default)]
+struct ShallowTiers {
+    content: OrderedMap<(DomNodeHash, ParentGate), VecDeque<NodeId>>,
+    structural: OrderedMap<(DomNodeHash, ParentGate), VecDeque<NodeId>>,
+}
+
+impl ShallowTiers {
+    /// The queues of the old nodes `consumed` does not hold yet.
+    fn of(
+        old_node_data: &[NodeData],
+        old_hierarchy: &[NodeHierarchyItem],
+        old_rec_keys: &[u64],
+        consumed: &[bool],
+    ) -> Self {
+        let mut tiers = Self::default();
+        for (idx, node) in old_node_data.iter().enumerate() {
+            if consumed.get(idx).copied().unwrap_or(false) {
+                continue;
+            }
+            shallow_work(1);
+            let id = NodeId::new(idx);
+            let parent = old_hierarchy
+                .get(idx)
+                .and_then(NodeHierarchyItem::parent_id);
+            let parent_key = parent.and_then(|p| old_rec_keys.get(p.index()).copied());
+            let content = node.calculate_node_data_hash();
+            let structural = node.calculate_structural_hash();
+            // Under its parent's reconciliation key, and - when it has a parent - under the
+            // parent itself: the two things a new node's gate can name.
+            let by_key = ParentGate::Key(parent_key);
+            tiers.content.entry((content, by_key)).or_default().push_back(id);
+            tiers
+                .structural
+                .entry((structural, by_key))
+                .or_default()
+                .push_back(id);
+            if let Some(parent) = parent {
+                let by_node = ParentGate::Node(parent);
+                tiers.content.entry((content, by_node)).or_default().push_back(id);
+                tiers
+                    .structural
+                    .entry((structural, by_node))
+                    .or_default()
+                    .push_back(id);
+            }
+        }
+        tiers
+    }
+
+    /// The first old node of the queue of `(hash, gate)`, in document order, that no pass has
+    /// consumed. The entries before it are consumed for good and leave the queue with it.
+    fn claim(
+        queues: &mut OrderedMap<(DomNodeHash, ParentGate), VecDeque<NodeId>>,
+        hash: DomNodeHash,
+        gate: ParentGate,
+        consumed: &[bool],
+    ) -> Option<NodeId> {
+        let queue = queues.get_mut(&(hash, gate))?;
+        while let Some(old_id) = queue.pop_front() {
+            shallow_work(1);
+            if !consumed.get(old_id.index()).copied().unwrap_or(true) {
+                return Some(old_id);
+            }
+        }
+        None
+    }
+}
 
 /// Calculate the reconciliation key for a node using the priority hierarchy:
 /// 1. Explicit key (set via `.with_key()`)
@@ -903,36 +1146,16 @@ pub fn reconcile_dom(
     // up instead of recomputing it per node.
     let new_rec_keys = precompute_reconciliation_keys(new_node_data, new_hierarchy, identity);
 
-    // Reconciliation key of a node's PARENT (`None` for a root or when the
-    // hierarchy is unavailable). Used to keep keyless matches from migrating
-    // focus/scroll/dataset state across different parents.
-    let old_parent_key = |old_id: NodeId| -> Option<u64> {
-        old_hierarchy
-            .get(old_id.index())
-            .and_then(NodeHierarchyItem::parent_id)
-            .map(|p| old_rec_keys[p.index()])
-    };
-
     let mut old_by_rec_key: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
-    let mut old_hashed: OrderedMap<DomNodeHash, VecDeque<NodeId>> = OrderedMap::default();
-    let mut old_structural: OrderedMap<DomNodeHash, VecDeque<NodeId>> = OrderedMap::default();
     let mut old_nodes_consumed = vec![false; old_node_data.len()];
 
-    for (idx, node) in old_node_data.iter().enumerate() {
-        let id = NodeId::new(idx);
+    // Tier 1's queues. The queues of Tiers 2 and 3 are built where those tiers run (passes
+    // B2 / B3), over the old nodes still unconsumed there: see `ShallowTiers`.
+    for idx in 0..old_node_data.len() {
         old_by_rec_key
             .entry(old_rec_keys[idx])
             .or_default()
-            .push_back(id);
-
-        let hash = node.calculate_node_data_hash();
-        old_hashed.entry(hash).or_default().push_back(id);
-
-        let structural_hash = node.calculate_structural_hash();
-        old_structural
-            .entry(structural_hash)
-            .or_default()
-            .push_back(id);
+            .push_back(NodeId::new(idx));
     }
 
     // --- STEP 2: CLAIM MATCHES, STRONG IDENTITY BEFORE POSITIONAL ---
@@ -963,15 +1186,9 @@ pub fn reconcile_dom(
     // B2/B3's parent gate prefers the parent's MATCH over the parent's key, so
     // the descent picks up where A3's climb stopped: the one child whose text
     // changed is found under the parent A3 just identified.
+    // A2's queues are built where A2 runs: they are keyed by the container too (see there).
     let old_subtree_hashes = compute_subtree_hashes(old_node_data, old_hierarchy);
     let new_subtree_hashes = compute_subtree_hashes(new_node_data, new_hierarchy);
-    let mut old_by_subtree: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
-    for (idx, h) in old_subtree_hashes.iter().enumerate() {
-        old_by_subtree
-            .entry(*h)
-            .or_default()
-            .push_back(NodeId::new(idx));
-    }
 
     let has_terminal_identity = |node: &NodeData| identity.terminal_key(node).is_some();
 
@@ -1045,6 +1262,25 @@ pub fn reconcile_dom(
     };
     let old_twins = twin_counts(&old_subtree_hashes, &old_containers);
     let new_twins = twin_counts(&new_subtree_hashes, &new_containers);
+    // The old nodes this pass may claim, one queue per (subtree hash, container), each in
+    // document order. The container is the part of the claim that depends on the NEW node, so
+    // it is part of the key. There used to be one queue per subtree hash, searched with
+    // `position` for the first entry that was unconsumed and stood in the new node's
+    // container - and an entry A1 had consumed never left its queue. Equal subtrees in k
+    // containers (the same cell under k keyed rows) that come in another order than before,
+    // or behind consumed entries, took k steps each: k^2 / 2. A claim now pops the front of
+    // the one queue it may take from. The node it gets is the same: the first entry in
+    // document order that is unconsumed and whose container is the new node's.
+    let mut old_by_subtree: OrderedMap<(u64, Option<u64>), VecDeque<NodeId>> =
+        OrderedMap::default();
+    for (idx, h) in old_subtree_hashes.iter().enumerate() {
+        subtree_work(1);
+        let container = old_containers.get(idx).copied().flatten();
+        old_by_subtree
+            .entry((*h, container))
+            .or_default()
+            .push_back(NodeId::new(idx));
+    }
     for new_idx in 0..n_new {
         if matched[new_idx].is_some() || new_node_data[new_idx].get_key().is_some() {
             continue;
@@ -1054,14 +1290,15 @@ pub fn reconcile_dom(
         if old_twins.get(&identity) != Some(&1) || new_twins.get(&identity) != Some(&1) {
             continue;
         }
-        if let Some(queue) = old_by_subtree.get_mut(&new_subtree_hashes[new_idx]) {
-            if let Some(pos) = queue.iter().position(|&old_id| {
-                !old_nodes_consumed[old_id.index()]
-                    && old_containers.get(old_id.index()).copied().flatten() == new_container
-            }) {
-                if let Some(old_id) = queue.remove(pos) {
+        if let Some(queue) = old_by_subtree.get_mut(&identity) {
+            // The entries in front of the first unconsumed one are consumed for good (A1 took
+            // them) and leave the queue with it: every entry is looked at once.
+            while let Some(old_id) = queue.pop_front() {
+                subtree_work(1);
+                if !old_nodes_consumed[old_id.index()] {
                     old_nodes_consumed[old_id.index()] = true;
                     matched[new_idx] = Some(old_id);
+                    break;
                 }
             }
         }
@@ -1179,7 +1416,9 @@ pub fn reconcile_dom(
         }
     }
 
-    // Passes B2/B3: shallow content / structural hash.
+    // Passes B2/B3: shallow content / structural hash. Their queues are built when the first
+    // new node gets here, over the old nodes no pass above consumed (`ShallowTiers`).
+    let mut shallow: Option<ShallowTiers> = None;
     for (new_idx, new_node) in new_node_data.iter().enumerate() {
         if matched[new_idx].is_some() || new_node.get_key().is_some() {
             continue;
@@ -1206,45 +1445,31 @@ pub fn reconcile_dom(
             .get(new_idx)
             .and_then(NodeHierarchyItem::parent_id)
             .and_then(|p| matched.get(p.index()).copied().flatten());
-        let parent_agrees = |old_id: NodeId| -> bool {
-            new_parent_match.map_or_else(
-                || old_parent_key(old_id) == new_parent_key,
-                |expected| {
-                    old_hierarchy
-                        .get(old_id.index())
-                        .and_then(NodeHierarchyItem::parent_id)
-                        == Some(expected)
-                },
-            )
-        };
+        // The gate as the queues are keyed: an old node passes it when its parent IS the
+        // matched one, or - the new node's parent unmatched - when its parent's key is the
+        // new parent's.
+        let gate = new_parent_match.map_or(ParentGate::Key(new_parent_key), ParentGate::Node);
+        let tiers = shallow.get_or_insert_with(|| {
+            ShallowTiers::of(old_node_data, old_hierarchy, &old_rec_keys, &old_nodes_consumed)
+        });
 
         // B2: Content hash (exact match — catches pure reorders)
         let hash = new_node.calculate_node_data_hash();
-        if let Some(queue) = old_hashed.get_mut(&hash) {
-            if let Some(pos) = queue
-                .iter()
-                .position(|&old_id| !old_nodes_consumed[old_id.index()] && parent_agrees(old_id))
-            {
-                if let Some(old_id) = queue.remove(pos) {
-                    old_nodes_consumed[old_id.index()] = true;
-                    matched[new_idx] = Some(old_id);
-                    continue;
-                }
-            }
+        if let Some(old_id) =
+            ShallowTiers::claim(&mut tiers.content, hash, gate, &old_nodes_consumed)
+        {
+            old_nodes_consumed[old_id.index()] = true;
+            matched[new_idx] = Some(old_id);
+            continue;
         }
 
         // B3: Structural hash (text-node fallback — ignores text content)
         let structural_hash = new_node.calculate_structural_hash();
-        if let Some(queue) = old_structural.get_mut(&structural_hash) {
-            if let Some(pos) = queue
-                .iter()
-                .position(|&old_id| !old_nodes_consumed[old_id.index()] && parent_agrees(old_id))
-            {
-                if let Some(old_id) = queue.remove(pos) {
-                    old_nodes_consumed[old_id.index()] = true;
-                    matched[new_idx] = Some(old_id);
-                }
-            }
+        if let Some(old_id) =
+            ShallowTiers::claim(&mut tiers.structural, structural_hash, gate, &old_nodes_consumed)
+        {
+            old_nodes_consumed[old_id.index()] = true;
+            matched[new_idx] = Some(old_id);
         }
     }
 
@@ -1295,11 +1520,13 @@ pub fn reconcile_dom(
             // differs. Tier-2/Tier-3 matches by definition don't carry an Update — a
             // content-hash match is content-identical, and a structural-hash match is
             // a text edit handled by cursor/text reconciliation elsewhere.
-            if matched_by_rec_key {
+            // The handler first: almost no node has one, and the two hashes walk the whole
+            // node (they were computed for every matched node of every rebuild).
+            if matched_by_rec_key && has_update_callback(new_node) {
                 let old_hash = old_node_data[old_id.index()].calculate_node_data_hash();
                 let new_hash = new_node.calculate_node_data_hash();
 
-                if old_hash != new_hash && has_update_callback(new_node) {
+                if old_hash != new_hash {
                     result.events.push(create_lifecycle_event(
                         EventType::Update,
                         new_id,
@@ -1668,6 +1895,15 @@ pub fn transfer_states(
     use crate::refany::OptionRefAny;
 
     let mut replaced = crate::refany::Repointing::default();
+    // Where the clones of a dataset a merge dropped are looked for (step 5). The first merge
+    // that drops one walks the whole new arena, as every merge used to: m merging nodes times
+    // n nodes, a list of 1,000 stateful rows a million node visits per rebuild. The second
+    // one builds the index of which node holds a `RefAny` of which allocation
+    // (`RefAnyHolders`), and from then on a merge visits the nodes listed for what it
+    // dropped. A DOM with one stateful widget pays the one walk it always paid and no index;
+    // a DOM with many pays one walk and one index, not a walk per widget.
+    let mut walked_the_arena = false;
+    let mut holders: Option<RefAnyHolders> = None;
     for movement in node_moves {
         let old_idx = movement.old_node_id.index();
         let new_idx = movement.new_node_id.index();
@@ -1770,7 +2006,36 @@ pub fn transfer_states(
                 let mut merge = crate::refany::Repointing::default();
                 merge.replace(&orphan, &merged);
                 merge.replace(&held, &merged);
-                repoint_orphaned_refanys(new_node_data, &merge);
+                // The merge changed its own node: the merged dataset went in, and maybe the
+                // old node's image with the data of its callback (3b). The index lists the
+                // node under what it holds now, before the lists are read.
+                if let Some(index) = holders.as_mut() {
+                    index.enter(new_node_data, new_idx);
+                }
+                // `merge` is empty when the fresh dataset, the old one and the merged one
+                // share one allocation: nothing was dropped, there is nothing to look for
+                // (the walk used to visit every node to find that out).
+                if !merge.is_empty() {
+                    if walked_the_arena {
+                        if holders.is_none() {
+                            holders = Some(RefAnyHolders::of(new_node_data));
+                        }
+                        if let Some(index) = holders.as_mut() {
+                            index.repoint(
+                                new_node_data,
+                                &merge,
+                                [
+                                    orphan.sharing_info.ptr as usize,
+                                    held.sharing_info.ptr as usize,
+                                ],
+                                merged.sharing_info.ptr as usize,
+                            );
+                        }
+                    } else {
+                        walked_the_arena = true;
+                        repoint_orphaned_refanys(new_node_data, &merge);
+                    }
+                }
                 replaced.extend(merge);
             }
             (new_ds, old_ds) => {
@@ -1798,8 +2063,106 @@ pub fn transfer_states(
 /// parent, which is why this scans the whole arena and not just the merge
 /// node.
 fn repoint_orphaned_refanys(node_data: &mut [NodeData], replaced: &crate::refany::Repointing) {
+    repoint_work(node_data.len());
     for node in node_data.iter_mut() {
         replaced.repoint(node);
+    }
+}
+
+/// Which nodes of an arena hold a `RefAny` of which allocation: what lets a merge of
+/// [`transfer_states`] visit the nodes that hold a clone of the dataset it dropped, and no
+/// other node, where [`repoint_orphaned_refanys`] walks the whole arena.
+///
+/// The unit is the node, not the single `RefAny` in it: a holder hands out its `RefAny`s one
+/// walk at a time (`RefAnyHolder::for_each_refany`) and has no address for one of them. A
+/// listed node is walked as before (`Repointing::repoint`), so the lists only say where to
+/// LOOK: a node may be listed twice, or under an allocation it holds no `RefAny` of any more
+/// (its dataset was taken for a merge, its image replaced), and nothing happens to it.
+///
+/// What has to hold is the other direction - a node that holds a `RefAny` of an allocation is
+/// in the list of that allocation - and it holds as long as every change of the arena is
+/// entered. [`transfer_states`] changes the arena in two ways. A merge puts the merged dataset
+/// (and maybe an image) into its own node: [`Self::enter`] lists that node again. And it
+/// repoints the clones of what it dropped: [`Self::repoint`] moves the nodes it repointed to
+/// the list of the kept allocation, so a later merge that drops THAT allocation - a chain, the
+/// merges of several nodes that share one dataset - finds them there.
+///
+/// An allocation is known by its address (`sharing_info.ptr`). A freed allocation whose
+/// address comes back as another one leaves listed nodes that hold no `RefAny` of it: looked
+/// at for nothing, as above. (The ones a merge dropped are not freed while this lives: the
+/// `Repointing` that is returned keeps a clone of each.)
+#[derive(Default)]
+struct RefAnyHolders {
+    by_allocation: OrderedMap<usize, Vec<usize>>,
+}
+
+impl RefAnyHolders {
+    /// The index of the whole arena as it is now.
+    fn of(node_data: &mut [NodeData]) -> Self {
+        let mut holders = Self::default();
+        for idx in 0..node_data.len() {
+            holders.enter(node_data, idx);
+        }
+        holders
+    }
+
+    /// Lists node `idx` under every allocation it holds a `RefAny` of now.
+    fn enter(&mut self, node_data: &mut [NodeData], idx: usize) {
+        use crate::refany::RefAnyHolder;
+
+        let Some(node) = node_data.get_mut(idx) else {
+            return;
+        };
+        repoint_work(1);
+        let by_allocation = &mut self.by_allocation;
+        node.for_each_refany(&mut |refany: &mut RefAny| {
+            let nodes = by_allocation
+                .entry(refany.sharing_info.ptr as usize)
+                .or_default();
+            // A node's dataset and its handlers' data are mostly clones of one `RefAny` and
+            // come one after the other: listed once.
+            if nodes.last() != Some(&idx) {
+                nodes.push(idx);
+            }
+        });
+    }
+
+    /// Points every clone of the allocations `merge` dropped (at the addresses `dropped`) at
+    /// the dataset it kept (at `kept`), in the nodes listed for them, and lists those nodes
+    /// under the kept allocation.
+    ///
+    /// The nodes are visited in the order of the arena, each once: the order the walk over
+    /// the whole arena repoints in, so the clones of the kept dataset are made in the same
+    /// sequence as there (a clone's `instance_id` counts them).
+    fn repoint(
+        &mut self,
+        node_data: &mut [NodeData],
+        merge: &crate::refany::Repointing,
+        dropped: [usize; 2],
+        kept: usize,
+    ) {
+        let mut nodes: Vec<usize> = Vec::new();
+        for at in dropped {
+            // `merge` has no entry for an allocation that is the kept one
+            // (`Repointing::replace`): its holders stay as they are, and listed where they are.
+            if at == kept {
+                continue;
+            }
+            if let Some(listed) = self.by_allocation.remove(&at) {
+                nodes.extend(listed);
+            }
+        }
+        nodes.sort_unstable();
+        nodes.dedup();
+        for idx in &nodes {
+            if let Some(node) = node_data.get_mut(*idx) {
+                repoint_work(1);
+                merge.repoint(node);
+            }
+        }
+        if !nodes.is_empty() {
+            self.by_allocation.entry(kept).or_default().extend(nodes);
+        }
     }
 }
 
@@ -2641,8 +3004,15 @@ pub struct NodeDataFingerprint {
     pub content_hash: u64,
     /// Hash of `styled_node_state` (hover, focus, active bits)
     pub state_hash: u64,
-    /// Hash of inline CSS properties
+    /// Hash of inline CSS properties: every declaration, except that an inset and an exact
+    /// `transform` / `opacity` count with their property type only (their values are the
+    /// two hashes below; `hash_inline_style_by_reach`)
     pub inline_css_hash: u64,
+    /// Hash of the values of the inline insets (`top`, `right`, `bottom`, `left`)
+    pub inline_inset_hash: u64,
+    /// Hash of the values of an inline `transform` (of at least one function) and `opacity`:
+    /// what the display list binds by key
+    pub inline_gpu_hash: u64,
     /// Hash of `ids_and_classes`, the attributes that select style rules
     /// ([`crate::layout_inputs::LayoutReach::Selectors`])
     pub ids_classes_hash: u64,
@@ -2713,11 +3083,8 @@ impl NodeDataFingerprint {
         // Inline CSS hash — full CssProperty value (matches the legacy
         // CssPropertyWithConditions::hash that hashed both property and the
         // condition vec length).
-        let inline_css_hash = {
-            let mut h = crate::hash::DefaultHasher::new();
-            hash_inline_style(&node.style, &mut h);
-            h.finish()
-        };
+        let (inline_css_hash, inline_inset_hash, inline_gpu_hash) =
+            hash_inline_style_by_reach(&node.style);
 
         // What the layout reads of the attributes and the SVG data, one hash
         // per reach, from one walk over them (the layout's attribute table).
@@ -2766,6 +3133,8 @@ impl NodeDataFingerprint {
             content_hash,
             state_hash,
             inline_css_hash,
+            inline_inset_hash,
+            inline_gpu_hash,
             ids_classes_hash: inputs.selectors,
             callbacks_hash,
             attrs_hash,
@@ -2804,6 +3173,14 @@ impl NodeDataFingerprint {
             // Conservative: inline CSS could affect layout or paint.
             // compute_node_changes() checks relayout_scope() per property.
             changes.insert(NodeChangeSet::INLINE_STYLE_LAYOUT);
+        } else if self.inline_inset_hash != other.inline_inset_hash {
+            // The same declarations, other inset values: the box is placed again (still a
+            // layout change, see the flag).
+            changes.insert(NodeChangeSet::INLINE_STYLE_INSETS);
+        } else if self.inline_gpu_hash != other.inline_gpu_hash {
+            // The same declarations and insets, another transform matrix or opacity: no
+            // box moves, the display list takes the value.
+            changes.insert(NodeChangeSet::INLINE_STYLE_PAINT);
         }
 
         if self.ids_classes_hash != other.ids_classes_hash {
@@ -2853,6 +3230,7 @@ impl NodeDataFingerprint {
     pub const fn might_affect_layout(&self, other: &Self) -> bool {
         self.content_hash != other.content_hash
             || self.inline_css_hash != other.inline_css_hash
+            || self.inline_inset_hash != other.inline_inset_hash
             || self.ids_classes_hash != other.ids_classes_hash
             || self.attrs_hash != other.attrs_hash
             || self.lang_hash != other.lang_hash
@@ -2866,6 +3244,8 @@ impl NodeDataFingerprint {
         self.content_hash != other.content_hash
             || self.state_hash != other.state_hash
             || self.inline_css_hash != other.inline_css_hash
+            || self.inline_inset_hash != other.inline_inset_hash
+            || self.inline_gpu_hash != other.inline_gpu_hash
             || self.ids_classes_hash != other.ids_classes_hash
             || self.lang_hash != other.lang_hash
             || self.own_box_hash != other.own_box_hash
@@ -2884,6 +3264,8 @@ impl NodeDataFingerprint {
     #[must_use]
     pub const fn may_restyle_descendants(&self, other: &Self) -> bool {
         self.inline_css_hash != other.inline_css_hash
+            || self.inline_inset_hash != other.inline_inset_hash
+            || self.inline_gpu_hash != other.inline_gpu_hash
             || self.ids_classes_hash != other.ids_classes_hash
             || self.state_hash != other.state_hash
             || self.lang_hash != other.lang_hash

@@ -551,9 +551,28 @@ impl Hash for StyleProperties {
         self.letter_spacing.hash(state);
         self.word_spacing.hash(state);
 
-        // For f32 fields, round and cast to usize before hashing.
-        (self.font_size_px.round() as isize).hash(state);
+        // The size by its BITS, and every field that shapes or lays text out
+        // (those of `layout_hash`). This hash is a cache KEY with no equality
+        // check behind it: the text cache's first stage keeps a paragraph's
+        // logical items - each holding this style's `Arc`, which shaping and
+        // the display list read - under `calculate_id(&content)`. The size was
+        // rounded to whole px and `text-transform`, the font variants and
+        // variations and `tab-size` were left out, so the same text at 21.3 px
+        // was served the logical items (and the style) of its 21.0 px layout,
+        // and a node whose `text-transform` changed kept the old one.
+        self.font_size_px.to_bits().hash(state);
         self.line_height.hash(state);
+        self.font_variations.len().hash(state);
+        for (tag, value) in &self.font_variations {
+            tag.hash(state);
+            value.to_bits().hash(state);
+        }
+        self.tab_size.to_bits().hash(state);
+        self.text_transform.hash(state);
+        self.font_variant_caps.hash(state);
+        self.font_variant_numeric.hash(state);
+        self.font_variant_ligatures.hash(state);
+        self.font_variant_east_asian.hash(state);
 
         // The inline box's decoration. This hash is a cache KEY - the text
         // cache's first stage is `calculate_id(&content)` - so a span's text
@@ -641,6 +660,8 @@ impl StyleProperties {
     #[must_use]
     pub fn layout_hash(&self) -> u64 {
         use std::hash::Hasher;
+        #[cfg(test)]
+        audit_a8_tests::LAYOUT_HASHES.with(|n| n.set(n.get() + 1));
         let mut hasher = DefaultHasher::new();
 
         // Font selection (affects shaping and metrics)
@@ -650,17 +671,18 @@ impl StyleProperties {
         // shaped at the other's size (wrong advances/metrics).
         self.font_size_px.to_bits().hash(&mut hasher);
         self.font_features.hash(&mut hasher);
-        // font_variations affects glyph outlines
+        // font_variations affects glyph outlines; by the bits, as the size
+        // (a rounded value served `wght` 400.4 the shaping of 400.0)
         for (tag, value) in &self.font_variations {
             tag.hash(&mut hasher);
-            (value.round() as i32).hash(&mut hasher);
+            value.to_bits().hash(&mut hasher);
         }
 
         // Spacing (affects glyph positions)
         self.letter_spacing.hash(&mut hasher);
         self.word_spacing.hash(&mut hasher);
         self.line_height.hash(&mut hasher);
-        (self.tab_size.round() as isize).hash(&mut hasher);
+        self.tab_size.to_bits().hash(&mut hasher);
 
         // Writing mode (affects layout direction)
         self.writing_mode.hash(&mut hasher);
@@ -943,5 +965,54 @@ impl StyleProperties {
             new_style.font_variant_east_asian = val;
         }
         new_style
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+pub(super) mod audit_a8_tests {
+    use super::*;
+
+    std::thread_local! {
+        /// `StyleProperties::layout_hash` calls on this thread.
+        pub(crate) static LAYOUT_HASHES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    }
+
+    fn key(style: &StyleProperties) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        style.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    /// A8-16: the style's `Hash` (the text cache's first-stage key) tells
+    /// apart every change of a field that shapes or lays text out: a size
+    /// 0.3 px apart, `text-transform`, a font variant, a variation value
+    /// 0.2 apart and `tab-size`. It rounded the size to whole px and left the
+    /// others out, so their paragraphs were served each other's layout.
+    /// Mutation: `self.font_size_px.round() as isize` again fails the first.
+    #[test]
+    fn the_style_key_sees_every_layout_field() {
+        let base = StyleProperties {
+            font_size_px: 21.0,
+            ..StyleProperties::default()
+        };
+        let variants = [
+            StyleProperties { font_size_px: 21.3, ..base.clone() },
+            StyleProperties { text_transform: TextTransform::Uppercase, ..base.clone() },
+            StyleProperties { font_variant_caps: FontVariantCaps::SmallCaps, ..base.clone() },
+            StyleProperties { font_variations: vec![(*b"wght", 400.2)], ..base.clone() },
+            StyleProperties { tab_size: 4.0, ..base.clone() },
+        ];
+        for (i, other) in variants.iter().enumerate() {
+            assert_ne!(key(&base), key(other), "variant {i} hashes like the base");
+        }
+        let a = StyleProperties { font_variations: vec![(*b"wght", 400.2)], ..base.clone() };
+        let b = StyleProperties { font_variations: vec![(*b"wght", 400.4)], ..base.clone() };
+        assert_ne!(key(&a), key(&b), "variation values 0.2 apart");
+        assert_ne!(a.layout_hash(), b.layout_hash(), "the shaping key too");
+        let c = StyleProperties { tab_size: 4.3, ..base.clone() };
+        let d = StyleProperties { tab_size: 4.0, ..base.clone() };
+        assert_ne!(c.layout_hash(), d.layout_hash(), "tab sizes 0.3 apart");
+        assert_eq!(key(&base), key(&base.clone()), "equal styles hash alike");
     }
 }

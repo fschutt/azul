@@ -448,9 +448,25 @@ pub struct TextShapingCache {
     /// shaped 6140 KiB) — on top of the 13.5 MB of the SAME shaped text
     /// already retained per layout node as `warm.inline`.
     pub(super) stage_accessed: HashSet<CacheId>,
-    /// Current generation counter, incremented each layout pass.
+    /// Current generation counter, incremented by each sweep
+    /// ([`Self::begin_generation`]).
     pub(super) generation: u64,
+    /// The size (entries of the largest of the caches) past which
+    /// `shape_content` sweeps ([`Self::sweep_if_due`]): twice what the last
+    /// sweep kept, within [`SWEEP_AT_LEAST`] ..= [`SWEEP_AT_MOST`].
+    pub(super) sweep_at: usize,
 }
+
+/// The caches are not swept below this many entries (in the largest of
+/// them): one pass over a view of 12,500 map labels (one paragraph each, its
+/// intrinsic measure and its layout reach the same entries) and the window's
+/// own text. At about 1.2 KB a short paragraph in the three caches together
+/// (its logical items, bidi runs and compact shaped clusters, *est.*), this
+/// is ~20 MB.
+pub(super) const SWEEP_AT_LEAST: usize = 16_384;
+/// ... and are always swept above this many: the bound of what they hold
+/// (~40 MB of short paragraphs, *est.*).
+pub(super) const SWEEP_AT_MOST: usize = 32_768;
 
 /// Bytes an `Arc` allocation adds in front of its payload: strong + weak
 /// refcount.
@@ -546,6 +562,7 @@ impl TextShapingCache {
             per_item_accessed: HashSet::new(),
             stage_accessed: HashSet::new(),
             generation: 0,
+            sweep_at: SWEEP_AT_LEAST,
         }
     }
 
@@ -567,6 +584,7 @@ impl TextShapingCache {
             per_item_accessed: HashSet::new(),
             stage_accessed: HashSet::new(),
             generation: self.generation,
+            sweep_at: self.sweep_at,
         }
     }
 
@@ -727,6 +745,34 @@ impl TextShapingCache {
         self.per_item_accessed.clear();
         self.stage_accessed.clear();
         self.generation += 1;
+    }
+
+    /// Sweeps the caches ([`Self::begin_generation`]: what was not used
+    /// since the sweep before goes) once the largest of them holds more than
+    /// `sweep_at` entries, and sets the next bound to twice what the sweep
+    /// kept, within [`SWEEP_AT_LEAST`] ..= [`SWEEP_AT_MOST`]. Returns whether
+    /// it swept.
+    ///
+    /// It swept at a FIXED 4,096 before: once that many paragraphs were held,
+    /// every `shape_content` call swept, each sweep keeping only what the
+    /// call before it had touched. A pass over 12,500 map labels (Berlin)
+    /// shaped every label twice - the intrinsic measure and the layout of an
+    /// inline formatting context are a pass apart - and the next pass found
+    /// nothing. Bounding the next sweep by what the last one kept means a
+    /// sweep never follows another before the caches have grown again.
+    pub(super) fn sweep_if_due(&mut self) -> bool {
+        let (l, v, sh) = self.stage_entry_counts();
+        if l.max(v).max(sh) <= self.sweep_at {
+            return false;
+        }
+        self.begin_generation();
+        let (l, v, sh) = self.stage_entry_counts();
+        self.sweep_at = l
+            .max(v)
+            .max(sh)
+            .saturating_mul(2)
+            .clamp(SWEEP_AT_LEAST, SWEEP_AT_MOST);
+        true
     }
 
     /// Entry counts of the stage caches, for tests and the memory
@@ -949,17 +995,10 @@ impl TextShapingCache {
         loaded_fonts: &LoadedFonts<T>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
     ) -> Result<(Arc<Vec<LogicalItem>>, Arc<Vec<ShapedItem>>), LayoutError> {
-        // Cap per-item shaped cache to prevent unbounded growth.
-        // When threshold is exceeded, evict entries not accessed this generation.
-        const PER_ITEM_CACHE_MAX: usize = 4096;
-        // The stage caches need a trigger too — they were the unbounded
-        // ones. A document's worth of distinct runs is ~800 entries, so
-        // 4096 leaves several documents' worth resident before any sweep.
-        const STAGE_CACHE_MAX: usize = 4096;
-        let (l, v, sh) = self.stage_entry_counts();
-        if self.per_item_shaped.len() > PER_ITEM_CACHE_MAX || l.max(v).max(sh) > STAGE_CACHE_MAX {
-            self.begin_generation();
-        }
+        // Bound the caches (all four: the stage caches were once the
+        // unbounded ones): sweep what has not been used since the last
+        // sweep, once they have grown well past what it kept.
+        self.sweep_if_due();
 
         // Stage 1: Logical Analysis (InlineContent -> LogicalItem)
         // [g213 2026-06-09] The web lift uses the real `self.logical_items` HashMap cache (NO
@@ -1486,5 +1525,207 @@ pub(crate) fn ceil_to_layout_unit(w: f32) -> f32 {
         (w * SUBPIXEL_GRID).ceil() / SUBPIXEL_GRID
     } else {
         w
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`): when the caches are swept.
+#[cfg(test)]
+mod audit_a8_tests {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+
+    /// Logical-item entries for `ids`, each touched in this generation (as a
+    /// `shape_content` call touches what it uses).
+    fn hold(c: &mut TextShapingCache, ids: core::ops::Range<u64>) {
+        for id in ids {
+            c.logical_items.insert(id, Arc::new(Vec::new()));
+            c.touch_stage(id);
+        }
+    }
+
+    /// A8-06: a pass over a view's 12,500 labels is not swept at all (the
+    /// old bound swept past 4,096).
+    #[test]
+    fn a_pass_over_a_views_labels_is_not_swept() {
+        let mut c = TextShapingCache::new();
+        hold(&mut c, 0..12_500);
+        assert!(!c.sweep_if_due());
+        assert_eq!(c.stage_entry_counts().0, 12_500);
+        assert_eq!(c.generation, 0);
+    }
+
+    /// A8-06: a sweep is not followed by another before the caches have grown
+    /// to twice what it kept. The old fixed bound swept on every call once
+    /// past it, each sweep keeping only what the call before had touched.
+    /// Mutation: drop the `self.sweep_at = ..` update and the calls right
+    /// after the first sweep sweep again (the 100 later entries are the only
+    /// ones touched: the rest would go).
+    #[test]
+    fn a_sweep_is_not_followed_by_another_before_the_caches_grow_again() {
+        let mut c = TextShapingCache::new();
+        hold(&mut c, 0..(SWEEP_AT_LEAST as u64 + 1));
+        assert!(c.sweep_if_due(), "past the bound: a sweep");
+        assert_eq!(c.stage_entry_counts().0, SWEEP_AT_LEAST + 1, "generation 0 keeps all");
+        assert_eq!(c.sweep_at, SWEEP_AT_MOST.min(2 * (SWEEP_AT_LEAST + 1)));
+        for id in 1_000_000..1_000_100_u64 {
+            hold(&mut c, id..id + 1);
+            assert!(!c.sweep_if_due(), "a call right after a sweep sweeps nothing");
+        }
+        assert_eq!(c.stage_entry_counts().0, SWEEP_AT_LEAST + 101, "nothing was dropped");
+    }
+
+    /// A8-06: the bound holds: past `SWEEP_AT_MOST` entries a sweep drops what
+    /// was not used since the sweep before.
+    #[test]
+    fn the_caches_are_swept_past_their_bound() {
+        let mut c = TextShapingCache::new();
+        hold(&mut c, 0..(SWEEP_AT_LEAST as u64 + 1));
+        assert!(c.sweep_if_due());
+        // New entries; the old ones are not used again.
+        hold(&mut c, 100_000..(100_000 + SWEEP_AT_MOST as u64));
+        assert!(c.sweep_if_due(), "past the most: a sweep");
+        assert_eq!(
+            c.stage_entry_counts().0,
+            SWEEP_AT_MOST,
+            "what was not used since the sweep before is gone"
+        );
+        assert!(!c.logical_items.contains_key(&0));
+    }
+
+    /// A8-06 (the measured effect): 5,000 paragraphs - more than the old
+    /// bound - each shaped by the intrinsic measure and again by the layout
+    /// of a pass, as the solver does, are shaped ONCE each in that pass and
+    /// not at all in the next. With the old bound every paragraph was shaped
+    /// in both halves of every pass: 10,000 a pass.
+    /// Mutation: `SWEEP_AT_LEAST` = 4,096 fails it.
+    #[test]
+    fn a_pass_over_more_paragraphs_than_the_old_bound_shapes_each_once_and_the_next_none() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chains = HashMap::new();
+        chains.insert(key.clone(), chain.clone());
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(failed.is_empty(), "premise: the mock face loads: {failed:?}");
+        let style = Arc::new(StyleProperties {
+            font_stack: FontStack::Stack(selectors),
+            font_size_px: 20.0,
+            ..StyleProperties::default()
+        });
+        let contents: Vec<Vec<InlineContent>> = (0..5_000)
+            .map(|i| {
+                vec![InlineContent::Text(StyledRun {
+                    text: Arc::from(format!("w{i}").as_str()),
+                    style: style.clone(),
+                    logical_start_byte: 0,
+                    source_node_id: None,
+                })]
+            })
+            .collect();
+        let loaded = fm.get_loaded_fonts();
+        let constraints = UnifiedConstraints::default();
+        let shaped = || super::super::shaping::GROUPS_SHAPED.with(core::cell::Cell::get);
+        let pass = |cache: &mut TextShapingCache| {
+            // the intrinsic measure of every paragraph, then its layout
+            for _ in 0..2 {
+                for content in &contents {
+                    cache
+                        .shape_content(
+                            content,
+                            &[],
+                            &constraints,
+                            &chains,
+                            &fm.fc_cache,
+                            &loaded,
+                            &mut None,
+                        )
+                        .expect("the paragraph shapes");
+                }
+            }
+        };
+        let mut cache = TextShapingCache::new();
+        let before = shaped();
+        pass(&mut cache);
+        assert_eq!(shaped() - before, 5_000, "each paragraph is shaped once in a pass");
+        let after_first = shaped();
+        pass(&mut cache);
+        assert_eq!(shaped(), after_first, "the next pass over the same text shapes nothing");
+    }
+
+    /// A8-16 (wrong output): the same text of the same node laid out at
+    /// 21.0 px, then at 21.3 px (a zoom settle), then back, gets logical items
+    /// that carry the style it is laid out in. The first stage keyed them by
+    /// a style hash that rounded the size, so 21.3 px was served the 21.0 px
+    /// items - and shaped and drawn at 21.0 px.
+    /// Mutation: round the size in `StyleProperties::hash` again.
+    #[test]
+    fn a_paragraph_whose_size_changes_by_less_than_a_pixel_is_laid_out_at_the_new_size() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chains = HashMap::new();
+        chains.insert(key.clone(), chain.clone());
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(failed.is_empty(), "premise: the mock face loads: {failed:?}");
+        let loaded = fm.get_loaded_fonts();
+        let constraints = UnifiedConstraints::default();
+        let content = |px: f32| {
+            vec![InlineContent::Text(StyledRun {
+                text: Arc::from("Hauptstrasse"),
+                style: Arc::new(StyleProperties {
+                    font_stack: FontStack::Stack(selectors.clone()),
+                    font_size_px: px,
+                    ..StyleProperties::default()
+                }),
+                logical_start_byte: 0,
+                source_node_id: None,
+            })]
+        };
+        let mut cache = TextShapingCache::new();
+        for px in [21.0_f32, 21.3, 21.0, 21.4] {
+            let (logical, _) = cache
+                .shape_content(
+                    &content(px),
+                    &[],
+                    &constraints,
+                    &chains,
+                    &fm.fc_cache,
+                    &loaded,
+                    &mut None,
+                )
+                .expect("the paragraph shapes");
+            let sizes: Vec<f32> = logical
+                .iter()
+                .filter_map(|item| match item {
+                    LogicalItem::Text { style, .. } => Some(style.font_size_px),
+                    _ => None,
+                })
+                .collect();
+            assert!(
+                !sizes.is_empty() && sizes.iter().all(|size| size.to_bits() == px.to_bits()),
+                "laid out at {px} px, its logical items are at {sizes:?}"
+            );
+        }
     }
 }

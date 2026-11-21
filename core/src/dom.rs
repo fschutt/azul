@@ -1384,6 +1384,10 @@ pub struct VirtualViewNode {
     pub callback: VirtualViewCallback,
     /// The application data passed to the virtualized view's layout callback.
     pub refany: RefAny,
+    /// The version of what the view shows, when the app states one
+    /// ([`NodeData::set_virtual_view_version`]): a rebuild of the DOM around the view that
+    /// hands in the same callback and the same version keeps the view as it is.
+    pub version: Option<u64>,
 }
 
 impl crate::refany::RefAnyHolder for VirtualViewNode {
@@ -3191,6 +3195,7 @@ impl NodeData {
         ext.virtual_view = Some(VirtualViewNode {
             callback: callback.into(),
             refany: data,
+            version: None,
         });
         nd
     }
@@ -4372,6 +4377,16 @@ impl NodeData {
         let taken_style = mem::take(&mut self.style);
         let taken_extra = self.extra.take();
         let taken_node_type = mem::replace(&mut self.node_type, NodeType::Div);
+        // The handlers, the accessibility info and the translation arguments
+        // move as well, the same way: `copy_special` then clones an empty
+        // list and two `None`s. Cloned, every handler's data was shared once
+        // more (its count raised) and released again when the consumed `Dom`
+        // was dropped, and the two boxes were copied whole: three clone and
+        // drop pairs per label of a map, 19,000 per render.
+        let taken_callbacks =
+            mem::replace(&mut self.callbacks, CoreCallbackDataVec::from_const_slice(&[]));
+        let taken_accessibility = self.accessibility.take();
+        let taken_fluent_args = self.fluent_args.take();
         let mut copy = self.copy_special();
         // SAFETY: `&raw mut copy.node_type` is aligned and points at an initialized
         // `NodeType` (the placeholder `Div` that `copy_special` reconstructed from
@@ -4385,6 +4400,9 @@ impl NodeData {
         }
         copy.style = taken_style;
         copy.extra = taken_extra;
+        copy.callbacks = taken_callbacks;
+        copy.accessibility = taken_accessibility;
+        copy.fluent_args = taken_fluent_args;
         copy
     }
 
@@ -4594,6 +4612,34 @@ impl NodeData {
     #[must_use]
     pub fn get_virtual_view_node_ref(&self) -> Option<&VirtualViewNode> {
         self.extra.as_ref()?.virtual_view.as_ref()
+    }
+
+    /// States the VERSION of what this node's `VirtualView` shows: a number the app changes
+    /// whenever the view's callback would build another DOM (its data, its scroll window,
+    /// anything it reads).
+    ///
+    /// A rebuild of the DOM around the view (the layout callback ran again: a panel opened,
+    /// a selection changed) renders every view again by default - the engine cannot know
+    /// what a view's callback reads. A view whose node comes back with the same callback and
+    /// the SAME version is kept instead: its callback is not invoked, its document is not
+    /// styled, reconciled or laid out again and keeps its display list. Its box, the styles
+    /// it inherits from its host and a light / dark switch are still followed, and an
+    /// explicit re-render (`update_virtual_view`, `trigger_virtual_view_rerender`) or a
+    /// scroll past the rendered window renders it as before. A node without a version (the
+    /// default) is rendered again by every rebuild. Does nothing on a node that is no view.
+    #[inline]
+    pub fn set_virtual_view_version(&mut self, version: u64) {
+        if let Some(view) = self.get_virtual_view_node() {
+            view.version = Some(version);
+        }
+    }
+
+    /// Builder form of [`Self::set_virtual_view_version`].
+    #[inline]
+    #[must_use]
+    pub fn with_virtual_view_version(mut self, version: u64) -> Self {
+        self.set_virtual_view_version(version);
+        self
     }
 
     pub fn get_render_image_callback_node(
@@ -7843,6 +7889,23 @@ impl Dom {
     pub fn with_key<K: Hash>(mut self, key: K) -> Self {
         self.root.set_key(key);
         self
+    }
+
+    /// States the version of what the root node's `VirtualView` shows: a rebuild of the DOM
+    /// around the view that hands in the same callback and the same version keeps the view
+    /// as it is (no callback, no layout of its document). See
+    /// [`NodeData::set_virtual_view_version`].
+    #[inline]
+    #[must_use]
+    pub fn with_virtual_view_version(mut self, version: u64) -> Self {
+        self.root.set_virtual_view_version(version);
+        self
+    }
+
+    /// Setter form of [`Self::with_virtual_view_version`].
+    #[inline]
+    pub fn set_virtual_view_version(&mut self, version: u64) {
+        self.root.set_virtual_view_version(version);
     }
 
     /// Registers a callback to merge dataset state from the previous frame.

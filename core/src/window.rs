@@ -2230,10 +2230,16 @@ impl WindowSize {
         self.dimensions
     }
 
+    #[allow(clippy::cast_precision_loss)] // a DPI is far below 2^24
     #[must_use]
     pub fn get_physical_size(&self) -> PhysicalSize<u32> {
-        self.dimensions
-            .to_physical(self.get_hidpi_factor().inner.get())
+        // The factor itself (`dpi / 96`), not `get_hidpi_factor()`: that one
+        // is a `FloatValue`, three decimals, cut off. A shell stores
+        // `px / (dpi / 96)` as the logical size, and 2100 px at DPI 128 (4/3)
+        // is 1575 logical: times 1.333 that is 2099.475, a window one pixel
+        // narrower than it is; times 1.333_333_4 it is 2100 (audit A10-17).
+        let dpi = if self.dpi == 0 { 96 } else { self.dpi };
+        self.dimensions.to_physical(dpi as f32 / 96.0)
     }
 
     #[allow(clippy::cast_precision_loss)] // bounded DPI/dimension/number conversion

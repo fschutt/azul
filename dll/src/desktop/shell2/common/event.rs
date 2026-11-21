@@ -702,6 +702,23 @@ fn repaint_restyled_dom(layout_window: &mut LayoutWindow, dom_id: DomId) -> Proc
     ProcessEventResult::ShouldReRenderCurrentWindow
 }
 
+/// [`repaint_restyled_dom`] for a restyle whose changed nodes are at hand (a `:hover`, an
+/// `:active`): when all that changed are DECORATIONS of a few nodes - a background, a border
+/// colour, a shadow - their runs are painted into the list the DOM has
+/// (`LayoutWindow::patch_restyled_decorations`) and no list is built. A map's label under the
+/// pointer built the view's whole list again - every label - on every enter and every leave.
+/// Anything the patch cannot show builds the list as before.
+fn repaint_restyled_nodes(
+    layout_window: &mut LayoutWindow,
+    dom_id: DomId,
+    restyle_result: &azul_core::styled_dom::RestyleResult,
+) -> ProcessEventResult {
+    if layout_window.patch_restyled_decorations(dom_id, &restyle_result.changed_nodes) {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
+    repaint_restyled_dom(layout_window, dom_id)
+}
+
 /// `:seat-focus` restyle for a NON-primary seat (9b-ii-a-i-d-iii-a): the node
 /// that lost this seat's focus drops the pseudo-class unless another seat
 /// still focuses it; the node that gained it takes it. Same classification
@@ -956,6 +973,19 @@ fn stage_css_dirty(
         }
         layout_window.pending_css_dirty = Some((dom_id, merged.into_iter().collect()));
     } else {
+        // The slot holds ONE DOM's dirt, and it is another DOM's. Dirt that asks for layout
+        // is not dropped for the newcomer: it waits beside the slot for its DOM's pass
+        // (`LayoutWindow::hold_css_dirt`). A pass that restyles two DOMs - the pointer
+        // leaves a node of the window and enters one of a view - returned "relayout" for
+        // the first and then lost what to lay out. Paint-only dirt was served by the
+        // restyle that staged it (a list patched or built) and goes, as before.
+        let (other_dom, other_dirt) = current;
+        if other_dirt
+            .iter()
+            .any(|(_, scope)| *scope > azul_css::props::property::RelayoutScope::None)
+        {
+            layout_window.hold_css_dirt(other_dom, other_dirt);
+        }
         layout_window.pending_css_dirty = Some((dom_id, dirty));
     }
 }
@@ -1059,7 +1089,7 @@ fn apply_active_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                repaint_restyled_dom(layout_window, dom_id)
+                repaint_restyled_nodes(layout_window, dom_id, &restyle_result)
             } else {
                 // Nothing to lay out and nothing to paint (a pointer shape alone): the diff
                 // the restyle staged owes no pass, and no list is rebuilt.
@@ -1127,7 +1157,7 @@ pub(crate) fn apply_hover_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                repaint_restyled_dom(layout_window, dom_id)
+                repaint_restyled_nodes(layout_window, dom_id, &restyle_result)
             } else {
                 // Nothing to lay out and nothing to paint (a pointer shape alone): the diff
                 // the restyle staged owes no pass, and no list is rebuilt.
@@ -1917,31 +1947,6 @@ pub fn win32_wheel_pixels_per_notch(wheel_scroll_lines: u32, viewport_extent: f3
         viewport_extent
     } else {
         WHEEL_SCROLL_PIXELS_PER_LINE * (wheel_scroll_lines as f32 / DEFAULT_WHEEL_SCROLL_LINES)
-    }
-}
-
-/// Device pixels per logical pixel for a position a window system reports in
-/// device pixels (Win32 client coordinates, `ScreenToClient`): `dpi / 96`,
-/// the factor the window's frame is rendered at, and 1.0 for a DPI of 0.
-///
-/// NOT `WindowSize::get_hidpi_factor()`: that one is a `FloatValue`, three
-/// decimals, cut off. At DPI 128 (4/3) it reads 1.333 for a frame drawn at
-/// 1.333_333_4: a pointer on device pixel 3000 became 3000 / 1.333 = 2250.56
-/// logical, which the frame draws at pixel 3000.75; at DPI 110 it became
-/// 2620.09, drawn at pixel 3002.18. The box that was hit was not the box
-/// under the pointer, by up to 3 px at 4096 px. With `dpi / 96` the position
-/// is 2250.0 (2618.18), drawn at pixel 3000.0. At 100 / 125 / 150 / 175 /
-/// 200 % the two factors are the same number.
-///
-/// The number of `LayoutWindow::frame_scale()` (audit A10-17) for every shell
-/// that does not say its frame's factor itself.
-#[must_use]
-#[allow(clippy::cast_precision_loss)] // a DPI is far below 2^24
-pub fn pointer_scale(dpi: u32) -> f32 {
-    if dpi == 0 {
-        1.0
-    } else {
-        dpi as f32 / 96.0
     }
 }
 
@@ -17457,6 +17462,21 @@ mod paint_restyle_tests {
         (root_before, child_before): (*const DisplayList, *const DisplayList),
         what: &str,
     ) {
+        assert_a_repaint_of_the_views_list(page, tier, (root_before, child_before), what, 1);
+    }
+
+    /// As above, for a state whose restyle is shown by `rebuilds` builds of the view's list:
+    /// 1 where the list is built again (`:focus`, `:seat-focus`: the caret and the rings are
+    /// built from the focus), 0 where the label's own run is painted into the list the view
+    /// has (`:hover`, `:active`: `LayoutWindow::patch_restyled_decorations`). The callers
+    /// check the list's content either way (the label is painted in the state's colour).
+    fn assert_a_repaint_of_the_views_list(
+        page: &Page,
+        tier: ProcessEventResult,
+        (root_before, child_before): (*const DisplayList, *const DisplayList),
+        what: &str,
+        rebuilds: u32,
+    ) {
         assert_eq!(
             tier,
             ProcessEventResult::ShouldReRenderCurrentWindow,
@@ -17468,12 +17488,24 @@ mod paint_restyle_tests {
             root_before,
             "{what}: the window's list of thousands of items was not touched"
         );
-        assert_ne!(
-            list_of(page, page.child),
-            child_before,
-            "{what}: the list that holds the label was rebuilt"
+        if rebuilds > 0 {
+            assert_ne!(
+                list_of(page, page.child),
+                child_before,
+                "{what}: the list that holds the label was rebuilt"
+            );
+        } else {
+            // Patched where it lies: a list nobody else holds keeps its place, so its
+            // pointer says nothing; the patch is counted instead.
+            assert_eq!(
+                page.lw.frame_report.dl_node_patches, 1,
+                "{what}: the label's run was painted into the list"
+            );
+        }
+        assert_eq!(
+            page.lw.frame_report.dl_rebuilds, rebuilds,
+            "{what}: {rebuilds} list(s) rebuilt"
         );
-        assert_eq!(page.lw.frame_report.dl_rebuilds, 1, "{what}: one list rebuilt");
         assert_eq!(page.lw.frame_report.layout_passes, 0, "{what}: no layout");
         assert!(
             page.lw.pending_css_dirty.is_none(),
@@ -17483,7 +17515,7 @@ mod paint_restyle_tests {
     }
 
     #[test]
-    fn a_hover_over_a_label_rebuilds_the_views_list_and_asks_for_a_repaint() {
+    fn a_hover_over_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
         let mut page = page();
         let before = (
             list_of(&page, DomId::ROOT_ID),
@@ -17500,7 +17532,7 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, enter);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "enter");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "enter", 0);
         assert_eq!(painted(&page, page.child), 1, "the label is painted in its hover colour");
 
         // And leaves it.
@@ -17517,12 +17549,12 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, leave);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "leave");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "leave", 0);
         assert_eq!(painted(&page, page.child), 0, "and loses it");
     }
 
     #[test]
-    fn a_press_on_a_label_rebuilds_the_views_list_and_asks_for_a_repaint() {
+    fn a_press_on_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
         let mut page = page();
         let before = (
             list_of(&page, DomId::ROOT_ID),
@@ -17531,7 +17563,7 @@ mod paint_restyle_tests {
         // The press lands on the deepest node, the text; its span is active with it.
         let press = BTreeMap::from([(page.child, vec![NodeId::new(ACTIVE_TEXT)])]);
         let tier = apply_active_restyle(&mut page.lw, press, false);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "press");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "press", 0);
         assert_eq!(painted(&page, page.child), 1, "the pressed label is painted active");
 
         let before = (
@@ -17540,7 +17572,7 @@ mod paint_restyle_tests {
         );
         page.lw.frame_report.reset_counters();
         let tier = apply_active_restyle(&mut page.lw, BTreeMap::new(), true);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "release");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "release", 0);
         assert_eq!(painted(&page, page.child), 0, "and is not after the release");
     }
 
@@ -17579,5 +17611,55 @@ mod paint_restyle_tests {
         let tier = apply_focus_restyle(&mut page.lw, None, Some(label));
         assert_a_repaint_of_the_views_list_alone(&page, tier, before, "focus");
         assert_eq!(painted(&page, page.child), 1, "the focused label is painted in its colour");
+    }
+
+    /// A3-window-33: one pass restyles a node of the window and a node of a view, both in
+    /// a way that asks for layout. The slot of the staged CSS diff holds one DOM's dirt; the
+    /// window's used to be dropped when the view's was staged, and the relayout the pass
+    /// asked for found no node of the window to lay out again.
+    #[test]
+    fn the_layout_dirt_of_one_dom_waits_while_another_doms_is_staged() {
+        use azul_core::styled_dom::{ChangedCssProperty, RestyleResult, StyledNodeState};
+        use azul_css::props::{
+            basic::PixelValue,
+            layout::dimensions::LayoutWidth,
+            property::{CssProperty, RelayoutScope},
+        };
+
+        use super::stage_css_dirty;
+
+        let width = |px: f32| CssProperty::width(LayoutWidth::Px(PixelValue::px(px)));
+        let restyle_of = |node: usize, from: f32, to: f32| {
+            let mut result = RestyleResult::default();
+            result.changed_nodes.insert(
+                NodeId::new(node),
+                vec![ChangedCssProperty {
+                    previous_state: StyledNodeState::default(),
+                    previous_prop: width(from),
+                    current_state: StyledNodeState::default(),
+                    current_prop: width(to),
+                }],
+            );
+            result
+        };
+
+        let mut page = page();
+        stage_css_dirty(&mut page.lw, DomId::ROOT_ID, &restyle_of(1, 100.0, 120.0));
+        stage_css_dirty(&mut page.lw, DomId::ROOT_ID, &restyle_of(1, 120.0, 100.0));
+        stage_css_dirty(&mut page.lw, page.child, &restyle_of(HOVER_LABEL, 50.0, 60.0));
+
+        assert_eq!(
+            page.lw.pending_css_dirty.as_ref().map(|(dom, _)| *dom),
+            Some(page.child),
+            "the slot holds the view's dirt"
+        );
+        let held = page
+            .lw
+            .css_dirty_waiting
+            .get(&DomId::ROOT_ID)
+            .expect("the window's dirt waits for the window's pass");
+        assert_eq!(held.len(), 1, "one entry for the node, however often it was restyled");
+        assert_eq!(held[0].0, NodeId::new(1));
+        assert!(held[0].1 > RelayoutScope::None, "a width is laid out again");
     }
 }

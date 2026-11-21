@@ -172,17 +172,36 @@ const K_CG_RENDERING_INTENT_DEFAULT: u32 = 0;
 /// says it is done, not when the creating stack frame unwinds.
 #[cfg(feature = "cpurender")]
 extern "C" fn release_frame_pixels(_info: *mut c_void, data: *const u8, size: usize) {
-    // Reconstitute the Box<[u8]> leaked in display_layer and drop it.
+    // Reconstitute the Box<[u8]> leaked in display_layer. It is not freed:
+    // it is the buffer of a later frame's copy (A10-11; the pool frees what
+    // it does not keep).
     // SAFETY: `data`/`size` are exactly the pointer + length of the boxed
     // slice passed to CGDataProviderCreateWithData below; CG invokes this
     // callback exactly once, when the last retain on the provider is gone.
-    unsafe {
-        drop(Box::from_raw(core::ptr::slice_from_raw_parts_mut(
+    let buffer = unsafe {
+        Box::from_raw(core::ptr::slice_from_raw_parts_mut(
             data as *mut u8,
             size,
-        )));
+        ))
+    };
+    // Core Graphics may call this from any thread: the pool is behind a lock.
+    if let Ok(mut pool) = FRAME_COPIES.lock() {
+        pool.give_back(buffer);
     }
 }
+
+/// The buffers of the frame copies handed to Core Graphics (A10-11): a
+/// present used to allocate one of the frame's size and free the one before
+/// (22 MB on a 2732 x 2048 screen, every present).
+#[cfg(feature = "cpurender")]
+static FRAME_COPIES: std::sync::Mutex<azul_layout::window::FrameBufferPool> =
+    std::sync::Mutex::new(azul_layout::window::FrameBufferPool::new());
+
+/// The window's rendered-frame count at the last `setContents:`, plus one;
+/// 0 = no frame was handed to the layer yet (A10-11).
+#[cfg(feature = "cpurender")]
+static FRAMES_AT_LAST_PRESENT: core::sync::atomic::AtomicU64 =
+    core::sync::atomic::AtomicU64::new(0);
 
 // ─── Global window pointer ────────────────────────────────────────────
 //
@@ -276,6 +295,39 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         if pw == 0 || ph == 0 {
             return;
         }
+        // A10-11: the layer keeps the image it was given. When that image is
+        // still this frame (nothing was rendered since, or one frame was and
+        // it changed nothing: a tick of the display link over an idle UI)
+        // there is nothing to copy and nothing to hand over.
+        let frames_now = window
+            .common
+            .layout_window
+            .as_ref()
+            .map_or(0, |lw| lw.frame_timings().frame_count);
+        let frames_at_last_present =
+            match FRAMES_AT_LAST_PRESENT.load(core::sync::atomic::Ordering::Relaxed) {
+                0 => None,
+                n => Some(n - 1),
+            };
+        let layer_has_contents = unsafe {
+            let contents: *mut Object = msg_send![layer, contents];
+            !contents.is_null()
+        };
+        if layer_has_contents
+            && azul_layout::window::present_geometry::frame_already_shown(
+                frames_now,
+                frames_at_last_present,
+                window.cpu_backend.last_present_damage.is_none(),
+            )
+        {
+            // What the layer shows is the frame as of NOW: the next idle
+            // tick is again "one frame since, nothing changed".
+            FRAMES_AT_LAST_PRESENT.store(
+                frames_now.saturating_add(1),
+                core::sync::atomic::Ordering::Relaxed,
+            );
+            return;
+        }
         // Hand the provider its OWN copy of the frame. The old code passed a
         // pointer into `cpu_backend.last_frame` with `release: None` ("pixmap
         // outlives this call") — but the CGImage outlives the call: the layer
@@ -286,8 +338,14 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
         // commit time (ERROR_CGDataProvider_BufferIsNotReadable / torn
         // frames). The copy is freed in `release_frame_pixels` when CG drops
         // its last reference.
-        let owned: Box<[u8]> = Box::from(pixmap.data());
-        let len = owned.len();
+        // The copy goes into a buffer an earlier frame's copy gave back
+        // (A10-11), not into a fresh allocation.
+        let len = pixmap.data().len();
+        let mut owned: Box<[u8]> = match FRAME_COPIES.lock() {
+            Ok(mut pool) => pool.take(len),
+            Err(_) => vec![0_u8; len].into_boxed_slice(),
+        };
+        owned.copy_from_slice(pixmap.data());
         let data_ptr = Box::into_raw(owned) as *mut u8;
         unsafe {
             let cs = CGColorSpaceCreateDeviceRGB();
@@ -321,6 +379,10 @@ extern "C" fn display_layer(_this: &Object, _cmd: Sel, layer: *mut Object) {
             if !image.is_null() {
                 let _: () = msg_send![layer, setContents: image];
                 CGImageRelease(image);
+                FRAMES_AT_LAST_PRESENT.store(
+                    frames_now.saturating_add(1),
+                    core::sync::atomic::Ordering::Relaxed,
+                );
             }
             CGDataProviderRelease(provider);
             CGColorSpaceRelease(cs);
@@ -1867,7 +1929,8 @@ impl IOSWindow {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
+            // THE factor of the window's frame (A10-17), not get_hidpi_factor().
+            let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);
             // Shared per-frame content preparation (journal clock, image
             // callbacks through the content chokepoint, scrollbar cache).
             if let Some(lw) = self.common.layout_window.as_mut() {
@@ -2044,7 +2107,8 @@ impl IOSWindow {
             let ws = self.common.current_window_state();
             let width = ws.size.dimensions.width;
             let height = ws.size.dimensions.height;
-            let dpi = ws.size.dpi as f32 / 96.0;
+            // THE factor of the window's frame (A10-17), not get_hidpi_factor().
+            let dpi = azul_layout::window::present_geometry::frame_dpi_factor(ws.size.dpi);
             // Shared per-frame content preparation (journal clock, image
             // callbacks through the content chokepoint, scrollbar cache).
             // Before this, image callbacks were NEVER invoked on this host —

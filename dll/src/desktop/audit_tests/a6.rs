@@ -122,10 +122,11 @@ mod window_listeners {
 }
 
 /// A6-15: a pointer position a window system reports in device pixels becomes the logical
-/// position the frame draws on that pixel: divided by the frame's factor (`dpi / 96`), not by
-/// the three-decimal `WindowSize::get_hidpi_factor()`.
+/// position the frame draws on that pixel: divided by the frame's factor (`dpi / 96`:
+/// `present_geometry::frame_dpi_factor`, A10-17 - ONE function for the frame and the pointer
+/// since the merge), not by the three-decimal `WindowSize::get_hidpi_factor()`.
 mod pointer_positions {
-    use crate::desktop::shell2::common::event::pointer_scale;
+    use azul_layout::window::present_geometry::frame_dpi_factor as pointer_scale;
 
     const WINDOWS_RS: &str = include_str!("../shell2/windows/mod.rs");
 
@@ -178,7 +179,7 @@ mod pointer_positions {
                 "windows/mod.rs divides a position by the cut factor: `{cut}`"
             );
         }
-        assert!(WINDOWS_RS.contains("common::event::pointer_scale("));
+        assert!(WINDOWS_RS.contains("present_geometry::frame_dpi_factor("));
     }
 }
 
