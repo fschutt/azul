@@ -10500,29 +10500,26 @@ impl LayoutWindow {
                         let initial_opacity = if always_visible { 1.0 } else { 0.0 };
                         if let Some(opacity_key) = info.opacity_key {
                             match hit_id {
+                                // Not `entry()`: on a stamped map that is a write, and a
+                                // bar that has its key moved the write generation on every
+                                // layout pass (A6-22). A bar with a key keeps key and value.
                                 ScrollbarHitId::VerticalThumb(_, nid) => {
-                                    let key = (dom_id, *nid);
-                                    if let std::collections::hash_map::Entry::Vacant(e) =
-                                        gpu_cache.scrollbar_v_opacity_keys.entry(key)
-                                    {
-                                        e.insert(opacity_key);
-                                        gpu_cache
-                                            .scrollbar_v_opacity_values
-                                            .insert(key, initial_opacity);
-                                        gpu_cache.note_value_write();
-                                    }
+                                    let _ = gpu_cache.register_scrollbar_opacity(
+                                        azul_core::dom::ScrollbarOrientation::Vertical,
+                                        dom_id,
+                                        *nid,
+                                        opacity_key,
+                                        initial_opacity,
+                                    );
                                 }
                                 ScrollbarHitId::HorizontalThumb(_, nid) => {
-                                    let key = (dom_id, *nid);
-                                    if let std::collections::hash_map::Entry::Vacant(e) =
-                                        gpu_cache.scrollbar_h_opacity_keys.entry(key)
-                                    {
-                                        e.insert(opacity_key);
-                                        gpu_cache
-                                            .scrollbar_h_opacity_values
-                                            .insert(key, initial_opacity);
-                                        gpu_cache.note_value_write();
-                                    }
+                                    let _ = gpu_cache.register_scrollbar_opacity(
+                                        azul_core::dom::ScrollbarOrientation::Horizontal,
+                                        dom_id,
+                                        *nid,
+                                        opacity_key,
+                                        initial_opacity,
+                                    );
                                 }
                                 _ => {}
                             }
@@ -10968,7 +10965,8 @@ impl LayoutWindow {
             node,
             azul_core::transform::ComputedTransform3D::new_translation(x, y, 0.0),
         );
-        cache.note_value_write();
+        // No note: the two maps stamp themselves, the value only when the pointer moved
+        // the node (a note here moved the write generation on every call, A6-22).
         if keyed && previous.is_some() {
             ProcessEventResult::ShouldReRenderCurrentWindow
         } else if dom_id != DomId::ROOT_ID {
@@ -13068,8 +13066,7 @@ impl LayoutWindow {
                 .then_some((self.material_light.color, self.material_light.intensity));
             let cache = self.gpu_state_manager.get_or_create_cache(dom);
             let had: BTreeSet<NodeId> = cache.sheen_opacity_keys.keys().copied().collect();
-            let same_light = cache.sheen_light == light;
-            cache.sheen_light = light;
+            let same_light = !cache.set_sheen_light(light);
             if had == wanted && cache.sheen_transform_keys.len() == wanted.len() && same_light {
                 continue;
             }
@@ -13085,10 +13082,7 @@ impl LayoutWindow {
                 // Not `entry()`: a `&mut` to the stamped map restamps it whether or not a
                 // key is minted.
                 let _ = cache.ensure_transform_key(azul_core::gpu::TransformChannel::Sheen, *node);
-                cache
-                    .sheen_opacity_keys
-                    .entry(*node)
-                    .or_insert_with(OpacityKey::unique);
+                let _ = cache.ensure_opacity_key(azul_core::gpu::OpacityChannel::Sheen, *node);
             }
             cache.note_value_write();
             changed.push(dom);
@@ -19812,14 +19806,14 @@ impl LayoutWindow {
                 node_id,
                 flip_to_matrix(t),
             );
-            cache
-                .anim_opacity_keys
-                .entry(node_id)
-                .or_insert_with(OpacityKey::unique);
-            cache
-                .anim_current_opacity_values
-                .insert(node_id, anim.current_opacity());
-            cache.note_value_write();
+            // The opacity alike, and no note after the two: an unconditional one moved
+            // the write generation on every tick, also for a slide that wrote the values
+            // it had (A6-22).
+            let _ = cache.key_opacity(
+                azul_core::gpu::OpacityChannel::Animation,
+                node_id,
+                anim.current_opacity(),
+            );
         }
 
         // Keyframed tracks advance their CLOCKS here — one engine clock —
@@ -20091,8 +20085,9 @@ impl LayoutWindow {
                             result.display_list.color_bindings.contains(&Some(*key))
                         });
                         if let Some(key) = bound_key {
+                            // No note: the map stamps itself, and only when the colour
+                            // is another one (8-bit colours repeat between ticks, A6-22).
                             cache.current_color_values.insert(tr.node, to_c);
-                            cache.note_value_write();
                             gpu_values_moved = true;
                             // The last frame releases the key once the list
                             // already shows the final colour (renderers fall
@@ -20121,12 +20116,9 @@ impl LayoutWindow {
                             continue;
                         }
                         if tr.t < 1.0 {
-                            let key = *cache
-                                .color_keys
-                                .entry(tr.node)
-                                .or_insert_with(azul_core::resources::ColorKey::unique);
-                            cache.current_color_values.insert(tr.node, to_c);
-                            cache.note_value_write();
+                            // `key_color`: `entry()` and the note after it both moved the
+                            // write generation whether or not a key was minted (A6-22).
+                            let key = cache.key_color(tr.node, to_c);
                             bind_jobs.push((tr.node, to_c, key));
                         }
                     }
@@ -23266,14 +23258,9 @@ impl LayoutWindow {
                 ],
             },
         );
-        cache
-            .anim_opacity_keys
-            .entry(node)
-            .or_insert_with(OpacityKey::unique);
-        cache.anim_current_opacity_values.insert(node, smp.opacity);
-        // The opacity maps are plain maps: their writer says so (the transform above
-        // stamped itself).
-        cache.note_value_write();
+        // The opacity alike. Its maps stamp themselves, exactly when the sample is another
+        // one: the note that stood here moved the write generation on every sample (A6-22).
+        let _ = cache.key_opacity(azul_core::gpu::OpacityChannel::Animation, node, smp.opacity);
     }
 
     /// Runs a single timer, similar to `CallbacksOfHitTest.call()`
