@@ -882,11 +882,15 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   `ShouldReRenderCurrentWindow` for the patch and for the rebuild alike, macOS then takes the lightweight
   transaction (the patched view list alone, no root regeneration). A4-23's reading ("the event result is
   `ShouldUpdateDisplayListCurrentWindow`") does not hold for this branch.
-- fix proposed: `update_drag_visual`: for `dom_id != ROOT` build that DOM's list here and return
-  `ShouldReRenderCurrentWindow`. Also seen there: with a drag image, every move scans the DOM's nodes for the
-  image's id and (before A3-window-30) the layout nodes for its rect.
+- fix: `update_drag_visual`: for a node of another DOM than the window's, the move that first keys it builds
+  that DOM's list here and returns `ShouldReRenderCurrentWindow`; `end_drag_visual` builds it once more (the
+  frame goes). Per drag inside a view: 2 list builds of the view, every move a value write. Not changed: with a
+  drag image, every move scans the DOM's nodes for the image's id.
+- **This is not the map editor's label drag** (the coordinator's reading of the row): the editor never sets
+  `draggable`, its drag is `set_node_style` per mouse move: A3-window-44.
+- test: `a_node_dragged_inside_a_view_moves_by_a_value_after_its_first_move`.
 - severity: medium
-- status: open: not started (needs a drag context inside a view for its test)
+- status: fixed 79812c004
 
 ### A3-window-44 the editor's label drag is `set_node_style`, not a node drag: per move a cascade pass and a list build of the view, and the label does not follow
 - file:line: `window.rs` `apply_node_style_change` (and the non-GPU path of `apply_node_css_change`), `follow_host_in_kept_view`;
@@ -905,9 +909,17 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   the release renders the view again (a turn with tool R shows: the transform value is read at the list build);
   (5) `rebuild_cpu_hit_tester()` for the window. The same holds for a layout-affecting `:hover` rule and for
   `set_css_property(left)` inside a view: layout dirt of a kept child DOM is never served.
-- fix: see the commit(s) named in the status.
+- fix: `relayout_child_dom_in_place(child, written)`: a geometry write to a node of a view's document lays that
+  document out again in place (as `follow_host_in_kept_view` does), the solver told through the document's own
+  `dom_diff_clean` that the written node and its subtree are what moved; no list is built from the old boxes.
+  The label follows the pointer. What a move costs now: the cascade's tail over the document
+  (`recascade_ua_inheritance_and_compact`, O(n), A3-core's), the pass (fonts signature and character set O(n),
+  GPU value sync, a reconcile that hashes the written node only, the layout of one box, the list PATCHED from the
+  kept one, the pass's tail walks), then the tier `Relayout`: the shell's pass over the WINDOW's DOM (the view is
+  kept) and the hit-test index. Linear with small constants instead of a full list build; not yet O(1): A3-window-49.
+- test: `a_label_written_to_another_place_is_laid_out_there`, `the_pass_after_a_write_compares_the_written_node_alone`.
 - severity: high
-- status: open: found while reading for 43; the fix (an inset-only move of an out-of-flow box as a move of its boxes and items) is not built yet
+- status: fixed 255690245
 
 ### A3-window-45 no span covers the stages of a rebuild outside the solver
 - file:line: `dll/.../common/layout.rs` `regenerate_layout`; `window.rs` `begin_reconciliation`,
@@ -967,6 +979,35 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
 - fix: the design is "The diff-first pipeline", steps 2-7, with the unit of styling reuse and its proof.
 - severity: high
 - status: blocked (a): a re-architecture of the styling tables and of the reconciliation; the design is in "The diff-first pipeline"; step 1 (texts), A3-window-14 and -46 are what was built short of it
+
+### A3-window-49 a `left` / `top` write to an out-of-flow box is still a pass over its document (the O(1) move)
+- file:line: `window.rs` `apply_node_style_change`, `apply_node_css_change`, `relayout_child_dom_in_place`
+- class: waste, per mouse move of a label drag: O(nodes of the document) in five walks (see A3-window-44) and the
+  window's own pass, where the change is "one box and its items move by (dx, dy)"
+- design (complete; not built in this session):
+  1. WHEN: the changed declaration keys are a subset of {`left`, `top`} with exact px values on both sides
+     (`changed_declaration_keys`; the fingerprint's class is INSETS: A3-window-08), the node is
+     `position: absolute | fixed | relative`, has ONE layout box, `right` and `bottom` are `auto` (or `width` /
+     `height` are not): then its size and everything inside it are what they were and no other box depends on it.
+     No pass is owed for the DOM (`content_changed_doms`, `pending_css_dirty`, `css_dirty_waiting`).
+  2. STYLE: the two values go into the node's own rows without the cascade's tail: a single-node write of the
+     compact slots for `left` / `top` (`set_user_property_override_fast` is that channel for `transform` /
+     `opacity`; it needs the inset slots: `core/src/prop_cache.rs`).
+  3. BOXES: `calculated_positions[b] += (dx, dy)` for every box `b` of the node's layout subtree, in
+     `layout_results[dom]` AND in the DOM's `LayoutCache` (`child_layout_caches[dom]` / `layout_cache`: the solver
+     starts the next pass from its own copy), and the node's stored `NodeDataFingerprint::inline_inset_hash` in the
+     tree becomes the new one, so the next reconcile finds it clean.
+  4. ITEMS: one pass over `layout_node_mapping` (as `node_patch::locate`): every item tagged with a box of the
+     subtree is `translate_item(item, delta)`; `PushReferenceFrame { bounds }` needs an arm there; the reference
+     frame VALUE of a transformed node in the subtree is read again (`refresh_transform_value_of`: the origin is
+     in the box's coordinates, A2-gpu's notes say which); fixed-position ranges stay; `frame_index.clear()`,
+     `bump_list`, `record_full_emission`.
+  5. RESULT: tier `Paint` (`ShouldReRenderCurrentWindow`); the CPU hit-test index takes the same delta for the
+     subtree's entries (A6's index) or is rebuilt on the next press.
+- test: equality: the list and the positions after the patch == those after `relayout_child_dom_in_place`
+  for the same write; count: 0 passes, 0 list builds, items written == items of the label.
+- severity: medium
+- status: open: designed in this block, not built (this session ran out of room after A3-window-44, which makes the move correct)
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
@@ -1172,6 +1213,41 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   of 17.5k items for every frame, on both renderers), and WebRender cannot drop a bound primitive. The patch as
   it is changes the list on enter and on leave (one translation + scene build each on the GPU path) and costs
   nothing while the pointer rests.
+- **A4-23, the restyle-side change, exact** (round 4; to be built as the cross-area task). One function decides:
+  `LayoutWindow::patch_restyled_decorations(dom_id, changed)` (`window.rs`), which `repaint_restyled_nodes`
+  (`event.rs`) calls for every paint-only `:hover` / `:active` restyle. It gets a first step, before
+  `node_patch::plan`, and a last one:
+  1. `let (by_value, by_patch) = split(changed)`: a node goes to `by_value` when (a) every change of it is
+     `BackgroundContent` or `BackgroundColor` on both sides, (b) its background resolves to one solid colour or to
+     nothing before and after (`getters::get_background_contents(styled_dom, node, state)`: zero or one
+     `StyleBackgroundContent::Color`; "nothing" is transparent), (c) `cache.color_key(node)` is `Some(key)` for
+     this DOM's `GpuValueCache`, and (d) the list binds that key
+     (`display_list.frame_index().binds_a_color_key(key.id)`: a key no item is bound to is read by nobody).
+  2. `by_patch` non-empty: `plan` / `locate` / `commit` for those nodes as today. If it refuses, return `false`
+     BEFORE any value is written (the caller builds the list; see 5).
+  3. For each node of `by_value`: `cache.set_color_value(node, new)` (it notes the write itself).
+  4. For each node the patch just painted a solid background run for (an enter): bind it, so that its leave and
+     every later enter are values: `let key = cache.key_color(node, shown)` (before `Arc::make_mut`), then
+     `list.bind_background_color(node, shown, key)` on the patched list. Nothing is bound for a node whose run the
+     patch REMOVED (a leave of a node that was never bound: the item is gone, as today).
+  5. `serve_paint_dirt(dom_id)`; return `true`. The caller's result stays `ShouldReRenderCurrentWindow` in every
+     case (it is already; no path of the hover restyle returns the display-list tier).
+  Consequences to build with it: (i) a LEAVE of a bound node writes the resting colour, which is often
+  transparent: the rect stays in the list with alpha 0. Both renderers must draw nothing for a bound rect whose
+  VALUE has alpha 0 (the CPU walk reads the value through `for_each_bound_color`; WebRender keeps the primitive);
+  the builder's "skip a fully transparent fill" must not apply to a rect that has a key. (ii) A BUILD of the list
+  (`regenerate_display_list_for_dom`, a layout pass) emits a keyed node's background from the cascade and binds
+  it (`bound_colors`, as for a fade): for a node at rest with a transparent background it emits nothing, so its
+  key would bind no item: before every build of a DOM's list, drop the keys of the nodes that are not in a raised
+  state now (`cache.retain_colors(|node| raised(node) || fading(node))`; for the root this is where
+  `retain_running_color_keys` runs, whose `running` set gets the raised nodes added). After a build a label is
+  "unbound" again and its next enter is one patch. (iii) So a label costs ONE list change (its first enter after a
+  build) and values from then on, and the list carries one rect per label that was hovered since the last build,
+  not one per label with a `:hover` rule (the 12.5k transparent rects and keys the eager variant would add to the
+  view's list on both renderers). (iv) Order matters as the predecessor noted: the value path is step 1 because
+  `locate` refuses an unchanged run (a bound rect whose item did not change) and the caller would build the list.
+  Count test for the task: enter, leave, enter over one label = 1 `dl_node_patches`, 0 `dl_rebuilds`, the list the
+  same allocation after the first enter; equality: the picture after each step == the picture of a built list.
 - `node_patch::locate` needs an arm for A3-core-17's new `EmitPhase` (see "For area A3-core").
 - The second `LayoutContext` literal needs A3-solver's `pass_memo` (see "For area A3-solver").
 
