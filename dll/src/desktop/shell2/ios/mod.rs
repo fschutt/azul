@@ -1723,6 +1723,11 @@ impl IOSWindow {
         layout_window.set_app_localization(&config);
         layout_window.set_app_e2e(&config);
         layout_window.set_app_node_identity(&config);
+        // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
+        // manager to take them from, so the window registers them itself.
+        layout_window
+            .font_manager
+            .register_app_fonts(config.bundled_fonts.as_ref());
         // `<webview>`s are WKWebViews (`webview::IosWebViews`).
         layout_window
             .webviews

@@ -11040,6 +11040,9 @@ pub fn render_component_preview(
         font_manager.parsed_fonts.clone(),
     )
     .map_err(|e| format!("Failed to create preview font manager: {e:?}"))?;
+    // The preview draws with the registered fonts of the manager it previews for (the app's own
+    // faces and the ones registered while it runs).
+    preview_font_manager.set_registered_fonts(std::sync::Arc::clone(&font_manager.registered_fonts));
 
     // Carry over families registered by name via `register_named_font` (mock /
     // in-memory / on-disk stress fonts). `from_arc_shared` starts with an empty
@@ -11120,6 +11123,9 @@ pub fn render_component_preview(
         last_reconcile_reused: 0,
         last_reconcile_fresh: 0,
         last_intrinsic_dirty: 0,
+        display_list_options: Default::default(),
+        display_list_patch_counters: Default::default(),
+        svg_masks: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
     let empty_scroll_offsets = BTreeMap::new();

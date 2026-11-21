@@ -512,6 +512,21 @@ impl HeadlessWindow {
         })
     }
 
+    /// Makes this window draw with `registered_fonts`, the faces the app ships and the ones it
+    /// registers while it runs: those of the app that runs it (`AppInternal::font_manager`) or
+    /// of the window that opened it. A window made by [`Self::new`] has a registry of its own,
+    /// as the platform windows would without the app's font manager.
+    pub fn share_registered_fonts(
+        &mut self,
+        registered_fonts: &Arc<azul_layout::text3::fontreg::RegisteredFonts>,
+    ) {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window
+                .font_manager
+                .set_registered_fonts(Arc::clone(registered_fonts));
+        }
+    }
+
     // === Lifecycle ===
 
     /// One turn of this window's loop: the injected events, the virtual views, the
@@ -1184,6 +1199,12 @@ impl HeadlessWindow {
                 "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
                 pending_create.window_state.flags.window_type
             );
+            // The window that opens it shares its registered fonts with it.
+            let registered_fonts = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| Arc::clone(&lw.font_manager.registered_fonts));
             match HeadlessWindow::new(
                 pending_create,
                 self.common.app_data.clone(),
@@ -1194,6 +1215,9 @@ impl HeadlessWindow {
                 self.font_registry.clone(),
             ) {
                 Ok(mut child) => {
+                    if let Some(registered_fonts) = &registered_fonts {
+                        child.share_registered_fonts(registered_fonts);
+                    }
                     child.common.owner_window_id = owner;
                     child.regenerate_all = self.regenerate_all.clone();
                     child.regenerate_all_seen = self
@@ -3602,6 +3626,105 @@ mod tests {
                 assert_eq!(buf[o + 3], orig[o + 3], "A untouched at {x},{y}");
             }
         }
+    }
+
+    /// The family of the face the app ships in
+    /// `a_layout_callbacks_snapshot_resolves_the_family_of_the_apps_shipped_face`.
+    const SHIPPED_FAMILY: &str = "Azul Snapshot Shipped Face";
+
+    /// What a layout callback saw of the font cache snapshot it made from its info.
+    #[derive(Debug, Clone)]
+    struct SnapshotSeen {
+        /// The registered fonts of the app (its shipped face among them).
+        app: Arc<azul_layout::text3::fontreg::RegisteredFonts>,
+        /// Whether the snapshot's font manager draws with the registered fonts of the app.
+        has_the_apps_fonts: bool,
+        /// The ids the family of the shipped face is indexed under in the snapshot's font manager.
+        family_ids: Vec<rust_fontconfig::FontId>,
+    }
+
+    /// A layout callback that makes a font cache snapshot of its info, as an app that paginates a
+    /// document in its callback does (`FontCacheSnapshot::from_layout_info`).
+    extern "C" fn layout_with_a_snapshot(mut data: RefAny, info: LayoutCallbackInfo) -> Dom {
+        let snapshot = azul_layout::resource_handles::FontCacheSnapshot::from_layout_info(&info);
+        if let (Some(mut seen), Some(manager)) =
+            (data.downcast_mut::<SnapshotSeen>(), snapshot.as_font_manager())
+        {
+            let has_the_apps_fonts = Arc::ptr_eq(&manager.registered_fonts, &seen.app);
+            let norm = rust_fontconfig::utils::normalize_family_name(SHIPPED_FAMILY);
+            let family_ids: Vec<rust_fontconfig::FontId> = manager
+                .memory_families
+                .get(&norm)
+                .map(|faces| faces.iter().map(|face| face.font_match.id).collect())
+                .unwrap_or_default();
+            seen.has_the_apps_fonts = has_the_apps_fonts;
+            seen.family_ids = family_ids;
+        }
+        Dom::create_body()
+    }
+
+    /// An app with a shipped face (`AppConfig::add_font`): a layout callback of its window makes
+    /// a font cache snapshot from its info - what an app paginates a document with - and the
+    /// family of the shipped face resolves in it to the face the window draws with, the very id,
+    /// because the window hands the app's registered fonts to its callbacks. A window that has
+    /// none of the app's fonts hands none over.
+    /// Mutation: `regenerate_layout` leaving `registered_fonts` out of the ref data it builds
+    /// fails the first block.
+    #[test]
+    fn a_layout_callbacks_snapshot_resolves_the_family_of_the_apps_shipped_face() {
+        use azul_layout::text3::fontreg::RegisteredFonts;
+
+        let norm = rust_fontconfig::utils::normalize_family_name(SHIPPED_FAMILY);
+        // The app's registered fonts, with the face it ships.
+        let app = Arc::new(RegisteredFonts::default());
+        let face = azul_layout::text3::ui_fonts::bundled_ui_fonts()[0].bytes.clone();
+        app.set_app_fonts(&[azul_core::resources::NamedFont::new(
+            SHIPPED_FAMILY.into(),
+            face.into(),
+        )]);
+
+        // One layout of a window, given the app's registered fonts or not: the ids the window
+        // itself has the family under, and what its callback saw.
+        let layout = |given: Option<&Arc<RegisteredFonts>>| {
+            let state = Arc::new(RefCell::new(RefAny::new(SnapshotSeen {
+                app: Arc::clone(&app),
+                has_the_apps_fonts: false,
+                family_ids: Vec::new(),
+            })));
+            let mut window = make_window_with(&state, layout_with_a_snapshot);
+            if let Some(fonts) = given {
+                window.share_registered_fonts(fonts);
+            }
+            window.regenerate_layout().expect("the layout runs");
+            let on_screen: Vec<rust_fontconfig::FontId> = window
+                .common
+                .layout_window
+                .as_ref()
+                .and_then(|lw| lw.font_manager.memory_families.get(&norm))
+                .map(|faces| faces.iter().map(|face| face.font_match.id).collect())
+                .unwrap_or_default();
+            let (has_the_apps_fonts, in_the_snapshot) = state
+                .borrow_mut()
+                .downcast_ref::<SnapshotSeen>()
+                .map(|seen| (seen.has_the_apps_fonts, seen.family_ids.clone()))
+                .expect("the layout callback ran");
+            (on_screen, has_the_apps_fonts, in_the_snapshot)
+        };
+
+        let (on_screen, has_the_apps_fonts, in_the_snapshot) = layout(Some(&app));
+        assert!(!on_screen.is_empty(), "premise: the window draws the family with the shipped face");
+        assert!(has_the_apps_fonts, "the snapshot draws with the registered fonts of the app");
+        assert_eq!(
+            in_the_snapshot, on_screen,
+            "the family resolves to the face the window draws with"
+        );
+
+        let (on_screen, has_the_apps_fonts, in_the_snapshot) = layout(None);
+        assert!(on_screen.is_empty(), "a window that has no fonts of the app has no shipped face");
+        assert!(
+            !has_the_apps_fonts && in_the_snapshot.is_empty(),
+            "and the snapshot of its callback has none either"
+        );
     }
 
     /// State for the harvested-breakpoint pin: counts `layout()` invocations.
@@ -14773,29 +14896,37 @@ mod tests {
         [Text, Nodes, Style, Tree, View, WindowList, TreeList]
     };
 
+    /// What the display-list patching of `window`'s documents did so far
+    /// (`LayoutWindow::display_list_patch_counters`: this window's own, no other window's).
+    fn df_patch_counters(
+        window: &HeadlessWindow,
+    ) -> azul_layout::solver3::cache::DisplayListPatchCounters {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .expect("a layout window")
+            .display_list_patch_counters()
+    }
+
     /// `(lists patched after a named cascade, lists patched across a changed tree, runs
-    /// copied, paint calls of patched builds)` on this thread for one rebuild of `window`
-    /// after `change`, with `steps` on.
+    /// copied, paint calls of patched builds)` of `window` for one rebuild of it after
+    /// `change`, with `steps` on.
     fn df_list_cost(
         window: &mut HeadlessWindow,
         state: &Arc<RefCell<RefAny>>,
         steps: &[azul_layout::window::DiffFirstStep],
         change: impl FnOnce(&mut DfPage),
     ) -> (usize, usize, usize, usize) {
-        use azul_layout::solver3::display_list as list;
         df_change(state, change);
-        let before = (
-            list::lists_patched_after_a_named_cascade_on_this_thread(),
-            list::lists_patched_across_trees_on_this_thread(),
-            list::cached_runs_copied_on_this_thread(),
-            list::runs_painted_by_patched_builds_on_this_thread(),
-        );
+        let before = df_patch_counters(window);
         df_rebuild(window, steps);
+        let after = df_patch_counters(window);
         (
-            list::lists_patched_after_a_named_cascade_on_this_thread() - before.0,
-            list::lists_patched_across_trees_on_this_thread() - before.1,
-            list::cached_runs_copied_on_this_thread() - before.2,
-            list::runs_painted_by_patched_builds_on_this_thread() - before.3,
+            after.lists_patched_after_a_named_cascade - before.lists_patched_after_a_named_cascade,
+            after.lists_patched_across_trees - before.lists_patched_across_trees,
+            after.cached_runs_copied - before.cached_runs_copied,
+            after.runs_painted_by_patched_builds - before.runs_painted_by_patched_builds,
         )
     }
 
@@ -15231,8 +15362,6 @@ mod tests {
     /// being laid out again was not found.
     #[test]
     fn a_text_whose_node_id_moved_is_not_copied_under_the_id_it_had() {
-        use azul_layout::solver3::display_list as list;
-
         let window_of = |inside: usize| {
             let state = Arc::new(RefCell::new(RefAny::new(DfiLine(inside))));
             let mut window = make_window_sized(&state, dfi_layout, 400.0, 600.0);
@@ -15260,14 +15389,12 @@ mod tests {
         let stood = dump(&with_list);
         grow(&state_list);
         grow(&state_full);
-        let before = (
-            list::lists_patched_across_trees_on_this_thread(),
-            list::cached_runs_copied_on_this_thread(),
-        );
+        let before = df_patch_counters(&with_list);
         df_rebuild(&mut with_list, &azul_layout::window::DiffFirstStep::ALL);
+        let after = df_patch_counters(&with_list);
         let (across, copied) = (
-            list::lists_patched_across_trees_on_this_thread() - before.0,
-            list::cached_runs_copied_on_this_thread() - before.1,
+            after.lists_patched_across_trees - before.lists_patched_across_trees,
+            after.cached_runs_copied - before.cached_runs_copied,
         );
         df_rebuild(&mut in_full, &DF_BEFORE_TLIST);
         assert_eq!(across, 1, "premise: the list is patched across the changed tree");
@@ -16303,28 +16430,23 @@ mod tests {
     // what it was, where it was.
 
     /// `(lists patched after a named cascade, lists patched across a changed tree, runs
-    /// copied, paint calls of patched builds)` on this thread for one re-render of `window`
-    /// after `change`, with `steps` on.
+    /// copied, paint calls of patched builds)` of `window` for one re-render of it after
+    /// `change`, with `steps` on.
     fn dfv_list_cost(
         window: &mut HeadlessWindow,
         state: &Arc<RefCell<RefAny>>,
         steps: &[azul_layout::window::DiffFirstStep],
         change: impl FnOnce(&mut Vec<DfvLabel>),
     ) -> (usize, usize, usize, usize) {
-        use azul_layout::solver3::display_list as list;
         dfv_change(state, change);
-        let before = (
-            list::lists_patched_after_a_named_cascade_on_this_thread(),
-            list::lists_patched_across_trees_on_this_thread(),
-            list::cached_runs_copied_on_this_thread(),
-            list::runs_painted_by_patched_builds_on_this_thread(),
-        );
+        let before = df_patch_counters(window);
         dfv_rerender(window, steps);
+        let after = df_patch_counters(window);
         (
-            list::lists_patched_after_a_named_cascade_on_this_thread() - before.0,
-            list::lists_patched_across_trees_on_this_thread() - before.1,
-            list::cached_runs_copied_on_this_thread() - before.2,
-            list::runs_painted_by_patched_builds_on_this_thread() - before.3,
+            after.lists_patched_after_a_named_cascade - before.lists_patched_after_a_named_cascade,
+            after.lists_patched_across_trees - before.lists_patched_across_trees,
+            after.cached_runs_copied - before.cached_runs_copied,
+            after.runs_painted_by_patched_builds - before.runs_painted_by_patched_builds,
         )
     }
 
@@ -16754,6 +16876,45 @@ mod child_window_tests {
         assert_eq!(CHILD_CREATED.load(Ordering::SeqCst), 1, "created once, pumped many times");
     }
 
+    /// A window opened from a callback draws with the registered fonts of the window that opened
+    /// it, as the windows of the other shells draw with the app's through the app's font manager:
+    /// a face registered through the one is the other's too. A window built on its own has
+    /// registered fonts of its own, and so has one given the app's
+    /// (`HeadlessWindow::share_registered_fonts`).
+    #[test]
+    fn a_window_opened_from_a_callback_shares_the_registered_fonts_of_its_opener() {
+        let fonts = |window: &HeadlessWindow| {
+            Arc::clone(
+                &window
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .expect("a layout window")
+                    .font_manager
+                    .registered_fonts,
+            )
+        };
+        let mut opener = root();
+        opener.queue_window_create(window(root_layout, "child"));
+        opener.pump_children();
+        assert_eq!(opener.children.len(), 1, "the child window exists");
+        assert!(
+            Arc::ptr_eq(&fonts(&opener), &fonts(&opener.children[0])),
+            "the child draws with the registered fonts of its opener"
+        );
+
+        let mut alone = root_with(root_layout);
+        assert!(
+            !Arc::ptr_eq(&fonts(&opener), &fonts(&alone)),
+            "a window built on its own has registered fonts of its own"
+        );
+        alone.share_registered_fonts(&fonts(&opener));
+        assert!(
+            Arc::ptr_eq(&fonts(&opener), &fonts(&alone)),
+            "and takes the ones it is given"
+        );
+    }
+
     static ROOT_LAYOUTS: AtomicUsize = AtomicUsize::new(0);
 
     extern "C" fn counting_root_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
@@ -16851,6 +17012,7 @@ mod child_window_tests {
             None,
             false,
             None,
+            &[],
         )
     }
 

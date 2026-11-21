@@ -571,7 +571,7 @@ fn face_stack(key: &FaceKey, styled_dom: &StyledDom, viewport: LogicalSize) -> F
         .as_deref()
         .and_then(|list| parse_style_font_family(list).ok())
     {
-        return FontStack::Stack(getters::font_stack_for_families(styled_dom, &families, size));
+        return FontStack::Stack(getters::font_stack_for_families(None, styled_dom, &families, size));
     }
     // The root element's own style: the font a node with no `font-family` of
     // its own is set in, which is what a margin box inherits (CSS Paged Media:

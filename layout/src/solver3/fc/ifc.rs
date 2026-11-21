@@ -301,6 +301,7 @@ const fn extent_of(frag_bounds: text3::cache::Rect, unclipped: text3::cache::Rec
 /// often that exit expanded a retired layout's dense view into items again
 /// (`audit_tests::a3_solver::ifc`: a reused label is not expanded).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static IFC_REUSE_EXITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static IFC_REUSE_EXPANSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -310,6 +311,7 @@ thread_local! {
 /// and how many of those stores built the layout's paint runs
 /// (`audit_tests::a3_solver::ifc`: none).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static IFC_MEASURE_STORES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static IFC_MEASURE_STORE_RUN_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -545,6 +547,7 @@ fn static_place_at(
 /// thread (`audit_tests::a3_solver::ifc`: once per item for all the boxes
 /// taken out of a context, not once per box).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static STATIC_PLACE_ITEM_VISITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -1574,9 +1577,12 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     // `shape_content` would hand out here (`sizing::MeasuredParagraphs`):
     // the same content, direction and faces within the same pass.
     let measured = if ctx.debug_messages.is_none() {
-        ctx.pass_memo
-            .measured
-            .take(node_index, &inline_content, &text3_constraints)
+        ctx.pass_memo.measured.take(
+            node_index,
+            &inline_content,
+            &text3_constraints,
+            ctx.font_manager.registered_fonts.generation(),
+        )
     } else {
         None
     };

@@ -939,6 +939,14 @@ pub struct LayoutCallbackInfoRefData<'a> {
     /// `VirtualViewCallbackInfo::system_fonts`)
     #[cfg(feature = "system_fonts")]
     pub system_fonts: &'a FcFontCache,
+    /// The app's registered fonts - the faces it ships (`AppConfig::add_font`) and the ones it
+    /// registers while it runs (`CallbackInfo::register_font`) - as the window's font manager
+    /// holds them: an `Arc<azul_layout::text3::fontreg::RegisteredFonts>`, opaque to this crate,
+    /// which sits below the layout crate. A layout callback that lays text out outside the
+    /// window pipeline (`FontCacheSnapshot::from_layout_info`: paginating a document, measuring
+    /// for an export) takes them, so that it measures with the faces the screen draws with.
+    /// `None` where the host has none (a web page, a test).
+    pub registered_fonts: Option<&'a (dyn core::any::Any + Send + Sync)>,
     /// Platform-specific system style (colors, spacing, etc.)
     /// Used for CSD rendering and menu windows.
     pub system_style: Arc<SystemStyle>,
@@ -1952,6 +1960,14 @@ impl LayoutCallbackInfo {
     #[must_use]
     pub fn get_font_cache(&self) -> FcFontCache {
         self.internal_get_system_fonts().clone()
+    }
+
+    /// The app's registered fonts as the host handed them to this layout pass
+    /// ([`LayoutCallbackInfoRefData::registered_fonts`]): opaque here, the layout crate
+    /// downcasts them (`FontCacheSnapshot::from_layout_info`). `None` where the host has none.
+    #[must_use]
+    pub const fn registered_fonts(&self) -> Option<&(dyn core::any::Any + Send + Sync)> {
+        unsafe { (*self.ref_data).registered_fonts }
     }
 
     #[must_use]

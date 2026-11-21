@@ -414,6 +414,10 @@ impl FontContext {
             memory_families: HashMap::new(),
             vf_bake_cache: HashMap::new(),
             loaded_fonts_memo: Arc::new(Mutex::new(None)),
+            // A context holds no registered fonts: the manager made of it has a registry of its
+            // own, as `FontManager::new` makes.
+            registered_fonts: Arc::default(),
+            chain_key_memo: Mutex::default(),
         };
         // Idempotent: reuses the FontIds already in the shared fc_cache.
         fm.register_builtin_mock_fonts();

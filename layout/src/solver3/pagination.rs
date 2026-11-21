@@ -985,11 +985,11 @@ impl PageSequence {
             .chain(self.even_pages.as_ref())
             .all(|s| (s.content_width() - w).abs() < 0.5);
         if !all {
-            static ANNOUNCE: std::sync::Once = std::sync::Once::new();
-            ANNOUNCE.call_once(|| {
-                eprintln!(
-                    "[azul][pagination] this PageSequence varies the CONTENT WIDTH                      between pages (landscape override / different margins).                      Re-wrapping text per fragmentainer is not implemented yet —                      content lays out at the DEFAULT width on every page; page                      heights, margins and headers/footers still apply per page                      (announced once)."
-                );
+            // Once: through the diagnostics sink, which remembers the key it printed.
+            azul_core::diagnostics::emit_once(0x7a9e_0001_c0de_0001, || {
+                String::from(
+                    "[azul][pagination] this PageSequence varies the CONTENT WIDTH                      between pages (landscape override / different margins).                      Re-wrapping text per fragmentainer is not implemented yet —                      content lays out at the DEFAULT width on every page; page                      heights, margins and headers/footers still apply per page                      (announced once).",
+                )
             });
         }
         all

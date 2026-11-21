@@ -847,6 +847,7 @@ pub fn unshare(tree: alloc::sync::Arc<LayoutTree>) -> LayoutTree {
 /// How many times a pass on this thread copied a whole layout tree because the window still
 /// held the previous result of its DOM ([`unshare`]): what a test reads.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static TREE_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -868,6 +869,7 @@ pub fn own_mut(tree: &mut alloc::sync::Arc<LayoutTree>) -> &mut LayoutTree {
 /// How many times a write to a result's tree on this thread copied the whole tree because
 /// the solver's cache still shared it ([`own_mut`]): what a test reads.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static TREE_WRITE_COPIES: core::cell::Cell<usize> =
         const { core::cell::Cell::new(0) };
@@ -902,6 +904,115 @@ pub struct CascadedSince {
     /// Every node (of the DOM as it is now) whose cascade may answer anything
     /// else at `to_epoch` than its node answered at `from_epoch`: a superset.
     pub nodes: Vec<NodeId>,
+}
+
+/// How the layout passes of one document build their display list.
+///
+/// A window owns one value (`LayoutWindow::display_list_options`) and writes it
+/// into the cache of every pass it runs; a program or a test sets the value of
+/// its own window. It is no process-wide switch: two windows - two tests of one
+/// binary - can differ. [`Default`] is what the environment of the process asks
+/// for ([`Self::from_environment`]), so that `AZ_NO_DL_PATCH` and
+/// `AZ_DL_TRANSLATE_MOVED_RUNS` still switch a whole run for measuring.
+///
+/// Kept out of the `display_list` module on purpose: the web backend's lift
+/// stubs every symbol of that module, and this type is read by the layout pass
+/// of every backend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DisplayListOptions {
+    /// Patch the list that is kept: the runs of the boxes that neither
+    /// reflowed, nor changed size, nor moved are copied from it and only the
+    /// rest is painted. Off (`AZ_NO_DL_PATCH=1`): every pass paints every box.
+    /// Both ways build the same list; the golden-equality tests lay a page out
+    /// twice, once each way.
+    pub patching: bool,
+    /// What a patched build does with the cached run of a box that moved
+    /// ([`super::display_list::MovedRunPolicy`]).
+    pub moved_runs: super::display_list::MovedRunPolicy,
+    /// Build no display list: the pass computes every box's place and returns
+    /// an empty list. The web backend emits DOM patches instead of a list.
+    pub skip: bool,
+}
+
+impl DisplayListOptions {
+    /// The options the environment of the process asks for: patching unless
+    /// `AZ_NO_DL_PATCH` is set; a moved box's run painted anew, except on the
+    /// frames of a tween (`AZ_DL_TRANSLATE_MOVED_RUNS` = `1`: translated by
+    /// every pass, `0`: painted anew by every pass, anything else and unset:
+    /// the default); a list is built.
+    #[must_use]
+    pub fn from_environment() -> Self {
+        use super::display_list::MovedRunPolicy;
+        Self {
+            patching: std::env::var_os("AZ_NO_DL_PATCH").is_none(),
+            moved_runs: match std::env::var("AZ_DL_TRANSLATE_MOVED_RUNS").as_deref() {
+                Ok("1") => MovedRunPolicy::AlwaysTranslate,
+                Ok("0") => MovedRunPolicy::NeverTranslate,
+                _ => MovedRunPolicy::TweenFramesTranslate,
+            },
+            skip: false,
+        }
+    }
+}
+
+impl Default for DisplayListOptions {
+    fn default() -> Self {
+        Self::from_environment()
+    }
+}
+
+/// What the display-list patching of one document's layout passes did, summed
+/// over the passes of its cache (`LayoutCache::display_list_patch_counters`;
+/// `LayoutWindow::display_list_patch_counters` for a window's documents). A
+/// test says "this rebuild copied the runs of the boxes it did not change" by
+/// the difference of two readings.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DisplayListPatchCounters {
+    /// Cached runs not copied because their box MOVED in a pass that is no
+    /// tween frame: each is one paint call made anew
+    /// (`DisplayListGenerator::try_copy_cached_run`).
+    pub moved_runs_painted_anew: usize,
+    /// Cached runs copied shifted by their box's move: the frames of a layout
+    /// tween (and every pass under
+    /// [`super::display_list::MovedRunPolicy::AlwaysTranslate`]).
+    pub moved_runs_translated: usize,
+    /// Cached runs not copied although their box stood where it stood,
+    /// because a tween frame had translated them since they were painted
+    /// ([`super::display_list::DisplayList::translated_since_painted`]): the
+    /// paint calls that bring a list to rest after a tween.
+    pub translated_runs_painted_anew: usize,
+    /// Cached runs copied from the list before in place of a paint call,
+    /// where they lay or translated.
+    pub cached_runs_copied: usize,
+    /// Paint calls the patched builds made themselves for a box they could
+    /// not copy the run of: one in the re-emit set (styled again, fresh,
+    /// reflowed, resized, paint-dirty), one that moved, one a tween frame had
+    /// translated. With `cached_runs_copied`: what a patched build painted and
+    /// what it copied (a call for a box that painted nothing before and paints
+    /// nothing now counts as neither).
+    pub runs_painted_by_patched_builds: usize,
+    /// Lists patched although the cascade epoch had moved since the list
+    /// before was built, because the producer of the pass named the nodes it
+    /// had cascaded ([`CascadedSince`], the step `list` of the diff-first
+    /// pipeline): what a test reads to say a view's re-render took that path.
+    pub lists_patched_after_a_named_cascade: usize,
+    /// Lists patched ACROSS A CHANGED TREE (`PatchState::build_across_trees`,
+    /// the step `tlist` of the diff-first pipeline): the runs of the boxes the
+    /// reconcile carried over were copied from a list built for another tree.
+    pub lists_patched_across_trees: usize,
+}
+
+impl DisplayListPatchCounters {
+    /// These counters with `other` counted in.
+    pub const fn add(&mut self, other: &Self) {
+        self.moved_runs_painted_anew += other.moved_runs_painted_anew;
+        self.moved_runs_translated += other.moved_runs_translated;
+        self.translated_runs_painted_anew += other.translated_runs_painted_anew;
+        self.cached_runs_copied += other.cached_runs_copied;
+        self.runs_painted_by_patched_builds += other.runs_painted_by_patched_builds;
+        self.lists_patched_after_a_named_cascade += other.lists_patched_after_a_named_cascade;
+        self.lists_patched_across_trees += other.lists_patched_across_trees;
+    }
 }
 
 /// The persistent cache that holds the layout state between frames.
@@ -942,7 +1053,7 @@ pub struct LayoutCache {
     /// cascade's box props, as `layout_document`'s does. Taken by the pass.
     pub paged_css_dirty: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     /// The runtime font registry's generation this cache was laid out at
-    /// (`text3::fontreg::generation`): when a face is registered, the next
+    /// (`RegisteredFonts::generation`): when a face is registered, the next
     /// pass drops the tree and lays the document out cold.
     pub font_epoch: u64,
     /// Whether the retained tree was laid out with overlay content that
@@ -1152,6 +1263,18 @@ pub struct LayoutCache {
     /// which address reuse cannot fool. Do not reintroduce a pointer fast path.
     pub prev_dom_ptr: usize,
     pub prev_viewport: LogicalRect,
+    /// How this document's passes build their display list. The window writes
+    /// its own value here before each pass (`LayoutWindow::display_list_options`);
+    /// a cache nobody wrote to holds what the environment asks for.
+    pub display_list_options: DisplayListOptions,
+    /// What the display-list patching of this document's passes did, summed
+    /// over the cache's life: kept in the cache, not in a pass, so that a test
+    /// can read it after the pass.
+    pub display_list_patch_counters: DisplayListPatchCounters,
+    /// The SVG masks this document's display-list builds drew, kept for the
+    /// next build ([`super::svg_masks::SvgMaskMemo`]): a pass lends the memo to
+    /// its build and takes it back.
+    pub svg_masks: super::svg_masks::SvgMaskMemo,
 }
 
 /// Approximate heap-byte breakdown of the solver3 `LayoutCache`.
@@ -2736,6 +2859,7 @@ fn reconcile_table_children(
 /// thread to list their anonymous inline wrappers: each parent's children once,
 /// not once per inline run (the size sweep of `audit_tests::a3_solver` reads it).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static OLD_WRAPPER_CANDIDATES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -3397,6 +3521,7 @@ struct ReconciledNode {
 /// How many boxes [`reconcile_node`] kept on this thread because the values of
 /// their insets were all that moved (`audit_tests::a3_solver`).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static INSET_MOVES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -3423,11 +3548,6 @@ fn reconcile_node(
     diff: DomDiff<'_>,
     text_styles: &mut TextStyleReader<'_>,
 ) -> Result<ReconciledNode> {
-    // Cache the env check in a `OnceLock<bool>`: this branch
-    // fires once per dirty node (hundreds on cold layout),
-    // and a direct `env::var` is a mutex + hashmap lookup
-    // on macOS (~100 ns/call) even when the env var is unset.
-    static FP_DUMP_ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     let node_data = &styled_dom.node_data.as_container()[new_dom_id];
 
     let old_cold =
@@ -3539,21 +3659,6 @@ fn reconcile_node(
                 DirtyFlag::Paint
             } else if change_set.needs_layout() {
                 drop(crate::probe::Probe::span("fp_needs_layout"));
-                let enabled =
-                    *FP_DUMP_ENABLED.get_or_init(|| std::env::var_os("AZ_FP_DUMP").is_some());
-                if enabled {
-                    use std::sync::atomic::{AtomicUsize, Ordering};
-                    static DUMPED: AtomicUsize = AtomicUsize::new(0);
-                    let n = DUMPED.fetch_add(1, Ordering::Relaxed);
-                    if n < 10 {
-                        eprintln!(
-                            "[fp_diff {n}] dom={} old={:?} new={:?}",
-                            new_dom_id.index(),
-                            old_c.node_data_fingerprint,
-                            new_fingerprint,
-                        );
-                    }
-                }
                 DirtyFlag::Layout
             } else if change_set.needs_paint() {
                 drop(crate::probe::Probe::span("fp_needs_paint"));
@@ -5111,6 +5216,7 @@ pub(super) fn position_bfc_child_descendants(
 /// sweep of the tests reads (`audit_tests::a3_solver`) to say that a block of
 /// many absolutely positioned children is not scanned once per child.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static CHILD_LOOKUP_STEPS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
