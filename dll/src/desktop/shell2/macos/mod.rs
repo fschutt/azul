@@ -2562,6 +2562,15 @@ fn keep_caches() -> bool {
     *KEEP.get_or_init(|| std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0"))
 }
 
+/// `AZ_HALO_RELEASE=lists`: a window nobody sees keeps the text halo pictures
+/// its display lists paint (A5-18's release: only what no list paints goes).
+/// Anything else, or unset: such a window gives those back too - the renderer's
+/// keys are deleted - and gets them again when it is shown (A5-20). Read once.
+fn halo_release_is_full() -> bool {
+    static FULL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FULL.get_or_init(|| !std::env::var("AZ_HALO_RELEASE").is_ok_and(|v| v == "lists"))
+}
+
 /// Every open window gives back what `reason` asks for. Main thread.
 fn release_memory_of_every_window(reason: MemoryRelease) {
     for window in registry::get_all_window_ptrs() {
@@ -4830,6 +4839,9 @@ define_class!(
                     let macos_window = &mut *(window_ptr as *mut MacOSWindow);
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Normal);
                     macos_window.set_display_link_paused(false);
+                    // A5-20: the pass this asks for finds the window shown and
+                    // brings back the text halos it gave back in the Dock.
+                    macos_window.request_redraw();
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window deminiaturized");
             }
@@ -9592,6 +9604,45 @@ impl MacOSWindow {
         }
     }
 
+    /// Whether nobody sees this window: it is in the Dock, or the app is hidden
+    /// (Cmd-H). What a window is released for with `MemoryRelease::NotShown`,
+    /// asked again by every render pass (A5-20: the pass of a window that is
+    /// shown brings its text halos back).
+    fn is_not_shown(&self) -> bool {
+        if self.common.current_window_state().flags.frame == WindowFrame::Minimized {
+            return true;
+        }
+        let app = NSApplication::sharedApplication(self.mtm);
+        let hidden: bool = unsafe { msg_send![&*app, isHidden] };
+        hidden
+    }
+
+    /// A5-20: this window's display lists stop painting text halos from kept
+    /// pictures, and the renderer deletes the pictures' keys - its image
+    /// templates hold the same bytes as the thread's kept pictures, so this is
+    /// what gives the memory back (`wr_translate2::release_text_halo_images`:
+    /// the lists go with the deletes, translated without the pictures). Sent
+    /// outside a render pass, and waited for: when this returns the scene and
+    /// the deletes have landed, and nothing a later pass sends can pass them.
+    /// The window is `HaloRelease::Hidden` until a pass finds it shown again.
+    fn release_halo_images_of_a_hidden_window(&mut self) {
+        if !matches!(self.backend, RenderBackend::OpenGL) {
+            return;
+        }
+        let (Some(layout_window), Some(render_api)) =
+            (self.common.layout_window.as_mut(), self.common.render_api.as_mut())
+        else {
+            return;
+        };
+        let mut txn = WrTransaction::new();
+        if crate::desktop::wr_translate2::release_text_halo_images(layout_window, &mut txn) == 0 {
+            return;
+        }
+        let doc_id = wr_translate_document_id(layout_window.document_id);
+        render_api.send_transaction(doc_id, txn);
+        render_api.flush_scene_builder();
+    }
+
     /// Give back what `reason` asks for of this window's regenerable memory
     /// (`release_plan`): the release A9-09 does when the window goes to the
     /// Dock, for the app being hidden and for memory pressure too (A10-26).
@@ -9619,20 +9670,30 @@ impl MacOSWindow {
             // this thread's, and every GPU window on it paints from them. What no
             // window's display lists paint goes: the pictures of labels that left
             // the view and of the sizes before the last zoom. What a list paints
-            // stays, whether its window is shown or not: the renderer holds the same
+            // stays while its window can be seen: the renderer holds the same
             // bytes for as long as a list names their keys, and a list translated
             // without a scan finds its pictures there
             // (`cpurender::release_text_halos`). So first every window's lists mark
             // what they paint (a window that made no scan lately would lose its
             // pictures to the windows that did).
+            //
+            // A5-20: a window NOBODY sees (the Dock, a hidden app) gives back the
+            // pictures its own lists paint as well. First the renderer's keys
+            // (which is what frees them), then the thread forgets this window's
+            // use, so that only what the other windows mark below is kept.
+            let full = reason == MemoryRelease::NotShown && halo_release_is_full();
+            if full {
+                self.release_halo_images_of_a_hidden_window();
+                azul_layout::cpurender::text_halos_forget_use();
+            }
             let me: *const Self = &*self;
             let painted_by = |window: &Self| {
-                let Some(layout_window) = window
-                    .common
-                    .layout_window
-                    .as_ref()
-                    .filter(|_| window.common.render_api.is_some())
-                else {
+                // A GPU window whose pictures were not given back paints from them.
+                let Some(layout_window) = window.common.layout_window.as_ref().filter(|lw| {
+                    window.common.render_api.is_some()
+                        && lw.gpu_state_manager.halo_release
+                            == azul_layout::managers::gpu_state::HaloRelease::Kept
+                }) else {
                     return;
                 };
                 let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
@@ -10675,6 +10736,8 @@ impl MacOSWindow {
         // log message must not dictate borrow structure, so the values are
         // captured here and the log uses the locals.
         let regen_pending_at_entry = self.common.regeneration_pending();
+        // (A5-20, read here for the same reason.)
+        let window_is_not_shown = self.is_not_shown();
         let display_list_initialized_at_entry = self.common.display_list_initialized;
 
         // Get layout_window
@@ -10725,6 +10788,19 @@ impl MacOSWindow {
         // asynchronous setNeedsDisplay. Every scroll frame therefore hit this
         // early return and the window never visibly scrolled on macOS.
         let redraw_was_requested = std::mem::take(&mut self.redraw_requested);
+        // A5-20: a window that gave its text halo pictures back while nobody saw
+        // it (`release_regenerable_memory`) and is shown now owes the frame that
+        // brings them back: this pass scans, draws a small picture for every
+        // label and sends the lists with them. Asked in every pass and not left
+        // to the notifications of the return, so a window that is seen never
+        // stays without them. `halos_return_in_this_pass`: that pass waits for
+        // its frame (below), so the first frame presented after the return is
+        // the one with the halos.
+        if !window_is_not_shown {
+            let _ = layout_window.gpu_state_manager.halos_return();
+        }
+        let halos_return_in_this_pass = layout_window.gpu_state_manager.halo_release
+            == azul_layout::managers::gpu_state::HaloRelease::Returning;
         // The frames the engine itself owes: a fading scrollbar, text halos left
         // for a later frame.
         let frames_owed = layout_window.gpu_state_manager.frames_owed();
@@ -11035,6 +11111,7 @@ impl MacOSWindow {
         let forced_sync = crate::desktop::shell2::common::frame_schedule::sync_scene_always()
             || !display_list_initialized_at_entry
             || self.last_gpu_frame_size != Some(frame_size)
+            || halos_return_in_this_pass
             || unsafe { self.window.contentView() }
                 .is_some_and(|view| unsafe { view.inLiveResize() });
         let frame_send = self.frame_schedule.on_send(
@@ -11235,10 +11312,20 @@ impl MacOSWindow {
         // Step 3: Swap buffers to show the rendered frame
         match self.backend {
             RenderBackend::OpenGL => {
+                // A5-20: a window nobody sees, whose text halo pictures were
+                // given back, has lists without them. A frame of those is not
+                // presented: the window keeps the last frame it showed until
+                // the pass that brings the halos back presents its own.
+                let halos_hidden = self.common.layout_window.as_ref().is_some_and(|lw| {
+                    lw.gpu_state_manager.halo_release
+                        == azul_layout::managers::gpu_state::HaloRelease::Hidden
+                });
                 if let Some(ref gl_context) = self.gl_context {
-                    log_trace!(LogCategory::Rendering, "[GL] flushBuffer()");
-                    unsafe {
-                        gl_context.flushBuffer();
+                    if !halos_hidden {
+                        log_trace!(LogCategory::Rendering, "[GL] flushBuffer()");
+                        unsafe {
+                            gl_context.flushBuffer();
+                        }
                     }
                 }
             }

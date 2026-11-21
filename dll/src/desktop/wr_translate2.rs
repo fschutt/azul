@@ -2067,12 +2067,12 @@ fn reserve_image_places(
 pub(crate) fn release_text_halo_images(
     layout_window: &mut LayoutWindow,
     txn: &mut WrTransaction,
-) -> Result<usize, &'static str> {
+) -> usize {
     use azul_core::resources::ImageSlot;
     use azul_layout::managers::gpu_state::HaloRelease;
 
     if layout_window.gpu_state_manager.halo_release != HaloRelease::Kept {
-        return Ok(0);
+        return 0;
     }
     let keys: Vec<(ImageSlot, ImageKey)> = layout_window
         .renderer_resources
@@ -2082,7 +2082,7 @@ pub(crate) fn release_text_halo_images(
         .map(|(slot, key)| (*slot, *key))
         .collect();
     if keys.is_empty() {
-        return Ok(0);
+        return 0;
     }
     {
         let rr = &mut layout_window.renderer_resources;
@@ -2122,14 +2122,16 @@ pub(crate) fn release_text_halo_images(
     };
     if all_held {
         renew_gl_textures_of_the_lists(layout_window);
-        set_display_lists(txn, layout_window, false)?;
-        layout_window.epoch.increment();
+        // A list that does not translate stays marked: the next pass owes it.
+        if set_display_lists(txn, layout_window, false).is_ok() {
+            layout_window.epoch.increment();
+        }
     }
     let deleted = keys.len();
     for (_, key) in keys {
         txn.delete_image(translate_image_key(key));
     }
-    Ok(deleted)
+    deleted
 }
 
 /// The image GC deleted these keys: a text halo's slot whose key went is

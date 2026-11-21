@@ -982,7 +982,7 @@ fn hide(
     use crate::desktop::wr_translate2::release_text_halo_images;
 
     let mut txn = Transaction::new();
-    let keys = release_text_halo_images(&mut view.window, &mut txn).expect("the lists translate");
+    let keys = release_text_halo_images(&mut view.window, &mut txn);
     text_halos_forget_use();
     for other in shown {
         if other.window.gpu_state_manager.halo_release == HaloRelease::Kept {
@@ -1282,4 +1282,99 @@ fn a5_20_hiding_and_showing_a_window_ten_times_leaves_no_key_behind() {
         "the keys the renderer holds after each return: {at_rest:?}"
     );
     assert_eq!(own_keys(&view.painted()).len(), LABELS);
+}
+
+/// A5-20. The macOS shell's half, read from the source (a delegate and a render
+/// pass cannot run headless; the statements are the ones the recorder tests
+/// above make by hand):
+///
+/// - a window that is released because nobody sees it has its halo keys
+///   deleted in a transaction that is SENT and waited for, BEFORE the thread's
+///   kept pictures forget it, and before the other windows mark theirs;
+/// - `AZ_HALO_RELEASE=lists` leaves the pictures a list paints (A5-18);
+/// - every render pass of a window that is shown brings the halos back
+///   (`halos_return`), and that pass waits for its frame;
+/// - a frame of a window whose halos are given back is not presented.
+///
+/// Mutation: the send or the wait removed from
+/// `release_halo_images_of_a_hidden_window`, the release moved behind
+/// `text_halos_forget_use`, `halos_return` or the flush guard removed: each
+/// fails here.
+#[test]
+fn a5_20_the_macos_shell_gives_a_hidden_windows_halos_back_and_brings_them_back() {
+    const MACOS_RS: &str = include_str!("../shell2/macos/mod.rs");
+    // The text of a function, from its name to the brace that closes it at
+    // `indent`.
+    let body_at = |from: &str, indent: &str| -> &'static str {
+        let at = MACOS_RS
+            .find(from)
+            .unwrap_or_else(|| panic!("`{from}` is missing"));
+        let rest = &MACOS_RS[at..];
+        let end = format!("\n{indent}}}\n");
+        &rest[..rest.find(end.as_str()).expect("the end of the function")]
+    };
+    let body = |from: &str| body_at(from, "    ");
+    let release = body("pub(crate) fn release_regenerable_memory(");
+    let at = |what: &str| {
+        release
+            .find(what)
+            .unwrap_or_else(|| panic!("the release: `{what}` is missing"))
+    };
+    assert!(
+        release.contains("let full = reason == MemoryRelease::NotShown && halo_release_is_full();"),
+        "a window nobody sees, unless the switch says otherwise"
+    );
+    let order = [
+        "self.release_halo_images_of_a_hidden_window();",
+        "azul_layout::cpurender::text_halos_forget_use();",
+        "for window in registry::get_all_window_ptrs()",
+        "azul_layout::cpurender::release_text_halos(not_shown)",
+    ];
+    for pair in order.windows(2) {
+        assert!(at(pair[0]) < at(pair[1]), "`{}` comes before `{}`", pair[0], pair[1]);
+    }
+    assert!(
+        release.contains("== azul_layout::managers::gpu_state::HaloRelease::Kept"),
+        "only a window whose pictures are kept marks what it paints"
+    );
+
+    let images = body("fn release_halo_images_of_a_hidden_window(");
+    let sent = [
+        "crate::desktop::wr_translate2::release_text_halo_images(layout_window, &mut txn) == 0",
+        "render_api.send_transaction(doc_id, txn);",
+        "render_api.flush_scene_builder();",
+    ];
+    let mut last = 0;
+    for call in sent {
+        let found = images
+            .find(call)
+            .unwrap_or_else(|| panic!("the release of the keys: `{call}` is missing"));
+        assert!(found >= last, "`{call}` is out of order");
+        last = found;
+    }
+
+    assert!(
+        body_at("fn halo_release_is_full(", "")
+            .contains("!std::env::var(\"AZ_HALO_RELEASE\").is_ok_and(|v| v == \"lists\")"),
+        "the switch"
+    );
+    for (statement, why) in [
+        (
+            "let _ = layout_window.gpu_state_manager.halos_return();",
+            "a pass of a window that is shown brings its halos back",
+        ),
+        ("|| halos_return_in_this_pass", "and waits for the frame that has them"),
+        ("if !halos_hidden {", "a frame without them is not presented"),
+        (
+            "let window_is_not_shown = self.is_not_shown();",
+            "whether the window is shown is asked in every pass",
+        ),
+    ] {
+        assert!(MACOS_RS.contains(statement), "{why}: `{statement}` is missing");
+    }
+    assert!(
+        body_at("fn window_did_deminiaturize(", "        ")
+            .contains("macos_window.request_redraw();"),
+        "a window back from the Dock asks for that pass"
+    );
 }
