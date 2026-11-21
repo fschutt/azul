@@ -4823,4 +4823,358 @@ mod audit_a3_window_tests {
             "four times the nodes took {large} steps for {small}: more than linear"
         );
     }
+
+    // --- A3-window-13: the subtree pass (A2) of `reconcile_dom` -----------------------------
+
+    fn leaf(s: &str) -> Spec {
+        Spec(text(s), Vec::new())
+    }
+
+    /// The subtree pass takes a moved node from ITS container, in whatever order the
+    /// containers come and whatever stands in front of it. Old arena
+    /// `root(0) > x key 7 (1); A(2) > x(3), a(4); B(5) > x(6), b(7); C(8) > x(9), c(10)`, new
+    /// arena `root(0) > x key 7 (1); C(2) > c2(3), x(4); B(5) > b2(6), x(7); A(8) > a2(9), x(10)`
+    /// (A, B, C keyed 1, 2, 3). Four old nodes hash as the text `x`: the keyed one in front,
+    /// which the key pass (A1) consumes, and one under each row. The rows come in reverse
+    /// order and `x` stands at another place in its row, so nothing but its subtree and its
+    /// container says which `x` it is: by its place it would be the row's other text.
+    #[test]
+    fn the_subtree_pass_takes_a_moved_node_from_its_own_container_in_any_order() {
+        let old = Spec(
+            div(),
+            vec![
+                Spec(text("x").with_key(7_u64), Vec::new()),
+                Spec(div().with_key(1_u64), vec![leaf("x"), leaf("a")]),
+                Spec(div().with_key(2_u64), vec![leaf("x"), leaf("b")]),
+                Spec(div().with_key(3_u64), vec![leaf("x"), leaf("c")]),
+            ],
+        );
+        let new = Spec(
+            div(),
+            vec![
+                Spec(text("x").with_key(7_u64), Vec::new()),
+                Spec(div().with_key(3_u64), vec![leaf("c2"), leaf("x")]),
+                Spec(div().with_key(2_u64), vec![leaf("b2"), leaf("x")]),
+                Spec(div().with_key(1_u64), vec![leaf("a2"), leaf("x")]),
+            ],
+        );
+        let d = diff(&old, &new);
+        assert_eq!(old_of(&d, 1), Some(1), "the keyed x is the keyed x");
+        assert_eq!(old_of(&d, 2), Some(8), "C is C");
+        assert_eq!(old_of(&d, 4), Some(9), "C's x is C's x, not the first x of the document");
+        assert_eq!(old_of(&d, 7), Some(6), "B's x is B's x");
+        assert_eq!(old_of(&d, 10), Some(3), "A's x is A's x");
+        let taken: Vec<usize> = d.node_moves.iter().map(|m| m.old_node_id.index()).collect();
+        let mut once = taken.clone();
+        once.sort_unstable();
+        once.dedup();
+        assert_eq!(once.len(), taken.len(), "no old node is two new nodes");
+    }
+
+    /// An old node the key pass (A1) consumed is not handed out again. Old arena
+    /// `root(0) > K(1, key 1) > x key 7 (2)`, new arena
+    /// `root(0) > K(1, key 1) > x(2); x key 7 (3)`. The keyed `x` left K and is the old keyed
+    /// `x`; the keyless `x` that stands in K now has the subtree and the container of that
+    /// old node, which is the only entry of its queue, and consumed: it is a new node.
+    #[test]
+    fn the_subtree_pass_takes_no_node_the_key_pass_consumed() {
+        let old = Spec(
+            div(),
+            vec![Spec(
+                div().with_key(1_u64),
+                vec![Spec(text("x").with_key(7_u64), Vec::new())],
+            )],
+        );
+        let new = Spec(
+            div(),
+            vec![
+                Spec(div().with_key(1_u64), vec![leaf("x")]),
+                Spec(text("x").with_key(7_u64), Vec::new()),
+            ],
+        );
+        let d = diff(&old, &new);
+        assert_eq!(old_of(&d, 1), Some(1), "K is K");
+        assert_eq!(old_of(&d, 3), Some(2), "the keyed x is the keyed x");
+        assert_eq!(old_of(&d, 2), None, "the keyless x is not the node the key consumed");
+    }
+
+    /// A row under a key of its own, around the same cell in every row.
+    fn keyed_row(i: usize) -> Spec {
+        Spec(div().with_key(i as u64), vec![leaf("x")])
+    }
+
+    /// `k` keyed rows with the same cell each, in reverse order: the cells are `k` equal
+    /// subtrees in `k` containers. One queue per subtree hash held all of them, and each new
+    /// cell searched it for the one of its row - the last of those left: k^2 / 2 entries
+    /// looked at. Keyed by the container too, the pass takes a step per old node indexed and
+    /// per queue entry popped.
+    #[test]
+    fn the_subtree_pass_takes_a_step_per_node_when_the_rows_come_in_another_order() {
+        let work = |k: usize| {
+            let old = Spec(div(), (0..k).map(keyed_row).collect());
+            let new = Spec(div(), (0..k).rev().map(keyed_row).collect());
+            SUBTREE_WORK.with(|w| w.set(0));
+            let d = diff(&old, &new);
+            assert_eq!(d.node_moves.len(), 1 + 2 * k, "harness: every node is matched");
+            assert_eq!(old_of(&d, 2), Some(2 * k), "harness: the first cell is the last row's");
+            SUBTREE_WORK.with(std::cell::Cell::get)
+        };
+        let (small, large) = (work(300), work(1_200));
+        assert!(small >= 300, "harness: the steps were counted ({small})");
+        assert!(
+            large < small * 6,
+            "four times the rows took {large} steps for {small}: more than linear"
+        );
+    }
+
+    // --- A3-window-12: the merges of `transfer_states` --------------------------------------
+
+    #[allow(dead_code)]
+    struct RowState(u32);
+
+    /// A widget that keeps its persistent state: the old dataset wins the merge.
+    extern "C" fn keep_old(_new_data: RefAny, old_data: RefAny) -> RefAny {
+        old_data
+    }
+
+    /// A widget whose fresh state wins the merge.
+    extern "C" fn keep_new(new_data: RefAny, _old_data: RefAny) -> RefAny {
+        new_data
+    }
+
+    /// The allocation a `RefAny` shares with its clones.
+    fn at(refany: &RefAny) -> usize {
+        refany.sharing_info.ptr as usize
+    }
+
+    /// `node` with a clone of `dataset` as its dataset, merged by `merge`.
+    fn stateful(
+        mut node: NodeData,
+        dataset: &RefAny,
+        merge: crate::dom::DatasetMergeCallbackType,
+    ) -> NodeData {
+        node.set_dataset(crate::refany::OptionRefAny::Some(dataset.clone()));
+        node.set_merge_callback(merge);
+        node
+    }
+
+    /// `node` with one more handler, whose data is a clone of `data`.
+    fn listening(mut node: NodeData, data: &RefAny) -> NodeData {
+        node.add_callback(
+            EventFilter::Component(ComponentEventFilter::Selected),
+            data.clone(),
+            crate::callbacks::CoreCallback {
+                cb: 0_usize,
+                ctx: crate::refany::OptionRefAny::None,
+            },
+        );
+        node
+    }
+
+    fn dataset_at(node: &NodeData) -> Option<usize> {
+        node.get_dataset().map(|dataset| at(dataset))
+    }
+
+    fn handlers_at(node: &NodeData) -> Vec<usize> {
+        node.get_callbacks()
+            .iter()
+            .map(|handler| at(&handler.refany))
+            .collect()
+    }
+
+    /// Where the data of the callback that draws `node`'s image lives, if one does.
+    fn image_data_at(node: &NodeData) -> Option<usize> {
+        let image = node.get_image_ref_cloned()?;
+        match image.get_data() {
+            crate::resources::DecodedImage::Callback(callback) => Some(at(&callback.refany)),
+            _ => None,
+        }
+    }
+
+    /// Every node is the node that stood at its place.
+    fn in_place(nodes: usize) -> Vec<NodeMove> {
+        (0..nodes)
+            .map(|i| NodeMove {
+                old_node_id: NodeId::new(i),
+                new_node_id: NodeId::new(i),
+            })
+            .collect()
+    }
+
+    /// `rows` nodes that share ONE fresh dataset, each merged with a persistent dataset of its
+    /// own (the old one wins), and after them an observer: a node with a handler on the fresh
+    /// dataset and a handler on a dataset no merge touches. Returns the new arena after the
+    /// merges, the persistent datasets, the fresh one, the observer's own one, and what
+    /// `transfer_states` handed back.
+    fn chained_merges(
+        rows: usize,
+    ) -> (
+        Vec<NodeData>,
+        Vec<RefAny>,
+        RefAny,
+        RefAny,
+        crate::refany::Repointing,
+    ) {
+        let fresh = RefAny::new(RowState(0));
+        let own = RefAny::new(RowState(1));
+        let persistent: Vec<RefAny> = (0..rows).map(|_| RefAny::new(RowState(2))).collect();
+        let mut new: Vec<NodeData> = (0..rows)
+            .map(|_| stateful(div(), &fresh, keep_old))
+            .collect();
+        new.push(listening(listening(div(), &fresh), &own));
+        let mut old: Vec<NodeData> = persistent
+            .iter()
+            .map(|dataset| stateful(div(), dataset, keep_old))
+            .collect();
+        old.push(div());
+        let repointing = transfer_states(&mut old, &mut new, &in_place(rows + 1));
+        (new, persistent, fresh, own, repointing)
+    }
+
+    /// The merges of one rebuild run in order, and each sees what the ones before it left.
+    /// Four rows share one fresh dataset; each merges it with a persistent dataset of its own
+    /// and keeps that. The first merge points every clone of the fresh dataset at its
+    /// persistent one - the datasets of the rows after it too, so the second merge drops what
+    /// the first kept, the third what the second kept: every row ends on the LAST row's
+    /// persistent dataset, and so does a handler on another node that held the fresh one.
+    /// (The first merge walks the arena, the second builds the index, the third and the fourth
+    /// read lists the merges before them moved.)
+    #[test]
+    fn a_merge_sees_what_the_merges_before_it_repointed() {
+        let (new, persistent, fresh, own, repointing) = chained_merges(4);
+        let last = at(&persistent[3]);
+        for (row, node) in new.iter().take(4).enumerate() {
+            assert_eq!(
+                dataset_at(node),
+                Some(last),
+                "row {row} holds the dataset the last merge kept"
+            );
+        }
+        assert_eq!(
+            handlers_at(&new[4]),
+            vec![last, at(&own)],
+            "the observer's handler on the fresh dataset follows every merge, its other one none"
+        );
+        // What the rebuild hands back for the holders outside the arena (timers, threads)
+        // leads from the fresh dataset to the same one.
+        let mut outside = fresh.clone();
+        repointing.repoint(&mut outside);
+        assert_eq!(at(&outside), last, "a clone outside the arena follows the chain");
+    }
+
+    /// The clones of the dataset a merge kept are made in the order of the arena, as the walk
+    /// over the whole arena made them: a clone's `instance_id` is the number of clones at its
+    /// making, so after the last merge of the chain it rises with the node's place.
+    #[test]
+    fn the_clones_of_a_kept_dataset_are_made_in_the_order_of_the_arena() {
+        let (new, ..) = chained_merges(4);
+        let made: Vec<u64> = new
+            .iter()
+            .take(3)
+            .map(|node| node.get_dataset().map_or(0, |dataset| dataset.instance_id))
+            .collect();
+        let observer = new[4]
+            .get_callbacks()
+            .iter()
+            .next()
+            .map_or(0, |handler| handler.refany.instance_id);
+        assert!(
+            made[0] < made[1] && made[1] < made[2] && made[2] < observer,
+            "rows 0, 1, 2 and the observer were repointed in that order: {made:?}, {observer}"
+        );
+    }
+
+    /// A merge carries the old node's image into a node that was rebuilt with a placeholder
+    /// (`transfer_states`, 3b), and the data of that image's callback is a clone of the OLD
+    /// dataset. When the merge keeps the fresh dataset, the carried data follows like every
+    /// other clone of the dropped one. Here it is the third merge of the rebuild, which reads
+    /// the index, and the image came into the node after the index was built: the node of a
+    /// merge is entered again before the lists are read.
+    #[test]
+    fn an_image_a_merge_carried_over_follows_that_merge_when_the_index_is_read() {
+        use crate::resources::{ImageRef, RawImageFormat};
+
+        let fresh: Vec<RefAny> = (0..3).map(|_| RefAny::new(RowState(0))).collect();
+        let persistent: Vec<RefAny> = (0..3).map(|_| RefAny::new(RowState(1))).collect();
+        let placeholder =
+            ImageRef::null_image(1, 1, RawImageFormat::BGRA8, b"placeholder".to_vec());
+        let live = ImageRef::callback(0_usize, persistent[2].clone());
+        let mut new = vec![
+            listening(stateful(div(), &fresh[0], keep_old), &fresh[0]),
+            listening(stateful(div(), &fresh[1], keep_old), &fresh[1]),
+            stateful(NodeData::create_image(placeholder), &fresh[2], keep_new),
+        ];
+        let mut old = vec![
+            stateful(div(), &persistent[0], keep_old),
+            stateful(div(), &persistent[1], keep_old),
+            stateful(NodeData::create_image(live), &persistent[2], keep_new),
+        ];
+        transfer_states(&mut old, &mut new, &in_place(3));
+
+        for row in 0..2 {
+            assert_eq!(
+                dataset_at(&new[row]),
+                Some(at(&persistent[row])),
+                "harness: row {row} kept its old dataset"
+            );
+            assert_eq!(
+                handlers_at(&new[row]),
+                vec![at(&persistent[row])],
+                "harness: row {row}'s handler follows its dataset"
+            );
+        }
+        assert_eq!(
+            dataset_at(&new[2]),
+            Some(at(&fresh[2])),
+            "the fresh dataset wins the third merge"
+        );
+        assert_eq!(
+            image_data_at(&new[2]),
+            Some(at(&fresh[2])),
+            "the carried image draws from the dataset the merge kept, not from the dropped one"
+        );
+    }
+
+    /// A list of stateful rows, each with a dataset of its own, a handler on it and a merge
+    /// that keeps the old one. Every merge used to walk the whole new arena for the clones of
+    /// the dataset it dropped: rows^2 node visits. Now the first merge walks it, the second
+    /// builds the index, and every merge after that visits the nodes listed for what it
+    /// dropped: about four visits a row.
+    #[test]
+    fn the_merges_of_a_rebuild_take_a_step_per_node() {
+        let work = |rows: usize| {
+            let fresh: Vec<RefAny> = (0..rows).map(|_| RefAny::new(RowState(0))).collect();
+            let persistent: Vec<RefAny> = (0..rows).map(|_| RefAny::new(RowState(1))).collect();
+            let mut new: Vec<NodeData> = fresh
+                .iter()
+                .map(|dataset| listening(stateful(div(), dataset, keep_old), dataset))
+                .collect();
+            let mut old: Vec<NodeData> = persistent
+                .iter()
+                .map(|dataset| stateful(div(), dataset, keep_old))
+                .collect();
+            REPOINT_WORK.with(|w| w.set(0));
+            transfer_states(&mut old, &mut new, &in_place(rows));
+            let visits = REPOINT_WORK.with(std::cell::Cell::get);
+            for (row, node) in new.iter().enumerate() {
+                assert_eq!(
+                    dataset_at(node),
+                    Some(at(&persistent[row])),
+                    "harness: row {row} kept its old dataset"
+                );
+                assert_eq!(
+                    handlers_at(node),
+                    vec![at(&persistent[row])],
+                    "harness: row {row}'s handler follows its dataset"
+                );
+            }
+            visits
+        };
+        let (small, large) = (work(100), work(400));
+        assert!(small > 0, "harness: the visits were counted");
+        assert!(
+            large < small * 6,
+            "four times the rows took {large} node visits for {small}: more than linear"
+        );
+    }
 }

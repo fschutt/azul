@@ -656,6 +656,40 @@ fn shallow_work(steps: usize) {
 #[inline(always)]
 const fn shallow_work(_steps: usize) {}
 
+/// How many steps the subtree pass of `reconcile_dom` (A2) took on this thread (an old node
+/// indexed, a queue entry popped): what the size sweep of the tests reads to say it is linear.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SUBTREE_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn subtree_work(steps: usize) {
+    SUBTREE_WORK.with(|work| work.set(work.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn subtree_work(_steps: usize) {}
+
+/// How many nodes the merges of `transfer_states` visited on this thread to point the clones of
+/// a dropped dataset at the kept one (a node walked for them, a node entered in the index of
+/// `RefAnyHolders`): what the size sweep of the tests reads to say the merges of a rebuild are
+/// linear in its nodes.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static REPOINT_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn repoint_work(steps: usize) {
+    REPOINT_WORK.with(|work| work.set(work.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn repoint_work(_steps: usize) {}
+
 /// What the shallow tiers of [`reconcile_dom`] (B2, B3) ask of an old node's PARENT before a new
 /// node may take it: the gate that keeps a keyless match from carrying focus, scroll or dataset
 /// state across parents.
@@ -1136,15 +1170,9 @@ pub fn reconcile_dom(
     // B2/B3's parent gate prefers the parent's MATCH over the parent's key, so
     // the descent picks up where A3's climb stopped: the one child whose text
     // changed is found under the parent A3 just identified.
+    // A2's queues are built where A2 runs: they are keyed by the container too (see there).
     let old_subtree_hashes = compute_subtree_hashes(old_node_data, old_hierarchy);
     let new_subtree_hashes = compute_subtree_hashes(new_node_data, new_hierarchy);
-    let mut old_by_subtree: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
-    for (idx, h) in old_subtree_hashes.iter().enumerate() {
-        old_by_subtree
-            .entry(*h)
-            .or_default()
-            .push_back(NodeId::new(idx));
-    }
 
     let has_terminal_identity = |node: &NodeData| identity.terminal_key(node).is_some();
 
@@ -1218,6 +1246,25 @@ pub fn reconcile_dom(
     };
     let old_twins = twin_counts(&old_subtree_hashes, &old_containers);
     let new_twins = twin_counts(&new_subtree_hashes, &new_containers);
+    // The old nodes this pass may claim, one queue per (subtree hash, container), each in
+    // document order. The container is the part of the claim that depends on the NEW node, so
+    // it is part of the key. There used to be one queue per subtree hash, searched with
+    // `position` for the first entry that was unconsumed and stood in the new node's
+    // container - and an entry A1 had consumed never left its queue. Equal subtrees in k
+    // containers (the same cell under k keyed rows) that come in another order than before,
+    // or behind consumed entries, took k steps each: k^2 / 2. A claim now pops the front of
+    // the one queue it may take from. The node it gets is the same: the first entry in
+    // document order that is unconsumed and whose container is the new node's.
+    let mut old_by_subtree: OrderedMap<(u64, Option<u64>), VecDeque<NodeId>> =
+        OrderedMap::default();
+    for (idx, h) in old_subtree_hashes.iter().enumerate() {
+        subtree_work(1);
+        let container = old_containers.get(idx).copied().flatten();
+        old_by_subtree
+            .entry((*h, container))
+            .or_default()
+            .push_back(NodeId::new(idx));
+    }
     for new_idx in 0..n_new {
         if matched[new_idx].is_some() || new_node_data[new_idx].get_key().is_some() {
             continue;
@@ -1227,14 +1274,15 @@ pub fn reconcile_dom(
         if old_twins.get(&identity) != Some(&1) || new_twins.get(&identity) != Some(&1) {
             continue;
         }
-        if let Some(queue) = old_by_subtree.get_mut(&new_subtree_hashes[new_idx]) {
-            if let Some(pos) = queue.iter().position(|&old_id| {
-                !old_nodes_consumed[old_id.index()]
-                    && old_containers.get(old_id.index()).copied().flatten() == new_container
-            }) {
-                if let Some(old_id) = queue.remove(pos) {
+        if let Some(queue) = old_by_subtree.get_mut(&identity) {
+            // The entries in front of the first unconsumed one are consumed for good (A1 took
+            // them) and leave the queue with it: every entry is looked at once.
+            while let Some(old_id) = queue.pop_front() {
+                subtree_work(1);
+                if !old_nodes_consumed[old_id.index()] {
                     old_nodes_consumed[old_id.index()] = true;
                     matched[new_idx] = Some(old_id);
+                    break;
                 }
             }
         }
@@ -1831,6 +1879,15 @@ pub fn transfer_states(
     use crate::refany::OptionRefAny;
 
     let mut replaced = crate::refany::Repointing::default();
+    // Where the clones of a dataset a merge dropped are looked for (step 5). The first merge
+    // that drops one walks the whole new arena, as every merge used to: m merging nodes times
+    // n nodes, a list of 1,000 stateful rows a million node visits per rebuild. The second
+    // one builds the index of which node holds a `RefAny` of which allocation
+    // (`RefAnyHolders`), and from then on a merge visits the nodes listed for what it
+    // dropped. A DOM with one stateful widget pays the one walk it always paid and no index;
+    // a DOM with many pays one walk and one index, not a walk per widget.
+    let mut walked_the_arena = false;
+    let mut holders: Option<RefAnyHolders> = None;
     for movement in node_moves {
         let old_idx = movement.old_node_id.index();
         let new_idx = movement.new_node_id.index();
@@ -1933,7 +1990,36 @@ pub fn transfer_states(
                 let mut merge = crate::refany::Repointing::default();
                 merge.replace(&orphan, &merged);
                 merge.replace(&held, &merged);
-                repoint_orphaned_refanys(new_node_data, &merge);
+                // The merge changed its own node: the merged dataset went in, and maybe the
+                // old node's image with the data of its callback (3b). The index lists the
+                // node under what it holds now, before the lists are read.
+                if let Some(index) = holders.as_mut() {
+                    index.enter(new_node_data, new_idx);
+                }
+                // `merge` is empty when the fresh dataset, the old one and the merged one
+                // share one allocation: nothing was dropped, there is nothing to look for
+                // (the walk used to visit every node to find that out).
+                if !merge.is_empty() {
+                    if walked_the_arena {
+                        if holders.is_none() {
+                            holders = Some(RefAnyHolders::of(new_node_data));
+                        }
+                        if let Some(index) = holders.as_mut() {
+                            index.repoint(
+                                new_node_data,
+                                &merge,
+                                [
+                                    orphan.sharing_info.ptr as usize,
+                                    held.sharing_info.ptr as usize,
+                                ],
+                                merged.sharing_info.ptr as usize,
+                            );
+                        }
+                    } else {
+                        walked_the_arena = true;
+                        repoint_orphaned_refanys(new_node_data, &merge);
+                    }
+                }
                 replaced.extend(merge);
             }
             (new_ds, old_ds) => {
@@ -1961,8 +2047,106 @@ pub fn transfer_states(
 /// parent, which is why this scans the whole arena and not just the merge
 /// node.
 fn repoint_orphaned_refanys(node_data: &mut [NodeData], replaced: &crate::refany::Repointing) {
+    repoint_work(node_data.len());
     for node in node_data.iter_mut() {
         replaced.repoint(node);
+    }
+}
+
+/// Which nodes of an arena hold a `RefAny` of which allocation: what lets a merge of
+/// [`transfer_states`] visit the nodes that hold a clone of the dataset it dropped, and no
+/// other node, where [`repoint_orphaned_refanys`] walks the whole arena.
+///
+/// The unit is the node, not the single `RefAny` in it: a holder hands out its `RefAny`s one
+/// walk at a time (`RefAnyHolder::for_each_refany`) and has no address for one of them. A
+/// listed node is walked as before (`Repointing::repoint`), so the lists only say where to
+/// LOOK: a node may be listed twice, or under an allocation it holds no `RefAny` of any more
+/// (its dataset was taken for a merge, its image replaced), and nothing happens to it.
+///
+/// What has to hold is the other direction - a node that holds a `RefAny` of an allocation is
+/// in the list of that allocation - and it holds as long as every change of the arena is
+/// entered. [`transfer_states`] changes the arena in two ways. A merge puts the merged dataset
+/// (and maybe an image) into its own node: [`Self::enter`] lists that node again. And it
+/// repoints the clones of what it dropped: [`Self::repoint`] moves the nodes it repointed to
+/// the list of the kept allocation, so a later merge that drops THAT allocation - a chain, the
+/// merges of several nodes that share one dataset - finds them there.
+///
+/// An allocation is known by its address (`sharing_info.ptr`). A freed allocation whose
+/// address comes back as another one leaves listed nodes that hold no `RefAny` of it: looked
+/// at for nothing, as above. (The ones a merge dropped are not freed while this lives: the
+/// `Repointing` that is returned keeps a clone of each.)
+#[derive(Default)]
+struct RefAnyHolders {
+    by_allocation: OrderedMap<usize, Vec<usize>>,
+}
+
+impl RefAnyHolders {
+    /// The index of the whole arena as it is now.
+    fn of(node_data: &mut [NodeData]) -> Self {
+        let mut holders = Self::default();
+        for idx in 0..node_data.len() {
+            holders.enter(node_data, idx);
+        }
+        holders
+    }
+
+    /// Lists node `idx` under every allocation it holds a `RefAny` of now.
+    fn enter(&mut self, node_data: &mut [NodeData], idx: usize) {
+        use crate::refany::RefAnyHolder;
+
+        let Some(node) = node_data.get_mut(idx) else {
+            return;
+        };
+        repoint_work(1);
+        let by_allocation = &mut self.by_allocation;
+        node.for_each_refany(&mut |refany: &mut RefAny| {
+            let nodes = by_allocation
+                .entry(refany.sharing_info.ptr as usize)
+                .or_default();
+            // A node's dataset and its handlers' data are mostly clones of one `RefAny` and
+            // come one after the other: listed once.
+            if nodes.last() != Some(&idx) {
+                nodes.push(idx);
+            }
+        });
+    }
+
+    /// Points every clone of the allocations `merge` dropped (at the addresses `dropped`) at
+    /// the dataset it kept (at `kept`), in the nodes listed for them, and lists those nodes
+    /// under the kept allocation.
+    ///
+    /// The nodes are visited in the order of the arena, each once: the order the walk over
+    /// the whole arena repoints in, so the clones of the kept dataset are made in the same
+    /// sequence as there (a clone's `instance_id` counts them).
+    fn repoint(
+        &mut self,
+        node_data: &mut [NodeData],
+        merge: &crate::refany::Repointing,
+        dropped: [usize; 2],
+        kept: usize,
+    ) {
+        let mut nodes: Vec<usize> = Vec::new();
+        for at in dropped {
+            // `merge` has no entry for an allocation that is the kept one
+            // (`Repointing::replace`): its holders stay as they are, and listed where they are.
+            if at == kept {
+                continue;
+            }
+            if let Some(listed) = self.by_allocation.remove(&at) {
+                nodes.extend(listed);
+            }
+        }
+        nodes.sort_unstable();
+        nodes.dedup();
+        for idx in &nodes {
+            if let Some(node) = node_data.get_mut(*idx) {
+                repoint_work(1);
+                merge.repoint(node);
+            }
+        }
+        if !nodes.is_empty() {
+            self.by_allocation.entry(kept).or_default().extend(nodes);
+        }
     }
 }
 
