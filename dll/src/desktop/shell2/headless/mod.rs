@@ -14291,13 +14291,16 @@ mod tests {
     }
 
     /// The inline styles a row can have. The walks pick among the first four; the fifth (a
-    /// declared `animation` over every property) is set by the tests that are about it.
-    const DF_PLACES: [&str; 5] = [
+    /// declared `animation` over every property) and the sixth (a list item: the row gets
+    /// a `::marker` box, so every box after it has another layout index under the same
+    /// node id) are set by the tests that are about them.
+    const DF_PLACES: [&str; 6] = [
         "",
         "position: relative; left: 4px;",
         "position: relative; left: 9px;",
         "width: 150px;",
         "animation: all 200ms ease-out;",
+        "display: list-item;",
     ];
 
     /// `body > .df-list[.df-dense] > .df-row.df-k<n>[#df-id<n>] > span.df-cell > text`, under a
@@ -14752,40 +14755,57 @@ mod tests {
     // `wlist` the shell hands the pass the reached nodes (`solver3::cache::CascadedSince`,
     // as a view's re-render does under `list`) and the pass copies every other box's run.
 
-    /// `(lists patched after a named cascade, runs copied, paint calls of patched builds)`
-    /// on this thread for one rebuild of `window` after `change`, with `steps` on.
+    /// Every step but `wlist`, but `tlist`, but `list`: the state before each.
+    const DF_BEFORE_WLIST: [azul_layout::window::DiffFirstStep; 7] = {
+        use azul_layout::window::DiffFirstStep::{List, Nodes, Style, Text, Tree, TreeList, View};
+        [Text, Nodes, Style, Tree, View, List, TreeList]
+    };
+    const DF_BEFORE_TLIST: [azul_layout::window::DiffFirstStep; 7] = {
+        use azul_layout::window::DiffFirstStep::{List, Nodes, Style, Text, Tree, View, WindowList};
+        [Text, Nodes, Style, Tree, View, List, WindowList]
+    };
+    const DF_BEFORE_LIST: [azul_layout::window::DiffFirstStep; 7] = {
+        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree, TreeList, View, WindowList};
+        [Text, Nodes, Style, Tree, View, WindowList, TreeList]
+    };
+
+    /// `(lists patched after a named cascade, lists patched across a changed tree, runs
+    /// copied, paint calls of patched builds)` on this thread for one rebuild of `window`
+    /// after `change`, with `steps` on.
     fn df_list_cost(
         window: &mut HeadlessWindow,
         state: &Arc<RefCell<RefAny>>,
         steps: &[azul_layout::window::DiffFirstStep],
         change: impl FnOnce(&mut DfPage),
-    ) -> (usize, usize, usize) {
+    ) -> (usize, usize, usize, usize) {
         use azul_layout::solver3::display_list as list;
         df_change(state, change);
         let before = (
             list::lists_patched_after_a_named_cascade_on_this_thread(),
+            list::lists_patched_across_trees_on_this_thread(),
             list::cached_runs_copied_on_this_thread(),
             list::runs_painted_by_patched_builds_on_this_thread(),
         );
         df_rebuild(window, steps);
         (
             list::lists_patched_after_a_named_cascade_on_this_thread() - before.0,
-            list::cached_runs_copied_on_this_thread() - before.1,
-            list::runs_painted_by_patched_builds_on_this_thread() - before.2,
+            list::lists_patched_across_trees_on_this_thread() - before.1,
+            list::cached_runs_copied_on_this_thread() - before.2,
+            list::runs_painted_by_patched_builds_on_this_thread() - before.3,
         )
     }
 
     /// Two windows of the page `page` makes, rebuilt after the same `change`: one with every
-    /// step, one with every step but `wlist` (the state before it: the window's list emitted
-    /// in full). Answers the costs of the first ([`df_list_cost`]) after asserting that both
-    /// windows hold the same nodes, styles, boxes and display list, line for line
-    /// ([`df_dump`]).
+    /// step, one with the steps `reference` (every step but the one under test: the state
+    /// before it, the list emitted in full). Answers the costs of the first
+    /// ([`df_list_cost`]) after asserting that both windows hold the same nodes, styles,
+    /// boxes and display list, line for line ([`df_dump`]).
     fn df_list_against_full(
         page: impl Fn() -> Arc<RefCell<RefAny>>,
         change: impl Fn(&mut DfPage),
+        reference: &[azul_layout::window::DiffFirstStep],
         what: &str,
-    ) -> (usize, usize, usize) {
-        use azul_layout::window::DiffFirstStep::{List, Nodes, Style, Text, Tree, View};
+    ) -> (usize, usize, usize, usize) {
         let (state_list, state_full) = (page(), page());
         let mut with_list = df_window(&state_list);
         let mut in_full = df_window(&state_full);
@@ -14795,15 +14815,11 @@ mod tests {
             &azul_layout::window::DiffFirstStep::ALL,
             &change,
         );
-        let before = df_list_cost(
-            &mut in_full,
-            &state_full,
-            &[Text, Nodes, Style, Tree, View, List],
-            &change,
-        );
+        let before = df_list_cost(&mut in_full, &state_full, reference, &change);
         assert_eq!(
-            before.0, 0,
-            "{what}: premise: without `wlist` no list is patched after a named cascade"
+            (before.0, before.1),
+            (0, 0),
+            "{what}: premise: without the step no list is patched for the cascade's names"
         );
         let (left, right) = (df_dump(&with_list), df_dump(&in_full));
         let differs = left
@@ -14833,9 +14849,10 @@ mod tests {
         let restyle_one = |page: &mut DfPage| page.rows[40].kind = 1;
         let mut painted_at = Vec::new();
         for rows in [60_usize, 244] {
-            let (patched, copied, painted) = df_list_against_full(
+            let (patched, _, copied, painted) = df_list_against_full(
                 || df_state_with(rows, false),
                 restyle_one,
+                &DF_BEFORE_WLIST,
                 "one row restyled",
             );
             assert_eq!(patched, 1, "{rows} rows: the window's list is patched");
@@ -14877,14 +14894,122 @@ mod tests {
             });
             state
         };
-        let (patched, copied, painted) = df_list_against_full(
+        let (patched, _, copied, painted) = df_list_against_full(
             page,
             |page: &mut DfPage| page.rows[20].id = 2,
+            &DF_BEFORE_WLIST,
             "a box recoloured by its row's id",
         );
         assert_eq!(patched, 1, "premise: the window's list is patched");
         assert!(copied >= 39, "premise: the other rows are copied ({copied} runs)");
         assert!(painted >= 1, "the box is painted ({painted} paint calls)");
+    }
+
+    // --- diff first, step `tlist`: the display list across a changed tree (diff-first-07) ------
+    //
+    // A pass whose layout tree changed its node count emitted its whole list: the patch
+    // keys the runs of the list before by layout index. Under `tlist` the runs follow the
+    // boxes the reconcile carried over (`PatchState::build_across_trees`), and exit 1.47
+    // names the nodes it cascaded as exit 1.46 does.
+
+    /// Rows that come at the end of the window's page: the rows before keep their node ids
+    /// and their boxes, and their runs are COPIED from the list of the tree before; the
+    /// rows that came are painted. 40 rows after 300 and after 1,200: what is painted does
+    /// not grow with the page, and the list is a full emission's.
+    ///
+    /// Mutation: the arm of the changed tree off, or its map empty (no run of the list
+    /// before follows its box): no list is patched across the trees and 0 runs are copied;
+    /// a box that came left out of the re-emit set: the new rows are missing from the list
+    /// and the two windows differ.
+    #[test]
+    fn rows_that_come_are_painted_and_the_rows_before_are_copied() {
+        let come = |page: &mut DfPage| {
+            for i in 0..40 {
+                page.rows.push(DfRow {
+                    text: format!("came {i}"),
+                    kind: i % 4,
+                    place: 0,
+                    id: 0,
+                    extra: 0,
+                });
+            }
+        };
+        let mut painted_at = Vec::new();
+        for rows in [300_usize, 1200] {
+            let (_, across, copied, painted) = df_list_against_full(
+                || df_state_with(rows, false),
+                come,
+                &DF_BEFORE_TLIST,
+                "40 rows came at the end",
+            );
+            assert_eq!(across, 1, "{rows} rows: the list is patched across the changed tree");
+            assert!(
+                copied >= rows,
+                "{rows} rows: the runs of the rows before are copied ({copied})"
+            );
+            assert!(
+                painted >= 40 && painted <= 40 * 8 + 16,
+                "{rows} rows: the 40 rows that came are painted ({painted} paint calls)"
+            );
+            painted_at.push(painted);
+        }
+        assert_eq!(
+            painted_at[0], painted_at[1],
+            "what is painted does not grow with the page"
+        );
+    }
+
+    /// The map itself: a box that keeps its node id and gets ANOTHER layout index. Row 10
+    /// of 60 becomes a list item (its own sheet changes: exit 1.47): it gets a `::marker`
+    /// box, so every box after it stands one index further on in the layout tree, under
+    /// the node id it had. The rows after it stay where they are and are copied - each from
+    /// the run of the index it HAD.
+    ///
+    /// Mutation: the list before read by the new index (`build_across_trees` without
+    /// `new_of_old`): at each index after the marker stands another box than the one whose
+    /// run is asked for, of another size, and the rows after row 10 are painted - fewer
+    /// than 55 runs are copied.
+    #[test]
+    fn a_box_that_got_another_layout_index_is_copied_from_the_run_it_had() {
+        use azul_core::dom::{DomId, DomNodeId, NodeId};
+        use azul_core::styled_dom::NodeHierarchyItemId;
+
+        // `body 0 > list 1 > row i at 2 + 3 i (its cell, its text)`: where row 30 stands.
+        let row_30 = |window: &HeadlessWindow| {
+            let lw = window.common.layout_window.as_ref().expect("a layout window");
+            lw.get_node_position(DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(2 + 3 * 30))),
+            })
+        };
+        let state = df_state_with(60, false);
+        let mut window = df_window(&state);
+        let stood = row_30(&window);
+        let (_, across, copied, _) = df_list_cost(
+            &mut window,
+            &state,
+            &azul_layout::window::DiffFirstStep::ALL,
+            |page: &mut DfPage| page.rows[10].place = 5,
+        );
+        assert_eq!(across, 1, "premise: the marker changes the tree, and the list is patched across it");
+        assert!(stood.is_some(), "premise: row 30 has a place");
+        assert_eq!(
+            row_30(&window),
+            stood,
+            "premise: the rows after the list item did not move"
+        );
+        assert!(
+            copied >= 55,
+            "the rows before and after the list item are copied ({copied} runs)"
+        );
+        // And the list is the one a full emission makes.
+        let (_, across, _, _) = df_list_against_full(
+            || df_state_with(60, false),
+            |page: &mut DfPage| page.rows[10].place = 5,
+            &DF_BEFORE_TLIST,
+            "a row became a list item",
+        );
+        assert_eq!(across, 1);
     }
 
     /// The two cheapest rebuilds, counted: an identical one styles no node, runs no layout
@@ -15025,9 +15150,11 @@ mod tests {
                 .collect()
         };
         assert_eq!(on("0"), Vec::<&str>::new());
-        assert_eq!(on("1"), vec!["text", "nodes", "style", "tree", "view", "list", "wlist"]);
-        assert_eq!(on(""), vec!["text", "nodes", "style", "tree", "view", "list", "wlist"]);
+        let every = vec!["text", "nodes", "style", "tree", "view", "list", "wlist", "tlist"];
+        assert_eq!(on("1"), every);
+        assert_eq!(on(""), every);
         assert_eq!(on("wlist,list"), vec!["list", "wlist"]);
+        assert_eq!(on("tlist"), vec!["tlist"]);
         assert_eq!(
             on("text,nodes,style,tree,view"),
             vec!["text", "nodes", "style", "tree", "view"],
@@ -15735,40 +15862,43 @@ mod tests {
     // (`solver3::cache::CascadedSince`), and the pass copies the runs of every box that is
     // what it was, where it was.
 
-    /// `(lists patched after a named cascade, runs copied, paint calls of patched builds)`
-    /// on this thread for one re-render of `window` after `change`, with `steps` on.
+    /// `(lists patched after a named cascade, lists patched across a changed tree, runs
+    /// copied, paint calls of patched builds)` on this thread for one re-render of `window`
+    /// after `change`, with `steps` on.
     fn dfv_list_cost(
         window: &mut HeadlessWindow,
         state: &Arc<RefCell<RefAny>>,
         steps: &[azul_layout::window::DiffFirstStep],
         change: impl FnOnce(&mut Vec<DfvLabel>),
-    ) -> (usize, usize, usize) {
+    ) -> (usize, usize, usize, usize) {
         use azul_layout::solver3::display_list as list;
         dfv_change(state, change);
         let before = (
             list::lists_patched_after_a_named_cascade_on_this_thread(),
+            list::lists_patched_across_trees_on_this_thread(),
             list::cached_runs_copied_on_this_thread(),
             list::runs_painted_by_patched_builds_on_this_thread(),
         );
         dfv_rerender(window, steps);
         (
             list::lists_patched_after_a_named_cascade_on_this_thread() - before.0,
-            list::cached_runs_copied_on_this_thread() - before.1,
-            list::runs_painted_by_patched_builds_on_this_thread() - before.2,
+            list::lists_patched_across_trees_on_this_thread() - before.1,
+            list::cached_runs_copied_on_this_thread() - before.2,
+            list::runs_painted_by_patched_builds_on_this_thread() - before.3,
         )
     }
 
-    /// Two windows of `count` labels (made by `labels`), re-rendered after the same
-    /// `change`: one with every step, one with every step but `list` (the state before
-    /// it: the view's list emitted in full). Answers the costs of the first
+    /// Two windows of the labels `labels`, re-rendered after the same `change`: one with
+    /// every step, one with the steps `reference` (every step but the one under test: the
+    /// state before it, the view's list emitted in full). Answers the costs of the first
     /// ([`dfv_list_cost`]) after asserting that both views hold the same document and the
     /// same list, line for line ([`dfv_dump`]: every item of the list with every field).
     fn dfv_list_against_full(
         labels: Vec<DfvLabel>,
         change: impl Fn(&mut Vec<DfvLabel>),
+        reference: &[azul_layout::window::DiffFirstStep],
         what: &str,
-    ) -> (usize, usize, usize) {
-        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree, View};
+    ) -> (usize, usize, usize, usize) {
         let state_list = Arc::new(RefCell::new(RefAny::new(DfvLabels(labels.clone()))));
         let state_full = Arc::new(RefCell::new(RefAny::new(DfvLabels(labels))));
         let mut with_list = dfv_window(&state_list);
@@ -15779,15 +15909,11 @@ mod tests {
             &azul_layout::window::DiffFirstStep::ALL,
             &change,
         );
-        let before = dfv_list_cost(
-            &mut in_full,
-            &state_full,
-            &[Text, Nodes, Style, Tree, View],
-            &change,
-        );
+        let before = dfv_list_cost(&mut in_full, &state_full, reference, &change);
         assert_eq!(
-            before.0, 0,
-            "{what}: premise: without `list` no list is patched after a named cascade"
+            (before.0, before.1),
+            (0, 0),
+            "{what}: premise: without the step no list is patched for the cascade's names"
         );
         let (left, right) = (dfv_dump(&with_list), dfv_dump(&in_full));
         let differs = left
@@ -15821,9 +15947,10 @@ mod tests {
         };
         let mut painted_at = Vec::new();
         for count in [100_usize, 400] {
-            let (patched, copied, painted) = dfv_list_against_full(
+            let (patched, _, copied, painted) = dfv_list_against_full(
                 dfv_labels(1, count),
                 restyle_one,
+                &DF_BEFORE_LIST,
                 "one label restyled",
             );
             assert_eq!(patched, 1, "{count} labels: the view's list is patched");
@@ -15855,9 +15982,10 @@ mod tests {
         };
         for count in [100_usize, 400] {
             let restyled = count / 20;
-            let (patched, copied, painted) = dfv_list_against_full(
+            let (patched, _, copied, painted) = dfv_list_against_full(
                 dfv_labels(1, count),
                 restyle_some,
+                &DF_BEFORE_LIST,
                 "5 % restyled",
             );
             assert_eq!(patched, 1, "{count} labels: the view's list is patched");
@@ -15885,8 +16013,12 @@ mod tests {
             }
         };
         for count in [100_usize, 400] {
-            let (patched, copied, painted) =
-                dfv_list_against_full(dfv_labels(1, count), pan, "every label moved");
+            let (patched, _, copied, painted) = dfv_list_against_full(
+                dfv_labels(1, count),
+                pan,
+                &DF_BEFORE_LIST,
+                "every label moved",
+            );
             assert_eq!(patched, 1, "{count} labels: the list is patched all the same");
             assert!(
                 painted >= count,
@@ -15919,11 +16051,44 @@ mod tests {
             label.kind = 4;
         }
         let recolour_one = |labels: &mut Vec<DfvLabel>| labels[20].kind = 5;
-        let (patched, copied, painted) =
-            dfv_list_against_full(labels, recolour_one, "a badge recoloured by its label's class");
+        let (patched, _, copied, painted) = dfv_list_against_full(
+            labels,
+            recolour_one,
+            &DF_BEFORE_LIST,
+            "a badge recoloured by its label's class",
+        );
         assert_eq!(patched, 1, "premise: the view's list is patched");
         assert!(copied >= 39, "premise: the other labels are copied ({copied} runs)");
         assert!(painted >= 1, "the badge is painted ({painted} paint calls)");
+    }
+
+    /// Labels that enter at the end of a view's list while the others stay where they are:
+    /// the view's tree changed, and its list is patched ACROSS the trees (the step `tlist`):
+    /// the labels that stayed are copied, the ones that entered painted - 5 of 100 and 20
+    /// of 400 - and the list is a full emission's.
+    ///
+    /// Mutation: the arm of the changed tree off: no list is patched across the trees and
+    /// 0 runs are copied.
+    #[test]
+    fn labels_that_enter_a_view_are_painted_and_the_others_copied() {
+        for count in [100_usize, 400] {
+            let entered = count / 20;
+            let (_, across, copied, painted) = dfv_list_against_full(
+                dfv_labels(1, count),
+                move |labels: &mut Vec<DfvLabel>| labels.extend(dfv_labels(50_000, entered)),
+                &DF_BEFORE_TLIST,
+                "labels entered at the end",
+            );
+            assert_eq!(across, 1, "{count} labels: the list is patched across the changed tree");
+            assert!(
+                copied >= count,
+                "{count} labels: the labels that stayed are copied ({copied} runs)"
+            );
+            assert!(
+                painted >= entered && painted <= 8 * entered + 12,
+                "{count} labels: the {entered} labels that entered are painted ({painted})"
+            );
+        }
     }
 
     /// A settle: every label moves and 5 % of them are exchanged for new ones. The cascade

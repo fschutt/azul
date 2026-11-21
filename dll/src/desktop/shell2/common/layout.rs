@@ -1777,6 +1777,10 @@ pub fn regenerate_layout(
     // Step "tree": the nodes of the new tree that are what they were, under the id they
     // had, with every ancestor (`LayoutWindow::style_reconciled_dom`).
     let mut kept_rows: Option<Vec<bool>> = None;
+    // Step "tlist": the cascade epoch of the tree before, as its display list was built
+    // from it (`solver3::cache::CascadedSince::from_epoch`), read before the new tree is
+    // styled against it.
+    let mut epoch_before_reconciled: Option<u64> = None;
     let mut styled_dom = if reconciled_first {
         // Step "tree": the managers name the new tree's nodes since the reconciliation.
         // The states go onto the unstyled tree and the cascade runs once, under them.
@@ -1796,6 +1800,10 @@ pub fn regenerate_layout(
             }
             _ => None,
         };
+        epoch_before_reconciled = layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .map(|lr| lr.styled_dom.get_css_property_cache().cascade_epoch);
         kept_rows = layout_window.style_reconciled_dom(
             azul_core::dom::DomId::ROOT_ID,
             &mut styled_dom,
@@ -1945,6 +1953,27 @@ pub fn regenerate_layout(
     if let Some(clean) = kept_rows.take().filter(|clean| {
         !written_since_its_pass && clean.len() == styled_dom.node_data.as_ref().len()
     }) {
+        // Step "tlist": ... and for the window's display list, the nodes that are NOT
+        // flagged - every node the cascade ran for, every node that came or was
+        // renumbered - between the epoch the tree before stood at and the one this tree
+        // stands at (`solver3::cache::CascadedSince`): the pass patches its list around
+        // them, across the changed tree where a node came or went.
+        if let (Some(from_epoch), true) = (
+            epoch_before_reconciled,
+            azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::TreeList),
+        ) {
+            layout_window.layout_cache.cascaded_since_list =
+                Some(azul_layout::solver3::cache::CascadedSince {
+                    from_epoch,
+                    to_epoch: styled_dom.get_css_property_cache().cascade_epoch,
+                    nodes: clean
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, clean)| !**clean)
+                        .map(|(index, _)| azul_core::id::NodeId::new(index))
+                        .collect(),
+                });
+        }
         layout_window.layout_cache.dom_diff_clean = Some(clean);
     } else if let (Some((new_fp, _)), Some(prev_fp)) = (&precascade, &prev_dom_fingerprints) {
         let n = styled_dom.node_data.as_ref().len();

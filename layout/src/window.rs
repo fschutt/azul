@@ -3844,11 +3844,19 @@ pub enum DiffFirstStep {
     /// the pass the nodes the changes reach, and the runs of every other box are copied.
     /// Off: such a rebuild emits the window's whole list.
     WindowList,
+    /// `tlist`: the display list ACROSS A CHANGED TREE. A rebuild of the window's DOM that
+    /// was reconciled before it was styled (`tree`) hands the pass the nodes it cascaded,
+    /// as a view's re-render does (`list`); and where a node came or went, the pass copies
+    /// the runs of the boxes its reconcile carried over from the list of the tree before
+    /// (`solver3::display_list::PatchState::build_across_trees`) and paints what came,
+    /// changed or moved. Off: a pass whose layout tree changed its node count emits its
+    /// whole list, and exit 1.47 names no node.
+    TreeList,
 }
 
 impl DiffFirstStep {
     /// Every step.
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Text,
         Self::Nodes,
         Self::Style,
@@ -3856,6 +3864,7 @@ impl DiffFirstStep {
         Self::View,
         Self::List,
         Self::WindowList,
+        Self::TreeList,
     ];
 
     /// The step's name in `AZ_DIFF_FIRST`.
@@ -3869,6 +3878,7 @@ impl DiffFirstStep {
             Self::View => "view",
             Self::List => "list",
             Self::WindowList => "wlist",
+            Self::TreeList => "tlist",
         }
     }
 
@@ -3882,10 +3892,11 @@ impl DiffFirstStep {
             Self::View => 16,
             Self::List => 32,
             Self::WindowList => 64,
+            Self::TreeList => 128,
         }
     }
 
-    const EVERY_BIT: u16 = 1 | 2 | 4 | 8 | 16 | 32 | 64;
+    const EVERY_BIT: u16 = 1 | 2 | 4 | 8 | 16 | 32 | 64 | 128;
 }
 
 /// The steps a value of `AZ_DIFF_FIRST` switches on, one [`DiffFirstStep`] bit each: `0` none,

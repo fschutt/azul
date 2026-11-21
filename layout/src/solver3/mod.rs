@@ -2387,6 +2387,77 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         } else {
             None
         };
+        // The fourth way in (the step `tlist`, diff-first-07): the TREE changed
+        // its node count, so no index of the list before is an index of this
+        // tree - but the reconcile knows where it carried each box
+        // (`carried_indices`), and the producer named the nodes it cascaded
+        // (`cascaded_named`). The runs of the carried boxes are copied through
+        // that map; a box that came, a carried box under another DOM node than
+        // it had (paired by position), the root of an inline context a fresh
+        // member is laid out in, and everything the other arms re-emit are
+        // painted. Recorded as a FULL emission below (no patch damage, no move
+        // summary: both pair boxes by one index): the renderers diff the list
+        // against the one they presented, as for any list of a changed tree.
+        let patch_across = if patch.is_none()
+            && !patch_disabled
+            && !cache.last_reconcile_was_skipped
+            && !cache.last_reconcile_structure_preserved
+            && context_unchanged
+            && crate::window::diff_first_step(crate::window::DiffFirstStep::TreeList)
+        {
+            match (
+                cascaded_named.as_deref(),
+                cache.cached_display_list.as_ref(),
+                cache.tree.as_deref(),
+            ) {
+                (Some(named), Some((_, _, _, _, _, prev_dl)), Some(old_tree))
+                    if cache.previous_sizes.len() == old_tree.nodes.len() =>
+                {
+                    let new_sizes: Vec<Option<LogicalSize>> =
+                        new_tree.nodes.iter().map(|n| n.used_size).collect();
+                    let mut reemit = ctx.reflowed_ifcs.clone();
+                    reemit.extend(recon_result.fresh_indices.iter().copied());
+                    reemit.extend(recon_result.retargeted.iter().copied());
+                    reemit.extend(recon_result.paint_dirty.iter().copied());
+                    reemit.extend(css_dirty_reemit_set(&new_tree, css_dirty, false));
+                    reemit.extend(boxes_painted_for(&new_tree, named));
+                    for (old, new) in &recon_result.carried_indices {
+                        let same_node = match (old_tree.nodes.get(*old), new_tree.nodes.get(*new)) {
+                            (Some(before), Some(now)) => before.dom_node_id == now.dom_node_id,
+                            _ => false,
+                        };
+                        if !same_node {
+                            reemit.insert(*new);
+                        }
+                    }
+                    for fresh in &recon_result.fresh_indices {
+                        if let Some(member) = new_tree
+                            .warm(LayoutNodeId::new(*fresh))
+                            .and_then(|warm| warm.ifc_membership)
+                        {
+                            reemit.insert(member.ifc_root_layout_index);
+                        }
+                    }
+                    display_list::PatchState::build_across_trees(
+                        prev_dl,
+                        &cache.calculated_positions,
+                        &calculated_positions,
+                        &cache.previous_sizes,
+                        &new_sizes,
+                        &reemit,
+                        &recon_result.carried_indices,
+                    )
+                }
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let patched_across_trees = patch_across.is_some();
+        if patched_across_trees {
+            display_list::count_list_patched_across_trees();
+        }
+        let patch = patch.or(patch_across);
         // Field writes, not `cache.record_*()`: `patch` borrows
         // `cache.cached_display_list` for the rest of this build, and a
         // `&mut self` method call would conflict with it where disjoint
@@ -2394,7 +2465,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         if patch.is_some() && named_cascade.is_some() {
             display_list::count_list_patched_after_a_named_cascade();
         }
-        if patch.is_some() {
+        if patch.is_some() && !patched_across_trees {
             // The damage is recorded below, once the final list exists.
             cache.last_build_was_patched = true;
             cache.last_patch_damage = None;
@@ -2405,7 +2476,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.last_patch_damage = None;
             cache.patch_damage_log.clear();
         }
-        if patch.is_some() {
+        if patch.is_some() && !patched_across_trees {
             // The patch's own damage, phase 1 of 2: the CHANGED-node set
             // (re-emitted OR moved/resized) plus old ∪ new NODE bounds as the
             // geometry base (covers vacated areas and items with no bounds).
@@ -2449,7 +2520,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         }
         cache.last_patch_move_from_seq = cache.layout_seq;
         cache.layout_seq = cache.layout_seq.wrapping_add(1);
-        if patch.is_some() || same_nodes {
+        if (patch.is_some() && !patched_across_trees) || same_nodes {
             // Round-3 presentation hint from the SAME inputs the patch used,
             // and on a pass that built its list in full from the same nodes
             // too: the CPU frame blits the movers by the dominant delta only
