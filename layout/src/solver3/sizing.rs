@@ -2919,6 +2919,11 @@ pub(crate) fn measure_ifc_intrinsic_sizes_keeping<T: ParsedFontTrait>(
 thread_local! {
     pub(crate) static MEASURED_PARAGRAPHS_KEPT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static MEASURED_PARAGRAPHS_TAKEN: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// Why [`MeasuredParagraphs::take`] refused what was kept for a root, counted by the
+    /// first input that differed: the base direction, `unicode-bidi`, the registered
+    /// faces, the content. What a failing count test prints.
+    pub(crate) static MEASURED_PARAGRAPHS_REFUSED: core::cell::Cell<[usize; 4]> =
+        const { core::cell::Cell::new([0; 4]) };
 }
 
 /// The most shaped items [`MeasuredParagraphs`] holds at a time. A kept
@@ -2933,14 +2938,28 @@ pub(crate) const MEASURED_ITEMS_KEPT_AT_MOST: usize = 65_536;
 struct MeasuredParagraph {
     /// The inline content that was shaped.
     content: Vec<InlineContent>,
-    /// `UnifiedConstraints::direction` and `unicode_bidi` of the measure: all
-    /// `shape_content` reads of its constraints (`paragraph_bidi`).
-    direction: Option<crate::text3::cache::BidiDirection>,
+    /// The base direction and `unicode_bidi` of the measure: all
+    /// `shape_content` reads of its constraints (`paragraph_bidi`). The
+    /// direction is the one `paragraph_bidi` reads ([`base_direction_of`]):
+    /// the intrinsic measure leaves `UnifiedConstraints::direction` unset
+    /// (`ifc_measure_constraints`), the layout sets the box's `ltr`, and both
+    /// shape left to right. Compared as declared, `None` against
+    /// `Some(Ltr)`, no layout ever took what its measure had shaped.
+    direction: crate::text3::cache::BidiDirection,
     unicode_bidi: crate::text3::cache::UnicodeBidi,
     /// `text3::fontreg::generation()` at the shaping: a face registered
     /// since changes what a family resolves to.
     fonts_generation: u64,
     shaped: ShapedParagraph,
+}
+
+/// The base direction `shape_content` shapes a paragraph in under
+/// `constraints`, as `text3::cache::paragraph_bidi` reads it: the declared
+/// one, left to right when none is set.
+fn base_direction_of(constraints: &UnifiedConstraints) -> crate::text3::cache::BidiDirection {
+    constraints
+        .direction
+        .unwrap_or(crate::text3::cache::BidiDirection::Ltr)
 }
 
 /// The intrinsic pass's slot of the pass (`PassMemo::measured`): the
@@ -2993,7 +3012,7 @@ impl MeasuredParagraphs {
             root,
             MeasuredParagraph {
                 content,
-                direction: constraints.direction,
+                direction: base_direction_of(constraints),
                 unicode_bidi: constraints.unicode_bidi,
                 fonts_generation: crate::text3::fontreg::generation(),
                 shaped,
@@ -3029,11 +3048,23 @@ impl MeasuredParagraphs {
         constraints: &UnifiedConstraints,
     ) -> Option<ShapedParagraph> {
         let kept = self.forget(root)?;
-        let same = kept.direction == constraints.direction
-            && kept.unicode_bidi == constraints.unicode_bidi
-            && kept.fonts_generation == crate::text3::fontreg::generation()
-            && kept.content.as_slice() == content;
-        if !same {
+        let differs = [
+            kept.direction != base_direction_of(constraints),
+            kept.unicode_bidi != constraints.unicode_bidi,
+            kept.fonts_generation != crate::text3::fontreg::generation(),
+        ];
+        // The content last: the one comparison that walks the paragraph.
+        let refused_by = differs
+            .iter()
+            .position(|d| *d)
+            .or_else(|| (kept.content.as_slice() != content).then_some(3));
+        if let Some(_cause) = refused_by {
+            #[cfg(test)]
+            MEASURED_PARAGRAPHS_REFUSED.with(|n| {
+                let mut by_cause = n.get();
+                by_cause[_cause] += 1;
+                n.set(by_cause);
+            });
             return None;
         }
         #[cfg(test)]
@@ -6522,5 +6553,20 @@ mod audit_a3_solver_tests {
         assert!(memo.take(7, &[text("label")], &constraints).is_none(), "handed up");
         assert!(memo.take(3, &[text("label")], &constraints).is_some(), "to the box around");
         assert_eq!(memo.items_kept, 0);
+
+        // The intrinsic measure sets no direction (`ifc_measure_constraints`), the layout
+        // of the same box its `ltr`: `shape_content` shapes both left to right, so the
+        // layout takes the measure's. Mutation: the declared directions compared (`None`
+        // against `Some(Ltr)`) -> refused, and no label of a page is ever taken.
+        assert_eq!(constraints.direction, None, "harness: the measure's constraints set none");
+        let ltr = UnifiedConstraints {
+            direction: Some(crate::text3::cache::BidiDirection::Ltr),
+            ..UnifiedConstraints::default()
+        };
+        memo.keep(7, vec![text("label")], &constraints, shaped());
+        assert!(
+            memo.take(7, &[text("label")], &ltr).is_some(),
+            "a measure without a direction and a layout in `ltr` shape alike"
+        );
     }
 }
