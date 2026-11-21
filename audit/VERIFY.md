@@ -226,38 +226,35 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
 
 <!-- STATE-BEGIN -->
 Tree: `audit/integration`, clean. Merged since the first verifier's hand-over: `audit/A4` at `a1fc02edf`
-(`d6ff63ad7`), `audit/A3-solver` at `79a700d1f` (`1fc01c22b`), `audit/A1` at `6c4d7265a` (`45720ab97`),
-`audit/A3-window` at `1af12829a` (`f1e2af9c8`), `audit/A1` again at `269117619` (`cb9574447`); verifier commits `2f34d89fa` (guard fixtures), `b1a7898b2`
-(compile fix), `270e178c9` (swept-pointer harness), `13545f86c` (widgets golden).
+(`d6ff63ad7`), `audit/A3-solver` at `79a700d1f` (`1fc01c22b`), `audit/A1` at `6c4d7265a` (`45720ab97`) and at
+`269117619` (`cb9574447`), `audit/A3-window` at `1af12829a` (`f1e2af9c8`), `audit/diff-first` at `8e7a62d2c`
+(`7c8de48b6`). Verifier commits: `2f34d89fa` (guard fixtures), `b1a7898b2` and `35d1d70c5` (the two compile
+fixes), `270e178c9` (swept-pointer harness), `13545f86c` (widgets golden).
 
-Results on this tree (targeted builds, whole suites run from the binaries; NOT yet the gate):
-- layout lib 10903 / 0 / 1 ignored (head `cb9574447`): green;
-- layout `tests/all` 3060 / 0 / 5 after the widgets golden (`13545f86c`);
-- dll lib 3846 / 7 / 9 ignored (before A1 `269117619`): the 7 are diff-first's (list in the log below);
-- core lib: not run again (7 failing at the last gate, all diff-first's); css: unchanged since the last gate.
+Results on head `35d1d70c5` (whole suites, run from the built binaries; NOT yet the gate):
+- core lib 3143 / 0; layout lib 10906 / 0 / 1 ignored; layout `tests/all` 3059 / 1 / 5 (the ribbon guard,
+  expected red); dll lib 3861 / 3 / 9 (three `..._under_the_pointer_...` walks: node 1's `TextColor`);
+- fork `cargo test -p webrender --lib` 107 / 0 (webrender tree `9d963f70`); Linux / Windows checks 0 errors on
+  `cb9574447` (to be repeated); css and `headless_lifecycle`: not run again since the last gate.
 
 Open, with whom:
-- `audit/diff-first`: the coordinator names the tip. It brings the slider fix `6c43652f1`, the fix in
-  `try_copy_cached_run` (switch `AZ_DL_TRANSLATE_MOVED_RUNS=1`), fixes for the 7 core and the 7 dll failures.
-  EXPECT also a conflict in `layout/src/window.rs` `DomGenerations` (two hunks; both sides only add: keep
-  A3-window's `frame_owners` / `boxes_moved_in_place` / `state_colors` and `bump_for_a_move`, and diff-first's
-  `laid_out_at` field and its `retain` line inside `forget_all_but`).
-  EXPECT a conflict in `solver3/display_list.rs` `try_copy_cached_run` (it now holds A1's `next_text_ink` line and
-  A3-window's `binding`): all must be present; its commit message says how the lines read.
-- After that merge: run `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`
-  once with `AZ_DL_TRANSLATE_MOVED_RUNS=1` and tell the coordinator whether it fails (a real guard) or passes.
+- diff-first owner (through the coordinator): a follow-up commit for the ribbon guard (tween frames translate)
+  and the three red dll walks. The coordinator names the commit; merge it, then build and run the layout
+  tests and the dll lib.
+- second round only, on the coordinator's word: `audit/A5` `dbde1ccf5`, `audit/dom-builder`, `audit/A10` and
+  `audit/A8` beyond what is merged; the fixture of `a_box_that_moved_in_a_pass_...`.
 
 Next commands (after `source <scratchpad>/verify/env.sh`; delete stale binaries and `libazul*` first:
 `find $S/azul-target/debug/deps -maxdepth 1 -type f -perm +111 ! -name '*.dylib' -delete; rm -f
-$S/azul-target/debug/deps/libazul*`):
-1. `git merge --no-ff <diff-first tip>`; `run NN test -p azul-core --lib`; `run NN test -p azul-layout --features
-   e2e-server --lib --test all --no-run` and run both binaries whole (cwd `layout/`); `run NN test -p azul-dll --lib
-   --no-run` and run the binary whole (cwd `dll/`).
-2. THE GATE (step 4 of the assignment): css lib, core lib, layout lib + all, dll lib, `headless_lifecycle`, the two
-   cross checks (delete `<target>/<triple>` after each), fork tests only if the disk allows. MILESTONE 5 to the
-   coordinator; no push.
+$S/azul-target/debug/deps/libazul*`; test binaries are run with the crate directory as cwd and
+`CARGO_MANIFEST_DIR` set to it):
+1. `git merge --no-ff <diff-first follow-up>`; layout `run NN test -p azul-layout --features e2e-server --lib
+   --test all --no-run` + both binaries; dll `run NN test -p azul-dll --lib --no-run` + the binary.
+2. THE GATE (step 4 of the assignment) on the final tree: css lib, core lib, layout lib + all, dll lib,
+   `headless_lifecycle`, the two cross checks (delete `<target>/<triple>` after each), the fork tests again only
+   if `git rev-parse HEAD:webrender` is no longer `9d963f70...`. MILESTONE 5 to the coordinator; no push.
 3. On its answer: the pin pass (`<scratchpad>/wt/m4p-integration/audit/PIN_PASS.md`), telling it before the build.
-Disk: 10 GB free with the target directory at about 2.5 GB; a dll test build needs about 1 GB.
+Disk: about 10 GB free with the target directory at 2.6 - 3.8 GB; `run` refuses under 9 GB.
 <!-- STATE-END -->
 
 ## State for a successor (the FIRST verifier's hand-over at `a23a72fde`; superseded by the section above)
@@ -435,3 +432,26 @@ What is left for the checkpoint, in order:
 - early cross checks on head `cb9574447` (to be repeated in the gate): `cargo check -p azul-dll --target
   x86_64-unknown-linux-gnu` 0 errors, `--target x86_64-pc-windows-gnu` 0 errors (logs `62-check-*`; target
   directories deleted).
+- merge `audit/diff-first` at `8e7a62d2c` (`7c8de48b6`): conflict in `layout/src/window.rs` `DomGenerations` (two
+  hunks, both sides only add: all kept); `try_copy_cached_run` merged without conflict (`8447aa202`'s delta test
+  above the loop, A1's ink line and A3-window-55's `binding` in it). Compile fix `35d1d70c5` (test only:
+  `core/src/styled_dom_test.rs:3776` moved `.style` out of a `NodeData`, E0509: `.style.clone()`).
+  - `cargo test -p azul-core --lib` (log `63b-core-lib`): **3143 passed, 0 failed** (the seven fixed by `8420ec290`
+    + `8e7a62d2c`).
+  - layout lib whole (log `65-layout-lib`): **10906 / 0 / 1 ignored**; `audit_tests::diff_first` 3 / 0.
+    `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` passes normally
+    AND with `AZ_DL_TRANSLATE_MOVED_RUNS=1`: no guard of diff-first-15 (told to the coordinator; its fixture is
+    corrected in the second round; not edited).
+  - layout `tests/all` (log `66-layout-all`): **3059 / 1 / 5 ignored**: the 1 is
+    `a_growing_ribbon_lays_out_only_the_boxes_it_resizes::an_azdrive_frame_lays_out_only_what_the_ribbon_resizes`
+    (`items_painted_again` 190 vs 370): EXPECTED red on this tip (diff-first-15 paints moved boxes anew on tween
+    frames too; the owner's follow-up commit makes it green as written; the test is not to be edited).
+  - dll lib whole (build `67-build-dll-tests` 0 errors; run `68-dll-lib`): **3861 / 3 / 9 ignored**. The slider,
+    `a_changed_text_takes_the_full_path_...`, the plain equality walks and every new diff-first test pass. RED
+    (verbatim: `<scratchpad>/verify/68-failures.txt`), one message for all three (`mod.rs:14551`, line 102 of the
+    dump: node 1 resolves `TextColor(Exact(#000000ff))` on the diff-first window and none on the full one):
+    `shell2::headless::tests::a_rebuild_that_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves`
+    (seed 1, step 0, kind 2, steps [Text, Nodes]),
+    `::a_rebuild_that_changed_the_tree_under_the_pointer_leaves_what_the_full_path_leaves` (seed 1, step 4, kind 5),
+    `::a_rebuild_that_styled_its_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves` (the same).
+    No environment switch changes them. Sent to the coordinator for the diff-first owner.
