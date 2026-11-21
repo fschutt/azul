@@ -14763,6 +14763,163 @@ mod tests {
         );
     }
 
+    /// How often [`dfb_layout`] ran (one test builds with it).
+    static DFB_LAYOUTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    /// [`df_layout`] through `azul_core::dom::DomBuilder`: the same page, node for node and
+    /// sheet for sheet, handed over as a `Dom` that carries its tree flat.
+    extern "C" fn dfb_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::dom::{DomBuilder, NodeType};
+
+        DFB_LAYOUTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let (rows, dense, siblings) = data
+            .downcast_ref::<DfPage>()
+            .map(|page| (page.rows.clone(), page.dense, page.siblings))
+            .expect("app state");
+        let mut sheet = String::from(
+            ".df-list { padding: 2px; } .df-row { padding: 4px; background: #eeeeee; } \
+             .df-dense .df-row { padding: 1px; } .df-k1 { background: #ddddff; width: 200px; } \
+             .df-k2 { color: #aa0000; font-size: 18px; } .df-k3 { margin-top: 3px; } \
+             #df-id1 { background: #00ff00; } .df-row:hover { background: #ffff00; color: \
+             #0000aa; } .df-extra { height: 6px; background: #cccccc; } .df-k2 .df-extra { \
+             height: 9px; }",
+        );
+        if siblings {
+            sheet.push_str(" .df-k1 + .df-row { margin-left: 6px; }");
+        }
+        let mut b = DomBuilder::new();
+        b.open(NodeType::Body);
+        b.set_css("margin: 0px; font-size: 14px;");
+        b.add_component_css(azul_css::css::Css::from_string(sheet.into()));
+        b.open(NodeType::Div);
+        b.add_class_str("df-list");
+        if dense {
+            b.add_class_str("df-dense");
+        }
+        for row in &rows {
+            b.open(NodeType::Div);
+            b.add_class_str("df-row");
+            b.add_class_str(&format!("df-k{}", row.kind));
+            if row.id != 0 {
+                b.add_id_str(&format!("df-id{}", row.id));
+            }
+            if !DF_PLACES[row.place].is_empty() {
+                b.set_css(DF_PLACES[row.place]);
+            }
+            b.open(NodeType::Span);
+            b.add_class_str("df-cell");
+            b.add_text_str(&row.text);
+            b.close();
+            for n in 0..row.extra {
+                b.open(NodeType::Div);
+                b.add_class_str("df-extra");
+                b.add_text_str(&format!("x{n}"));
+                b.close();
+            }
+            b.close();
+        }
+        b.close();
+        b.finish()
+    }
+
+    /// A window whose layout callback builds through `DomBuilder` takes the exits a window
+    /// with the same page built as a tree takes, and leaves what it leaves; and a rebuild
+    /// that built what the build before built is read as it was handed over: its
+    /// fingerprints come from the builder's tiers and its flat tree never becomes a tree
+    /// of `Dom`s (`azul_core::dom::flat_expansions_on_this_thread`: 0).
+    ///
+    /// Mutations this fails on: `regenerate_layout` calling `resolve_form_controls` (it
+    /// expands) or `fingerprint_dom` (it reads a carrying `Dom` as one node: the identical
+    /// rebuild is "changed"); `fingerprint_built_dom_against` expanding whatever the
+    /// build before was; `fingerprint_built_dom_against` leaving a CHANGED flat DOM flat
+    /// (the changed text is not adopted: the dumps differ); a tier of the builder that is
+    /// not `fingerprint_dom`'s (the retained arena is not the shape of the fingerprints).
+    #[test]
+    fn a_builder_made_window_dom_rebuilt_unchanged_is_never_expanded() {
+        use std::sync::atomic::Ordering::Relaxed;
+
+        use azul_core::{
+            callbacks::RelayoutReason, dom::flat_expansions_on_this_thread as expansions,
+            styled_dom::nodes_cascaded_on_this_thread as cascaded,
+        };
+        use azul_layout::window::{kept_dom_rebuilds_on_this_thread as kept, DiffFirstStep};
+
+        use crate::desktop::shell2::common::{
+            event::PlatformWindow, layout::LayoutRegenerateResult,
+        };
+
+        let flat_state = df_state_with(60, false);
+        let tree_state = df_state_with(60, false);
+
+        let before = expansions();
+        let mut flat = make_window_sized(&flat_state, dfb_layout, 400.0, 600.0);
+        flat.regenerate_layout().expect("initial layout");
+        assert!(
+            expansions() > before,
+            "premise: the first build arrives flat (there is no build before it to equal) \
+             and is styled as the tree it stands for"
+        );
+        flat.regenerate_layout().expect("settle");
+        let _ = flat.common.take_regeneration();
+        let mut tree = df_window(&tree_state);
+        assert_eq!(df_dump(&flat), df_dump(&tree), "the first build, built either way");
+
+        // The same page again: read flat, kept, never a tree.
+        let unchanged = |flat: &mut HeadlessWindow, what: &str| {
+            let (calls, trees, nodes) = (DFB_LAYOUTS.load(Relaxed), expansions(), cascaded());
+            flat.common.request_regeneration(RelayoutReason::RefreshDom);
+            let result = flat.regenerate_layout().expect("the identical rebuild");
+            let _ = flat.common.take_regeneration();
+            assert_eq!(DFB_LAYOUTS.load(Relaxed) - calls, 1, "{what}: the callback built it");
+            assert!(
+                matches!(result, LayoutRegenerateResult::LayoutUnchanged),
+                "{what}: the identical-rebuild exit"
+            );
+            assert_eq!(expansions() - trees, 0, "{what}: the flat DOM stayed flat");
+            assert_eq!(cascaded() - nodes, 0, "{what}: no node styled");
+        };
+        unchanged(&mut flat, "the first identical rebuild");
+        unchanged(&mut flat, "the second");
+        assert_eq!(df_dump(&flat), df_dump(&tree), "after two identical rebuilds");
+
+        // One changed text: the texts exit for both; the flat DOM becomes its tree once.
+        for state in [&flat_state, &tree_state] {
+            df_change(state, |page| page.rows[30].text = "another text".to_string());
+        }
+        let (trees, nodes) = (expansions(), cascaded());
+        df_rebuild(&mut flat, &DiffFirstStep::ALL);
+        assert_eq!(cascaded() - nodes, 0, "a changed text styles no node, built either way");
+        assert_eq!(expansions() - trees, 1, "a rebuild that changed something reads the tree");
+        df_rebuild(&mut tree, &DiffFirstStep::ALL);
+        assert_eq!(df_dump(&flat), df_dump(&tree), "after a changed text");
+
+        // One changed class: the same exit for both (the styled DOM kept, or not).
+        for state in [&flat_state, &tree_state] {
+            df_change(state, |page| page.rows[7].kind = (page.rows[7].kind + 1) % 4);
+        }
+        let before = kept();
+        df_rebuild(&mut flat, &DiffFirstStep::ALL);
+        let flat_kept = kept() - before;
+        let before = kept();
+        df_rebuild(&mut tree, &DiffFirstStep::ALL);
+        assert_eq!(flat_kept, kept() - before, "a changed class takes the same exit");
+        assert_eq!(df_dump(&flat), df_dump(&tree), "after a changed class");
+
+        // A row added (the tree changed), then the same page again.
+        for state in [&flat_state, &tree_state] {
+            df_change(state, |page| {
+                let mut row = page.rows[3].clone();
+                row.text = "a new row".to_string();
+                page.rows.insert(10, row);
+            });
+        }
+        df_rebuild(&mut flat, &DiffFirstStep::ALL);
+        df_rebuild(&mut tree, &DiffFirstStep::ALL);
+        assert_eq!(df_dump(&flat), df_dump(&tree), "after a row was added");
+        unchanged(&mut flat, "identical again, after the tree changed");
+        assert_eq!(df_dump(&flat), df_dump(&tree), "at the end");
+    }
+
     /// `(rebuilds that kept the styled DOM, cascades, boxes the solver built fresh)` for one
     /// rebuild of a page of `rows` rows after `change`, with `steps` on.
     fn df_cost(

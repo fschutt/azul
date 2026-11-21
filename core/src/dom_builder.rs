@@ -1573,6 +1573,7 @@ impl Dom {
         else {
             return;
         };
+        count_flat_expansion();
         let mut children = flat.into_children();
         // Children written onto the carrying `Dom` itself come after the carried ones.
         let own = mem::take(&mut self.children).into_library_owned_vec();
@@ -1679,6 +1680,35 @@ pub fn fingerprint_built_dom_against(
         dom.expand_flat();
     }
     out
+}
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Flat trees that became trees of `Dom`s on this thread
+    /// ([`flat_expansions_on_this_thread`]).
+    static FLAT_EXPANSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Counts one flat tree made a tree of `Dom`s (`Dom::expand_flat`).
+fn count_flat_expansion() {
+    #[cfg(feature = "std")]
+    FLAT_EXPANSIONS.with(|n| n.set(n.get() + 1));
+}
+
+/// How many `Dom`s that carried their tree flat this thread turned into trees of `Dom`s
+/// (`Dom::expand_flat` on a `Dom` that carried one; `Dom::into_fast_dom`, which goes to the
+/// arenas, is not one): what a test reads to say that a rebuild read a builder-made DOM
+/// as it was handed over. Always 0 without `std`.
+#[must_use]
+pub fn flat_expansions_on_this_thread() -> usize {
+    #[cfg(feature = "std")]
+    {
+        FLAT_EXPANSIONS.with(core::cell::Cell::get)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        0
+    }
 }
 
 #[cfg(feature = "std")]
