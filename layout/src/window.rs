@@ -1990,6 +1990,7 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         #[cfg(feature = "e2e-server")]
             e2e_scratch: _,
         skip_gpu_sync: _,
+        display_list_options: _,
         frame_report: _,
         frame_report_reset_request: _,
         cpu_counters: _,
@@ -2458,10 +2459,17 @@ pub struct LayoutWindow {
     /// `layout_dom_recursive`. That sync only feeds the display list (which
     /// the web backend skips), has no GPU, and `GpuValueCache::synchronize`
     /// currently mis-lifts to wasm (out-of-bounds). Gated via this heap field
-    /// (a normal struct read — reliable in the lift, unlike the
-    /// `SKIP_DISPLAY_LIST` `__bss` static, whose store/load is inconsistent
-    /// in the lifted wasm). Default false → desktop is unaffected.
+    /// (a normal struct read — reliable in the lift, unlike a `__bss` static,
+    /// whose store/load is inconsistent in the lifted wasm: the flag that skips
+    /// the display list was one). Default false → desktop is unaffected.
     pub skip_gpu_sync: bool,
+    /// How this window's layout passes build their display list: patching on or
+    /// off, what a moved box's run does, no list at all (the web backend). The
+    /// window writes it into the cache of every pass it runs; a test sets it on
+    /// its own window (`lw.display_list_options.patching = false`) without
+    /// touching any other window. Starts as what the environment of the process
+    /// asks for (`AZ_NO_DL_PATCH`, `AZ_DL_TRANSLATE_MOVED_RUNS`).
+    pub display_list_options: solver3::cache::DisplayListOptions,
     /// Per-frame damage + frame-work observability record. Written by the CPU
     /// backend after each `render_frame` and by the event loop; read by E2E
     /// assertions through `CallbackInfo::get_layout_window()`.
@@ -4453,6 +4461,19 @@ impl LayoutWindow {
         report
     }
 
+    /// What the display-list patching of this window's documents did so far, summed over the
+    /// layout caches of the root document and of every view's document
+    /// ([`solver3::cache::DisplayListPatchCounters`]). A test reads it before and after a
+    /// rebuild; nothing is shared with any other window.
+    #[must_use]
+    pub fn display_list_patch_counters(&self) -> solver3::cache::DisplayListPatchCounters {
+        let mut total = self.layout_cache.display_list_patch_counters;
+        for cache in self.child_layout_caches.values() {
+            total.add(&cache.display_list_patch_counters);
+        }
+        total
+    }
+
     /// Keep the counters of a CPU frame ([`crate::cpu_counters::FrameScope`]): the last frame's,
     /// and the sum since the counters were last reset.
     pub fn record_cpu_counters(&self, frame: crate::cpu_counters::CpuFrameCounters) {
@@ -4542,6 +4563,7 @@ impl LayoutWindow {
             e2e_scratch: std::sync::Mutex::new(crate::e2e::E2eScratch::default()),
             // M12.7 web/headless GPU-sync skip (default false → desktop unaffected)
             skip_gpu_sync: false,
+            display_list_options: solver3::cache::DisplayListOptions::from_environment(),
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
@@ -4623,6 +4645,9 @@ impl LayoutWindow {
                 last_reconcile_reused: 0,
                 last_reconcile_fresh: 0,
                 last_intrinsic_dirty: 0,
+                display_list_options: Default::default(),
+                display_list_patch_counters: Default::default(),
+                svg_masks: Default::default(),
             },
             child_layout_caches: BTreeMap::new(),
             text_cache: TextLayoutCache::new(),
@@ -5164,11 +5189,12 @@ impl LayoutWindow {
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
         // Drain the shaping deficit this pass accumulated: > 0 means some
         // text produced zero glyphs because its font was not loaded when the
-        // shaper ran (see `text3::cache::FONT_SHAPE_DEFICIT`).
+        // shaper ran (the window's own shaping cache counts it:
+        // `text3::cache::ShapingCounters`).
         self.frame_report.font_shape_deficit = self
             .frame_report
             .font_shape_deficit
-            .saturating_add(crate::text3::cache::take_font_shape_deficit());
+            .saturating_add(self.text_cache.take_font_shape_deficit());
 
         if let Err(ref e) = result {
             if let Some(msgs) = debug_messages.as_mut() {
@@ -8398,6 +8424,9 @@ impl LayoutWindow {
             last_reconcile_reused: 0,
             last_reconcile_fresh: 0,
             last_intrinsic_dirty: 0,
+            display_list_options: self.display_list_options,
+            display_list_patch_counters: Default::default(),
+            svg_masks: Default::default(),
         };
         let mut scratch_text = TextLayoutCache::new();
         let viewport = LogicalRect::new(LogicalPosition::zero(), available);
@@ -10401,7 +10430,7 @@ impl LayoutWindow {
         // The GPU transform/opacity sync only feeds the display list
         // (reference frames + opacity stacking contexts read by
         // display_list.rs). The web backend skips the display list
-        // (SKIP_DISPLAY_LIST) and has no GPU, so skip this too — layout
+        // (`display_list_options.skip`) and has no GPU, so skip this too — layout
         // geometry never depends on it (transforms are render-time). This
         // also avoids GpuValueCache::synchronize, which currently mis-lifts
         // to wasm (out-of-bounds access). Desktop is unaffected.
@@ -10505,8 +10534,10 @@ impl LayoutWindow {
                 if self.layout_cache.tree.is_some() {
                     if readers.beyond_nodes {
                         let build_seq = self.layout_cache.build_seq;
+                        let patch_counters = self.layout_cache.display_list_patch_counters;
                         self.layout_cache = solver3::cache::LayoutCache::default();
                         self.layout_cache.build_seq = build_seq;
+                        self.layout_cache.display_list_patch_counters = patch_counters;
                     } else {
                         css_dirty_for_this_pass.extend(
                             readers
@@ -10533,8 +10564,10 @@ impl LayoutWindow {
                 // change is a rare, user-driven event: lay the root out
                 // cold this once (the shaping cache is separate and kept).
                 let build_seq = self.layout_cache.build_seq;
+                let patch_counters = self.layout_cache.display_list_patch_counters;
                 self.layout_cache = solver3::cache::LayoutCache::default();
                 self.layout_cache.build_seq = build_seq;
+                self.layout_cache.display_list_patch_counters = patch_counters;
             }
             self.laid_out_dock_generation = self.transient_windows.dock_generation();
             self.transient_windows.layout_docks()
@@ -10544,6 +10577,9 @@ impl LayoutWindow {
         let virtual_view_sizes_snapshot = self.virtual_view_manager.materialized_sizes();
         let mut display_list = {
             let _p = crate::probe::Probe::span("solver3_layout_document");
+            // The window's own options for this pass (the cache may be a child document's,
+            // swapped in above, or one made since the options were set).
+            self.layout_cache.display_list_options = self.display_list_options;
             let layout_cache = &mut self.layout_cache;
             let text_cache = &mut self.text_cache;
             let font_manager = &self.font_manager;
@@ -12366,10 +12402,7 @@ impl LayoutWindow {
 
         use crate::{
             overlay::{ContentChangeResult, ContentDirtyTier},
-            solver3::{
-                display_list::{dl_patching_enabled, node_patch},
-                positioning,
-            },
+            solver3::{display_list::node_patch, positioning},
         };
 
         /// A node with more boxes below it than this is laid out by a pass.
@@ -12379,7 +12412,7 @@ impl LayoutWindow {
         let moves_y = changed.contains(&Some(Ty::Top));
         let moves = moves_x || moves_y;
         let turns = changed.contains(&Some(Ty::Transform));
-        if !dl_patching_enabled() || self.text_edit_manager.tween.is_active() {
+        if !self.display_list_options.patching || self.text_edit_manager.tween.is_active() {
             return None;
         }
         // The switch of the move (`move_in_place_enabled`): off, the pass of the general
@@ -14804,6 +14837,8 @@ impl LayoutWindow {
 
     /// Clear all caches (useful for testing or when switching documents).
     pub fn clear_caches(&mut self) {
+        // The patch counters only count up, whatever is cleared.
+        let patch_counters = self.display_list_patch_counters();
         self.child_layout_caches.clear();
         self.layout_cache = Solver3LayoutCache {
             tree: None,
@@ -14843,6 +14878,9 @@ impl LayoutWindow {
             last_reconcile_reused: 0,
             last_reconcile_fresh: 0,
             last_intrinsic_dirty: 0,
+            display_list_options: self.display_list_options,
+            display_list_patch_counters: patch_counters,
+            svg_masks: Default::default(),
         };
         self.text_cache = TextLayoutCache::new();
         self.layout_results.clear();
@@ -25629,6 +25667,7 @@ impl LayoutWindow {
                         azul_css::props::property::CssPropertyType::Width.relayout_scope(false),
                     )];
                     let external = ExternalSystemCallbacks::rust_internal();
+                    z.scratch_cache.display_list_options = self.display_list_options;
                     let solved = solver3::layout_document(
                         &mut z.scratch_cache,
                         &mut z.scratch_text,
@@ -30994,16 +31033,13 @@ impl LayoutWindow {
     ) -> bool {
         use azul_css::props::property::CssPropertyType as Ty;
 
-        use crate::solver3::{
-            display_list::{dl_patching_enabled, node_patch},
-            LayoutContext,
-        };
+        use crate::solver3::{display_list::node_patch, LayoutContext};
 
         /// A restyle that paints the runs of more nodes than this builds the list. (Nodes
         /// whose state colour is a VALUE are not counted: they touch no list.)
         const MAX_NODES: usize = 8;
 
-        if changed.is_empty() || !dl_patching_enabled() {
+        if changed.is_empty() || !self.display_list_options.patching {
             return false;
         }
         // What the background-and-border run of a node is painted from, and nothing else is.
@@ -31465,7 +31501,9 @@ impl LayoutWindow {
             },
         };
 
-        // Generate the new display list from the existing layout tree
+        // Generate the new display list from the existing layout tree. The SVG masks the
+        // document's earlier builds drew are lent to this one and taken back after it.
+        ctx.pass_memo.svg_masks = std::mem::take(&mut self.layout_cache.svg_masks);
         let new_display_list = generate_display_list(
             &mut ctx,
             tree,
@@ -31481,8 +31519,9 @@ impl LayoutWindow {
         // borrowed (the tween pass below needs `self` mutably).
         let gpu_fingerprint = gpu_cache.dl_emission_fingerprint();
 
-        // Restore the cache_map back to layout_cache
+        // Restore the cache_map (and the SVG masks) back to layout_cache
         self.layout_cache.cache_map = std::mem::take(&mut ctx.cache_map);
+        self.layout_cache.svg_masks = std::mem::take(&mut ctx.pass_memo.svg_masks);
 
         match new_display_list {
             Ok(mut display_list) => {
@@ -34726,6 +34765,7 @@ impl LayoutWindow {
             // Plain window/render state, no NodeIds:
             // The E2E mount override is an XML source string + a dirty flag:
             skip_gpu_sync: _,
+            display_list_options: _,
             e2e_mount: _,
             #[cfg(feature = "e2e-server")]
                 e2e_scratch: _,

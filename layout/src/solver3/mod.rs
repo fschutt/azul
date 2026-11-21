@@ -29,6 +29,7 @@ pub mod scroll_chain;
 pub mod scrollbar;
 pub mod sizing;
 pub mod svg;
+pub mod svg_masks;
 pub mod taffy_bridge;
 /// The automatic table layout's width half: column constraints, the table's
 /// min/max-content, the width distribution (shared by sizing and layout).
@@ -239,6 +240,20 @@ pub struct PassMemo<T> {
     /// The intrinsic pass's slot: the paragraphs it shaped, for their
     /// layout.
     pub measured: sizing::MeasuredParagraphs,
+    /// What the display-list build of the pass did with the list it patched
+    /// ([`cache::DisplayListPatchCounters`]); `layout_document` adds it to the
+    /// document's cache when the build is done.
+    pub patch_counters: cache::DisplayListPatchCounters,
+    /// The scrollbar style every node without scrollbar CSS starts from
+    /// ([`getters::ScrollbarBaseMemo`]): made once per pass.
+    pub scrollbar_base: getters::ScrollbarBaseMemo,
+    /// The SVG masks of the display-list build ([`svg_masks::SvgMaskMemo`]):
+    /// the document's own, lent to the pass by `LayoutCache::svg_masks` for
+    /// the build and given back after it (empty otherwise).
+    pub svg_masks: svg_masks::SvgMaskMemo,
+    /// The IDs the pass gives its inline formatting contexts
+    /// ([`layout_tree::IfcIdSequence`]): each pass counts from 0.
+    pub ifc_ids: layout_tree::IfcIdSequence,
     /// The fonts the font manager holds, as the first ask of the pass found
     /// them ([`LayoutContext::loaded_fonts`]). `T` is the context's font
     /// type, which is why this struct has it.
@@ -255,6 +270,10 @@ impl<T> Default for PassMemo<T> {
             bfc: fc::BfcPassMemo::default(),
             taffy: taffy_bridge::TaffyPassMemo::default(),
             measured: sizing::MeasuredParagraphs::default(),
+            patch_counters: cache::DisplayListPatchCounters::default(),
+            scrollbar_base: getters::ScrollbarBaseMemo::default(),
+            svg_masks: svg_masks::SvgMaskMemo::default(),
+            ifc_ids: layout_tree::IfcIdSequence::default(),
             loaded_fonts: Default::default(),
         }
     }
@@ -524,37 +543,6 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
     }
 }
 
-/// Main entry point for the incremental, cached layout engine.
-///
-/// `new_dom` is borrowed, not owned — every use inside is `&new_dom`,
-/// so taking ownership was a pure formality that forced every caller
-/// to `styled_dom.clone()` the DOM before calling. The clone was
-/// ~2 MiB per render on excel.html; kept at the borrow now.
-#[cfg(feature = "text_layout")]
-/// Web-backend opt-out for display-list generation.
-///
-/// When set, [`layout_document`] runs the full positioning pipeline
-/// (intrinsic sizing, taffy block/flex/grid, relative/sticky/absolute
-/// adjustment → `calculated_positions`) but **skips
-/// `generate_display_list`**, returning an empty [`DisplayList`]. The
-/// web backend emits TLV DOM patches, not a display list, so it needs
-/// the geometry in `calculated_positions` but nothing the painter
-/// produces. This also lets the AArch64→wasm lift drop the entire
-/// `display_list` painter surface (those symbols are classified `Leaf`
-/// in `dll/src/web/symbol_table.rs::classify_for_name`, so the
-/// transitive lifter never descends into them). Defaults `false` →
-/// desktop/native behaviour is unchanged.
-pub static SKIP_DISPLAY_LIST: core::sync::atomic::AtomicBool =
-    core::sync::atomic::AtomicBool::new(false);
-
-/// Set [`SKIP_DISPLAY_LIST`].
-///
-/// Provided as a function (rather than the
-/// caller touching the static directly) so the web backend's
-/// `dll`-crate caller reaches it through a normal `bl` into this
-/// `azul_layout` function — keeping the static's address computation
-/// intra-crate (direct `adrp+add`) instead of a cross-crate GOT load,
-/// which the AArch64→wasm lift mirrors more reliably.
 /// Fingerprint of the scroll-snapshot GEOMETRY the display-list build consumes.
 ///
 /// The emitted list is a function of `scroll_offsets` too — scrollbar
@@ -633,10 +621,6 @@ pub(crate) fn scroll_geometry_fingerprint(
         pos.children_rect.size.height.to_bits().hash(&mut h);
     }
     h.finish()
-}
-
-pub fn set_skip_display_list(skip: bool) {
-    SKIP_DISPLAY_LIST.store(skip, core::sync::atomic::Ordering::Relaxed);
 }
 
 /// The layout indices a css-dirty pass on the RETAINED tree must re-emit
@@ -749,6 +733,16 @@ fn built_under_the_context_of(cache: &LayoutCache, dom: &StyledDom) -> bool {
 // node counts / indices / tree-len values fed to az_mark debug markers as u32; bounded.
 #[allow(clippy::cast_possible_truncation)]
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+/// Main entry point for the incremental, cached layout engine.
+///
+/// `new_dom` is borrowed, not owned — every use inside is `&new_dom`,
+/// so taking ownership was a pure formality that forced every caller
+/// to `styled_dom.clone()` the DOM before calling. The clone was
+/// ~2 MiB per render on excel.html; kept at the borrow now.
+///
+/// How the display list is built (patched or painted anew, what a moved box's
+/// run does, no list at all for the web backend) is `cache.display_list_options`.
+///
 /// # Errors
 ///
 /// Returns a `LayoutError` if document layout fails.
@@ -803,9 +797,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // (`footnotes::announce`), whatever a paged layout of this document said.
     footnotes::announce(new_dom, false);
 
-    // Reset IFC ID counter at the start of each layout pass
-    // This ensures IFCs get consistent IDs across frames when the DOM structure is stable
-    layout_tree::IfcId::reset_counter();
+    // (The IFC IDs of the pass are issued by `PassMemo::ifc_ids`: a context's own sequence
+    // starts at 0, so IFCs get consistent IDs across frames when the DOM structure is stable.)
     // in layout_document returns the rc=5 Err (the error enum can't be captured
     // reliably in the lift). The last value seen = the step that errored next.
     {
@@ -1502,7 +1495,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.scroll_ids.clone()
         };
 
-        if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
+        if cache.display_list_options.skip {
             cache.cache_map = std::mem::take(&mut ctx.cache_map);
             cache.record_full_emission();
             return Ok(Arc::new(DisplayList::default()));
@@ -1516,7 +1509,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // they presented.
         let early_patch = match (cascaded_named.as_deref(), cache.cached_display_list.as_ref()) {
             (Some(named), Some((_, _, _, _, _, prev_dl)))
-                if display_list::dl_patching_enabled()
+                if cache.display_list_options.patching
                     && !regions::document_has_named_flows(new_dom)
                     && built_under_the_context_of(cache, new_dom) =>
             {
@@ -1532,14 +1525,18 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     &sizes,
                     &reemit,
                     false,
+                    cache.display_list_options.moved_runs,
                 )
             }
             _ => None,
         };
         if early_patch.is_some() {
-            display_list::count_list_patched_after_a_named_cascade();
+            cache
+                .display_list_patch_counters
+                .lists_patched_after_a_named_cascade += 1;
         }
-        let dl = display_list::generate_display_list_impl(
+        ctx.pass_memo.svg_masks = core::mem::take(&mut cache.svg_masks);
+        let built = display_list::generate_display_list_impl(
             &mut ctx,
             tree,
             &cache.calculated_positions,
@@ -1550,8 +1547,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             id_namespace,
             dom_id,
             early_patch,
-        )
-        .map(Arc::new)?;
+        );
+        cache.svg_masks = core::mem::take(&mut ctx.pass_memo.svg_masks);
+        cache
+            .display_list_patch_counters
+            .add(&core::mem::take(&mut ctx.pass_memo.patch_counters));
+        let dl = built.map(Arc::new)?;
         // Refresh the structural-identity cache with what was JUST emitted.
         // This early exit re-emits precisely because something the cache key
         // could not see changed (a paint-only CSS diff, a GPU-key mint):
@@ -2193,7 +2194,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // bounds from both the old and the new list (shadow fringes).
     let mut patch_damage_pending: Option<(std::collections::BTreeSet<usize>, Vec<LogicalRect>)> =
         None;
-    let display_list = if SKIP_DISPLAY_LIST.load(core::sync::atomic::Ordering::Relaxed) {
+    let display_list = if cache.display_list_options.skip {
         // Web backend: positions are done; the painter is dead weight.
         DisplayList::default()
     } else {
@@ -2208,8 +2209,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // A region paints the parts of its flow's boxes the region pass gave
         // it: a box's items are no run of its own to move with it, so a
         // document with named flows paints its list anew.
-        let patch_disabled = !display_list::dl_patching_enabled()
-            || regions::document_has_named_flows(new_dom);
+        let patch_disabled =
+            !cache.display_list_options.patching || regions::document_has_named_flows(new_dom);
         // Two ways in: the resize-skip pass (same tree object), or a
         // STRUCTURE-PRESERVED reconcile with no CSS dirt — a text edit
         // reflowed its IFC, everything else splices (per-IFC text patching,
@@ -2386,6 +2387,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         &new_sizes,
                         &reemit,
                         translate_moved,
+                        cache.display_list_options.moved_runs,
                     )
                 })
         } else {
@@ -2468,6 +2470,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                         &new_sizes,
                         &reemit,
                         &recon_result.carried_indices,
+                        cache.display_list_options.moved_runs,
                     )
                 }
                 _ => None,
@@ -2477,7 +2480,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         };
         let patched_across_trees = patch_across.is_some();
         if patched_across_trees {
-            display_list::count_list_patched_across_trees();
+            cache.display_list_patch_counters.lists_patched_across_trees += 1;
         }
         let patch = patch.or(patch_across);
         // Field writes, not `cache.record_*()`: `patch` borrows
@@ -2485,7 +2488,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // `&mut self` method call would conflict with it where disjoint
         // field writes do not. Same bookkeeping as `record_full_emission`.
         if patch.is_some() && named_cascade.is_some() {
-            display_list::count_list_patched_after_a_named_cascade();
+            cache
+                .display_list_patch_counters
+                .lists_patched_after_a_named_cascade += 1;
         }
         if patch.is_some() && !patched_across_trees {
             // The damage is recorded below, once the final list exists.
@@ -2621,7 +2626,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     .map(|m| (m.dominant_delta, m.mover_rects_old.len(), m.exceptions.len()))
             );
         }
-        match display_list::generate_display_list_impl(
+        ctx.pass_memo.svg_masks = core::mem::take(&mut cache.svg_masks);
+        let built = display_list::generate_display_list_impl(
             &mut ctx,
             &new_tree,
             &calculated_positions,
@@ -2632,7 +2638,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             id_namespace,
             dom_id,
             patch,
-        ) {
+        );
+        cache.svg_masks = core::mem::take(&mut ctx.pass_memo.svg_masks);
+        cache
+            .display_list_patch_counters
+            .add(&core::mem::take(&mut ctx.pass_memo.patch_counters));
+        match built {
             Ok(dl) => dl,
             Err(e) => {
                 // The pass never stored its tree: the cached one is stale.
@@ -4046,33 +4057,6 @@ mod autotest_generated {
     }
 
     // ==================================================================
-    // set_skip_display_list — the web-backend opt-out flag
-    // ==================================================================
-
-    #[cfg(all(feature = "text_layout", feature = "font_loading"))]
-    #[test]
-    fn set_skip_display_list_round_trips_and_is_idempotent() {
-        use core::sync::atomic::Ordering;
-
-        let previous = SKIP_DISPLAY_LIST.load(Ordering::Relaxed);
-
-        set_skip_display_list(true);
-        assert!(SKIP_DISPLAY_LIST.load(Ordering::Relaxed));
-        set_skip_display_list(true);
-        assert!(
-            SKIP_DISPLAY_LIST.load(Ordering::Relaxed),
-            "double-set is idempotent"
-        );
-
-        set_skip_display_list(false);
-        assert!(!SKIP_DISPLAY_LIST.load(Ordering::Relaxed));
-
-        // Restore whatever the process was using — other tests share this static.
-        set_skip_display_list(previous);
-        assert_eq!(SKIP_DISPLAY_LIST.load(Ordering::Relaxed), previous);
-    }
-
-    // ==================================================================
     // layout_document — the entry point, driven with degenerate viewports
     // ==================================================================
 
@@ -4250,6 +4234,32 @@ mod autotest_generated {
                 css_dirty,
                 &BTreeMap::new(),
             )
+        }
+
+        /// The web backend's opt-out (`DisplayListOptions::skip`) belongs to the cache of the
+        /// document it is set on: that pass lays the page out and returns no list, while the
+        /// pass of another cache in the same process - another window, another test - builds
+        /// its list as before. (It was a process-wide flag once, and a test that set it left
+        /// every test after it with an empty list.)
+        #[test]
+        fn a_cache_that_skips_the_display_list_builds_none_beside_one_that_does() {
+            let dom = simple_dom();
+            let viewport = rect(0.0, 0.0, 200.0, 100.0);
+
+            let mut skipping = LayoutCache::default();
+            skipping.display_list_options.skip = true;
+            let mut building = LayoutCache::default();
+            building.display_list_options.skip = false;
+
+            let skipped = run(&mut skipping, &dom, viewport).expect("the skipping pass lays out");
+            let built = run(&mut building, &dom, viewport).expect("the building pass lays out");
+
+            assert!(skipped.items.is_empty(), "the skipping pass built no list");
+            assert!(!built.items.is_empty(), "the other cache's pass built its list");
+            assert!(
+                skipping.tree.is_some() && !skipping.calculated_positions.is_empty(),
+                "the skipping pass still placed every box"
+            );
         }
 
         /// The AGGRESSIVE-CACHING CONTRACT of the CSS-diff channel, both

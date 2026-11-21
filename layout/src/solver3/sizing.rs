@@ -38,7 +38,8 @@ use crate::{
         getters::{
             get_css_box_sizing, get_css_height, get_css_width, get_direction_property,
             get_display_property, get_element_font_size, get_flex_direction, get_float,
-            get_style_properties, get_text_orientation_property, get_writing_mode, MultiValue,
+            get_style_properties, get_style_properties_with, get_text_orientation_property,
+            get_writing_mode, MultiValue,
         },
         layout_tree::{get_display_type, LayoutNodeHot, LayoutNodeId, LayoutTree},
         positioning::get_position_type,
@@ -2161,8 +2162,13 @@ fn text_run_style<T: ParsedFontTrait>(
         });
     match inline_box {
         Some(parent) => {
-            let mut style =
-                get_style_properties(ctx.styled_dom, parent, ctx.system_style.as_ref(), viewport);
+            let mut style = get_style_properties_with(
+                Some(&mut ctx.style_cache.font_stacks),
+                ctx.styled_dom,
+                parent,
+                ctx.system_style.as_ref(),
+                viewport,
+            );
             style.inline_boxes = inline_box_chain(ctx, tree, parent, text_id);
             Arc::new(style)
         }

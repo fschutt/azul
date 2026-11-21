@@ -52,8 +52,9 @@ use crate::{
             get_css_height, get_css_padding_bottom, get_css_padding_top, get_css_width,
             get_direction_property, get_display_property, get_element_font_size, get_float,
             get_list_style_position, get_list_style_type, get_overflow_x, get_overflow_y,
-            get_parent_font_size, get_root_font_size, get_style_properties, get_text_align,
-            get_text_box_edge_property, get_text_box_trim_property, get_text_orientation_property,
+            get_parent_font_size, get_root_font_size, get_style_properties,
+            get_style_properties_with, get_text_align, get_text_box_edge_property,
+            get_text_box_trim_property, get_text_orientation_property,
             get_unicode_bidi_property, get_vertical_align_property, get_visibility,
             get_white_space_property, get_writing_mode, MultiValue,
         },
@@ -258,7 +259,7 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     content: &mut Vec<InlineContent>,
     child_map: &mut HashMap<ContentIndex, usize>,
 ) -> Result<()> {
-    use crate::solver3::layout_tree::{IfcId, IfcMembership};
+    use crate::solver3::layout_tree::IfcMembership;
 
     debug_ifc_layout!(
         ctx,
@@ -267,7 +268,7 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     );
 
     // Generate a unique IFC ID for this inline formatting context
-    let ifc_id = IfcId::unique();
+    let ifc_id = ctx.pass_memo.ifc_ids.issue();
 
     // Store IFC ID on the IFC root node
     if let Some(cold_node) = tree.cold_mut(LayoutNodeId::new(ifc_root_index)) {
@@ -489,7 +490,8 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
 
             if crate::solver3::getters::is_inline_box_display(display) {
                 // Regular inline element - collect its text children
-                let mut span_style = get_style_properties(
+                let mut span_style = get_style_properties_with(
+                    Some(&mut ctx.style_cache.font_stacks),
                     ctx.styled_dom,
                     dom_id,
                     ctx.system_style.as_ref(),
@@ -825,7 +827,8 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 dom_id
             );
 
-            let span_style = get_style_properties(
+            let span_style = get_style_properties_with(
+                Some(&mut ctx.style_cache.font_stacks),
                 ctx.styled_dom,
                 dom_id,
                 ctx.system_style.as_ref(),
@@ -1365,7 +1368,8 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     "[collect_inline_span_recursive] Found nested inline span {:?}",
                     child_dom_id
                 );
-                let mut child_style = get_style_properties(
+                let mut child_style = get_style_properties_with(
+                    Some(&mut ctx.style_cache.font_stacks),
                     ctx.styled_dom,
                     child_dom_id,
                     ctx.system_style.as_ref(),
@@ -1446,7 +1450,8 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     child_dom_id,
                     child_display
                 );
-                let mut child_style = get_style_properties(
+                let mut child_style = get_style_properties_with(
+                    Some(&mut ctx.style_cache.font_stacks),
                     ctx.styled_dom,
                     child_dom_id,
                     ctx.system_style.as_ref(),

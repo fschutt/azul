@@ -71,6 +71,8 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    // What this shaping did, counted for the cache that owns it ([`ShapingCounters`]).
+    counters: &mut ShapingCounters,
 ) -> Result<Vec<ShapedItem>, LayoutError> {
     use std::hash::{Hash, Hasher};
     // Delegate to the existing shaping logic, but for each coalesce group,
@@ -100,12 +102,13 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             }
             _ => {
                 // Non-text items: shape individually (no coalescing)
-                let single = shape_bidi_runs(
+                let single = shape_bidi_runs_counting(
                     &bidi_runs[idx..=idx],
                     font_chain_cache,
                     fc_cache,
                     loaded_fonts,
                     debug_messages,
+                    &mut counters.font_shape_deficit,
                 )?;
                 shaped.extend(single);
                 idx += 1;
@@ -236,22 +239,22 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             }));
         } else {
             // Cache miss — shape this group
-            #[cfg(test)]
-            GROUPS_SHAPED.with(|n| n.set(n.get() + 1));
-            let deficit_before = thread_font_shape_deficit();
-            let group_items = shape_bidi_runs(
+            counters.groups_shaped += 1;
+            let deficit_before = counters.font_shape_deficit;
+            let group_items = shape_bidi_runs_counting(
                 &bidi_runs[idx..coalesce_end],
                 font_chain_cache,
                 fc_cache,
                 loaded_fonts,
                 debug_messages,
+                &mut counters.font_shape_deficit,
             )?;
             // A group shaped short of a font (its face not loaded YET) is not
             // cached: the key is its text and layout style, not the loaded
             // faces, so the empty / partial result would be served after the
             // face arrives and the text would stay invisible. The next pass
             // shapes it again.
-            if thread_font_shape_deficit() == deficit_before {
+            if counters.font_shape_deficit == deficit_before {
                 let total_advance: f32 = group_items
                     .iter()
                     .map(|item| match item {
@@ -288,6 +291,7 @@ pub(super) fn split_text_by_font_coverage<T: ParsedFontTrait>(
     text: &str,
     font_chain: &rust_fontconfig::FontFallbackChain,
     loaded_fonts: &LoadedFonts<T>,
+    deficit: &mut u32,
 ) -> Vec<(usize, usize, FontId)> {
     let mut segments: Vec<(usize, usize, FontId)> = Vec::new();
 
@@ -400,7 +404,7 @@ pub(super) fn split_text_by_font_coverage<T: ParsedFontTrait>(
         }
     }
     if short_of_a_face {
-        note_font_shape_deficit();
+        note_font_shape_deficit(deficit);
     }
 
     segments
@@ -420,6 +424,7 @@ pub(super) fn measure_run_advance<T: ParsedFontTrait>(
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
+    deficit: &mut u32,
 ) -> Option<f32> {
     if text.is_empty() {
         return Some(0.0);
@@ -446,6 +451,7 @@ pub(super) fn measure_run_advance<T: ParsedFontTrait>(
                 font_chain,
                 fc_cache,
                 loaded_fonts,
+                deficit,
             )
             .ok()?;
             Some(clusters.iter().map(|c| c.advance).sum())
@@ -453,50 +459,34 @@ pub(super) fn measure_run_advance<T: ParsedFontTrait>(
     }
 }
 
-/// Count of shaping calls that produced ZERO clusters because the resolved
-/// font was not loaded (or no font in the chain covered any character) —
-/// the "success, zero glyphs" channel that made the first character typed
-/// into a blank document invisible for three sessions. The pipeline stays
-/// permissive at runtime (a transiently missing font must not abort the
-/// whole layout), but the deficit is COUNTED and surfaced per layout pass in
-/// `FrameReport::font_shape_deficit`, where a test can pin it to zero.
-pub(crate) static FONT_SHAPE_DEFICIT: core::sync::atomic::AtomicU32 =
-    core::sync::atomic::AtomicU32::new(0);
-
-/// Drain [`FONT_SHAPE_DEFICIT`] (called once per layout pass by the funnel).
-#[must_use]
-pub fn take_font_shape_deficit() -> u32 {
-    FONT_SHAPE_DEFICIT.swap(0, core::sync::atomic::Ordering::Relaxed)
+/// What the shaping of one cache did. The caller of each shaping call counts
+/// it, in the counters of the cache that owns the shaping
+/// (`TextShapingCache`): there is no process-wide count, so a window reports
+/// its own shaping and a test its own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ShapingCounters {
+    /// Shaping calls that came up short of a font ([`note_font_shape_deficit`]),
+    /// summed since a window last took them for its frame report
+    /// (`TextShapingCache::take_font_shape_deficit`): the face the text of the
+    /// call resolved to was not loaded, or no face of the chain covered any of
+    /// its characters, so it shaped fewer glyphs than the text has characters -
+    /// the "success, zero glyphs" channel that made the first character typed
+    /// into a blank document invisible for three sessions. The pipeline stays
+    /// permissive at runtime (a transiently missing font must not abort the
+    /// whole layout), but the deficit is COUNTED, where a test can pin it to
+    /// zero (`FrameReport::font_shape_deficit`).
+    pub font_shape_deficit: u32,
+    /// Coalesce groups shaped because the per-item cache had none for them
+    /// (`TextShapingCache::groups_shaped`).
+    pub groups_shaped: u64,
 }
 
-#[cfg(test)]
-std::thread_local! {
-    /// Tests: the shaping groups this thread has shaped (that missed the
-    /// per-item cache).
-    pub(crate) static GROUPS_SHAPED: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-}
-
-std::thread_local! {
-    /// This thread's running count of font-shape deficits. The global
-    /// [`FONT_SHAPE_DEFICIT`] is shared by every thread and drained by the
-    /// frame report, so it cannot tell whether ONE shaping call came up short;
-    /// this one can (shaping is synchronous on its thread).
-    static THREAD_FONT_SHAPE_DEFICIT: core::cell::Cell<u32> =
-        const { core::cell::Cell::new(0) };
-}
-
-/// Count one shaping that came up short of a font (its face not loaded, or
-/// no face for any of its characters): the frame report's counter and this
-/// thread's.
-pub(super) fn note_font_shape_deficit() {
-    FONT_SHAPE_DEFICIT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
-    THREAD_FONT_SHAPE_DEFICIT.with(|count| count.set(count.get().wrapping_add(1)));
-}
-
-/// This thread's deficit count so far: unchanged across a shaping call means
-/// that call had every face it needed.
-pub(super) fn thread_font_shape_deficit() -> u32 {
-    THREAD_FONT_SHAPE_DEFICIT.with(core::cell::Cell::get)
+/// Counts one shaping call that came up short of a font
+/// ([`ShapingCounters::font_shape_deficit`]). The caller reads the count again
+/// after one call to see whether that call came up short: a group shaped
+/// short of a font is not cached.
+pub(super) fn note_font_shape_deficit(deficit: &mut u32) {
+    *deficit = deficit.saturating_add(1);
 }
 
 /// Shape text with per-character font fallback.
@@ -602,18 +592,18 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
     font_chain: &rust_fontconfig::FontFallbackChain,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
+    deficit: &mut u32,
 ) -> Result<Vec<ShapedCluster>, LayoutError> {
-    // Cache the debug flag in a `OnceLock<bool>` — reading it per-shape
+    // The debug flag is read once (`env_flag!`) — reading it per-shape
     // (this function fires once per text segment, ~hundreds of times
     // per render of a real DOM) costs ~100 ns per `std::env::var_os`
     // call on macOS (env-lock + hashmap lookup), and even before the
     // lookup finishes the `eprintln!` machinery takes a stderr lock
     // and allocates the formatted string. Both are invisible in
     // release unless `AZ_FONT_FALLBACK_DEBUG=1` is set.
-    static FONT_FB_DEBUG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    let dbg = *FONT_FB_DEBUG.get_or_init(|| std::env::var_os("AZ_FONT_FALLBACK_DEBUG").is_some());
+    let dbg = env_flag!("AZ_FONT_FALLBACK_DEBUG");
 
-    let segments = split_text_by_font_coverage(text, font_chain, loaded_fonts);
+    let segments = split_text_by_font_coverage(text, font_chain, loaded_fonts, deficit);
 
     if dbg && segments.len() > 1 {
         eprintln!(
@@ -645,7 +635,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
-            note_font_shape_deficit();
+            note_font_shape_deficit(deficit);
             return Ok(Vec::new());
         };
         let font = if let Some(f) = loaded_fonts.get(font_id) {
@@ -664,7 +654,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
                     text.chars().take(20).collect::<String>()
                 );
             }
-            note_font_shape_deficit();
+            note_font_shape_deficit(deficit);
             return Ok(Vec::new());
         };
         // If segment covers the full text (overwhelmingly common), skip substr+fixup
@@ -713,7 +703,7 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
             }
             // The segment's glyphs are missing: as much a deficit as a whole
             // run shaped to nothing (it was skipped silently).
-            note_font_shape_deficit();
+            note_font_shape_deficit(deficit);
             continue;
         };
         let segment_text = &text[*seg_start..*seg_end];
@@ -745,6 +735,32 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
     Ok(all_clusters)
 }
 
+/// Shape the visual items of `bidi_runs`, each through the fallback chain of its style.
+///
+/// # Errors
+///
+/// Returns a `LayoutError` if shaping the visual items fails.
+#[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
+pub fn shape_bidi_runs<T: ParsedFontTrait>(
+    bidi_runs: &[BidiRun],
+    font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
+    fc_cache: &FcFontCache,
+    loaded_fonts: &LoadedFonts<T>,
+    debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+) -> Result<Vec<ShapedItem>, LayoutError> {
+    // Nobody reads the deficit of a call made for itself.
+    shape_bidi_runs_counting(
+        bidi_runs,
+        font_chain_cache,
+        fc_cache,
+        loaded_fonts,
+        debug_messages,
+        &mut 0,
+    )
+}
+
+/// [`shape_bidi_runs`], counting in `deficit` every shaping call that came up
+/// short of a font ([`ShapingCounters::font_shape_deficit`]).
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // bounded pixel/coord/colour/glyph cast
 #[allow(clippy::implicit_hasher)] // internal helper; only ever called with the default-hasher HashMap/HashSet
 #[allow(clippy::match_same_arms)]
@@ -754,12 +770,13 @@ pub(super) fn shape_with_font_fallback<T: ParsedFontTrait>(
 /// # Errors
 ///
 /// Returns a `LayoutError` if shaping the visual items fails.
-pub fn shape_bidi_runs<T: ParsedFontTrait>(
+pub(super) fn shape_bidi_runs_counting<T: ParsedFontTrait>(
     bidi_runs: &[BidiRun],
     font_chain_cache: &HashMap<FontChainKey, rust_fontconfig::FontFallbackChain>,
     fc_cache: &FcFontCache,
     loaded_fonts: &LoadedFonts<T>,
     debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    deficit: &mut u32,
 ) -> Result<Vec<ShapedItem>, LayoutError> {
     let mut shaped = Vec::new();
     let mut idx = 0;
@@ -911,6 +928,7 @@ pub fn shape_bidi_runs<T: ParsedFontTrait>(
                                     font_chain,
                                     fc_cache,
                                     loaded_fonts,
+                                    deficit,
                                 )
                             }
                         };
@@ -1035,6 +1053,7 @@ pub fn shape_bidi_runs<T: ParsedFontTrait>(
                                 font_chain,
                                 fc_cache,
                                 loaded_fonts,
+                                deficit,
                             )
                         }
                     };
@@ -1167,6 +1186,7 @@ pub fn shape_bidi_runs<T: ParsedFontTrait>(
                     font_chain_cache,
                     fc_cache,
                     loaded_fonts,
+                    deficit,
                 )
                 .unwrap_or_else(|| base_text.chars().count() as f32 * base_font_size);
                 let annotation_width = measure_run_advance(
@@ -1177,6 +1197,7 @@ pub fn shape_bidi_runs<T: ParsedFontTrait>(
                     font_chain_cache,
                     fc_cache,
                     loaded_fonts,
+                    deficit,
                 )
                 .unwrap_or_else(|| ruby_text.chars().count() as f32 * annotation_font_size);
 
@@ -1283,7 +1304,8 @@ pub fn shape_bidi_runs<T: ParsedFontTrait>(
                         };
 
                         // Per-character font fallback for CombinedText
-                        let segments = split_text_by_font_coverage(&text, font_chain, loaded_fonts);
+                        let segments =
+                            split_text_by_font_coverage(&text, font_chain, loaded_fonts, deficit);
                         let mut all_glyphs = Vec::new();
                         for (seg_start, seg_end, font_id) in &segments {
                             let Some(font) = loaded_fonts.get(font_id) else {

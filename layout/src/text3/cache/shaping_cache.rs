@@ -455,6 +455,10 @@ pub struct TextShapingCache {
     /// `shape_content` sweeps ([`Self::sweep_if_due`]): twice what the last
     /// sweep kept, within [`SWEEP_AT_LEAST`] ..= [`SWEEP_AT_MOST`].
     pub(super) sweep_at: usize,
+    /// What the shaping through this cache did ([`ShapingCounters`]): counted
+    /// by the shaping calls, read by the window that owns the cache and by the
+    /// tests of the cache.
+    pub(super) counters: super::shaping::ShapingCounters,
 }
 
 /// The caches are not swept below this many entries (in the largest of
@@ -563,7 +567,32 @@ impl TextShapingCache {
             stage_accessed: HashSet::new(),
             generation: 0,
             sweep_at: SWEEP_AT_LEAST,
+            counters: super::shaping::ShapingCounters::default(),
         }
+    }
+
+    /// The shaping calls of this cache that came up short of a font since the
+    /// last call of this function, which starts the count again: what a window
+    /// takes per layout pass for `FrameReport::font_shape_deficit`. A text
+    /// whose face is not loaded (yet) shapes to fewer glyphs than it has
+    /// characters, or none.
+    pub fn take_font_shape_deficit(&mut self) -> u32 {
+        core::mem::take(&mut self.counters.font_shape_deficit)
+    }
+
+    /// The shaping calls of this cache that came up short of a font so far:
+    /// unchanged across one call means the call had every face it needed.
+    #[must_use]
+    pub const fn font_shape_deficit(&self) -> u32 {
+        self.counters.font_shape_deficit
+    }
+
+    /// The coalesce groups this cache shaped so far, because its per-item
+    /// cache had none for them: a text shaped before costs one, shaped again
+    /// it costs none.
+    #[must_use]
+    pub const fn groups_shaped(&self) -> u64 {
+        self.counters.groups_shaped
     }
 
     /// #28: fork this cache for a SPECULATIVE layout query (`LayoutWindow::
@@ -585,6 +614,8 @@ impl TextShapingCache {
             stage_accessed: HashSet::new(),
             generation: self.generation,
             sweep_at: self.sweep_at,
+            // A fork counts its own: the query that made it is not the window's frame.
+            counters: super::shaping::ShapingCounters::default(),
         }
     }
 
@@ -1075,6 +1106,7 @@ impl TextShapingCache {
             fc_cache,
             loaded_fonts,
             debug_messages,
+            &mut self.counters,
         )?);
 
         Ok((logical_items, shaped_items))
@@ -1650,7 +1682,6 @@ mod audit_a8_tests {
             .collect();
         let loaded = fm.get_loaded_fonts();
         let constraints = UnifiedConstraints::default();
-        let shaped = || super::super::shaping::GROUPS_SHAPED.with(core::cell::Cell::get);
         let pass = |cache: &mut TextShapingCache| {
             // the intrinsic measure of every paragraph, then its layout
             for _ in 0..2 {
@@ -1679,12 +1710,10 @@ mod audit_a8_tests {
             assert!(attempt < 50, "premise: the font registry stands still for two passes");
             let stood_at = registry();
             let mut cache = TextShapingCache::new();
-            let before = shaped();
             pass(&mut cache);
-            let first = shaped() - before;
-            let after_first = shaped();
+            let first = cache.groups_shaped();
             pass(&mut cache);
-            let second = shaped() - after_first;
+            let second = cache.groups_shaped() - first;
             if registry() != stood_at {
                 continue;
             }

@@ -13,48 +13,46 @@ use azul_core::{
 
 use crate::text3::cache::UnifiedConstraints;
 
-thread_local! {
-    /// Per-thread counter for IFC IDs, reset to 0 at the start of each layout
-    /// pass (see [`IfcId::reset_counter`]).
-    ///
-    /// This was previously a process-global `AtomicU32`. Two `layout_document`
-    /// calls running concurrently on different threads (the `Sync` layout bound
-    /// permits this) shared that single counter, so their IFC IDs interleaved and
-    /// collided. A thread-local counter gives each pass its own sequence — a single
-    /// pass is single-threaded (`LayoutContext` holds non-`Sync` `RefCell` caches),
-    /// so IDs stay deterministic and stable across frames while never colliding
-    /// across concurrent passes.
-    static IFC_ID_COUNTER: Cell<u32> = const { Cell::new(0) };
-}
-
 /// Unique identifier for an Inline Formatting Context (IFC).
 ///
 /// An IFC represents a region where inline content (text, inline-blocks, images)
 /// is laid out together. One IFC can contain content from multiple DOM nodes
 /// (e.g., `<p>Hello <span>world</span>!</p>` is one IFC with 3 text runs).
 ///
-/// The ID is generated using a per-thread counter that resets at the start
-/// of each layout pass. This ensures:
+/// The ID is issued by the layout pass ([`IfcIdSequence`], a slot of
+/// `PassMemo`): each pass counts from 0 in its own sequence. This ensures:
 /// - IDs are unique within a layout pass
 /// - The same logical IFC gets the same ID across frames (for selection stability)
-/// - Concurrent `layout_document` passes on different threads can't collide
+/// - Passes running at the same time (windows, threads, tests) can't collide:
+///   they share no counter
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct IfcId(pub u32);
 
-impl IfcId {
-    /// Generate a new unique IFC ID (within the current thread's layout pass).
-    #[must_use]
-    pub fn unique() -> Self {
-        IFC_ID_COUNTER.with(|c| {
-            let v = c.get();
-            c.set(v.wrapping_add(1));
-            Self(v)
-        })
-    }
+/// The [`IfcId`]s of one layout pass, in the order its inline formatting contexts
+/// are collected. A new sequence - a new pass's - starts at 0.
+///
+/// This was a process-global `AtomicU32` once: two `layout_document` calls
+/// running concurrently (the `Sync` layout bound permits this) shared that single
+/// counter, so their IFC IDs interleaved and collided. A thread-local counter
+/// reset by each pass was the next step, and still shared by every pass that
+/// ran on the thread and by whoever forgot to reset it. A pass is
+/// single-threaded (`LayoutContext` holds non-`Sync` `RefCell` caches), so a
+/// plain cell in the pass's own memo is all the sequence needs.
+#[derive(Debug, Default)]
+pub struct IfcIdSequence {
+    /// The ID the next IFC gets.
+    next: Cell<u32>,
+}
 
-    /// Reset the IFC ID counter. Called at the start of each layout pass.
-    pub fn reset_counter() {
-        IFC_ID_COUNTER.with(|c| c.set(0));
+impl IfcIdSequence {
+    /// The next ID of the pass. Wraps instead of overflowing: a pass with 2^32
+    /// inline formatting contexts is not a thing, but an overflow panic in the middle
+    /// of layout is.
+    #[must_use]
+    pub fn issue(&self) -> IfcId {
+        let id = self.next.get();
+        self.next.set(id.wrapping_add(1));
+        IfcId(id)
     }
 }
 
@@ -6366,46 +6364,33 @@ mod autotest_generated {
     ];
 
     // ==================================================================
-    // IfcId — thread-local counter (numeric / overflow)
+    // IfcIdSequence — one sequence per pass (numeric / overflow)
     // ==================================================================
 
     #[test]
-    fn ifcid_unique_hands_out_a_fresh_id_per_call_after_reset() {
-        IfcId::reset_counter();
-        assert_eq!(IfcId::unique(), IfcId(0));
-        assert_eq!(IfcId::unique(), IfcId(1));
-        assert_eq!(IfcId::unique(), IfcId(2));
-        IfcId::reset_counter();
+    fn an_ifc_id_sequence_hands_out_a_fresh_id_per_call_and_a_new_one_starts_at_zero() {
+        let pass = IfcIdSequence::default();
+        assert_eq!(pass.issue(), IfcId(0));
+        assert_eq!(pass.issue(), IfcId(1));
+        assert_eq!(pass.issue(), IfcId(2));
         assert_eq!(
-            IfcId::unique(),
+            IfcIdSequence::default().issue(),
             IfcId(0),
-            "reset_counter must restart the sequence, not continue it"
+            "a new pass restarts the sequence, it does not continue the last one's"
         );
-        IfcId::reset_counter();
+        assert_eq!(pass.issue(), IfcId(3), "and does not touch the first one's");
     }
 
     #[test]
-    fn ifcid_reset_counter_is_idempotent() {
-        IfcId::reset_counter();
-        IfcId::reset_counter();
-        IfcId::reset_counter();
-        assert_eq!(IfcId::unique(), IfcId(0));
-        IfcId::reset_counter();
-    }
-
-    #[test]
-    fn ifcid_unique_wraps_at_u32_max_instead_of_panicking() {
+    fn an_ifc_id_sequence_wraps_at_u32_max_instead_of_panicking() {
         // `wrapping_add` is deliberate: a layout pass with 2^32 IFCs is not a
         // thing, but a debug-mode overflow panic in the middle of layout is.
-        IFC_ID_COUNTER.with(|c| c.set(u32::MAX));
-        assert_eq!(IfcId::unique(), IfcId(u32::MAX));
-        assert_eq!(
-            IfcId::unique(),
-            IfcId(0),
-            "wraps rather than overflow-panics"
-        );
-        assert_eq!(IfcId::unique(), IfcId(1));
-        IfcId::reset_counter();
+        let pass = IfcIdSequence {
+            next: Cell::new(u32::MAX),
+        };
+        assert_eq!(pass.issue(), IfcId(u32::MAX));
+        assert_eq!(pass.issue(), IfcId(0), "wraps rather than overflow-panics");
+        assert_eq!(pass.issue(), IfcId(1));
     }
 
     // ==================================================================
