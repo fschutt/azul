@@ -2989,6 +2989,43 @@ mod audit_a3_core_tests {
         assert_eq!(more.len(), 6);
     }
 
+    /// A3-core-11a: styling a DOM generated the hit-test tag ids at the end
+    /// of the cascade, dropped them, and generated them again once the
+    /// compact cache existed: two walks of every node. Once now, and the ids
+    /// are the ones the second walk made.
+    #[test]
+    fn styling_a_dom_generates_its_tag_ids_once() {
+        let page = || {
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css("overflow: scroll; width: 50px; height: 50px;")
+                    .with_child(Dom::create_span_with_text("a label")),
+            )
+        };
+        crate::prop_cache::TAG_ID_PASSES.with(|c| c.set(0));
+        let mut styled = StyledDom::create_from_dom(page());
+        assert_eq!(
+            crate::prop_cache::TAG_ID_PASSES.with(core::cell::Cell::get),
+            1,
+            "one walk for the tag ids of a new DOM"
+        );
+        let ids = styled.tag_ids_to_node_ids.clone();
+        assert!(!ids.as_ref().is_empty(), "harness: the page has nodes with a tag");
+        // The ids are what a pass over the finished DOM gives.
+        let again = styled
+            .get_css_property_cache()
+            .generate_tag_ids(&styled.node_data.as_container(), &styled.node_hierarchy);
+        assert_eq!(ids.as_ref(), &again[..]);
+
+        crate::prop_cache::TAG_ID_PASSES.with(|c| c.set(0));
+        styled.restyle(Css::empty());
+        assert_eq!(
+            crate::prop_cache::TAG_ID_PASSES.with(core::cell::Cell::get),
+            1,
+            "one walk for the tag ids of a restyle"
+        );
+    }
+
     /// A3-core-20 (A3-window-18): a styled DOM says whether the pass that
     /// makes a COMPOSED tree's inheritance and compact cache right is owed.
     /// One that came out of a cascade owes none; `append_child` owes one;

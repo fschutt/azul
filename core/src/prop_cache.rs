@@ -956,6 +956,9 @@ std::thread_local! {
     /// the tests reads to say the inheritance pass does not look at every
     /// distinct value of the DOM for every node.
     pub(crate) static INHERITED_BUCKET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// How many times `CssPropertyCache::generate_tag_ids` walked a DOM on
+    /// this thread.
+    pub(crate) static TAG_ID_PASSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
     /// How many buckets [`InheritedValues::get`] searched on this thread.
     pub(crate) static INHERITED_GET_READS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
@@ -2117,14 +2120,15 @@ fn clone_inheritable_property(p: &CssProperty) -> CssProperty {
 }
 
 impl CssPropertyCache {
-    /// Match CSS selectors to nodes and populate `css_props`.
-    /// Returns tag IDs for hit-testing. If `compact_cache` is available,
-    /// uses it for fast display/overflow checks; otherwise falls back to slow path.
+    /// [`Self::restyle_cascade`], then the tag ids for hit-testing
+    /// ([`Self::generate_tag_ids`]).
+    ///
+    /// A caller that builds the compact cache next wants the ids made AFTER
+    /// it (`generate_tag_ids` reads the compact cache for display and
+    /// overflow): it calls `restyle_cascade` and generates them once, then.
+    /// Both callers in `StyledDom` took the ids from here, dropped them and
+    /// generated them again: two walks of every node per styling.
     #[must_use]
-    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
-                                                                   // single-purpose
-                                                                   // parser/builder/dispatch (one
-                                                                   // branch per input variant)
     pub fn restyle(
         &mut self,
         css: &mut Css,
@@ -2134,6 +2138,32 @@ impl CssPropertyCache {
         html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
         node_states: &[StyledNodeState],
     ) -> Vec<TagIdToNodeIdMapping> {
+        self.restyle_cascade(
+            css,
+            node_data,
+            node_hierarchy,
+            non_leaf_nodes,
+            html_tree,
+            node_states,
+        );
+        self.generate_tag_ids(node_data, node_hierarchy)
+    }
+
+    /// Match CSS selectors to nodes and populate `css_props`: the cascade
+    /// itself, without the tag ids ([`Self::restyle`]).
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive:
+                                                                   // single-purpose
+                                                                   // parser/builder/dispatch (one
+                                                                   // branch per input variant)
+    pub fn restyle_cascade(
+        &mut self,
+        css: &mut Css,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
+        node_hierarchy: &NodeHierarchyItemVec,
+        non_leaf_nodes: &ParentWithNodeDepthVec,
+        html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+        node_states: &[StyledNodeState],
+    ) {
         use azul_css::{
             css::{
                 CssDeclaration,
@@ -2782,8 +2812,6 @@ impl CssPropertyCache {
         // Restyling can change font-size properties; the memoized resolved font
         // sizes are now stale and must be recomputed on next access.
         self.invalidate_resolved_font_sizes();
-
-        self.generate_tag_ids(node_data, node_hierarchy)
     }
 
     /// Generate hit-test tag IDs for nodes that need event handling.
@@ -2795,6 +2823,8 @@ impl CssPropertyCache {
         node_data: &NodeDataContainerRef<'_, NodeData>,
         node_hierarchy: &NodeHierarchyItemVec,
     ) -> Vec<TagIdToNodeIdMapping> {
+        #[cfg(all(test, feature = "std"))]
+        TAG_ID_PASSES.with(|c| c.set(c.get() + 1));
         // Tag ID generation: determine which nodes need hit-test tags for
         // hover/click/scroll events. Uses compact cache for display/overflow
         // checks instead of get_property_slow (which searches 6 data structures).

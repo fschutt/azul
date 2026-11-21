@@ -1465,8 +1465,9 @@ impl StyledDom {
 
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
 
-        // A new DOM's nodes are in no interaction state yet.
-        let _restyle_tag_ids = css_property_cache.restyle(
+        // A new DOM's nodes are in no interaction state yet. (The tag ids
+        // are generated below, once, from the compact cache.)
+        css_property_cache.restyle_cascade(
             &mut css,
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
@@ -2146,10 +2147,10 @@ impl StyledDom {
     }
 
     pub fn restyle(&mut self, mut css: Css) {
-        // NOTE: the tag_ids returned by `cache.restyle` here are generated from
-        // the STALE `compact_cache` (display/overflow reads) and are intentionally
-        // discarded — we regenerate them below AFTER the compact cache and
-        // inheritance have been recomputed (audit styled_dom.rs:1404/1426).
+        // NOTE: tag ids made right after the cascade would be generated from
+        // the STALE `compact_cache` (display/overflow reads): the cascade alone
+        // runs here (`restyle_cascade`) and the ids are generated below, once,
+        // AFTER the compact cache and inheritance have been recomputed.
         // The states the nodes are in now: a rule that names a state left of
         // its subject (`.btn:hover .ink`) holds by them.
         let states: Vec<StyledNodeState> = self
@@ -2159,7 +2160,7 @@ impl StyledDom {
             .iter()
             .map(|n| n.styled_node_state)
             .collect();
-        let _stale_tag_ids = self.css_property_cache.downcast_mut().restyle(
+        self.css_property_cache.downcast_mut().restyle_cascade(
             &mut css,
             &self.node_data.as_container(),
             &self.node_hierarchy,
