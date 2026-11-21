@@ -850,6 +850,33 @@ fn position_vectors_come_back_empty_and_the_rows_stand_where_they_did() {
     );
 }
 
+/// A3-solver-20. `layout_document` made two contexts, one for the reconcile and one for the
+/// layout, each with a style memo of its own: the style of every text node under a restyled box
+/// (on a first layout, and for every label of a view rendered again: all of them), which the
+/// reconcile resolves to compare it with the one the text was laid out with, was resolved a
+/// second time by the layout. The layout's context takes the reconcile's memo over.
+///
+/// Mutation: `style_cache: Default::default()` for the layout's context rebuilds one style per
+/// label.
+#[test]
+fn the_layout_takes_over_the_styles_the_reconcile_resolved() {
+    use crate::solver3::getters::{STYLE_BUILT_NODES, STYLE_REBUILDS};
+    let mut lw = window();
+    STYLE_BUILT_NODES.with(|built| built.borrow_mut().clear());
+    STYLE_REBUILDS.with(|n| n.set(0));
+    lay_out(&mut lw, layer_of_absolute_spans(200));
+    let built = STYLE_BUILT_NODES.with(|built| built.borrow().len());
+    let rebuilt = STYLE_REBUILDS.with(std::cell::Cell::get);
+    assert!(
+        built >= 200,
+        "harness: the text styles of the 200 labels were resolved ({built} nodes)"
+    );
+    assert!(
+        rebuilt * 4 <= built,
+        "one layout resolved the style of {built} nodes and {rebuilt} of them a second time"
+    );
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;

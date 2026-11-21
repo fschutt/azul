@@ -895,6 +895,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             css_dirty,
         )?
     };
+    // The styles the reconcile resolved (every text node's under a restyled
+    // box, to compare it with the one it was laid out with) go on to the
+    // layout's context below: same DOM, same viewport, same cascade epoch -
+    // the memo's key. They were dropped with `ctx_temp`, and the layout
+    // resolved each of them a second time.
+    let reconcile_styles = core::mem::take(&mut ctx_temp.style_cache);
     // The pairing is spent with the pass, like the diff.
     cache.dom_pairing = None;
     // The reuse census, persisted where a test can read it — see the field
@@ -1273,7 +1279,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         owner_colors,
         seat_focus_rings,
         paint_selection_handles,
-        style_cache: Default::default(),
+        style_cache: reconcile_styles,
         // The report a `VirtualView` is sized by (sizing.rs). The commit that
         // threaded this parameter through left the context at `None`, so no
         // view was ever sized by what it returned - it stayed 300x150.

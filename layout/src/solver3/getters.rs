@@ -4099,6 +4099,17 @@ pub struct StyleCache {
     by_value: HashMap<u64, Vec<std::sync::Arc<StyleProperties>>>,
 }
 
+/// The nodes whose style [`get_style_properties_cached`] built on this thread
+/// since a test last cleared the set, and how often it built the style of a
+/// node that is in it already (`audit_tests::a3_solver`: a pass builds a
+/// node's style once, the reconcile and the layout share one memo).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STYLE_BUILT_NODES: core::cell::RefCell<std::collections::HashSet<u32>> =
+        core::cell::RefCell::new(std::collections::HashSet::new());
+    pub(crate) static STYLE_REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// [`get_style_properties`], memoised in a caller-owned per-document cache
 /// and shared behind an `Arc`.
 ///
@@ -4131,6 +4142,12 @@ pub fn get_style_properties_cached(
         return std::sync::Arc::clone(v);
     }
     let _p = crate::probe::Probe::span("style_props_build");
+    #[cfg(test)]
+    STYLE_BUILT_NODES.with(|built| {
+        if !built.borrow_mut().insert(key.0) {
+            STYLE_REBUILDS.with(|n| n.set(n.get() + 1));
+        }
+    });
     let built = get_style_properties(styled_dom, dom_id, system_style, viewport_size);
 
     // Share by VALUE. Nodes that resolve to the same computed style get the
