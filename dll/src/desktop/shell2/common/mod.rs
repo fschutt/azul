@@ -29,6 +29,9 @@ pub mod event;
 /// When a vsync-driven frame pump runs (the macOS display link): the one
 /// pure decision, unit-tested.
 pub mod frame_pacer;
+/// Whether a pass of the GPU path waits for the renderer's threads after its
+/// send (audit A4-31): the one pure decision, unit-tested.
+pub mod frame_schedule;
 pub mod layout;
 /// The runtime gate for every `log_*!` macro, plus RAII enter/exit spans.
 /// Logging is gated here by atomics — never by a cargo feature.

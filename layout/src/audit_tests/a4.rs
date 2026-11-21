@@ -74,7 +74,9 @@ fn a4_counters_of_the_gpu_path_reach_the_frame_timings_and_the_frame_report() {
     };
     let (one, two) = (numbered(100), numbered(1_000));
     assert_eq!(one.to_array()[0], one.transactions);
-    assert_eq!(one.to_array()[GPU_FRAME_COUNTERS - 1], one.render_us);
+    // (The last counter was `render_us` until A4-29 appended the tiles drawn.)
+    assert_eq!(one.to_array()[GPU_FRAME_COUNTERS - 2], one.render_us);
+    assert_eq!(one.to_array()[GPU_FRAME_COUNTERS - 1], one.tiles_drawn);
 
     lw.frame_clock.note_gpu(&one);
     lw.frame_clock.note_gpu(&two);
@@ -90,4 +92,5 @@ fn a4_counters_of_the_gpu_path_reach_the_frame_timings_and_the_frame_report() {
     assert_eq!(timings.gpu_glyphs_rasterized, two.glyphs_rasterized);
     assert_eq!(timings.gpu_blocked_us, two.blocked_us);
     assert_eq!(timings.gpu_render_us, two.render_us);
+    assert_eq!(timings.gpu_tiles_drawn, two.tiles_drawn);
 }
