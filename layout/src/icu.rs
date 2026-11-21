@@ -3269,6 +3269,7 @@ mod layout_callback_locale_tests {
             image_cache: &images,
             gl_context: &gl,
             system_fonts: &fonts,
+            registered_fonts: None,
             system_style: std::sync::Arc::new(style),
             active_route: None,
             monitors: azul_core::window::MonitorVec::from_const_slice(&[]),

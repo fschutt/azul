@@ -1724,6 +1724,11 @@ impl IOSWindow {
         layout_window.current_window_state = full_window_state.clone();
         layout_window.routes = config.routes.clone();
         app_shared.seed_window(&mut layout_window, &config);
+        // The faces the app ships (`AppConfig::add_font`): this shell has no app-level font
+        // manager to take them from, so the window registers them itself.
+        layout_window
+            .font_manager
+            .register_app_fonts(config.bundled_fonts.as_ref());
         // `<webview>`s are WKWebViews (`webview::IosWebViews`).
         layout_window
             .webviews

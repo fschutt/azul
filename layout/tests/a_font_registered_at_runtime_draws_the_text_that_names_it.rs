@@ -4,9 +4,10 @@
 //! fonts after it shows the mail; `CallbackInfo::register_font`).
 //!
 //! The family is unknown when the window first lays the text out, so the
-//! text falls back. Registering the face must reach every window: its font
-//! chains are resolved again, and what it shaped with the fallback is not
-//! reused.
+//! text falls back. Registering the face must reach every window of the app:
+//! its font chains are resolved again, and what it shaped with the fallback is
+//! not reused. The faces belong to the app's registry, which the windows of
+//! the app share (`FontManager::clone_shared`), and to no process.
 
 use azul_core::{
     dom::{Dom, DomId},
@@ -21,7 +22,6 @@ use azul_layout::{
 };
 use rust_fontconfig::FcFontCache;
 
-/// A family no other test registers: the registry is the process's.
 const FAMILY: &str = "Azul Runtime Registered Face";
 
 fn page() -> Dom {
@@ -81,7 +81,7 @@ fn a_font_registered_at_runtime_draws_the_text_that_names_it() {
     );
 
     assert!(
-        fontreg::register_font(FAMILY, &bytes),
+        lw.font_manager.registered_fonts.register_font(FAMILY, &bytes),
         "the face parses and is registered"
     );
     lay_out(&mut lw);
@@ -99,15 +99,26 @@ fn a_font_registered_at_runtime_draws_the_text_that_names_it() {
         "a replaced font cache keeps the runtime face: {replaced:x?}"
     );
 
-    let mut fresh = LayoutWindow::new(FcFontCache::default()).expect("another window");
+    // A window the app opens later takes the app's font manager, as the shells make it
+    // (`layout_window_sharing_fonts`): it shares the registered fonts.
+    let mut fresh = LayoutWindow::from_font_manager(lw.font_manager.clone_shared());
     lay_out(&mut fresh);
     assert!(
         faces(&fresh).iter().all(|h| *h == face),
-        "a window opened later knows the face too"
+        "a window opened later by the app knows the face too"
+    );
+
+    // A window built on its own has registered fonts of its own: no face of another window.
+    let mut alone = LayoutWindow::new(FcFontCache::default()).expect("a window of its own");
+    lay_out(&mut alone);
+    let alone = faces(&alone);
+    assert!(
+        !alone.is_empty() && alone.iter().all(|h| *h != face),
+        "a window that shares nothing with the app draws the fallback: {alone:x?}"
     );
 }
 
 #[test]
 fn bytes_that_are_no_font_are_refused() {
-    assert!(!fontreg::register_font("Azul Not A Font", b"not a font"));
+    assert!(!fontreg::RegisteredFonts::default().register_font("Azul Not A Font", b"not a font"));
 }

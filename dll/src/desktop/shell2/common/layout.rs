@@ -516,10 +516,16 @@ pub fn regenerate_layout(
     // What `get_locale()` / `is_rtl()` answer: the app's `set_locale` choice,
     // else the system language (the style was installed above).
     let active_language = layout_window.active_language();
+    // The app's registered fonts as this window holds them (shared with the other windows of
+    // the app): a layout callback that builds a `FontCacheSnapshot` measures with the faces the
+    // window draws with, the app's shipped faces among them.
+    let registered_fonts: &(dyn core::any::Any + Send + Sync) =
+        &layout_window.font_manager.registered_fonts;
     let layout_ref_data = LayoutCallbackInfoRefData {
         image_cache: &image_cache_snapshot,
         gl_context: gl_context_ptr,
         system_fonts: &layout_window.font_manager.fc_cache,
+        registered_fonts: Some(registered_fonts),
         system_style: system_style.clone(),
         active_route: current_window_state.active_route.as_ref(),
         locale: &active_language.id,

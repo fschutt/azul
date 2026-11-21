@@ -114,13 +114,21 @@ fn decompress(packed: &[u8]) -> Vec<u8> {
 }
 
 /// One bundled face: its family, its TrueType bytes, and whether it is the
-/// italic cut (whose cmap is a little smaller: [`eb_garamond_italic_ranges`]).
+/// bold cut and whether it is the italic cut (whose cmap is a little smaller:
+/// [`eb_garamond_italic_ranges`]).
+///
+/// The cut is declared here and not read from the bytes: a font manager
+/// registers every bundled face, and a parse of a whole face is what it would
+/// pay for each of them in each manager. A test pins the declaration to what a
+/// parse of the bytes gives.
 #[derive(Debug)]
 pub struct BundledUiFace {
     /// The family the face registers under ([`EB_GARAMOND`]).
     pub family: &'static str,
     /// The TrueType bytes, decompressed (empty if the bundle is damaged).
     pub bytes: Vec<u8>,
+    /// The bold cut (weight 700; the others are 400).
+    pub bold: bool,
     /// The italic cut.
     pub italic: bool,
 }
@@ -144,16 +152,17 @@ impl BundledUiFace {
 pub fn bundled_ui_fonts() -> &'static [BundledUiFace] {
     static FACES: OnceLock<Vec<BundledUiFace>> = OnceLock::new();
     FACES.get_or_init(|| {
-        let face = |packed: &[u8], italic: bool| BundledUiFace {
+        let face = |packed: &[u8], bold: bool, italic: bool| BundledUiFace {
             family: EB_GARAMOND,
             bytes: decompress(packed),
+            bold,
             italic,
         };
         alloc::vec![
-            face(EB_GARAMOND_REGULAR_BR, false),
-            face(EB_GARAMOND_BOLD_BR, false),
-            face(EB_GARAMOND_ITALIC_BR, true),
-            face(EB_GARAMOND_BOLD_ITALIC_BR, true),
+            face(EB_GARAMOND_REGULAR_BR, false, false),
+            face(EB_GARAMOND_BOLD_BR, true, false),
+            face(EB_GARAMOND_ITALIC_BR, false, true),
+            face(EB_GARAMOND_BOLD_ITALIC_BR, true, true),
         ]
     })
 }

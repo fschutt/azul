@@ -537,6 +537,11 @@ fn run_headless(
         fc_cache,
         font_registry,
     )?;
+    // The app's fonts, as every window of the other shells has them through the app's font
+    // manager.
+    if let Some(font_manager) = font_manager.as_ref() {
+        window.share_registered_fonts(&font_manager.registered_fonts);
+    }
     for options in extra_windows.into_iter().rev() {
         window.queue_window_create(options);
     }
@@ -3082,6 +3087,9 @@ pub fn run_tray_only(
         fc_cache,
         font_registry.clone(),
     )?;
+    if let Some(font_manager) = font_manager.as_ref() {
+        headless.share_registered_fonts(&font_manager.registered_fonts);
+    }
 
     // Same warm-then-install as the windowed path: the registry scans on
     // background threads, so block on the fonts this icon needs rather than
