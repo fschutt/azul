@@ -304,15 +304,23 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 ### A3-window-17 a mouse release scans every styled node of every DOM for `active`
 - file:line: `event.rs` `apply_active_restyle`
 - class: waste, per click: O(all nodes of all DOMs)
+- read again in round 2: the scan reads ONE flag per node on a dense slice (`styled_nodes`): about 15 us for
+  12.8k nodes, once per mouse release. Remembering the pressed nodes instead needs a field that survives rebuilds
+  between press and release (a rebuild with the button down sets `active` on whatever is hovered,
+  `apply_runtime_states_before_layout`), for nothing measurable. What costs more per press and release is
+  `StyledDom::with_parts` (A3-core's file), see "For area A3-core".
 - severity: low
-- status: open: fix in work
+- status: checked: fine
 
 ### A3-window-18 the compact property cache is built a second time per window DOM regeneration (A3-core's item)
 - file:line: `dll/src/desktop/shell2/common/layout.rs` `recompute_inheritance_and_compact_cache` after `append_child`
 - class: waste, per root rebuild: O(root nodes)
-- fix: needed only after an `append_child` (titlebar injection, composed `StyledDom`s): a flag on `StyledDom`.
+- fix: the shell knows both cases itself: the recompute runs when the tree did not come out of the one cascade of
+  `style_user_dom_for` (a mounted document) or a decoration was appended (`CsdInjection` other than `None`).
+- test: none of its own (the count of compact builds is behind azul-core's `cfg(test)`); the dll's headless layout
+  and golden tests run this path.
 - severity: low
-- status: open: not started
+- status: fixed 06bb22394
 
 ### A3-window-19 a per-DOM generation (asked by A3-core for the a11y pass, by 05 / 06)
 - file:line: `window.rs` `DomGenerations`, `LayoutWindow::dom_generation`, `LayoutWindow::note_dom_changed`
@@ -396,9 +404,11 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 
 ### A3-window-26 `AZ_MAP_DEBUG` is read from the environment per pass and per placeholder
 - file:line: `window.rs` 9735, 9779
-- class: waste (a syscall-free but locking `std::env::var` per layout pass and per view placeholder)
+- class: waste (a locking `std::env::var` per layout pass and per view placeholder, and per view re-render for
+  `AZ_VV_RECONCILE_TRACE`)
+- fix: `env_flag!` (the crate's cached switch). No test.
 - severity: low
-- status: open: not started
+- status: fixed 2c41235ef
 
 ### A3-window-27 per layout pass, linear: `update_scrollbar_transforms`, `calculated_positions.clone()`, `apply_text_tweens`
 - file:line: `window.rs` `layout_dom_recursive_impl` tail
@@ -429,8 +439,10 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 ### A3-window-30 `get_node_layout_rect` scans the layout tree per call; `None` matches the first anonymous box
 - file:line: `window.rs` `get_node_layout_rect` (`nodes.iter().position(|node| node.dom_node_id == target)`)
 - class: quadratic when asked per node (app callbacks: `get_hit_node_layout_rect`); wrong-output for a `None` id
+- fix: the smallest index of `dom_to_layout[node]`; no node has no rect.
+- test: `a_nodes_layout_rect_is_found_without_a_walk_of_the_layout_tree` (`LAYOUT_NODE_LOOKUPS`).
 - severity: medium
-- status: open: not started (`dom_to_layout`, as `get_node_bounds`)
+- status: fixed 37b774e73
 
 ### A3-window-31 the CSS diff of a view's re-render: `values_for` scans every bucket, `types_to_compare` per node
 - file:line: `window.rs` `css_diff_between`, `changed_styles`, `types_to_compare`, `unchanged_cascades`;
@@ -461,9 +473,16 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 ### A3-window-33 `pending_css_dirty` is one slot: a second DOM's restyle drops the first DOM's staged layout dirt
 - file:line: `event.rs` `stage_css_dirty`
 - class: wrong-output (a pass that restyles two DOMs, e.g. a hover leave in the root and an enter in the view,
-  loses the first DOM's dirt while the tier still says relayout); also O(P log P) per restyle (a map rebuilt)
+  loses the first DOM's dirt while the tier still says relayout); also O(P log P) per restyle (a map rebuilt).
+  The same loss in `tick_animations` (the root's tween dirt while the slot is a view's).
+- fix: `LayoutWindow::css_dirty_waiting` + `hold_css_dirt`: layout dirt that cannot take the slot waits per DOM
+  and is taken by that DOM's pass. Not changed: the merge map of `stage_css_dirty` (P is the dirt of one DOM,
+  merged per node: bounded by the restyled nodes); `headless/mod.rs` `service_frame` asks the slot alone whether
+  a layout is owed; staged dirt that a REBUILD overtakes is dropped, as the slot's always was.
+- test: `the_layout_dirt_of_one_dom_waits_while_another_doms_is_staged` (dll `event.rs`),
+  `css_dirt_held_beside_the_slot_is_taken_by_its_own_doms_pass`.
 - severity: medium
-- status: open: not started
+- status: fixed dd846f240
 
 ### A3-window-34 a view's reinvoke check after an override-delivered render compares against stale state
 - file:line: `managers/virtual_view.rs` `check_reinvoke`, `scroll_demand`
@@ -496,8 +515,16 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 ### A3-window-37 the writers of `GpuValueCache` maps in this area do not say so (A3-core-08)
 - file:line: `window.rs` (A3-core's list: 9996, 10006, 10029, 11903, 11907, 18517-19356 at the base)
 - class: waste (the readers A1 / A4 cannot skip unchanged values until every writer calls `note_value_write()`)
+- fix: A3-core-08 is under this branch (`9c486a5a3`, cherry-picked from `b37653684`: the merge sees the same
+  change twice); a note at every direct writer of this area, only where a value or key is really written: the
+  scrollbar keys taken from a list (`layout_dom_recursive_impl`), `update_drag_visual` / `end_drag_visual`, the
+  sheen keys and values, the animation tick (slides, finished tracks, colour tweens),
+  `retain_running_color_keys`, `release_undriven_animation_values`, the scrollbar fade pass.
+- left for A6: `publish_live_sample` (`window.rs` 22479 here, 21767 / 21787 at the base) writes the animation
+  channel without a note.
+- test: `a_bar_that_shows_moves_the_value_generation_and_a_resting_one_does_not`.
 - severity: medium
-- status: open: needs A3-core-08 (`b37653684`) under this branch; not started
+- status: fixed d018c5b20
 
 ### A3-window-38 hover / press restyles the patch does not serve still rebuild the DOM's list
 - file:line: `window.rs` `patch_restyled_decorations` (the whitelist), `node_patch.rs` (the guards)
