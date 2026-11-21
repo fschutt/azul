@@ -175,6 +175,15 @@ pub(super) fn slice_inline_content_by_bytes(
     out
 }
 
+/// How many layout children [`collect_and_measure_inline_content_impl`] looked
+/// at on this thread to find the boxes of an inline formatting context's DOM
+/// children (`audit_tests::a3_solver`: n log n for a root of n elements, not
+/// n * n).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_CHILD_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
 #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose
                                                                // layout/render/parse routine (one
@@ -542,6 +551,9 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     #[cfg(not(feature = "web_lift"))]
     let dom_children_len = dom_children.len();
 
+    // The root's layout children that are a box of a DOM node, sorted by that
+    // node (see the lookup in the loop).
+    let mut children_by_dom: Option<Vec<(NodeId, usize)>> = None;
     for item_idx in 0..dom_children_len {
         let dom_child_id = unsafe { *dom_children.get_unchecked(item_idx) };
         let content_index = ContentIndex {
@@ -632,15 +644,43 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             continue;
         }
 
-        // For non-text nodes, find their corresponding layout tree node
-        let child_index = children
-            .iter()
-            .find(|&&idx| {
-                tree.get(LayoutNodeId::new(idx))
-                    .and_then(|n| n.dom_node_id)
-                    .is_some_and(|id| id == dom_child_id)
-            })
-            .copied();
+        // For non-text nodes, find their corresponding layout tree node: the
+        // first layout child of the root that is a box of this DOM node.
+        //
+        // Looked up in a list of the root's layout children sorted by DOM
+        // node, made by the first DOM child that asks. It was a scan of the
+        // layout children from the first one for every DOM child
+        // (`children.iter().find(..)`): the i-th element was found after i
+        // steps, so a root of n elements - a map's layer of n absolutely
+        // positioned spans, which are skipped just below - took n * n / 2
+        // steps to collect (72 million at 12,000).
+        let child_index = {
+            let by_dom = children_by_dom.get_or_insert_with(|| {
+                let mut by_dom: Vec<(NodeId, usize)> = children
+                    .iter()
+                    .filter_map(|&idx| {
+                        #[cfg(test)]
+                        IFC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+                        tree.get(LayoutNodeId::new(idx))
+                            .and_then(|n| n.dom_node_id)
+                            .map(|id| (id, idx))
+                    })
+                    .collect();
+                // A stable sort: of two boxes of one DOM node the first in
+                // child order stays first, the one a scan finds.
+                by_dom.sort_by_key(|&(id, _)| id);
+                by_dom
+            });
+            let at = by_dom.partition_point(|&(id, _)| {
+                #[cfg(test)]
+                IFC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+                id < dom_child_id
+            });
+            by_dom
+                .get(at)
+                .filter(|&&(id, _)| id == dom_child_id)
+                .map(|&(_, idx)| idx)
+        };
 
         let Some(child_index) = child_index else {
             debug_info!(

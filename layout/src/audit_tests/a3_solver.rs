@@ -354,3 +354,68 @@ fn taffy_counts_and_indexes_a_containers_children_without_listing_them() {
         "{bridges} runs of a flex row of 8 items built {lists} child lists"
     );
 }
+
+/// `body(0) > div(1) > k x [span(2 + 2 i) > text]`: a positioned block of `k` absolutely
+/// positioned SPANS with a text (the map editor's labels), the i-th at
+/// `(10 * (i % 50), 9 * (i / 50))`. A span is inline-level, so the layer holds inline content
+/// only and is itself the root of an inline formatting context (`layout_ifc`) with `k`
+/// out-of-flow children.
+fn layer_of_absolute_spans(k: usize) -> Dom {
+    let mut layer = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
+    for i in 0..k {
+        layer = layer.with_child(Dom::create_span_with_text(format!("label {i}")).with_css(
+            &format!(
+                "position: absolute; left: {}px; top: {}px;",
+                (i % 50) * 10,
+                (i / 50) * 9
+            ),
+        ));
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(layer)
+}
+
+/// A3-solver-07. Collecting the content of an inline formatting context looked every element
+/// child of the root up among the root's layout children with a scan from the first one
+/// (`children.iter().find(..)` in `fc::collect_and_measure_inline_content_impl`), before it
+/// asked whether the child is out of flow: a layer of n absolutely positioned spans took
+/// n * n / 2 steps. The layout children are listed by DOM node once and bisected.
+///
+/// Mutation: the scan per child (counting each layout child it passes) grows 16x.
+#[test]
+fn an_inline_root_of_absolute_spans_finds_each_of_them_among_its_children_by_bisection() {
+    use crate::solver3::fc::IFC_CHILD_PROBES;
+    let probes = |k: usize| {
+        let mut lw = window();
+        IFC_CHILD_PROBES.with(|n| n.set(0));
+        lay_out(&mut lw, layer_of_absolute_spans(k));
+        IFC_CHILD_PROBES.with(std::cell::Cell::get)
+    };
+    let (small, large) = (probes(500), probes(2_000));
+    assert!(
+        small >= 500,
+        "harness: each of the 500 spans was looked up among the layer's children ({small})"
+    );
+    assert!(
+        large < small * 6,
+        "four times the spans took {large} steps for {small}: more than n log n"
+    );
+}
+
+/// A3-solver-07, the result: every absolutely positioned span of the layer is laid out and
+/// stands at its insets.
+#[test]
+fn absolute_spans_of_an_inline_root_stand_at_their_insets() {
+    let mut lw = window();
+    lay_out(&mut lw, layer_of_absolute_spans(120));
+    for i in [0_usize, 1, 49, 50, 51, 119] {
+        let p = position_of(&lw, 2 + 2 * i);
+        #[allow(clippy::cast_precision_loss)] // small pixel counts
+        let (x, y) = (((i % 50) * 10) as f32, ((i / 50) * 9) as f32);
+        assert!(
+            (p.x - x).abs() < 0.01 && (p.y - y).abs() < 0.01,
+            "span {i} stands at ({}, {}), its insets say ({x}, {y})",
+            p.x,
+            p.y
+        );
+    }
+}
