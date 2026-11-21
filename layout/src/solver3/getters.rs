@@ -7364,6 +7364,33 @@ impl ComputedScrollbarStyle {
     }
 }
 
+/// What the system's scrollbar adds to the style every node starts from
+/// ([`get_scrollbar_style`]): its thumb and track colours, its handle width and
+/// radius. `None` without a system scrollbar.
+type ScrollbarBaseKey = Option<(Option<ColorU>, Option<ColorU>, Option<f32>, Option<f32>)>;
+
+thread_local! {
+    /// The scrollbar style of a node without scrollbar CSS of its own, for
+    /// the context and the system scrollbar it was last made for (compared
+    /// by value on every ask).
+    static SCROLLBAR_BASE: core::cell::RefCell<
+        Option<(
+            azul_css::dynamic_selector::DynamicSelectorContext,
+            ScrollbarBaseKey,
+            ComputedScrollbarStyle,
+        )>,
+    > = core::cell::RefCell::new(None);
+}
+
+/// How often [`get_scrollbar_style`] was asked, and how often it made the
+/// node-independent part of its answer, on this thread
+/// (`audit_tests::a3_solver`: once per context, not once per node).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SCROLLBAR_STYLE_ASKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static SCROLLBAR_BASE_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Get the computed scrollbar style for a node.
 ///
 /// Resolution order (later wins):
@@ -7386,6 +7413,8 @@ pub fn get_scrollbar_style(
     node_state: &StyledNodeState,
     system_style: Option<&azul_css::system::SystemStyle>,
 ) -> ComputedScrollbarStyle {
+    #[cfg(test)]
+    SCROLLBAR_STYLE_ASKS.with(|n| n.set(n.get() + 1));
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     // Step 1: Evaluate UA scrollbar CSS using the DynamicSelector system —
@@ -7393,17 +7422,25 @@ pub fn get_scrollbar_style(
     // window's own theme, viewport and OS), so the scrollbar follows an
     // in-app theme switch like everything else does. A DOM no window has
     // adopted yet falls back to a system-style-only context.
-    let ctx = styled_dom
+    //
+    // Borrowed where the DOM has one: the context was cloned here (its
+    // language, container name, theme chain and system colours are heap
+    // values) for every node of every layout pass that asked.
+    let fallback_ctx;
+    let ctx: &azul_css::dynamic_selector::DynamicSelectorContext = match styled_dom
         .get_css_property_cache()
         .dynamic_context
         .as_deref()
-        .cloned()
-        .unwrap_or_else(|| {
-            system_style.map_or_else(
+    {
+        Some(cascaded) => cascaded,
+        None => {
+            fallback_ctx = system_style.map_or_else(
                 azul_css::dynamic_selector::DynamicSelectorContext::default,
                 azul_css::dynamic_selector::DynamicSelectorContext::from_system_style,
-            )
-        });
+            );
+            &fallback_ctx
+        }
+    };
     // AZ_DUMP_SCROLLBAR_OS=1 prints, once, which OS the UA cascade actually
     // resolved against. `DynamicSelectorContext::default()` carries
     // `OsCondition::Any`, which matches NO `@os(...)` arm — so a window built
@@ -7430,7 +7467,19 @@ pub fn get_scrollbar_style(
             );
         }
     }
-    let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(&ctx);
+    // What follows up to the fast path reads the context and the system's
+    // scrollbar and nothing of the node: the answer for every node without
+    // scrollbar CSS of its own (99% of them). It is made once per context and
+    // system scrollbar and kept (`SCROLLBAR_BASE`, keyed by their VALUES, so a
+    // theme switch or another window's context makes it anew); it was made for
+    // every node of every layout pass.
+    let sys = system_style.and_then(|s| s.scrollbar.as_deref());
+    let sys_key: ScrollbarBaseKey =
+        sys.map(|s| (s.thumb_color, s.track_color, s.handle_width, s.handle_radius));
+    let build_base = || {
+    #[cfg(test)]
+    SCROLLBAR_BASE_BUILDS.with(|n| n.set(n.get() + 1));
+    let ua = azul_core::ua_css::evaluate_ua_scrollbar_css(ctx);
     let mut result = ComputedScrollbarStyle::from_ua_resolved(&ua);
 
     // `scrollbar-color: auto` means "the platform's own scrollbar colours",
@@ -7451,7 +7500,7 @@ pub fn get_scrollbar_style(
     // reached the screen. A detected palette outranks a hardcoded UA constant;
     // AUTHOR css still wins, because it is applied in the steps below.
     {
-        if let Some(sys) = system_style.and_then(|s| s.scrollbar.as_deref()) {
+        if let Some(sys) = sys {
             if let Some(thumb) = sys.thumb_color {
                 result.thumb_color = thumb;
             }
@@ -7471,7 +7520,24 @@ pub fn get_scrollbar_style(
             }
         }
     }
-    let result = result;
+    result
+    };
+    let result = SCROLLBAR_BASE.with(|memo| {
+        let mut memo = memo.borrow_mut();
+        let kept = match &*memo {
+            Some((memo_ctx, memo_sys, base)) if memo_ctx == ctx && *memo_sys == sys_key => {
+                Some(*base)
+            }
+            _ => None,
+        };
+        if let Some(base) = kept {
+            base
+        } else {
+            let base = build_base();
+            *memo = Some((ctx.clone(), sys_key, base));
+            base
+        }
+    });
 
     // FAST PATH: 99% of nodes have no scrollbar CSS. Bail before walking 8 × cascade.
     if node_state.is_normal() {
@@ -7488,7 +7554,7 @@ pub fn get_scrollbar_style(
     // (or a token) and is resolved against the context the UA pass above
     // evaluated - the cascade's own, when the DOM has one.
     let part_color = |part: &azul_css::props::style::background::StyleBackgroundContent| {
-        extract_color_from_background(&part.clone().resolve_system_colors(Some(&ctx)))
+        extract_color_from_background(&part.clone().resolve_system_colors(Some(ctx)))
     };
     if let Some(track) = styled_dom
         .css_property_cache
@@ -7550,7 +7616,7 @@ pub fn get_scrollbar_style(
         .and_then(|v| v.get_property())
     {
         // `system:` keywords resolve against the same context as the parts.
-        match (*scrollbar_color).resolve_system_colors(Some(&ctx)) {
+        match (*scrollbar_color).resolve_system_colors(Some(ctx)) {
             StyleScrollbarColor::Auto => { /* keep */ }
             StyleScrollbarColor::Custom(custom) => {
                 result.thumb_color = custom.thumb;

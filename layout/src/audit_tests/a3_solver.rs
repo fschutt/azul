@@ -216,3 +216,29 @@ fn blocks_behind_out_of_flow_siblings_are_stacked_from_the_top() {
         "the blocks in flow follow each other downwards: {ys:?}"
     );
 }
+
+/// A3-solver-04. `getters::get_scrollbar_style` made the part of its answer that reads no node
+/// (a clone of the cascade's context, the UA scrollbar rules evaluated against it, the system's
+/// scrollbar merged in) for every node of every pass before it found that the node has no
+/// scrollbar CSS. It is made once per context and kept.
+///
+/// Mutation: building it on every ask (no `SCROLLBAR_BASE`) makes `builds` equal `asks`.
+#[test]
+fn the_scrollbar_style_every_node_starts_from_is_made_once_per_context() {
+    use crate::solver3::getters::{SCROLLBAR_BASE_BUILDS, SCROLLBAR_STYLE_ASKS};
+    let mut lw = window();
+    SCROLLBAR_STYLE_ASKS.with(|n| n.set(0));
+    SCROLLBAR_BASE_BUILDS.with(|n| n.set(0));
+    lay_out(&mut lw, layer_of_absolute_blocks(300));
+    let asks = SCROLLBAR_STYLE_ASKS.with(std::cell::Cell::get);
+    let builds = SCROLLBAR_BASE_BUILDS.with(std::cell::Cell::get);
+    assert!(
+        asks >= 300,
+        "harness: the layout asked for the scrollbar style of each of the 300 blocks ({asks})"
+    );
+    assert!(
+        builds <= 4,
+        "one page under one context made the node-independent scrollbar style {builds} times \
+         for {asks} asks"
+    );
+}
