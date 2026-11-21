@@ -655,14 +655,10 @@ fn render_box_shadow(
     // with every partial repaint. Writers must clip (the LCD fringe law);
     // the pixels outside the rect are either untouched-and-correct or
     // covered by another damage rect's own clear+repaint.
-    let clip_px = clip.map(|c| {
-        (
-            c.x as i32,
-            c.y as i32,
-            (c.x + c.width).ceil() as i32,
-            (c.y + c.height).ceil() as i32,
-        )
-    });
+    // The pixels a paint under the clip may write (`AzRect::pixel_box`, the one clip rule of
+    // the CPU path, A2-cpu-06): the far edges were rounded UP here, so under a clip that ends
+    // between two pixels a shadow wrote the column and the row no fill under that clip writes.
+    let clip_px = clip.map(|c| c.pixel_box());
     #[allow(clippy::too_many_arguments)]
     fn blit_clipped(
         pixmap: &mut AzulPixmap,
@@ -7373,10 +7369,16 @@ fn text_shadow_boxes(
         reach.3.min(target.1 as i32),
     );
     if let Some(c) = clip {
-        out.0 = out.0.max(c.x.floor() as i32);
-        out.1 = out.1.max(c.y.floor() as i32);
-        out.2 = out.2.min((c.x + c.width).ceil() as i32);
-        out.3 = out.3.min((c.y + c.height).ceil() as i32);
+        // The pixels a paint under the clip may write (`AzRect::pixel_box`, A2-cpu-06): by
+        // `floor` / `ceil` a halo landed in the column and row the clip ends in, which no
+        // fill and no glyph under that clip writes. `out` is not below zero before this (it
+        // is cut to the target), so a negative near edge, which `pixel_box` truncates towards
+        // zero, changes nothing.
+        let (cx0, cy0, cx1, cy1) = c.pixel_box();
+        out.0 = out.0.max(cx0);
+        out.1 = out.1.max(cy0);
+        out.2 = out.2.min(cx1);
+        out.3 = out.3.min(cy1);
     }
     if out.2 <= out.0 || out.3 <= out.1 {
         return None;
@@ -19757,5 +19759,31 @@ mod audit_a1_tests {
         assert_eq!(px(&direct, 3 + 6, 2 + 8), [10, 200, 30, 255], "below the window: not painted");
         let opaque = (5..30).filter(|x| px(&direct, 3 + x, 2 + 4) != [10, 200, 30, 255]).count();
         assert!(opaque > 10, "and the window is painted ({opaque} px of its fourth row differ from the ground)");
+    }
+
+
+    /// A2-cpu-06 (the shadow sites): a box shadow and a text halo land on the pixels a paint
+    /// under the clip may write (`AzRect::pixel_box`). Under the clip (0, 0) 30.5 x 40 fills
+    /// write the columns 0 .. 29: the shadow of a box at (10, 10) 40 x 20, which reaches over
+    /// the clip's right edge, stops at column 29 too; with the far edge rounded up it wrote
+    /// column 30. And the boxes of a halo with a reach of 2 around ink at (10, 10) 20 x 10
+    /// under the clip (0.5, 0.5) 20 x 30: out = [8, 8, 20, 22) (it was [8, 8, 21, 22)).
+    /// Mutation: `ceil` on the far edge in either place.
+    #[test]
+    fn a_shadow_lands_on_the_pixels_a_fill_under_its_clip_may_write() {
+        let mut pm = AzulPixmap::new(60, 50).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let shadow = StyleBoxShadow { color: ColorU { r: 0, g: 0, b: 0, a: 255 }, ..halo(0.0, 4.0, [0, 0, 0]) };
+        let clip = AzRect::from_xywh(0.0, 0.0, 30.5, 40.0);
+        render_box_shadow(&mut pm, &rect(10.0, 10.0, 40.0, 20.0), &shadow, &BorderRadius::default(), clip, 1.0).unwrap();
+        assert_eq!(px(&pm, 8, 20), [0, 0, 0, 255], "premise: the spread's ring left of the box is painted");
+        assert_eq!(px(&pm, 29, 8), [0, 0, 0, 255], "the last column a fill under the clip writes");
+        assert_eq!(px(&pm, 30, 8), [255, 255, 255, 255], "the column the clip ends in is not written");
+
+        let source = AzRect::from_xywh(10.0, 10.0, 20.0, 10.0).expect("ink");
+        let boxes = text_shadow_boxes(source, 2, AzRect::from_xywh(0.5, 0.5, 20.0, 30.0), (100, 100)).expect("it lands");
+        assert_eq!(boxes.out, PixelBox { x: 8, y: 8, width: 12, height: 14 });
+        let unclipped = text_shadow_boxes(source, 2, None, (100, 100)).expect("it lands");
+        assert_eq!(unclipped.out, PixelBox { x: 8, y: 8, width: 24, height: 14 });
     }
 }
