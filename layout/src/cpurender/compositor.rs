@@ -5349,7 +5349,8 @@ fn windowed_structural_damage(
                     }
                     extent
                 }
-                _ => item.visual_bounds().or_else(|| item.bounds()),
+                // (A run's ink as the list knows it, A3-core-26.)
+                _ => list.visual_bounds_of(at).or_else(|| item.bounds()),
             };
             let Some(b) = painted else {
                 continue;
@@ -5667,9 +5668,9 @@ fn compute_display_list_damage_impl(
                 let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
                 for &(old_reach, new_reach, _) in shadows.iter().filter(|shadow| shadow.2) {
                     for (run, acc, reach) in
-                        [(old_item, acc_old, old_reach), (new_item, acc_new, new_reach)]
+                        [(old, acc_old, old_reach), (new, acc_new, new_reach)]
                     {
-                        if let Some(ink) = run.visual_bounds() {
+                        if let Some(ink) = run.visual_bounds_of(idx) {
                             let grow = reach + TEXT_SHADOW_DAMAGE_SLACK;
                             damage.push(LogicalRect {
                                 origin: LogicalPosition {
@@ -6047,7 +6048,7 @@ fn compute_display_list_damage_impl(
             // region, is a MOVE — the caller blits it; no damage here.
             // (With its halo inside the region: what the blit does not move is damaged.)
             if let Some(h) = hint {
-                if let Some(ob) = old_item.visual_bounds() {
+                if let Some(ob) = old.visual_bounds_of(idx) {
                     let inside = ob.origin.x - old_halo >= h.region_old.origin.x - 0.5
                         && ob.origin.y - old_halo >= h.region_old.origin.y - 0.5
                         && ob.origin.x + ob.size.width + old_halo
@@ -6102,7 +6103,7 @@ fn compute_display_list_damage_impl(
                     },
                 }
             };
-            if let Some(ob) = old_item.visual_bounds() {
+            if let Some(ob) = old.visual_bounds_of(idx) {
                 damage.push(inflate(
                     LogicalRect {
                         origin: LogicalPosition {
@@ -6114,7 +6115,7 @@ fn compute_display_list_damage_impl(
                     old_halo,
                 ));
             }
-            if let Some(nb) = new_item.visual_bounds() {
+            if let Some(nb) = new.visual_bounds_of(idx) {
                 damage.push(inflate(
                     LogicalRect {
                         origin: LogicalPosition {
@@ -7182,6 +7183,7 @@ mod scroll_shift_tests {
             fixed_position_item_ranges: Vec::new(),
             layout_node_mapping: Vec::new(),
             uniform_text_bgs: Vec::new(),
+            text_ink: Vec::new(),
             text_selection_colors: Vec::new(),
             color_bindings: Vec::new(),
             carets: Vec::new(),

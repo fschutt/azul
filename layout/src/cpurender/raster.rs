@@ -1942,6 +1942,9 @@ pub(super) fn text_shadow_reach(text_shadow_stack: &[StyleBoxShadow]) -> f32 {
 /// a text shadow widens what an item can paint by its offset, blur and spread.
 fn outside_active_clip(
     item: &DisplayListItem,
+    // The item's visual bounds as its list knows them (`DisplayList::visual_bounds_of`: a
+    // text run's ink, not the item's estimate).
+    visual: Option<LogicalRect>,
     text_shadow_stack: &[StyleBoxShadow],
     scroll_offset: (f32, f32),
     clip: Option<AzRect>,
@@ -1972,7 +1975,7 @@ fn outside_active_clip(
         return false;
     }
     let bounds = if text_shadow_stack.is_empty() {
-        item.visual_bounds().or_else(|| item.bounds())
+        visual.or_else(|| item.bounds())
     } else {
         item.bounds()
     };
@@ -3230,6 +3233,7 @@ pub(crate) fn walk_range(
         if by_clip
             && outside_active_clip(
                 item,
+                list.visual_bounds_of(item_idx),
                 text_shadow_stack,
                 *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
                 clip_stack.last().copied().flatten(),
@@ -3255,7 +3259,7 @@ pub(crate) fn walk_range(
                 // offset+blur that visual_bounds does not model - keep the
                 // coarse box there or shadows get clipped at strip edges.
                 let cull_bounds = if text_shadow_stack.is_empty() {
-                    item.visual_bounds().or_else(|| item.bounds())
+                    list.visual_bounds_of(item_idx).or_else(|| item.bounds())
                 } else {
                     item.bounds()
                 };
@@ -3322,7 +3326,12 @@ pub(crate) fn walk_range(
         let item = &*bound_item;
         // What the item's scope paints: a frame's extent, or an opacity group's when its
         // content paints past its box.
-        let scope_extent = frame.map(|f| f.extent).or_else(|| {
+        // (For a text run: its ink as the list knows it, which the `Text` arm checks the
+        // backdrop under; the item alone has an estimate.)
+        let run_ink = matches!(item, DisplayListItem::Text { .. })
+            .then(|| list.text_ink_at(item_idx).and(list.visual_bounds_of(item_idx)))
+            .flatten();
+        let scope_extent = frame.map(|f| f.extent).or(run_ink).or_else(|| {
             matches!(item, DisplayListItem::PushOpacity { .. })
                 .then(|| {
                     // With the frames inside the group where their live matrices paint them
@@ -4377,7 +4386,9 @@ fn stale_boxes(
         let y1 = ((r.origin.y + r.size.height + reach - placement.offset.1) * dpi_factor).ceil() as i32 + 2;
         [x0.clamp(0, w), y0.clamp(0, h), x1.clamp(0, w), y1.clamp(0, h)]
     };
-    let paints = |item: &DisplayListItem| item.visual_bounds().or_else(|| item.bounds());
+    let paints = |list: &DisplayList, at: usize| {
+        list.visual_bounds_of(at).or_else(|| list.items.get(at).and_then(DisplayListItem::bounds))
+    };
     let mut boxes: Vec<[i32; 4]> = Vec::new();
     let mut differing = 0usize;
     // The outermost frame inside the kept one that is open at the item.
@@ -4401,7 +4412,7 @@ fn stale_boxes(
             }
             match inside {
                 None => {
-                    for r in [paints(a), paints(b)].into_iter().flatten() {
+                    for r in [paints(old, at), paints(new, at)].into_iter().flatten() {
                         boxes.push(to_surface(&r, frame.shadow_reach));
                     }
                 }
@@ -5686,8 +5697,9 @@ pub fn render_single_item(
             }
             // LCD text needs an opaque backdrop (see `backdrop_is_opaque`): a
             // run over a transparent layer pixel takes grayscale coverage.
-            let run = item
-                .visual_bounds()
+            // (`frame_extent` carries the run's ink where the walk's list knows it.)
+            let run = frame_extent
+                .or_else(|| item.visual_bounds())
                 .and_then(|ink| text_run_clip(&scroll_rect(&ink), clip, dpi_factor));
             // Inside a turned or scaled frame the group is resampled where it lands, and LCD
             // stripes smear into colour fringes there: grayscale coverage is what such a group
@@ -21555,10 +21567,11 @@ mod audit_a1_tests {
             AzRect::from_xywh(1330.0, 1054.5, 200.0, 150.0),
         );
         assert!(merged.is_some_and(|c| c.width == 0.0 && c.height == 0.0), "premise: {merged:?}");
-        assert!(outside_active_clip(&item, &[], offset, merged, &[], 1.0), "no area: nothing is painted");
+        let visual = item.visual_bounds();
+        assert!(outside_active_clip(&item, visual, &[], offset, merged, &[], 1.0), "no area: nothing is painted");
         // A clip with an area culls by the bounds, as before.
-        assert!(!outside_active_clip(&item, &[], offset, AzRect::from_xywh(1300.0, 1040.0, 100.0, 100.0), &[], 1.0));
-        assert!(outside_active_clip(&item, &[], offset, AzRect::from_xywh(0.0, 0.0, 100.0, 100.0), &[], 1.0));
-        assert!(!outside_active_clip(&item, &[], offset, None, &[], 1.0), "no clip: nothing is culled");
+        assert!(!outside_active_clip(&item, visual, &[], offset, AzRect::from_xywh(1300.0, 1040.0, 100.0, 100.0), &[], 1.0));
+        assert!(outside_active_clip(&item, visual, &[], offset, AzRect::from_xywh(0.0, 0.0, 100.0, 100.0), &[], 1.0));
+        assert!(!outside_active_clip(&item, visual, &[], offset, None, &[], 1.0), "no clip: nothing is culled");
     }
 }

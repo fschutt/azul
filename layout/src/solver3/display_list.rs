@@ -749,6 +749,73 @@ pub struct ForcedBreak {
     pub causing_node: Option<NodeId>,
 }
 
+/// The ink of a text run - where its glyphs can put pixels - RELATIVE to the pen position of
+/// its first glyph, with the number of glyphs it was taken for ([`DisplayList::text_ink`]).
+///
+/// Relative, so that a run that is moved as a whole (a patch that translates a node's items,
+/// a cached run copied at a delta) keeps its ink without anyone touching the entry; with the
+/// glyph count, so that an entry that got out of step with its item is not taken for the
+/// item's ([`DisplayList::visual_bounds_of`] then answers with the item's own estimate).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TextInk {
+    /// The ink's near corner less the first glyph's pen position, logical px.
+    pub min: (f32, f32),
+    /// Its far corner less the same.
+    pub max: (f32, f32),
+    /// How many glyphs the run had.
+    pub glyphs: u32,
+}
+
+/// The ink of the run `glyphs` at `font_size_px` in a face of `units_per_em` units to the em
+/// whose glyph `id` has the outline box `glyph_box(id)` (font units, y up: `[x_min, y_min,
+/// x_max, y_max]`; all zero: no outline): the union of `pen + box x font_size / units_per_em`
+/// (y down on screen: the top is `pen.y - y_max x scale`), grown by a pixel and a tenth of
+/// the em - the LCD filter's pad, a hinted or emboldened outline, a pen on a quarter pixel -
+/// relative to the first pen. `None` when the run is empty, a glyph's box is not known, or
+/// the numbers are not finite: no ink is claimed.
+///
+/// Example: one glyph with the box [50, -200, 1150, 700] of a 1000-unit face at 20 px, pen
+/// (100, 50): x 101 .. 123, y 36 .. 54; grown by 1 + 2 = 3: x 98 .. 126, y 33 .. 57; relative
+/// to the pen: min (-2, -17), max (26, 7).
+pub(crate) fn text_ink_of_run(
+    glyphs: &[GlyphInstance],
+    font_size_px: f32,
+    units_per_em: f32,
+    mut glyph_box: impl FnMut(u16) -> Option<[i16; 4]>,
+) -> Option<TextInk> {
+    let first = glyphs.first()?;
+    if !(units_per_em > 0.0 && font_size_px.is_finite() && font_size_px > 0.0) {
+        return None;
+    }
+    let scale = font_size_px / units_per_em;
+    let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+    let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for glyph in glyphs {
+        let [bx0, by0, bx1, by1] = glyph_box(u16::try_from(glyph.index).ok()?)?;
+        if bx0 == bx1 && by0 == by1 {
+            continue;
+        }
+        x0 = x0.min(glyph.point.x + f32::from(bx0) * scale);
+        x1 = x1.max(glyph.point.x + f32::from(bx1) * scale);
+        y0 = y0.min(glyph.point.y - f32::from(by1) * scale);
+        y1 = y1.max(glyph.point.y - f32::from(by0) * scale);
+    }
+    // A run of spaces: nothing but the pad, at its first pen.
+    if x1 < x0 || y1 < y0 {
+        (x0, y0, x1, y1) = (first.point.x, first.point.y, first.point.x, first.point.y);
+    }
+    let pad = 1.0 + 0.1 * font_size_px;
+    let ink = TextInk {
+        min: (x0 - pad - first.point.x, y0 - pad - first.point.y),
+        max: (x1 + pad - first.point.x, y1 + pad - first.point.y),
+        glyphs: u32::try_from(glyphs.len()).ok()?,
+    };
+    [ink.min.0, ink.min.1, ink.max.0, ink.max.1]
+        .iter()
+        .all(|v| v.is_finite())
+        .then_some(ink)
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct DisplayList {
     pub items: Vec<DisplayListItem>,
@@ -778,6 +845,15 @@ pub struct DisplayList {
     /// pre-blended tile path for what it buys (~6 ms/repaint of per-pixel
     /// linear LCD compositing).
     pub uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
+    /// Per-item ink of a `Text` item ([`TextInk`]), `None` elsewhere and for a run whose
+    /// face could not say: where the run's glyphs can put pixels, from the face's glyph
+    /// boxes. Read through [`Self::visual_bounds_of`]. The item itself can only estimate
+    /// (`DisplayListItem::visual_bounds`: an em to the sides of the pens, 1.5 em up, 0.75 em
+    /// down), and a glyph that paints past the estimate - a wide last glyph, a tall mark -
+    /// left pixels no damage rect covered (A3-core-26). Parallel to `items` and, like the
+    /// other side tables, allowed to be shorter. On the list for the reason
+    /// `uniform_text_bgs` is.
+    pub text_ink: Vec<Option<TextInk>>,
     /// Per-item `(unselected, selected)` text colours of a `Text` item emitted
     /// under a `::selection` recolour, `None` elsewhere. Parallel to `items`.
     ///
@@ -876,6 +952,48 @@ impl DisplayList {
         self.color_bindings.get(index).copied().flatten()
     }
 
+    /// The ink of the text run at `index` as the list knows it ([`Self::text_ink`]):
+    /// `(x0, y0, x1, y1)` in list space, not cut to the run's clip. `None`: the item is no
+    /// text run, the list has no entry for it, or the entry is not this run's (another
+    /// number of glyphs).
+    #[must_use]
+    pub fn text_ink_at(&self, index: usize) -> Option<(f32, f32, f32, f32)> {
+        let DisplayListItem::Text { glyphs, .. } = self.items.get(index)? else {
+            return None;
+        };
+        let ink = self.text_ink.get(index).copied().flatten()?;
+        let first = glyphs.first()?;
+        if ink.glyphs as usize != glyphs.len() {
+            return None;
+        }
+        let at = (
+            first.point.x + ink.min.0,
+            first.point.y + ink.min.1,
+            first.point.x + ink.max.0,
+            first.point.y + ink.max.1,
+        );
+        ([at.0, at.1, at.2, at.3].iter().all(|v| v.is_finite()) && at.2 >= at.0 && at.3 >= at.1)
+            .then_some(at)
+    }
+
+    /// Where item `index` paints: [`DisplayListItem::visual_bounds`], with the ink the list
+    /// knows for a text run in place of the item's estimate ([`Self::text_ink_at`], cut to
+    /// the run's clip as the estimate is). What the damage and the culls of a renderer ask.
+    #[must_use]
+    pub fn visual_bounds_of(&self, index: usize) -> Option<LogicalRect> {
+        let item = self.items.get(index)?;
+        if let (DisplayListItem::Text { clip_rect, .. }, Some((x0, y0, x1, y1))) =
+            (item, self.text_ink_at(index))
+        {
+            let ink = LogicalRect {
+                origin: LogicalPosition { x: x0, y: y0 },
+                size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+            };
+            return Some(intersect_or(ink, *clip_rect.inner()));
+        }
+        item.visual_bounds()
+    }
+
     /// Insert one item at `at`, keeping EVERY parallel array and index range
     /// consistent.
     ///
@@ -900,6 +1018,7 @@ impl DisplayList {
         // appended without extending them), so grow before indexing.
         Self::insert_parallel(&mut self.node_mapping, at, node);
         Self::insert_parallel(&mut self.uniform_text_bgs, at, None);
+        Self::insert_parallel(&mut self.text_ink, at, None);
         Self::insert_parallel(&mut self.text_selection_colors, at, None);
         Self::insert_parallel(&mut self.layout_node_mapping, at, None);
         Self::insert_parallel(&mut self.color_bindings, at, None);
@@ -968,12 +1087,34 @@ impl DisplayList {
         if self.color_bindings.len() < len {
             self.color_bindings.resize(len, None);
         }
+        // A piece of a run paints inside the run's ink: each piece gets that ink, taken
+        // from its own first pen.
+        let ink = self.text_ink_at(at);
+        let inks: Vec<Option<TextInk>> = replacement
+            .iter()
+            .map(|(piece, _)| match (piece, ink) {
+                (DisplayListItem::Text { glyphs, .. }, Some((x0, y0, x1, y1))) => {
+                    glyphs.first().and_then(|first| {
+                        Some(TextInk {
+                            min: (x0 - first.point.x, y0 - first.point.y),
+                            max: (x1 - first.point.x, y1 - first.point.y),
+                            glyphs: u32::try_from(glyphs.len()).ok()?,
+                        })
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        if self.text_ink.len() < len {
+            self.text_ink.resize(len, None);
+        }
         let (items, bgs): (Vec<DisplayListItem>, Vec<Option<(ColorU, WindowLogicalRect)>>) =
             replacement.into_iter().unzip();
         self.frame_index.clear();
         self.items.splice(at..=at, items);
         self.node_mapping.splice(at..=at, core::iter::repeat_n(node, n));
         self.uniform_text_bgs.splice(at..=at, bgs);
+        self.text_ink.splice(at..=at, inks);
         self.text_selection_colors
             .splice(at..=at, core::iter::repeat_n(colors, n));
         self.layout_node_mapping
@@ -1014,6 +1155,7 @@ impl DisplayList {
             + self.forced_page_breaks.capacity() * size_of::<ForcedBreak>()
             + self.fixed_position_item_ranges.capacity() * size_of::<(usize, usize)>()
             + self.uniform_text_bgs.capacity() * size_of::<Option<(ColorU, WindowLogicalRect)>>()
+            + self.text_ink.capacity() * size_of::<Option<TextInk>>()
             + self.text_selection_colors.capacity() * size_of::<Option<(ColorU, ColorU)>>()
             + self.layout_node_mapping.capacity() * size_of::<Option<(usize, EmitPhase)>>()
             + self.color_bindings.capacity() * size_of::<Option<ColorKey>>();
@@ -3631,6 +3773,15 @@ impl GroupBounds {
         }
     }
 
+    /// [`Self::visual_of`] the item `index` of `list`, with the ink the list knows for a
+    /// text run ([`DisplayList::visual_bounds_of`]) in place of the item's estimate.
+    fn visual_at(list: &DisplayList, index: usize) -> Option<LogicalRect> {
+        match list.items.get(index)? {
+            DisplayListItem::Text { .. } => list.visual_bounds_of(index),
+            other => Self::visual_of(other),
+        }
+    }
+
     fn add(&mut self, clip: Option<LogicalRect>, r: LogicalRect) {
         let mut r = clip.map_or(r, |c| rect_intersection(r, c));
         // Out through the frames open around the item, innermost first: through each frame's
@@ -4115,7 +4266,7 @@ impl FrameIndex {
                 }
             }
             if !fading.is_empty() {
-                let visual = GroupBounds::visual_of(item);
+                let visual = GroupBounds::visual_at(list, i);
                 // `open` holds the frames open BEFORE this item: a push here is directly inside
                 // every group that no frame was opened in since.
                 let frames_open = open.len();
@@ -4254,7 +4405,7 @@ impl FrameIndex {
                 }
             }
             if !open.is_empty() {
-                let visual = GroupBounds::visual_of(item);
+                let visual = GroupBounds::visual_at(list, i);
                 let innermost = open.len() - 1;
                 for (depth, frame) in open.iter_mut().enumerate() {
                     frame.bounds.step(item, visual);
@@ -4556,6 +4707,10 @@ struct DisplayListBuilder {
     /// `push_text_run` / the patch copy just before pushing a Text item).
     next_text_bg: Option<(ColorU, WindowLogicalRect)>,
     uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
+    /// The ink of the NEXT pushed item, a text run ([`DisplayList::text_ink`]): one-shot,
+    /// like `next_text_bg`.
+    pub(crate) next_text_ink: Option<TextInk>,
+    text_ink: Vec<Option<TextInk>>,
     /// One-shot: the `(unselected, selected)` colours for the NEXT pushed
     /// item — see [`DisplayList::text_selection_colors`].
     pub(crate) next_text_selection_colors: Option<(ColorU, ColorU)>,
@@ -4594,6 +4749,8 @@ impl DisplayListBuilder {
             layout_node_mapping: Vec::new(),
             next_text_bg: None,
             uniform_text_bgs: Vec::new(),
+            next_text_ink: None,
+            text_ink: Vec::new(),
             next_text_selection_colors: None,
             text_selection_colors: Vec::new(),
             bound_colors: BTreeMap::new(),
@@ -4627,6 +4784,7 @@ impl DisplayListBuilder {
             fixed_position_item_ranges: self.fixed_position_item_ranges,
             layout_node_mapping: self.layout_node_mapping,
             uniform_text_bgs: self.uniform_text_bgs,
+            text_ink: self.text_ink,
             text_selection_colors: self.text_selection_colors,
             color_bindings: self.color_bindings,
             carets: self.carets,
@@ -4736,6 +4894,9 @@ impl DisplayListBuilder {
     /// see and nobody can click is exactly what an unpositioned node should
     /// contribute.
     fn push_item(&mut self, item: DisplayListItem) {
+        // The ink announced for this item (a text run): taken here, so that an item that is
+        // dropped below does not leave it for the next one.
+        let ink = self.next_text_ink.take();
         // A TextLayout carrying `FontHash::invalid()` (0) describes text in a
         // font that does not exist. Verified before dropping it, because
         // "harmless metadata" is a claim that has to be checked:
@@ -4827,6 +4988,10 @@ impl DisplayListBuilder {
         self.node_mapping.push(attr);
         self.layout_node_mapping.push(self.current_layout);
         self.uniform_text_bgs.push(self.next_text_bg.take());
+        // (Only a text run has ink.)
+        self.text_ink.push(
+            ink.filter(|_| matches!(self.items.last(), Some(DisplayListItem::Text { .. }))),
+        );
         self.text_selection_colors
             .push(self.next_text_selection_colors.take());
         self.color_bindings.push(self.next_color_binding.take());
@@ -4840,6 +5005,7 @@ impl DisplayListBuilder {
             fixed_position_item_ranges: self.fixed_position_item_ranges,
             layout_node_mapping: self.layout_node_mapping,
             uniform_text_bgs: self.uniform_text_bgs,
+            text_ink: self.text_ink,
             text_selection_colors: self.text_selection_colors,
             color_bindings: self.color_bindings,
             carets: self.carets,
@@ -5463,6 +5629,7 @@ impl DisplayListBuilder {
         } else {
             // Nothing pushed: the one-shot must not land on the next item.
             self.next_text_selection_colors = None;
+            self.next_text_ink = None;
             self.debug_log(format!(
                 "[push_text_run] SKIPPED: glyphs.is_empty()={}, color.a={}",
                 glyphs.is_empty(),
@@ -5761,6 +5928,10 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// The fonts the font manager has loaded, asked for once per list
     /// ([`DisplayListGenerator::loaded_fonts`]).
     loaded_fonts: core::cell::OnceCell<std::sync::Arc<text3::cache::LoadedFonts<T>>>,
+    /// The glyph boxes of the faces the list's runs are drawn in, asked for once per face
+    /// and glyph per build ([`DisplayListGenerator::run_ink`]): by the face's hash, the face
+    /// (`None`: not loaded) and, by glyph id, the box once it was asked for.
+    glyph_boxes: core::cell::RefCell<HashMap<u64, (Option<T>, Vec<Option<Option<[i16; 4]>>>)>>,
     /// The links of a box's [`ScrollChain`](crate::solver3::scroll_chain::ScrollChain)
     /// (their layout indices, outermost first) by the box's parent and how
     /// the box is positioned - all a box's chain depends on
@@ -6348,6 +6519,7 @@ where
             painting_region: None,
             tags_by_node: core::cell::OnceCell::new(),
             loaded_fonts: core::cell::OnceCell::new(),
+            glyph_boxes: core::cell::RefCell::new(HashMap::new()),
             box_chains: BTreeMap::new(),
         }
     }
@@ -6502,6 +6674,55 @@ where
             .map(|region| region.content.as_slice())
     }
 
+    /// The ink of a run of `glyphs` in `face` at `font_size_px` ([`TextInk`],
+    /// [`text_ink_of_run`]), from the face's glyph boxes; `None` when the face is not loaded
+    /// or cannot say for one of the glyphs (the run then keeps the estimate of
+    /// `DisplayListItem::visual_bounds`). A face is looked up once per build and a glyph's
+    /// box asked for once per build: `FontManager::get_font_by_hash` is a lock and a search
+    /// of the loaded faces, and a map's list has 150,000 glyphs.
+    fn run_ink(&self, glyphs: &[GlyphInstance], face: FontHash, font_size_px: f32) -> Option<TextInk> {
+        let mut faces = self.glyph_boxes.borrow_mut();
+        let (font, boxes) = faces
+            .entry(face.font_hash)
+            .or_insert_with(|| (self.ctx.font_manager.get_font_by_hash(face.font_hash), Vec::new()));
+        let font = font.as_ref()?;
+        let units_per_em = f32::from(font.get_font_metrics().units_per_em);
+        text_ink_of_run(glyphs, font_size_px, units_per_em, |id| {
+            let at = usize::from(id);
+            if boxes.len() <= at {
+                boxes.resize(at + 1, None);
+            }
+            *boxes[at].get_or_insert_with(|| font.glyph_ink_box(id))
+        })
+    }
+
+    /// [`DisplayListBuilder::push_text_run`], with the run's ink ([`Self::run_ink`]).
+    #[allow(clippy::too_many_arguments)]
+    fn push_run(
+        &self,
+        builder: &mut DisplayListBuilder,
+        glyphs: Vec<GlyphInstance>,
+        font_hash: FontHash,
+        font_size_px: f32,
+        color: ColorU,
+        clip_rect: LogicalRect,
+        line_box: LogicalRect,
+        source_node_index: Option<usize>,
+        uniform_bg: Option<(ColorU, WindowLogicalRect)>,
+    ) {
+        builder.next_text_ink = self.run_ink(&glyphs, font_hash, font_size_px);
+        builder.push_text_run(
+            glyphs,
+            font_hash,
+            font_size_px,
+            color,
+            clip_rect,
+            line_box,
+            source_node_index,
+            uniform_bg,
+        );
+    }
+
     /// The face a run is drawn in: `font_hash`, thickened (synthetic bold)
     /// when the run asks for bold and the face has no bold cut, the way
     /// Chrome draws a bold word in a family with only a regular face.
@@ -6650,6 +6871,9 @@ where
             };
             builder.next_text_selection_colors =
                 prev.text_selection_colors.get(i).copied().flatten();
+            // A copied run keeps its ink: the entry is relative to the run's first pen, so
+            // the translation below leaves it true.
+            builder.next_text_ink = prev.text_ink.get(i).copied().flatten();
             // A copied rect stays bound while its key does.
             builder.next_color_binding = prev
                 .color_binding(i)
@@ -10723,7 +10947,7 @@ where
         let mut run_hash = first.font_hash;
         for g in &glyphs {
             if g.font_hash != run_hash && !run.is_empty() {
-                builder.push_text_run(
+                self.push_run(builder, 
                     core::mem::take(&mut run),
                     self.run_face(run_hash, style.asks_for_bold()),
                     style.font_size_px,
@@ -10746,7 +10970,7 @@ where
             pen_x += g.advance + g.kerning;
         }
         if !run.is_empty() {
-            builder.push_text_run(
+            self.push_run(builder, 
                 run,
                 self.run_face(run_hash, style.asks_for_bold()),
                 style.font_size_px,
@@ -11531,7 +11755,7 @@ where
             let mut run_hash = ellipsis.glyphs.first().map_or(0, |g| g.font_hash);
             for g in &ellipsis.glyphs {
                 if g.font_hash != run_hash && !run.is_empty() {
-                    builder.push_text_run(
+                    self.push_run(builder, 
                         core::mem::take(&mut run),
                         self.run_face(run_hash, ellipsis.asks_for_bold),
                         ellipsis.font_size_px,
@@ -11551,7 +11775,7 @@ where
                 pen_x += g.advance + g.kerning;
             }
             if !run.is_empty() {
-                builder.push_text_run(
+                self.push_run(builder, 
                     run,
                     self.run_face(run_hash, ellipsis.asks_for_bold),
                     ellipsis.font_size_px,
@@ -12291,7 +12515,7 @@ where
                         offset_glyphs.into_iter().partition(inside);
                     if !normal.is_empty() {
                         builder.next_text_selection_colors = Some((live_color, *selected_color));
-                        builder.push_text_run(
+                        self.push_run(builder, 
                             normal,
                             self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                             glyph_run.font_size_px,
@@ -12304,7 +12528,7 @@ where
                     }
                     if !selected.is_empty() {
                         builder.next_text_selection_colors = Some((live_color, *selected_color));
-                        builder.push_text_run(
+                        self.push_run(builder, 
                             selected,
                             self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                             glyph_run.font_size_px,
@@ -12319,7 +12543,7 @@ where
                     }
                 }
                 None => {
-                    builder.push_text_run(
+                    self.push_run(builder, 
                         offset_glyphs,
                         self.run_face(glyph_run.font_hash, glyph_run.asks_for_bold),
                         glyph_run.font_size_px,
@@ -15084,6 +15308,7 @@ fn paginate_pages_impl(
             // on the WINDOWED cached DL, never on page slices.
             layout_node_mapping: Vec::new(),
             uniform_text_bgs: Vec::new(),
+            text_ink: Vec::new(),
             text_selection_colors: Vec::new(),
             color_bindings: Vec::new(),
             carets: Vec::new(),
@@ -20671,5 +20896,165 @@ mod per_layer_list_tests {
         // No list, or no such layer: the property's initial value.
         assert_eq!(layer_value::<char>(&[], 2, 0), None);
         assert_eq!(layer_value(&['p'], 2, 2), None);
+    }
+}
+
+#[cfg(test)]
+mod audit_a1_text_ink_tests {
+    use super::*;
+
+    fn pen(index: u32, x: f32, y: f32) -> GlyphInstance {
+        GlyphInstance {
+            index,
+            point: LogicalPosition { x, y },
+            size: LogicalSize { width: 0.0, height: 0.0 },
+        }
+    }
+
+    fn run(glyphs: Vec<GlyphInstance>, clip: LogicalRect) -> DisplayListItem {
+        DisplayListItem::Text {
+            glyphs,
+            font_hash: FontHash::from_hash(1),
+            font_size_px: 20.0,
+            color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+            clip_rect: clip.into(),
+            line_box: clip.into(),
+            source_node_index: None,
+        }
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    /// A 1000-unit face: glyph 1 is a letter (box 50 .. 550, -200 .. 700), glyph 2 a wide
+    /// swash that reaches 2.4 em right of its pen (box 0 .. 2400, 0 .. 700), glyph 3 a
+    /// space (no outline), glyph 4 a mark 1.9 em above the baseline; glyph 9 is not known.
+    fn boxes(id: u16) -> Option<[i16; 4]> {
+        match id {
+            1 => Some([50, -200, 550, 700]),
+            2 => Some([0, 0, 2400, 700]),
+            3 => Some([0; 4]),
+            4 => Some([100, 1500, 400, 1900]),
+            _ => None,
+        }
+    }
+
+    /// A3-core-26: the ink of a run is the union of its glyphs' boxes at their pens, grown
+    /// by a pixel and a tenth of the em, relative to the first pen. Hand-computed at 20 px
+    /// (scale 0.02, pad 3) for the pens (100, 50) and (112, 50):
+    /// - letter, letter: x 101 .. 123, y 36 .. 54 -> 98 .. 126, 33 .. 57: min (-2, -17),
+    ///   max (26, 7);
+    /// - letter, swash: the swash reaches x = 112 + 48 = 160 -> max.x = 160 + 3 - 100 = 63
+    ///   (the estimate of `visual_bounds` ends an em right of the last pen: 132);
+    /// - letter, mark: the mark's top is 50 - 38 = 12 -> min.y = 12 - 3 - 50 = -41 (the
+    ///   estimate begins 1.5 em above the pens: 20);
+    /// - a run of spaces: the pad around the first pen; a glyph the face does not know, an
+    ///   empty run, a face without an em: no ink is claimed.
+    /// Mutation: `+ by1 x scale` (y up taken for y down) puts the letter's ink below the
+    /// baseline: min.y -1 instead of -17.
+    #[test]
+    fn the_ink_of_a_run_is_its_glyphs_boxes_at_their_pens() {
+        let two = |second: u32| vec![pen(1, 100.0, 50.0), pen(second, 112.0, 50.0)];
+        let ink = |glyphs: &[GlyphInstance]| text_ink_of_run(glyphs, 20.0, 1000.0, boxes);
+        assert_eq!(ink(&two(1)), Some(TextInk { min: (-2.0, -17.0), max: (26.0, 7.0), glyphs: 2 }));
+        assert_eq!(ink(&two(2)), Some(TextInk { min: (-2.0, -17.0), max: (63.0, 7.0), glyphs: 2 }));
+        assert_eq!(ink(&two(4)), Some(TextInk { min: (-2.0, -41.0), max: (23.0, 7.0), glyphs: 2 }));
+        assert_eq!(
+            ink(&[pen(3, 10.0, 10.0), pen(3, 16.0, 10.0)]),
+            Some(TextInk { min: (-3.0, -3.0), max: (3.0, 3.0), glyphs: 2 })
+        );
+        assert_eq!(ink(&two(9)), None, "a glyph the face cannot say for");
+        assert_eq!(ink(&[]), None);
+        assert_eq!(text_ink_of_run(&two(1), 20.0, 0.0, boxes), None);
+        assert_eq!(text_ink_of_run(&[pen(70_000, 0.0, 0.0)], 20.0, 1000.0, boxes), None, "no such glyph id");
+    }
+
+    /// A3-core-26: what a list answers for a text run. With the ink of a run that ends in
+    /// the wide swash, `visual_bounds_of` holds the swash (x up to 163) where the item's own
+    /// estimate ends at 132; cut to the run's clip like the estimate; the same for the run
+    /// moved as a whole (the entry is relative to the first pen); and an entry that is not
+    /// the run's - another number of glyphs, as after an insert that left the table out of
+    /// step - is not used: the estimate is the answer. A table shorter than the list, and
+    /// any item that is no run, answer `visual_bounds`.
+    /// Mutations: an absolute rect in the table leaves the moved run's ink where it was;
+    /// without the glyph count the three-glyph run is given the two-glyph run's ink.
+    #[test]
+    fn a_list_answers_with_the_ink_it_knows_and_with_the_estimate_otherwise() {
+        let wide = rect(0.0, 0.0, 400.0, 100.0);
+        let glyphs = vec![pen(1, 100.0, 50.0), pen(2, 112.0, 50.0)];
+        let ink = text_ink_of_run(&glyphs, 20.0, 1000.0, boxes);
+        let fill = DisplayListItem::Rect {
+            bounds: rect(5.0, 5.0, 10.0, 10.0).into(),
+            color: ColorU { r: 1, g: 2, b: 3, a: 255 },
+            border_radius: BorderRadius::default(),
+        };
+        let mut list = DisplayList {
+            items: vec![fill.clone(), run(glyphs.clone(), wide)],
+            text_ink: vec![None, ink],
+            ..Default::default()
+        };
+        let estimate = list.items[1].visual_bounds().expect("a run has bounds");
+        assert_eq!(estimate.origin.x + estimate.size.width, 132.0, "premise: an em right of the last pen");
+        assert_eq!(list.visual_bounds_of(1), Some(rect(98.0, 33.0, 65.0, 24.0)), "the swash is held");
+        assert_eq!(list.visual_bounds_of(0), list.items[0].visual_bounds(), "no run: its own bounds");
+        assert_eq!(list.visual_bounds_of(7), None);
+        // Cut to the run's clip.
+        list.items[1] = run(glyphs.clone(), rect(0.0, 0.0, 150.0, 100.0));
+        assert_eq!(list.visual_bounds_of(1), Some(rect(98.0, 33.0, 52.0, 24.0)));
+        // Moved as a whole by (30, -10): the ink moves with it.
+        let moved: Vec<GlyphInstance> = glyphs.iter().map(|g| pen(g.index, g.point.x + 30.0, g.point.y - 10.0)).collect();
+        list.items[1] = run(moved, wide);
+        assert_eq!(list.visual_bounds_of(1), Some(rect(128.0, 23.0, 65.0, 24.0)));
+        // Another run under the entry: the estimate.
+        let three = run(vec![pen(1, 100.0, 50.0), pen(1, 112.0, 50.0), pen(1, 124.0, 50.0)], wide);
+        list.items[1] = three.clone();
+        assert_eq!(list.text_ink_at(1), None);
+        assert_eq!(list.visual_bounds_of(1), three.visual_bounds());
+        // A table shorter than the list.
+        list.text_ink.clear();
+        assert_eq!(list.visual_bounds_of(1), three.visual_bounds());
+    }
+
+    /// A3-core-26: the table stays in step where items are inserted and split. An item
+    /// inserted before a run moves the run's entry with it; a run split in two pieces (the
+    /// selection's split) gives each piece the run's ink, taken from the piece's own first
+    /// pen, so both pieces answer with the box of the whole run.
+    /// Mutation: `insert_item` without the table's insert leaves the entry at the old index
+    /// (the run then answers with its estimate, the fill before it with nothing of its own).
+    #[test]
+    fn the_ink_table_follows_an_insert_and_a_split() {
+        let wide = rect(0.0, 0.0, 400.0, 100.0);
+        let glyphs = vec![pen(1, 100.0, 50.0), pen(2, 112.0, 50.0)];
+        let ink = text_ink_of_run(&glyphs, 20.0, 1000.0, boxes);
+        let fill = DisplayListItem::Rect {
+            bounds: rect(5.0, 5.0, 10.0, 10.0).into(),
+            color: ColorU { r: 1, g: 2, b: 3, a: 255 },
+            border_radius: BorderRadius::default(),
+        };
+        let mut list = DisplayList {
+            items: vec![run(glyphs.clone(), wide)],
+            text_ink: vec![ink],
+            ..Default::default()
+        };
+        let whole = rect(98.0, 33.0, 65.0, 24.0);
+        assert_eq!(list.visual_bounds_of(0), Some(whole));
+        list.insert_item(0, fill, None);
+        assert_eq!(list.text_ink, vec![None, ink]);
+        assert_eq!(list.visual_bounds_of(1), Some(whole));
+        list.splice_item(
+            1,
+            vec![
+                (run(vec![pen(1, 100.0, 50.0)], wide), None),
+                (run(vec![pen(2, 112.0, 50.0)], wide), None),
+            ],
+        );
+        assert_eq!(list.items.len(), 3);
+        assert_eq!(list.visual_bounds_of(1), Some(whole), "the first piece");
+        assert_eq!(list.visual_bounds_of(2), Some(whole), "the second piece, from its own pen");
+        assert_eq!(list.text_ink[2].map(|ink| ink.glyphs), Some(1));
     }
 }

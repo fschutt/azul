@@ -196,6 +196,17 @@ impl ParsedFontTrait for FontRef {
         crate::font_ref_to_parsed_font(self).get_glyph_size(glyph_id, font_size)
     }
 
+    fn glyph_ink_box(&self, glyph_id: u16) -> Option<[i16; 4]> {
+        // The box of the decoded outline (`decode_glyph_inner` takes it around the outline's
+        // points); a glyph without an outline paints nothing.
+        let glyph = crate::font_ref_to_parsed_font(self).get_or_decode_glyph(glyph_id)?;
+        if glyph.outline.is_empty() {
+            return Some([0; 4]);
+        }
+        let b = &glyph.bounding_box;
+        Some([b.min_x, b.min_y, b.max_x, b.max_y])
+    }
+
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
         crate::font_ref_to_parsed_font(self).get_hyphen_glyph_and_advance(font_size)
     }

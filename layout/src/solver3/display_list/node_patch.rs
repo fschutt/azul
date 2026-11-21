@@ -395,6 +395,15 @@ pub(crate) fn commit(list: &mut DisplayList, patches: &[DecorationPatch], placem
             .splice(at..end, run.layout_node_mapping.iter().copied());
         list.uniform_text_bgs
             .splice(at..end, run.uniform_text_bgs.iter().copied());
+        // The ink table may be shorter than the list (a list from before it existed, a
+        // table nobody filled): padded up to the run, then kept in step like the others.
+        if list.text_ink.len() < end {
+            list.text_ink.resize(end, None);
+        }
+        list.text_ink.splice(
+            at..end,
+            (0..new_len).map(|i| run.text_ink.get(i).copied().flatten()),
+        );
         list.text_selection_colors
             .splice(at..end, run.text_selection_colors.iter().copied());
         list.color_bindings

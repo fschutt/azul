@@ -2514,7 +2514,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 for (i, m) in dl.layout_node_mapping.iter().enumerate() {
                     if let Some((idx, _)) = m {
                         if changed.contains(idx) {
-                            if let Some(b) = dl.items[i].visual_bounds() {
+                            if let Some(b) = dl.visual_bounds_of(i) {
                                 rects.push(b);
                             }
                         }

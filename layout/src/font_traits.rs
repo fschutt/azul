@@ -66,6 +66,15 @@ pub trait ParsedFontTrait: Send + Clone + ShallowClone {
     /// Returns the size of a glyph at the given font size, or `None` if the glyph is missing.
     fn get_glyph_size(&self, glyph_id: u16, font_size: f32) -> Option<LogicalSize>;
 
+    /// The box of a glyph's outline in font units, y up: `[x_min, y_min, x_max, y_max]`
+    /// (all zero for a glyph without an outline: a space). The display list takes the ink of
+    /// a text run from it (`DisplayList::text_ink`). `None` - the default, and the answer
+    /// for a glyph the face does not have - means "not known": the run then keeps the
+    /// estimate of `DisplayListItem::visual_bounds`.
+    fn glyph_ink_box(&self, _glyph_id: u16) -> Option<[i16; 4]> {
+        None
+    }
+
     /// Returns the glyph ID and horizontal advance of the hyphen character at the given font size.
     fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)>;
 

@@ -354,10 +354,19 @@ struct Open {
 }
 
 impl ItemGrid {
-    /// Read `items` once: the nesting, the box of every child, a grid for every level that is
-    /// worth one.
-    #[allow(clippy::cast_possible_truncation)] // a list has far fewer than 2^32 items
+    /// [`Self::of_with`] with every item's own visual bounds (a text run's estimate).
     pub(crate) fn of(items: &[DisplayListItem]) -> Self {
+        Self::of_with(items, |index| items[index].visual_bounds())
+    }
+
+    /// Read `items` once: the nesting, the box of every child, a grid for every level that is
+    /// worth one. `visual(i)` is the visual bounds of item `i` as the walk will ask for them
+    /// (`DisplayList::visual_bounds_of`: a text run's ink where the list knows it).
+    #[allow(clippy::cast_possible_truncation)] // a list has far fewer than 2^32 items
+    pub(crate) fn of_with(
+        items: &[DisplayListItem],
+        visual: impl Fn(usize) -> Option<LogicalRect>,
+    ) -> Self {
         if items.len() >= u32::MAX as usize {
             return Self::default();
         }
@@ -374,7 +383,7 @@ impl ItemGrid {
                 None => {
                     // The walk tests an item's visual bounds, or its bounds where it has none
                     // or a text shadow is open: both.
-                    let bound = match (item.visual_bounds(), item.bounds()) {
+                    let bound = match (visual(i), item.bounds()) {
                         (None, None) => Bound::Unbounded,
                         (Some(a), None) | (None, Some(a)) => Bound::of(Some(a)),
                         (Some(a), Some(b)) => Bound::of(Some(a)).union(Bound::of(Some(b))),
@@ -435,7 +444,8 @@ impl ItemGrid {
     /// The grid of `list`, made on the first ask and kept in the list's `index`.
     pub(crate) fn of_list(list: &DisplayList, index: &FrameIndex) -> Option<Arc<Self>> {
         let kept = index.derived.get_or_init(|| {
-            let grid: Arc<dyn Any + Send + Sync> = Arc::new(Self::of(&list.items));
+            let grid: Arc<dyn Any + Send + Sync> =
+                Arc::new(Self::of_with(&list.items, |index| list.visual_bounds_of(index)));
             grid
         });
         Arc::clone(kept).downcast::<Self>().ok()
