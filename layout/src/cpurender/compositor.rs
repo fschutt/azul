@@ -2805,14 +2805,6 @@ pub fn gpu_value_damage(
     // compositor renders with. Only a non-affine matrix (perspective) is
     // genuinely unknowable and keeps the full-repaint fallback; the previous
     // blanket needs_full made EVERY spring/move tick a full-frame repaint.
-    let identity = azul_core::transform::ComputedTransform3D {
-        m: [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ],
-    };
     let items = &display_list.items;
     // THE walk of the scroll frames open at each item (`ScrollStack`, shared
     // with the scroll-shift producers): an item is painted `scrolled` up and
@@ -2858,8 +2850,9 @@ pub fn gpu_value_damage(
                         reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner()),
                         scrolled,
                     );
-                    let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
-                    let new_m = new_transforms.get(&transform_key.id).unwrap_or(&identity);
+                    // With the matrix each frame PAINTED it with: a key without a
+                    // value is painted with the list's own matrix (`raster.rs`, the
+                    // `PushReferenceFrame` arm), not with the identity.
                     // The content through its own matrix and the frames
                     // around it, in one go (`FrameStack::map`).
                     let through = |frames: &FrameStack, m: &azul_core::transform::ComputedTransform3D| {
@@ -2867,7 +2860,7 @@ pub fn gpu_value_damage(
                         frames.push(origin, *m);
                         frames.map(content)
                     };
-                    match (through(&frames_old, old_m), through(&frames_new, new_m)) {
+                    match (through(&frames_old, &old_m), through(&frames_new, &new_m)) {
                         (Some(a), Some(b)) => {
                             out.rects.push(a);
                             out.rects.push(b);

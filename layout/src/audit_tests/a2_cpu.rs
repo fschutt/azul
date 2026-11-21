@@ -871,3 +871,71 @@ fn a2_cpu_the_editors_pan_then_zoom_then_pan_is_a_fresh_renders_frame_at_every_s
         }
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Hand-built lists: value damage (A2-cpu-01)
+// ---------------------------------------------------------------------------------------------
+
+/// A matrix that moves by `(tx, ty)`.
+fn translation(tx: f32, ty: f32) -> azul_core::transform::ComputedTransform3D {
+    azul_core::transform::ComputedTransform3D {
+        m: [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [tx, ty, 0.0, 1.0],
+        ],
+    }
+}
+
+/// A2-cpu-01. A frame whose key lost its value is painted with the matrix its list was built
+/// with (`initial_transform`), and that is where its damage lands - not at the identity.
+///
+/// Hand-computed: frame box and content (10, 20) 100 x 50, built with `translate(100, 0)`; the
+/// frame before held the value `translate(50, 0)`, this one holds none. Painted before at x
+/// 60..160, now at x 110..210. The damage was `[60, 160)` and `[10, 110)` (the identity): the
+/// columns 160..210 of the box were never repainted. Expected: `[60, 160)` and `[110, 210)`.
+///
+/// mutation: `unwrap_or(*initial_transform)` -> the identity for `new_m` in `gpu_value_damage`
+/// fails here.
+#[test]
+fn a2_cpu_01_a_changed_frame_without_a_live_value_is_damaged_where_its_initial_transform_paints_it(
+) {
+    use std::collections::HashMap;
+
+    use crate::cpurender::gpu_value_damage;
+
+    let frame = list(vec![
+        DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 7 },
+            initial_transform: translation(100.0, 0.0),
+            bounds: wlr(10.0, 20.0, 100.0, 50.0),
+        },
+        rect(10.0, 20.0, 100.0, 50.0, [200, 0, 0]),
+        DisplayListItem::PopReferenceFrame,
+    ]);
+    let mut before = HashMap::new();
+    before.insert(7_usize, translation(50.0, 0.0));
+    let now = HashMap::new();
+    let none = HashMap::new();
+    let damage = gpu_value_damage(&frame, &before, &none, &now, &none, &ScrollOffsetMap::new());
+    assert!(!damage.needs_full, "two translations: rects, no full repaint");
+    let covers = |x0: f32, x1: f32| {
+        damage.rects.iter().any(|r| {
+            r.origin.x <= x0 + 0.01
+                && r.origin.x + r.size.width >= x1 - 0.01
+                && r.origin.y <= 20.01
+                && r.origin.y + r.size.height >= 69.99
+        })
+    };
+    assert!(
+        covers(60.0, 160.0),
+        "where the frame before painted the box (its value, translate(50, 0)): {:?}",
+        damage.rects
+    );
+    assert!(
+        covers(110.0, 210.0),
+        "where this frame paints it (no value: the list's own translate(100, 0)): {:?}",
+        damage.rects
+    );
+}
