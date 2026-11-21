@@ -1987,6 +1987,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // you add a field here that can grow with the document, walk it —
         // that is exactly the mistake `layout_results` represented.
         e2e_mount: _,
+        // One small entry per image node that went back to a placeholder: bounded by the image
+        // nodes of a DOM, and empty unless one churns.
+        image_churn: _,
         #[cfg(feature = "e2e-server")]
             e2e_scratch: _,
         skip_gpu_sync: _,
@@ -2704,6 +2707,10 @@ pub struct LayoutWindow {
     /// its whole page per re-render). Swapped into `layout_cache` for the child's pass
     /// and out after it; dropped when the child DOM goes, and by `clear_caches`.
     pub child_layout_caches: BTreeMap<DomId, Solver3LayoutCache>,
+    /// The image nodes of each DOM that went back to a placeholder at frame rate, noted by the
+    /// reconciliation of each rebuild (`azul_core::diff::transfer_states_tracking`): this
+    /// window's, so another window's nodes (and another test's) never count into them.
+    pub image_churn: BTreeMap<DomId, azul_core::diff::ImageChurn>,
     /// Text layout cache for text3 (shaped glyphs, line breaks, etc.)
     pub text_cache: TextLayoutCache,
     /// Font manager for loading and caching fonts
@@ -4625,6 +4632,7 @@ impl LayoutWindow {
                 last_intrinsic_dirty: 0,
             },
             child_layout_caches: BTreeMap::new(),
+            image_churn: BTreeMap::new(),
             text_cache: TextLayoutCache::new(),
             font_manager,
             // The built-in textures under their CSS names, in every window.
@@ -11193,12 +11201,18 @@ impl LayoutWindow {
         }
 
         if *CASCADE_ENABLED.get_or_init(azul_core::profile::cascade_enabled) {
-            let counts = azul_core::prop_cache::drain_css_prop_counts();
+            // The walks the cache of the DOM this pass laid out counted: it is in
+            // `layout_results` now.
+            let counts = self
+                .layout_results
+                .get(&dom_id)
+                .map(|result| result.styled_dom.get_css_property_cache().drain_css_prop_counts())
+                .unwrap_or_default();
             let total: usize = counts.iter().map(|(_, n)| *n).sum();
             if total > 0 {
                 eprintln!("[CASCADE] cascade-walks this pass: {total} total");
                 for (label, n) in counts.iter().take(20) {
-                    eprintln!("[CASCADE]   {n:>8}  {label}");
+                    eprintln!("[CASCADE]   {n:>8}  {label:?}");
                 }
             }
         }
@@ -20608,10 +20622,11 @@ impl LayoutWindow {
                     Some((m.old_node_id.index(), ds.clone()))
                 })
                 .collect();
-            let repointing = azul_core::diff::transfer_states(
+            let repointing = azul_core::diff::transfer_states_tracking(
                 &mut old_node_data,
                 styled_dom.node_data.as_mut(),
                 &diff.node_moves,
+                self.image_churn.entry(dom_id).or_default(),
             );
             for (idx, ds) in taken {
                 if let Some(nd) = old_node_data
@@ -21028,10 +21043,11 @@ impl LayoutWindow {
                     Some((m.old_node_id.index(), ds.clone()))
                 })
                 .collect();
-            let repointing = azul_core::diff::transfer_states(
+            let repointing = azul_core::diff::transfer_states_tracking(
                 &mut old_node_data,
                 styled_dom.node_data.as_mut(),
                 &diff.node_moves,
+                self.image_churn.entry(dom_id).or_default(),
             );
             for (idx, ds) in taken {
                 if let Some(nd) = old_node_data

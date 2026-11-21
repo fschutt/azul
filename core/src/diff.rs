@@ -641,71 +641,19 @@ impl NodeIdentityConfig {
     }
 }
 
-/// How many steps the reconciliation keys took on this thread (a sibling visited, a node placed):
-/// what the size sweep of the tests reads to say the keys are linear in the nodes.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static KEY_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+/// How many steps the passes of the reconciliation took: what the size sweeps of the tests read
+/// to say the passes are linear in the nodes. The metered entry points ([`reconcile_dom_metered`],
+/// [`precompute_reconciliation_keys_metered`], ...) add to the one they are handed; the public ones
+/// hand them a throwaway.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReconcileWork {
+    /// The reconciliation keys: a sibling visited, a node placed.
+    pub keys: usize,
+    /// The shallow tiers of `reconcile_dom` (B2, B3): an old node indexed, a queue entry popped.
+    pub shallow: usize,
+    /// The subtree pass of `reconcile_dom` (A2): an old node indexed, a queue entry popped.
+    pub subtree: usize,
 }
-
-#[cfg(test)]
-fn key_work(steps: usize) {
-    KEY_WORK.with(|work| work.set(work.get() + steps));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn key_work(_steps: usize) {}
-
-/// How many steps the shallow tiers of `reconcile_dom` (B2, B3) took on this thread (an old node
-/// indexed, a queue entry popped): what the size sweep of the tests reads to say they are linear.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static SHALLOW_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn shallow_work(steps: usize) {
-    SHALLOW_WORK.with(|work| work.set(work.get() + steps));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn shallow_work(_steps: usize) {}
-
-/// How many steps the subtree pass of `reconcile_dom` (A2) took on this thread (an old node
-/// indexed, a queue entry popped): what the size sweep of the tests reads to say it is linear.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static SUBTREE_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn subtree_work(steps: usize) {
-    SUBTREE_WORK.with(|work| work.set(work.get() + steps));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn subtree_work(_steps: usize) {}
-
-/// How many nodes the merges of `transfer_states` visited on this thread to point the clones of
-/// a dropped dataset at the kept one (a node walked for them, a node entered in the index of
-/// `RefAnyHolders`): what the size sweep of the tests reads to say the merges of a rebuild are
-/// linear in its nodes.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static REPOINT_WORK: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-}
-
-#[cfg(test)]
-fn repoint_work(steps: usize) {
-    REPOINT_WORK.with(|work| work.set(work.get() + steps));
-}
-
-#[cfg(not(test))]
-#[inline(always)]
-const fn repoint_work(_steps: usize) {}
 
 /// What the shallow tiers of [`reconcile_dom`] (B2, B3) ask of an old node's PARENT before a new
 /// node may take it: the gate that keeps a keyless match from carrying focus, scroll or dataset
@@ -743,13 +691,14 @@ impl ShallowTiers {
         old_hierarchy: &[NodeHierarchyItem],
         old_rec_keys: &[u64],
         consumed: &[bool],
+        work: &mut ReconcileWork,
     ) -> Self {
         let mut tiers = Self::default();
         for (idx, node) in old_node_data.iter().enumerate() {
             if consumed.get(idx).copied().unwrap_or(false) {
                 continue;
             }
-            shallow_work(1);
+            work.shallow += 1;
             let id = NodeId::new(idx);
             let parent = old_hierarchy
                 .get(idx)
@@ -786,10 +735,11 @@ impl ShallowTiers {
         hash: DomNodeHash,
         gate: ParentGate,
         consumed: &[bool],
+        work: &mut ReconcileWork,
     ) -> Option<NodeId> {
         let queue = queues.get_mut(&(hash, gate))?;
         while let Some(old_id) = queue.pop_front() {
-            shallow_work(1);
+            work.shallow += 1;
             if !consumed.get(old_id.index()).copied().unwrap_or(true) {
                 return Some(old_id);
             }
@@ -820,6 +770,19 @@ pub fn calculate_reconciliation_key(
     hierarchy: &[NodeHierarchyItem],
     node_id: NodeId,
     identity: NodeIdentityConfig,
+) -> u64 {
+    calculate_reconciliation_key_metered(node_data, hierarchy, node_id, identity, &mut 0)
+}
+
+/// [`calculate_reconciliation_key`], adding the steps it took to `key_steps`
+/// ([`ReconcileWork::keys`]).
+#[must_use]
+pub(crate) fn calculate_reconciliation_key_metered(
+    node_data: &[NodeData],
+    hierarchy: &[NodeHierarchyItem],
+    node_id: NodeId,
+    identity: NodeIdentityConfig,
+    key_steps: &mut usize,
 ) -> u64 {
     use core::hash::Hasher;
 
@@ -896,7 +859,7 @@ pub fn calculate_reconciliation_key(
                 .get(parent_id.index())
                 .and_then(|h| h.first_child_id(parent_id));
             while let Some(sibling_id) = current {
-                key_work(1);
+                *key_steps += 1;
                 if sibling_id == nid {
                     break;
                 }
@@ -943,6 +906,18 @@ pub fn precompute_reconciliation_keys(
     hierarchy: &[NodeHierarchyItem],
     identity: NodeIdentityConfig,
 ) -> Vec<u64> {
+    precompute_reconciliation_keys_metered(node_data, hierarchy, identity, &mut 0)
+}
+
+/// [`precompute_reconciliation_keys`], adding the steps it took to `key_steps`
+/// ([`ReconcileWork::keys`]).
+#[must_use]
+pub(crate) fn precompute_reconciliation_keys_metered(
+    node_data: &[NodeData],
+    hierarchy: &[NodeHierarchyItem],
+    identity: NodeIdentityConfig,
+    key_steps: &mut usize,
+) -> Vec<u64> {
     use core::hash::Hasher;
 
     let n = node_data.len();
@@ -950,7 +925,15 @@ pub fn precompute_reconciliation_keys(
     // the node's type, which the per-node function answers.
     if hierarchy.len() < n {
         return (0..n)
-            .map(|idx| calculate_reconciliation_key(node_data, hierarchy, NodeId::new(idx), identity))
+            .map(|idx| {
+                calculate_reconciliation_key_metered(
+                    node_data,
+                    hierarchy,
+                    NodeId::new(idx),
+                    identity,
+                    key_steps,
+                )
+            })
             .collect();
     }
     let mut keys = vec![0_u64; n];
@@ -965,7 +948,7 @@ pub fn precompute_reconciliation_keys(
             continue;
         }
         placed[idx] = true;
-        key_work(1);
+        *key_steps += 1;
         let node = &node_data[idx];
         let key = identity.terminal_key(node).unwrap_or_else(|| {
             let mut hasher = crate::hash::DefaultHasher::new();
@@ -995,7 +978,7 @@ pub fn precompute_reconciliation_keys(
                 break;
             }
             walked += 1;
-            key_work(1);
+            *key_steps += 1;
             let kind = core::mem::discriminant(node_data[child_id.index()].get_node_type());
             let child_place = match identity.siblings_counted {
                 SiblingsCounted::All => all_before,
@@ -1018,7 +1001,13 @@ pub fn precompute_reconciliation_keys(
     // at the node count.
     for idx in 0..n {
         if !placed[idx] {
-            keys[idx] = calculate_reconciliation_key(node_data, hierarchy, NodeId::new(idx), identity);
+            keys[idx] = calculate_reconciliation_key_metered(
+                node_data,
+                hierarchy,
+                NodeId::new(idx),
+                identity,
+                key_steps,
+            );
         }
     }
     keys
@@ -1104,7 +1093,6 @@ fn compute_subtree_hashes(node_data: &[NodeData], hierarchy: &[NodeHierarchyItem
 /// * `timestamp` - Current timestamp for events
 /// * `identity` - What makes a node another node: the app's `AppConfig::node_identity`
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
-#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
 #[must_use]
 pub fn reconcile_dom(
     old_node_data: &[NodeData],
@@ -1116,6 +1104,37 @@ pub fn reconcile_dom(
     dom_id: DomId,
     timestamp: Instant,
     identity: NodeIdentityConfig,
+) -> DiffResult {
+    reconcile_dom_metered(
+        old_node_data,
+        new_node_data,
+        old_hierarchy,
+        new_hierarchy,
+        old_layout,
+        new_layout,
+        dom_id,
+        timestamp,
+        identity,
+        &mut ReconcileWork::default(),
+    )
+}
+
+/// [`reconcile_dom`], adding the steps its passes took to `work`.
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // large but cohesive: single-purpose parser/builder/dispatch (one branch per input variant)
+#[allow(clippy::too_many_arguments)] // `reconcile_dom`'s inputs plus the meter
+#[must_use]
+pub(crate) fn reconcile_dom_metered(
+    old_node_data: &[NodeData],
+    new_node_data: &[NodeData],
+    old_hierarchy: &[NodeHierarchyItem],
+    new_hierarchy: &[NodeHierarchyItem],
+    old_layout: &OrderedMap<NodeId, LogicalRect>,
+    new_layout: &OrderedMap<NodeId, LogicalRect>,
+    dom_id: DomId,
+    timestamp: Instant,
+    identity: NodeIdentityConfig,
+    work: &mut ReconcileWork,
 ) -> DiffResult {
     // Helper: pop the first non-consumed NodeId from a queue.
     fn pop_first_unconsumed(queue: &mut VecDeque<NodeId>, consumed: &[bool]) -> Option<NodeId> {
@@ -1141,11 +1160,13 @@ pub fn reconcile_dom(
     // collide (two sibling divs produce the same structural key, two identical nodes
     // produce the same content hash, etc.); we consume in document order on match.
 
-    let old_rec_keys = precompute_reconciliation_keys(old_node_data, old_hierarchy, identity);
+    let old_rec_keys =
+        precompute_reconciliation_keys_metered(old_node_data, old_hierarchy, identity, &mut work.keys);
     // AUDIT: precompute NEW keys too so the Tier-2/Tier-3 keyless tiers can be
     // gated on parent-key agreement (see STEP 2). Also lets Tier 1 look the key
     // up instead of recomputing it per node.
-    let new_rec_keys = precompute_reconciliation_keys(new_node_data, new_hierarchy, identity);
+    let new_rec_keys =
+        precompute_reconciliation_keys_metered(new_node_data, new_hierarchy, identity, &mut work.keys);
 
     let mut old_by_rec_key: OrderedMap<u64, VecDeque<NodeId>> = OrderedMap::default();
     let mut old_nodes_consumed = vec![false; old_node_data.len()];
@@ -1275,7 +1296,7 @@ pub fn reconcile_dom(
     let mut old_by_subtree: OrderedMap<(u64, Option<u64>), VecDeque<NodeId>> =
         OrderedMap::default();
     for (idx, h) in old_subtree_hashes.iter().enumerate() {
-        subtree_work(1);
+        work.subtree += 1;
         let container = old_containers.get(idx).copied().flatten();
         old_by_subtree
             .entry((*h, container))
@@ -1295,7 +1316,7 @@ pub fn reconcile_dom(
             // The entries in front of the first unconsumed one are consumed for good (A1 took
             // them) and leave the queue with it: every entry is looked at once.
             while let Some(old_id) = queue.pop_front() {
-                subtree_work(1);
+                work.subtree += 1;
                 if !old_nodes_consumed[old_id.index()] {
                     old_nodes_consumed[old_id.index()] = true;
                     matched[new_idx] = Some(old_id);
@@ -1451,13 +1472,19 @@ pub fn reconcile_dom(
         // new parent's.
         let gate = new_parent_match.map_or(ParentGate::Key(new_parent_key), ParentGate::Node);
         let tiers = shallow.get_or_insert_with(|| {
-            ShallowTiers::of(old_node_data, old_hierarchy, &old_rec_keys, &old_nodes_consumed)
+            ShallowTiers::of(
+                old_node_data,
+                old_hierarchy,
+                &old_rec_keys,
+                &old_nodes_consumed,
+                work,
+            )
         });
 
         // B2: Content hash (exact match — catches pure reorders)
         let hash = new_node.calculate_node_data_hash();
         if let Some(old_id) =
-            ShallowTiers::claim(&mut tiers.content, hash, gate, &old_nodes_consumed)
+            ShallowTiers::claim(&mut tiers.content, hash, gate, &old_nodes_consumed, work)
         {
             old_nodes_consumed[old_id.index()] = true;
             matched[new_idx] = Some(old_id);
@@ -1466,9 +1493,13 @@ pub fn reconcile_dom(
 
         // B3: Structural hash (text-node fallback — ignores text content)
         let structural_hash = new_node.calculate_structural_hash();
-        if let Some(old_id) =
-            ShallowTiers::claim(&mut tiers.structural, structural_hash, gate, &old_nodes_consumed)
-        {
+        if let Some(old_id) = ShallowTiers::claim(
+            &mut tiers.structural,
+            structural_hash,
+            gate,
+            &old_nodes_consumed,
+            work,
+        ) {
             old_nodes_consumed[old_id.index()] = true;
             matched[new_idx] = Some(old_id);
         }
@@ -1774,97 +1805,90 @@ const IMAGE_CHURN_PER_SEC: u32 = 10;
 /// Detection lives HERE, in the reconciler, because neither DOM shows it alone:
 /// the old build has a frame, the new build has a placeholder, and only the
 /// pair reveals the churn. No user code has to opt in.
-/// Per-node churn bookkeeping: `(count, window_start, warned)`.
 ///
-/// Shared with the tests so the detector can be asserted on directly, instead
-/// of only through a message on stderr that nothing can observe.
-#[cfg(feature = "std")]
-type ImageChurnMap = BTreeMap<usize, (u32, std::time::Instant, bool)>;
-
-#[cfg(feature = "std")]
-fn image_churn_state() -> &'static std::sync::Mutex<ImageChurnMap> {
-    use std::sync::{Mutex, OnceLock};
-    static CHURN: OnceLock<Mutex<ImageChurnMap>> = OnceLock::new();
-    CHURN.get_or_init(|| Mutex::new(ImageChurnMap::new()))
+/// What it remembers is per node: how many times it re-initialised, when that
+/// window started and whether it was said. A DOM that is rebuilt keeps one
+/// (the window that rebuilds it: [`transfer_states_tracking`]), so the nodes
+/// of one window are never mistaken for those of another, and a test asserts
+/// on the detector it made instead of on a message on stderr that nothing can
+/// observe.
+#[derive(Debug, Default, Clone)]
+pub struct ImageChurn {
+    /// By node index: `(count, window_start, warned)`.
+    #[cfg(feature = "std")]
+    nodes: BTreeMap<usize, (u32, std::time::Instant, bool)>,
 }
 
-/// How many times this node has re-initialised inside the current window.
-#[cfg(all(feature = "std", test))]
-pub(crate) fn image_churn_count(node_index: usize) -> u32 {
-    image_churn_state()
-        .lock()
-        .ok()
-        .and_then(|m| m.get(&node_index).map(|e| e.0))
-        .unwrap_or(0)
+impl ImageChurn {
+    /// How many times this node has re-initialised inside the current window.
+    #[cfg(all(feature = "std", test))]
+    pub(crate) fn count(&self, node_index: usize) -> u32 {
+        self.nodes.get(&node_index).map_or(0, |entry| entry.0)
+    }
+
+    /// Notes that the image of node `node_index` re-initialised, and says so once it does at
+    /// frame rate. `carried`: the previous frame was carried forward.
+    #[cfg(feature = "std")]
+    fn note(&mut self, node_index: usize, carried: bool) {
+        use std::{sync::OnceLock, time::Instant};
+
+        // The environment's `AZ_SUPPRESS`, read once: it is the configuration of the process, as
+        // it is for every lint.
+        static SUPPRESSED: OnceLock<bool> = OnceLock::new();
+        if *SUPPRESSED.get_or_init(|| {
+            let v = std::env::var("AZ_SUPPRESS")
+                .or_else(|_| std::env::var("AZ_SUPRESS"))
+                .unwrap_or_default();
+            v.split(',')
+                .any(|t| t.trim().eq_ignore_ascii_case(IMAGE_CHURN_SUPPRESS_TAG))
+        }) {
+            return;
+        }
+
+        // Per node: how many times it re-initialised, when that window started, and
+        // whether we have already said so. "The time it was last updated and how
+        // much" is the whole state — no history, no allocation per event.
+        let now = Instant::now();
+        let entry = self.nodes.entry(node_index).or_insert((0, now, false));
+        if now.duration_since(entry.1).as_secs_f32() >= 1.0 {
+            *entry = (1, now, entry.2);
+            return;
+        }
+        entry.0 += 1;
+
+        // Warn once per node. This runs on every rebuild of a resizing window; a
+        // warning per frame would bury the message it is trying to deliver.
+        if entry.0 < IMAGE_CHURN_PER_SEC || entry.2 {
+            return;
+        }
+        entry.2 = true;
+        let rate = entry.0;
+
+        if carried {
+            crate::diagnostics::emit(format!(
+                "[azul][image-churn] node {node_index} rebuilt its image as a PLACEHOLDER {rate}x in \
+                 one second. The previous frame was carried forward each time, so nothing flickers — \
+                 but a live image node is being reconstructed every frame. If this is not a capture \
+                 widget, build the node once and update it through the image cache. (suppress with \
+                 AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
+            ));
+        } else {
+            crate::diagnostics::emit(format!(
+                "[azul][image-churn] node {node_index} rebuilt its image as a PLACEHOLDER {rate}x in \
+                 one second and the previous frame could NOT be carried forward: this node has NO \
+                 DATASET + merge callback, so the reconciler cannot tell the rebuilt node is the same \
+                 widget. The live image is discarded every frame and the node falls back to its \
+                 placeholder until the next one arrives — a continuous flicker. If this is a video or \
+                 camera node, it is almost certainly missing its dataset: attach one with a \
+                 DatasetMergeCallback (see MapWidget / ScreenCaptureWidget). (suppress with \
+                 AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
+            ));
+        }
+    }
+
+    #[cfg(not(feature = "std"))]
+    fn note(&mut self, _node_index: usize, _carried: bool) {}
 }
-
-#[cfg(feature = "std")]
-fn note_image_reinitialised(node_index: usize, carried: bool) {
-    use std::{
-        collections::BTreeMap,
-        sync::{Mutex, OnceLock},
-        time::Instant,
-    };
-
-    static SUPPRESSED: OnceLock<bool> = OnceLock::new();
-    if *SUPPRESSED.get_or_init(|| {
-        let v = std::env::var("AZ_SUPPRESS")
-            .or_else(|_| std::env::var("AZ_SUPRESS"))
-            .unwrap_or_default();
-        v.split(',')
-            .any(|t| t.trim().eq_ignore_ascii_case(IMAGE_CHURN_SUPPRESS_TAG))
-    }) {
-        return;
-    }
-
-    // Per node: how many times it re-initialised, when that window started, and
-    // whether we have already said so. "The time it was last updated and how
-    // much" is the whole state — no history, no allocation per event.
-    let churn = image_churn_state();
-    let Ok(mut map) = churn.lock() else {
-        return; // a poisoned lint counter must never take the app down
-    };
-
-    let now = Instant::now();
-    let entry = map.entry(node_index).or_insert((0, now, false));
-    if now.duration_since(entry.1).as_secs_f32() >= 1.0 {
-        *entry = (1, now, entry.2);
-        return;
-    }
-    entry.0 += 1;
-
-    // Warn once per node. This runs on every rebuild of a resizing window; a
-    // warning per frame would bury the message it is trying to deliver.
-    if entry.0 < IMAGE_CHURN_PER_SEC || entry.2 {
-        return;
-    }
-    entry.2 = true;
-    let rate = entry.0;
-
-    if carried {
-        crate::diagnostics::emit(format!(
-            "[azul][image-churn] node {node_index} rebuilt its image as a PLACEHOLDER {rate}x in \
-             one second. The previous frame was carried forward each time, so nothing flickers — \
-             but a live image node is being reconstructed every frame. If this is not a capture \
-             widget, build the node once and update it through the image cache. (suppress with \
-             AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
-        ));
-    } else {
-        crate::diagnostics::emit(format!(
-            "[azul][image-churn] node {node_index} rebuilt its image as a PLACEHOLDER {rate}x in \
-             one second and the previous frame could NOT be carried forward: this node has NO \
-             DATASET + merge callback, so the reconciler cannot tell the rebuilt node is the same \
-             widget. The live image is discarded every frame and the node falls back to its \
-             placeholder until the next one arrives — a continuous flicker. If this is a video or \
-             camera node, it is almost certainly missing its dataset: attach one with a \
-             DatasetMergeCallback (see MapWidget / ScreenCaptureWidget). (suppress with \
-             AZ_SUPPRESS={IMAGE_CHURN_SUPPRESS_TAG})"
-        ));
-    }
-}
-
-#[cfg(not(feature = "std"))]
-fn note_image_reinitialised(_node_index: usize, _carried: bool) {}
 
 /// Executes state migration between the old DOM and the new DOM based on diff results.
 ///
@@ -1892,6 +1916,24 @@ pub fn transfer_states(
     old_node_data: &mut [NodeData],
     new_node_data: &mut [NodeData],
     node_moves: &[NodeMove],
+) -> crate::refany::Repointing {
+    transfer_states_tracking(
+        old_node_data,
+        new_node_data,
+        node_moves,
+        &mut ImageChurn::default(),
+    )
+}
+
+/// [`transfer_states`], noting the image nodes that went back to a placeholder in `churn`: the
+/// [`ImageChurn`] of the DOM being rebuilt, which the window that rebuilds it keeps from one
+/// rebuild to the next (a throwaway one, as [`transfer_states`] makes, never sees a node twice,
+/// so it never says anything).
+pub fn transfer_states_tracking(
+    old_node_data: &mut [NodeData],
+    new_node_data: &mut [NodeData],
+    node_moves: &[NodeMove],
+    churn: &mut ImageChurn,
 ) -> crate::refany::Repointing {
     use crate::refany::OptionRefAny;
 
@@ -1925,7 +1967,7 @@ pub fn transfer_states(
             if new_node_data[new_idx].image_is_placeholder()
                 && !old_node_data[old_idx].image_is_placeholder()
             {
-                note_image_reinitialised(new_idx, false);
+                churn.note(new_idx, false);
             }
             continue; // No merge callback, skip
         };
@@ -1990,7 +2032,7 @@ pub fn transfer_states(
                     // Handled — but still worth saying if it happens every
                     // frame, because rebuilding a live image node at 60 Hz is
                     // work nobody asked for.
-                    note_image_reinitialised(new_idx, true);
+                    churn.note(new_idx, true);
                 }
 
                 // 4. Store the merged result back in the new node
@@ -2050,6 +2092,9 @@ pub fn transfer_states(
             }
         }
     }
+    if let Some(index) = &holders {
+        replaced.visits.add(index.visits as u64);
+    }
     replaced
 }
 
@@ -2064,7 +2109,7 @@ pub fn transfer_states(
 /// parent, which is why this scans the whole arena and not just the merge
 /// node.
 fn repoint_orphaned_refanys(node_data: &mut [NodeData], replaced: &crate::refany::Repointing) {
-    repoint_work(node_data.len());
+    replaced.visits.add(node_data.len() as u64);
     for node in node_data.iter_mut() {
         replaced.repoint(node);
     }
@@ -2095,6 +2140,9 @@ fn repoint_orphaned_refanys(node_data: &mut [NodeData], replaced: &crate::refany
 #[derive(Default)]
 struct RefAnyHolders {
     by_allocation: OrderedMap<usize, Vec<usize>>,
+    /// How many nodes were entered and repointed: what [`transfer_states`] adds to the
+    /// `visits` of the `Repointing` it returns.
+    visits: usize,
 }
 
 impl RefAnyHolders {
@@ -2114,7 +2162,7 @@ impl RefAnyHolders {
         let Some(node) = node_data.get_mut(idx) else {
             return;
         };
-        repoint_work(1);
+        self.visits += 1;
         let by_allocation = &mut self.by_allocation;
         node.for_each_refany(&mut |refany: &mut RefAny| {
             let nodes = by_allocation
@@ -2157,7 +2205,7 @@ impl RefAnyHolders {
         nodes.dedup();
         for idx in &nodes {
             if let Some(node) = node_data.get_mut(*idx) {
-                repoint_work(1);
+                self.visits += 1;
                 merge.repoint(node);
             }
         }

@@ -32,6 +32,7 @@ use crate::{
     resources::{ColorKey, OpacityKey, TransformKey},
     styled_dom::StyledDom,
     transform::{detect_cpu_features, ComputedTransform3D, RotationMode},
+    work_count::WorkCount,
 };
 
 /// A map of this module keyed by a node (a `HashMap`, or a `BTreeMap` in a
@@ -78,14 +79,6 @@ pub trait RekeyNodes {
     fn node_map<V>(&mut self, map: &mut NodeMap<V>);
     /// Rewrites the keys of a map keyed by a DOM and a node.
     fn dom_node_map<V>(&mut self, map: &mut DomNodeMap<V>);
-}
-
-#[cfg(all(test, feature = "std"))]
-std::thread_local! {
-    /// Tests: how many CSS matrices [`GpuValueCache`] has built on this thread
-    /// (`css_transform_of`): the cascade lookups and the matrix products of
-    /// one node's `transform`.
-    static CSS_MATRICES_BUILT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// What the key of a [`StampedMap`] has to be: what the map of this build
@@ -413,6 +406,10 @@ pub struct GpuValueCache {
     /// reads this struct's source and fails otherwise). Only equality is
     /// compared.
     pub value_generation: u64,
+    /// How many CSS matrices this cache has built (`css_transform_of`): the cascade lookups and
+    /// the matrix products of one node's `transform`. What a test reads to say a pass builds
+    /// each matrix once; no renderer reads it.
+    pub css_matrices_built: WorkCount,
 }
 
 /// Represents a change to a GPU transform key.
@@ -1236,7 +1233,7 @@ impl GpuValueCache {
                 let at_size = if self.css_transform_sizes.get(&node) == Some(&size) {
                     Some(*live)
                 } else {
-                    Self::css_transform_of(styled_dom, node, size)
+                    Self::css_transform_of(styled_dom, node, size, &self.css_matrices_built)
                 };
                 at_size.map(|transform| (*key, transform))
             });
@@ -1621,6 +1618,7 @@ impl GpuValueCache {
         styled_dom: &StyledDom,
         node_id: NodeId,
         size: (f32, f32),
+        built: &WorkCount,
     ) -> Option<ComputedTransform3D> {
         let css_property_cache = styled_dom.get_css_property_cache();
         let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -1628,8 +1626,7 @@ impl GpuValueCache {
         let transform_prop =
             css_property_cache.get_transform(node_data, &node_id, styled_node_state);
         let t = transform_prop.as_ref().and_then(|v| v.get_property())?;
-        #[cfg(all(test, feature = "std"))]
-        CSS_MATRICES_BUILT.with(|built| built.set(built.get() + 1));
+        built.bump();
         let default_transform_origin = StyleTransformOrigin::default();
         let transform_origin =
             css_property_cache.get_transform_origin(node_data, &node_id, styled_node_state);
@@ -1685,7 +1682,9 @@ impl GpuValueCache {
         }
         let mut changed = 0;
         for (node_id, size) in stale {
-            let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
+            let Some(fresh) =
+                Self::css_transform_of(styled_dom, node_id, size, &self.css_matrices_built)
+            else {
                 continue;
             };
             self.css_transform_sizes.insert(node_id, size);
@@ -1723,7 +1722,9 @@ impl GpuValueCache {
         {
             return false;
         }
-        let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
+        let Some(fresh) =
+            Self::css_transform_of(styled_dom, node_id, size, &self.css_matrices_built)
+        else {
             return false;
         };
         self.css_transform_sizes.insert(node_id, size);
@@ -1811,7 +1812,8 @@ impl GpuValueCache {
                 // node's own box — the previous pass's size before layout, 0
                 // (the corner) when no size is known yet.
                 let size = node_size(node_id).unwrap_or((0.0, 0.0));
-                let current_transform = Self::css_transform_of(styled_dom, node_id, size);
+                let current_transform =
+                    Self::css_transform_of(styled_dom, node_id, size, &self.css_matrices_built);
 
                 let existing_transform = if self.css_current_transform_values.is_empty() {
                     None
@@ -2191,24 +2193,26 @@ mod audit_a2_gpu_tests {
     fn a_pass_that_changes_nothing_builds_each_matrix_once() {
         let styled = labels(40);
         let small = |_: NodeId| Some((100.0_f32, 40.0_f32));
-        let built = || CSS_MATRICES_BUILT.with(|count| count.get());
+        fn built(cache: &GpuValueCache) -> u64 {
+            cache.css_matrices_built.get()
+        }
         let mut cache = GpuValueCache::empty();
 
         // The first pass: nothing is laid out yet when the sync runs.
-        let before = built();
+        let before = built(&cache);
         let _ = cache.synchronize_with_sizes(&styled, &|_| None);
         let transformed: Vec<NodeId> = cache.css_transform_keys.keys().copied().collect();
         assert_eq!(transformed.len(), 20);
-        assert_eq!(built() - before, 20, "the sync builds each matrix once");
+        assert_eq!(built(&cache) - before, 20, "the sync builds each matrix once");
         for node in &transformed {
             let _ = cache.reference_frame_at(&styled, *node, (100.0, 40.0));
         }
-        assert_eq!(built() - before, 40, "the first list is built at sizes the sync did not know");
+        assert_eq!(built(&cache) - before, 40, "the first list is built at sizes the sync did not know");
         assert_eq!(cache.refresh_transform_values(&styled, &small), 20);
-        assert_eq!(built() - before, 60);
+        assert_eq!(built(&cache) - before, 60);
 
         // The second pass changes nothing.
-        let before = built();
+        let before = built(&cache);
         let events = cache.synchronize_with_sizes(&styled, &small);
         assert!(events.transform_key_changes.is_empty());
         let frames: Vec<(TransformKey, ComputedTransform3D)> = transformed
@@ -2221,14 +2225,14 @@ mod audit_a2_gpu_tests {
             .collect();
         assert_eq!(cache.refresh_transform_values(&styled, &small), 0);
         assert_eq!(
-            built() - before,
+            built(&cache) - before,
             20,
             "one build per transformed node in a pass that changes nothing"
         );
         for (node, (key, baked)) in transformed.iter().zip(&frames) {
             assert_eq!(cache.css_transform_keys.get(node), Some(key));
             assert_eq!(
-                GpuValueCache::css_transform_of(&styled, *node, (100.0, 40.0)),
+                GpuValueCache::css_transform_of(&styled, *node, (100.0, 40.0), &WorkCount::new()),
                 Some(*baked),
                 "the list bakes what a build gives"
             );
@@ -2244,12 +2248,12 @@ mod audit_a2_gpu_tests {
                 (100.0, 40.0)
             })
         };
-        let before = built();
+        let before = built(&cache);
         let at_new_size = cache
             .reference_frame_at(&styled, resized, (300.0, 40.0))
             .expect("a frame")
             .1;
-        assert_eq!(built() - before, 1);
+        assert_eq!(built(&cache) - before, 1);
         assert_ne!(
             cache.css_current_transform_values.get(&resized),
             Some(&at_new_size),
@@ -2261,7 +2265,7 @@ mod audit_a2_gpu_tests {
             Some(&at_new_size),
             "the refresh publishes the resized node's matrix"
         );
-        assert_eq!(built() - before, 2);
+        assert_eq!(built(&cache) - before, 2);
     }
 
     /// Every bound transform and opacity of `cache`, by key id.
@@ -2947,8 +2951,9 @@ mod audit_a6_tests {
     /// The fields of the cache that hold NO bound value, and why each may be a plain type:
     /// `css_transform_sizes` is the size a CSS matrix was resolved against (no renderer
     /// reads it; a matrix that changes with it restamps its own map), `value_generation` is
-    /// the noted stamp itself.
-    const NOT_A_BOUND_VALUE: [&str; 2] = ["css_transform_sizes", "value_generation"];
+    /// the noted stamp itself, `css_matrices_built` counts the matrices built (a test reads it).
+    const NOT_A_BOUND_VALUE: [&str; 3] =
+        ["css_transform_sizes", "value_generation", "css_matrices_built"];
 
     /// A6-22. The guarantee "a frame that finds the generation it last read has no value to
     /// read again" is only as wide as the list of stamps the generation is made of. This
@@ -2969,7 +2974,11 @@ mod audit_a6_tests {
         let list = &list[..list.find("\n    }\n").expect("the end of the list")];
 
         let fields = cache_fields();
-        assert_eq!(fields.len(), 27, "harness: 24 maps, the light, the sizes, the noted stamp");
+        assert_eq!(
+            fields.len(),
+            28,
+            "harness: 24 maps, the light, the sizes, the noted stamp, the matrices built"
+        );
         let mut stamped = 0_usize;
         for (name, ty) in &fields {
             if ty.starts_with("StampedMap<") || ty.starts_with("StampedValue<") {

@@ -19,6 +19,7 @@ use crate::{
     dom::NodeData,
     id::{NodeDataContainer, NodeDataContainerRef, NodeHierarchyRef, NodeId},
     styled_dom::{NodeHierarchyItem, StyledNodeState},
+    work_count::WorkCount,
 };
 
 /// Has all the necessary information about the style CSS path
@@ -58,15 +59,18 @@ impl CascadeInfoVec {
     }
 }
 
-#[cfg(all(test, feature = "std"))]
-std::thread_local! {
-    /// How often [`matches_html_element`] ran on this thread. A restyle's cost
-    /// is this count, so tests read it to see which rules a node is tried
-    /// against.
-    pub(crate) static MATCH_ATTEMPTS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-    /// How many earlier siblings the general sibling combinator (`~`) tried
-    /// on this thread.
-    pub(crate) static GENERAL_SIBLING_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+/// How much matching a cascade did: the selector matches it tried and the earlier siblings its
+/// general sibling combinators (`~`) looked at. A restyle's cost is the first, so tests read it
+/// to see which rules a node is tried against; the cache that cascades keeps one
+/// (`CssPropertyCache::match_work`).
+///
+/// It is no part of what the cache is: two caches that differ in nothing else are equal.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct MatchWork {
+    /// How often [`matches_html_element_metered`] ran.
+    pub(crate) attempts: WorkCount,
+    /// How many earlier siblings the general sibling combinator (`~`) tried.
+    pub(crate) sibling_steps: WorkCount,
 }
 
 /// The interaction states selector matching reads for the compounds LEFT of
@@ -184,7 +188,6 @@ pub struct GeneralSiblingMemo {
 /// the same rules: `sibling_memo` is its [`GeneralSiblingMemo`] and the
 /// number it names `css_path` by.
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
-#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
 #[allow(clippy::too_many_arguments)] // the matcher's inputs plus the memo
 #[must_use]
 pub fn matches_html_element_remembering(
@@ -195,12 +198,41 @@ pub fn matches_html_element_remembering(
     html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,
     ancestor_states: Option<AncestorStates<'_>>,
+    sibling_memo: Option<(&mut GeneralSiblingMemo, usize)>,
+) -> bool {
+    matches_html_element_metered(
+        css_path,
+        node_id,
+        node_hierarchy,
+        node_data,
+        html_node_tree,
+        expected_path_ending,
+        ancestor_states,
+        sibling_memo,
+        &MatchWork::default(),
+    )
+}
+
+/// [`matches_html_element_remembering`], adding the matching it did to `work`: the cascade
+/// passes the [`MatchWork`] of the cache it styles.
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
+#[allow(clippy::too_many_arguments)] // the matcher's inputs plus the memo and the meter
+#[must_use]
+pub(crate) fn matches_html_element_metered(
+    css_path: &CssPath,
+    node_id: NodeId,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
+    html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+    expected_path_ending: Option<CssPathPseudoSelector>,
+    ancestor_states: Option<AncestorStates<'_>>,
     mut sibling_memo: Option<(&mut GeneralSiblingMemo, usize)>,
+    work: &MatchWork,
 ) -> bool {
     use self::CssGroupSplitReason::{AdjacentSibling, Children, DirectChildren, GeneralSibling};
 
-    #[cfg(all(test, feature = "std"))]
-    MATCH_ATTEMPTS.with(|c| c.set(c.get() + 1));
+    work.attempts.bump();
 
     if css_path.selectors.is_empty() {
         return false;
@@ -336,8 +368,7 @@ pub fn matches_html_element_remembering(
                     // the answer this search ends with.
                     let mut passed: Vec<NodeId> = Vec::new();
                     while let Some(sib) = sibling {
-                        #[cfg(all(test, feature = "std"))]
-                        GENERAL_SIBLING_STEPS.with(|c| c.set(c.get() + 1));
+                        work.sibling_steps.bump();
                         if left_group_matches(
                             content_group,
                             html_node_tree[sib],
@@ -522,23 +553,6 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
-#[cfg(all(test, feature = "std"))]
-std::thread_local! {
-    /// How many sibling links [`construct_html_cascade_tree`] followed on
-    /// this thread: what the size sweep of the tests reads to say a parent of
-    /// many children is walked once, not once per child that has children.
-    pub(crate) static SIBLING_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-}
-
-/// One sibling link followed by [`construct_html_cascade_tree`].
-// Not `const`: the tests' build counts in a thread-local, which a `const fn` cannot touch.
-#[allow(clippy::missing_const_for_fn)]
-#[inline]
-fn count_sibling_step() {
-    #[cfg(all(test, feature = "std"))]
-    SIBLING_STEPS.with(|c| c.set(c.get() + 1));
-}
-
 /// Every node's place among its parent's ELEMENT children
 /// ([`CascadeInfo`]), for the structural pseudo-classes.
 ///
@@ -552,6 +566,19 @@ pub fn construct_html_cascade_tree(
     node_hierarchy: &NodeHierarchyRef<'_>,
     node_depths_sorted: &[(usize, NodeId)],
     node_data: &NodeDataContainerRef<'_, NodeData>,
+) -> NodeDataContainer<CascadeInfo> {
+    construct_html_cascade_tree_metered(node_hierarchy, node_depths_sorted, node_data, &mut 0)
+}
+
+/// [`construct_html_cascade_tree`], adding the sibling links it followed to `sibling_steps`:
+/// what the size sweep of the tests reads to say a parent of many children is walked once, not
+/// once per child that has children.
+#[must_use]
+pub(crate) fn construct_html_cascade_tree_metered(
+    node_hierarchy: &NodeHierarchyRef<'_>,
+    node_depths_sorted: &[(usize, NodeId)],
+    node_data: &NodeDataContainerRef<'_, NodeData>,
+    sibling_steps: &mut u64,
 ) -> NodeDataContainer<CascadeInfo> {
     let mut nodes = (0..node_hierarchy.len())
         .map(|_| CascadeInfo {
@@ -578,7 +605,7 @@ pub fn construct_html_cascade_tree(
         let counted_before = elements_before.get(parent_id.index()).copied().flatten();
         let element_index_in_parent = counted_before.map_or_else(|| parent_id
                 .preceding_siblings(node_hierarchy)
-                .inspect(|_| count_sibling_step())
+                .inspect(|_| *sibling_steps += 1)
                 .filter(|sib_id| is_element_sibling(&node_data[*sib_id]))
                 .count(), |before| before as usize + usize::from(is_element_sibling(&node_data[*parent_id])));
 
@@ -590,7 +617,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last_element = true;
                 let mut next = node_hierarchy[*parent_id].next_sibling;
                 while let Some(sib_id) = next {
-                    count_sibling_step();
+                    *sibling_steps += 1;
                     if is_element_sibling(&node_data[sib_id]) {
                         is_last_element = false;
                         break;
@@ -606,7 +633,7 @@ pub fn construct_html_cascade_tree(
         // Count only element children for index_in_parent
         let mut element_idx: u32 = 0;
         for child_id in parent_id.children(node_hierarchy) {
-            count_sibling_step();
+            *sibling_steps += 1;
             let is_text = !is_element_sibling(&node_data[child_id]);
 
             // Find whether this is the last element child (skip trailing text nodes)
@@ -616,7 +643,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last = true;
                 let mut next = node_hierarchy[child_id].next_sibling;
                 while let Some(sib_id) = next {
-                    count_sibling_step();
+                    *sibling_steps += 1;
                     if is_element_sibling(&node_data[sib_id]) {
                         is_last = false;
                         break;

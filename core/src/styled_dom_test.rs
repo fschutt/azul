@@ -3003,9 +3003,9 @@ mod audit_a3_core_tests {
                     Dom::create_span_with_text("label").with_css(&format!("width: {}px;", 10 + i % 7)),
                 );
             }
-            DOM_PREPARE_STEPS.with(|c| c.set(0));
             let styled = StyledDom::create_from_dom(root);
-            (styled, DOM_PREPARE_STEPS.with(core::cell::Cell::get))
+            let steps = styled.get_css_property_cache().dom_prepare_steps.get();
+            (styled, steps)
         };
         let (styled, few) = steps_for(100);
         let (_, many) = steps_for(400);
@@ -3042,10 +3042,9 @@ mod audit_a3_core_tests {
                     .with_child(Dom::create_span_with_text("a label")),
             )
         };
-        crate::prop_cache::TAG_ID_PASSES.with(|c| c.set(0));
         let mut styled = StyledDom::create_from_dom(page());
         assert_eq!(
-            crate::prop_cache::TAG_ID_PASSES.with(core::cell::Cell::get),
+            styled.get_css_property_cache().tag_id_passes.get(),
             1,
             "one walk for the tag ids of a new DOM"
         );
@@ -3057,10 +3056,10 @@ mod audit_a3_core_tests {
             .generate_tag_ids(&styled.node_data.as_container(), &styled.node_hierarchy);
         assert_eq!(ids.as_ref(), &again[..]);
 
-        crate::prop_cache::TAG_ID_PASSES.with(|c| c.set(0));
+        styled.get_css_property_cache().tag_id_passes.reset();
         styled.restyle(Css::empty());
         assert_eq!(
-            crate::prop_cache::TAG_ID_PASSES.with(core::cell::Cell::get),
+            styled.get_css_property_cache().tag_id_passes.get(),
             1,
             "one walk for the tag ids of a restyle"
         );

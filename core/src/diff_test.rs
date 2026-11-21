@@ -186,10 +186,15 @@ mod audit_tests {
             let mut nodes = Vec::new();
             let mut items = Vec::new();
             flatten(&spec, None, None, &mut nodes, &mut items);
-            KEY_WORK.with(|w| w.set(0));
-            let keys = precompute_reconciliation_keys(&nodes, &items, NodeIdentityConfig::default());
+            let mut steps = 0;
+            let keys = precompute_reconciliation_keys_metered(
+                &nodes,
+                &items,
+                NodeIdentityConfig::default(),
+                &mut steps,
+            );
             assert_eq!(keys.len(), k + 1);
-            KEY_WORK.with(std::cell::Cell::get)
+            steps
         };
         let (small, large) = (work(500), work(2_000));
         assert!(small >= 500, "harness: the steps were counted ({small})");
@@ -1989,10 +1994,11 @@ mod autotest_generated {
         };
         let placeholder = || ImageRef::null_image(1, 1, RawImageFormat::BGRA8, b"ph".to_vec());
 
-        // A node index this test owns exclusively, so a parallel test cannot
-        // move the counter under it.
+        // The detector is this test's own, so no other test (nor another window) can move its
+        // counts: the node index it asks about is any node.
         const NODE: usize = 4242;
-        let before = image_churn_count(NODE);
+        let mut churn = ImageChurn::default();
+        assert_eq!(churn.count(NODE), 0, "a detector nothing was told is at nothing");
 
         for _ in 0..4 {
             let mut old = vec![NodeData::create_div(); NODE + 1];
@@ -2001,21 +2007,27 @@ mod autotest_generated {
             new[NODE] = NodeData::create_image(placeholder());
             // NO dataset and NO merge callback — exactly the "forgot the
             // dataset on the video node" mistake.
-            transfer_states(
+            transfer_states_tracking(
                 &mut old,
                 &mut new,
                 &[NodeMove {
                     old_node_id: NodeId::new(NODE),
                     new_node_id: NodeId::new(NODE),
                 }],
+                &mut churn,
             );
         }
 
         assert!(
-            image_churn_count(NODE) > before,
+            churn.count(NODE) > 0,
             "the reconciler did not notice an image node reverting to a placeholder while the \
              previous build held a real frame — the flicker this lint exists to name would go \
              unreported"
+        );
+        assert_eq!(
+            ImageChurn::default().count(NODE),
+            0,
+            "the detector of another DOM was not told"
         );
     }
 
@@ -4497,9 +4509,15 @@ mod audit_a3_window_tests {
     }
 
     fn diff(old: &Spec, new: &Spec) -> DiffResult {
+        diff_metered(old, new).0
+    }
+
+    /// [`diff`], and the steps its passes took.
+    fn diff_metered(old: &Spec, new: &Spec) -> (DiffResult, ReconcileWork) {
         let (old_data, old_hierarchy) = arenas(old);
         let (new_data, new_hierarchy) = arenas(new);
-        reconcile_dom(
+        let mut work = ReconcileWork::default();
+        let result = reconcile_dom_metered(
             &old_data,
             &new_data,
             &old_hierarchy,
@@ -4509,7 +4527,9 @@ mod audit_a3_window_tests {
             DomId::ROOT_ID,
             Instant::now(),
             NodeIdentityConfig::default(),
-        )
+            &mut work,
+        );
+        (result, work)
     }
 
     fn old_of(diff: &DiffResult, new_index: usize) -> Option<usize> {
@@ -4632,14 +4652,14 @@ mod audit_a3_window_tests {
                     new_node_id: NodeId::new(i),
                 })
                 .collect();
-            KEY_WORK.with(|w| w.set(0));
-            let keys = crate::animation::anim_keys_for_moves(
+            let mut work = 0;
+            let keys = crate::animation::anim_keys_for_moves_metered(
                 &moves,
                 &nodes,
                 &items,
                 NodeIdentityConfig::default(),
+                &mut work,
             );
-            let work = KEY_WORK.with(std::cell::Cell::get);
             (keys, nodes, items, work)
         };
         let (keys, nodes, items, small) = run(500);
@@ -4810,11 +4830,10 @@ mod audit_a3_window_tests {
                     (0..2 * k).map(|i| label(10 * k + i)).collect(),
                 )],
             );
-            SHALLOW_WORK.with(|w| w.set(0));
-            let d = diff(&old, &new);
+            let (d, work) = diff_metered(&old, &new);
             // The root, the keyed parent and the k labels (2k nodes) with a positional twin.
             assert_eq!(d.node_moves.len(), 2 + 2 * k, "harness: who is matched");
-            SHALLOW_WORK.with(std::cell::Cell::get)
+            work.shallow
         };
         let (small, large) = (work(300), work(1_200));
         assert!(small >= 600, "harness: the steps were counted ({small})");
@@ -4913,11 +4932,10 @@ mod audit_a3_window_tests {
         let work = |k: usize| {
             let old = Spec(div(), (0..k).map(keyed_row).collect());
             let new = Spec(div(), (0..k).rev().map(keyed_row).collect());
-            SUBTREE_WORK.with(|w| w.set(0));
-            let d = diff(&old, &new);
+            let (d, work) = diff_metered(&old, &new);
             assert_eq!(d.node_moves.len(), 1 + 2 * k, "harness: every node is matched");
             assert_eq!(old_of(&d, 2), Some(2 * k), "harness: the first cell is the last row's");
-            SUBTREE_WORK.with(std::cell::Cell::get)
+            work.subtree
         };
         let (small, large) = (work(300), work(1_200));
         assert!(small >= 300, "harness: the steps were counted ({small})");
@@ -5153,9 +5171,8 @@ mod audit_a3_window_tests {
                 .iter()
                 .map(|dataset| stateful(div(), dataset, keep_old))
                 .collect();
-            REPOINT_WORK.with(|w| w.set(0));
-            transfer_states(&mut old, &mut new, &in_place(rows));
-            let visits = REPOINT_WORK.with(std::cell::Cell::get);
+            let repointing = transfer_states(&mut old, &mut new, &in_place(rows));
+            let visits = repointing.visits.get() as usize;
             for (row, node) in new.iter().enumerate() {
                 assert_eq!(
                     dataset_at(node),

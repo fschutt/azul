@@ -1355,14 +1355,14 @@ mod audit_a3_window_tests {
                 repointing.replace(dataset, &kept);
             }
             let mut holders: Vec<RefAny> = dropped.clone();
-            REPOINT_PROBES.with(|probes| probes.set(0));
+            repointing.probes.reset();
             for holder in &mut holders {
                 repointing.repoint(holder);
             }
             assert!(holders
                 .iter()
                 .all(|holder| core::ptr::eq(holder.sharing_info.ptr, kept.sharing_info.ptr)));
-            REPOINT_PROBES.with(core::cell::Cell::get)
+            repointing.probes.get()
         };
         let (small, large) = (probes(200), probes(800));
         assert_eq!(small, 2 * 200, "two lookups per holder");

@@ -1205,18 +1205,11 @@ impl StyledDomMemoryReport {
 /// tested there. Run a real app with this dial to settle it.
 #[cfg(feature = "std")]
 pub(crate) fn cascade_trace(msg: impl FnOnce() -> String) {
-    use std::sync::{
-        atomic::{AtomicUsize, Ordering},
-        OnceLock,
-    };
+    use std::sync::OnceLock;
+    // The environment's `AZ_CASCADE_TRACE`, read once: the dial is configuration of the process.
     static ON: OnceLock<bool> = OnceLock::new();
-    static N: AtomicUsize = AtomicUsize::new(0);
     if *ON.get_or_init(|| std::env::var("AZ_CASCADE_TRACE").is_ok()) {
-        eprintln!(
-            "[cascade #{}] {}",
-            N.fetch_add(1, Ordering::Relaxed) + 1,
-            msg()
-        );
+        eprintln!("[cascade] {}", msg());
     }
 }
 
@@ -1318,7 +1311,7 @@ impl StyledDom {
         let mut next_scope_id = 0usize;
         scope_inline_css(&mut swap_dom, &mut next_scope_id);
         let mut node_css: Vec<Css> = Vec::new();
-        take_css_from_dom(&mut swap_dom, &mut node_css);
+        let prepare_steps = next_scope_id + take_css_from_dom(&mut swap_dom, &mut node_css);
         let css = if node_css.is_empty() {
             css
         } else {
@@ -1333,7 +1326,14 @@ impl StyledDom {
             merged
         };
 
-        Self::create_from_prepared_dom(swap_dom, css, context, inherited_from_host)
+        let mut styled =
+            Self::create_from_prepared_dom(swap_dom, css, context, inherited_from_host);
+        styled
+            .css_property_cache
+            .downcast_mut()
+            .dom_prepare_steps
+            .add(prepare_steps as u64);
+        styled
     }
 
     /// The flatten and the cascade of a DOM that is PREPARED: its node
@@ -1663,9 +1663,7 @@ impl StyledDom {
     /// [`Self::a_raised_state_hands_values_down`]).
     #[allow(clippy::too_many_lines)] // the passes of a cascade, in order
     pub fn cascade_at_rest(&mut self) {
-        static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
-
-        let cascade_dbg = *CASCADE_BREAKDOWN.get_or_init(crate::profile::memory_enabled);
+        let cascade_dbg = crate::profile::memory_enabled();
         let node_count = self.node_data.as_ref().len();
         let mut css = core::mem::take(
             &mut self
@@ -1891,7 +1889,7 @@ impl StyledDom {
         //    only to drop the original (collect, then strip) was a parse's
         //    worth of allocations per node with a style of its own.
         let mut all_css = Vec::new();
-        take_css_from_dom(&mut dom, &mut all_css);
+        let prepare_steps = next_scope_id + take_css_from_dom(&mut dom, &mut all_css);
         // ... and the user-origin sheets after them, unscoped (already past
         // `scope_inline_css`, which only walks the DOM's own sheets).
         all_css.extend(user_sheets.iter().cloned());
@@ -1913,7 +1911,14 @@ impl StyledDom {
 
         // 3. Flatten. The DOM is prepared: its counts are exact and its sheets
         //    are scoped, taken and merged above. The cascade is the caller's.
-        Self::unstyled_from_prepared_dom(dom, combined_css, context, inherited_from_host)
+        let mut styled =
+            Self::unstyled_from_prepared_dom(dom, combined_css, context, inherited_from_host);
+        styled
+            .css_property_cache
+            .downcast_mut()
+            .dom_prepare_steps
+            .add(prepare_steps as u64);
+        styled
     }
 
     /// Appends another `StyledDom` as a child to the `self.root`
@@ -4694,13 +4699,6 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     }
 }
 
-#[cfg(all(test, feature = "std"))]
-std::thread_local! {
-    /// How many nodes the walks that prepare a `Dom` for styling visited on
-    /// this thread (`scope_inline_css`, `take_css_from_dom`).
-    pub(crate) static DOM_PREPARE_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
-}
-
 /// #47: scope every node's inline css to its own subtree. Walks the tree in the
 /// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat `NodeIds`, so the
 /// `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule (via
@@ -4709,8 +4707,6 @@ std::thread_local! {
 /// they can no longer leak to the whole tree. `fixup_children_estimated()` must
 /// have run first so `estimated_total_children` is populated/exact.
 fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
-    #[cfg(all(test, feature = "std"))]
-    DOM_PREPARE_STEPS.with(|c| c.set(c.get() + 1));
     let start = *next_id;
     let end = start + dom.estimated_total_children;
     for css in dom.css.as_mut().iter_mut() {
@@ -4735,15 +4731,15 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
 /// order [`collect_css_from_dom`] lists them (depth-first: a node's
 /// children first, then its own in their order), leaving every node without
 /// CSS as [`strip_css_from_dom`] does: the two in one walk, without a copy
-/// of every sheet.
-fn take_css_from_dom(dom: &mut Dom, out: &mut Vec<Css>) {
-    #[cfg(all(test, feature = "std"))]
-    DOM_PREPARE_STEPS.with(|c| c.set(c.get() + 1));
+/// of every sheet. Returns how many nodes it visited.
+fn take_css_from_dom(dom: &mut Dom, out: &mut Vec<Css>) -> usize {
+    let mut visited = 1;
     for child in dom.children.as_mut().iter_mut() {
-        take_css_from_dom(child, out);
+        visited += take_css_from_dom(child, out);
     }
     let own = core::mem::replace(&mut dom.css, Vec::new().into());
     out.extend(own.into_library_owned_vec());
+    visited
 }
 
 /// Recursively collect all CSS objects from a Dom tree (depth-first).
@@ -5088,6 +5084,11 @@ mod styled_dom_test;
 std::thread_local! {
     /// Rebuilds of a DOM's compact cache and inheritance tables on this
     /// thread ([`compact_cache_rebuilds_on_this_thread`]).
+    ///
+    /// Thread-wide, not a field of a cache: the tests of azul-layout and azul-dll read it around a
+    /// whole rebuild, which styles DOMs that are dropped before the rebuild returns (a DOM that is
+    /// cascaded and then discarded is what they read it for), so no cache or window outlives what it
+    /// counts.
     static COMPACT_CACHE_REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
@@ -5119,6 +5120,8 @@ pub fn compact_cache_rebuilds_on_this_thread() -> usize {
 #[cfg(feature = "std")]
 std::thread_local! {
     /// Nodes the cascade ran for on this thread ([`nodes_cascaded_on_this_thread`]).
+    ///
+    /// Thread-wide for the reason of [`COMPACT_CACHE_REBUILDS`].
     static NODES_CASCADED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 

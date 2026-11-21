@@ -28,7 +28,8 @@ pub use azul_css::props::basic::animation::SpringCurve as Spring;
 
 use crate::{
     diff::{
-        calculate_reconciliation_key, precompute_reconciliation_keys, NodeIdentityConfig, NodeMove,
+        calculate_reconciliation_key, precompute_reconciliation_keys_metered, NodeIdentityConfig,
+        NodeMove,
     },
     dom::NodeData,
     geom::LogicalRect,
@@ -657,6 +658,19 @@ pub fn anim_keys_for_moves(
     new_hierarchy: &[NodeHierarchyItem],
     identity: NodeIdentityConfig,
 ) -> Vec<(AnimKey, NodeId)> {
+    anim_keys_for_moves_metered(node_moves, new_node_data, new_hierarchy, identity, &mut 0)
+}
+
+/// [`anim_keys_for_moves`], adding the steps the keys took to `key_steps`
+/// (`ReconcileWork::keys`).
+#[must_use]
+pub(crate) fn anim_keys_for_moves_metered(
+    node_moves: &[NodeMove],
+    new_node_data: &[NodeData],
+    new_hierarchy: &[NodeHierarchyItem],
+    identity: NodeIdentityConfig,
+    key_steps: &mut usize,
+) -> Vec<(AnimKey, NodeId)> {
     if node_moves.is_empty() {
         return Vec::new();
     }
@@ -664,7 +678,12 @@ pub fn anim_keys_for_moves(
     // every earlier sibling of the node at each level of its chain: over all the moves of a
     // rebuild that is quadratic in the children of one parent (12,470 children: 78 million
     // steps), on every rebuild of the root.
-    let keys = precompute_reconciliation_keys(new_node_data, new_hierarchy, identity);
+    let keys = precompute_reconciliation_keys_metered(
+        new_node_data,
+        new_hierarchy,
+        identity,
+        key_steps,
+    );
     node_moves
         .iter()
         .filter(|m| m.new_node_id.index() < keys.len())

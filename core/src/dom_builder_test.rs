@@ -886,21 +886,20 @@ mod audit_dom_builder_tests {
         let data = RefAny::new(7u32);
         for n in [100usize, 2000] {
             let (texts, keys) = label_texts(n);
-            let closed_before = NODES_HASHED_AT_CLOSE.with(Cell::get);
             let flat = labels_through_builder(&texts, &keys, 1, &data);
+            let built = flat.flat().expect("the builder made a flat tree");
             assert_eq!(
-                NODES_HASHED_AT_CLOSE.with(Cell::get) - closed_before,
+                built.hashed_at_close.get(),
                 2 * n as u64,
                 "every node below the root is hashed once, as it is closed"
             );
-            let asked_before = NODES_HASHED_AT_FINGERPRINT.with(Cell::get);
-            let closed_before = NODES_HASHED_AT_CLOSE.with(Cell::get);
+            assert_eq!(built.hashed_at_fingerprint.get(), 0, "nothing asked for them yet");
             let (fingerprints, values) = fingerprint_built_dom(&flat);
             assert_eq!(fingerprints.structure.len(), 2 * n + 1);
             assert_eq!(values.nodes.len(), n, "one carried value per label with a handler");
-            assert_eq!(NODES_HASHED_AT_FINGERPRINT.with(Cell::get) - asked_before, 1);
-            assert_eq!(NODES_HASHED_AT_CLOSE.with(Cell::get) - closed_before, 0);
-            assert!(flat.is_flat(), "asking for the fingerprints leaves the tree flat");
+            let built = flat.flat().expect("asking for the fingerprints leaves the tree flat");
+            assert_eq!(built.hashed_at_fingerprint.get(), 1);
+            assert_eq!(built.hashed_at_close.get(), 2 * n as u64, "no node is hashed again");
         }
     }
 }

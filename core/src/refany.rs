@@ -311,6 +311,8 @@ pub(crate) struct RefCountInnerDebug {
 #[cfg(feature = "std")]
 fn report_released_downcast() {
     use std::sync::atomic::{AtomicBool, Ordering};
+    // Process-wide because the notice says it is said once per process: a downcast of a released
+    // `RefAny` can come from any callback of any window, and a per-window notice would repeat it.
     static SAID: AtomicBool = AtomicBool::new(false);
     if !SAID.swap(true, Ordering::Relaxed) {
         eprintln!(
@@ -1749,13 +1751,13 @@ pub struct Repointing {
     /// holder (`kept_for`), and once per merge to see whether it was known (`replace`): m
     /// merging nodes x every `RefAny` looked at, and m x m to collect the merges.
     by_address: alloc::collections::BTreeMap<usize, usize>,
-}
-
-/// How many entries of a [`Repointing`] its lookups looked at on this thread: what a test
-/// reads to say that a lookup does not search the merges.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static REPOINT_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// How many entries its lookups looked at: what a test reads to say that a lookup does not
+    /// search the merges.
+    pub(crate) probes: crate::work_count::WorkCount,
+    /// How many nodes the walks that pointed holders at what replaced the dropped allocations
+    /// visited (`crate::diff::transfer_states`): what a test reads to say the merges of a
+    /// rebuild are linear in its nodes.
+    pub(crate) visits: crate::work_count::WorkCount,
 }
 
 impl Repointing {
@@ -1776,8 +1778,9 @@ impl Repointing {
         self.replaced.is_empty()
     }
 
-    /// Adds the allocations `other` replaced.
+    /// Adds the allocations `other` replaced, and the work it did.
     pub fn extend(&mut self, other: Self) {
+        self.visits.add(other.visits.get());
         for (dropped, kept) in other.replaced {
             self.replace(&dropped, &kept);
         }
@@ -1798,8 +1801,7 @@ impl Repointing {
 
     /// What replaced the dropped allocation at `at`, if one was.
     fn dropped_at(&self, at: *const RefCountInner) -> Option<&RefAny> {
-        #[cfg(test)]
-        REPOINT_PROBES.with(|probes| probes.set(probes.get() + 1));
+        self.probes.bump();
         let index = *self.by_address.get(&(at as usize))?;
         self.replaced.get(index).map(|(_, kept)| kept)
     }

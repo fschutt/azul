@@ -55,18 +55,8 @@ use crate::{
     layout_inputs::NodeField,
     refany::{OptionRefAny, RefAny},
     styled_dom::NodeHierarchyItem,
+    work_count::WorkCount,
 };
-
-#[cfg(all(test, feature = "std"))]
-std::thread_local! {
-    /// How many nodes [`FlatDom::fingerprints_with_root`] hashed on this thread: one per
-    /// call (the root, which the `Dom` holds), whatever the size of the tree.
-    pub(crate) static NODES_HASHED_AT_FINGERPRINT: core::cell::Cell<u64> =
-        const { core::cell::Cell::new(0) };
-    /// How many nodes a builder hashed on this thread as they were closed.
-    pub(crate) static NODES_HASHED_AT_CLOSE: core::cell::Cell<u64> =
-        const { core::cell::Cell::new(0) };
-}
 
 /// The text a shared text node shows to a question about node TYPES alone.
 static EMPTY_TEXT: AzString = AzString::from_const_str("");
@@ -318,6 +308,12 @@ pub struct FlatDom {
     fingerprints: DomFingerprints,
     /// How many children the root has.
     root_children: u32,
+    /// How many nodes were hashed as they were closed: what a test reads to say every node
+    /// below the root is hashed once.
+    pub(crate) hashed_at_close: WorkCount,
+    /// How many nodes [`Self::fingerprints_with_root`] hashed: one per call (the root, which
+    /// the `Dom` holds), whatever the size of the tree.
+    pub(crate) hashed_at_fingerprint: WorkCount,
 }
 
 impl Default for FlatDom {
@@ -342,6 +338,8 @@ impl Default for FlatDom {
                 sheets: Vec::new(),
             },
             root_children: 0,
+            hashed_at_close: WorkCount::new(),
+            hashed_at_fingerprint: WorkCount::new(),
         }
     }
 }
@@ -543,8 +541,7 @@ impl FlatDom {
     /// The hashes of node `i`, which has `child_count` children: what `fingerprint_dom`
     /// makes of the same node of a `Dom`.
     fn hash_node(&mut self, i: usize, child_count: usize) -> NodeHashes {
-        #[cfg(all(test, feature = "std"))]
-        NODES_HASHED_AT_CLOSE.with(|c| c.set(c.get() + 1));
+        self.hashed_at_close.bump();
         let Some(node) = self.nodes.get_mut(i) else {
             return NodeHashes::default();
         };
@@ -648,8 +645,7 @@ impl FlatDom {
         root: &NodeData,
         root_sheets: &[Css],
     ) -> (DomFingerprints, PreCascadeTransfers) {
-        #[cfg(all(test, feature = "std"))]
-        NODES_HASHED_AT_FINGERPRINT.with(|c| c.set(c.get() + 1));
+        self.hashed_at_fingerprint.bump();
         let mut fp = self.fingerprints.clone();
         let child_count = self.root_children as usize;
         if let Some(slot) = fp.structure.first_mut() {
@@ -1692,6 +1688,10 @@ pub fn fingerprint_built_dom_against(
 std::thread_local! {
     /// Flat trees that became trees of `Dom`s on this thread
     /// ([`flat_expansions_on_this_thread`]).
+    ///
+    /// Thread-wide, not a field of an instance: the tests of azul-dll read it around a whole
+    /// rebuild, which expands (or leaves flat) DOMs that are dropped before the rebuild returns,
+    /// so no `Dom` or window outlives what it counts.
     static FLAT_EXPANSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
@@ -1722,6 +1722,9 @@ pub fn flat_expansions_on_this_thread() -> usize {
 #[cfg(feature = "std")]
 std::thread_local! {
     /// What [`set_flat_widgets_on_this_thread`] forced, if anything.
+    ///
+    /// Thread-scoped because a widget's `dom()` takes no argument that could carry the choice,
+    /// and the test that sets it builds on this thread.
     static FLAT_WIDGETS_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
         const { core::cell::Cell::new(None) };
 }
@@ -1734,6 +1737,7 @@ std::thread_local! {
 pub fn flat_widgets_enabled() -> bool {
     #[cfg(feature = "std")]
     {
+        // `AZ_FLAT_WIDGETS`, read once: the process's configuration.
         static FROM_ENVIRONMENT: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
         if let Some(forced) = FLAT_WIDGETS_ON_THIS_THREAD.with(core::cell::Cell::get) {
             return forced;
