@@ -20584,7 +20584,11 @@ impl LayoutWindow {
                     // The slot is another DOM's: this frame's dirt waits beside it for
                     // the root's pass (it was dropped here, and the tween's node kept
                     // the box of the frame before).
-                    Some(_) => self.hold_css_dirt(DomId::ROOT_ID, dirty),
+                    Some(_) => Self::hold_css_dirt_in(
+                        &mut self.css_dirty_waiting,
+                        DomId::ROOT_ID,
+                        dirty,
+                    ),
                 }
             }
             // The rebuild-free frame is only sound when NOTHING ELSE needs
@@ -28563,7 +28567,17 @@ impl LayoutWindow {
         dom_id: DomId,
         dirt: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     ) {
-        let held = self.css_dirty_waiting.entry(dom_id).or_default();
+        Self::hold_css_dirt_in(&mut self.css_dirty_waiting, dom_id, dirt);
+    }
+
+    /// [`Self::hold_css_dirt`] on the field alone, for a caller that holds another field of
+    /// the window borrowed (the animation tick holds the root's GPU value cache).
+    fn hold_css_dirt_in(
+        waiting: &mut BTreeMap<DomId, Vec<(NodeId, azul_css::props::property::RelayoutScope)>>,
+        dom_id: DomId,
+        dirt: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    ) {
+        let held = waiting.entry(dom_id).or_default();
         held.extend(dirt);
         // By node, the widest scope first: the first of each node stays.
         held.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
