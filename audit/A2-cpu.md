@@ -169,6 +169,7 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   Example: box (10, 20) 100 x 50, built with `translate(100, 0)`, old value `translate(50, 0)`, new: none. Painted now at
   x 110..210; old damage `[60, 160)` + `[10, 110)`; new and expected `[60, 160)` + `[110, 210)`.
 - test: `a2_cpu_01_a_changed_frame_without_a_live_value_is_damaged_where_its_initial_transform_paints_it`
+- severity: low
 - status: fixed `db350dbe6`
 
 ### A2-cpu-02 open question 1 of `CPU_RENDERING.md`: why the zoom-out frame at k = 1.000 was an isolated group
@@ -181,7 +182,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   editor's snap (`map.rs` `snap_transform`, `0095bba`: `|k - 1| < 1e-3 -> 1`, and no `Scale` at all for `k == 1`) covers
   exactly the range the truncation can produce, so the editor side is closed
   (`a_transform_close_to_the_identity_is_written_as_the_identity` in `map.rs` pins it). The engine side stays: A2-cpu-24.
-- status: answered by reading
+- severity: low
+- status: checked: fine (the question is answered; the editor snaps since `0095bba`; the engine side is A2-cpu-24)
 
 ### A2-cpu-03 the hit-test / IME chain applies reference-frame matrices about the window origin; the rasteriser applies them about the frame's origin
 - file:line `layout/src/headless.rs:349-382` (`resolve_chain`), `:321-346`, `:728-746` (`nested_dom_window_origin`, which my
@@ -193,7 +195,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   L (300, 200), 100 x 12, `transform-origin: 0 12px; transform: rotate(90deg)`. Its local point (50, 6) is painted at
   `(300, 200) + (6, 62) = (306, 262)`. The chain maps the screen point (306, 262) back with `M^-1` about (0, 0):
   `(250, -294)`, outside the box `[300, 400) x [200, 212)`: the press misses. Expected `o + M^-1 (s - o) = (350, 206)`.
-- status: open (A6 claims the functions): see `## For area A6`
+- severity: high
+- status: open: A6 owns `resolve_chain`; its commits "a box is hit where it is drawn" are reviewed under `## Review of A6`
 
 ### A2-cpu-04 `reference_frame_extent` leaves out what the frames INSIDE a frame move
 - file:line `layout/src/solver3/display_list.rs:3536-3607` (`GroupBounds`), `:3683-3767` (`FrameIndex::of`); consumers
@@ -206,7 +209,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   trail; (b) with F an isolated group (scale), its surface is x 0..200: the left half of the card is cut off.
   In the editor the picture root's extent is the ground rect (256 px around the view), so turned labels are inside it.
 - test: `a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved` (`#[ignore]`)
-- status: open (A1): see `## For area A1`
+- severity: medium
+- status: open: A1 owns `FrameIndex` (asked for its second round; the change is under `## For area A1`, the test is `a2_cpu_04_...`, ignored)
 
 ### A2-cpu-05 a changed `PushTextShadow` damaged nothing in the paired diff
 - file:line `compositor.rs:5607-5624` (base), `display_list.rs:3461` - class: wrong-output (missed damage) - severity: medium
@@ -226,8 +230,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
 - tests: `a2_cpu_05_a_changed_text_shadow_damages_the_runs_under_it_by_its_reach_and_no_other_run` (the two rects, exact);
   `a2_cpu_05_one_labels_halo_changes_colour_in_a_view_and_only_that_label_is_repainted` (`raster.rs`, `text_shadow_tests`:
   real glyphs; damaged render == full render, every pixel; skipped without a system font)
-- status: fixed `f47353dc3` + `163f54b38`. Left coarse: the WINDOWED (structural) path, where a shadow in the changed
-  window is still a full repaint (lists of different lengths: a view render, not a hover).
+- severity: medium
+- status: fixed `163f54b38` (after `f47353dc3`). The windowed (structural) path still repaints whole for a shadow in its window: lists of different lengths, a view render, not a hover
 
 ### A2-cpu-06 one clip, six ways to round it
 - file:line see the table "P -> D" - class: rounding - severity: low at dpi 1 / 2 (whole device edges), visible at 1.25 / 1.5
@@ -237,7 +241,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   `[62, ceil(1600.5)) = [62, 1601)`: a pan to the right copies the view's column over the neighbour's column 1600, and the
   repainted strip is on the left.
 - test: `a2_cpu_06_a_scaled_group_fills_the_same_columns_of_a_clip_between_pixels_as_a_direct_paint`
-- status: the group's clip fixed `9f2741513` (`AzRect::pixel_box`); the other sites open (A1): see `## For area A1`
+- severity: low
+- status: open: A1 applies `AzRect::pixel_box` at the five remaining sites (asked for its second round); the group's clip is fixed `9f2741513`
 
 ### A2-cpu-07 `execute_virtual_view_shift` checks that the DELTA is a whole device pixel but moves by the difference of the two rounded OFFSETS
 - file:line `compositor.rs:3671-3683` (gate), `:3740` -> `:2028-2032` (distance) - class: rounding - severity: none today
@@ -246,14 +251,19 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   `14 - 10 = 4`, a box at child x 10.3 moves 3. And `10.5003 -> 11.4999`: delta 0.9996 passes, distance `11 - 11 = 0`:
   `strips.is_empty()` returns NO damage for content that moved a pixel.
 - test: `a2_cpu_07_a_pan_between_offsets_off_the_pixel_grid_is_a_fresh_renders_frame` (`#[ignore]`)
-- status: open (A1 claims the function): see `## For area A1`
+- severity: low
+- status: fixed `ed81fdcf3` (by A1, with the gate on both offsets; `a2_cpu_07_...` is un-ignored there)
 
 ### A2-cpu-12 a blur wider than 64 device px is cut at the painted part of a group
 - file:line `raster.rs` `GROUP_VISIBLE_MARGIN` / `group_part_within` - class: wrong-output - severity: very low
-- evidence: the walk paints a group only inside the clip mapped back plus 64 group px. A `filter: blur()` or a shadow
-  whose kernel is wider than 64 device px reads transparent pixels past that cut: the visible edge of the blur differs
-  from an unculled render within `radius - 64` px of the damage edge. No content in the editor has such a radius.
-- status: open (note for A1: make the margin `max(64, widest blur of the group)` if a group can hold one)
+- evidence (read again for the review round; the first reading was wrong): the walk paints a group only inside the clip
+  mapped back plus 64 group px, and nothing reads the group's pixels across that cut. A box shadow is drawn and blurred
+  in a buffer of its own, the size of the whole shadow (`render_box_shadow`: `sw x sh`, cached), and only its BLIT is
+  clipped; a text shadow's buffer reaches the blur radius past what lands (`text_shadow_boxes`: `out +- r`), a kept halo
+  is drawn whole; a `filter: blur()` is not painted by the flat walk at all (layers only: the push carries no work
+  there); `flood()` / `composite()` act per pixel. What the margin has to cover is the composite's two bilinear taps.
+- severity: low
+- status: checked: fine (see the evidence: nothing in the flat walk blurs pixels of the group it was not given a buffer for)
 
 ### A2-cpu-13 a view's content offset was snapped on `get_hidpi_factor()`'s grid, not on the frame's
 - file:line `layout/src/window.rs:4353` (base; mine) - class: rounding / DPI - severity: none at 1, 1.25, 1.5, 1.75, 2; at any
@@ -263,7 +273,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   `dpi / 96` (1.3333334). Offset -300.3: old `round(-400.2999) / 1.333 = -300.075`, in the frame `-400.1`; new
   `round(-400.4) / 1.3333334`, in the frame `-400.0`.
 - test: `a2_cpu_13_a_views_content_offset_is_a_whole_device_pixel_of_the_frame_at_four_thirds`
-- status: fixed `8b69ea0a6` (`LayoutWindow::frame_dpi_factor()`); the shells should take the factor from it: `## For area A10`
+- severity: medium
+- status: fixed `8b69ea0a6`
 
 ### A2-cpu-14 the layered compositor rounded a reference frame's pivot to a device pixel; the flat walk and WebRender do not
 - file:line `compositor.rs:1325-1328` (base) - class: rounding - severity: low at whole device positions, visible at
@@ -272,16 +283,23 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   = 2 g + 20`.
 - test: `a2_cpu_14_a_scaled_frame_between_pixels_is_composited_where_the_damage_repaint_puts_it` (the two paths' frames
   are equal, every pixel)
+- severity: low
 - status: fixed `e14f80eb3`
 
 ### A2-cpu-15 a turned frame at the window's level: the full repaint (a layer) and the damage repaint (a group) are not the same pixels when layers nest inside it
 - file:line `compositor.rs:1496-1504` (`child_base`), the tests `lane_az_1_*` (tolerances of 40 and 400 pixels)
 - class: wrong-output - severity: low (edges only; the editor's turned labels are inside a view, which both paths paint
   with the flat walk)
-- evidence: a layer inside a promoted frame is rebased with `round(bounds.origin dpi)` and composited through the
-  frame's matrix on its own; the flat walk paints it into the frame's surface first and resamples once. The existing
-  tests accept the difference. After A2-cpu-14 a frame WITHOUT inner layers is exact.
-- status: open (A1: the retained-surface work decides whether window-level frames go through one path)
+- evidence (traced for the review round): a layer inside a promoted frame is NOT composited through the matrix on its
+  own: `composite_layer_recursive` takes the `is_group` branch for a turned layer with children, flattens them into a
+  copy of the frame's pixels (`local_base`) and turns the result once, as the flat walk does. For
+  `lane_az_1_the_groups_of_a_promoted_turned_frame_keep_their_layers` (frame box (40, 30), scroll box (100, 40) inside):
+  both paths end with the same 120 x 60 surface (blue, the green box at (60, 10)) and the same matrix
+  `T(40, 30) . R(12 deg)`; the tolerances of those tests (40 and 400 pixels) are slack, not a difference by design. At a
+  fractional device position the child layer is placed at `round(origin dpi)` where the flat walk rounds each item:
+  that is A2-cpu-21.
+- severity: low
+- status: checked: fine (at whole device positions the two paths build the same surface and the same matrix; at fractional ones it is A2-cpu-21)
 
 ### A2-cpu-16 a snapped offset is `n / s`, and `(x + n / s) x s` is `x s + n` only to 1e-5
 - file:line `window.rs` `virtual_view_content_offset` (the snap), `raster.rs` `VirtualView` arm (`acc - origin -
@@ -292,19 +310,22 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   (rounded at the old offset) and a fresh render (rounded at the new one) can differ by a pixel along that edge. At 1 and
   2 every term is exact. The tests of this area therefore stand on multiples of 4 px and allow two levels at 1.25 / 1.5.
 - fix: carry the view's offset in whole device pixels (an integer) through the raster and add it AFTER the scale.
-- status: open (A1): see `## For area A1`
+- severity: low
+- status: open: A1 (asked for its second round: the view's offset as whole device pixels through the walk; kept surfaces are keyed on the phase since `689ca37dc`)
 
 ### A2-cpu-17 a solid border thinner than one device pixel painted nothing (or two rows, one outside the box)
 - file:line `raster.rs` `render_border`, `let swi = sw as i32` - class: rounding - severity: low (hairline borders). Lead from A2-gpu.
 - test: `a2_cpu_17_a_border_thinner_than_a_device_pixel_is_one_pixel_inside_its_box`
-- status: fixed `c5f25d10d` (`(sw as i32).max(1)`, as WebRender)
+- severity: low
+- status: fixed `c5f25d10d`
 
 ### A2-cpu-18 the damaged walk culled a text under a shadow by its box, without the shadow's reach
 - file:line `raster.rs` `walk_items`, the `WalkCull::Damage` block (base: `render_display_list_damaged` 2743-2771)
 - class: wrong-output (missed repaint) - severity: low-medium (window-level text with an offset / wide shadow; the labels of
   a view go through `outside_active_clip`, which had the reach)
 - test: `a2_cpu_18_a_damage_rect_on_a_text_shadow_alone_repaints_the_shadow` (`raster.rs`, `text_shadow_tests`)
-- status: fixed `6836b9c89` (`text_shadow_reach`, used by both culls)
+- severity: medium
+- status: fixed `6836b9c89`
 
 ### A2-cpu-19 `execute_virtual_view_shift` counts every item after the view as an overlay, also the ones that paint nothing
 - file:line `compositor.rs:3755-3780` - class: waste - severity: a whole-view repaint per pan frame when it happens
@@ -312,7 +333,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   overlaps its clip. `HitTestArea`, `TextLayout` and `WebView` have bounds and paint nothing: a hit-test area emitted
   after the view over the view's box makes every pan repaint the box. (`overlay_rects_after_frame_in` has the same rule
   for scroll frames.) Not seen in the editor's measurements (13 px strips), so its list has none there today.
-- status: open (A1 claims the function): skip `HitTestArea | TextLayout | WebView` in both loops
+- severity: low
+- status: open: A1 owns `execute_virtual_view_shift` (asked for its second round): skip `HitTestArea | TextLayout | WebView` in both loops
 
 ### A2-cpu-20 the value damage and the item diff are placed with the REAL scroll offsets, an incremental frame paints at the BASELINE offsets
 - file:line `cpu_backend.rs:501-507`, `:598-608`, `:823-828` against `:1200-1204` - class: sign/offset - severity: very low
@@ -320,7 +342,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   and is painted there; `window_value_damage`, `compute_display_list_damage_live` and `collect_virtual_view_shifts` get
   `scroll_offsets`. The rects are up to half a device pixel from the pixels; after the outward snap a one-pixel column
   of a changed item inside such a frame can stay stale. (`compute_virtual_view_damage_live` gets the baseline: right.)
-- status: open (A1 claims `render_frame`): pass `next_scroll_baseline` to all three
+- severity: low
+- status: open: A1 owns `render_frame` (asked for its second round): pass `next_scroll_baseline` to all three
 
 ### A2-cpu-21 a plain layer is placed on a whole pixel and its content rounded relative to it; the flat walk rounds each item's own position
 - file:line `compositor.rs` `composite_layer_recursive` (`layout_offset_device_px`), `render_layers` (`offset_x`) against
@@ -328,15 +351,16 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
 - evidence: dpi 1.25, scroll frame clip origin x = 10 (12.5 device: the layer is placed at 13), an opaque rect at x = 20,
   w = 30 inside. Flat walk: `[round(25), round(62.5)) = [25, 63)`. Layer: local `[round(12.5), round(50)) = [13, 50)`, plus
   13: `[26, 63)`. Column 25 differs between a full repaint and a damage repaint of the same list.
-- status: open (A1): either the flat walk snaps a scroll frame's origin the way the layer does (WebRender's order:
-  offsets first, then edges, A2-gpu-05), or full repaints stop using layers for plain scroll frames
+- severity: low
+- status: open: A1 (asked for its second round): the flat walk snaps a scroll frame's origin as its layer is placed, or full repaints stop using layers for plain scroll frames
 
 ### A2-cpu-22 `node_groups_on_screen` subtracts the whole scroll AFTER the frames
 - file:line `compositor.rs:3199-3208` - class: sign/offset - severity: very low (a culler that errs to "visible" otherwise)
 - evidence: `affine_rect_about(m, bounds.origin, content)` with the unscrolled origin, then `moved_by(r, stack.scrolled())`.
   Right for scroll frames outside every frame; a scroll frame INSIDE a scaling frame is off by `(M - I) s`, and the group
   can be judged off screen while it shows (its animation would be culled).
-- status: open (not claimed; `ScrollStack::on_screen` with a `FrameStack` is the walk that is right)
+- severity: low
+- status: fixed `808ce391e`
 
 ### A2-cpu-23 the editor's zoom keeps the pointer's map point only for the scale it MEANT, not for the scale the engine draws
 - file:line m4p `mapedit3/src/ui/main/map.rs:564-593` (`write_picture_transform`), `:518` (`picture_transform`)
@@ -347,7 +371,8 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
   `k_q P + t = (k P + t) - (k - k_q) P`. Example: one wheel notch, `k = 1.189207 -> 1.189`: the point under a pointer at
   picture x 2000 is drawn 0.41 px left of the pointer; `k = 1.6817928 -> 1.681`: 1.6 px; at the settle it is back.
   Always to the left / up (the cut only shrinks).
-- status: open (A7-editor): see `## For area A7-editor`
+- severity: medium
+- status: fixed `385bbb2` (m4p, by A7-editor, with `1ec4150`; the assertion `error.anchor_px` by A11, `cad9f09`)
 
 ### A2-cpu-24 `FloatValue::new` truncates
 - file:line `css/src/props/basic/length.rs:223`, `css/src/cast.rs:40` - class: rounding - severity: low, but it is the root
@@ -355,33 +380,37 @@ Severity = how often it draws wrongly x how visible (ms where it costs time). Te
 - evidence: `FloatValue::new(0.29)`: `0.29f32 = 0.28999999`, `x 1000 = 289.99999 -> 289`: the value is 0.289.
   `scale(0.9999999)` is 0.999; `translate(-0.0007px)` is 0; `get_hidpi_factor()` at dpi 128 is 1.333.
 - fix: `(v * 1000.0).round() as isize` in `FloatValue::new` (and the same in `PixelValue` if it has its own).
-- status: open (css is A2-gpu's / A3-core's; A2-gpu has finished: for the coordinator to route)
+- severity: low
+- status: open: A3-core (owner of `css/`) is making `FloatValue::new` round
 
 ### A2-cpu-25 `is_identity_2d` does not look at the perspective terms
 - file:line `compositor.rs:77-84` - class: wrong-output - severity: very low (`matrix3d()` only)
 - evidence: it tests `m00, m01, m10, m11, m30, m31`. A matrix with those at the identity and `m03` / `m13` / `m33` not is
   painted in place, untilted; `translation_2d` does test them.
-- status: open (one more conjunct; not patched: no test without a perspective fixture)
+- severity: low
+- status: fixed `c44c8d260`
 
 ### A2-cpu-26 an opaque rect rounds both edges, a translucent one truncates them
 - file:line `raster.rs` `render_rect`: `round_edge` against `rect.x as i32` (`blend_bar`) - class: rounding - severity: low
 - evidence: a rect at x = 62.8, w = 10.4: opaque `[63, 73)`, at alpha 254 `[62, 73)`: a fade moves the box's left edge.
-- status: open (part of the one-rule decision of A2-cpu-06)
+- severity: low
+- status: fixed `88f18ef32`
 
 ### A2-cpu-27 the view shift's "covered" test reads the child's opaque fills at their layout place
 - file:line `compositor.rs:3704-3729` (`FrameIndex::opaque_fills`) - class: sign/offset - severity: very low today
 - evidence: a ground inside the picture's frame is taken at its L bounds; with the frame scaled to 0.5 the painted
   ground no longer covers the view, `covered` still says yes and the memmove runs over whatever shows around the
   picture. Harmless over a flat backdrop (what the editor has, and it pans through the transform while zoomed).
-- status: open (A1): count only fills outside every non-identity frame of the child
+- severity: low
+- status: open: A1 owns `execute_virtual_view_shift` and `FrameIndex` (asked for its second round): count only fills outside every non-identity frame of the child
 
 ### A2-cpu-28 the windowed diff damages a changed frame's box, not what the frame paints
 - file:line `compositor.rs:4898-4980` (`collect_window`) - class: wrong-output (missed damage) - severity: low
 - evidence: a `PushReferenceFrame` inside the changed window contributes its `bounds` through the frames. Its content can
   lie in the visually-equal SUFFIX (the window ends before it): content that reaches past the frame's box (a shadow, an
   overflowing child) is then not damaged although its matrix changed. The paired path uses the frame's extent.
-- status: open (not claimed): in `collect_window`, a `PushReferenceFrame` adds `reference_frame_extent_walked` instead of
-  its box
+- severity: low
+- status: fixed `3659e7e92`
 
 ### checked: fine
 - A2-cpu-08 `GroupGeometry::of` (`T(o) . Lm . T((x, y) - o)`) against `affine_rect_about` / `FrameStack::map` (`o + M (p - o)`)
