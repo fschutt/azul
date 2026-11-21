@@ -497,7 +497,11 @@ mod audit_a8_tests {
     fn a_face_registered_through_shared_bytes_shares_and_outlives_the_callers_handle() {
         use azul_css::shared_bytes::SharedBytes;
         let fonts = crate::text3::ui_fonts::bundled_ui_fonts();
-        let family = "Azul A8 SharedBytes Face";
+        // Not "Azul A8 SharedBytes Face": family names are matched normalized (letters and
+        // digits, lower case), and that name is the family of
+        // `a_loaded_runtime_face_shares_the_registered_bytes` then. The registry is the
+        // process's, so each of the two tests found the face of whichever ran first.
+        let family = "Azul A8 C Api Handle Face";
         let handle = SharedBytes::from_arc(Arc::from(&fonts[2 % fonts.len()].bytes[..]));
         let data = handle.as_slice().as_ptr();
         // what `CallbackInfo::register_font_shared` does with the handle

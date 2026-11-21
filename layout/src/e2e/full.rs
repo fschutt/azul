@@ -19883,10 +19883,13 @@ pub fn process_debug_event(
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 // Check each node in the layout tree to see if it has scrollbar_info (warm tier)
                 for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-                    let scrollbar_info = layout_result
-                        .layout_tree
-                        .warm(LayoutNodeId::new(node_idx))
-                        .and_then(|w| w.scrollbar_info.as_ref());
+                    // With what the registration raised beside the tree (a
+                    // view's published extent): the bars the window shows.
+                    let scrollbar_info = layout_window.scroll_manager.scrollbar_info(
+                        dom_id,
+                        node_idx,
+                        &layout_result.layout_tree,
+                    );
                     if let Some(scrollbar_info) = scrollbar_info {
                         if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                             let container = node.used_size.unwrap_or_default();

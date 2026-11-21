@@ -336,6 +336,63 @@ extern "C" fn poll_threads_on_main(_context: *mut std::ffi::c_void) {
     }
 }
 
+/// A window sent a scene without waiting for it (audit A4-31,
+/// `common::frame_schedule`): the frame is drawn by the pass the renderer's
+/// wake brings. Should that wake not come, [`open_scene_valves_on_main`] runs on
+/// the main queue once the valve's time has gone by and has the window make a
+/// pass by itself, which then waits for the scene as every pass used to. One
+/// timer per scene sent that way (a settle, not a frame), and nothing while no
+/// scene is in flight.
+fn arm_scene_valve() {
+    extern "C" {
+        static _dispatch_main_q: std::ffi::c_void;
+        /// `dispatch_time_t dispatch_time(dispatch_time_t when, int64_t delta)`
+        fn dispatch_time(when: u64, delta: i64) -> u64;
+        fn dispatch_after_f(
+            when: u64,
+            queue: *const std::ffi::c_void,
+            context: *mut std::ffi::c_void,
+            work: extern "C" fn(*mut std::ffi::c_void),
+        );
+    }
+    /// `DISPATCH_TIME_NOW`
+    const NOW: u64 = 0;
+    // A little past the valve's time, so that the valve is due when this runs.
+    let delay = crate::desktop::shell2::common::frame_schedule::FrameSchedule::VALVE
+        + std::time::Duration::from_millis(50);
+    let delay_ns = i64::try_from(delay.as_nanos()).unwrap_or(i64::MAX);
+    // SAFETY: libdispatch's main queue lives for the whole process, and the work
+    // function takes no context.
+    unsafe {
+        dispatch_after_f(
+            dispatch_time(NOW, delay_ns),
+            std::ptr::addr_of!(_dispatch_main_q),
+            std::ptr::null_mut(),
+            open_scene_valves_on_main,
+        );
+    }
+}
+
+/// The main queue's half of [`arm_scene_valve`]: every window whose scene has
+/// been in flight for the valve's time is asked for a pass (as the renderer's
+/// wake would have asked: `drain_loop_work`). A window whose scene landed
+/// meanwhile is not touched.
+extern "C" fn open_scene_valves_on_main(_context: *mut std::ffi::c_void) {
+    let now = std::time::Instant::now();
+    for wptr in registry::get_all_window_ptrs() {
+        if wptr.is_null() {
+            continue;
+        }
+        // SAFETY: the registry holds live windows only, and this runs on the main
+        // thread from the run loop, outside every window method.
+        let window = unsafe { &mut *wptr };
+        if window.frame_schedule.valve_due(now) {
+            window.frame_waiting = true;
+            window.request_redraw();
+        }
+    }
+}
+
 fn primary_screen_height() -> Option<f64> {
     let mtm = MainThreadMarker::new()?;
     unsafe {
@@ -5999,6 +6056,15 @@ pub struct MacOSWindow {
     /// WebRender published a frame after the renderer last took one in: the
     /// next pass shows it even when it has nothing new to send.
     frame_waiting: bool,
+    /// Whether a pass of the GPU path waits for the renderer's threads after
+    /// its send, and what is still on its way to them (audit A4-31,
+    /// `common::frame_schedule`): a transaction with a display list is sent
+    /// without the wait and drawn by the pass the renderer's wake brings.
+    frame_schedule: crate::desktop::shell2::common::frame_schedule::FrameSchedule,
+    /// The physical size of the last frame the GPU path drew. A pass at
+    /// another size (a resize, another screen's factor) is drawn in step with
+    /// its transaction, whatever it sends.
+    last_gpu_frame_size: Option<(u32, u32)>,
     /// A node drag of this window left it and runs as the system's drag
     /// session (`start_os_drag_if_it_left`) until `os_drag_ended`: AppKit
     /// tracks the pointer meanwhile, so no `mouseUp:` ends the node drag, and
@@ -7871,6 +7937,8 @@ impl MacOSWindow {
             awaiting_first_frame: false,
             blank_first_draws: 0,
             frame_waiting: false,
+            frame_schedule: crate::desktop::shell2::common::frame_schedule::FrameSchedule::new(),
+            last_gpu_frame_size: None, // the first frame is drawn in step
             os_drag_running: false,
             released: false,
         };
@@ -10944,8 +11012,43 @@ impl MacOSWindow {
 
         // Send the complete atomic transaction (a pass that only shows a
         // frame WebRender published has nothing to send).
+        let frame_waiting = std::mem::take(&mut self.frame_waiting);
         let only_shows_a_published_frame =
-            std::mem::take(&mut self.frame_waiting) && !display_list_needs_rebuild && txn.is_empty();
+            frame_waiting && !display_list_needs_rebuild && txn.is_empty();
+
+        // Whether this pass waits for the scene builder and the render backend
+        // after its send, and whether it draws (audit A4-31, the rules are
+        // `common::frame_schedule`'s). A transaction with a display list has
+        // the scene built again (10-30 ms est. for a map view): it is sent
+        // WITHOUT the wait, the window keeps the frame it shows, and the pass
+        // the renderer's wake brings (`drain_loop_work`: `frame_waiting`)
+        // draws it. Everything sent while that scene is in flight queues
+        // behind it. In step with their transaction, as before: a pass that
+        // sends no display list while nothing is in flight (every frame of a
+        // gesture), the window's first frame, a pass at another size than the
+        // last frame drawn, a live resize, and every pass with
+        // `AZ_WR_SYNC_SCENE=1`.
+        let frame_size = {
+            let size = self.common.current_window_state().size.get_physical_size();
+            (size.width, size.height)
+        };
+        let forced_sync = crate::desktop::shell2::common::frame_schedule::sync_scene_always()
+            || !display_list_initialized_at_entry
+            || self.last_gpu_frame_size != Some(frame_size)
+            || unsafe { self.window.contentView() }
+                .is_some_and(|view| unsafe { view.inLiveResize() });
+        let frame_send = self.frame_schedule.on_send(
+            crate::desktop::shell2::common::frame_schedule::FrameShape::of(
+                &txn,
+                only_shows_a_published_frame,
+            ),
+            crate::desktop::shell2::common::frame_schedule::FramePass {
+                forced_sync,
+                frame_waiting,
+                now: std::time::Instant::now(),
+            },
+        );
+
         // From here to the flush's return the UI thread waits for the scene
         // builder and the render backend: the frame's `gpu_blocked_us`.
         let blocked_started = std::time::Instant::now();
@@ -10953,8 +11056,10 @@ impl MacOSWindow {
             .common
             .layout_window
             .as_ref()
-            .filter(|_| !only_shows_a_published_frame)
+            .filter(|_| frame_send.send)
         {
+            // Behind whatever is still on its way, if anything is.
+            frame_send.route(&mut txn);
             crate::desktop::wr_translate2::count_transaction(&txn);
             let doc_id = wr_translate_document_id(layout_window.document_id);
             log_trace!(
@@ -10967,14 +11072,50 @@ impl MacOSWindow {
                 .as_mut()
                 .unwrap()
                 .send_transaction(doc_id, txn);
-            self.common
-                .render_api
-                .as_mut()
-                .unwrap()
-                .flush_scene_builder();
+        }
+        if frame_send.flush {
+            if let Some(render_api) = self.common.render_api.as_mut() {
+                render_api.flush_scene_builder();
+            }
         }
         log_trace!(LogCategory::Rendering, "[WebRender] Transaction sent");
         let blocked_us = crate::desktop::wr_translate2::elapsed_us(blocked_started);
+
+        // A scene went out without the wait: should no wake come for its
+        // frame, a pass comes by itself once the valve's time has gone by,
+        // and that pass waits.
+        if frame_send.arm_valve {
+            arm_scene_valve();
+        }
+
+        if !frame_send.render {
+            // Nothing to draw yet: what was sent is on its way, and the pass
+            // its frame's wake brings draws it. The window keeps the frame it
+            // shows (no `flushBuffer`), no frame is recorded, the GL textures
+            // of the frame on screen stay, and what this pass counted is
+            // published with the frame that shows it.
+            crate::desktop::wr_translate2::gpu_frame_is_drawn_later();
+            log_trace!(
+                LogCategory::Rendering,
+                "[render_and_present] Sent without the wait - the frame is drawn when it is built"
+            );
+            // The rest of a pass, as below: the frames the engine owes (a
+            // scrollbar's fade, halos left for later - their pictures queue
+            // behind the scene), and the web views where this layout put them.
+            let needs_fade_frame = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| lw.gpu_state_manager.frames_owed())
+                .unwrap_or(false);
+            if needs_fade_frame {
+                self.request_redraw();
+            }
+            if crate::desktop::shell2::common::webview::sync(self) {
+                self.request_redraw();
+            }
+            return Ok(());
+        }
 
         // Step 2: Call WebRender to composite the scene
         let render_started = std::time::Instant::now();
@@ -10990,6 +11131,25 @@ impl MacOSWindow {
                 *ready = false;
             }
             renderer.update();
+
+            // A4-31: is the scene that was sent without the wait in the frame
+            // the renderer holds now? Then it is in flight no more, and what
+            // this window believes the renderer holds of values and scroll
+            // offsets is forgotten: the next pass sends the current ones,
+            // whatever travelled with the scene or behind it.
+            if self.frame_schedule.scene_in_flight().is_some() {
+                if let Some(layout_window) = self.common.layout_window.as_mut() {
+                    let document_id = wr_translate_document_id(layout_window.document_id);
+                    let landed = self
+                        .frame_schedule
+                        .on_published(|pipeline| renderer.current_epoch(document_id, pipeline));
+                    if landed {
+                        layout_window
+                            .gpu_state_manager
+                            .invalidate_submitted_digests();
+                    }
+                }
+            }
 
             let device_size = webrender::api::units::DeviceIntSize::new(
                 physical_size.width as i32,
@@ -11088,10 +11248,25 @@ impl MacOSWindow {
             }
         }
 
+        // The frame was drawn at this size: a pass at another one is drawn in
+        // step with its transaction (A4-31, `forced_sync` above).
+        self.last_gpu_frame_size = Some(frame_size);
+
         // Clean up old textures from previous epochs to prevent memory leak
         // This must happen AFTER render() and buffer swap when WebRender no longer needs the
         // textures
-        if let Some(ref layout_window) = self.common.layout_window {
+        //
+        // Not while a scene is in flight (A4-31): its lists were sent at the
+        // epoch before the current one, but the frame on screen is still the
+        // scene before it, whose GL textures are one epoch older than the
+        // clean-up keeps. They go with the first frame drawn after the scene
+        // landed; at most one scene is in flight, so that is one epoch late.
+        if let Some(ref layout_window) = self
+            .common
+            .layout_window
+            .as_ref()
+            .filter(|_| self.frame_schedule.scene_in_flight().is_none())
+        {
             crate::desktop::gl_texture_integration::remove_old_gl_textures(
                 &layout_window.document_id,
                 layout_window.epoch,

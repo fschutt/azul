@@ -895,3 +895,297 @@ fn a6_26_a_frame_with_nothing_written_walks_no_bound_value() {
     assert!(!sync(&mut lw));
     assert_eq!(walked() - before, per_walk);
 }
+
+// ==== A4-31: a display list is sent without the wait, and nothing overtakes it ====
+
+mod a_settle_sent_without_the_wait {
+    //! The passes of a window over two zoom settles, built by the real
+    //! builders and sent the way `FrameSchedule` says, against a model of the
+    //! renderer's two queues in which the scene builder is as slow as it can
+    //! be (`frame_schedule::Wires`). What reaches the render backend is taken
+    //! by A5's recorder in the order it arrives, which fails on an update of
+    //! an image the renderer does not hold.
+
+    use std::time::{Duration, Instant};
+
+    use webrender::render_api::ResourceUpdate;
+
+    use super::*;
+    use crate::desktop::shell2::common::frame_schedule::{
+        FramePass, FrameSchedule, FrameSend, FrameShape, Wires,
+    };
+
+    /// What a pass handed the renderer: images added, given new pixels and
+    /// deleted, and whether a display list went.
+    type Handed = (usize, usize, usize, bool);
+
+    struct Shell {
+        view: Recorder,
+        schedule: FrameSchedule,
+        wires: Wires<WrTransaction>,
+        handed: Vec<Handed>,
+        /// How many of the applied transactions the recorder has taken.
+        taken: usize,
+        /// The passes that were sent without the wait.
+        without_the_wait: usize,
+        /// `AZ_WR_SYNC_SCENE=1`.
+        in_step: bool,
+        now: Instant,
+    }
+
+    impl Shell {
+        fn new(in_step: bool) -> Self {
+            let view = Recorder::new(1.0);
+            // Whatever this thread counted before is not this window's.
+            publish_gpu_frame(&view.window, 0, 0, 0);
+            Self {
+                view,
+                schedule: FrameSchedule::new(),
+                wires: Wires::new(),
+                handed: Vec::new(),
+                taken: 0,
+                without_the_wait: 0,
+                in_step,
+                now: Instant::now(),
+            }
+        }
+
+        /// The send of a pass, as `MacOSWindow::render_and_present_in_draw_rect`
+        /// makes it: ask the schedule, route, send, wait if told to.
+        fn pass(&mut self, mut txn: WrTransaction, first_frame: bool) -> FrameSend {
+            let n = self.handed.len();
+            let shape = FrameShape::of(&txn, false);
+            let said = self.schedule.on_send(
+                shape,
+                FramePass {
+                    forced_sync: self.in_step || first_frame,
+                    frame_waiting: false,
+                    now: self.now,
+                },
+            );
+            said.route(&mut txn);
+
+            let (mut added, mut updated, mut deleted) = (0, 0, 0);
+            for update in &txn.resource_updates {
+                match update {
+                    ResourceUpdate::AddImage(_) => added += 1,
+                    ResourceUpdate::UpdateImage(_) => updated += 1,
+                    ResourceUpdate::DeleteImage(_) => deleted += 1,
+                    _ => {}
+                }
+            }
+            self.handed.push((added, updated, deleted, shape.scene.is_some()));
+
+            let takes_queue = txn.takes_scene_builder_queue();
+            assert!(
+                takes_queue || !self.wires.anything_queued(),
+                "pass {n} goes straight to the render backend, past what waits in the scene \
+                 builder's queue"
+            );
+            let _ = self.wires.send(takes_queue, shape.scene.is_some(), txn);
+            if said.flush {
+                self.wires.drain();
+            } else {
+                self.without_the_wait += 1;
+            }
+            self.the_renderer_takes_what_arrived();
+            if said.render {
+                // No pass has a frame waiting here, so a pass that draws is
+                // one that waited: its frame is of everything sent so far,
+                // the last display list included.
+                assert!(
+                    !self.wires.anything_queued() && self.schedule.scene_in_flight().is_none(),
+                    "pass {n} draws while a display list is still on its way"
+                );
+            }
+            said
+        }
+
+        /// The render backend applies what reached it, in the order it
+        /// arrived: the recorder fails on an update of an image it does not
+        /// hold.
+        fn the_renderer_takes_what_arrived(&mut self) {
+            assert!(self.wires.in_order(), "applied in another order than sent");
+            while self.taken < self.wires.applied.len() {
+                let _ = self.view.take(&self.wires.applied[self.taken].1);
+                self.taken += 1;
+            }
+        }
+
+        /// The pass of a frame whose layout was made again.
+        fn full(&mut self, first_frame: bool) -> FrameSend {
+            let mut txn = WrTransaction::new();
+            build_full_transaction(&mut txn, &mut self.view.window, &OptionGlContextPtr::None)
+                .expect("the full transaction");
+            self.pass(txn, first_frame)
+        }
+
+        /// The pass of a frame that laid nothing out; `None` when it changed
+        /// nothing (the shell drops such a transaction).
+        fn lightweight(&mut self) -> Option<FrameSend> {
+            let mut txn = WrTransaction::new();
+            let frame = build_lightweight_transaction(
+                &mut txn,
+                &mut self.view.window,
+                &OptionGlContextPtr::None,
+            )
+            .expect("the lightweight transaction");
+            if frame.changed {
+                Some(self.pass(txn, false))
+            } else {
+                None
+            }
+        }
+
+        /// The scene builder gets as far as the scene in flight, the
+        /// renderer's wake brings a pass, and the renderer reports the
+        /// scene's epoch: what the shell does then.
+        fn the_scene_lands(&mut self) {
+            let Some((_, epoch)) = self.schedule.scene_in_flight() else {
+                return;
+            };
+            self.wires.drain_through_the_scene();
+            self.the_renderer_takes_what_arrived();
+            if self.schedule.on_published(|_| Some(epoch)) {
+                self.view
+                    .window
+                    .gpu_state_manager
+                    .invalidate_submitted_digests();
+            }
+        }
+
+        /// Lightweight passes until no halo is owed and a pass changes nothing.
+        fn come_to_rest(&mut self) {
+            for _ in 0..60 {
+                if self.lightweight().is_none() && !self.view.window.gpu_state_manager.halos_owed {
+                    return;
+                }
+            }
+            panic!("the window does not come to rest");
+        }
+    }
+
+    /// A map of twelve labels whose zoom settles, then another view, on a
+    /// thread of its own (the kept halos are a thread's): what every pass
+    /// handed over, and how many passes went without the wait.
+    fn two_settles(in_step: bool) -> (Vec<Handed>, usize) {
+        std::thread::spawn(move || {
+            text_halo_slots_in_this_thread(true);
+            draw_this_many_halos_a_frame_in_this_thread(4);
+            let mut shell = Shell::new(in_step);
+            let key = OpacityKey::unique();
+
+            // The window's first frame is in step, whatever it sends.
+            shell.view.lay_out(labels(12, 1.0));
+            let first = shell.full(true);
+            assert!(first.flush && first.render, "the first frame is drawn by its pass");
+            shell.come_to_rest();
+
+            // The zoom settles at 1.5: a new list, and four halos a frame.
+            shell.view.lay_out(labels(12, 1.5));
+            let settle = shell.full(false);
+            assert_eq!(
+                (settle.flush, settle.render),
+                (in_step, in_step),
+                "a display list waits only when the pass must be in step"
+            );
+            assert_eq!(shell.schedule.scene_in_flight().is_some(), !in_step);
+            assert!(
+                shell.view.window.gpu_state_manager.halos_owed,
+                "premise: the settle left halos for the frames that follow"
+            );
+            // While the scene is built: two halo frames. Their pictures - an
+            // `add_image`, an `update_image` under a key the scene's list
+            // names - queue behind the scene (`Shell::pass` and the recorder
+            // check each of them).
+            for _ in 0..2 {
+                let _ = shell.lightweight();
+            }
+            shell.the_scene_lands();
+            shell.come_to_rest();
+
+            // The second new list, of a view without a label (no halo is
+            // owed after it): then a zoom step while the scene is built - a
+            // transaction of nothing but values, which its builder lets skip
+            // the scene builder.
+            shell.view.lay_out(Dom::create_body().with_child(
+                Dom::create_div().with_css("width: 40px; height: 20px; background: #3366cc;"),
+            ));
+            let settle = shell.full(false);
+            assert_eq!(settle.flush, in_step);
+            assert!(
+                !shell.view.window.gpu_state_manager.halos_owed,
+                "premise: no halo is left, the next pass carries values only"
+            );
+            bind_opacity(&mut shell.view.window, 0, key, 0.5);
+            let step = shell.lightweight().expect("a value that moved is a frame");
+            assert_eq!(shell.handed.last(), Some(&(0, 0, 0, false)), "premise: values only");
+            assert_eq!(
+                (step.through_scene_builder, step.flush, step.render),
+                (!in_step, in_step, in_step),
+                "a zoom step behind a scene in flight queues behind it and is not drawn yet"
+            );
+            shell.the_scene_lands();
+            // The step after the scene landed: the one before may still be
+            // queued, so this one takes the queue too, and is waited for.
+            bind_opacity(&mut shell.view.window, 0, key, 0.75);
+            let step = shell.lightweight().expect("a value that moved is a frame");
+            assert_eq!(
+                (step.through_scene_builder, step.flush, step.render),
+                (!in_step, true, true)
+            );
+            shell.come_to_rest();
+
+            // At rest: nothing queued, nothing in flight, and the schedule
+            // asks for no pass however long the window is left alone.
+            assert!(!shell.wires.anything_queued());
+            assert!(!shell.schedule.unsettled());
+            assert!(!shell.schedule.valve_due(shell.now + Duration::from_secs(3600)));
+            assert!(shell.lightweight().is_none(), "an idle window sends nothing");
+            assert_eq!(shell.taken, shell.wires.applied.len());
+            (shell.handed, shell.without_the_wait)
+        })
+        .join()
+        .expect("the shell's thread")
+    }
+
+    /// A4-31. With the wait dropped for display lists the renderer is handed
+    /// the same things in the same order as with `AZ_WR_SYNC_SCENE=1` - the
+    /// builders do not know the schedule, and this is the guard that they
+    /// stay so - while nothing overtakes a scene in flight (asserted in every
+    /// pass of both runs: `Shell::pass`), no image is updated before the
+    /// render backend holds it (`Recorder::take`), no pass draws while a
+    /// display list is on its way, and the window comes to rest asking for
+    /// nothing.
+    /// Mutations: `through_scene_builder = shape.scene.is_some()` in
+    /// `FrameSchedule::on_send` fails "past what waits in the scene builder's
+    /// queue" at the zoom step behind the second settle; `self.queued =
+    /// false` in `on_published` fails it at the step after the scene landed;
+    /// `(false, true) => true` (every list waits) fails the premise below.
+    #[test]
+    fn a4_31_a_settle_sent_without_the_wait_hands_over_the_same_things_in_the_same_order() {
+        let (in_step, waited_for_none) = two_settles(true);
+        let (without, sent_without_the_wait) = two_settles(false);
+        assert_eq!(waited_for_none, 0, "AZ_WR_SYNC_SCENE=1: every pass waits");
+        assert!(
+            sent_without_the_wait >= 3,
+            "premise: the two settles and a pass behind them went without the wait: \
+             {sent_without_the_wait}"
+        );
+
+        // A pass that handed over values and offsets only is not compared:
+        // after a scene landed the window sends those once more.
+        let things = |passes: &[Handed]| -> Vec<Handed> {
+            passes
+                .iter()
+                .copied()
+                .filter(|pass| *pass != (0, 0, 0, false))
+                .collect()
+        };
+        assert_eq!(things(&without), things(&in_step));
+        assert!(
+            things(&in_step).iter().filter(|pass| pass.3).count() >= 3,
+            "premise: a list per view at the least"
+        );
+    }
+}

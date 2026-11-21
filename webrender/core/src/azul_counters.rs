@@ -22,6 +22,8 @@ static FRAME_BUILD_NS: AtomicU64 = AtomicU64::new(0);
 static HIT_TESTER_REBUILDS: AtomicU64 = AtomicU64::new(0);
 static TEXTURE_UPLOADS: AtomicU64 = AtomicU64::new(0);
 static TEXTURE_UPLOAD_PX: AtomicU64 = AtomicU64::new(0);
+static TILES_DRAWN: AtomicU64 = AtomicU64::new(0);
+static COMPLEX_TILE_CACHE_TRANSFORMS: AtomicU64 = AtomicU64::new(0);
 
 /// The counters at one moment (sums since the process started).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -44,6 +46,15 @@ pub struct Counters {
     pub texture_uploads: u64,
     /// The pixels of those uploads.
     pub texture_upload_px: u64,
+    /// Visible picture cache tiles whose content a frame build found invalid
+    /// and had drawn again (a tile that is only moved or scaled by the
+    /// compositor is not one).
+    pub tiles_drawn: u64,
+    /// Frames in which a picture cache stood under a transform that is not a
+    /// scale and an offset and was drawn untransformed (upstream panics
+    /// there): the host declared a frame a 2D scale / translation and gave it
+    /// another value. Never, if the host keeps its promise.
+    pub complex_tile_cache_transforms: u64,
 }
 
 impl Counters {
@@ -64,6 +75,10 @@ impl Counters {
             texture_upload_px: self
                 .texture_upload_px
                 .wrapping_sub(earlier.texture_upload_px),
+            tiles_drawn: self.tiles_drawn.wrapping_sub(earlier.tiles_drawn),
+            complex_tile_cache_transforms: self
+                .complex_tile_cache_transforms
+                .wrapping_sub(earlier.complex_tile_cache_transforms),
         }
     }
 }
@@ -79,6 +94,8 @@ pub fn snapshot() -> Counters {
         glyphs_rasterized: glyph_rasterizer::glyphs_rasterized(),
         texture_uploads: TEXTURE_UPLOADS.load(Ordering::Relaxed),
         texture_upload_px: TEXTURE_UPLOAD_PX.load(Ordering::Relaxed),
+        tiles_drawn: TILES_DRAWN.load(Ordering::Relaxed),
+        complex_tile_cache_transforms: COMPLEX_TILE_CACHE_TRANSFORMS.load(Ordering::Relaxed),
     }
 }
 
@@ -105,6 +122,17 @@ pub(crate) fn textures_uploaded(count: u64, px: u64) {
     TEXTURE_UPLOAD_PX.fetch_add(px, Ordering::Relaxed);
 }
 
+/// A frame build found a visible picture cache tile invalid: it is drawn again.
+pub(crate) fn tile_drawn() {
+    TILES_DRAWN.fetch_add(1, Ordering::Relaxed);
+}
+
+/// A picture cache stood under a transform that is not a scale and an offset
+/// (`picture::get_relative_scale_offset`).
+pub(crate) fn tile_cache_transform_was_complex() {
+    COMPLEX_TILE_CACHE_TRANSFORMS.fetch_add(1, Ordering::Relaxed);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -119,7 +147,11 @@ mod tests {
         frame_built(300);
         hit_tester_rebuilt();
         textures_uploaded(3, 4_096);
+        tile_drawn();
+        tile_drawn();
+        tile_cache_transform_was_complex();
         let during = snapshot().since(&before);
+        assert!(during.tiles_drawn >= 2 && during.complex_tile_cache_transforms >= 1);
         assert!(during.scene_builds >= 1 && during.scene_build_ns >= 1_500);
         assert!(during.frame_builds >= 2 && during.frame_build_ns >= 1_000);
         assert!(during.hit_tester_rebuilds >= 1);
