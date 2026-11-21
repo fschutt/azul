@@ -225,36 +225,40 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
 ## State for a successor (CURRENT; kept by the second verifier, who took over at `a23a72fde`)
 
 <!-- STATE-BEGIN -->
-Tree: `audit/integration`, clean. Merged since the first verifier's hand-over: `audit/A4` at `a1fc02edf`
-(`d6ff63ad7`), `audit/A3-solver` at `79a700d1f` (`1fc01c22b`), `audit/A1` at `6c4d7265a` (`45720ab97`) and at
-`269117619` (`cb9574447`), `audit/A3-window` at `1af12829a` (`f1e2af9c8`), `audit/diff-first` at `8e7a62d2c`
-(`7c8de48b6`) and at `bf43a5e96` (`56c7a51e9`). Verifier commits: `2f34d89fa` (guard fixtures), `b1a7898b2` and `35d1d70c5` (the two compile
-fixes), `270e178c9` (swept-pointer harness), `13545f86c` (widgets golden).
+**VERIFIED COMMIT of the checkpoint (milestone 5): `98a2ebd8bd2508c8f2703679c138b1c4929d22ac`** (`audit/integration`; the commits after it
+change `audit/VERIFY.md` only). NOT green (core 3143 / 1, one layout test race): NOTHING IS PUSHED. The gate
+table and the open items: "MILESTONE 5" at the end of the log.
 
-Results on head `56c7a51e9` (whole suites, run from the built binaries; NOT yet the gate):
-- core lib 3143 / 0 (on `35d1d70c5`); layout lib 10910 / 0 / 1 ignored; layout `tests/all`: the ribbon guard is
-  green (the whole suite was last run on `35d1d70c5`: 3059 / 1, that guard); dll lib 3861 / 3 / 9 (three
-  `..._under_the_pointer_...` walks: node 1's `TextColor`);
-- fork `cargo test -p webrender --lib` 107 / 0 (webrender tree `9d963f70`); Linux / Windows checks 0 errors on
-  `cb9574447` (to be repeated); css and `headless_lifecycle`: not run again since the last gate.
+Merged since the first verifier's hand-over: `audit/A4` at `a1fc02edf`, `audit/A3-solver` at `79a700d1f`,
+`audit/A1` at `6c4d7265a` and `269117619`, `audit/A3-window` at `1af12829a`, `audit/diff-first` at `8e7a62d2c`,
+`bf43a5e96` and `8e9ead705`. Verifier commits: `2f34d89fa`, `b1a7898b2`, `270e178c9`, `13545f86c`, `35d1d70c5`,
+`98a2ebd8b` (listed with reasons under "MILESTONE 5").
 
-Open, with whom:
-- diff-first owner (through the coordinator): one more commit for the three red dll walks. The coordinator
-  names the commit; merge it, then build and run the layout tests and the dll lib, then the gate.
-- second round only, on the coordinator's word: `audit/A5` `dbde1ccf5`, `audit/dom-builder`, `audit/A10` and
-  `audit/A8` beyond what is merged; the fixture of `a_box_that_moved_in_a_pass_...`.
+What runs now / next: the editor's PIN PASS (the coordinator's word; no push), in
+`<scratchpad>/wt/m4p-integration` on its branch `audit/integration`, per `audit/PIN_PASS.md` there:
+- pin `98a2ebd8bd2508c8f2703679c138b1c4929d22ac` in the four `rev` lines of `mapedit3/Cargo.toml` (the URL stays GitHub's);
+  cargo finds the unpushed commit through the environment, in front of every cargo command that may fetch:
+  `CARGO_NET_GIT_FETCH_WITH_CLI=true GIT_CONFIG_COUNT=1
+  GIT_CONFIG_KEY_0=url.file:///Users/fschutt/Development/azul-m4p.insteadOf
+  GIT_CONFIG_VALUE_0=https://github.com/fschutt/azul`;
+- bindings: only what the editor needs (the Rust outputs; `<azul worktree>/target/codegen` holds them for the
+  `api.json` of this tree if `git diff f55c9cd9f 98a2ebd8b -- api.json` is empty), not the 0.9 GB `codegen all`;
+- default features, lock files, `cargo check`, `cargo check --features e2e`, `cargo test --bin mapedit3`, the
+  release build into `CARGO_TARGET_DIR=$HOME/Development/m4p/mapedit3/target` (tell the coordinator BEFORE the
+  first cargo command: it frees space), `scripts/e2e.sh` headless, the budgets calibration, `perf_matrix.py`
+  three times (default; `AZ_DL_TRANSLATE_MOVED_RUNS=1`; `AZ_MOVE_IN_PLACE=0`), the release binary copied to
+  `~/Development/m4p-bin/mapedit3-<short m4p hash>`; commits on the m4p branch, not pushed.
+The progress of the pin pass is logged at the end of this file ("Pin pass").
 
-Next commands (after `source <scratchpad>/verify/env.sh`; delete stale binaries and `libazul*` first:
-`find $S/azul-target/debug/deps -maxdepth 1 -type f -perm +111 ! -name '*.dylib' -delete; rm -f
-$S/azul-target/debug/deps/libazul*`; test binaries are run with the crate directory as cwd and
-`CARGO_MANIFEST_DIR` set to it):
-1. `git merge --no-ff <diff-first follow-up>`; layout `run NN test -p azul-layout --features e2e-server --lib
-   --test all --no-run` + both binaries; dll `run NN test -p azul-dll --lib --no-run` + the binary.
-2. THE GATE (step 4 of the assignment) on the final tree: css lib, core lib, layout lib + all, dll lib,
-   `headless_lifecycle`, the two cross checks (delete `<target>/<triple>` after each), the fork tests again only
-   if `git rev-parse HEAD:webrender` is no longer `9d963f70...`. MILESTONE 5 to the coordinator; no push.
-3. On its answer: the pin pass (`<scratchpad>/wt/m4p-integration/audit/PIN_PASS.md`), telling it before the build.
-Disk: about 10 GB free with the target directory at 2.6 - 3.8 GB; `run` refuses under 9 GB.
+Second round (only on the coordinator's word): `audit/A5` `dbde1ccf5`, `audit/dom-builder`, `audit/A10` and
+`audit/A8` beyond what is merged, the diff-first successor's fix for the open core test, the font test race,
+the fixture of `a_box_that_moved_in_a_pass_...`. After each merge: build, the named tests, the area's module,
+then the gate again (`<scratchpad>/verify/gate2.sh` runs it as one chain into `gate2.txt`).
+Build notes: `source <scratchpad>/verify/env.sh` (`run <log> <cargo args>` appends `-j 2`, so no `--` test
+arguments through it: run the built binary instead, cwd = the crate, `CARGO_MANIFEST_DIR` set); before a build
+delete stale binaries (`find $S/azul-target/debug/deps -maxdepth 1 -type f -perm +111 ! -name '*.dylib'
+-delete; rm -f $S/azul-target/debug/deps/libazul.a $S/azul-target/debug/deps/libazul.dylib`). Disk: about 9.8 GB
+free with the target directory at 3.5 GB; `run` refuses under 9 GB.
 <!-- STATE-END -->
 
 ## State for a successor (the FIRST verifier's hand-over at `a23a72fde`; superseded by the section above)
@@ -461,3 +465,61 @@ What is left for the checkpoint, in order:
   ignored** (`audit_tests::diff_first` 7 / 0); `tests/all` filters `a_growing_ribbon a_height_tween
   a_layout_tween_frame_reuses`: 16 / 0 (the ribbon guard is green as written). dll lib whole (log `72-dll-lib`):
   **3861 / 3 / 9 ignored**: the three `..._under_the_pointer_...` walks, message unchanged; the owner's next commit.
+- merge `audit/diff-first` at `8e9ead705` (`ad353db9a`, no conflict, 0 compile errors): diff-first-19.
+- **THE GATE, second verifier** (one chain, `<scratchpad>/verify/gate2.sh` -> `gate2.txt`, logs `80-` .. `85-`), on
+  head `ad353db9a`; the table is under "MILESTONE 5" below. After it: the fixture of the one red core test
+  corrected (the verified commit is that commit), `cargo test -p azul-core --lib` again (log `86-core-lib`): 3143 /
+  1, the same test, now past its premise; the layout lib again (log `88-`, `89-layout-lib-1/2`): the racing font
+  test passes alone 3 of 3 and the whole lib is 10910 / 0 / 1 ignored twice.
+
+### MILESTONE 5: the gate of the checkpoint (NOT green: nothing is pushed)
+
+Verified tree: `audit/integration` at the commit "verify: the hover-colour test of diff-first-19 gets a page whose
+links have an href" (its hash is in the state section above; the log commits after it change `audit/VERIFY.md`
+only). The suites ran on `ad353db9a`; the only change after it is that test's fixture (core lib run again).
+
+| suite | command | passed | failed | ignored | failing |
+|---|---|---|---|---|---|
+| css lib | `cargo test -p azul-css --lib --no-fail-fast` | 2942 | 0 | 0 | none |
+| core lib | `cargo test -p azul-core --lib --no-fail-fast` | 3143 | 1 | 0 | `styled_dom::styled_dom_test::audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits` (open, below) |
+| layout lib | `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast` | 10909 (10910 in the two runs after) | 1 (0, 0) | 1 | `text3::fontreg::tests::a_face_registered_once_is_put_in_a_cache_under_one_id`: a pre-existing TEST race (below) |
+| layout `tests/all` | (same command) | 3060 | 0 | 5 | none |
+| dll lib | `cargo test -p azul-dll --lib --no-fail-fast` | 3864 | 0 | 9 | none (base: 3731 / 0 / 9) |
+| dll `headless_lifecycle` | `cargo test -p azul-dll --test headless_lifecycle` | 8 | 0 | 0 | none |
+| Linux | `cargo check -p azul-dll --target x86_64-unknown-linux-gnu` | 0 errors (394 MB, deleted) | | | |
+| Windows | `cargo check -p azul-dll --target x86_64-pc-windows-gnu` | 0 errors (457 MB, deleted) | | | |
+| fork | `cargo test -p webrender --lib` (run on `cb9574447`; `webrender/` is the same tree `9d963f70` at the verified commit) | 107 | 0 | 0 | none (`render_api::audit_a4_tests` 2, `spatial_tree` 17) |
+
+Open, with the owner:
+- core, diff-first-19 (`8e9ead705`), owner: the diff-first area's next successor.
+  `a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, "the hovered box hands its text its
+  hover colour": left and right `Some(TextColor(Exact(#222222ff)))`. The verifier's print of the DOM right after
+  `styled_nodes[9].styled_node_state.hover = true; dom.let_raised_states_in();` (page `page_with_hrefs(&sections(4))`):
+  `nodes_whose_state_hands_values_down()` = `[NodeId(9)]` (so `recascade_subtrees(&[9])` runs);
+  node 0 Body #000000; node 1 Div (the list) #222222; node 2 Div #222222; node 5 P #222222; node 6 Text("one")
+  #222222; node 7 A #0000ee; node 8 Text("link") #0000ee; **node 9 Div hover=true #00aa00**; node 10 H1 #222222;
+  node 11 Text("heading") #222222; node 12 P #222222; node 13 Text("two words") #222222 (10-13 should inherit
+  #00aa00); node 14 Div #aa0000; node 18 Text("") #aa0000.
+  Nothing is lost any more (list, link, body); the hover colour does not reach the box's children on the path
+  "cascaded at rest, state raised, `let_raised_states_in`". Before the audit that path behaved the same way
+  (finding diff-first-10): an incomplete fix, not a new regression. The `restyle_on_state_change` half of the test
+  is not reached. The test has NOT been shown to fail without its fix (it never ran with a true premise before
+  the fix existed); the guards that did fail before are the three dll `*_under_the_pointer_*` walks (green now).
+- layout, a pre-existing TEST race, owner: the text area in the second round (not changed):
+  `text3::fontreg::tests::a_face_registered_once_is_put_in_a_cache_under_one_id`, `fontreg.rs:377` "the same face
+  again changes nothing: left 8, right 7": it reads the process-wide registry `generation()` around its own
+  second `register_font` while other test threads register faces. 1 failure in 8 whole runs of the lib today;
+  alone 3 of 3.
+- `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` passes with
+  `AZ_DL_TRANSLATE_MOVED_RUNS=1` too (no guard of diff-first-15; its fixture is the second round's).
+
+Test files changed by the second verifier, each with its reason (details under "Tests changed"):
+- `dll/src/desktop/shell2/headless/tests/every_holder_of_a_nodes_data_is_repointed.rs` (`2f34d89fa`): six audit
+  fixtures in `NOT_WALKED`.
+- `layout/src/audit_tests/a3_window.rs` (`270e178c9`): the cross-window comparison blanks `TransformKey` ids.
+- `layout/tests/golden/widgets.txt` (`13545f86c`): "list view" + three see-through rects (A3-window-55).
+- `core/src/styled_dom_test.rs` (`35d1d70c5`: E0509, `.style.clone()`; and the fixture commit: `page_with_hrefs`,
+  premise corrected by the verifier: an `<a>` without `href` is not `:link`).
+Non-test code changed by the second verifier: `layout/src/solver3/display_list.rs` (`b1a7898b2`:
+`DisplayListGenerator::new` is no `const fn`, E0015). Merge conflicts resolved: `try_copy_cached_run` (A1 x
+A3-window), `DomGenerations` (A3-window x diff-first): both sides kept in each.
