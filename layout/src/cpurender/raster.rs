@@ -3615,7 +3615,20 @@ fn stale_boxes(
     }
     let (old_index, index) = (old.frame_index(), new.frame_index());
     let frame = index.frame_at(key.push)?;
-    if !frame.self_contained || old_index.frame_at(key.push)?.end != frame.end {
+    let old_frame = old_index.frame_at(key.push)?;
+    if !frame.self_contained || old_frame.end != frame.end {
+        return None;
+    }
+    // The picture in the surface is placed by the frame's EXTENT (`g = floor((extent - acc)
+    // dpi)`, and a hit composites with the live one): a new list whose frame paints from
+    // another corner - an item past the frame's box came or went - can have a surface of the
+    // same size and phase, the same key, and another place. The repaired picture was then
+    // composited displaced by the whole pixels the extent moved (A2-cpu-R03). Only a frame
+    // that paints the same extent in both lists is repaired.
+    let extent_in = |i: &crate::solver3::display_list::FrameIndex, items: &[DisplayListItem], laid_out: LogicalRect| {
+        i.extent_with(items, key.push, &render_state.transforms).unwrap_or(laid_out)
+    };
+    if extent_in(&old_index, &old.items, old_frame.extent) != extent_in(&index, &new.items, frame.extent) {
         return None;
     }
     let inner = index.inner_of(key.push);
@@ -3779,10 +3792,21 @@ pub fn refresh_retained_surfaces(
                 let mut surfaces: Vec<AzulPixmap> = Vec::new();
                 let mut scroll_offset_stack = vec![entry.placement.offset];
                 let mut text_shadow_stack: Vec<StyleBoxShadow> = Vec::new();
+                // As the walk that painted the surface culls: a frame of the window's own list
+                // is painted with its turned text frames as groups (`InGroups`: inside the
+                // isolated group on the mask stack it culls by the clip), a view's list with
+                // them drawn directly (`ActiveClip`). Repairing a root-list surface as a
+                // view's drew the turned text in the repaired boxes another way than the rest
+                // of the same caption (A2-cpu-R04).
+                let cull = if entry.placement.slot == usize::MAX {
+                    WalkCull::InGroups
+                } else {
+                    WalkCull::ActiveClip
+                };
                 if let Err(e) = walk_range(
                     &new,
                     frame.push + 1..frame.end,
-                    WalkCull::ActiveClip,
+                    cull,
                     true,
                     surface,
                     dpi_factor,
@@ -18127,5 +18151,139 @@ mod audit_a1_tests {
         assert!(filter_group_needs_isolation(&[flood()]));
         assert!(!filter_group_needs_isolation(&[flood(), invert()]), "the layer applies the whole list");
         assert!(!filter_group_needs_isolation(&[invert()]));
+    }
+
+    /// A2-cpu-R03: a kept picture is not repaired for a list whose frame paints another
+    /// extent. A view of 900 x 700 whose child is a frame (key 1, box (100, 0) 800 x 300,
+    /// scaled by 1.5) around A, a 100 x 300 fill at (0, 0) LEFT of the box, a ground over the
+    /// box and a mark at (150, 50): the extent is (0, 0) 900 x 300, the picture is placed
+    /// from x = 0. The next list holds B, 100 x 300 at (900, 0) RIGHT of the box, in A's
+    /// slot: the extent is (100, 0) 900 x 300 - the same size, the same phase, the same key,
+    /// placed from x = 100. The two lists differ in one item (31,200 of 270,000 px), so the
+    /// repair took the surface over; the hit then composited the old picture 100 px (150 on
+    /// screen) to the right. Now the frame is painted again, and the frame on screen is the
+    /// one painted afresh.
+    /// Mutation: `stale_boxes` without the comparison of the two extents repairs
+    /// (`retained_patched` 1) and shows the mark 150 px to the right.
+    #[test]
+    fn a_kept_picture_is_not_repaired_for_a_list_whose_frame_paints_another_extent() {
+        let (rr, fm, _) = resources(None);
+        let scene = |b_for_a: bool| {
+            let first = if b_for_a { fill(900.0, 0.0, 100.0, 300.0, [0, 0, 255]) } else { fill(0.0, 0.0, 100.0, 300.0, [255, 0, 0]) };
+            let child = vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 1 },
+                    initial_transform: azul_core::transform::ComputedTransform3D { m: IDENTITY },
+                    bounds: wrect(100.0, 0.0, 800.0, 300.0),
+                },
+                first,
+                fill(100.0, 0.0, 800.0, 300.0, [0, 160, 0]),
+                fill(150.0, 50.0, 60.0, 60.0, [250, 250, 0]),
+                DisplayListItem::PopReferenceFrame,
+            ];
+            Scene { host: zoom_scene(None, (0.0, 0.0), false).host, child: Arc::new(list(child)) }
+        };
+        let zoom = (1.5, (0.0, 0.0));
+        let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+        let mut pm = AzulPixmap::new(900, 700).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let old = scene(false);
+        let first = zoom_frame(&old, &zoom_state(&old, zoom, 15.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!(retained.len(), 1, "the frame's picture is kept: {first:?}");
+        let new = Scene { host: Arc::clone(&old.host), child: scene(true).child };
+        let second = zoom_frame(&new, &zoom_state(&new, zoom, 15.0, Some(&retained), 1), &mut pm, (&rr, &fm));
+        assert_eq!(second.retained_patched, 0, "another extent: painted again, not repaired: {second:?}");
+        let fresh = fresh_frame(&new, zoom, 15.0, (&rr, &fm));
+        assert_eq!(differing_pixels(&pm, &fresh), 0, "the frame painted afresh");
+        assert!(differing_pixels(&fresh, &fresh_frame(&old, zoom, 15.0, (&rr, &fm))) > 500, "harness: the lists differ on screen");
+    }
+
+    /// A2-cpu-R05: a frame's extent holds the halo of the runs under a text shadow. A frame
+    /// with a 10 x 10 box around the run "mmm" (12 px, pen at (100, 50)): without a shadow
+    /// its extent ends where the run's ink box ends; under a shadow with a blur of 4 and a
+    /// spread of 8 (reach 4 + 8 = 12) it ends 12 px further right and further down, and
+    /// starts 12 px further up - what the rasteriser paints, what a moved frame has to
+    /// damage and what a group's surface has to hold.
+    /// Mutation: `GroupBounds::step` without the shadows gives the same extent for both.
+    #[test]
+    fn a_frames_extent_holds_the_halo_of_the_runs_under_a_text_shadow() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let (_, _, font_hash) = resources(Some(&font));
+        let run = label(font_hash.map(|hash| (&font, hash)), "mmm", 12.0, 100.0, 50.0);
+        let ink = run[0].visual_bounds().expect("the run's ink box");
+        let extent_of = |inner: Vec<DisplayListItem>| {
+            list(frame(1, IDENTITY, (10.0, 10.0), inner)).frame_index().extent_of(0).expect("the frame's extent")
+        };
+        let (plain, under) = (extent_of(run.clone()), extent_of(haloed(halo(4.0, 8.0, [0, 0, 0]), run.clone())));
+        let (right, bottom) = (|r: &LogicalRect| r.origin.x + r.size.width, |r: &LogicalRect| r.origin.y + r.size.height);
+        assert!((right(&plain) - right(&ink)).abs() < 0.01 && (bottom(&plain) - bottom(&ink)).abs() < 0.01, "the ink alone: {plain:?} {ink:?}");
+        assert!((right(&under) - (right(&ink) + 12.0)).abs() < 0.01, "12 px of halo to the right: {under:?}");
+        assert!((bottom(&under) - (bottom(&ink) + 12.0)).abs() < 0.01, "and below: {under:?}");
+        assert!((under.origin.y - (ink.origin.y - 12.0).min(0.0)).abs() < 0.01, "and above, or the box's top: {under:?}");
+    }
+
+    /// A2-cpu-R04: a kept picture of the WINDOW's own list is repaired the way it was painted.
+    /// The window's list is one frame (key 1, 600 x 400, scaled by 1.5) around a ground, a
+    /// 200 x 60 plate at (40, 40) and, over the plate, a caption turned by 15 degrees by its
+    /// own frame (key 3). The next list paints the plate in another colour: the picture is
+    /// repaired in the plate's box, and the frame is the one painted afresh - in the window's
+    /// list a turned caption is a group, in the repaired box too.
+    /// Mutation: the repair walking the list as a view's (`WalkCull::ActiveClip`) draws the
+    /// caption directly inside the box (anchor rounded, outlines turned) and as a group
+    /// outside it: pixels differ from the fresh frame.
+    #[test]
+    fn a_kept_picture_of_the_windows_list_is_repaired_as_it_was_painted() {
+        let Some(font) = test_font() else {
+            return;
+        };
+        let (rr, fm, font_hash) = resources(Some(&font));
+        let page = |plate: [u8; 3]| {
+            let mut inner = vec![fill(0.0, 0.0, 600.0, 400.0, [236, 233, 225]), fill(40.0, 40.0, 200.0, 60.0, plate)];
+            inner.push(DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 3 },
+                initial_transform: azul_core::transform::ComputedTransform3D { m: turn_scale_move(15.0, 1.0, 0.0, 0.0) },
+                bounds: wrect(50.0, 50.0, 180.0, 30.0),
+            });
+            inner.extend(label(font_hash.map(|hash| (&font, hash)), "Steige", 22.0, 56.0, 74.0));
+            inner.push(DisplayListItem::PopReferenceFrame);
+            Arc::new(list(frame(1, IDENTITY, (600.0, 400.0), inner)))
+        };
+        let paint = |dl: &Arc<DisplayList>, retained: Option<&Arc<RetainedFrames>>, pm: &mut AzulPixmap| {
+            let mut state = CpuRenderState::new(ScrollOffsetMap::new()).with_root_display_list(Arc::clone(dl)).with_paint_threads(1);
+            if let Some(retained) = retained {
+                state = state.with_retained_frames(Arc::clone(retained));
+            }
+            state.transforms.insert(1, azul_core::transform::ComputedTransform3D { m: turn_scale_move(0.0, 1.5, 0.0, 0.0) });
+            let mut gc = GlyphCache::new();
+            crate::cpu_counters::reset();
+            if let Some(retained) = retained {
+                refresh_retained_surfaces(&state, &rr, &fm, &mut gc, 1.0).unwrap();
+                retained.begin_frame(&[Arc::as_ptr(dl) as usize]);
+            }
+            render_display_list_damaged(dl, pm, 1.0, &rr, &fm, &mut gc, &state, &[rect(0.0, 0.0, 900.0, 600.0)]).unwrap();
+            if let Some(retained) = retained {
+                retained.commit();
+            }
+            crate::cpu_counters::take()
+        };
+        let white = || {
+            let mut pm = AzulPixmap::new(900, 600).unwrap();
+            pm.fill(255, 255, 255, 255);
+            pm
+        };
+        let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+        let mut pm = white();
+        let _ = paint(&page([255, 255, 210]), Some(&retained), &mut pm);
+        if retained.len() != 1 {
+            return; // the window's list keeps no picture here: nothing to repair
+        }
+        let edited = page([200, 230, 255]);
+        let second = paint(&edited, Some(&retained), &mut pm);
+        assert_eq!(second.retained_patched, 1, "one item differs: repaired: {second:?}");
+        let mut fresh = white();
+        let _ = paint(&edited, None, &mut fresh);
+        assert_eq!(differing_pixels(&pm, &fresh), 0, "the caption in the repaired box is the caption painted afresh");
     }
 }

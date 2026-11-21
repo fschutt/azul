@@ -3537,6 +3537,11 @@ struct GroupBounds {
     union: Option<LogicalRect>,
     clips: Vec<Option<LogicalRect>>,
     in_scroll_frames: usize,
+    /// How far each text shadow open here paints past the ink of a run under it
+    /// ([`text_shadow_reach`]): a run's bounds are widened by the largest (A2-cpu-R05). The
+    /// ink alone left the halo out of a frame's extent: a moved frame's damage missed the
+    /// ring of the halo, and a group's surface cut it.
+    shadows: Vec<f32>,
 }
 
 impl GroupBounds {
@@ -3593,8 +3598,33 @@ impl GroupBounds {
             DisplayListItem::PopClip | DisplayListItem::PopImageMaskClip => {
                 self.clips.pop();
             }
+            DisplayListItem::PushTextShadow { shadow } => {
+                self.shadows.push(text_shadow_reach(shadow));
+            }
+            DisplayListItem::PopTextShadow => {
+                self.shadows.pop();
+            }
             _ => {
                 if let Some(b) = visual {
+                    let reach = if matches!(item, DisplayListItem::Text { .. }) {
+                        self.shadows.iter().copied().fold(0.0_f32, f32::max)
+                    } else {
+                        0.0
+                    };
+                    let b = if reach > 0.0 {
+                        LogicalRect {
+                            origin: LogicalPosition {
+                                x: b.origin.x - reach,
+                                y: b.origin.y - reach,
+                            },
+                            size: LogicalSize {
+                                width: b.size.width + 2.0 * reach,
+                                height: b.size.height + 2.0 * reach,
+                            },
+                        }
+                    } else {
+                        b
+                    };
                     self.add(clip, b);
                 }
             }
