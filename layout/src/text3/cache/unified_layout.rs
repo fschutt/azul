@@ -758,11 +758,17 @@ impl UnifiedLayout {
             return false;
         };
         // Probe with a dummy base letter: if `x` + first collapses to a single
-        // grapheme, `first` extends the preceding grapheme.
-        let mut probe = String::with_capacity(1 + first.len_utf8());
-        probe.push('x');
-        probe.push(first);
-        probe.graphemes(true).count() == 1
+        // grapheme, `first` extends the preceding grapheme. On the stack (it was
+        // a `String` per cluster per caret move, A8-32), and not for ASCII, which
+        // extends nothing ("x" + any ASCII character is two graphemes, UAX #29),
+        // as `ClusterFlags::classify` probes it.
+        if first.is_ascii() {
+            return false;
+        }
+        let mut buf = [0u8; 5];
+        buf[0] = b'x';
+        let len = 1 + first.encode_utf8(&mut buf[1..]).len();
+        core::str::from_utf8(&buf[..len]).is_ok_and(|probe| probe.graphemes(true).count() == 1)
     }
 
     /// Caret offset of `cursor` within `stops` (0..=len): the index of its
@@ -1636,5 +1642,39 @@ mod audit_a8_tests {
         assert!(small_lines >= 10 && large_lines >= 4 * small_lines - 4, "{small_lines} {large_lines}");
         assert!(small_rects >= small_lines && large_rects >= large_lines);
         assert!(large < 6 * small, "{large} bounds for 160 words vs {small} for 40");
+    }
+
+    /// A8-32: a cluster's text is a grapheme continuation exactly when the
+    /// `String` probe said so (the old body, kept as the reference), for every
+    /// code point of the BMP and a set of supplementary marks, modifiers and
+    /// tag characters, alone and followed by more text.
+    /// Mutation: skipping the probe below U+0370 fails it on U+0300..U+036F.
+    #[test]
+    fn a_cluster_is_a_grapheme_continuation_as_the_string_probe_said() {
+        use unicode_segmentation::UnicodeSegmentation;
+        let old = |text: &str| {
+            let Some(first) = text.chars().next() else {
+                return false;
+            };
+            let mut probe = String::with_capacity(1 + first.len_utf8());
+            probe.push('x');
+            probe.push(first);
+            probe.graphemes(true).count() == 1
+        };
+        let extra = [0x1_F3FB_u32, 0x1_F3FF, 0xE_0020, 0xE_007F, 0x1_D165, 0x1_1000, 0xE_0100];
+        for cp in (0..=0xFFFF_u32).chain(extra) {
+            let Some(ch) = char::from_u32(cp) else {
+                continue;
+            };
+            for tail in ["", "a-"] {
+                let text = format!("{ch}{tail}");
+                assert_eq!(
+                    UnifiedLayout::cluster_is_grapheme_continuation(&text),
+                    old(&text),
+                    "U+{cp:04X}{tail}"
+                );
+            }
+        }
+        assert!(!UnifiedLayout::cluster_is_grapheme_continuation(""));
     }
 }
