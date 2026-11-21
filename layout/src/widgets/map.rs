@@ -1117,7 +1117,7 @@ pub const RETRY_FAILED_SECS: f64 = 15.0;
 
 impl MapTileCache {
     #[must_use]
-    pub const fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
+    pub fn new(layer: MapTileLayer, viewport: MapViewport) -> Self {
         let active_look = layer.theme.look(MapColorScheme::Light);
         Self {
             layer,
