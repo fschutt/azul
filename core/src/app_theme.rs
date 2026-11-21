@@ -39,7 +39,8 @@ mod state {
     use azul_css::AzString;
 
     // Process-wide because the app's choice is published by `App::create` and `CallbackInfo::set_theme`
-    // to every window, and a window opened after a switch has to start in it: window creation has no
+    // to every window, and a window opened after a switch has to start in it: window creation, and the
+    // cascade of a DOM styled with no window context (`CssPropertyCache` asks `current_theme()`), have no
     // path back to an `App` (see the module docs; an owner would be the App's own settings).
 
     /// The app's choice; `None` until `App::create` publishes one.
