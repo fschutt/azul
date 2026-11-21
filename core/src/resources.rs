@@ -159,8 +159,6 @@ pub enum UpdateMode {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(C)]
 pub struct UpdateSettings {
-    /// Requested behaviour; clamped by the detected install kind at runtime.
-    pub mode: UpdateMode,
     /// URL of the update manifest (JSON: `{"latest": {"version", "download_url",
     /// "changelog_md", "digest"}}`). None = update checks disabled.
     pub manifest_url: azul_css::OptionString,
@@ -191,6 +189,10 @@ pub struct UpdateSettings {
     /// to prove an update and installs none ("updates are not available in this build"), unless
     /// it says so explicitly with `allow_unsigned`. A key that does not parse is an error too.
     pub root_public_key: AzString,
+    /// Requested behaviour; clamped by the detected install kind at runtime. Declared after the
+    /// 8-byte-aligned fields and before the `bool` (by decreasing alignment, as the FFI check of
+    /// azul-doc wants), so the fields have no padding between them.
+    pub mode: UpdateMode,
     /// The app SPELLS OUT that it accepts an update pinned by its digest alone (no signature
     /// chain): only meaningful with an empty `root_public_key` (a key always wins - the flag
     /// never lowers a chain that is configured). The default is `false`: an app that sets

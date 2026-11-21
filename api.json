@@ -23949,9 +23949,6 @@
                         ],
                         "struct_fields": [
                             {
-                                "mode": {
-                                    "type": "UpdateMode"
-                                },
                                 "manifest_url": {
                                     "type": "OptionString"
                                 },
@@ -23978,6 +23975,9 @@
                                     "doc": [
                                         "Base64 minisign ROOT public key(s) compiled in by the app (the current one and, during a rotation, the next: comma-separated). The update signature chain ends in it: the manifest must carry a root-signed signing-key statement, an artifact signature and a signed release statement (the app, version, platform and hash of the artifact), and an unsigned release is a hard error. Empty = the app has NO way to prove an update and installs none (\"updates are not available in this build\"), unless it says so with allow_unsigned. A key that does not parse is an error too."
                                     ]
+                                },
+                                "mode": {
+                                    "type": "UpdateMode"
                                 },
                                 "allow_unsigned": {
                                     "type": "bool",
