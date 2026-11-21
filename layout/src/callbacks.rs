@@ -4438,14 +4438,11 @@ impl CallbackInfo {
                 continue;
             };
 
-            let node_data_cont = layout_result.styled_dom.node_data.as_container();
-            for (node_idx, node_data) in node_data_cont.iter().enumerate() {
-                if node_data.get_marker().is_some_and(|m| m.as_str() == want) {
-                    return Some(DomNodeId {
-                        dom: dom_id,
-                        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_idx))),
-                    });
-                }
+            if let Some(node) = node_by_marker(&layout_result.styled_dom, want) {
+                return Some(DomNodeId {
+                    dom: dom_id,
+                    node: NodeHierarchyItemId::from_crate_internal(Some(node)),
+                });
             }
         }
         None
@@ -11076,5 +11073,101 @@ mod node_attribute_flag_tests {
                 ("tabindex".to_string(), None),
             ]
         );
+    }
+}
+
+/// Tests: how many markers [`node_by_marker`] compared on this thread.
+#[cfg(test)]
+thread_local! {
+    static MARKERS_COMPARED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The first node of `styled_dom`, in node order, whose marker is `want`
+/// (`CallbackInfo::get_node_id_by_marker` for one DOM). Read off the list the
+/// styled DOM keeps of its marked nodes (`StyledDom::nodes_with_markers`,
+/// A6-18b): the markers of those nodes are compared, where every node of the
+/// DOM was asked for its marker (12,500 labels for the map's two marked nodes).
+pub(crate) fn node_by_marker(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+    want: &str,
+) -> Option<azul_core::dom::NodeId> {
+    let nodes = styled_dom.node_data.as_container();
+    styled_dom
+        .nodes_with_markers
+        .as_ref()
+        .iter()
+        .filter_map(|id| id.into_crate_internal())
+        .find(|node| {
+            #[cfg(test)]
+            MARKERS_COMPARED.with(|compared| compared.set(compared.get() + 1));
+            nodes
+                .get(*node)
+                .and_then(|data| data.get_marker())
+                .is_some_and(|marker| marker.as_str() == want)
+        })
+}
+
+/// A6-18b: a lookup by marker reads the marked nodes, not every node.
+#[cfg(test)]
+mod audit_a6_marker_tests {
+    use azul_core::{
+        dom::{Dom, NodeId},
+        styled_dom::StyledDom,
+    };
+
+    use super::{node_by_marker, MARKERS_COMPARED};
+
+    /// `body` with `n` plain children, then one marked "view", then one marked "picture".
+    fn page(n: usize) -> StyledDom {
+        let mut children: Vec<Dom> = (0..n).map(|_| Dom::create_div()).collect();
+        children.push(Dom::create_div().with_marker(Some("view".into()).into()));
+        children.push(Dom::create_div().with_marker(Some("picture".into()).into()));
+        StyledDom::create_from_dom(Dom::create_body().with_children(children.into()))
+    }
+
+    /// The node every node of the DOM would have been asked for: the old walk.
+    fn by_walk(styled_dom: &StyledDom, want: &str) -> Option<NodeId> {
+        let nodes = styled_dom.node_data.as_container();
+        (0..nodes.len()).map(NodeId::new).find(|node| {
+            nodes
+                .get(*node)
+                .and_then(|data| data.get_marker())
+                .is_some_and(|marker| marker.as_str() == want)
+        })
+    }
+
+    /// Two marked nodes among 300 and among 1,200: a lookup compares at most two markers
+    /// at both sizes (it asked 302 and 1,202 nodes), and finds the node the walk finds.
+    /// A marker that is not there: two comparisons, `None`.
+    ///
+    /// A marker that arrives in place (a carry of a rebuild's fresh values writes it into
+    /// the kept DOM: it is carried, never compared) is found after
+    /// `rebuild_derived_node_lists`, which every carry calls.
+    ///
+    /// Mutations: the walk over `node_data` back in fails the counts; the rebuild left
+    /// out after the in-place write fails "the marker that arrived".
+    #[test]
+    fn a_lookup_by_marker_reads_the_marked_nodes() {
+        let compared = || MARKERS_COMPARED.with(core::cell::Cell::get);
+        for n in [300, 1200] {
+            let dom = page(n);
+            assert_eq!(dom.nodes_with_markers.as_ref().len(), 2);
+            for want in ["view", "picture", "nobody"] {
+                let before = compared();
+                let found = node_by_marker(&dom, want);
+                assert!(compared() - before <= 2, "{n} nodes, {want}: {}", compared() - before);
+                assert_eq!(found, by_walk(&dom, want), "{n} nodes, {want}");
+            }
+            assert_eq!(node_by_marker(&dom, "view"), Some(NodeId::new(n + 1)));
+            assert_eq!(node_by_marker(&dom, "picture"), Some(NodeId::new(n + 2)));
+            assert_eq!(node_by_marker(&dom, "nobody"), None);
+        }
+
+        // A marker written into a kept DOM in place.
+        let mut dom = page(300);
+        dom.node_data.as_container_mut()[NodeId::new(7)].set_marker(Some("late".into()).into());
+        dom.rebuild_derived_node_lists();
+        assert_eq!(node_by_marker(&dom, "late"), Some(NodeId::new(7)), "the marker that arrived");
+        assert_eq!(dom.nodes_with_markers.as_ref().len(), 3);
     }
 }
