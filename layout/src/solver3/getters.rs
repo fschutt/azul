@@ -7118,8 +7118,11 @@ where
     for font_id in font_ids {
         // Get font bytes from fc_cache as a shared mmap. Faces backed
         // by the same .ttc all observe the same `Arc<FontBytes>` via
-        // rust_fontconfig's `shared_bytes` dedup.
-        let Some(font_bytes) = fc_cache.get_font_bytes(font_id) else {
+        // rust_fontconfig's `shared_bytes` dedup. A face registered at
+        // runtime shares the registry's bytes (the cache's would be copied).
+        let runtime = crate::text3::fontreg::shared_bytes(font_id);
+        let is_runtime = runtime.is_some();
+        let Some(font_bytes) = runtime.or_else(|| fc_cache.get_font_bytes(font_id)) else {
             failed.push((
                 *font_id,
                 format!("Could not get font bytes for {font_id:?}"),
@@ -7127,13 +7130,18 @@ where
             continue;
         };
 
-        // Get font index (for font collections like .ttc files)
-        let font_index = fc_cache
-            .get_font_by_id(font_id)
-            .map_or(0, |source| match source {
-                rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
-                rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
-            });
+        // Get font index (for font collections like .ttc files); a runtime
+        // face is index 0 (`fontreg::ensure_in`).
+        let font_index = if is_runtime {
+            0
+        } else {
+            fc_cache
+                .get_font_by_id(font_id)
+                .map_or(0, |source| match source {
+                    rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
+                    rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
+                })
+        };
 
         // Load the font using the provided function
         match load_fn(font_bytes, font_index) {
