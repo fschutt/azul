@@ -1285,6 +1285,41 @@ pub(crate) fn drag_classification_target(
     drag_source.or(event_target)
 }
 
+/// The nodes of `styled_dom` that listen to a WINDOW event
+/// (`EventFilter::Window`), in node order: where a window event's callbacks
+/// are looked for.
+///
+/// From `StyledDom::nodes_with_window_callbacks`, the list the styled DOM is
+/// built with and nothing read. A window event used to be planned by walking
+/// every node of every DOM and comparing each of its callbacks - once per
+/// event and window filter of a pass: every pointer move walked the 12,500
+/// nodes of a map's view (and their 4,700 label handlers) to find the two
+/// nodes that listen to the window, a move that changed the hovered label
+/// five times (leave, enter, out, over, move).
+///
+/// The list is right for as long as the DOM lives: `StyledDom::create` makes
+/// it, `append_child_with_index` (and so `append_under_rightmost` and
+/// `insert_runtime_child`) extends it, and a rebuild that keeps the DOM
+/// carries new handlers onto it only when every node's handler EVENTS are the
+/// ones it had (`NodeField::Callbacks` is compared: `hash_shape`,
+/// `reads_alike`), so no node starts to listen to the window in place. A node
+/// that stopped (`DeleteNode` empties its handlers) stays listed and matches
+/// nothing. Sorted and without doubles whatever the list holds: a callback
+/// runs once, in node order, as the walk ran it.
+pub(crate) fn nodes_listening_to_window_events(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+) -> Vec<NodeId> {
+    let mut nodes: Vec<NodeId> = styled_dom
+        .nodes_with_window_callbacks
+        .as_ref()
+        .iter()
+        .filter_map(|id| id.into_crate_internal())
+        .collect();
+    nodes.sort_unstable();
+    nodes.dedup();
+    nodes
+}
+
 #[cfg(test)]
 mod drag_classification_tests {
     use azul_core::{
@@ -10230,11 +10265,15 @@ pub trait PlatformWindow {
                             }
                         }
                         EventFilter::Window(_) => {
-                            // Window events fire on ALL nodes with matching callback
+                            // Window events fire on ALL nodes with matching
+                            // callback - found through the list every styled
+                            // DOM keeps of its window listeners, not by a walk
+                            // over every node of every DOM for every event of
+                            // every pass (a pointer move is one, a hover change
+                            // five: see `nodes_listening_to_window_events`).
                             for (dom_id, lr) in &layout_window.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
-                                for node_idx in 0..ndc.len() {
-                                    let node_id = NodeId::new(node_idx);
+                                for node_id in nodes_listening_to_window_events(&lr.styled_dom) {
                                     if let Some(nd) = ndc.get(node_id) {
                                         for cb in nd.get_callbacks().as_ref().iter() {
                                             if cb.event == *filter {
