@@ -12406,6 +12406,74 @@ impl LayoutWindow {
                 tier: ContentDirtyTier::Unchanged,
             };
         }
+        // A3-solver-55 (the engine half): CLEARING the override of a `transform` /
+        // `opacity` whose value the node's own style declares too. `set_css_property`
+        // pins what it writes as an override AND keeps the node's inline style in sync
+        // with it; a widget that hands the value back to its model when a gesture ends
+        // (the node graph after a drag or a pan: one box and its wires, or every box)
+        // clears the override through this channel. With the inline style in sync nothing
+        // any reader resolves changes: the cascade answers the inline value, the compact
+        // cache holds it, the value published under the key stands. So the entry is taken
+        // out and that is all - it was a rebuild of the cascade's tables of the whole DOM
+        // per cleared box (`restyle_user_properties`).
+        if override_only
+            && !props.is_empty()
+            && props
+                .iter()
+                .all(|p| p.is_initial() && p.get_type().is_gpu_only_property())
+        {
+            let in_sync = {
+                use azul_css::css::CssDeclaration;
+                let cache = layout_result.styled_dom.get_css_property_cache();
+                let node_data = layout_result.styled_dom.node_data.as_container();
+                let own = node_data[node_id].get_style();
+                let pinned = cache.user_overridden_properties.get(node_id.index());
+                let overruled = cache.inline_overruled.get(&node_id.index());
+                props.iter().all(|p| {
+                    let ty = p.get_type();
+                    let Some(held) = pinned.and_then(|entries| {
+                        entries
+                            .binary_search_by_key(&ty, |(key, _)| *key)
+                            .ok()
+                            .map(|at| &entries[at].1)
+                    }) else {
+                        // No override of it: nothing to clear.
+                        return true;
+                    };
+                    if overruled.is_some_and(|rules| rules.iter().any(|(_, t)| *t == ty)) {
+                        return false;
+                    }
+                    // The node's own declarations of the property: all of them plain
+                    // values under no condition, the last one (it wins) the held value.
+                    let mut last = None;
+                    for rule in own.rules.as_ref() {
+                        for declaration in rule.declarations.as_ref() {
+                            if declaration.get_type() != Some(ty) {
+                                continue;
+                            }
+                            let CssDeclaration::Static(value) = declaration else {
+                                return false;
+                            };
+                            if !rule.conditions.as_ref().is_empty()
+                                || rule.priority < azul_css::css::rule_priority::INLINE
+                            {
+                                return false;
+                            }
+                            last = Some(value);
+                        }
+                    }
+                    last == Some(held)
+                })
+            };
+            if in_sync {
+                layout_result
+                    .styled_dom
+                    .set_user_property_override_fast(&node_id, &props);
+                return ContentChangeResult {
+                    tier: ContentDirtyTier::Unchanged,
+                };
+            }
+        }
         // An IMPERATIVE property change honours a declared `animation` exactly
         // like a change the reconciler discovers does. `set_css_property` used
         // to write the new value straight into the property cache, so a widget

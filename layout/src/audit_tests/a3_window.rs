@@ -2325,3 +2325,96 @@ fn a_label_turned_where_it_lies_is_a_value_and_no_list() {
     };
     assert_eq!(value(&lw, child), value(&fresh, fresh_child), "rotate(31deg) about (0, 9)");
 }
+
+// -- A3-solver-55 (the engine half): clearing an override the node's own style states too ------
+
+/// `set_css_property(transform)` pins its value as an override and keeps the node's own
+/// style in sync with it. Clearing that override afterwards (a widget handing the value back
+/// when its gesture ends: `override_css_property(node, initial)`) changes nothing any reader
+/// resolves, so it takes the entry out and rebuilds no table of the cascade - it was a rebuild
+/// of the tables of the whole DOM per cleared box. Nothing is left to migrate onto the next
+/// rebuild's node (`migrate_user_overrides_from`), which then stands where its own style
+/// puts it.
+/// Mutation: the fast path of `apply_node_css_change` removed (the clear runs
+/// `restyle_user_properties`: one compact-cache build, tier not `Unchanged`).
+#[test]
+fn clearing_an_override_the_own_style_states_too_rebuilds_no_cascade() {
+    use azul_css::props::{
+        basic::PixelValue,
+        property::{CssProperty, CssPropertyType},
+        style::{StyleTransform, StyleTransformTranslate2D},
+    };
+
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_div().with_css("width: 40px; height: 20px; transform: translate(10px, 0px);"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 200.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let (root, node) = (DomId::ROOT_ID, NodeId::new(1));
+    let moved = CssProperty::transform(
+        vec![StyleTransform::Translate(StyleTransformTranslate2D {
+            x: PixelValue::px(30.0),
+            y: PixelValue::px(0.0),
+        })]
+        .into(),
+    );
+    let pinned = |lw: &LayoutWindow| {
+        lw.layout_results[&root]
+            .styled_dom
+            .get_css_property_cache()
+            .user_overridden_properties
+            .get(node.index())
+            .is_some_and(|entries| {
+                entries.iter().any(|(ty, _)| *ty == CssPropertyType::Transform)
+            })
+    };
+    let published = |lw: &LayoutWindow| {
+        lw.gpu_state_manager
+            .caches
+            .get(&root)
+            .and_then(|cache| cache.css_current_transform_values.get(&node).copied())
+            .expect("the box has a transform value")
+    };
+
+    // The gesture: the widget writes the transform (inline style and override).
+    drop(lw.apply_content_change(ContentChange::NodeCss {
+        dom_id: root,
+        node_id: node,
+        props: vec![moved],
+        override_only: false,
+    }));
+    assert!(pinned(&lw), "harness: the write pinned its value");
+    let shown = published(&lw);
+
+    // The gesture ends: the override is cleared.
+    let tables = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+    let tier = lw
+        .apply_content_change(ContentChange::NodeCss {
+            dom_id: root,
+            node_id: node,
+            props: vec![CssProperty::initial(CssPropertyType::Transform)],
+            override_only: true,
+        })
+        .tier;
+    assert_eq!(tier, ContentDirtyTier::Unchanged, "nothing any reader resolves changed");
+    assert_eq!(
+        azul_core::styled_dom::compact_cache_rebuilds_on_this_thread(),
+        tables,
+        "no table of the cascade was built for the clear"
+    );
+    assert!(!pinned(&lw), "the override is gone: a rebuild has none to carry over");
+    assert_eq!(published(&lw), shown, "the box stays where the gesture left it");
+}
