@@ -169,9 +169,15 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - file:line: `window.rs` `invoke_image_callbacks_into_overlay`, phase 2 (11613-11721 at the base)
 - class: waste, per frame when a callback image is registered by id: always with the `materials` feature (`dist`,
   `build-dll`: `dll/Cargo.toml:807`, `texture.rs:153`). 17.5k items, a hash and two map lookups per `Image` item.
-- fix: see the fix commit (a list revision per DOM beside the generation; the walk runs once per revision).
+- fix: the indices of a list's `Image` items are kept per DOM under `(generation, list revision)`
+  (`DomGenerations::image_items`, `list_revisions`, `bump_list`); the items are read fresh every frame. The
+  revision moves where items are replaced or spliced (`regenerate_display_list_for_dom`, `patch_display_list`,
+  `patch_restyled_decorations`, the layer patch of a background tween), not for a caret, a colour, a binding or a
+  view's content offset. A new in-place writer that changes the kind or place of an item must call `bump_list`.
+- test: `a_frame_over_the_lists_of_the_frame_before_walks_no_item_for_callback_backgrounds`
+  (`BACKGROUND_ITEM_SCAN`).
 - severity: medium
-- status: open: being fixed in round 2 (list revision bumped by every writer of a list)
+- status: fixed 7ed43d46b
 
 ### A3-window-07 hover / press over a label rebuilt the view's whole list (Z3, with the insert case)
 - file:line: `event.rs` `repaint_restyled_nodes` -> `window.rs` `patch_restyled_decorations` ->
@@ -250,10 +256,20 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 ### A3-window-11 Z8 rest: every selection change rebuilds the list of the DOM that paints it
 - file:line: callers at 16334-16825 and 27861-29035 (A6's ranges) -> `regenerate_display_list_for_dom`
 - class: waste, per selection change (a drag: per mouse move): O(nodes + items) of the DOM.
-- fix: a patch in the style of `node_patch` on A3-core-17 (`505c953ee`: the rects of a selection carry their block's
-  layout index and a phase of their own): re-emit the selection run and the content run of the affected IFC roots.
+- fix (design): on A3-core-17 (`505c953ee`: the rects of a selection carry their block's layout index and a phase
+  of their own). `LayoutWindow::patch_selection_runs(dom, blocks)`: for each IFC root whose selection changed
+  (old and new `text_selections` of the DOM, by block), `node_patch`-style: (1) emit `paint_selections` and the
+  content run of the block on a scratch builder with the build's own functions (the `::selection` recolour
+  splits Text items, so the content run is re-emitted with the selection run); (2) `locate` the old selection
+  run by its `(layout index, Selection)` tag and the old content run by `(layout index, Content)`, both runs of
+  one block being adjacent in the walk; refuse when a caret, a fixed-position range or another node's items lie
+  between; (3) splice from the back, shift carets and fixed ranges, `bump_list`. The callers
+  (`regenerate_display_list_for_dom` after every selection change, 16334-16825 and 27861-29035 at the base) are
+  A6's ranges: one call each to try the patch first.
+  Short of it, done: `node_patch::locate` is the only match on `EmitPhase` in this area and needs the new arm
+  when A3-core-17 is merged (see "Integration").
 - severity: medium
-- status: open: A3-core-17 exists now; the patch is not built yet
+- status: open: A3-core-17 (505c953ee) is not under this branch yet; the patch (design in this block) is not built
 
 ### A3-window-12 transfer_states: repoint_orphaned_refanys walks ALL nodes after every merge
 - file:line: `core/src/diff.rs` `transfer_states`, `repoint_orphaned_refanys`
@@ -283,14 +299,14 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - file:line: `window.rs` `begin_reconciliation`
 - class: waste (linear, large constant, per root rebuild)
 - severity: low
-- status: open: not started
+- status: open: not started (the four sets and `first_rects` for nodes without `animation: move`)
 
 ### A3-window-15 apply_node_css_change, non-GPU path: cascade tables rebuilt, list rebuilt per written property set
 - file:line: `window.rs` `apply_node_css_change`
 - class: waste, per `set_css_property` of a non-GPU property
 - fix: a decoration write takes `patch_restyled_decorations`.
 - severity: low
-- status: open: not started
+- status: open: not started (a decoration write through `patch_restyled_decorations`; the cascade tables rebuilt per write)
 
 ### A3-window-16 tween patches scan all items per transition per frame; a patched tween copies the root list per tick
 - file:line: `window.rs` `tick_animations` (`items.iter().any(PushOpacity ..)`, `color_bindings.contains`,
@@ -299,7 +315,7 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - class: waste, per tween frame: O(transitions x items) + one deep copy of the root's list per frame of a colour or
   layer fade (root DOM only: 60-70 items in the editor, thousands in a document window).
 - severity: medium
-- status: open: not started
+- status: open: not started (per transition per frame a scan of the root's items; one copy of the root's list per patched tick while `cached.5` holds a second Arc)
 
 ### A3-window-17 a mouse release scans every styled node of every DOM for `active`
 - file:line: `event.rs` `apply_active_restyle`
@@ -415,7 +431,7 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - class: waste, per pass of a DOM: O(n) walk for scrollbars in a DOM without scrollers; one copy of the positions
   (12.5k); `apply_text_tweens` may `Arc::make_mut` the whole list when a focus ring / caret is in the DOM.
 - severity: low
-- status: open: not started
+- status: open: not started (`update_scrollbar_transforms` is A2-gpu's walk; the copy of the positions and the `make_mut` of `apply_text_tweens` are per layout pass)
 
 ### A3-window-28 per frame, O(all layout nodes of all DOMs): `synchronize_scrollbar_opacity`
 - file:line: `window.rs` `synchronize_scrollbar_opacity` (19430-19665 at round 2); callers `wr_translate2.rs:2744`,
@@ -434,7 +450,7 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   `reconcile_webviews`
 - class: waste, per pass: O(layout nodes) / O(all nodes of all DOMs)
 - severity: low
-- status: open: not started
+- status: open: not started (per layout pass, linear: `compute_scroll_ids` on a clean pass of a DOM without scrollers, `reconcile_webviews`)
 
 ### A3-window-30 `get_node_layout_rect` scans the layout tree per call; `None` matches the first anonymous box
 - file:line: `window.rs` `get_node_layout_rect` (`nodes.iter().position(|node| node.dom_node_id == target)`)
@@ -468,7 +484,7 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   `create_with_context_inheriting` (the four preparation walks run twice; every attached sheet is cloned)
 - class: waste, per view render: about 10 x O(n) pointer-chasing walks
 - severity: medium
-- status: open: not started (the styled_dom half is A3-core's file)
+- status: open: not started (`dom_has_webview` and `fingerprint_dom` are this area's walks; the repeated preparation walks are in `core/src/styled_dom.rs`)
 
 ### A3-window-33 `pending_css_dirty` is one slot: a second DOM's restyle drops the first DOM's staged layout dirt
 - file:line: `event.rs` `stage_css_dirty`
@@ -510,7 +526,7 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - file:line: `window.rs` `collect_embedded_fonts` (when the font pool is over its keep limit)
 - class: waste, per view re-render
 - severity: low
-- status: open: not started
+- status: open: not started (`collect_embedded_fonts` reads every item of every list after a view re-render once the font pool is over its limit)
 
 ### A3-window-37 the writers of `GpuValueCache` maps in this area do not say so (A3-core-08)
 - file:line: `window.rs` (A3-core's list: 9996, 10006, 10029, 11903, 11907, 18517-19356 at the base)
@@ -532,7 +548,7 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   opacity groups around the node, nodes with more than 256 boxes below, more than 8 nodes; `:focus` /
   `:seat-focus` (caret, rings).
 - severity: medium
-- status: open: not started
+- status: open: not started (`color`, `outline`, opacity groups, more than 8 nodes, `:focus` still build the list)
 
 ### A3-window-39 smaller items of the full read (per app call or per resize event)
 - `resize_needs_full_regeneration`: every author rule of every DOM, 4 allocations + 4 sorts per DOM, per resize event.
@@ -544,7 +560,7 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - `published_flips`: animations x depth x up to 3 stacking-context evaluations.
 - `unchanged_cascades`: `(None, None) => true` does not compare what a hosted root inherits from its host.
 - severity: low
-- status: open: not started
+- status: open: not started (seven small items, each per app call or per resize event)
 
 ### A3-window-40 the CSS diff named a node whose own insets or transform values moved (A3-solver-41, the shell's half)
 - file:line: `window.rs` `css_diff_between`, `begin_reconciliation` -> `restyle_is_left_to_the_fingerprint`;
@@ -572,6 +588,35 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
 - test: `a_fading_bar_of_the_window_asks_for_frames_with_a_view_in_the_window`.
 - severity: medium
 - status: fixed 7cbefeb45
+
+### A3-window-42 the fast path's merges and `Repointing` are still merges x nodes / merges squared
+- file:line: `core/src/diff.rs` `merge_fresh_datasets` (the pre-cascade fast path's half of `transfer_states`: the
+  same full walk of the arena per merge that A3-window-12 removed from `transfer_states`);
+  `core/src/refany.rs` `Repointing::replace` / `dropped_at` / `kept_for` (a linear find per call: `replaced.extend`
+  is m^2 pointer compares per rebuild, `kept_for` m per `RefAny` of the old arena and of every outside holder,
+  `LayoutWindow::for_each_refany`)
+- class: quadratic in the merging nodes (1,000 stateful rows: 1 M node visits on the fast path, 0.5 M compares)
+- fix proposed: `RefAnyHolders` fits `merge_fresh_datasets` as it is; `Repointing` needs a map by allocation
+  beside its `Vec` (the `Vec` is private to `refany.rs`, A3-core's file).
+- severity: low
+- status: open: not started
+
+### A3-window-43 the display-list tier means the WINDOW's list (A4's hand-off: macOS regenerates the root for it)
+- file:line: `dll/.../macos/mod.rs` 9456-9479 (`display_list_dirty` -> `regenerate_display_list_for_dom(DomId 0)`,
+  A10's file); the producers of `ShouldUpdateDisplayListCurrentWindow` in this area: `update_drag_visual`
+  (`window.rs`), `take_animation_frame_work`, `apply_focus_restyle` with an empty delta (`event.rs`)
+- class: waste on the GPU path (the window's list is built and translated again for a change in a view's list)
+  and wrong-output for `update_drag_visual`: for a node dragged inside a VIEW the tier builds the window's list,
+  never the view's, so the view's list does not open the node's reference frame and the drag visual stays put.
+- checked: the hover / press restyle does NOT take this tier: `repaint_restyled_nodes` returns
+  `ShouldReRenderCurrentWindow` for the patch and for the rebuild alike, macOS then takes the lightweight
+  transaction (the patched view list alone, no root regeneration). A4-23's reading ("the event result is
+  `ShouldUpdateDisplayListCurrentWindow`") does not hold for this branch.
+- fix proposed: `update_drag_visual`: for `dom_id != ROOT` build that DOM's list here and return
+  `ShouldReRenderCurrentWindow`. Also seen there: with a drag image, every move scans the DOM's nodes for the
+  image's id and (before A3-window-30) the layout nodes for its rect.
+- severity: medium
+- status: open: not started (needs a drag context inside a view for its test)
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
@@ -634,7 +679,13 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   `layout_dom_recursive_impl`).
 - `create_with_context_inheriting` repeats `fixup_children_estimated`, `scope_inline_css`, `collect_css_from_dom`,
   `strip_css_from_dom` on the tree `create_from_dom_inheriting` already prepared (A3-window-32).
-- `StyledDom::append_child` needs a "composed" flag for A3-window-18.
+- A3-window-18 is fixed in the shell (no flag on `StyledDom` needed).
+- `InheritedValues::buckets()` is a new accessor in `core/src/prop_cache.rs` (A3-window-31), placed after
+  `bucket_count`; it reads the fields `buckets[..].{prop_type, value, nodes}`, which A3-core-06 keeps.
+- `StyledDom::with_parts` (`core/src/styled_dom.rs`, about 2595) walks every child of every node of a press chain,
+  twice per press and twice per release (`node_states`, `restyle_nodes_state`): with a flat layer of 12.5k labels
+  in the chain that is 4 x 12.5k child visits per click.
+- `Repointing` (`core/src/refany.rs`): see A3-window-42.
 
 ## For area A3-solver
 - `NodeChangeSet::INLINE_STYLE_INSETS` (A3-window-08) is set when only inset values changed.
@@ -642,6 +693,14 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   `patch_restyled_decorations` (for `node_patch`). A3-solver's new field `pass_memo` must be added to the second
   literal at integration (same value as in the first).
 - `dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>>` is 12.5k small `Vec`s per tree (and per tree copy).
+- `solver3/getters.rs`: `collect_and_resolve_font_chains_covering` is new (A3-window-24); the body of
+  `collect_and_resolve_font_chains_with_registration_in_viewport` moved under it unchanged but for the two lines
+  that add the extra characters, and the old entry forwards with an empty set.
+- A list of the boxes that HAVE a scrollbar, kept by the tree where `warm.scrollbar_info` is written, would end
+  the last per-frame read of every box in `synchronize_scrollbar_opacity` (A3-window-28) and in
+  `update_scrollbar_transforms` (A4-10).
+- `audit_tests::a3_solver::labels_that_only_moved_keep_their_boxes_when_the_shell_rebuilds_the_page`: remove its
+  `#[ignore]` when A3-window-40 (`072419824`) is merged.
 
 ## For area A4
 - A paint restyle (or patch) of ONE DOM makes `register_frame_resources` scan the lists of ALL DOMs and
@@ -671,6 +730,12 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   from inside `apply_user_change` (a nested full pass).
 - `event.rs` a layout-affecting hover rule ends in `CommonWindowState::incremental_relayout`, which always finishes
   with `rebuild_cpu_hit_tester()`.
+- `window.rs` `publish_live_sample` (22479 here; 21767 / 21787 at the base) writes the animation channel of the
+  GPU value cache without `note_value_write()` (A3-window-37 / A3-core-08).
+- `scroll_registration.rs` `register_scroll_nodes` (after every layout pass, and a second time in the shell's
+  incremental relayout): per layout node the scrollport is computed before `scrollbar_info` is asked; and
+  `nested_dom_hosts` (the Tab order) walks every item of every list although
+  `VirtualViewManager::nested_dom_host_map()` now hands out the same map (A3-window-35).
 
 ## For area A2-cpu
 - `virtual_view_frame_scroll_offsets` (`window.rs` about 4490, per GPU frame): `all_view_keys()` allocates a `Vec`
@@ -700,7 +765,20 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   the solver handles `INLINE_STYLE_INSETS`.
 - The groups of 64 are not needed by this area's code any more (answer 4).
 
+## For area A9
+- With A3-window-23 the font collector (`garbage_collect_fonts`) runs only in a window without a child DOM: a
+  window that holds a view keeps every face it ever loaded (bounded by the fonts the app shows). A keep-set over
+  all DOMs (the window's chains and `FontResolutions::of_children`) would let it run again.
+- `FontResolutions` holds 8 KB per DOM (`CharSet`) and a view's handful of font chains.
+
 ## Integration
+- `9c486a5a3` on this branch is A3-core's `b37653684` cherry-picked (A3-core-08, `core/src/gpu.rs` +
+  `gpu_test.rs`): the merge sees the same change twice.
+- A3-window-40 (`072419824`) is the shell's half of A3-solver-41: remove the `#[ignore]` of
+  `audit_tests::a3_solver::labels_that_only_moved_keep_their_boxes_when_the_shell_rebuilds_the_page`.
+- Two new fields on `LayoutWindow` since round 1 are listed in both exhaustive destructures (the memory report,
+  `remap_node_ids`): `font_resolutions`, `css_dirty_waiting` (and `dom_generations` from before). Another area's
+  new field lands beside them without conflict in meaning, but the hunks may touch.
 - **A4-23** (a hover as a bound colour). What `node_patch` does today when the hovered node's background is bound to
   a colour key (`GpuValueCache::color_keys`, read into `bound_colors` by `plan_one`): it emits the node's run as
   the build would, a bound rect with the key; when the list already holds that bound rect the run is unchanged
@@ -725,6 +803,18 @@ Evidence: the size sweeps `the_shallow_tiers_take_a_step_per_node_when_a_view_gr
   version: u64)` (A3-window-20), added to the `Dom` class before `with_key`; hand-written Rust in
   `core/src/dom.rs` (`Dom`, `NodeData`). `VirtualViewNode` (internal, not in `api.json`) gained
   `version: Option<u64>`. The generated bindings need a codegen run.
+
+## What to look at on the real window
+- Hover over a label and press it (A3-window-07): the label's background shows and goes with the pointer; with
+  `AZ_NO_DL_PATCH=1` the same picture is drawn by the rebuild (the switch; default: patch on).
+- Pan a map to an area with names in another script, then back (A3-window-22 / -24): no label may show boxes
+  for missing glyphs. This is the one change of this round whose mistake would be visible and that the headless
+  tests (an empty font cache) cannot show; there is no switch: the cold path is taken whenever a character is
+  not covered, and the tests pin when that is.
+- Scroll the sidebar and let go (A3-window-41): its scrollbar fades out smoothly while the map view is in the
+  window (it stood still until the next frame before).
+- Open a panel / select something that rebuilds the window's DOM (A3-window-20, once the editor states the
+  view's version): the map must not flash or re-render.
 
 ## Questions for the coordinator
 - none open.
