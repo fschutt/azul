@@ -786,7 +786,23 @@ pub fn translate_displaylist_to_wr(
                         wr_transform,
                     );
 
-                    let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
+                    // The thumb's key is its NODE's: a scroll box painted twice in
+                    // one list (a box broken across regions, a fixed box
+                    // repeated per page) opens two thumb frames with it. The
+                    // rule of the transformed frames below: how often this list
+                    // has opened the key before (A2-gpu-15; thumb keys and
+                    // frame keys are both `TransformKey::unique()` ids, so the
+                    // two collections serve both).
+                    let push_index = if reference_frames_seen.insert(transform_key.id as u64) {
+                        0
+                    } else {
+                        let repeats = reference_frame_repeats
+                            .entry(transform_key.id as u64)
+                            .or_insert(0);
+                        *repeats += 1;
+                        *repeats
+                    };
+                    let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, push_index);
 
                     builder.push_reference_frame(
                         LayoutPoint::zero(),
@@ -4761,5 +4777,59 @@ mod audit_a4_tests {
                 webrender::api::SpatialTreeItemKey::new(key.id as u64, u64::MAX),
             )
         );
+    }
+
+    /// A scroll box's bar with a thumb that the GPU moves (`thumb_transform_key`).
+    fn bar(key: azul_core::resources::TransformKey) -> DisplayListItem {
+        use azul_layout::solver3::display_list::ScrollbarDrawInfo;
+
+        let colour = azul_css::props::basic::color::ColorU::new(90, 90, 90, 255);
+        DisplayListItem::ScrollBarStyled {
+            info: Box::new(ScrollbarDrawInfo {
+                bounds: rect(184.0, 0.0, 16.0, 100.0).into(),
+                orientation: azul_core::dom::ScrollbarOrientation::Vertical,
+                track_bounds: rect(184.0, 0.0, 16.0, 100.0).into(),
+                track_color: colour,
+                thumb_bounds: rect(186.0, 0.0, 12.0, 32.0).into(),
+                thumb_color: colour,
+                thumb_border_radius: Default::default(),
+                button_decrement_bounds: None,
+                button_increment_bounds: None,
+                button_color: colour,
+                opacity_key: None,
+                thumb_transform_key: Some(key),
+                thumb_initial_transform: azul_core::transform::ComputedTransform3D::IDENTITY,
+                hit_id: None,
+                clip_to_container_border: false,
+                container_border_radius: Default::default(),
+                visibility: Default::default(),
+            }),
+        }
+    }
+
+    /// A2-gpu-15 (found by A2-gpu reading A4-06, applied by A4). The thumb of a
+    /// scroll box's bar has its frame under the NODE's key, so a scroll box
+    /// that one list paints twice opened two frames with one spatial key, which
+    /// the scene builder panics on. The same bar twice: `(key, 0)` and
+    /// `(key, 1)`; once: `(key, 0)`, as every list before.
+    /// Mutation: `push_index` fixed at 0 in the `ScrollBarStyled` arm -> equal.
+    #[test]
+    fn a_scrollbar_painted_twice_in_a_list_opens_two_thumb_frames_with_two_keys() {
+        use webrender::api::SpatialTreeItemKey;
+
+        let key = azul_core::resources::TransformKey::unique();
+        let twice: Vec<_> = frames(vec![bar(key), bar(key)], 1.0)
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        assert_eq!(
+            twice,
+            vec![
+                SpatialTreeItemKey::new(key.id as u64, 0),
+                SpatialTreeItemKey::new(key.id as u64, 1),
+            ]
+        );
+        let once: Vec<_> = frames(vec![bar(key)], 1.0).into_iter().map(|(key, _)| key).collect();
+        assert_eq!(once, vec![SpatialTreeItemKey::new(key.id as u64, 0)]);
     }
 }
