@@ -434,6 +434,8 @@ mod recorder {
     use super::{GlobalHotkeyCallbackData, RecordedGlobalHotkeys, GLOBAL_HOTKEY_DECLARATION_CAP};
 
     std::thread_local! {
+        // Thread-scoped for the reason in the docs above: the FFI-frozen `Copy` info structs have
+        // no field to carry what the callback declares, and it runs on this thread.
         static RECORDED: core::cell::RefCell<RecordedGlobalHotkeys> =
             const {
                 core::cell::RefCell::new(RecordedGlobalHotkeys {

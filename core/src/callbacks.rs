@@ -1150,6 +1150,9 @@ mod size_query_recorder {
     pub(super) const SIZE_QUERY_CAP: usize = 256;
 
     std::thread_local! {
+        // Thread-scoped, not a field: the layout callback runs synchronously on the calling
+        // thread, and `LayoutCallbackInfo` is FFI-frozen (api.json), so it has no field to carry
+        // what the callback records; the engine drains it right after the callback returns.
         static RECORDED: core::cell::RefCell<(Vec<SizeQuery>, bool)> =
             const { core::cell::RefCell::new((Vec::new(), false)) };
     }
@@ -1223,6 +1226,9 @@ mod build_window {
     std::thread_local! {
         /// The window the DOM being built on this thread is for, while a
         /// [`super::WindowSizeScope`] is entered.
+        ///
+        /// Thread-scoped because a widget's `dom()` takes no info argument and the build runs
+        /// synchronously on the calling thread (see [`RECORDED`] of the size-query recorder).
         pub(super) static SIZE: core::cell::Cell<Option<LogicalSize>> =
             const { core::cell::Cell::new(None) };
     }
@@ -1484,6 +1490,8 @@ mod style_dep_recorder {
     use super::SystemStyleDependencies;
 
     std::thread_local! {
+        // Thread-scoped for the reason of the size-query recorder above: the FFI-frozen
+        // `LayoutCallbackInfo` carries no field for it, and the callback runs on this thread.
         static DECLARED: core::cell::Cell<SystemStyleDependencies> =
             const { core::cell::Cell::new(SystemStyleDependencies { facets: 0 }) };
     }

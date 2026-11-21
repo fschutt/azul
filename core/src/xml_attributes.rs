@@ -445,6 +445,9 @@ pub fn builtin_attributes() -> &'static [XmlAttribute] {
     BUILTIN
 }
 
+// Process-wide because it is a registry of extensions an app adds once at startup: every XML -> DOM
+// builder and the code generator read it (`setting_of`), none of which is handed a context to carry
+// one (an owner would be the builders' own context, which the parsers do not have).
 #[cfg(feature = "std")]
 static REGISTERED: std::sync::RwLock<Vec<XmlAttribute>> = std::sync::RwLock::new(Vec::new());
 

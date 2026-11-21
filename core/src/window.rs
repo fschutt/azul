@@ -577,6 +577,9 @@ pub struct KeyboardState {
 }
 
 /// Raised by [`use_linux_shortcuts_on_macos`]; see there.
+///
+/// Process-wide because it describes the windowing backend the whole process runs on (X11 on a
+/// macOS host), is raised once before the first window, and is read by every shortcut decision.
 static LINUX_SHORTCUTS_ON_MACOS: core::sync::atomic::AtomicBool =
     core::sync::atomic::AtomicBool::new(false);
 

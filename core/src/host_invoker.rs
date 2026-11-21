@@ -111,6 +111,9 @@ impl Default for InvokerSlot {
 /// Process-global slot for the host's "drop a handle id" callback. Set via
 /// [`AzApp_setHostHandleReleaser`]. Read by [`host_handle_destructor`]
 /// when a host-handle [`RefAny`]'s last clone drops.
+///
+/// Process-wide because the C ABI forces it: the host registers one function pointer through an
+/// `extern "C"` entry point, and the destructor stamped into a `RefAny` has no argument to find it by.
 pub static HOST_HANDLE_RELEASER: InvokerSlot = InvokerSlot::new();
 
 /// Process-global slot for the host's *generic* invoker.
@@ -140,6 +143,8 @@ pub static HOST_HANDLE_RELEASER: InvokerSlot = InvokerSlot::new();
 /// to do per kind from the `kind` string (which matches the wrapper
 /// struct name, e.g. `"Callback"`, `"LayoutCallback"`,
 /// `"ButtonOnClickCallback"`).
+///
+/// Process-wide because the C ABI forces it: see [`HOST_HANDLE_RELEASER`].
 pub static GENERIC_INVOKER: InvokerSlot = InvokerSlot::new();
 
 /// Type alias for the generic invoker callable. Hosts cast a libffi
@@ -466,6 +471,9 @@ std::thread_local! {
     /// The callback function libazul is invoking on this thread right now,
     /// with its wrapper's context. Set by every macro-generated
     /// `<Wrapper>::invoke`, restored when that call returns.
+    ///
+    /// Thread-scoped because the callee is a bare C function pointer with the kind's own
+    /// arguments (no context among them): the invocation is the one running on this thread.
     static INVOCATION: core::cell::RefCell<Option<(usize, crate::refany::OptionRefAny)>> =
         const { core::cell::RefCell::new(None) };
 }

@@ -199,6 +199,10 @@ fn normalize3(v: [f32; 3]) -> [f32; 3] {
 mod state {
     use super::Light;
 
+    // Process-wide for the reason of the app theme (`app_theme::state`): `App::create` and
+    // `CallbackInfo::set_app_light` publish to every window, and window creation has no path back to
+    // an `App`.
+
     /// The app's light, and how often it changed: windows compare the count
     /// with the one they last adopted.
     pub(super) static APP_LIGHT: std::sync::RwLock<(Light, u64)> =
@@ -207,6 +211,9 @@ mod state {
     std::thread_local! {
         /// The light and the window origin of the display list being built on
         /// this thread, while a [`super::LightScope`] is entered.
+        ///
+        /// Thread-scoped because the light-following shadows are read deep inside the display-list
+        /// build, which runs synchronously on the calling thread and passes no window down to them.
         pub(super) static FRAME: core::cell::Cell<Option<(Light, [f32; 2])>> =
             const { core::cell::Cell::new(None) };
     }
