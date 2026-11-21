@@ -417,7 +417,7 @@ jobs:
     name: Generate bindings (macOS)
     needs: [content_state_lint, documentation_paths]
     if: github.event_name != 'workflow_dispatch' || github.event.inputs.run_mode == 'ci' || github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 30
     steps:
       - name: Checkout repository
@@ -1468,15 +1468,15 @@ jobs:
             runner: windows-2022
             check_build_dll: true
           - target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             check_build_dll: true
             macos_deployment_target: "10.13"
           - target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             check_build_dll: true
             macos_deployment_target: "10.15"
           - target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             check_build_dll: true
             macos_deployment_target: "11.0"
     steps:
@@ -1589,7 +1589,7 @@ jobs:
             use_cross: false
             artifact_ext: dll
           - target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-15
             artifact_name: azul-macos-x86_64
             use_cross: false
             artifact_ext: dylib
@@ -2282,7 +2282,7 @@ jobs:
         include:
           - os: ubuntu-22.04
             timeout_cmd: timeout
-          - os: macos-14
+          - os: macos-15
             timeout_cmd: gtimeout
     runs-on: ${{ matrix.os }}
     steps:
@@ -2300,7 +2300,7 @@ jobs:
         run: sudo apt-get update -qq || true && sudo apt-get install -y clang lldb libv4l-dev
 
       - name: Install dependencies (macOS)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-15'
         run: brew install coreutils
 
       - name: Install Miri
@@ -2317,7 +2317,7 @@ jobs:
         run: cargo build -p azul-dll --features build-dll
 
       - name: Leak regression tests (macOS only)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-15'
         shell: bash
         run: |
           set -o pipefail
@@ -2325,7 +2325,7 @@ jobs:
           ./scripts/zero_test_guard.sh --strict leak.txt
 
       - name: azul-dll unit tests (macOS backend)
-        if: matrix.os == 'macos-14'
+        if: matrix.os == 'macos-15'
         shell: bash
         run: |
           set -o pipefail
@@ -2390,7 +2390,7 @@ jobs:
           - os: ubuntu-22.04
             feature: icu
             run: true
-          - os: macos-14
+          - os: macos-15
             feature: icu_macos
             run: true
           - os: windows-2022
@@ -2445,7 +2445,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
-          - os: macos-14
+          - os: macos-15
           - os: windows-2022
     runs-on: ${{ matrix.os }}
     steps:
@@ -2565,7 +2565,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
+        os: [ubuntu-22.04, macos-15, windows-2022]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2592,7 +2592,7 @@ jobs:
           fi
           case "${{ matrix.os }}" in
             ubuntu-22.04) F="target/prod-release/libazul.so" ;;
-            macos-14)     F="target/prod-release/libazul.dylib" ;;
+            macos-15)     F="target/prod-release/libazul.dylib" ;;
             windows-2022) F="target/prod-release/azul.dll" ;;
           esac
           if [ -f "$F" ]; then
@@ -2636,7 +2636,7 @@ jobs:
           exit 1
 
       - name: Install coreutils (macOS)
-        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'macos-14'
+        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'macos-15'
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
@@ -2811,7 +2811,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
+        os: [ubuntu-22.04, macos-15, windows-2022]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2866,7 +2866,7 @@ jobs:
           exit 1
 
       - name: Install coreutils (macOS)
-        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'macos-14'
+        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'macos-15'
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
@@ -2912,7 +2912,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
+        os: [ubuntu-22.04, macos-15, windows-2022]
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -2967,7 +2967,7 @@ jobs:
           exit 1
 
       - name: Install coreutils (macOS)
-        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'macos-14'
+        if: steps.cache-valid.outputs.skip != 'true' && matrix.os == 'macos-15'
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
@@ -2986,7 +2986,7 @@ jobs:
           mkdir -p dist-pyext
           case "${{ matrix.os }}" in
             windows-2022) cp target/pyext/prod-release/azul.dll     dist-pyext/azul.pyd ;;
-            macos-14)     cp target/pyext/prod-release/libazul.dylib dist-pyext/azul.so ;;
+            macos-15)     cp target/pyext/prod-release/libazul.dylib dist-pyext/azul.so ;;
             *)            cp target/pyext/prod-release/libazul.so    dist-pyext/azul.so ;;
           esac
           ls -la dist-pyext
@@ -3050,7 +3050,7 @@ jobs:
               target/prod-release/libazuldbg.so
               target/prod-release/libazul.a
               target/prod-release/azul.so
-          - os: macos-14
+          - os: macos-15
             artifact_name: azul-macos-amd64
             artifact_path: |
               target/prod-release/libazul.dylib
@@ -3104,7 +3104,7 @@ jobs:
           set -e
           case "${{ matrix.os }}" in
             ubuntu-22.04) WANT="libazul.so libazuldbg.so libazul.a azul.so" ;;
-            macos-14)     WANT="libazul.dylib libazuldbg.dylib libazul.a azul.so" ;;
+            macos-15)     WANT="libazul.dylib libazuldbg.dylib libazul.a azul.so" ;;
             windows-2022) WANT="azul.dll azuldbg.dll azul.lib azul.dll.lib azul.pyd" ;;
           esac
           ls -la target/prod-release/
@@ -3280,16 +3280,16 @@ jobs:
             bin_ext: ""
             artifact_name: azul-demos-ubuntu
             dll_artifact: azul-linux-amd64
-          # macos-14 is an Apple Silicon runner: its own builds are arm64 only (M1 and later;
+          # macos-15 is an Apple Silicon runner: its own builds are arm64 only (M1 and later;
           # an Intel Mac says "bad CPU type in executable"). The Intel demos are built on it
           # for x86_64, against the x86_64 libazul.a of cross_build_binaries.
-          - os: macos-14
+          - os: macos-15
             label: macOS (M1+)
             os_suffix: macos
             bin_ext: ""
             artifact_name: azul-demos-macos
             dll_artifact: azul-macos-amd64
-          - os: macos-14
+          - os: macos-15
             label: macOS (Intel)
             os_suffix: macos-intel
             bin_ext: ""
@@ -3355,7 +3355,7 @@ jobs:
           exit 1
 
       - name: Install coreutils (macOS)
-        if: steps.gate.outputs.run == 'true' && matrix.os == 'macos-14'
+        if: steps.gate.outputs.run == 'true' && matrix.os == 'macos-15'
         run: brew install coreutils
 
       - name: Download generated bindings (built once per OS)
@@ -3549,7 +3549,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
+        os: [ubuntu-22.04, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -3580,7 +3580,7 @@ jobs:
           # prefix may come from a run that kept the extension elsewhere.
           case "${{ matrix.os }}" in
             ubuntu-22.04) F="target/release/libazul.so";    P="target/pyext-e2e/pyext-e2e/libazul.so" ;;
-            macos-14)     F="target/release/libazul.dylib"; P="target/pyext-e2e/pyext-e2e/libazul.dylib" ;;
+            macos-15)     F="target/release/libazul.dylib"; P="target/pyext-e2e/pyext-e2e/libazul.dylib" ;;
             windows-2022) F="target/release/azul.dll";      P="$F" ;;
           esac
           if [ -f "$F" ] && [ -f "$P" ]; then
@@ -3673,7 +3673,7 @@ jobs:
             cp target/pyext-e2e/pyext-e2e/libazul.dylib e2e-dll/release/azul-pyext.so 2>/dev/null \
               || cp target/pyext-e2e/pyext-e2e/libazul.so e2e-dll/release/azul-pyext.so
           fi
-          if [ "${{ matrix.os }}" = "macos-14" ]; then
+          if [ "${{ matrix.os }}" = "macos-15" ]; then
             cp target/release/libazul.dylib e2e-dll/release/
           elif [ "${{ matrix.os }}" = "windows-2022" ]; then
             cp target/release/azul.dll        e2e-dll/release/
@@ -3925,14 +3925,14 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
+      # dmd has no arm64 backend, so macos-15 (Apple Silicon) gets LDC 1.43,
       # which is built on the same dmd 2.113 front end.
       - name: Set up D (dmd, LDC on macOS)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: ${{ matrix.os == 'macos-14' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
+          compiler: ${{ matrix.os == 'macos-15' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
@@ -4069,7 +4069,7 @@ jobs:
         # segfaulted at the first callback into Haskell there while GHC 9.6 on
         # macOS — and the older image on the last green run — worked. A shipped
         # binding gates the deploy; its toolchain has to be pinned.
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && (matrix.os == 'macos-14' || matrix.os == 'ubuntu-22.04')
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && (matrix.os == 'macos-15' || matrix.os == 'ubuntu-22.04')
         continue-on-error: true
         uses: haskell-actions/setup@6037f33647c3f17758a2356c80fc4a53d7e0685d # v2.12.0
         with:
@@ -4141,7 +4141,7 @@ jobs:
         shell: bash
         run: |
           echo "AZ_LINK_PATH=$PWD/target/release" >> "$GITHUB_ENV"
-          if [ "${{ matrix.os }}" = "macos-14" ]; then
+          if [ "${{ matrix.os }}" = "macos-15" ]; then
             echo "AZ_LIB=$PWD/target/release/libazul.dylib" >> "$GITHUB_ENV"
             echo "DYLD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
           elif [ "${{ matrix.os }}" = "windows-2022" ]; then
@@ -4159,7 +4159,7 @@ jobs:
           mkdir -p stats
           os_slug="ubuntu"
           case "${{ matrix.os }}" in
-            macos-14)     os_slug="macos" ;;
+            macos-15)     os_slug="macos" ;;
             windows-2022) os_slug="windows" ;;
           esac
           E2E_LANG_TIMEOUT=600 RUST_BACKTRACE=full \
@@ -4206,7 +4206,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-2022, macos-14]
+        os: [windows-2022, macos-15]
         family: >-
           ${{ fromJSON(
             (github.ref == 'refs/heads/master'
@@ -4310,14 +4310,14 @@ jobs:
           nim-version: '2.0.x'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # dmd has no arm64 backend, so macos-14 (Apple Silicon) gets LDC 1.43,
+      # dmd has no arm64 backend, so macos-15 (Apple Silicon) gets LDC 1.43,
       # which is built on the same dmd 2.113 front end.
       - name: Set up D (dmd, LDC on macOS)
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-c'
         continue-on-error: true
         uses: dlang-community/setup-dlang@24602affb586decd94d482316b9efd2d63108bbb # v2 branch, 2026-09-07
         with:
-          compiler: ${{ matrix.os == 'macos-14' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
+          compiler: ${{ matrix.os == 'macos-15' && 'ldc-1.43.0' || 'dmd-2.113.0' }}
 
       - name: Set up Racket
         if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-x2'
@@ -4454,7 +4454,7 @@ jobs:
         # segfaulted at the first callback into Haskell there while GHC 9.6 on
         # macOS — and the older image on the last green run — worked. A shipped
         # binding gates the deploy; its toolchain has to be pinned.
-        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && (matrix.os == 'macos-14' || matrix.os == 'ubuntu-22.04')
+        if: env.SCRIPTING == 'true' && matrix.family.key == 'scripting-a' && (matrix.os == 'macos-15' || matrix.os == 'ubuntu-22.04')
         continue-on-error: true
         uses: haskell-actions/setup@6037f33647c3f17758a2356c80fc4a53d7e0685d # v2.12.0
         with:
@@ -4526,7 +4526,7 @@ jobs:
         shell: bash
         run: |
           echo "AZ_LINK_PATH=$PWD/target/release" >> "$GITHUB_ENV"
-          if [ "${{ matrix.os }}" = "macos-14" ]; then
+          if [ "${{ matrix.os }}" = "macos-15" ]; then
             echo "AZ_LIB=$PWD/target/release/libazul.dylib" >> "$GITHUB_ENV"
             echo "DYLD_LIBRARY_PATH=$PWD/target/release" >> "$GITHUB_ENV"
           elif [ "${{ matrix.os }}" = "windows-2022" ]; then
@@ -4544,7 +4544,7 @@ jobs:
           mkdir -p stats
           os_slug="ubuntu"
           case "${{ matrix.os }}" in
-            macos-14)     os_slug="macos" ;;
+            macos-15)     os_slug="macos" ;;
             windows-2022) os_slug="windows" ;;
           esac
           E2E_LANG_TIMEOUT=600 RUST_BACKTRACE=full \
@@ -4597,8 +4597,8 @@ jobs:
         include:
           - { os: ubuntu-22.04, label: android-arm64,  target: aarch64-linux-android, abi: arm64-v8a }
           - { os: ubuntu-22.04, label: android-x64,    target: x86_64-linux-android,  abi: x86_64 }
-          - { os: macos-14,     label: ios-arm64,      target: aarch64-apple-ios }
-          - { os: macos-14,     label: ios-sim-arm64,  target: aarch64-apple-ios-sim }
+          - { os: macos-15,     label: ios-arm64,      target: aarch64-apple-ios }
+          - { os: macos-15,     label: ios-sim-arm64,  target: aarch64-apple-ios-sim }
     env:
       MOBILE_FEATURES: "std,logging,link-static,a11y"
     steps:
@@ -4747,7 +4747,7 @@ jobs:
       && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/')
           || github.event_name == 'workflow_dispatch')
     continue-on-error: true
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       HAVE_APPLE_CERT: ${{ secrets.APPLE_CERT_P12 != '' }}
     steps:
@@ -5670,7 +5670,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
-          name: dependency-trees-macos-14
+          name: dependency-trees-macos-15
           path: artifacts-deptree-macos
       - name: Download dependency trees (Windows)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -6591,7 +6591,7 @@ jobs:
     name: Verify documented install (brew)
     needs: deploy_pages
     if: github.event.inputs.run_mode == 'deploy' || github.event.inputs.run_mode == 'website'
-    runs-on: macos-14
+    runs-on: macos-15
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_ANALYTICS: "1"
@@ -7103,7 +7103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
+        os: [ubuntu-22.04, macos-15, windows-2022]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -7511,7 +7511,7 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         continue-on-error: true
         with:
-          name: azul-lib-macos-14
+          name: azul-lib-macos-15
           path: native-macos
       - name: Download Windows native lib (x64)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

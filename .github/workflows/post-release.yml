@@ -185,7 +185,7 @@ jobs:
     name: "install: ${{ matrix.channel }} (macOS)"
     needs: resolve
     if: needs.resolve.outputs.deployed == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -255,7 +255,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-14, windows-2022]
+        os: [ubuntu-22.04, macos-15, windows-2022]
         lang: [c, cpp, rust, csharp, java, kotlin, lua, ruby, node, ocaml, zig, go, pascal, scala, fortran, haskell, python]
         exclude:
           # Not shipped there, and SAID so: the Kotlin Windows tab and guide
