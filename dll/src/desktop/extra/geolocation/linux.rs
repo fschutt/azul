@@ -2,8 +2,8 @@
 //!
 //! On `Subscribe`, a background thread connects to the system bus, asks
 //! `org.freedesktop.GeoClue2.Manager` for a `Client`, configures its accuracy +
-//! `Start`s it, then pushes every `LocationUpdated` into azul-layout's channel
-//! via `push_location_fix` (the same channel CoreLocation / Android feed). On
+//! `Start`s it, then pushes every `LocationUpdated` into the app's `GeolocationChannel`
+//! (the same channel CoreLocation / Android feed). On
 //! `Release` the thread is stopped; `Reconfigure` restarts it with the new
 //! accuracy.
 //!
@@ -12,12 +12,15 @@
 //! app simply sees no fix - the same observable behaviour as the old stub, but
 //! real wherever GeoClue can resolve a position (GPS dongle, agent, portal).
 
-#[cfg(target_os = "linux")]
-pub use imp::handle_event;
-
-#[cfg(not(target_os = "linux"))]
-pub fn handle_event(event: &azul_layout::managers::geolocation::GeolocationDiffEvent) {
-    let _ = event;
+/// Subscribe / reconfigure / release GeoClue; fixes go to the app's geolocation channel.
+pub fn handle_event(
+    event: &azul_layout::managers::geolocation::GeolocationDiffEvent,
+    services: &azul_layout::managers::app_services::AppServices,
+) {
+    #[cfg(target_os = "linux")]
+    imp::handle_event(event, &services.geolocation, &services.permission);
+    #[cfg(not(target_os = "linux"))]
+    let _ = (event, services);
 }
 
 #[cfg(target_os = "linux")]
@@ -27,25 +30,36 @@ mod imp {
         Arc, Mutex,
     };
 
-    use azul_layout::managers::geolocation::{
-        push_location_fix, GeolocationDiffEvent, LocationFix,
+    use azul_layout::managers::{
+        geolocation::{GeolocationChannel, GeolocationDiffEvent, LocationFix},
+        permission::AsyncPermissionResults,
     };
 
     /// The stop flag of the currently-running GeoClue thread (if any).
     static ACTIVE: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
 
-    pub fn handle_event(event: &GeolocationDiffEvent) {
+    pub fn handle_event(
+        event: &GeolocationDiffEvent,
+        channel: &Arc<GeolocationChannel>,
+        permission: &AsyncPermissionResults,
+    ) {
         match event {
-            GeolocationDiffEvent::Subscribe { config } => start(config.high_accuracy),
+            GeolocationDiffEvent::Subscribe { config } => {
+                start(config.high_accuracy, channel, permission);
+            }
             GeolocationDiffEvent::Reconfigure { config } => {
                 stop();
-                start(config.high_accuracy);
+                start(config.high_accuracy, channel, permission);
             }
             GeolocationDiffEvent::Release => stop(),
         }
     }
 
-    fn start(high_accuracy: bool) {
+    fn start(
+        high_accuracy: bool,
+        channel: &Arc<GeolocationChannel>,
+        permission: &AsyncPermissionResults,
+    ) {
         let mut active = match ACTIVE.lock() {
             Ok(g) => g,
             Err(_) => return,
@@ -55,7 +69,9 @@ mod imp {
         }
         let stop = Arc::new(AtomicBool::new(false));
         let stop_thread = stop.clone();
-        std::thread::spawn(move || geoclue_loop(stop_thread, high_accuracy));
+        let channel = Arc::clone(channel);
+        let permission = permission.clone();
+        std::thread::spawn(move || geoclue_loop(stop_thread, high_accuracy, &channel, &permission));
         *active = Some(stop);
     }
 
@@ -68,8 +84,14 @@ mod imp {
     }
 
     /// Connect to GeoClue2, start a client, and push each `LocationUpdated` as a
-    /// `LocationFix` until `stop` is set or the bus/GeoClue is unavailable.
-    fn geoclue_loop(stop: Arc<AtomicBool>, high_accuracy: bool) {
+    /// `LocationFix` until `stop` is set or the bus/GeoClue is unavailable. The `Start`
+    /// outcome is the permission answer, parked in `permission`.
+    fn geoclue_loop(
+        stop: Arc<AtomicBool>,
+        high_accuracy: bool,
+        channel: &GeolocationChannel,
+        permission: &AsyncPermissionResults,
+    ) {
         const SVC: &str = "org.freedesktop.GeoClue2";
 
         let conn = match zbus::blocking::Connection::system() {
@@ -139,17 +161,17 @@ mod imp {
         // flow (or explains why they don't).
         {
             use azul_layout::managers::permission::{
-                push_async_result, Capability, PermissionQuality, PermissionState,
+                Capability, PermissionQuality, PermissionState,
             };
             match &started {
-                Ok(()) => push_async_result(
+                Ok(()) => permission.push((
                     Capability::Geolocation,
                     PermissionState::Granted(if high_accuracy {
                         PermissionQuality::Full
                     } else {
                         PermissionQuality::Reduced
                     }),
-                ),
+                )),
                 Err(e) => {
                     // The zbus error text is the ONE line that says why GeoClue
                     // refused (classically: an unregistered DesktopId, or the
@@ -159,7 +181,7 @@ mod imp {
                          no location fixes will arrive",
                         e
                     );
-                    push_async_result(Capability::Geolocation, PermissionState::Denied);
+                    permission.push((Capability::Geolocation, PermissionState::Denied));
                 }
             }
         }
@@ -205,7 +227,7 @@ mod imp {
             let heading: f64 = loc.get_property("Heading").unwrap_or(-1.0);
             let speed: f64 = loc.get_property("Speed").unwrap_or(-1.0);
 
-            push_location_fix(LocationFix {
+            channel.push_fix(LocationFix {
                 latitude_deg: lat,
                 longitude_deg: lon,
                 accuracy_m: acc as f32,

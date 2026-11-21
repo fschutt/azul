@@ -78,7 +78,7 @@ unsafe impl objc2::encode::Encode for CgSize {
 static CURRENT_ARTWORK_IMAGE: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 use azul_core::media_session::{MediaControlKind, MediaControlRequest};
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_control, push_media_key};
+use azul_layout::managers::media_keys::MediaKeyQueues;
 
 /// `MPRemoteCommandHandlerStatus.success`.
 const HANDLER_STATUS_SUCCESS: isize = 0;
@@ -149,7 +149,9 @@ unsafe fn info_key(symbol: &[u8]) -> Option<*mut objc2::runtime::AnyObject> {
 ///
 /// Idempotent and quiet: no MediaPlayer framework, or a system that refuses
 /// the registration, simply means no media keys - the app still runs.
-pub fn start() {
+///
+/// The command handlers hold a clone of the app's `queues` and park the keys and seeks there.
+pub fn start(queues: &MediaKeyQueues) {
     if !azul_layout::window::expose_system_media_controls() {
         return;
     }
@@ -191,11 +193,12 @@ pub fn start() {
             if command.is_null() {
                 return;
             }
+            let keys = queues.clone();
             let handler = RcBlock::new(move |_event: *mut AnyObject| -> isize {
                 // Parked, not handled here: this runs on whatever thread the
                 // media daemon calls on, and the engine's key pass belongs to
                 // the main thread. Same channel the MPRIS backend uses.
-                push_media_key(key);
+                keys.push_media_key(key);
                 HANDLER_STATUS_SUCCESS
             });
             let _: () = msg_send![command, setEnabled: true];
@@ -227,11 +230,12 @@ pub fn start() {
             let sel = objc2::runtime::Sel::register(&name);
             let command: *mut AnyObject = msg_send![center, performSelector: sel];
             if !command.is_null() {
+                let controls = queues.clone();
                 let handler = RcBlock::new(move |event: *mut AnyObject| -> isize {
                     if !event.is_null() {
                         let seconds: f64 = msg_send![event, positionTime];
                         if seconds.is_finite() {
-                            push_media_control(MediaControlRequest {
+                            controls.push_media_control(MediaControlRequest {
                                 kind: MediaControlKind::SeekAbsolute,
                                 position_us: (seconds.max(0.0) * 1_000_000.0) as i64,
                                 uri: AzString::from_const_str(""),
@@ -617,7 +621,7 @@ const AVF_ABSENT: Option<bool> = Some(cfg!(target_os = "macos"));
 /// the three session methods because they are declared for iOS in the
 /// headers and a macOS class that exists may still not implement them.
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
+pub fn set_system_audio_takeover(active: bool, queues: &MediaKeyQueues) -> Option<bool> {
     use objc2::{msg_send, runtime::AnyObject};
 
     if avfaudio().is_none() {
@@ -672,7 +676,7 @@ pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
                 crate::plog_info!("[media-session] AVAudioSession setActive failed");
                 return Some(false);
             }
-            install_interruption_observer();
+            install_interruption_observer(queues);
             Some(true)
         } else {
             if !responds(objc2::sel!(setActive:withOptions:error:)) {
@@ -696,11 +700,11 @@ pub fn set_system_audio_takeover(active: bool) -> Option<bool> {
 /// Observe `AVAudioSessionInterruptionNotification` once, for the lifetime
 /// of the process, and turn each one into a [`SystemAudioChange`]: began =
 /// `Interrupted`; ended = `Resumed` with the should-resume hint, `Ended`
-/// without it (Apple: do not resume on your own then).
+/// without it (Apple: do not resume on your own then). The observer holds a clone of the app's
+/// `queues` and parks each change there.
 #[cfg(any(target_os = "ios", target_os = "macos"))]
-fn install_interruption_observer() {
+fn install_interruption_observer(queues: &MediaKeyQueues) {
     use azul_core::media_session::SystemAudioChange;
-    use azul_layout::managers::media_keys::push_system_audio_change;
     use block2::RcBlock;
     use objc2::{msg_send, runtime::AnyObject};
 
@@ -731,6 +735,7 @@ fn install_interruption_observer() {
         // block captures never dangle.
         let type_key = type_key as usize;
         let option_key = option_key as usize;
+        let queues = queues.clone();
         let handler = RcBlock::new(move |note: *mut AnyObject| {
             if note.is_null() {
                 return;
@@ -762,7 +767,7 @@ fn install_interruption_observer() {
                     SystemAudioChange::Ended
                 }
             };
-            push_system_audio_change(change);
+            queues.push_system_audio_change(change);
         });
         let nil: *mut AnyObject = core::ptr::null_mut();
         let _: *mut AnyObject = msg_send![

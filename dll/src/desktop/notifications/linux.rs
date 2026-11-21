@@ -87,10 +87,9 @@ use std::{
 
 use azul_core::notification::{Notification, NotificationEvent, NotificationSound};
 use azul_css::AzString;
-use azul_layout::managers::notification::{
-    queue_notification_event,
-    wire::{self, FreedesktopActions, FreedesktopPosts},
-};
+use azul_layout::managers::notification::wire::{self, FreedesktopActions, FreedesktopPosts};
+
+use super::queue_notification_event;
 
 use crate::desktop::shell2::linux::{
     dbus::{

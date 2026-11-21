@@ -18,7 +18,9 @@
 //! follow-up ticks land `request_camera_access_objc` / the JNI bridge /
 //! the xdg-portal client / etc.
 
-use azul_layout::managers::permission::{Capability, PermissionDiffEvent, PermissionState};
+use azul_layout::managers::permission::{
+    AsyncPermissionResults, Capability, PermissionDiffEvent, PermissionState,
+};
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -34,7 +36,12 @@ pub mod windows;
 /// Translate the `PermissionDiffEvent`s the layout pass emitted this frame
 /// into native subscribe / release calls. Called once per frame by the
 /// platform backend after `LayoutWindow::regenerate_layout`.
-pub fn apply_diff_events(events: &[PermissionDiffEvent]) {
+///
+/// `results` is the app's queue the outcomes of the prompts are parked in
+/// (`AppServices::permission`): the backends that answer from a thread or a
+/// completion block hold a clone. Android's JNI entry carries no context and
+/// reads it from `process_app`.
+pub fn apply_diff_events(events: &[PermissionDiffEvent], results: &AsyncPermissionResults) {
     if events.is_empty() {
         return;
     }
@@ -44,11 +51,11 @@ pub fn apply_diff_events(events: &[PermissionDiffEvent]) {
         #[cfg(target_os = "android")]
         android::handle_event(event);
         #[cfg(target_os = "macos")]
-        macos::handle_event(event);
+        macos::handle_event(event, results);
         #[cfg(target_os = "linux")]
-        linux::handle_event(event);
+        linux::handle_event(event, results);
         #[cfg(target_os = "windows")]
-        windows::handle_event(event);
+        windows::handle_event(event, results);
         // Other targets (wasm32, BSDs, …) silently no-op — these will get
         // their own arm if/when the framework grows a backend for them.
         #[cfg(not(any(
@@ -61,6 +68,8 @@ pub fn apply_diff_events(events: &[PermissionDiffEvent]) {
         {
             let _ = event;
         }
+        #[cfg(any(target_os = "ios", target_os = "android"))]
+        let _ = results;
     }
 }
 

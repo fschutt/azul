@@ -25,23 +25,28 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-/// Enumerate HID devices and publish the list. Idempotent.
-pub fn enumerate() {
+/// Enumerate HID devices and publish the list on the app's `channel`. Idempotent.
+pub fn enumerate(channel: &std::sync::Arc<azul_layout::managers::hid::HidChannel>) {
     #[cfg(target_os = "linux")]
-    linux::enumerate();
+    linux::enumerate(channel);
     #[cfg(target_os = "macos")]
-    macos::enumerate();
+    macos::enumerate(channel);
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    let _ = channel;
     // Windows enumerates at WINDOW CREATION instead: it needs the loaded
     // `User32Functions` table, which this signature has no path to, and the
     // raw-input registration happens there anyway. Nothing to do here.
 }
 
-/// Poll every open device for queued reports. Called once per pump pass.
-pub fn poll() {
+/// Poll every open device for queued reports into the app's `channel`. Called once per pump
+/// pass.
+pub fn poll(channel: &azul_layout::managers::hid::HidChannel) {
     #[cfg(target_os = "linux")]
-    linux::poll();
+    linux::poll(channel);
     #[cfg(target_os = "macos")]
     macos::poll();
+    #[cfg(not(target_os = "linux"))]
+    let _ = channel;
     // Windows delivers through `WM_INPUT`, like macOS delivers through the
     // run loop. Only Linux sweeps, because hidraw has no callback.
 }

@@ -37,9 +37,11 @@
 
 use azul_core::notification::{Notification, NotificationSound};
 use azul_layout::managers::{
-    notification::{queue_notification_event, wire},
-    permission::{push_async_result, Capability, PermissionQuality, PermissionState},
+    notification::wire,
+    permission::{Capability, PermissionQuality, PermissionState},
 };
+
+use super::{push_async_result, queue_notification_event};
 use jni::objects::{JClass, JObject, JObjectArray, JString, JValue};
 
 /// The helper class, in the slashed form `find_app_class` takes.

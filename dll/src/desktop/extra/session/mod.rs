@@ -1,7 +1,7 @@
 //! The user's session as the platform reports it - the screen locked or
-//! unlocked, the machine about to sleep or awake again - pushed into
-//! `azul_layout::managers::device_events::push_session_change`, which every
-//! window's next pass delivers as a `SessionChange` event at its root.
+//! unlocked, the machine about to sleep or awake again - pushed into the app's
+//! `azul_layout::managers::device_events::SessionLog`, which every window's
+//! next pass delivers as a `SessionChange` event at its root.
 //!
 //! - macOS: NSWorkspace's sleep, wake and session notifications, and the
 //!   distributed `com.apple.screenIsLocked` / `com.apple.screenIsUnlocked`.
@@ -14,27 +14,27 @@
 //! Elsewhere nothing reports it, and no `SessionChange` arrives.
 
 use azul_core::events::SessionChange;
+use azul_layout::managers::device_events::SessionLog;
 
-/// Start the platform's observers, once per process.
-pub fn ensure_started() {
+/// Start the platform's observers, once per process. They report into `log`, the app's: every
+/// window of the app reads it for itself.
+pub fn ensure_started(log: &SessionLog) {
     static STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     if STARTED.set(()).is_err() {
         return;
     }
     #[cfg(target_os = "macos")]
-    apple::start();
+    apple::start(log);
     #[cfg(target_os = "linux")]
-    linux::start();
-}
-
-/// Report `change` to every window.
-fn report(change: SessionChange) {
-    azul_layout::managers::device_events::push_session_change(change);
+    linux::start(log);
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    let _ = log;
 }
 
 #[cfg(target_os = "macos")]
 mod apple {
     use azul_core::events::SessionChange;
+    use azul_layout::managers::device_events::SessionLog;
     use block2::RcBlock;
     use objc2::{
         msg_send,
@@ -42,7 +42,7 @@ mod apple {
     };
     use objc2_foundation::NSString;
 
-    pub(super) fn start() {
+    pub(super) fn start(log: &SessionLog) {
         // SAFETY: AppKit's notification names are process-lifetime constants,
         // and the observers below live as long as the process.
         unsafe {
@@ -50,18 +50,30 @@ mod apple {
             let workspace_center = workspace.notificationCenter();
             let center: *const AnyObject =
                 (&*workspace_center as *const objc2_foundation::NSNotificationCenter).cast();
-            observe(center, objc2_app_kit::NSWorkspaceWillSleepNotification, SessionChange::WillSleep);
-            observe(center, objc2_app_kit::NSWorkspaceDidWakeNotification, SessionChange::Woke);
+            observe(
+                center,
+                objc2_app_kit::NSWorkspaceWillSleepNotification,
+                SessionChange::WillSleep,
+                log,
+            );
+            observe(
+                center,
+                objc2_app_kit::NSWorkspaceDidWakeNotification,
+                SessionChange::Woke,
+                log,
+            );
             // Fast user switching: the session is switched away from and back.
             observe(
                 center,
                 objc2_app_kit::NSWorkspaceSessionDidResignActiveNotification,
                 SessionChange::Locked,
+                log,
             );
             observe(
                 center,
                 objc2_app_kit::NSWorkspaceSessionDidBecomeActiveNotification,
                 SessionChange::Unlocked,
+                log,
             );
             let Some(distributed) = std::ffi::CString::new("NSDistributedNotificationCenter")
                 .ok()
@@ -76,20 +88,26 @@ mod apple {
             }
             let locked = NSString::from_str("com.apple.screenIsLocked");
             let unlocked = NSString::from_str("com.apple.screenIsUnlocked");
-            observe(distributed, &locked, SessionChange::Locked);
-            observe(distributed, &unlocked, SessionChange::Unlocked);
+            observe(distributed, &locked, SessionChange::Locked, log);
+            observe(distributed, &unlocked, SessionChange::Unlocked, log);
         }
     }
 
-    /// Report `change` on every `name` notification of `center`.
+    /// Report `change` into `log` on every `name` notification of `center`.
     ///
     /// # Safety
     /// `center` is a live notification center or null.
-    unsafe fn observe(center: *const AnyObject, name: &NSString, change: SessionChange) {
+    unsafe fn observe(
+        center: *const AnyObject,
+        name: &NSString,
+        change: SessionChange,
+        log: &SessionLog,
+    ) {
         if center.is_null() {
             return;
         }
-        let handler = RcBlock::new(move |_note: *mut AnyObject| super::report(change));
+        let log = log.clone();
+        let handler = RcBlock::new(move |_note: *mut AnyObject| log.push(change));
         let nil: *mut AnyObject = core::ptr::null_mut();
         let _: *mut AnyObject = unsafe {
             msg_send![
@@ -108,6 +126,7 @@ mod apple {
 #[cfg(target_os = "linux")]
 mod linux {
     use azul_core::events::SessionChange;
+    use azul_layout::managers::device_events::SessionLog;
 
     /// logind on the system bus.
     const LOGIND: &str = "org.freedesktop.login1";
@@ -119,9 +138,9 @@ mod linux {
         "org.freedesktop.login1.Session",
     );
 
-    pub(super) fn start() {
+    pub(super) fn start(log: &SessionLog) {
         // `PrepareForSleep(true)` before the machine sleeps, `(false)` after it woke.
-        spawn(MANAGER, "PrepareForSleep", |message| {
+        spawn(MANAGER, "PrepareForSleep", log, |message| {
             message.body().deserialize::<bool>().ok().map(|going| {
                 if going {
                     SessionChange::WillSleep
@@ -130,17 +149,19 @@ mod linux {
                 }
             })
         });
-        spawn(SESSION, "Lock", |_| Some(SessionChange::Locked));
-        spawn(SESSION, "Unlock", |_| Some(SessionChange::Unlocked));
+        spawn(SESSION, "Lock", log, |_| Some(SessionChange::Locked));
+        spawn(SESSION, "Unlock", log, |_| Some(SessionChange::Unlocked));
     }
 
     /// Watch `signal` of logind's object `(path, interface)` on a thread of
-    /// its own (the iterator blocks), reporting what `change` reads off each.
+    /// its own (the iterator blocks), reporting what `change` reads off each into `log`.
     fn spawn(
         (path, interface): (&'static str, &'static str),
         signal: &'static str,
+        log: &SessionLog,
         change: fn(&zbus::Message) -> Option<SessionChange>,
     ) {
+        let log = log.clone();
         let _ = std::thread::Builder::new()
             .name(format!("azul-session-{signal}"))
             .spawn(move || {
@@ -155,7 +176,7 @@ mod linux {
                 };
                 for message in signals {
                     if let Some(change) = change(&message) {
-                        super::report(change);
+                        log.push(change);
                     }
                 }
             });
@@ -211,10 +232,10 @@ pub mod windows {
         }
     }
 
-    /// Report the change `msg` stands for.
-    pub fn handle(msg: u32, wparam: usize) {
+    /// Report the change `msg` stands for into the app's `log`.
+    pub fn handle(msg: u32, wparam: usize, log: &azul_layout::managers::device_events::SessionLog) {
         if let Some(change) = change_of(msg, wparam) {
-            super::report(change);
+            log.push(change);
         }
     }
 

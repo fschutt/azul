@@ -262,9 +262,10 @@ static MANAGER: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
 static DEVICE_BY_REF: std::sync::Mutex<Vec<(usize, HidDevice)>> = std::sync::Mutex::new(Vec::new());
 
 /// `IOHIDReportCallback`. Runs on the run loop, i.e. the main thread, so it
-/// only parks into the channel - the pump folds it in later.
+/// only parks into the channel - the pump folds it in later. `context` is the app's
+/// [`HidChannel`](azul_layout::managers::hid::HidChannel) [`enumerate`] registered it with.
 extern "C" fn input_report_callback(
-    _context: *mut c_void,
+    context: *mut c_void,
     result: IOReturn,
     sender: *mut c_void,
     _report_type: u32,
@@ -295,7 +296,13 @@ extern "C" fn input_report_callback(
         serial: azul_css::AzString::from_const_str(""),
         instance: 0,
     });
-    azul_layout::managers::hid::push_hid_report(HidReport {
+    if context.is_null() {
+        return;
+    }
+    // SAFETY: `enumerate` registered a leaked `Arc<HidChannel>` as the context of this manager's
+    // only callback; it is never freed, so the pointer is valid for the life of the process.
+    let channel = unsafe { &*context.cast::<azul_layout::managers::hid::HidChannel>() };
+    channel.push_report(HidReport {
         device,
         report_id: u8::try_from(report_id).unwrap_or(0),
         bytes: bytes.into(),
@@ -304,8 +311,9 @@ extern "C" fn input_report_callback(
 
 /// Create the manager, open it, enumerate, and schedule the report callback.
 ///
-/// Idempotent: a second call is a no-op while a manager is alive.
-pub fn enumerate() {
+/// Idempotent: a second call is a no-op while a manager is alive. The report callback is given
+/// the app's `channel` as its context.
+pub fn enumerate(channel: &std::sync::Arc<azul_layout::managers::hid::HidChannel>) {
     let Some(k) = iokit() else {
         return;
     };
@@ -324,7 +332,7 @@ pub fn enumerate() {
             "[hid] Input Monitoring not granted - no HID devices will be reported. Grant it in \
              System Settings > Privacy & Security > Input Monitoring."
         );
-        azul_layout::managers::hid::set_hid_devices(Vec::new());
+        channel.set_devices(Vec::new());
         return;
     }
 
@@ -366,7 +374,7 @@ pub fn enumerate() {
             // and the open still fail if the grant was revoked in between.
             crate::plog_info!("[hid] IOHIDManagerOpen refused - Input Monitoring likely denied");
             release(k, manager);
-            azul_layout::managers::hid::set_hid_devices(Vec::new());
+            channel.set_devices(Vec::new());
             return;
         }
 
@@ -425,7 +433,7 @@ pub fn enumerate() {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *map = by_ref;
         }
-        azul_layout::managers::hid::set_hid_devices(devices);
+        channel.set_devices(devices);
 
         // Reports arrive through the RUN LOOP, which is why there is no
         // `poll()` on this platform: the callback fires on the main thread
@@ -443,7 +451,12 @@ pub fn enumerate() {
             k.cf.get::<unsafe extern "C" fn() -> CFTypeRef>(b"CFRunLoopGetCurrent\0"),
             k.cf.get::<*const CFTypeRef>(b"kCFRunLoopDefaultMode\0"),
         ) {
-            register(manager, input_report_callback, core::ptr::null_mut());
+            // The callback's context is the app's channel: a clone leaked on purpose, because
+            // the manager (and so the callback) lives for the whole process.
+            let context = std::sync::Arc::into_raw(std::sync::Arc::clone(channel))
+                .cast_mut()
+                .cast::<c_void>();
+            register(manager, input_report_callback, context);
             schedule(manager, current_loop(), **default_mode);
         }
 

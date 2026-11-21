@@ -23,14 +23,15 @@
 //! degrades to `NotDetermined` rather than aborting.
 
 use azul_layout::managers::permission::{
-    Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
+    AsyncPermissionResults, Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
 };
 #[cfg(target_os = "macos")]
 use objc::runtime::{Class, Object};
 #[cfg(target_os = "macos")]
 use objc::{msg_send, sel, sel_impl};
 
-pub fn handle_event(event: &PermissionDiffEvent) {
+/// `results` is the app's queue the permission outcomes are parked in.
+pub fn handle_event(event: &PermissionDiffEvent, results: &AsyncPermissionResults) {
     match event {
         PermissionDiffEvent::Subscribe { capability, .. } => {
             // MWA-C-permission: seed the manager with the CURRENT TCC state
@@ -40,11 +41,11 @@ pub fn handle_event(event: &PermissionDiffEvent) {
             // so an unknown probe never regresses a live state.
             let probed = probe_status(*capability);
             if probed != PermissionState::NotDetermined {
-                azul_layout::managers::permission::push_async_result(*capability, probed);
+                results.push((*capability, probed));
             }
             match capability {
-                Capability::Camera => request_av_capture_access(true),
-                Capability::Microphone => request_av_capture_access(false),
+                Capability::Camera => request_av_capture_access(true, results),
+                Capability::Microphone => request_av_capture_access(false, results),
                 // 9f-i-a-i: THE APP ASKING IS THE WHOLE POINT. The HID
                 // backend probes with `IOHIDCheckAccess` and never prompts,
                 // because enumerating devices must not raise a privacy dialog
@@ -77,14 +78,14 @@ pub fn handle_event(event: &PermissionDiffEvent) {
 /// frame loop; the completion block just logs, and the next `probe_status`
 /// poll picks up the new state.
 #[cfg(all(target_os = "macos", feature = "objc2-av-foundation"))]
-fn request_av_capture_access(video: bool) {
-    crate::desktop::extra::camera::avf_auth::request_av_access_nonblocking(video);
+fn request_av_capture_access(video: bool, results: &AsyncPermissionResults) {
+    crate::desktop::extra::camera::avf_auth::request_av_access_nonblocking(video, results);
 }
 
 /// Without the AVFoundation backend there is no request path — log so the
 /// silence is explainable, and let `probe_status` keep reporting the state.
 #[cfg(not(all(target_os = "macos", feature = "objc2-av-foundation")))]
-fn request_av_capture_access(video: bool) {
+fn request_av_capture_access(video: bool, _results: &AsyncPermissionResults) {
     crate::plog_warn!(
         "[permission] macos: no AVFoundation request path built in (feature objc2-av-foundation \
          off) — cannot prompt for {} access",

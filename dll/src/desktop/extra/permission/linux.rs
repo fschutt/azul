@@ -37,7 +37,7 @@ use std::{
 };
 
 use azul_layout::managers::permission::{
-    push_async_result, Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
+    AsyncPermissionResults, Capability, PermissionDiffEvent, PermissionQuality, PermissionState,
 };
 
 /// Portal Response codes (org.freedesktop.portal.Request::Response).
@@ -51,11 +51,12 @@ const PORTAL_DIALOG_TIMEOUT: Duration = Duration::from_secs(120);
 
 static REQUEST_COUNTER: AtomicU32 = AtomicU32::new(0);
 
-pub fn handle_event(event: &PermissionDiffEvent) {
+/// `results` is the app's queue the portal's answers are parked in.
+pub fn handle_event(event: &PermissionDiffEvent, results: &AsyncPermissionResults) {
     match event {
         PermissionDiffEvent::Subscribe { capability, .. } => match capability {
-            Capability::Camera => spawn_portal_request(Capability::Camera),
-            Capability::Microphone => spawn_portal_request(Capability::Microphone),
+            Capability::Camera => spawn_portal_request(Capability::Camera, results),
+            Capability::Microphone => spawn_portal_request(Capability::Microphone, results),
             // Geolocation → geoclue (see module doc). ScreenCapture → the
             // ScreenCast portal handshake in extra/screencap/linux.rs (which
             // is session-based, not a plain Access call). Everything else
@@ -77,12 +78,13 @@ pub fn probe_status(capability: Capability) -> PermissionState {
     PermissionState::NotDetermined
 }
 
-/// One-shot worker: portal round-trip → `push_async_result`.
-fn spawn_portal_request(capability: Capability) {
-    push_async_result(capability, PermissionState::Requested);
+/// One-shot worker: portal round-trip → the app's `results` queue.
+fn spawn_portal_request(capability: Capability, results: &AsyncPermissionResults) {
+    results.push((capability, PermissionState::Requested));
+    let results = results.clone();
     std::thread::spawn(move || {
         let state = portal_access_blocking(capability);
-        push_async_result(capability, state);
+        results.push((capability, state));
     });
 }
 

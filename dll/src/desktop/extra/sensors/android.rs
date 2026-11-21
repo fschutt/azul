@@ -10,7 +10,7 @@
 //! its `onSensorChanged`, the Java side calls back into the
 //! `nativeOnSensorReading` symbol below with `(kind, x, y, z, timestampMs)`,
 //! which parks a [`SensorReading`] in azul-layout's async channel
-//! (`push_sensor_reading`); the layout pass folds it into `SensorManager`.
+//! (the app's `SensorChannel`); the layout pass folds it into `SensorManager`.
 //!
 //! Android reports accelerometer in m/s², gyroscope in rad/s, magnetometer
 //! in µT — already azul-core's units (research/03 §2), so the Java side
@@ -24,7 +24,16 @@
 //! nothing here is version-gated.
 
 use azul_core::sensors::{SensorKind, SensorReading};
-use azul_layout::managers::sensors::push_sensor_reading;
+#[cfg(target_os = "android")]
+use azul_layout::managers::sensors::SensorChannel;
+
+/// The app's `SensorChannel` the callbacks below park readings in. They are JNI entry points the
+/// Java `SensorEventListener` calls, which carry no context pointer: the App's services are read
+/// where `App::run` put them (`process_app`).
+#[cfg(target_os = "android")]
+fn channel() -> Option<std::sync::Arc<SensorChannel>> {
+    crate::desktop::process_app::services().map(|services| services.sensors)
+}
 
 #[cfg(target_os = "android")]
 pub fn start() {
@@ -96,8 +105,8 @@ fn attach<R>(f: impl FnOnce(&mut jni::JNIEnv, jni::objects::JObject) -> Option<R
 /// Receives one motion sample from `AzulSensors`' `SensorEventListener`.
 /// Maps the kind code and parks a [`SensorReading`] in the async channel
 /// for the next layout pass; an unrecognized kind is dropped. Runs on
-/// Android's sensor thread — `push_sensor_reading` is the thread-safe
-/// hand-off into azul-layout (no `LayoutWindow` handle here).
+/// Android's sensor thread — `SensorChannel::push_reading` is the thread-safe
+/// hand-off into azul-layout (no `LayoutWindow` handle here, hence [`channel`]).
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "system" fn Java_com_azul_sensors_AzulSensors_nativeOnSensorReading(
@@ -109,8 +118,8 @@ pub unsafe extern "system" fn Java_com_azul_sensors_AzulSensors_nativeOnSensorRe
     z: jni::sys::jfloat,
     timestamp_ms: jni::sys::jlong,
 ) {
-    if let Some(kind) = map_kind(kind) {
-        push_sensor_reading(SensorReading {
+    if let (Some(kind), Some(channel)) = (map_kind(kind), channel()) {
+        channel.push_reading(SensorReading {
             kind,
             x,
             y,
@@ -134,7 +143,6 @@ pub unsafe extern "system" fn Java_com_azul_sensors_AzulSensors_nativeOnProximit
     max_range_cm: jni::sys::jfloat,
 ) {
     use azul_core::sensors::{DistanceUnit, Proximity, ProximityDistance};
-    use azul_layout::managers::sensors::push_proximity;
 
     let proximity = if max_range_cm > 0.0 && distance_cm >= max_range_cm {
         Proximity::Far
@@ -146,5 +154,7 @@ pub unsafe extern "system" fn Java_com_azul_sensors_AzulSensors_nativeOnProximit
             unit: DistanceUnit::Centimeters,
         })
     };
-    push_proximity(proximity);
+    if let Some(channel) = channel() {
+        channel.push_proximity(proximity);
+    }
 }

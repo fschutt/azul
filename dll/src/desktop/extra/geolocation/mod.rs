@@ -33,7 +33,14 @@ pub mod windows;
 /// Translate the `GeolocationDiffEvent`s the layout pass emitted this
 /// frame into native subscribe / release / reconfigure calls. Called
 /// from `regenerate_layout` after the geolocation diff pass.
-pub fn apply_diff_events(events: &[GeolocationDiffEvent]) {
+///
+/// `services` is the app's: the subscription's thread parks each fix in its geolocation channel
+/// (and the location grant in its permission queue). The iOS, macOS and Android delegates and JNI
+/// entries carry no context and read the App's services from `process_app`.
+pub fn apply_diff_events(
+    events: &[GeolocationDiffEvent],
+    services: &azul_layout::managers::app_services::AppServices,
+) {
     if events.is_empty() {
         return;
     }
@@ -45,9 +52,9 @@ pub fn apply_diff_events(events: &[GeolocationDiffEvent]) {
         #[cfg(target_os = "macos")]
         macos::handle_event(event);
         #[cfg(target_os = "linux")]
-        linux::handle_event(event);
+        linux::handle_event(event, services);
         #[cfg(target_os = "windows")]
-        windows::handle_event(event);
+        windows::handle_event(event, services);
         #[cfg(not(any(
             target_os = "ios",
             target_os = "android",
@@ -59,6 +66,8 @@ pub fn apply_diff_events(events: &[GeolocationDiffEvent]) {
             let _ = event;
         }
     }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+    let _ = services;
 }
 
 /// Synchronous probe for the most recently observed fix. Used by the

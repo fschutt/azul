@@ -93,9 +93,11 @@ use std::{
 use azul_core::notification::{Notification, NotificationAction, NotificationEvent, NotificationSound};
 use azul_css::AzString;
 use azul_layout::managers::{
-    notification::{queue_notification_event, wire},
-    permission::{push_async_result, Capability, PermissionState},
+    notification::wire,
+    permission::{Capability, PermissionState},
 };
+
+use super::{push_async_result, queue_notification_event};
 use block2::{Block, RcBlock};
 use objc2::{
     define_class, msg_send,

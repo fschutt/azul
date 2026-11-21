@@ -122,7 +122,10 @@ fn describe(user32: &dlopen::User32Functions, handle: isize) -> Option<HidDevice
 }
 
 /// Enumerate every raw-input device and publish the HID ones.
-pub fn enumerate(user32: &dlopen::User32Functions) {
+pub fn enumerate(
+    user32: &dlopen::User32Functions,
+    channel: &azul_layout::managers::hid::HidChannel,
+) {
     unsafe {
         let mut count: u32 = 0;
         let entry_size = core::mem::size_of::<RAWINPUTDEVICELIST>() as u32;
@@ -132,7 +135,7 @@ pub fn enumerate(user32: &dlopen::User32Functions) {
             return;
         }
         if count == 0 {
-            azul_layout::managers::hid::set_hid_devices(Vec::new());
+            channel.set_devices(Vec::new());
             return;
         }
         let mut list = vec![RAWINPUTDEVICELIST::default(); count as usize];
@@ -159,14 +162,18 @@ pub fn enumerate(user32: &dlopen::User32Functions) {
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             *map = by_handle;
         }
-        azul_layout::managers::hid::set_hid_devices(devices);
+        channel.set_devices(devices);
     }
 }
 
 /// Decode one `WM_INPUT` whose type is `RIM_TYPEHID` and park its reports.
 ///
 /// Called from the existing `WM_INPUT` arm after the mouse case declines it.
-pub fn handle_wm_input(user32: &dlopen::User32Functions, lparam: isize) {
+pub fn handle_wm_input(
+    user32: &dlopen::User32Functions,
+    channel: &azul_layout::managers::hid::HidChannel,
+    lparam: isize,
+) {
     unsafe {
         // SIZE PROBE FIRST. Unlike the mouse arm, the payload length is not
         // known up front: `dwSizeHid * dwCount` bytes trail the struct, so a
@@ -240,7 +247,7 @@ pub fn handle_wm_input(user32: &dlopen::User32Functions, lparam: isize) {
             if end > buf.len() {
                 break;
             }
-            azul_layout::managers::hid::push_hid_report(HidReport {
+            channel.push_report(HidReport {
                 device: device.clone(),
                 // Windows keeps the report id as the FIRST byte for devices
                 // whose descriptor uses ids, and does not say which do - the

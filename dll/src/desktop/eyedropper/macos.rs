@@ -9,17 +9,18 @@
 //! colour picker).
 //!
 //! The sampler retains itself for the session; we keep nothing. The block
-//! parks the answer in the layout manager's result channel and wakes every
-//! window so the asking window's next pass reads it.
+//! (it holds a clone of the app's [`EyedropperChannel`]) parks the answer in
+//! it and wakes every window so the asking window's next pass reads it.
 
 use azul_css::props::basic::color::ColorU;
+use azul_layout::managers::eyedropper::EyedropperChannel;
 use block2::RcBlock;
 use objc2_app_kit::{NSColor, NSColorSampler, NSColorSpace};
 
-/// Start a sampling session for `request_id`. Returns `false` when the
-/// class is missing (pre-10.15), so the caller can fall back.
+/// Start a sampling session for `request_id`, answering on the app's `channel`. Returns
+/// `false` when the class is missing (pre-10.15), so the caller can fall back.
 #[must_use]
-pub fn start(request_id: u64) -> bool {
+pub fn start(request_id: u64, channel: &EyedropperChannel) -> bool {
     use objc2::{class, msg_send, runtime::AnyClass};
     // `NSColorSampler` is 10.15+: probe the class before touching it, the
     // way the rest of the macOS backend treats newer AppKit.
@@ -31,6 +32,7 @@ pub fn start(request_id: u64) -> bool {
         let alloc: objc2::rc::Allocated<NSColorSampler> = msg_send![class!(NSColorSampler), alloc];
         NSColorSampler::init(alloc)
     };
+    let channel = channel.clone();
     let handler = RcBlock::new(move |color: *mut NSColor| {
         let picked = if color.is_null() {
             None
@@ -39,7 +41,7 @@ pub fn start(request_id: u64) -> bool {
             unsafe { srgb_components(&*color) }
         };
         crate::plog_info!("[eyedropper] macos: sampler finished: {:?}", picked);
-        super::finish(request_id, picked);
+        super::finish(&channel, request_id, picked);
         crate::desktop::shell2::macos::wake_all_windows();
     });
     unsafe {

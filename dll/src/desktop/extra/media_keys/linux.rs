@@ -60,7 +60,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_control, push_media_key};
+use azul_layout::managers::{media_keys::MediaKeyQueues, window_activation::RaiseRequests};
 
 /// The object path both interfaces are served at. Fixed by the MPRIS spec:
 /// clients look here and nowhere else.
@@ -163,36 +163,38 @@ fn metadata_map() -> std::collections::HashMap<String, zbus::zvariant::OwnedValu
 ///
 /// The transport methods become media KEYS; `Seek`, `SetPosition`, `OpenUri`
 /// and a written `Volume` carry a value no key can, so they become
-/// `MediaControl` events (9h-i-a-i-a, 9h-i-a-i-b).
-struct MprisPlayer;
+/// `MediaControl` events (9h-i-a-i-a, 9h-i-a-i-b). It parks them in the app's `queues`.
+struct MprisPlayer {
+    queues: MediaKeyQueues,
+}
 
 #[zbus::interface(name = "org.mpris.MediaPlayer2.Player")]
 impl MprisPlayer {
     fn play(&self) {
-        push_media_key(VirtualKeyCode::PlayPause);
+        self.queues.push_media_key(VirtualKeyCode::PlayPause);
     }
 
     fn pause(&self) {
-        push_media_key(VirtualKeyCode::PlayPause);
+        self.queues.push_media_key(VirtualKeyCode::PlayPause);
     }
 
     /// The one the media KEY actually sends: a keyboard's play button is a
     /// toggle, and desktops map it here rather than to `Play` or `Pause`.
     #[zbus(name = "PlayPause")]
     fn play_pause(&self) {
-        push_media_key(VirtualKeyCode::PlayPause);
+        self.queues.push_media_key(VirtualKeyCode::PlayPause);
     }
 
     fn stop(&self) {
-        push_media_key(VirtualKeyCode::MediaStop);
+        self.queues.push_media_key(VirtualKeyCode::MediaStop);
     }
 
     fn next(&self) {
-        push_media_key(VirtualKeyCode::NextTrack);
+        self.queues.push_media_key(VirtualKeyCode::NextTrack);
     }
 
     fn previous(&self) {
-        push_media_key(VirtualKeyCode::PrevTrack);
+        self.queues.push_media_key(VirtualKeyCode::PrevTrack);
     }
 
     // THE THREE POSITION COMMANDS (9h-i-a-i-a). None can be a key: they carry
@@ -202,7 +204,7 @@ impl MprisPlayer {
     /// `Seek(x)`: move by `offset` microseconds relative to the current
     /// position; negative is backwards. MPRIS: the app clamps.
     fn seek(&self, offset: i64) {
-        push_media_control(MediaControlRequest {
+        self.queues.push_media_control(MediaControlRequest {
             kind: MediaControlKind::SeekRelative,
             position_us: offset,
             uri: AzString::from_const_str(""),
@@ -216,7 +218,7 @@ impl MprisPlayer {
     /// against a track that has since ended, exactly as the spec says.
     #[zbus(name = "SetPosition")]
     fn set_position(&self, track_id: zbus::zvariant::ObjectPath<'_>, position: i64) {
-        push_media_control(MediaControlRequest {
+        self.queues.push_media_control(MediaControlRequest {
             kind: MediaControlKind::SeekAbsolute,
             position_us: position,
             uri: AzString::from_const_str(""),
@@ -228,7 +230,7 @@ impl MprisPlayer {
     /// `OpenUri(s)`: open and play `uri`.
     #[zbus(name = "OpenUri")]
     fn open_uri(&self, uri: String) {
-        push_media_control(MediaControlRequest {
+        self.queues.push_media_control(MediaControlRequest {
             kind: MediaControlKind::OpenUri,
             position_us: 0,
             uri: uri.into(),
@@ -351,7 +353,7 @@ impl MprisPlayer {
     /// silence, as the spec says a player should.
     #[zbus(property)]
     fn set_volume(&self, volume: f64) {
-        push_media_control(MediaControlRequest {
+        self.queues.push_media_control(MediaControlRequest {
             kind: MediaControlKind::SetVolume,
             position_us: 0,
             uri: AzString::from_const_str(""),
@@ -367,6 +369,8 @@ impl MprisPlayer {
 /// the registration as malformed and ignores the player entirely.
 struct MprisRoot {
     identity: String,
+    /// Where `Raise` parks its request, for the event loop to take.
+    raise: RaiseRequests,
 }
 
 #[zbus::interface(name = "org.mpris.MediaPlayer2")]
@@ -379,7 +383,7 @@ impl MprisRoot {
     /// loop takes it on its next pass (9h-i-a-ii).
     fn raise(&self) {
         let target = RAISE_TARGET.load(Ordering::Relaxed);
-        azul_layout::managers::window_activation::request_raise(target);
+        self.raise.request_raise(target);
     }
 
     /// NOT wired to a quit. A media widget's close button terminating the app
@@ -429,7 +433,10 @@ impl MprisRoot {
 ///
 /// Idempotent and quiet: no session bus (a headless build, a CI container) is
 /// the normal case, not an error.
-pub fn start(window_id: u64) {
+///
+/// The served objects hold clones of the app's `queues` (the keys and seeks) and `raise`
+/// (the window raise requests), where the D-Bus methods park what they receive.
+pub fn start(window_id: u64, queues: &MediaKeyQueues, raise: &RaiseRequests) {
     if !azul_layout::window::expose_system_media_controls() {
         return;
     }
@@ -441,9 +448,11 @@ pub fn start(window_id: u64) {
         return;
     }
 
+    let queues = queues.clone();
+    let raise = raise.clone();
     std::thread::Builder::new()
         .name("azul-mpris".into())
-        .spawn(|| {
+        .spawn(move || {
             // The bus name must be unique per process: two instances of the
             // same app would otherwise fight over one name and the second
             // would fail to register, silently losing its media keys.
@@ -459,8 +468,10 @@ pub fn start(window_id: u64) {
 
             let built = zbus::blocking::connection::Builder::session()
                 .and_then(|b| b.name(name.as_str()))
-                .and_then(|b| b.serve_at("/org/mpris/MediaPlayer2", MprisPlayer))
-                .and_then(|b| b.serve_at("/org/mpris/MediaPlayer2", MprisRoot { identity }))
+                .and_then(|b| b.serve_at("/org/mpris/MediaPlayer2", MprisPlayer { queues }))
+                .and_then(|b| {
+                    b.serve_at("/org/mpris/MediaPlayer2", MprisRoot { identity, raise })
+                })
                 .and_then(zbus::blocking::connection::Builder::build);
 
             match built {

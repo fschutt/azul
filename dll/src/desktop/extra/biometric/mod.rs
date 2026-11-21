@@ -4,9 +4,9 @@
 //! Cross-platform state lives in
 //! `azul_layout::managers::biometric::BiometricManager`. A callback
 //! queues a request via `CallbackInfo::request_biometric_auth(prompt)`
-//! (parked in azul-layout's process-global request channel); the layout
-//! pass drains it and calls [`request`] here, which turns the prompt into
-//! the right native API call:
+//! (parked in the app's `BiometricChannels`); the layout pass drains it
+//! and calls [`request`] here, which turns the prompt into the right
+//! native API call:
 //!
 //! | Platform | Boolean auth | Probe |
 //! |----------|--------------|-------|
@@ -20,11 +20,12 @@
 //! step 3: "green-light the API returning Unavailable on every platform
 //! first"). The OS draws its own modal asynchronously, so the real
 //! backends (objc2 `LAContext`, Android `BiometricPrompt` JNI) park the
-//! outcome back through `push_biometric_result` from the reply
+//! outcome back through the app's result queue from the reply
 //! block / callback on a later frame — exactly mirroring how the
 //! geolocation dispatcher shipped ahead of its native subscriptions.
 
-use azul_core::biometric::{BiometricKind, BiometricPrompt};
+use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
+use azul_layout::managers::shared_queue::SharedQueue;
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -37,7 +38,9 @@ pub mod windows;
 
 /// Dispatch one biometric-auth request to the native prompt. Called from
 /// `regenerate_layout` for each prompt the layout pass drained from the
-/// request channel.
+/// request channel. `results` is the app's queue the outcome is parked in
+/// (`BiometricChannels::results`): the OS reply block, thread or JNI entry
+/// that delivers it holds a clone.
 ///
 /// iOS/macOS route to the real `LAContext` backend; Android to the
 /// `BiometricPrompt` JNI backend; Windows to `UserConsentVerifier`
@@ -47,12 +50,16 @@ pub mod windows;
 /// to `Unavailable` immediately so the request → result round-trip stays
 /// observable — `CallbackInfo::get_biometric_result()` reads it next
 /// frame.
-pub fn request(prompt: &BiometricPrompt) {
-    request_with(azul_core::run_mode::test_hooks(), prompt);
+pub fn request(prompt: &BiometricPrompt, results: &SharedQueue<BiometricResult>) {
+    request_with(azul_core::run_mode::test_hooks(), prompt, results);
 }
 
 /// [`request`] under the hooks `hooks` of the run.
-fn request_with(hooks: &azul_core::run_mode::TestHooks, prompt: &BiometricPrompt) {
+fn request_with(
+    hooks: &azul_core::run_mode::TestHooks,
+    prompt: &BiometricPrompt,
+    results: &SharedQueue<BiometricResult>,
+) {
     // MWA-C-biometric: never pop a REAL OS auth sheet from a headless /
     // E2E TEST run (the dispatcher is keyed on target_os, not backend — a
     // headless test on a Mac dev box would otherwise raise a live TouchID
@@ -63,19 +70,17 @@ fn request_with(hooks: &azul_core::run_mode::TestHooks, prompt: &BiometricPrompt
     // app's presence check (AzDrive's key change) sees the real answer.
     if hooks.no_biometric {
         let _ = prompt;
-        azul_layout::managers::biometric::push_biometric_result(
-            azul_core::biometric::BiometricResult::Unavailable,
-        );
+        results.push(BiometricResult::Unavailable);
         return;
     }
     #[cfg(any(target_os = "ios", target_os = "macos"))]
-    apple::request(prompt);
+    apple::request(prompt, results);
     #[cfg(target_os = "android")]
-    android::request(prompt);
+    android::request(prompt, results);
     #[cfg(target_os = "windows")]
-    windows::request(prompt);
+    windows::request(prompt, results);
     #[cfg(target_os = "linux")]
-    linux::request(prompt);
+    linux::request(prompt, results);
     #[cfg(not(any(
         target_os = "ios",
         target_os = "macos",
@@ -85,9 +90,7 @@ fn request_with(hooks: &azul_core::run_mode::TestHooks, prompt: &BiometricPrompt
     )))]
     {
         let _ = prompt;
-        azul_layout::managers::biometric::push_biometric_result(
-            azul_core::biometric::BiometricResult::Unavailable,
-        );
+        results.push(BiometricResult::Unavailable);
     }
 }
 
@@ -144,6 +147,7 @@ mod tests {
         biometric::{BiometricPrompt, BiometricResult},
         run_mode::TestHooks,
     };
+    use azul_layout::managers::shared_queue::SharedQueue;
 
     /// A test run's prompt shows no sheet and resolves "unavailable" through the normal
     /// result channel. (The other half - a run without the hook reaches the platform's sheet -
@@ -151,11 +155,8 @@ mod tests {
     /// proves the hook is off in a build without the feature, whatever the environment holds.)
     #[test]
     fn a_test_runs_prompt_resolves_unavailable_without_a_sheet() {
-        drop(azul_layout::managers::biometric::drain_biometric_results());
-        super::request_with(&TestHooks::HEADLESS, &BiometricPrompt::default());
-        assert_eq!(
-            azul_layout::managers::biometric::drain_biometric_results(),
-            vec![BiometricResult::Unavailable]
-        );
+        let results = SharedQueue::new();
+        super::request_with(&TestHooks::HEADLESS, &BiometricPrompt::default(), &results);
+        assert_eq!(results.drain(), vec![BiometricResult::Unavailable]);
     }
 }

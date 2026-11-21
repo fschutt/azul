@@ -21,7 +21,7 @@
 //! do not subscribe and assume it keeps arriving, and the keys go silent.
 //!
 //! So this subscribes AND leaves `WM_APPCOMMAND` alone, and
-//! `push_media_key` drops a key that is already waiting in the current batch.
+//! `MediaKeyQueues::push_media_key` drops a key that is already waiting in the current batch.
 //! One press produces one key however many transports saw it, with no timer
 //! and no assumption about which one fires.
 //!
@@ -36,7 +36,7 @@ use azul_core::{
     window::VirtualKeyCode,
 };
 use azul_css::AzString;
-use azul_layout::managers::media_keys::{push_media_control, push_media_key};
+use azul_layout::managers::media_keys::MediaKeyQueues;
 use windows::{
     core::{Interface, HSTRING},
     Media::{
@@ -70,7 +70,9 @@ static CONTROLS: std::sync::OnceLock<Agile<SystemMediaTransportControls>> =
 /// exists - and why the caller hands its own handle in rather than this
 /// guessing with `GetForegroundWindow`, which would attach us to whatever the
 /// user happened to be looking at.
-pub fn start(hwnd: isize) {
+///
+/// The event handlers hold a clone of the app's `queues` and park the keys and seeks there.
+pub fn start(hwnd: isize, queues: &MediaKeyQueues) {
     if !azul_layout::window::expose_system_media_controls() {
         return;
     }
@@ -100,10 +102,11 @@ pub fn start(hwnd: isize) {
         controls.SetIsNextEnabled(true)?;
         controls.SetIsPreviousEnabled(true)?;
 
+        let keys = queues.clone();
         let handler = windows::Foundation::TypedEventHandler::<
             SystemMediaTransportControls,
             SystemMediaTransportControlsButtonPressedEventArgs,
-        >::new(|_sender, args| {
+        >::new(move |_sender, args| {
             if let Some(args) = args.as_ref() {
                 if let Ok(button) = args.Button() {
                     if let Some(key) = button_to_key(button) {
@@ -111,7 +114,7 @@ pub fn start(hwnd: isize) {
                         // thread and the engine's key pass belongs to the
                         // main one. Same channel MPRIS and
                         // `MPRemoteCommandCenter` use.
-                        push_media_key(key);
+                        keys.push_media_key(key);
                     }
                 }
             }
@@ -125,13 +128,14 @@ pub fn start(hwnd: isize) {
         // (the same unit the timeline is published in), so microseconds are
         // ticks / 10. Registering the handler is what makes the bar draggable
         // - a timeline alone is read-only.
+        let controls_queue = queues.clone();
         let seek_handler = windows::Foundation::TypedEventHandler::<
             SystemMediaTransportControls,
             PlaybackPositionChangeRequestedEventArgs,
-        >::new(|_sender, args| {
+        >::new(move |_sender, args| {
             if let Some(args) = args.as_ref() {
                 if let Ok(position) = args.RequestedPlaybackPosition() {
-                    push_media_control(MediaControlRequest {
+                    controls_queue.push_media_control(MediaControlRequest {
                         kind: MediaControlKind::SeekAbsolute,
                         position_us: position.Duration / 10,
                         uri: AzString::from_const_str(""),

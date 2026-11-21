@@ -7,8 +7,9 @@
 //! The async grant/deny lands in `AzulActivity.onRequestPermissionsResult`
 //! (Java glue, pending) which forwards to the `nativeOnPermissionResult`
 //! symbol below; that maps the request code back to its `Capability` and
-//! parks the result via `azul_layout::managers::permission::push_async_result`,
-//! where the next layout pass folds it into the `PermissionManager`.
+//! parks the result in the app's `AppServices::permission` queue (reached
+//! through `process_app`: a JNI entry point carries no context), where the next
+//! layout pass folds it into the `PermissionManager`.
 //!
 //! Release path → no Android action for a pure permission (a permission
 //! can't be un-granted; tearing down a live session is the per-feature
@@ -263,7 +264,7 @@ fn request_permission(perm: &str, request_code: i32) -> Option<()> {
 /// Receives a permission result from `AzulActivity.onRequestPermissionsResult`
 /// (forwarded through `AzulPermissions.nativeOnPermissionResult`). Maps the
 /// request code back to its `Capability` and parks the resolved state in
-/// azul-layout's async-result channel for the next layout pass to apply.
+/// the app's permission queue for the next layout pass to apply.
 ///
 /// The Java forwarding glue is pending; this is the native entry point of
 /// that contract (same split as `AzulFilePicker.nativeOnResult`).
@@ -287,5 +288,8 @@ pub unsafe extern "system" fn Java_com_azul_permission_AzulPermissions_nativeOnP
     } else {
         PermissionState::Denied
     };
-    azul_layout::managers::permission::push_async_result(capability, state);
+    // The JNI entry has no context: the App's services are where `App::run` put them.
+    if let Some(services) = crate::desktop::process_app::services() {
+        services.permission.push((capability, state));
+    }
 }

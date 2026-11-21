@@ -17,8 +17,8 @@
 //!
 //! MWA-C-keyring: ALL FOUR desktop backends are real (the stub-era note
 //! that used to live here claimed Windows/Linux resolve to Unavailable —
-//! stale). A biometry-bound `Get` parks its outcome back through
-//! `push_keyring_result` asynchronously from the OS prompt's reply.
+//! stale). A biometry-bound `Get` parks its outcome back in the app's result
+//! queue (`KeyringChannels::results`) asynchronously from the OS prompt's reply.
 //!
 //! [`request_blocking`] (the C API's [`Keyring`]: `Keyring::get_blocking`,
 //! `store_blocking`, `delete_blocking` and their `_in` forms) runs one op on the CALLING thread and
@@ -80,6 +80,7 @@ use std::{
 
 use azul_core::keyring::{KeyringNamespace, KeyringRequest, KeyringResult};
 use azul_css::AzString;
+use azul_layout::managers::shared_queue::SharedQueue;
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -252,32 +253,33 @@ pub fn service_of(namespace: &KeyringNamespace) -> String {
 
 /// Dispatch one keyring op in `namespace` to the native keyring. Called from
 /// the capability pump for each request drained from the channel; the answer
-/// is parked in the result channel, which `CallbackInfo::get_keyring_result()`
-/// reads on a later frame.
+/// is parked in `results` (the app's `KeyringChannels::results`, a clone of which
+/// the op's thread holds), which `CallbackInfo::get_keyring_result()` reads on a
+/// later frame.
 ///
 /// iOS/macOS → Keychain; Windows → Credential Manager; Linux → libsecret,
 /// each op on a thread of its own (a biometry-bound read waits for the OS
 /// prompt); Android → KeyStore (JNI, answered by its Java callback). Targets
 /// without any backend resolve to `Unavailable`.
-pub fn request(namespace: &KeyringNamespace, req: &KeyringRequest) {
+pub fn request(
+    namespace: &KeyringNamespace,
+    req: &KeyringRequest,
+    results: &SharedQueue<KeyringResult>,
+) {
     let service = service_of(namespace);
     match backend_of_run() {
-        Backend::Platform => platform_request(service, req),
-        stand_in => {
-            azul_layout::managers::keyring::push_keyring_result(answer_in(
-                &service, req, &stand_in,
-            ));
-        }
+        Backend::Platform => platform_request(service, req, results),
+        stand_in => results.push(answer_in(&service, req, &stand_in)),
     }
 }
 
-/// [`request`] on the platform's keyring: answered through the result channel.
-fn platform_request(service: String, req: &KeyringRequest) {
+/// [`request`] on the platform's keyring: answered through the result queue.
+fn platform_request(service: String, req: &KeyringRequest, results: &SharedQueue<KeyringResult>) {
     #[cfg(target_os = "android")]
     {
         // The app's own storage holds every entry it keeps: the namespace changes nothing.
         let _ = service;
-        android::request(req);
+        android::request(req, results);
     }
     #[cfg(any(
         target_os = "ios",
@@ -287,12 +289,9 @@ fn platform_request(service: String, req: &KeyringRequest) {
     ))]
     {
         let req = req.clone();
+        let results = results.clone();
         std::thread::spawn(move || {
-            azul_layout::managers::keyring::push_keyring_result(answer_in(
-                &service,
-                &req,
-                &Backend::Platform,
-            ));
+            results.push(answer_in(&service, &req, &Backend::Platform));
         });
     }
     #[cfg(not(any(
@@ -304,7 +303,7 @@ fn platform_request(service: String, req: &KeyringRequest) {
     )))]
     {
         let _ = (service, req);
-        azul_layout::managers::keyring::push_keyring_result(KeyringResult::Unavailable);
+        results.push(KeyringResult::Unavailable);
     }
 }
 

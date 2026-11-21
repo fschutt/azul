@@ -8,8 +8,9 @@
 //! (or framework `LocationManager`) and, for each
 //! `LocationCallback.onLocationResult` fix, calls back into the
 //! `nativeOnLocationFix` symbol below — which builds a `LocationFix` and
-//! parks it in azul-layout's async-fix channel (`push_location_fix`),
-//! where the layout pass folds it into the `GeolocationManager`.
+//! parks it in the app's `GeolocationChannel` (`push_fix`, reached through
+//! `process_app`: a JNI entry point carries no context), where the layout
+//! pass folds it into the `GeolocationManager`.
 //!
 //! Pending (non-Rust): the `AzulGeolocation.java` helper itself, plus the
 //! manifest `ACCESS_FINE/COARSE/BACKGROUND_LOCATION` declarations. Until it
@@ -18,7 +19,7 @@
 #[cfg(target_os = "android")]
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
+use azul_layout::managers::geolocation::{GeolocationDiffEvent, LocationFix};
 
 // One geolocation subscription is live at a time (the manager is
 // refcount-based). A nonzero handle lets `release` target the right
@@ -143,7 +144,11 @@ pub unsafe extern "system" fn Java_com_azul_geolocation_AzulGeolocation_nativeOn
     if (handle as u64) != SUBSCRIPTION_HANDLE.load(Ordering::Relaxed) {
         return;
     }
-    push_location_fix(LocationFix {
+    // The JNI entry has no context: the App's services are where `App::run` put them.
+    let Some(services) = crate::desktop::process_app::services() else {
+        return;
+    };
+    services.geolocation.push_fix(LocationFix {
         latitude_deg,
         longitude_deg,
         accuracy_m,

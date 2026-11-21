@@ -7,7 +7,8 @@
 //! `BiometricPrompt.authenticate(promptInfo)` and, from its
 //! `AuthenticationCallback`, calls back into the `nativeOnBiometricResult`
 //! symbol below with a result code — which parks a `BiometricResult` in
-//! azul-layout's async result channel (`push_biometric_result`), where the
+//! the app's `BiometricChannels::results` queue (reached through
+//! `process_app`: a JNI entry point carries no context), where the
 //! layout pass folds it into the `BiometricManager`.
 //!
 //! `probe_availability` calls `canAuthenticate(Activity) -> int`, where the
@@ -23,7 +24,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use azul_core::biometric::{BiometricKind, BiometricPrompt, BiometricResult};
-use azul_layout::managers::biometric::push_biometric_result;
+use azul_layout::managers::shared_queue::SharedQueue;
 
 // One request is in flight at a time. A nonzero handle lets a late result
 // from a superseded request be dropped instead of applied (the user could
@@ -34,7 +35,7 @@ static REQUEST_HANDLE: AtomicU64 = AtomicU64::new(0);
 static HANDLE_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[cfg(target_os = "android")]
-pub fn request(prompt: &BiometricPrompt) {
+pub fn request(prompt: &BiometricPrompt, results: &SharedQueue<BiometricResult>) {
     let handle = HANDLE_COUNTER.fetch_add(1, Ordering::Relaxed);
     REQUEST_HANDLE.store(handle, Ordering::Relaxed);
     let ok = attach(|env, activity| {
@@ -64,13 +65,13 @@ pub fn request(prompt: &BiometricPrompt) {
     if ok.is_none() {
         // No JNI / Java helper — resolve the round-trip rather than hang.
         REQUEST_HANDLE.store(0, Ordering::Relaxed);
-        push_biometric_result(BiometricResult::Unavailable);
+        results.push(BiometricResult::Unavailable);
     }
 }
 
 #[cfg(not(target_os = "android"))]
-pub fn request(prompt: &BiometricPrompt) {
-    let _ = prompt;
+pub fn request(prompt: &BiometricPrompt, results: &SharedQueue<BiometricResult>) {
+    let _ = (prompt, results);
 }
 
 #[cfg(target_os = "android")]
@@ -168,5 +169,8 @@ pub unsafe extern "system" fn Java_com_azul_biometric_AzulBiometric_nativeOnBiom
         return;
     }
     REQUEST_HANDLE.store(0, Ordering::Relaxed);
-    push_biometric_result(map_result(result_code));
+    // The JNI entry has no context: the App's services are where `App::run` put them.
+    if let Some(services) = crate::desktop::process_app::services() {
+        services.biometric.results.push(map_result(result_code));
+    }
 }

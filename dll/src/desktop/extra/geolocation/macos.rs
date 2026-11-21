@@ -5,8 +5,9 @@
 //! so this mirrors `geolocation/ios.rs`: a singleton retained
 //! `CLLocationManager` + an `AzulMacLocationDelegate` (`ClassDecl`), driven
 //! by `handle_event`, whose `locationManager:didUpdateLocations:` converts
-//! the newest `CLLocation` to a `LocationFix` and parks it via
-//! `push_location_fix`.
+//! the newest `CLLocation` to a `LocationFix` and parks it in the app's
+//! `GeolocationChannel` (reached through `process_app`: the delegate's methods
+//! carry no context).
 //!
 //! macOS specifics:
 //! - `Info.plist` needs `NSLocationWhenInUseUsageDescription` (legacy `NSLocationUsageDescription`
@@ -25,11 +26,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(target_os = "macos")]
 use std::sync::Once;
 
-use azul_layout::managers::geolocation::{push_location_fix, GeolocationDiffEvent, LocationFix};
+use azul_layout::managers::geolocation::{GeolocationDiffEvent, LocationFix};
 #[cfg(target_os = "macos")]
-use azul_layout::managers::permission::{
-    push_async_result, Capability, PermissionQuality, PermissionState,
-};
+use azul_layout::managers::permission::{Capability, PermissionQuality, PermissionState};
 #[cfg(target_os = "macos")]
 use objc::declare::ClassDecl;
 #[cfg(target_os = "macos")]
@@ -190,7 +189,11 @@ extern "C" fn location_manager_did_update(
         let speed: f64 = msg_send![loc, speed];
 
         let valid_alt = v_acc > 0.0;
-        push_location_fix(LocationFix {
+        // The delegate has no context: the App's services are where `App::run` put them.
+        let Some(services) = crate::desktop::process_app::services() else {
+            return;
+        };
+        services.geolocation.push_fix(LocationFix {
             latitude_deg: coord.latitude,
             longitude_deg: coord.longitude,
             accuracy_m: if h_acc >= 0.0 { h_acc as f32 } else { f32::NAN },
@@ -221,7 +224,11 @@ extern "C" fn location_manager_did_change_auth(_this: &Object, _cmd: Sel, manage
             return;
         }
         let status: isize = msg_send![manager, authorizationStatus];
-        push_async_result(Capability::Geolocation, auth_status_to_state(status));
+        if let Some(services) = crate::desktop::process_app::services() {
+            services
+                .permission
+                .push((Capability::Geolocation, auth_status_to_state(status)));
+        }
     }
 }
 

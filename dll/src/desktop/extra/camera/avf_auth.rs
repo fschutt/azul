@@ -138,7 +138,10 @@ pub fn ensure_mic_access() -> bool {
 /// fires `requestAccessForMediaType:completionHandler:` with a completion
 /// block that logs the outcome (the next `probe_status` poll picks up the
 /// new state).
-pub fn request_av_access_nonblocking(video: bool) {
+pub fn request_av_access_nonblocking(
+    video: bool,
+    results: &azul_layout::managers::permission::AsyncPermissionResults,
+) {
     let media = match unsafe {
         if video {
             AVMediaTypeVideo
@@ -150,13 +153,11 @@ pub fn request_av_access_nonblocking(video: bool) {
         None => return,
     };
     let label = media_label(media);
-    // MWA-C-permission: every arm now parks its outcome in the process-global
-    // channel — the capability pump folds it into the PermissionManager on
+    // MWA-C-permission: every arm now parks its outcome in the app's queue
+    // (`results`) — the capability pump folds it into the PermissionManager on
     // the next event pass and fires PermissionChanged. Previously outcomes
     // were only logged, so manager state stayed NotDetermined forever.
-    use azul_layout::managers::permission::{
-        push_async_result, Capability, PermissionQuality, PermissionState,
-    };
+    use azul_layout::managers::permission::{Capability, PermissionQuality, PermissionState};
     let capability = if video {
         Capability::Camera
     } else {
@@ -166,10 +167,10 @@ pub fn request_av_access_nonblocking(video: bool) {
     match status.0 {
         STATUS_AUTHORIZED => {
             crate::plog_info!("[avf_auth] {} access already granted", label);
-            push_async_result(
+            results.push((
                 capability,
                 PermissionState::Granted(PermissionQuality::Full),
-            );
+            ));
         }
         STATUS_DENIED | STATUS_RESTRICTED => {
             crate::plog_warn!(
@@ -178,20 +179,21 @@ pub fn request_av_access_nonblocking(video: bool) {
                  responsible process, e.g. the terminal app when launched from a terminal)",
                 label
             );
-            push_async_result(
+            results.push((
                 capability,
                 if status.0 == STATUS_RESTRICTED {
                     PermissionState::Restricted
                 } else {
                     PermissionState::Denied
                 },
-            );
+            ));
         }
         _ => {
             crate::plog_info!("[avf_auth] requesting {} access (async, OS prompt)…", label);
-            push_async_result(capability, PermissionState::Requested);
+            results.push((capability, PermissionState::Requested));
+            let results = results.clone();
             let handler = RcBlock::new(move |granted: Bool| {
-                // Runs on a TCC dispatch-queue thread; the channel is the
+                // Runs on a TCC dispatch-queue thread; the queue is the
                 // designed OS-thread → pump handoff (MWA-A1b).
                 let state = if granted.as_bool() {
                     crate::plog_info!("[avf_auth] async request: access granted");
@@ -200,7 +202,7 @@ pub fn request_av_access_nonblocking(video: bool) {
                     crate::plog_warn!("[avf_auth] async request: access denied by user");
                     PermissionState::Denied
                 };
-                push_async_result(capability, state);
+                results.push((capability, state));
             });
             unsafe {
                 AVCaptureDevice::requestAccessForMediaType_completionHandler(media, &handler);
