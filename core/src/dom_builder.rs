@@ -46,8 +46,8 @@ use azul_css::{
 };
 
 use super::{
-    AttributeType, CssWithNodeId, Dom, EventFilter, FastDom, NodeData, NodeFlags, NodeType,
-    TabIndex,
+    AttributeType, CssWithNodeId, Dom, EventFilter, FastDom, NodeData, NodeDataExt, NodeFlags,
+    NodeType, TabIndex,
 };
 use crate::{
     callbacks::{CoreCallback, CoreCallbackData},
@@ -250,6 +250,39 @@ fn node_of_parts(
         node.set_dataset(OptionRefAny::Some(dataset));
     }
     node
+}
+
+/// A copy of `node` without the flat tree it carries: the root of a carrying `Dom` as a
+/// node of its own. (`NodeData::clone` copies the carried tree with it.)
+fn node_without_flat(node: &NodeData) -> NodeData {
+    let extra = node.extra_fields().map(|extra| {
+        // Field by field: a field added to `NodeDataExt` has to be named here.
+        Box::new(NodeDataExt {
+            attributes: extra.attributes.clone(),
+            virtual_view: extra.virtual_view.clone(),
+            dataset: extra.dataset.clone(),
+            svg_data: extra.svg_data.clone(),
+            menu_bar: extra.menu_bar.clone(),
+            context_menu: extra.context_menu.clone(),
+            key: extra.key,
+            marker: extra.marker.clone(),
+            dataset_merge_callback: extra.dataset_merge_callback.clone(),
+            component_origin: extra.component_origin.clone(),
+            animation_callbacks: extra.animation_callbacks.clone(),
+            l10n_key: extra.l10n_key.clone(),
+            part_of_parent: extra.part_of_parent,
+            flat: None,
+        })
+    });
+    NodeData {
+        node_type: node.node_type.to_library_owned_nodetype(),
+        callbacks: node.callbacks.clone(),
+        style: node.style.clone(),
+        flags: node.flags,
+        accessibility: node.accessibility.clone(),
+        extra,
+        fluent_args: node.fluent_args.clone(),
+    }
 }
 
 /// A text node of `text`, whose characters are held as the input rule has them already.
@@ -1557,7 +1590,7 @@ impl Dom {
     pub fn flat_node_data_at(&self, index: usize) -> Option<NodeData> {
         let flat = self.flat()?;
         if index == 0 {
-            Some(self.root.clone())
+            Some(node_without_flat(&self.root))
         } else {
             flat.node_data(index)
         }
@@ -1626,6 +1659,26 @@ pub fn fingerprint_built_dom(dom: &Dom) -> (DomFingerprints, PreCascadeTransfers
             crate::diff::fingerprint_dom(&tree)
         }
     }
+}
+
+/// [`fingerprint_built_dom`] for a rebuild that is compared with the build before, whose
+/// fingerprints are `prev`: the fingerprints and the carried values of `dom`, and `dom` as
+/// the rest of the rebuild needs it.
+///
+/// A flat `Dom` STAYS flat when it reads as the build before did (the same tree, every
+/// node's two tiers, the same sheets): such a rebuild keeps what it has, takes the
+/// carried values and drops the fresh DOM without reading a node of it. When anything
+/// differs the `Dom` becomes its tree here, because what follows walks one
+/// (`crate::diff::nodes_at` and the functions on it, the passes before styling).
+pub fn fingerprint_built_dom_against(
+    dom: &mut Dom,
+    prev: Option<&DomFingerprints>,
+) -> (DomFingerprints, PreCascadeTransfers) {
+    let out = fingerprint_built_dom(dom);
+    if dom.is_flat() && prev != Some(&out.0) {
+        dom.expand_flat();
+    }
+    out
 }
 
 #[cfg(test)]

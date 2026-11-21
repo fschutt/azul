@@ -8186,7 +8186,9 @@ impl fmt::Debug for Dom {
 /// used fields where they are.
 #[path = "dom_builder.rs"]
 pub mod builder;
-pub use self::builder::{fingerprint_built_dom, DomBuilder, FlatDom};
+pub use self::builder::{
+    fingerprint_built_dom, fingerprint_built_dom_against, DomBuilder, FlatDom,
+};
 
 #[cfg(test)]
 #[path = "dom_test.rs"]
