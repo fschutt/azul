@@ -549,27 +549,44 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   above other boxes (exit 1.45, and the full path's structure-preserved reconcile); a resize that moves boxes
   (right-aligned, centred, wrapped); and, dearest, an overrides-only frame of a LAYOUT tween (a height that grows
   above a long list shifts every box below it on every frame: +1.3-2.7 ms per 1,000 such boxes per frame).
-- **an existing guard says the opposite, and this fix turns it red** (found by reading; not edited: the file is
-  outside this area and the rule is "do not weaken existing guards"; the coordinator decides):
-  `layout/tests/a_growing_ribbon_lays_out_only_the_boxes_it_resizes.rs`,
-  `an_azdrive_frame_lays_out_only_what_the_ribbon_resizes`, the `assert_eq!` at 593-608 ("a window with twice
-  the places and rows did more work - what only moved keeps its layout and its items"). Its
-  `items_painted_again` is `visits - (dl_patch_copy + dl_patch_empty)`; the pane's places and the list's rows
-  move down with every frame of the band's height tween, are painted anew now, and their number doubles with
-  the window: unequal. `layout/tests/a_height_tween_re_emits_its_box_not_what_it_holds.rs` (`re_emitted <= 8`)
-  gains the footer's two paint calls per frame and may cross its bound. That is the "dearest" case above, and
-  the user's own guard for it (AzDrive's ribbon). Three ways out, none taken here:
-  1. keep the decision, re-word the two guards: the early return emits a span of its own, `dl_patch_moved`, so
-     a guard can say `painted_again = visits - (dl_patch_copy + dl_patch_empty + dl_patch_moved)` (still equal
-     for both windows: nothing is painted for another reason than its move) and state the moved boxes as a
-     known cost per frame (`dl_patch_moved` doubles with the window);
-  2. keep the guards, run the default with the switch's behaviour (one line in `dl_translates_moved_runs`) and
-     live with the last bit in the walks: refused by the coordinator (no tolerance in the walks);
-  3. both, by one more rule (not built, est. 30 lines in `layout_document` and `PatchState`): a pass that is an
-     overrides-only frame (a tween in flight) translates, and remembers the boxes it translated; the first
-     pass that is not one - and the frame that ends the tween - re-emits them. Every settled list is then bit
-     for bit a fresh one, the walks pass as they are, the ribbon's frames copy as the guard says; a list DURING
-     a tween is up to n/2 ulp off for n frames, which no surface outlives.
+- **the frames of a layout tween are the exception (the coordinator's decision, "way 3", second commit).**
+  `8447aa202` painted EVERY moved box anew, which turned the user's ribbon guards red by design
+  (`layout/tests/a_growing_ribbon_lays_out_only_the_boxes_it_resizes.rs`
+  `an_azdrive_frame_lays_out_only_what_the_ribbon_resizes`: "what only moved keeps its layout and its items";
+  `a_height_tween_re_emits_its_box_not_what_it_holds`) and cost every frame of a layout tween 1.5-3 ms per
+  1,000 boxes below it. Built on top of it:
+  - a frame of a layout tween that another frame follows translates a moved box's run as before the audit and
+    RECORDS the box with the list it builds (`DisplayList::translated_since_painted`, layout indices; a box found
+    recorded and copied where it lay stays recorded). The set is a field of the list: it goes where the list
+    goes (the solver's kept list, the result's) and dies with it; a list a build painted in full has none.
+  - every other pass - any pass that is no tween frame, and the frame that ENDS the tween - paints a moved box
+    anew (`8447aa202`) and every recorded box too, moved or not, and records nothing. A list at rest is bit for
+    bit a painted one; a list during a tween of n frames is up to n roundings off (bounded by the tween).
+  - how the pass knows "a frame follows": the tick (`tick_animations`) drops a transition in the tick that ends
+    it and arms the overrides-only latch for that last frame like for any other; the pass cannot tell. So the
+    window says it at the head of its layout funnel (`layout_and_generate_display_list_timed`, not the tick):
+    `OverridesOnlyStamp::more_frames_follow` = a transition of a layout property (`scope != None`) that is no
+    longer delaying is still in `css_transitions`. The solver reads it with the latch (`tween_frame_followed`)
+    and hands `PatchState::build` `translate_moved` = that, on the retained tree, and not a resize. The stamp is
+    compared with `OverridesOnlyStamp::describes` now (the three fields it compared; `==` would take the flag
+    for a claim about the DOM).
+  - no frame is owed after the tween for this: the last frame IS the pass that paints. If the tween is cut off
+    (a rebuild takes the override away, a resize, a hover restyle in between), that pass is no tween frame and
+    paints the recorded boxes. If no pass at all follows a cut-off tween (the window hidden mid-tween), the
+    list keeps its record and the next pass of any kind paints them; the cached-list hit of `layout_document`
+    ("nothing changed: serve the kept list") refuses a list with a record, so that pass cannot serve it as it
+    lies.
+  - what a tween frame costs now: what it cost before the audit, plus one set insert per translated run.
+  - the two guards, by reading (not edited): their measured frames are frames 2-4 of a 200 ms tween at 16 ms
+    steps; after each tick the band's transition is still in `css_transitions` (t < 1), their `relayout` goes
+    through the funnel, the pass is the overrides-only skip (the guards assert `last_reconcile_was_skipped` /
+    `last_dl_build_patched` themselves) and no resize: `translate_moved` holds and `try_copy_cached_run` takes
+    for every box outside the re-emit set the branch it took before `8447aa202` - the copy, with its
+    `dl_patch_copy` span. `items_painted_again` and `re_emitted` are what they were, and so is what their
+    `verify_patched_display_list` sees. The ribbon guard's tail ("run the tween out") compares layout rects.
+  - a pass that is no tween frame DURING a tween (a GPU-only frame that would have been served the kept list, a
+    hover restyle) paints the recorded boxes once and the next tween frame records them again: the price of
+    "any pass that is no tween frame", paid only when such passes interleave with a layout tween.
 - a view's moved labels after the step `view` (by reading, not measured): they do NOT reach
   `try_copy_cached_run` with a non-zero delta.
   1. A re-render that changed anything moves the document's cascade epoch on every exit (`recascade_nodes` ends
@@ -601,12 +618,19 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   `continue` for a see-through rect that lost its key, `builder.next_color_binding = binding;`) ending in the
   unchanged `let item = translate_item(prev.items[i].clone(), delta);`. The two hunks do not touch.
 - test: layout `audit_tests::diff_first::a_box_a_patched_pass_moved_is_painted_as_a_build_paints_it`,
-  `the_switch_translates_a_moved_run_as_before`, `a_box_that_stayed_is_still_copied`; the five dll walks
+  `the_switch_translates_a_moved_run_as_before`, `a_box_that_stayed_is_still_copied` (a resize: no tween frame),
+  `a_frame_of_a_tween_translates_what_the_tween_pushes_within_a_rounding_per_frame` (forty rows climbing from
+  3000 px to 40 px: per frame none painted anew, forty translated and recorded, each rect within a float's step
+  per frame of the painted one, and some rect really off by the middle),
+  `the_frame_that_ends_a_tween_and_a_pass_that_is_none_leave_a_painted_list` (after the last frame, and after
+  a resize in the middle: the list is the painted list bit for bit and records nothing),
+  `a_tween_cut_off_by_a_rebuild_leaves_a_painted_list`,
+  `the_other_extreme_paints_what_a_tween_pushes_on_every_frame`; the five dll walks
   (`a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves` and its siblings) as they are; layout
   `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` (the window
   agent's, which stands on this fix).
 - severity: medium
-- status: fixed (this commit; the hash is in the hand-over table)
+- status: fixed 8447aa202 (a moved box is painted anew) + the commit after diff-first-17 (the frames of a tween translate and record; hash in the hand-over table)
 
 ### diff-first-16 positions are floats, so no translation of an item is exact
 - file:line: `layout/src/solver3/mod.rs` `PositionVec`, `LayoutNodeHot::used_size`, every rect of
@@ -623,6 +647,46 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
      (`units / 64 x dpi`).
 - severity: medium
 - status: blocked (a): the number type of the solver's output, of every display-list rect and of the rects callbacks read (`LogicalRect`): A3-solver's, A3-core's, both renderers' files, api.json and every golden
+
+### diff-first-18 a view that renders again has its whole list emitted, although the step `view` kept most of it
+- file:line: `layout/src/solver3/mod.rs` the patch gate (`cascade_ctx_unchanged`: `cache.last_cascade_epoch ==`
+  the DOM's; `structure_ok`), `css_dirty_reemit_set`; `core/src/prop_cache.rs` `recascade_nodes` and `spliced`
+  (both end with the epoch moved)
+- class: wasted-work (the coordinator's question after diff-first-15; answer by reading, no code)
+- why a moved epoch forbids the copy today: a run is a function of its box's layout (position, size, inline
+  layout) and of the PAINT values the cascade resolved for its node: backgrounds, borders, radii, shadows,
+  colours, decorations, visibility, the keys of transform / opacity / state colours. The reconcile sees node
+  data and states, not the cascade's result (a theme flip restyles a node whose data did not change). Nothing
+  IN a run depends on the epoch: the epoch is the solver's only proof that no cascade ran since the list was
+  built, a stand-in for "no node's paint values moved". When it moved, the solver does not know WHICH nodes
+  were restyled, so it copies none.
+- what the step `view` knows and does not hand over: exactly which nodes were cascaded again (the complement of
+  `unchanged` from `cascade_reusing` / the `reached` set of `restyle_kept_child`; a node below a cascaded one is
+  cascaded too, so inherited paint is covered), which kept their rows (their computed values are the same rows:
+  identical by construction) and which only moved in place (their box is `paint_dirty` already).
+- what it would take, in two parts:
+  1. the tree kept (labels restyled, selected, moved; no label came or went): hand the solver the cascaded
+     nodes with the pass (a one-shot latch beside `dom_diff_clean`, "the epoch moved through a step that named
+     its nodes"), accept a moved epoch in the structure-preserved arm when that latch is set, and put the
+     named nodes' boxes into the re-emit set (`css_dirty_reemit_set`'s rule, which the retained-tree arm
+     applies already: the box, and what it holds unless the change is box geometry only). Est. 40-60 lines in
+     `layout_document` and the two shells of the step; the equality walks of the view
+     (`a_view_rendered_again_leaves_what_the_full_path_leaves`) are its guard, plus a count test (one changed
+     label of 1,000: one box painted).
+  2. the tree changed (labels came or went): the runs are keyed by the OLD layout index; `PatchState` needs
+     the old index of each new box (diff-first-07) and the solver must keep the boxes of renumbered nodes
+     (diff-first-06b), or every renumbered node is fresh and re-emitted anyway.
+  A label that MOVED is painted anew in any case (diff-first-15: no tween frame). So the copy pays for the
+  labels that stood: all of them when a pan is expressed by the view's offset, none when every label gets a
+  new `left` / `top`.
+- estimate (not measured), the editor's view of about 12,500 nodes and 17,500 items: emitting today 1.0-2.0 ms
+  per 1,000 nodes (a label's box: two paint calls with 6-10 property lookups and its glyph run, 1.5-3 us; a
+  text node without a box of its own: about 0.2 us), so 12-25 ms per settle; copying 0.1-0.25 ms per 1,000
+  nodes (an item clone per run), so 1.5-3 ms, plus what stays per node either way (the stacking-context
+  walk and the tag lookups, est. 0.1-0.2 ms per 1,000). A settle that kept every label would go from 12-25 ms
+  to 3-5 ms of list emission.
+- severity: high for the editor's settle (after styling and layout it is the largest part left)
+- status: open: part 1 has a design and no code (the coordinator decides after the checkpoint); part 2 waits for diff-first-06b and diff-first-07
 
 ### diff-first-17 the first half's core tests took `Dom::with_css` for a node's own style (seven red tests)
 - file:line: `core/src/diff_test.rs` `audit_diff_first_tests` (`page`, the nested tree); `core/src/styled_dom_test.rs`
@@ -717,16 +781,23 @@ A test picks its steps per thread: `window::set_diff_first_steps_on_this_thread(
 were kept), `styled_dom::nodes_cascaded_on_this_thread()`, `styled_dom::compact_cache_rebuilds_on_this_thread()`
 (whole cascades). The pre-cascade exit for an identical rebuild is older than the switch and not under it.
 
-`AZ_DL_TRANSLATE_MOVED_RUNS` (read once per process, at the first patched build that meets a moved box;
-`layout/src/solver3/display_list.rs` `dl_translates_moved_runs`; diff-first-15):
-- unset, or any value but `1`: a patched display-list build paints a box that MOVED anew and copies only the runs
-  of boxes that stand where they stood (the default).
-- `1`: the behaviour before the audit, for measuring: the run of a moved box is copied with every coordinate
-  shifted by the move. The list of such a pass is not the list a build makes (an ulp per translation).
-A test picks it per thread: `display_list::set_dl_translate_moved_runs_on_this_thread(Some(bool))`. What a pass
-did: `display_list::moved_runs_painted_anew_on_this_thread()` (paint calls made anew because the box moved),
-`display_list::cached_runs_copied_on_this_thread()`. `AZ_NO_DL_PATCH=1` (older, not this task's) turns the patch
-off altogether.
+`AZ_DL_TRANSLATE_MOVED_RUNS` (read once per process, at the first patched build that copies a run;
+`layout/src/solver3/display_list.rs` `moved_run_policy`, `MovedRunPolicy`; diff-first-15):
+- unset, or any value but `1` and `0` (`TweenFramesTranslate`, the default): a patched display-list build paints
+  a box that MOVED anew, except on a frame of a layout tween that another frame follows: that frame copies the
+  box's run shifted by the move and records the box with the list; the tween's last frame and every pass that is
+  no tween frame paint the recorded boxes anew. A list at rest is a painted one.
+- `1` (`AlwaysTranslate`): the behaviour before the audit, for measuring: every pass copies a moved box's run
+  shifted by the move, nothing is recorded, nothing is painted anew for it. The list of such a pass is not the
+  list a build makes (a rounding per translation, without end).
+- `0` (`NeverTranslate`): the other extreme, for measuring: a moved box is painted anew by every pass, the
+  frames of a tween too (what `8447aa202` alone did).
+A test picks it per thread: `display_list::set_moved_run_policy_on_this_thread(Some(MovedRunPolicy::..))`. What
+the patched builds of a thread did, per paint call: `display_list::moved_runs_painted_anew_on_this_thread()` (a
+box that moved, no tween frame), `moved_runs_translated_on_this_thread()` (a tween frame, or `1`),
+`translated_runs_painted_anew_on_this_thread()` (a box that stood but had been translated: the paint that brings
+a list to rest), `cached_runs_copied_on_this_thread()` (every run taken from the list before).
+`AZ_NO_DL_PATCH=1` (older, not this task's) turns the patch off altogether.
 
 ## The gates (what sends a rebuild down the full path, or the whole cascade)
 
@@ -768,8 +839,9 @@ whole one) and `reconcile_css_diff`. A view's re-render has no span of its own f
 view's pass). azul-core has no `Probe`: the stages inside `recascade_nodes` are one span (the counter
 `nodes_cascaded_on_this_thread` says how many nodes it ran for). In a patched display-list build:
 `dl_patch_copy` (a run copied where it lies), `dl_patch_empty` (a box that emitted nothing, again nothing) and,
-new with diff-first-15, `dl_patch_moved` (a box that moved: its run is not copied, the paint call that follows
-is made anew).
+new with diff-first-15, `dl_patch_moved` (a box that moved in a pass that is no tween frame: its run is not
+copied, the paint call that follows is made anew) and `dl_patch_settled` (a box that stood, whose run a tween
+frame had translated: painted anew). A tween frame's translated runs count as `dl_patch_copy`.
 
 ## What to look at on the real window
 
@@ -931,7 +1003,8 @@ ARENA after the flatten, never `nodes_at`.
 | diff-first-13 (a written DOM gets no clean flags; the slider) | 6c43652f1 | dll `dragging_the_slider_leaves_no_thumb_behind`, `a_style_a_callback_wrote_is_laid_out_by_the_rebuild_it_asked_for` |
 | diff-first-14 (the gate `animation`, per reached node) | 6e4391abc | dll `an_animated_node_elsewhere_does_not_send_a_rebuild_down_the_full_path`, `an_identical_rebuild_and_a_changed_text_style_no_node` |
 | diff-first-15 (a moved box is painted anew by a patched pass; `AZ_DL_TRANSLATE_MOVED_RUNS`) | 8447aa202 | layout `audit_tests::diff_first::*` (three), `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`; dll the five walks `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_the_tree_*`, `a_view_rendered_again_leaves_what_the_full_path_leaves` |
-| diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | 8420ec290 (`diff_test.rs`), then `git log --grep "diff-first-17: the walks"` (`styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
+| diff-first-15, second part (the frames of a layout tween translate and record; the last frame and every other pass paint) | `git log --grep "diff-first-15: the frames"` | layout `audit_tests::diff_first::*` (seven); `cargo test -p azul-layout --test all a_growing_ribbon` and `a_height_tween` (the two guards, not edited); layout `a_layout_tween_frame_reuses_the_tree_and_patches_the_list` |
+| diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | 8420ec290 (`diff_test.rs`), 8e7a62d2c (`styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
 
 **The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
 1. `dragging_the_slider_leaves_no_thumb_behind`: a real defect of the kept exits: fixed 6c43652f1 (diff-first-13).
@@ -952,18 +1025,16 @@ After those: 6e4391abc (`capture_declared_transitions` is `begin_reconciliation`
 with remapped ids: a wrong start value shows as a jump at the first frame of a transition after a rebuild that
 changed the tree) > diff-first-15 (four lines and two free functions: little to get wrong in the build; what it
 changes is the COST of every patched pass that moves boxes, see its block; its three tests stand on a resize that
-moves boxes anchored right / bottom and behind a percentage margin, and their premises say so if neither moves).
+moves boxes anchored right / bottom and behind a percentage margin, and their premises say so if neither moves)
+> its second part (a new field on `DisplayList`: four struct literals without `..Default::default()` were
+extended, three in `display_list.rs`, one in `cpurender/compositor.rs`; a merge that brings a fifth fails to
+compile and wants `translated_since_painted: std::collections::BTreeSet::new()`; the stamp's comparison in
+`layout_document` is `describes` now: if a tween frame stops taking the retained tree, look there; the tween
+tests stand on `background-clip: content-box` painting a rect at `position + padding` and on a `NodeCss` write
+of `height` seeding a tween, as the tests of `layout/tests` do).
 
-**Needs the coordinator's word (diff-first-15):** the fix turns an existing guard red by design,
-`layout/tests/a_growing_ribbon_lays_out_only_the_boxes_it_resizes.rs`
-`an_azdrive_frame_lays_out_only_what_the_ribbon_resizes` (boxes that only moved are no longer copied), and may
-turn `a_height_tween_re_emits_its_box_not_what_it_holds` red (`re_emitted <= 8`). Neither file is edited. The
-three ways out are in the block of diff-first-15.
-
-**In flight:** diff-first-15's second part, by the coordinator's decision (way 3): an overrides-only (tween)
-frame translates a moved box's run and records the box; the first pass that is not one, and the tween's last
-frame, paint the recorded boxes anew. Not started in code; `8447aa202` (every moved box painted anew) is what
-the branch does until then, and the two ribbon guards are red on it.
+**In flight:** nothing uncommitted beyond these notes. The checkpoint takes the tip that holds diff-first-15's
+second commit (the tween frames) and diff-first-17 (the seven core tests).
 
 **Left, in the order of the coordinator's priorities, each with its design in the block named:**
 1. (done: eba4d13e4) Views, the kept exits.

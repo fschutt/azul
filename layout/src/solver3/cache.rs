@@ -795,6 +795,15 @@ pub struct OverridesOnlyStamp {
     pub cascade_epoch: u64,
     /// A hash of every node's `StyledNodeState`, in node order.
     pub states_hash: u64,
+    /// Whether another frame of a layout tween follows the pass the latch is
+    /// armed for: a transition of a layout property is still in flight when
+    /// the pass starts (the window says so at the head of its layout funnel;
+    /// the tick that armed the latch has dropped the transitions that ended).
+    /// Such a pass translates the display-list runs of the boxes it moves
+    /// (`display_list::PatchState`); the frame that ends the tween, and every
+    /// pass that is no tween frame, paints them anew. No claim about the DOM:
+    /// [`Self::describes`] does not read it, and [`Self::of`] leaves it off.
+    pub more_frames_follow: bool,
 }
 
 impl OverridesOnlyStamp {
@@ -809,7 +818,18 @@ impl OverridesOnlyStamp {
             node_count: styled_dom.node_data.as_ref().len(),
             cascade_epoch: styled_dom.get_css_property_cache().cascade_epoch,
             states_hash: h.finish(),
+            more_frames_follow: false,
         }
+    }
+
+    /// Whether `styled_dom` is still the DOM the latch was armed for: its
+    /// node count, cascade epoch and interaction states are the stamp's.
+    #[must_use]
+    pub fn describes(&self, styled_dom: &StyledDom) -> bool {
+        let now = Self::of(styled_dom);
+        self.node_count == now.node_count
+            && self.cascade_epoch == now.cascade_epoch
+            && self.states_hash == now.states_hash
     }
 }
 

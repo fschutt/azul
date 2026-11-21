@@ -7289,6 +7289,7 @@ mod scroll_shift_tests {
             color_bindings: Vec::new(),
             carets: Vec::new(),
             frame_index: crate::solver3::display_list::FrameIndexCell::default(),
+            translated_since_painted: std::collections::BTreeSet::new(),
         }
     }
     fn wr(x: f32, y: f32, w: f32, h: f32) -> WindowLogicalRect {
