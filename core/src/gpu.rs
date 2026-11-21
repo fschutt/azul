@@ -31,7 +31,7 @@ use crate::{
     dom::{DomId, NodeId, ScrollbarOrientation},
     resources::{ColorKey, OpacityKey, TransformKey},
     styled_dom::StyledDom,
-    transform::{ComputedTransform3D, RotationMode, INITIALIZED, USE_AVX, USE_SSE},
+    transform::{detect_cpu_features, ComputedTransform3D, RotationMode},
 };
 
 /// A map of this module keyed by a node (a `HashMap`, or a `BTreeMap` in a
@@ -145,6 +145,9 @@ pub struct StampedMap<V, K = NodeId> {
 
 /// A stamp no [`StampedMap`] has had before.
 fn next_map_stamp() -> u64 {
+    // Process-wide: two maps with the same stamp must have the same content, and readers compare the
+    // stamps of maps of different caches (a clone keeps the stamp of what it copies), so a number
+    // may be handed out only once in the whole process.
     static NEXT: AtomicUsize = AtomicUsize::new(1);
     NEXT.fetch_add(1, AtomicOrdering::Relaxed) as u64
 }
@@ -1605,25 +1608,9 @@ impl GpuValueCache {
     }
 
     /// One-time CPU feature detection (SSE/AVX) for the transform math fast paths.
-    #[allow(clippy::missing_const_for_fn)] // non-x86_64 body is empty; x86_64 uses atomics
+    #[allow(clippy::missing_const_for_fn)] // non-x86_64 body is empty; x86_64 reads the CPU
     fn init_simd_features() {
-        #[cfg(target_arch = "x86_64")]
-        unsafe {
-            if !INITIALIZED.load(AtomicOrdering::SeqCst) {
-                use core::arch::x86_64::__cpuid;
-
-                let mut cpuid = __cpuid(0);
-                let n_ids = cpuid.eax;
-
-                if n_ids > 0 {
-                    // cpuid instruction is present
-                    cpuid = __cpuid(1);
-                    USE_SSE.store((cpuid.edx & (1_u32 << 25)) != 0, AtomicOrdering::SeqCst);
-                    USE_AVX.store((cpuid.ecx & (1_u32 << 28)) != 0, AtomicOrdering::SeqCst);
-                }
-                INITIALIZED.store(true, AtomicOrdering::SeqCst);
-            }
-        }
+        detect_cpu_features();
     }
 
     /// Computes CSS-transform change events against the cached values (read-only).
