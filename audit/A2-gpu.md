@@ -366,6 +366,11 @@ translation: nothing to change. The test is already in this branch (`3aff8a911`)
   from the push to its pop (what `reference_frame_extent` computes for a frame), inside the open clip.
 - (A2-gpu-07) `raster.rs:3359-3364`: `ScrollBarStyled` ignores the value of its opacity key except as an on / off
   gate; the GPU fades the bar. Proposed: paint track, buttons and thumb with their alpha times the key's value.
+- (cross-check, Border; not a position) `raster.rs:3125-3146` resolves a percentage `border-radius` of a `Border` item
+  against the box's WIDTH for both axes of every corner; the GPU resolves the horizontal radius against the width and
+  the vertical one against the height (`wr_translate2::wr_translate_border_radius`, CSS Backgrounds 3 s5.1).
+  `border-radius: 50%` on a bordered 100 x 40 box: an ellipse of 50 x 20 on the GPU, a 50 px arc (then clamped) on
+  the CPU. Not verified beyond reading the two resolvers.
 
 ## What this area did not read
 
