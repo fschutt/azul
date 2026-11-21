@@ -2071,8 +2071,18 @@ pub(crate) fn release_text_halo_images(
     use azul_core::resources::ImageSlot;
     use azul_layout::managers::gpu_state::HaloRelease;
 
-    if layout_window.gpu_state_manager.halo_release != HaloRelease::Kept {
-        return 0;
+    match layout_window.gpu_state_manager.halo_release {
+        HaloRelease::Kept => {}
+        HaloRelease::Hidden => return 0,
+        // Shown and hidden again before a pass brought the pictures back:
+        // there is nothing to delete, and the frame owed for them is not owed
+        // to a window nobody sees.
+        HaloRelease::Returning => {
+            let state = &mut layout_window.gpu_state_manager;
+            state.halo_release = HaloRelease::Hidden;
+            state.halos_owed = false;
+            return 0;
+        }
     }
     let keys: Vec<(ImageSlot, ImageKey)> = layout_window
         .renderer_resources

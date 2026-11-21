@@ -1055,6 +1055,17 @@ fn a5_20_a_hidden_window_gives_back_the_pictures_its_lists_paint() {
     // Hidden once more (the app is hidden while the window is in the Dock).
     let (again, keys, _) = hide(&mut view, &[]);
     assert_eq!((keys, again.deleted.len(), again.list), (0, 0, false));
+
+    // Shown, and hidden again before any pass brought the pictures back: the
+    // frame that was owed for them is owed no more, and nothing is sent.
+    assert!(view.window.gpu_state_manager.halos_return());
+    assert!(view.window.gpu_state_manager.halos_owed);
+    let (again, keys, _) = hide(&mut view, &[]);
+    assert_eq!((keys, again.deleted.len(), again.list), (0, 0, false));
+    let state = &view.window.gpu_state_manager;
+    assert_eq!((state.halo_release, state.halos_owed), (HaloRelease::Hidden, false));
+    let idle = view.light_pass();
+    assert!(!idle.frame && !idle.list && idle.added.is_empty(), "{idle:?}");
 }
 
 /// A5-20, test 2. The window is shown again. The shell says so
