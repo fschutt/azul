@@ -6624,10 +6624,17 @@ impl MacOSWindow {
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
             let render_api = sender.create_api();
-            let physical_size = azul_core::geom::PhysicalSize {
-                width: (options.window_state.size.dimensions.width * actual_hidpi_factor) as u32,
-                height: (options.window_state.size.dimensions.height * actual_hidpi_factor) as u32,
-            };
+            // The document is born at the size every later frame gives it
+            // (`WindowSize::get_physical_size` -> `LogicalSize::to_physical`:
+            // ROUNDED): truncated here, it was one pixel smaller than the
+            // viewport and the framebuffer for a fractional product (333.7
+            // units at 1.5: 500.55 -> 500 here, 501 everywhere else) until the
+            // first transaction set the document view (audit A10-15).
+            let physical_size = options
+                .window_state
+                .size
+                .dimensions
+                .to_physical(actual_hidpi_factor);
             let framebuffer_size = webrender::api::units::DeviceIntSize::new(
                 physical_size.width as i32,
                 physical_size.height as i32,

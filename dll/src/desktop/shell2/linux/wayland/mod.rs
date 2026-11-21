@@ -3205,9 +3205,14 @@ impl WaylandWindow {
         self.common.renderer = Some(renderer);
         self.common.render_api = Some(sender.create_api());
 
+        // In PHYSICAL pixels, by the rule of every later frame
+        // (`get_physical_size`: rounded), as the X11 shell does: the logical
+        // size truncated was half the framebuffer at 2x until the first
+        // transaction set the document view (audit A10-15).
+        let phys = self.common.current_window_state().size.get_physical_size();
         let framebuffer_size = webrender::api::units::DeviceIntSize::new(
-            self.common.current_window_state().size.dimensions.width as i32,
-            self.common.current_window_state().size.dimensions.height as i32,
+            (phys.width as i32).max(1),
+            (phys.height as i32).max(1),
         );
         let render_api = self.common.render_api.as_mut().unwrap();
         let wr_doc_id = render_api.add_document(framebuffer_size);

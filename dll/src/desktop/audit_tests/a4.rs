@@ -228,3 +228,26 @@ fn a4_02_a_moving_scale_is_marked_as_zoomed_once_and_drawn_sharp_at_rest() {
     TEST_ZOOM_SETTLE.with(|settle| settle.set(None));
     forget_live_transforms(&lw.document_id);
 }
+
+/// A10-15 (the GPU document's size, applied by A4). The rule the shells now use
+/// when they create the document is the one of every frame's document view,
+/// viewport and framebuffer: `LogicalSize::to_physical`, rounded. 333.7 units
+/// at 1.5 are 500.55 device px: 501 (truncated, as the macOS shell sized the
+/// new document, 500: one pixel less than its own viewport). This pins the
+/// rule, not the shells' call sites (they need a window).
+#[test]
+fn a10_15_the_gpu_document_is_sized_by_the_rule_of_the_viewport() {
+    let dimensions = LogicalSize::new(333.7, 200.0);
+    let created = dimensions.to_physical(1.5);
+    assert_eq!((created.width, created.height), (501, 300));
+
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = dimensions;
+    ws.size.dpi = 144;
+    let every_frame = ws.size.get_physical_size();
+    assert_eq!(
+        (created.width, created.height),
+        (every_frame.width, every_frame.height),
+        "the document is born at the size its first transaction gives it"
+    );
+}
