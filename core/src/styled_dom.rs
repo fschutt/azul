@@ -2143,6 +2143,49 @@ impl StyledDom {
         }
     }
 
+    /// The nodes whose cascade a change of the OWN DATA of the nodes `changed` can move, the
+    /// tree and the sheets staying what they are: `reached[i]` for every node index.
+    ///
+    /// A node's matched rules read the node, its ancestors, and the element siblings before
+    /// it and before each of its ancestors (`crate::style::matches_html_element_remembering`:
+    /// the compounds left of a subject are reached through the descendant, child and sibling
+    /// combinators, never downward and never forward); what it inherits comes from its
+    /// parent; its UA defaults and its compact entries are its own and its parent's. So a
+    /// changed node reaches itself and its descendants - and, when a rule of the retained
+    /// sheet has a sibling combinator (`+`, `~`), the siblings after it with their
+    /// descendants, for which this names the whole subtree of its parent.
+    #[must_use]
+    pub fn nodes_reached_by_changes(&self, changed: &[usize]) -> Vec<bool> {
+        let hierarchy = self.node_hierarchy.as_container();
+        let n = hierarchy.len();
+        let mut reached = vec![false; n];
+        let by_sibling = self
+            .get_css_property_cache()
+            .retained_author_css
+            .rules()
+            .any(|rule| crate::style::has_sibling_combinator(&rule.path));
+        for index in changed {
+            if *index >= n {
+                continue;
+            }
+            let node = NodeId::new(*index);
+            let root = if by_sibling {
+                hierarchy[node].parent_id().unwrap_or(node)
+            } else {
+                node
+            };
+            if reached[root.index()] && !by_sibling {
+                // Inside a subtree that is named already.
+                continue;
+            }
+            let end = (root.index() + hierarchy.subtree_len(root)).min(n - 1);
+            for flag in &mut reached[root.index()..=end] {
+                *flag = true;
+            }
+        }
+        reached
+    }
+
     pub fn restyle_retained(&mut self) {
         let css = self
             .css_property_cache

@@ -3696,7 +3696,12 @@ pub fn same_tree_changes(prev: &DomFingerprints, next: &DomFingerprints) -> Opti
 /// - an icon, a virtual view, a localizable text or a text that was translated: the passes
 ///   between the app's callback and the cascade resolve, host or translate them;
 /// - a presentational attribute (a `Custom` attribute on the fresh node, a hint already in
-///   the retained node's style): `StyledDom`'s creation turns those into declarations.
+///   the retained node's style): `StyledDom`'s creation turns those into declarations;
+/// - a style that makes generated content (an inline list item, a footnote): the creation
+///   adds nodes for it;
+/// - other handlers' events, a dataset that came or went, a geolocation probe: the tail of
+///   the shell's rebuild reads them off every node of the new DOM (the lists of nodes with
+///   window handlers and datasets, the sensor and gamepad listeners, the permission diff).
 #[must_use]
 pub fn changed_nodes_are_adoptable(
     retained: &[NodeData],
@@ -3707,7 +3712,10 @@ pub fn changed_nodes_are_adoptable(
     /// A node the passes around the cascade treat specially (see above).
     fn special(node: &NodeData) -> bool {
         match node.get_node_type() {
-            NodeType::Image(_) | NodeType::Icon(_) | NodeType::VirtualView => true,
+            NodeType::Image(_)
+            | NodeType::Icon(_)
+            | NodeType::VirtualView
+            | NodeType::GeolocationProbe(_) => true,
             NodeType::Text(text) => text.as_ref().is_localizable(),
             _ => false,
         }
@@ -3737,6 +3745,9 @@ pub fn changed_nodes_are_adoptable(
                 && old.get_localization_key().is_none()
                 && !has_hint(old)
                 && !has_hint(new)
+                && !crate::generated_content::node_generates_nodes(new)
+                && crate::layout_inputs::NodeField::Callbacks.reads_alike(old, new)
+                && old.get_dataset().is_some() == new.get_dataset().is_some()
                 && !new
                     .attributes()
                     .as_ref()
