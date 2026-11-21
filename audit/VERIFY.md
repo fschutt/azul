@@ -87,6 +87,11 @@ Generated code:
   to map; no further one). Mutants run: the index not mapped; the background asked with the old index ("the box
   above": caught only by the new `df_list_tables` lines).
 
+- `5bad31036` (fourth verifier, on the coordinator's word, without a reproduction: it only adds re-emits)
+  `solver3/mod.rs`, the arm of a changed tree: a carried box whose `dom_node_id` changed also re-emits the root of
+  its inline context (row 4 of the second round below). Suites with it: dll lib 3,874 / 0 / 9 ignored (log
+  `519`), layout lib 10,917 / 0 / 1 ignored (`520`).
+
 ## Tests changed by the verifier (the code under them is unchanged; each keeps what it guards)
 
 Pre-existing tests whose expectation an area changed on purpose (the area's notes name the change):
@@ -170,10 +175,19 @@ ROWS FOR THE LEDGER from the second round (open; owner: the diff-first area):
 4. By reading, not reproduced: an item of a run copied across trees that is attributed to ANOTHER DOM node than
    the run's box (a text or inline box under its inline root's run) keeps that node's old id in `node_mapping`
    if the id moved while the root kept its own and was not laid out again (a node that comes or goes inside an
-   earlier inline-block of unchanged size in the same line). Proposed: in the across arm's loop over the carried
-   boxes, a box whose `dom_node_id` changed also puts the root of its inline context into the re-emit set.
-   Needs a fixture and a test.
-5. The branch "a run with a text whose box was not carried is painted" (`2d750b70f`) has no mutant test.
+   earlier inline-block of unchanged size in the same line). THE RULE IS MADE (`5bad31036`; the coordinator's
+   decision: it only adds re-emits): a carried box whose `dom_node_id` changed also re-emits the root of its
+   inline context (`solver3/mod.rs`, the arm of a changed tree). The row stays OPEN for its mutant test: the
+   fixture tried (dll `a_text_whose_node_id_moved_is_not_copied_under_the_id_it_had`: text, inline-block of a
+   fixed size, text; an absolutely placed span of no size comes inside the inline-block) is green WITHOUT the
+   rule: the line's inline context is laid out again (`reflowed_ifcs={1, 8} fresh={6, 7, 8, 9}`) and re-emits
+   anyway. Wanted: a page on which the root is carried and not laid out again.
+5. The branch "a run with a text whose box was not carried is painted" (`2d750b70f`) has no mutant test: a text
+   lies in the run of the box it names (the root of its inline context), so a run whose box was carried holds no
+   text of a box that went; a row that goes takes its own runs with it. No fixture in reach.
+6. FOR THE LEDGER, with (2): which of the editor's documents hold anonymous boxes (the window's DOM; the view's
+   label document) is not measured: one `AZ_PATCH_DEBUG=1` run of an e2e scenario after the next pin move tells
+   (`preserved=false` on a rebuild whose node count did not change).
 
 ## Open (failing in the tree on purpose; with the owner)
 
