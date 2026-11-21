@@ -532,7 +532,7 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   Short of it, done: `node_patch::locate` is the only match on `EmitPhase` in this area and needs the new arm
   when A3-core-17 is merged (see "Integration").
 - severity: medium
-- status: open: A3-core-17 (505c953ee) is not under this branch yet; the patch (design in this block) is not built
+- status: open: A3-core-17 is under this branch since the merge 8331cc219 and `node_patch::locate` has its arm; the patch (design in this block) is not built
 
 ### A3-window-12 transfer_states: repoint_orphaned_refanys walks ALL nodes after every merge
 - file:line: `core/src/diff.rs` `transfer_states`, `repoint_orphaned_refanys`
@@ -1164,7 +1164,8 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
 
 ## Handover for round 5 (round 4 stopped before its context ran out; everything of it is committed)
 
-Round 4 = commits `fd1230f3d` (the merge of `audit/integration` `480e156d8`) .. the tip. The working tree is clean.
+Round 4 = commits `fd1230f3d` (the merge of `audit/integration` `480e156d8`) .. the tip, which ends with a second
+merge of `audit/integration` (`8331cc219`, clean). The working tree is clean.
 - **Done in round 4:** the trace "Why a full DOM rebuild is slow"; A3-window-14, -43, -44, -45, -46, -47; the
   design "The diff-first pipeline" (step 1 built); A3-window-49 designed; the A4-23 text (under "Integration").
 - **The pipeline, next steps in order** (section "The diff-first pipeline", "Order of work and tests"): step 2
@@ -1175,9 +1176,9 @@ Round 4 = commits `fd1230f3d` (the merge of `audit/integration` `480e156d8`) .. 
   `css/src/compact_cache*.rs` IN FULL first; nothing of step 4 is started). The harness for every step is
   `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves` (dll, `headless/mod.rs`): add a mutation
   kind per step and keep the switch `window::diff_first_enabled()` as the one gate.
-- **Rows still open, nothing half-done:** 11 (A3-core-17, `505c953ee`, was NOT in
-  `audit/integration` at `480e156d8`: `EmitPhase` has three variants on this branch; merge `audit/integration`
-  again or `git cherry-pick -x 505c953ee`, then the arm in `node_patch::locate`, then the patch of the block), 38, 16, 32, 15, 27, 29, 36, 39, 42, 49. The starting
+- **Rows still open, nothing half-done:** 11 (A3-core-17 came with the second merge
+  of `audit/integration`, `8331cc219`, and `node_patch::locate` has the arm for `EmitPhase::Selection`: what is
+  left is the patch of the block, `LayoutWindow::patch_selection_runs`), 38, 16, 32, 15, 27, 29, 36, 39, 42, 49. The starting
   points of the round-3 hand-over still hold for 11, 38, 16 (they are in the blocks).
 - **Not read in round 4 either:** `AnimationManager::tick`, `run_track_frames`, `dispatch_events_propagated`,
   `layout_transient_content`; of `apply_user_change` / `apply_system_change` only the arms around
