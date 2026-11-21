@@ -1569,33 +1569,6 @@ pub(crate) const fn patchable_item(item: &DisplayListItem) -> bool {
     )
 }
 
-/// Runtime toggle for DL patching. 0 = uninitialized (resolve from
-/// `AZ_NO_DL_PATCH` on first read), 1 = enabled, 2 = disabled. A runtime
-/// atomic rather than a latched `OnceLock` so tests can A/B the patched and
-/// full paths in one process (the golden-equality gate), and so a live
-/// session can be flipped for diagnosis.
-static DL_PATCHING: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
-#[must_use]
-pub fn dl_patching_enabled() -> bool {
-    use core::sync::atomic::Ordering;
-    match DL_PATCHING.load(Ordering::Relaxed) {
-        1 => true,
-        2 => false,
-        _ => {
-            let on = std::env::var_os("AZ_NO_DL_PATCH").is_none();
-            DL_PATCHING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
-            on
-        }
-    }
-}
-
-/// Force DL patching on/off (tests + live diagnosis; overrides the env).
-pub fn set_dl_patching_enabled(on: bool) {
-    use core::sync::atomic::Ordering;
-    DL_PATCHING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
-}
-
 /// What a patched build does with the cached run of a box that MOVED since
 /// the list was built (`DisplayListGenerator::try_copy_cached_run`, which
 /// says why a translated copy is not the item a paint makes).
@@ -1609,150 +1582,14 @@ pub enum MovedRunPolicy {
     /// boxes anew. A list at rest is bit for bit a painted one; a list during
     /// a tween is up to a rounding per frame off.
     TweenFramesTranslate,
-    /// `AZ_DL_TRANSLATE_MOVED_RUNS=1`, the behaviour before the audit, for
-    /// measuring: every pass copies the run shifted by the move, nothing is
-    /// recorded and nothing is painted anew for having been translated.
+    /// The behaviour before the audit, for measuring
+    /// (`AZ_DL_TRANSLATE_MOVED_RUNS=1`): every pass copies the run shifted by
+    /// the move, nothing is recorded and nothing is painted anew for having
+    /// been translated.
     AlwaysTranslate,
-    /// `AZ_DL_TRANSLATE_MOVED_RUNS=0`, the other extreme, for measuring: a
+    /// The other extreme, for measuring (`AZ_DL_TRANSLATE_MOVED_RUNS=0`): a
     /// moved box is painted anew by every pass, the frames of a tween too.
     NeverTranslate,
-}
-
-/// [`moved_run_policy`] of the process: 0 = unresolved (read from
-/// `AZ_DL_TRANSLATE_MOVED_RUNS` on first use), 1 = always translate, 2 = the
-/// default, 3 = never translate.
-static DL_MOVED_RUN_POLICY: core::sync::atomic::AtomicU8 = core::sync::atomic::AtomicU8::new(0);
-
-thread_local! {
-    /// A test's policy for its own thread, asked before the process's
-    /// ([`set_moved_run_policy_on_this_thread`]).
-    static DL_MOVED_RUN_POLICY_HERE: core::cell::Cell<Option<MovedRunPolicy>> =
-        const { core::cell::Cell::new(None) };
-    /// See [`moved_runs_painted_anew_on_this_thread`].
-    static MOVED_RUNS_PAINTED_ANEW: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-    /// See [`moved_runs_translated_on_this_thread`].
-    static MOVED_RUNS_TRANSLATED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-    /// See [`translated_runs_painted_anew_on_this_thread`].
-    static TRANSLATED_RUNS_PAINTED_ANEW: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-    /// See [`cached_runs_copied_on_this_thread`].
-    static CACHED_RUNS_COPIED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
-    /// See [`runs_painted_by_patched_builds_on_this_thread`].
-    static RUNS_PAINTED_BY_PATCHED_BUILDS: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-    /// See [`lists_patched_after_a_named_cascade_on_this_thread`].
-    static LISTS_PATCHED_AFTER_A_NAMED_CASCADE: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-    /// See [`lists_patched_across_trees_on_this_thread`].
-    static LISTS_PATCHED_ACROSS_TREES: core::cell::Cell<usize> =
-        const { core::cell::Cell::new(0) };
-}
-
-/// What the patched builds of the calling thread do with the run of a box
-/// that moved: the thread's own policy if a test set one, else the process's
-/// (`AZ_DL_TRANSLATE_MOVED_RUNS`: `1` and `0` are the two extremes, anything
-/// else and unset the default), read once.
-#[must_use]
-pub fn moved_run_policy() -> MovedRunPolicy {
-    use core::sync::atomic::Ordering;
-    if let Some(policy) = DL_MOVED_RUN_POLICY_HERE.with(core::cell::Cell::get) {
-        return policy;
-    }
-    match DL_MOVED_RUN_POLICY.load(Ordering::Relaxed) {
-        1 => MovedRunPolicy::AlwaysTranslate,
-        2 => MovedRunPolicy::TweenFramesTranslate,
-        3 => MovedRunPolicy::NeverTranslate,
-        _ => {
-            let (code, policy) = match std::env::var("AZ_DL_TRANSLATE_MOVED_RUNS").as_deref() {
-                Ok("1") => (1, MovedRunPolicy::AlwaysTranslate),
-                Ok("0") => (3, MovedRunPolicy::NeverTranslate),
-                _ => (2, MovedRunPolicy::TweenFramesTranslate),
-            };
-            DL_MOVED_RUN_POLICY.store(code, Ordering::Relaxed);
-            policy
-        }
-    }
-}
-
-/// [`moved_run_policy`] for the calling thread alone (`None`: the process's
-/// again), so that a test can run each behaviour beside the tests of other
-/// threads.
-pub fn set_moved_run_policy_on_this_thread(policy: Option<MovedRunPolicy>) {
-    DL_MOVED_RUN_POLICY_HERE.with(|here| here.set(policy));
-}
-
-/// How many cached runs the patched builds of the calling thread did not copy
-/// because their box MOVED in a pass that is no tween frame: each is one
-/// paint call made anew (`DisplayListGenerator::try_copy_cached_run`).
-#[must_use]
-pub fn moved_runs_painted_anew_on_this_thread() -> usize {
-    MOVED_RUNS_PAINTED_ANEW.with(core::cell::Cell::get)
-}
-
-/// How many cached runs the patched builds of the calling thread copied
-/// shifted by their box's move: the frames of a layout tween (and every pass
-/// under [`MovedRunPolicy::AlwaysTranslate`]).
-#[must_use]
-pub fn moved_runs_translated_on_this_thread() -> usize {
-    MOVED_RUNS_TRANSLATED.with(core::cell::Cell::get)
-}
-
-/// How many cached runs the patched builds of the calling thread did not copy
-/// although their box stood where it stood, because a tween frame had
-/// translated them since they were painted
-/// ([`DisplayList::translated_since_painted`]): the paint calls that bring a
-/// list to rest after a tween.
-#[must_use]
-pub fn translated_runs_painted_anew_on_this_thread() -> usize {
-    TRANSLATED_RUNS_PAINTED_ANEW.with(core::cell::Cell::get)
-}
-
-/// How many cached runs the patched builds of the calling thread copied from
-/// the list before in place of a paint call, where they lay or translated.
-#[must_use]
-pub fn cached_runs_copied_on_this_thread() -> usize {
-    CACHED_RUNS_COPIED.with(core::cell::Cell::get)
-}
-
-/// How many paint calls the patched builds of the calling thread made
-/// themselves, for a box they could not copy the run of: one in the re-emit
-/// set (styled again, fresh, reflowed, resized, paint-dirty), one that moved,
-/// one a tween frame had translated. With
-/// [`cached_runs_copied_on_this_thread`]: what a patched build painted and
-/// what it copied (a call for a box that painted nothing before and paints
-/// nothing now counts as neither).
-#[must_use]
-pub fn runs_painted_by_patched_builds_on_this_thread() -> usize {
-    RUNS_PAINTED_BY_PATCHED_BUILDS.with(core::cell::Cell::get)
-}
-
-/// How many display lists the calling thread patched although the cascade
-/// epoch had moved since the list before was built, because the producer of
-/// the pass named the nodes it had cascaded (`cache::CascadedSince`, the step
-/// `list` of the diff-first pipeline): what a test reads to say a view's
-/// re-render took that path.
-#[must_use]
-pub fn lists_patched_after_a_named_cascade_on_this_thread() -> usize {
-    LISTS_PATCHED_AFTER_A_NAMED_CASCADE.with(core::cell::Cell::get)
-}
-
-/// Counts one list for [`lists_patched_after_a_named_cascade_on_this_thread`].
-pub(crate) fn count_list_patched_after_a_named_cascade() {
-    LISTS_PATCHED_AFTER_A_NAMED_CASCADE.with(|n| n.set(n.get() + 1));
-}
-
-/// How many display lists the calling thread patched ACROSS A CHANGED TREE
-/// (`PatchState::build_across_trees`, the step `tlist` of the diff-first
-/// pipeline): the runs of the boxes the reconcile carried over were copied
-/// from a list built for another tree.
-#[must_use]
-pub fn lists_patched_across_trees_on_this_thread() -> usize {
-    LISTS_PATCHED_ACROSS_TREES.with(core::cell::Cell::get)
-}
-
-/// Counts one list for [`lists_patched_across_trees_on_this_thread`].
-pub(crate) fn count_list_patched_across_trees() {
-    LISTS_PATCHED_ACROSS_TREES.with(|n| n.set(n.get() + 1));
 }
 
 /// Which emission site produced a display-list item. See
@@ -6453,6 +6290,10 @@ pub(crate) struct PatchState<'a> {
     /// follows: the one kind of pass that copies the run of a box that MOVED,
     /// shifted by the move (`try_copy_cached_run`).
     translate_moved: bool,
+    /// What this build does with the run of a box that moved
+    /// ([`crate::solver3::cache::DisplayListOptions::moved_runs`] of the
+    /// document's cache).
+    moved_runs: MovedRunPolicy,
     /// The boxes whose runs this build copied although a paint would not put
     /// them there to the bit: translated now, or found translated in `prev`
     /// and copied as they lay. The built list's
@@ -6878,6 +6719,8 @@ impl<'a> PatchState<'a> {
         // Whether the pass is a frame of a layout tween that another frame
         // follows (`Self::translate_moved`).
         translate_moved: bool,
+        // What the pass does with the run of a box that moved (`Self::moved_runs`).
+        moved_runs: MovedRunPolicy,
     ) -> Option<Self> {
         // The tagging is as old as the patcher — a cached list from before
         // the tagging (or a page slice) cannot be patched.
@@ -6934,6 +6777,7 @@ impl<'a> PatchState<'a> {
             deltas,
             reemit,
             translate_moved,
+            moved_runs,
             translated: std::collections::BTreeSet::new(),
             carried: None,
         })
@@ -6958,6 +6802,7 @@ impl<'a> PatchState<'a> {
         new_sizes: &[Option<LogicalSize>],
         reemit: &std::collections::BTreeSet<usize>,
         new_of_old: &HashMap<usize, usize>,
+        moved_runs: MovedRunPolicy,
     ) -> Option<Self> {
         if prev.layout_node_mapping.len() != prev.items.len() {
             return None;
@@ -7041,6 +6886,7 @@ impl<'a> PatchState<'a> {
             deltas,
             reemit,
             translate_moved: false,
+            moved_runs,
             translated: std::collections::BTreeSet::new(),
             carried: Some(carried),
         })
@@ -7408,7 +7254,7 @@ where
             return false;
         };
         if patch.reemit.contains(&node_index) {
-            RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
+            self.ctx.pass_memo.patch_counters.runs_painted_by_patched_builds += 1;
             return false;
         }
         let Some(run) = patch
@@ -7452,16 +7298,16 @@ where
         // translating items.
         let moved = delta.x != 0.0 || delta.y != 0.0;
         let recorded = patch.prev.translated_since_painted.contains(&node_index);
-        match moved_run_policy() {
+        match patch.moved_runs {
             // Before the audit: translated by every pass, nothing recorded.
             MovedRunPolicy::AlwaysTranslate => {
                 if moved {
-                    MOVED_RUNS_TRANSLATED.with(|n| n.set(n.get() + 1));
+                    self.ctx.pass_memo.patch_counters.moved_runs_translated += 1;
                 }
             }
             MovedRunPolicy::TweenFramesTranslate if patch.translate_moved => {
                 if moved {
-                    MOVED_RUNS_TRANSLATED.with(|n| n.set(n.get() + 1));
+                    self.ctx.pass_memo.patch_counters.moved_runs_translated += 1;
                 }
                 if moved || recorded {
                     // Translated now, or still where a translation left it.
@@ -7470,14 +7316,14 @@ where
             }
             MovedRunPolicy::TweenFramesTranslate | MovedRunPolicy::NeverTranslate => {
                 if moved {
-                    MOVED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
-                    RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
+                    self.ctx.pass_memo.patch_counters.moved_runs_painted_anew += 1;
+                    self.ctx.pass_memo.patch_counters.runs_painted_by_patched_builds += 1;
                     drop(crate::probe::Probe::span("dl_patch_moved"));
                     return false;
                 }
                 if recorded {
-                    TRANSLATED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
-                    RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
+                    self.ctx.pass_memo.patch_counters.translated_runs_painted_anew += 1;
+                    self.ctx.pass_memo.patch_counters.runs_painted_by_patched_builds += 1;
                     drop(crate::probe::Probe::span("dl_patch_settled"));
                     return false;
                 }
@@ -7496,11 +7342,11 @@ where
                 _ => false,
             });
             if uncarried {
-                RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
+                self.ctx.pass_memo.patch_counters.runs_painted_by_patched_builds += 1;
                 return false;
             }
         }
-        CACHED_RUNS_COPIED.with(|n| n.set(n.get() + 1));
+        self.ctx.pass_memo.patch_counters.cached_runs_copied += 1;
         // The previous list outlives the patch borrow, which ends here: the
         // copy below reads the generator again. The map is taken out for the
         // copy and put back after it for the same reason.
@@ -9240,8 +9086,8 @@ where
         };
         let view_box = self.enclosing_view_box(dom_id);
         #[cfg(feature = "cpurender")]
-        let mask = svg_mask_memo::get_or_rasterise(
-            svg_mask_memo::MaskKind::Stroke,
+        let mask = self.ctx.pass_memo.svg_masks.borrow_mut().get_or_rasterise(
+            crate::solver3::svg_masks::MaskKind::Stroke,
             &path,
             &paint_rect,
             view_box,
@@ -9370,11 +9216,11 @@ where
                 let even_odd = node_data
                     .layout_attribute(azul_core::layout_inputs::LayoutAttribute::SvgFillRule)
                     .is_some_and(|rule| rule.as_str().trim() == "evenodd");
-                svg_mask_memo::get_or_rasterise(
+                self.ctx.pass_memo.svg_masks.borrow_mut().get_or_rasterise(
                     if even_odd {
-                        svg_mask_memo::MaskKind::ClipEvenOdd
+                        crate::solver3::svg_masks::MaskKind::ClipEvenOdd
                     } else {
-                        svg_mask_memo::MaskKind::Clip
+                        crate::solver3::svg_masks::MaskKind::Clip
                     },
                     svg_clip,
                     &paint_rect,
@@ -12389,7 +12235,9 @@ where
         {
             return None;
         }
-        let style = Arc::new(super::getters::get_style_properties(
+        // (No memo of the font stacks: a clamped box's ellipsis is no hot path.)
+        let style = Arc::new(super::getters::get_style_properties_with(
+            None,
             sd,
             dom_id,
             self.ctx.system_style.as_ref(),
@@ -13971,6 +13819,7 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
 /// (`ScrollChain::of`) for `DisplayListGenerator::enter_scroll_chain`: what
 /// the tests read to say the positioned boxes of one parent share one walk.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static SCROLL_CHAIN_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     /// How many texts the inline content painter entered into its per-block
@@ -13982,6 +13831,7 @@ thread_local! {
 /// text block's lines as a copy (`materialized_inline_layout_for_node`): what
 /// the tests read to say a block without a selection or a caret costs none.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static INLINE_LAYOUT_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -13990,6 +13840,7 @@ thread_local! {
 /// ([`get_tag_id`], [`tags_by_node`]): what the size sweep of the tests reads
 /// to say a display list looks at the list once, not once per box.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static TAG_LIST_READS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -14076,13 +13927,12 @@ fn get_image_ref_for_image_source(
             {
                 // The document handed us encoded image bytes and this build
                 // cannot decode them — the image just vanishes. Say so once.
-                static ANNOUNCE: std::sync::Once = std::sync::Once::new();
-                ANNOUNCE.call_once(|| {
-                    eprintln!(
+                report_once("image-decoding-missing", || {
+                    String::from(
                         "[azul][image] encoded image data present, but this build lacks the \
                          `image_decoding` (+`std`) feature — images from encoded bytes will NOT \
-                         appear"
-                    );
+                         appear",
+                    )
                 });
                 let _ = bytes;
                 None
@@ -14101,12 +13951,11 @@ fn get_image_ref_for_image_source(
             {
                 // Inline SVG images rasterize through the CPU renderer; without
                 // it they silently vanish from the frame. Say so once.
-                static ANNOUNCE: std::sync::Once = std::sync::Once::new();
-                ANNOUNCE.call_once(|| {
-                    eprintln!(
+                report_once("svg-image-source-without-cpurender", || {
+                    String::from(
                         "[azul][svg] an SVG image source is present, but this build has no \
-                         `cpurender` feature — SVG images will NOT appear"
-                    );
+                         `cpurender` feature — SVG images will NOT appear",
+                    )
                 });
                 let _ = (svg, target_size);
                 None
@@ -17018,143 +16867,6 @@ pub(crate) fn apply_clip_path(
     // Append PopClip at the end
     display_list.items.push(DisplayListItem::PopClip);
     display_list.node_mapping.push(None);
-}
-
-/// A bounded memo of the SVG masks the display-list builder rasterises
-/// (CHART7): every build used to rasterise every clip mask and stroke mask
-/// again - 2x-oversampled coverage per shape, per frame - for geometry that
-/// had not changed. A mask is a pure function of its inputs (the path, the
-/// box it is drawn into, the viewBox, the stroke width), so an unchanged
-/// shape gets its earlier `ImageRef` back (the same image id, so a
-/// renderer's image cache hits too).
-///
-/// Thread-local (display lists are built on the thread that lays out) and
-/// bounded by entries and by mask bytes: the least recently used mask goes.
-#[cfg(feature = "cpurender")]
-mod svg_mask_memo {
-    use std::{
-        cell::RefCell,
-        hash::{Hash, Hasher},
-    };
-
-    use super::{ImageRef, LogicalRect};
-    use crate::image_memo::ImageMemo;
-
-    /// At most this many masks ...
-    const MAX_ENTRIES: usize = 256;
-    /// ... holding at most this many mask bytes (R8: one per pixel).
-    const MAX_BYTES: usize = 8 * 1024 * 1024;
-
-    /// Which rasteriser drew a mask.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub(super) enum MaskKind {
-        /// `rasterize_svg_clip_to_r8`: the shape's fill region (non-zero).
-        Clip,
-        /// ... with `fill-rule="evenodd"`: overlapping rings cut holes.
-        ClipEvenOdd,
-        /// `rasterize_svg_stroke_to_r8`: its stroke.
-        Stroke,
-    }
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    struct Key {
-        kind: MaskKind,
-        path: u64,
-        /// The paint rect's origin (only where the pixels depend on it) and
-        /// size, as f32 bits.
-        rect: [u32; 4],
-        view_box: Option<[u32; 4]>,
-        width: u32,
-        /// The stroke's caps, joins and dashes (`StrokeOutline::memo_hash`);
-        /// 0 for a clip.
-        outline: u64,
-    }
-
-    thread_local! {
-        static MEMO: RefCell<ImageMemo<Key, ImageRef>> =
-            RefCell::new(ImageMemo::new(MAX_ENTRIES, MAX_BYTES));
-    }
-
-    /// A 64-bit hash of every coordinate of `path`, by element.
-    fn path_hash(path: &azul_core::svg::SvgMultiPolygon) -> u64 {
-        use azul_core::svg::SvgPathElement;
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        let point = |p: &azul_css::props::basic::SvgPoint, h: &mut std::collections::hash_map::DefaultHasher| {
-            p.x.to_bits().hash(h);
-            p.y.to_bits().hash(h);
-        };
-        for ring in path.rings.as_ref() {
-            0xFFu8.hash(&mut h);
-            for item in ring.items.as_ref() {
-                match item {
-                    SvgPathElement::Line(l) => {
-                        0u8.hash(&mut h);
-                        point(&l.start, &mut h);
-                        point(&l.end, &mut h);
-                    }
-                    SvgPathElement::QuadraticCurve(q) => {
-                        1u8.hash(&mut h);
-                        point(&q.start, &mut h);
-                        point(&q.ctrl, &mut h);
-                        point(&q.end, &mut h);
-                    }
-                    SvgPathElement::CubicCurve(c) => {
-                        2u8.hash(&mut h);
-                        point(&c.start, &mut h);
-                        point(&c.ctrl_1, &mut h);
-                        point(&c.ctrl_2, &mut h);
-                        point(&c.end, &mut h);
-                    }
-                }
-            }
-        }
-        h.finish()
-    }
-
-    /// The mask of `kind` for these inputs: the memo's, else `rasterise()`'s
-    /// (remembered when it drew one).
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // a mask's pixel count
-    pub(super) fn get_or_rasterise(
-        kind: MaskKind,
-        path: &azul_core::svg::SvgMultiPolygon,
-        paint_rect: &LogicalRect,
-        view_box: Option<(f32, f32, f32, f32)>,
-        width: f32,
-        outline: u64,
-        rasterise: impl FnOnce() -> Option<ImageRef>,
-    ) -> Option<ImageRef> {
-        // A clip WITHOUT a viewBox is drawn in window coordinates (the paint
-        // rect's origin is subtracted from the geometry); a stroke, and a
-        // clip in a viewBox, only see the box's size.
-        let origin = match (kind, view_box) {
-            (MaskKind::Clip | MaskKind::ClipEvenOdd, None) => [
-                paint_rect.origin.x.to_bits(),
-                paint_rect.origin.y.to_bits(),
-            ],
-            _ => [0, 0],
-        };
-        let key = Key {
-            kind,
-            path: path_hash(path),
-            rect: [
-                origin[0],
-                origin[1],
-                paint_rect.size.width.to_bits(),
-                paint_rect.size.height.to_bits(),
-            ],
-            view_box: view_box.map(|(x, y, w, h)| [x.to_bits(), y.to_bits(), w.to_bits(), h.to_bits()]),
-            width: width.to_bits(),
-            outline,
-        };
-        if let Some(hit) = MEMO.with(|memo| memo.borrow_mut().get(&key)) {
-            return Some(hit);
-        }
-        let image = rasterise()?;
-        let size = image.get_size();
-        let bytes = (size.width.max(0.0) * size.height.max(0.0)) as usize;
-        MEMO.with(|memo| memo.borrow_mut().insert(key, image.clone(), bytes));
-        Some(image)
-    }
 }
 
 /// The STROKE of a path, rasterised as an R8 coverage mask over `paint_rect`.
@@ -21210,17 +20922,10 @@ mod svg_mask_memo_tests {
         callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
     };
 
-    /// The SVG masks of `document` laid out in a fresh 100 x 100 window:
+    /// The SVG masks of the display list `lw` holds for its root DOM:
     /// (the clip masks of its shapes, the stroke masks of its strokes).
-    ///
-    /// Through the TREE loader (`parse_xml` + `dom_from_parsed_xml`), the
-    /// one that turns an SVG shape into geometry, a fill and a stroke (core
-    /// `apply_xml_node_attributes`), as `layout/tests/svg_paint.rs` does.
-    /// The document loader (`parse_xml_to_styled_dom`, the arena path) builds
-    /// none of that: its `<path>` had no `SvgNodeData::Path`, so no mask was
-    /// ever drawn and the premise below failed.
-    fn masks_of(document: &str) -> (Vec<ImageRef>, Vec<Option<ImageRef>>) {
-        let items = items_of(document);
+    fn masks_in(lw: &LayoutWindow) -> (Vec<ImageRef>, Vec<Option<ImageRef>>) {
+        let items = items_in(lw);
         let mut clips = Vec::new();
         let mut strokes = Vec::new();
         for item in &items {
@@ -21238,8 +20943,24 @@ mod svg_mask_memo_tests {
         (clips, strokes)
     }
 
-    /// The display list of `document`, laid out as `masks_of` describes.
-    pub(super) fn items_of(document: &str) -> Vec<DisplayListItem> {
+    /// The items of the display list `lw` holds for its root DOM.
+    fn items_in(lw: &LayoutWindow) -> Vec<DisplayListItem> {
+        lw.get_layout_result(&DomId::ROOT_ID)
+            .expect("the root DOM is laid out")
+            .display_list
+            .items
+            .clone()
+    }
+
+    /// `document` laid out in a fresh 100 x 100 window.
+    ///
+    /// Through the TREE loader (`parse_xml` + `dom_from_parsed_xml`), the
+    /// one that turns an SVG shape into geometry, a fill and a stroke (core
+    /// `apply_xml_node_attributes`), as `layout/tests/svg_paint.rs` does.
+    /// The document loader (`parse_xml_to_styled_dom`, the arena path) builds
+    /// none of that: its `<path>` had no `SvgNodeData::Path`, so no mask was
+    /// ever drawn and the premises of the tests below failed.
+    fn laid_out(document: &str) -> LayoutWindow {
         let parsed = crate::xml::parse_xml(document).expect("the document parses");
         let styled = azul_core::styled_dom::StyledDom::create_from_dom(
             crate::xml::dom_from_parsed_xml(parsed),
@@ -21253,11 +20974,12 @@ mod svg_mask_memo_tests {
         let mut dbg = None;
         lw.layout_and_generate_display_list(styled, &ws, &rr, &sc, &mut dbg)
             .expect("the document lays out");
-        lw.get_layout_result(&DomId::ROOT_ID)
-            .expect("the root DOM is laid out")
-            .display_list
-            .items
-            .clone()
+        lw
+    }
+
+    /// The display list of `document`, laid out as [`laid_out`] describes.
+    pub(super) fn items_of(document: &str) -> Vec<DisplayListItem> {
+        items_in(&laid_out(document))
     }
 
     /// A mask is a picture at one resolution. A renderer that clips to paths (a
@@ -21301,15 +21023,23 @@ mod svg_mask_memo_tests {
     /// Every display-list build rasterised every SVG clip mask and stroke
     /// mask again (CHART7): a chart's 2x-oversampled masks, per frame, for
     /// geometry that had not changed. An unchanged shape in an unchanged box
-    /// gets the SAME mask image back.
+    /// gets the SAME mask image back from the next build of its window's list
+    /// (the memo is its layout cache's, not the thread's: another window of
+    /// the same document draws its own).
     #[test]
     fn a_rebuilt_display_list_reuses_its_unchanged_svg_masks() {
         let doc = "<html><head><style>body { margin: 0; }</style></head><body>\
                    <svg viewBox=\"0 0 10 10\" width=\"40\" height=\"40\">\
                    <path d=\"M0 0 L10 0 L10 10 Z\" fill=\"red\" stroke=\"blue\" \
                    stroke-width=\"1\"/></svg></body></html>";
-        let (clips_a, strokes_a) = masks_of(doc);
-        let (clips_b, strokes_b) = masks_of(doc);
+        let mut lw = laid_out(doc);
+        let (clips_a, strokes_a) = masks_in(&lw);
+        // The list built again from the layout it has (the caret's blink, a write
+        // that paints), as the window does it.
+        lw.regenerate_display_list_for_dom(DomId::ROOT_ID);
+        let (clips_b, strokes_b) = masks_in(&lw);
+        // Another window of the same document draws masks of its own.
+        let (clips_other, _) = masks_in(&laid_out(doc));
         assert!(
             !clips_a.is_empty(),
             "the filled path paints through its clip mask"
@@ -21323,6 +21053,10 @@ mod svg_mask_memo_tests {
             "the second build reuses the first build's clip mask images"
         );
         assert_eq!(strokes_a, strokes_b, "and its stroke mask images");
+        assert_ne!(
+            clips_a, clips_other,
+            "another window shares no mask with this one: they are drawn by its own builds"
+        );
     }
 }
 

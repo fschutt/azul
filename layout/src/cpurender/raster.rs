@@ -11123,6 +11123,9 @@ pub fn render_component_preview(
         last_reconcile_reused: 0,
         last_reconcile_fresh: 0,
         last_intrinsic_dirty: 0,
+        display_list_options: Default::default(),
+        display_list_patch_counters: Default::default(),
+        svg_masks: Default::default(),
     };
     let mut text_cache = TextLayoutCache::new();
     let empty_scroll_offsets = BTreeMap::new();

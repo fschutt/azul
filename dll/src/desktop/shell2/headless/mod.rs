@@ -14896,29 +14896,37 @@ mod tests {
         [Text, Nodes, Style, Tree, View, WindowList, TreeList]
     };
 
+    /// What the display-list patching of `window`'s documents did so far
+    /// (`LayoutWindow::display_list_patch_counters`: this window's own, no other window's).
+    fn df_patch_counters(
+        window: &HeadlessWindow,
+    ) -> azul_layout::solver3::cache::DisplayListPatchCounters {
+        window
+            .common
+            .layout_window
+            .as_ref()
+            .expect("a layout window")
+            .display_list_patch_counters()
+    }
+
     /// `(lists patched after a named cascade, lists patched across a changed tree, runs
-    /// copied, paint calls of patched builds)` on this thread for one rebuild of `window`
-    /// after `change`, with `steps` on.
+    /// copied, paint calls of patched builds)` of `window` for one rebuild of it after
+    /// `change`, with `steps` on.
     fn df_list_cost(
         window: &mut HeadlessWindow,
         state: &Arc<RefCell<RefAny>>,
         steps: &[azul_layout::window::DiffFirstStep],
         change: impl FnOnce(&mut DfPage),
     ) -> (usize, usize, usize, usize) {
-        use azul_layout::solver3::display_list as list;
         df_change(state, change);
-        let before = (
-            list::lists_patched_after_a_named_cascade_on_this_thread(),
-            list::lists_patched_across_trees_on_this_thread(),
-            list::cached_runs_copied_on_this_thread(),
-            list::runs_painted_by_patched_builds_on_this_thread(),
-        );
+        let before = df_patch_counters(window);
         df_rebuild(window, steps);
+        let after = df_patch_counters(window);
         (
-            list::lists_patched_after_a_named_cascade_on_this_thread() - before.0,
-            list::lists_patched_across_trees_on_this_thread() - before.1,
-            list::cached_runs_copied_on_this_thread() - before.2,
-            list::runs_painted_by_patched_builds_on_this_thread() - before.3,
+            after.lists_patched_after_a_named_cascade - before.lists_patched_after_a_named_cascade,
+            after.lists_patched_across_trees - before.lists_patched_across_trees,
+            after.cached_runs_copied - before.cached_runs_copied,
+            after.runs_painted_by_patched_builds - before.runs_painted_by_patched_builds,
         )
     }
 
@@ -15354,8 +15362,6 @@ mod tests {
     /// being laid out again was not found.
     #[test]
     fn a_text_whose_node_id_moved_is_not_copied_under_the_id_it_had() {
-        use azul_layout::solver3::display_list as list;
-
         let window_of = |inside: usize| {
             let state = Arc::new(RefCell::new(RefAny::new(DfiLine(inside))));
             let mut window = make_window_sized(&state, dfi_layout, 400.0, 600.0);
@@ -15383,14 +15389,12 @@ mod tests {
         let stood = dump(&with_list);
         grow(&state_list);
         grow(&state_full);
-        let before = (
-            list::lists_patched_across_trees_on_this_thread(),
-            list::cached_runs_copied_on_this_thread(),
-        );
+        let before = df_patch_counters(&with_list);
         df_rebuild(&mut with_list, &azul_layout::window::DiffFirstStep::ALL);
+        let after = df_patch_counters(&with_list);
         let (across, copied) = (
-            list::lists_patched_across_trees_on_this_thread() - before.0,
-            list::cached_runs_copied_on_this_thread() - before.1,
+            after.lists_patched_across_trees - before.lists_patched_across_trees,
+            after.cached_runs_copied - before.cached_runs_copied,
         );
         df_rebuild(&mut in_full, &DF_BEFORE_TLIST);
         assert_eq!(across, 1, "premise: the list is patched across the changed tree");
@@ -16426,28 +16430,23 @@ mod tests {
     // what it was, where it was.
 
     /// `(lists patched after a named cascade, lists patched across a changed tree, runs
-    /// copied, paint calls of patched builds)` on this thread for one re-render of `window`
-    /// after `change`, with `steps` on.
+    /// copied, paint calls of patched builds)` of `window` for one re-render of it after
+    /// `change`, with `steps` on.
     fn dfv_list_cost(
         window: &mut HeadlessWindow,
         state: &Arc<RefCell<RefAny>>,
         steps: &[azul_layout::window::DiffFirstStep],
         change: impl FnOnce(&mut Vec<DfvLabel>),
     ) -> (usize, usize, usize, usize) {
-        use azul_layout::solver3::display_list as list;
         dfv_change(state, change);
-        let before = (
-            list::lists_patched_after_a_named_cascade_on_this_thread(),
-            list::lists_patched_across_trees_on_this_thread(),
-            list::cached_runs_copied_on_this_thread(),
-            list::runs_painted_by_patched_builds_on_this_thread(),
-        );
+        let before = df_patch_counters(window);
         dfv_rerender(window, steps);
+        let after = df_patch_counters(window);
         (
-            list::lists_patched_after_a_named_cascade_on_this_thread() - before.0,
-            list::lists_patched_across_trees_on_this_thread() - before.1,
-            list::cached_runs_copied_on_this_thread() - before.2,
-            list::runs_painted_by_patched_builds_on_this_thread() - before.3,
+            after.lists_patched_after_a_named_cascade - before.lists_patched_after_a_named_cascade,
+            after.lists_patched_across_trees - before.lists_patched_across_trees,
+            after.cached_runs_copied - before.cached_runs_copied,
+            after.runs_painted_by_patched_builds - before.runs_painted_by_patched_builds,
         )
     }
 

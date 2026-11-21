@@ -29,8 +29,7 @@ use azul_css::props::{
     property::CssProperty,
 };
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, overlay::ContentChange,
-    solver3::display_list::set_dl_patching_enabled, window::LayoutWindow,
+    callbacks::ExternalSystemCallbacks, overlay::ContentChange, window::LayoutWindow,
     window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
@@ -84,9 +83,9 @@ fn paint_around(change: CssProperty) -> Frames {
         azul_layout::cpurender::dl_diff_refinements_enabled(),
         "premise: honest (refined) damage (AZ_DL_DIFF_REFINE=0 turns it off)"
     );
-    set_dl_patching_enabled(true);
 
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    lw.display_list_options.patching = true;
     let rr = RendererResources::default();
     let cb = ExternalSystemCallbacks::rust_internal();
     let mut ws = FullWindowState::default();
@@ -130,8 +129,6 @@ fn paint_around(change: CssProperty) -> Frames {
         .data()
         .to_vec();
 
-    // Restore the default for tests running after us in-process.
-    set_dl_patching_enabled(true);
     Frames {
         before,
         incremental,

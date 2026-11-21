@@ -508,6 +508,7 @@ pub(super) fn is_empty_block(tree: &LayoutTree, node_index: usize) -> bool {
 /// How many boxes [`is_in_flow_box`] was asked about on this thread: what the size sweep of the
 /// tests reads to say a block of many out-of-flow children is looked at once per child.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static IN_FLOW_CHECKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }

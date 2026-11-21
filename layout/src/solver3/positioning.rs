@@ -48,6 +48,7 @@ pub(crate) struct PositionOffsets {
 /// count at n and at 4 n boxes is the size sweep of `audit_tests::a3_solver`
 /// for a scan per child that nobody has found yet.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static POSITION_TYPE_LOOKUPS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
@@ -167,6 +168,7 @@ pub(crate) fn resolve_position_offsets(
 /// count (`audit_tests::a3_solver`). A run made only to check a reuse (see
 /// [`checks_interior_reuse`]) counts as a reuse.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static ABS_INTERIORS_LAID_OUT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static ABS_INTERIORS_REUSED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -217,6 +219,7 @@ fn containing_block_direction(
 /// (`cache::AbsPlacement`): what the tests count. A solve made only to check
 /// a placement (see [`checks_interior_reuse`]) counts as a placement.
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static ABS_BOXES_SOLVED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
     pub(crate) static ABS_BOXES_PLACED_AS_KEPT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
@@ -1847,6 +1850,7 @@ pub fn adjust_relative_positions_of<T: ParsedFontTrait>(
 /// box's own and those of the boxes below it: what the size sweep of
 /// `audit_tests::a3_solver` reads (A3-solver-27).
 #[cfg(test)]
+// Test instrumentation: a count kept per test thread, built only under cfg(test).
 thread_local! {
     pub(crate) static RELATIVE_SHIFT_VISITS: core::cell::Cell<usize> =
         const { core::cell::Cell::new(0) };

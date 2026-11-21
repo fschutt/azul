@@ -13,8 +13,7 @@ use azul_core::{
     styled_dom::StyledDom,
 };
 use azul_layout::{
-    callbacks::ExternalSystemCallbacks, solver3::display_list::set_dl_patching_enabled,
-    window::LayoutWindow, window_state::FullWindowState,
+    callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
 };
 use rust_fontconfig::FcFontCache;
 
@@ -54,11 +53,13 @@ fn test_dom_with(first_paragraph: &str) -> StyledDom {
     StyledDom::create(&mut dom, css)
 }
 
-/// Runs cold @640x480 then a hinted resize @900x700; returns the second
-/// pass's display list.
-fn run_sequence() -> std::sync::Arc<azul_layout::solver3::display_list::DisplayList> {
+/// Runs cold @640x480 then a hinted resize @900x700 in a window that patches its
+/// display lists or not (`patching`: that window's own option, no other window is
+/// told); returns the second pass's display list.
+fn run_sequence(patching: bool) -> std::sync::Arc<azul_layout::solver3::display_list::DisplayList> {
     let font_cache = FcFontCache::build();
     let mut lw = LayoutWindow::new(font_cache).unwrap();
+    lw.display_list_options.patching = patching;
     let rr = RendererResources::default();
     let cb = ExternalSystemCallbacks::rust_internal();
     let mut dbg = None;
@@ -89,11 +90,8 @@ fn run_sequence() -> std::sync::Arc<azul_layout::solver3::display_list::DisplayL
 
 #[test]
 fn patched_resize_display_list_is_item_identical_to_a_full_rebuild() {
-    set_dl_patching_enabled(true);
-    let patched = run_sequence();
-
-    set_dl_patching_enabled(false);
-    let full = run_sequence();
+    let patched = run_sequence(true);
+    let full = run_sequence(false);
 
     // Same DOM attribution invariants on both.
     assert_eq!(patched.items.len(), patched.node_mapping.len());
@@ -116,9 +114,6 @@ fn patched_resize_display_list_is_item_identical_to_a_full_rebuild() {
         "DOM attribution differs between the patched and full pass"
     );
     assert_same_ink(&patched, &full, "a patched resize");
-
-    // Restore the default for any test that runs after us in-process.
-    set_dl_patching_enabled(true);
 }
 
 /// Cold pass in `first`, then the app's `layout()` runs again: a NEW
@@ -127,9 +122,11 @@ fn patched_resize_display_list_is_item_identical_to_a_full_rebuild() {
 fn run_theme_flip(
     first: azul_core::window::DarkLightMode,
     second: azul_core::window::DarkLightMode,
+    patching: bool,
 ) -> std::sync::Arc<azul_layout::solver3::display_list::DisplayList> {
     let font_cache = FcFontCache::build();
     let mut lw = LayoutWindow::new(font_cache).unwrap();
+    lw.display_list_options.patching = patching;
     let rr = RendererResources::default();
     let cb = ExternalSystemCallbacks::rust_internal();
     let mut dbg = None;
@@ -235,18 +232,15 @@ fn a_theme_flip_rebuild_is_item_identical_to_a_full_rebuild() {
     use azul_core::window::DarkLightMode::{Dark, Light};
 
     // The fixture must express the difference, or this gate proves nothing.
-    set_dl_patching_enabled(false);
-    let full_light = run_theme_flip(Light, Light);
-    let full_dark = run_theme_flip(Light, Dark);
+    let full_light = run_theme_flip(Light, Light, false);
+    let full_dark = run_theme_flip(Light, Dark, false);
     assert_ne!(
         item_strings(&full_light),
         item_strings(&full_dark),
         "harness: the theme must change what this DOM paints"
     );
 
-    set_dl_patching_enabled(true);
-    let patched_dark = run_theme_flip(Light, Dark);
-    set_dl_patching_enabled(true);
+    let patched_dark = run_theme_flip(Light, Dark, true);
 
     assert_eq!(
         item_strings(&patched_dark),
@@ -284,12 +278,15 @@ fn child_dom() -> StyledDom {
 /// a structure-preserving root pass (one paragraph edited). Returns the root
 /// display list of that last pass and whether the root's DL cache slot still
 /// held a ROOT list right after the nested regeneration.
-fn run_after_child_regeneration() -> (
+fn run_after_child_regeneration(
+    patching: bool,
+) -> (
     std::sync::Arc<azul_layout::solver3::display_list::DisplayList>,
     bool,
 ) {
     let font_cache = FcFontCache::build();
     let mut lw = LayoutWindow::new(font_cache).unwrap();
+    lw.display_list_options.patching = patching;
     let rr = RendererResources::default();
     let cb = ExternalSystemCallbacks::rust_internal();
     let mut dbg = None;
@@ -352,11 +349,8 @@ fn run_after_child_regeneration() -> (
 /// after a theme switch.
 #[test]
 fn regenerating_a_nested_dom_never_feeds_the_roots_patch() {
-    set_dl_patching_enabled(false);
-    let (full, _) = run_after_child_regeneration();
-
-    set_dl_patching_enabled(true);
-    let (patched, slot_is_root) = run_after_child_regeneration();
+    let (full, _) = run_after_child_regeneration(false);
+    let (patched, slot_is_root) = run_after_child_regeneration(true);
 
     assert!(
         slot_is_root,
