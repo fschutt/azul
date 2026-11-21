@@ -26,7 +26,7 @@ azul-css                = { version = "0.0.20", path = "../css", default-feature
 libm                   = { version = "0.2.2",   default-features = false                   }
 gl-context-loader       = { version = "0.1.9", default-features = false }
 # The system font cache the callbacks hand out (feature `system_fonts`).
-rust-fontconfig = { version = ">=5.0.1, <5.1", default-features = false, features = ["std"], optional = true }
+rust-fontconfig = { version = "5.1", default-features = false, features = ["std"], optional = true }
 serde                   = { version = "1.0", features = ["derive"], optional = true }
 # `float_roundtrip`: without it serde_json parses floats "best effort" (a plain
 # f64 multiply by a POW10 table entry), which is NOT exact: `Json::parse` then

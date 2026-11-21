@@ -64,6 +64,9 @@ std::thread_local! {
     /// is this count, so tests read it to see which rules a node is tried
     /// against.
     pub(crate) static MATCH_ATTEMPTS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// How many earlier siblings the general sibling combinator (`~`) tried
+    /// on this thread.
+    pub(crate) static GENERAL_SIBLING_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// The interaction states selector matching reads for the compounds LEFT of
@@ -137,7 +140,6 @@ pub fn matches_html_element(
 /// As in `.btn:hover .ink` or `.anchor:hover + .tip`: without states such a
 /// compound's interaction pseudo-class never holds.
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
-#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
 #[must_use]
 pub fn matches_html_element_in(
     css_path: &CssPath,
@@ -147,6 +149,53 @@ pub fn matches_html_element_in(
     html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,
     ancestor_states: Option<AncestorStates<'_>>,
+) -> bool {
+    matches_html_element_remembering(
+        css_path,
+        node_id,
+        node_hierarchy,
+        node_data,
+        html_node_tree,
+        expected_path_ending,
+        ancestor_states,
+        None,
+    )
+}
+
+/// What the matching of one cascade remembers about the general sibling
+/// combinator (`~`): per rule, per `~` of its path and per node, the nearest
+/// earlier sibling that matches the compound left of the `~` (`None`: there
+/// is none).
+///
+/// `.a ~ .b` asks, for every `.b`, for the nearest `.a` before it, and found
+/// it by walking back over the siblings: with one `.a` in front of 12,000
+/// `.b` that is 72 million steps. A sibling that does not match has the same
+/// answer as the node the walk started from, so every sibling a walk passed
+/// is given the answer, and the next walk stops at the first of them.
+///
+/// Valid for one set of rules and node states, i.e. one cascade pass; the
+/// caller names a rule by a number of its own.
+#[derive(Debug, Default)]
+pub struct GeneralSiblingMemo {
+    nearest: alloc::collections::BTreeMap<(usize, usize, NodeId), Option<NodeId>>,
+}
+
+/// [`matches_html_element_in`] for a caller that matches many nodes against
+/// the same rules: `sibling_memo` is its [`GeneralSiblingMemo`] and the
+/// number it names `css_path` by.
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
+#[allow(clippy::too_many_arguments)] // the matcher's inputs plus the memo
+#[must_use]
+pub fn matches_html_element_remembering(
+    css_path: &CssPath,
+    node_id: NodeId,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
+    html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+    expected_path_ending: Option<CssPathPseudoSelector>,
+    ancestor_states: Option<AncestorStates<'_>>,
+    mut sibling_memo: Option<(&mut GeneralSiblingMemo, usize)>,
 ) -> bool {
     use self::CssGroupSplitReason::{AdjacentSibling, Children, DirectChildren, GeneralSibling};
 
@@ -193,7 +242,7 @@ pub fn matches_html_element_in(
     // The combinator to a group's right comes from the PREVIOUS group's reason.
     let mut combinator = first_reason;
 
-    for (content_group, reason) in groups {
+    for (ordinal, (content_group, reason)) in groups.enumerate() {
         let this_combinator = combinator;
         combinator = reason;
 
@@ -270,26 +319,58 @@ pub fn matches_html_element_in(
                 }
             }
             GeneralSibling => {
-                // Search previous siblings for a match (general sibling `~`)
-                let mut sibling =
-                    find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
-                let mut found = false;
-                while let Some(sib) = sibling {
-                    if left_group_matches(
-                        content_group,
-                        html_node_tree[sib],
-                        &node_data[sib],
-                        sib,
-                        ancestor_states,
-                    ) {
-                        current_node = sib;
-                        found = true;
-                        break;
+                // Search previous siblings for a match (general sibling `~`):
+                // the nearest one, remembered for this node and for every
+                // sibling the search passes (`GeneralSiblingMemo`).
+                let key = |node: NodeId, memo: &(&mut GeneralSiblingMemo, usize)| {
+                    (memo.1, ordinal, node)
+                };
+                let known = sibling_memo
+                    .as_ref()
+                    .and_then(|memo| memo.0.nearest.get(&key(current_node, memo)).copied());
+                let found = if let Some(known) = known {
+                    known
+                } else {
+                    let mut sibling =
+                        find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
+                    let mut found = None;
+                    // The siblings passed: none of them matches, so each has
+                    // the answer this search ends with.
+                    let mut passed: Vec<NodeId> = Vec::new();
+                    while let Some(sib) = sibling {
+                        #[cfg(all(test, feature = "std"))]
+                        GENERAL_SIBLING_STEPS.with(|c| c.set(c.get() + 1));
+                        if left_group_matches(
+                            content_group,
+                            html_node_tree[sib],
+                            &node_data[sib],
+                            sib,
+                            ancestor_states,
+                        ) {
+                            found = Some(sib);
+                            break;
+                        }
+                        if let Some(memo) = sibling_memo.as_ref() {
+                            if let Some(known) = memo.0.nearest.get(&key(sib, memo)) {
+                                found = *known;
+                                break;
+                            }
+                            passed.push(sib);
+                        }
+                        sibling = find_non_anonymous_prev_sibling(sib, node_hierarchy, node_data);
                     }
-                    sibling = find_non_anonymous_prev_sibling(sib, node_hierarchy, node_data);
-                }
-                if !found {
-                    return false;
+                    if let Some(memo) = sibling_memo.as_mut() {
+                        let rule = memo.1;
+                        memo.0.nearest.insert((rule, ordinal, current_node), found);
+                        for sib in passed {
+                            memo.0.nearest.insert((rule, ordinal, sib), found);
+                        }
+                    }
+                    found
+                };
+                match found {
+                    Some(sib) => current_node = sib,
+                    None => return false,
                 }
             }
         }
@@ -443,6 +524,29 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many sibling links [`construct_html_cascade_tree`] followed on
+    /// this thread: what the size sweep of the tests reads to say a parent of
+    /// many children is walked once, not once per child that has children.
+    pub(crate) static SIBLING_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// One sibling link followed by [`construct_html_cascade_tree`].
+#[inline]
+fn count_sibling_step() {
+    #[cfg(all(test, feature = "std"))]
+    SIBLING_STEPS.with(|c| c.set(c.get() + 1));
+}
+
+/// Every node's place among its parent's ELEMENT children
+/// ([`CascadeInfo`]), for the structural pseudo-classes.
+///
+/// `node_depths_sorted` lists the nodes that have children, a parent before
+/// its children (`NodeHierarchyRef::get_parents_sorted_by_depth`), and the
+/// sibling links of `node_hierarchy` must agree in both directions (a
+/// child's `previous_sibling` is the child before it), as every tree built
+/// from a `Dom` or a parser has them.
 #[must_use]
 pub fn construct_html_cascade_tree(
     node_hierarchy: &NodeHierarchyRef<'_>,
@@ -455,17 +559,33 @@ pub fn construct_html_cascade_tree(
             is_last_child: false,
         })
         .collect::<Vec<_>>();
+    // How many element siblings stand before each node, as the walk over
+    // its parent's children below counted them; `None` until that walk has
+    // run (the root, a list that names a node before its parent).
+    let mut elements_before: Vec<Option<u32>> = alloc::vec![None; node_hierarchy.len()];
 
     for (_depth, parent_id) in node_depths_sorted {
         // Per CSS Selectors Level 4 §13: "Standalone text and other non-element
         // nodes are not counted when calculating the position of an element in
         // the list of children of its parent."
         //
-        // We count only element siblings when computing index_in_parent.
-        let element_index_in_parent = parent_id
-            .preceding_siblings(node_hierarchy)
-            .filter(|sib_id| is_element_sibling(&node_data[*sib_id]))
-            .count();
+        // We count only element siblings when computing index_in_parent: the
+        // node itself and the element siblings before it. The walk over its
+        // parent's children has counted the ones before it already; walking
+        // back from every node that has children made a parent of k such
+        // children cost k^2 / 2 steps (18 million for the 6,000 labels of a
+        // map view under one node).
+        let counted_before = elements_before.get(parent_id.index()).copied().flatten();
+        let element_index_in_parent = match counted_before {
+            Some(before) => {
+                before as usize + usize::from(is_element_sibling(&node_data[*parent_id]))
+            }
+            None => parent_id
+                .preceding_siblings(node_hierarchy)
+                .inspect(|_| count_sibling_step())
+                .filter(|sib_id| is_element_sibling(&node_data[*sib_id]))
+                .count(),
+        };
 
         let parent_html_matcher = CascadeInfo {
             index_in_parent: u32::try_from(element_index_in_parent.saturating_sub(1))
@@ -475,6 +595,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last_element = true;
                 let mut next = node_hierarchy[*parent_id].next_sibling;
                 while let Some(sib_id) = next {
+                    count_sibling_step();
                     if is_element_sibling(&node_data[sib_id]) {
                         is_last_element = false;
                         break;
@@ -490,6 +611,7 @@ pub fn construct_html_cascade_tree(
         // Count only element children for index_in_parent
         let mut element_idx: u32 = 0;
         for child_id in parent_id.children(node_hierarchy) {
+            count_sibling_step();
             let is_text = !is_element_sibling(&node_data[child_id]);
 
             // Find whether this is the last element child (skip trailing text nodes)
@@ -499,6 +621,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last = true;
                 let mut next = node_hierarchy[child_id].next_sibling;
                 while let Some(sib_id) = next {
+                    count_sibling_step();
                     if is_element_sibling(&node_data[sib_id]) {
                         is_last = false;
                         break;
@@ -514,6 +637,9 @@ pub fn construct_html_cascade_tree(
             };
 
             nodes[child_id.index()] = child_html_matcher;
+            if let Some(before) = elements_before.get_mut(child_id.index()) {
+                *before = Some(element_idx);
+            }
 
             if !is_text {
                 element_idx += 1;
@@ -524,105 +650,126 @@ pub fn construct_html_cascade_tree(
     NodeDataContainer { internal: nodes }
 }
 
-/// Which rules of a stylesheet a node can match, by where each rule's
-/// subject can be.
+/// The class the SUBJECT of `path` (its rightmost compound) names, its first
+/// one: a node without that class cannot be the subject, whatever the rest
+/// of the path says ([`selector_group_matches`] asks every selector of the
+/// compound). `None` for a subject that names no class.
+fn subject_class(path: &CssPath) -> Option<&str> {
+    let (subject, _) = CssGroupIterator::new(path.selectors.as_ref()).next()?;
+    subject.iter().find_map(|selector| match selector {
+        CssPathSelector::Class(class) => Some(class.as_str()),
+        _ => None,
+    })
+}
+
+/// Which rules of a stylesheet a node can match: by where each rule's
+/// subject can be, and by the class it names.
 ///
 /// A rule scoped to a subtree (`Dom::with_css`, the leading
 /// [`CssPathSelector::Root`]) only matches inside that subtree, and a page of
 /// widgets carries one such sheet per widget instance: trying every node
-/// against every rule made a restyle cost nodes times rules. The index hands
-/// a node the unscoped rules and the rules of the scopes around it, in rule
-/// order, so the cascade's "the last match wins" order is unchanged.
+/// against every rule made a restyle cost nodes times rules. And one sheet
+/// on the root of a big subtree (`Dom::with_component_css`: a map view's
+/// label styles, one class per style) scopes every one of its rules to every
+/// node below it, which is nodes times rules again: a rule whose subject
+/// names a class ([`subject_class`]) can only match a node that carries the
+/// class. The index hands a node the rules of the scopes around it and of
+/// the unscoped sheets that name one of its classes or none, in rule order,
+/// so the cascade's "the last match wins" order is unchanged - the rules it
+/// leaves out are the ones the matcher refuses on the subject's scope or
+/// class.
 ///
 /// The walk goes through the nodes in ascending order
-/// ([`Self::candidates`]), entering and leaving scopes as it goes.
-pub(crate) struct ScopedRuleIndex {
-    /// The rules that can match anywhere, ascending.
+/// ([`Self::candidates_into`]), entering and leaving scopes as it goes.
+pub(crate) struct SubjectRuleIndex<'a> {
+    /// The rules that can match anywhere and whose subject names no class,
+    /// ascending.
     unscoped: Vec<usize>,
-    /// `(first node, last node, rule)` of every scoped rule, by first node.
-    scoped: Vec<(usize, usize, usize)>,
+    /// The rules that can match anywhere, by the class their subject names,
+    /// ascending per class.
+    unscoped_by_class: alloc::collections::BTreeMap<&'a str, Vec<usize>>,
+    /// `(first node, last node, rule, class of its subject)` of every scoped
+    /// rule, by first node.
+    scoped: Vec<(usize, usize, usize, Option<&'a str>)>,
     /// How many entries of `scoped` the walk has entered.
     entered: usize,
-    /// `(last node, rule)` of the entered scopes the walk is still inside.
+    /// `(last node, rule)` of the entered scoped rules without a class that
+    /// the walk is still inside.
     active: Vec<(usize, usize)>,
-    /// The scoped rules of the node the walk is at, ascending.
-    here: Vec<usize>,
+    /// `(last node, rule)` of the entered scoped rules by their class. A
+    /// class's list drops the scopes the walk has left when a node of the
+    /// class asks for it.
+    active_by_class: alloc::collections::BTreeMap<&'a str, Vec<(usize, usize)>>,
 }
 
-impl ScopedRuleIndex {
+impl<'a> SubjectRuleIndex<'a> {
     /// The index of `paths`, the rules in cascade order (a rule is its
     /// position in `paths`), over the tree `hierarchy`.
-    // An `impl Trait` argument cannot elide the lifetime of its item (unstable), so the one
-    // named lifetime stays.
-    #[allow(single_use_lifetimes)]
-    pub(crate) fn new<'a>(
+    pub(crate) fn new(
         paths: impl Iterator<Item = &'a CssPath>,
         hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
     ) -> Self {
         let mut unscoped = Vec::new();
+        let mut unscoped_by_class: alloc::collections::BTreeMap<&'a str, Vec<usize>> =
+            alloc::collections::BTreeMap::new();
         let mut scoped = Vec::new();
         for (rule, path) in paths.enumerate() {
-            match subject_range(path, hierarchy) {
-                Some((first, last)) => scoped.push((first, last, rule)),
-                None => unscoped.push(rule),
+            let class = subject_class(path);
+            match (subject_range(path, hierarchy), class) {
+                (Some((first, last)), class) => scoped.push((first, last, rule, class)),
+                (None, Some(class)) => unscoped_by_class.entry(class).or_default().push(rule),
+                (None, None) => unscoped.push(rule),
             }
         }
-        scoped.sort_unstable();
+        scoped.sort_unstable_by_key(|&(first, last, rule, _)| (first, last, rule));
         Self {
             unscoped,
+            unscoped_by_class,
             scoped,
             entered: 0,
             active: Vec::new(),
-            here: Vec::new(),
+            active_by_class: alloc::collections::BTreeMap::new(),
         }
     }
 
-    /// The rules `node` can match, in rule order. Nodes must be asked for in
-    /// ascending order: a scope the walk has left is not entered again.
-    pub(crate) fn candidates(&mut self, node: usize) -> MergedRules<'_> {
-        while let Some(&(first, last, rule)) = self.scoped.get(self.entered) {
+    /// The rules the node `node` (its data: `data`) can match, in rule
+    /// order, into `out`. Nodes must be asked for in ascending order: a
+    /// scope the walk has left is not entered again.
+    pub(crate) fn candidates_into(&mut self, node: usize, data: &NodeData, out: &mut Vec<usize>) {
+        while let Some(&(first, last, rule, class)) = self.scoped.get(self.entered) {
             if first > node {
                 break;
             }
-            self.active.push((last, rule));
+            match class {
+                Some(class) => self
+                    .active_by_class
+                    .entry(class)
+                    .or_default()
+                    .push((last, rule)),
+                None => self.active.push((last, rule)),
+            }
             self.entered += 1;
         }
         self.active.retain(|&(last, _)| last >= node);
-        self.here.clear();
-        self.here.extend(self.active.iter().map(|&(_, rule)| rule));
-        self.here.sort_unstable();
-        MergedRules {
-            a: &self.unscoped,
-            b: &self.here,
+
+        out.clear();
+        out.extend_from_slice(&self.unscoped);
+        let ascending = out.len();
+        out.extend(self.active.iter().map(|&(_, rule)| rule));
+        for class in data.attributes().iter().filter_map(|attr| attr.as_class()) {
+            if let Some(rules) = self.unscoped_by_class.get(class) {
+                out.extend_from_slice(rules);
+            }
+            if let Some(rules) = self.active_by_class.get_mut(class) {
+                rules.retain(|&(last, _)| last >= node);
+                out.extend(rules.iter().map(|&(_, rule)| rule));
+            }
         }
-    }
-}
-
-/// Two ascending lists of rules read as one ascending list.
-#[derive(Clone)]
-pub(crate) struct MergedRules<'a> {
-    a: &'a [usize],
-    b: &'a [usize],
-}
-
-impl Iterator for MergedRules<'_> {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<usize> {
-        let take_a = match (self.a.first(), self.b.first()) {
-            (Some(x), Some(y)) => x <= y,
-            (Some(_), None) => true,
-            (None, Some(_)) => false,
-            (None, None) => return None,
-        };
-        if take_a {
-            let (&rule, rest) = self.a.split_first()?;
-            self.a = rest;
-            Some(rule)
-        } else {
-            let (&rule, rest) = self.b.split_first()?;
-            self.b = rest;
-            Some(rule)
+        if out.len() > ascending {
+            // Rule order is cascade order; a class the node lists twice
+            // offers its rules twice.
+            out.sort_unstable();
+            out.dedup();
         }
     }
 }

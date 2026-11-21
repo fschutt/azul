@@ -221,58 +221,58 @@ impl CssPropertyCache {
 
             // Padding (i16 × 10 resolved px)
             if let Some(val) = self.get_padding_top(nd, &node_id, &default_state) {
-                result.tier2_dims[i].padding_top = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].padding_top = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_padding_right(nd, &node_id, &default_state) {
-                result.tier2_dims[i].padding_right = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].padding_right = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_padding_bottom(nd, &node_id, &default_state) {
-                result.tier2_dims[i].padding_bottom = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].padding_bottom = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_padding_left(nd, &node_id, &default_state) {
-                result.tier2_dims[i].padding_left = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].padding_left = encode_css_pixel_as_px_slot(val);
             }
 
             // Margin (i16, auto is special)
             if let Some(val) = self.get_margin_top(nd, &node_id, &default_state) {
-                result.tier2_dims[i].margin_top = encode_margin_i16(val);
+                result.tier2_dims[i].margin_top = encode_margin_px_slot(val);
             }
             if let Some(val) = self.get_margin_right(nd, &node_id, &default_state) {
-                result.tier2_dims[i].margin_right = encode_margin_i16(val);
+                result.tier2_dims[i].margin_right = encode_margin_px_slot(val);
             }
             if let Some(val) = self.get_margin_bottom(nd, &node_id, &default_state) {
-                result.tier2_dims[i].margin_bottom = encode_margin_i16(val);
+                result.tier2_dims[i].margin_bottom = encode_margin_px_slot(val);
             }
             if let Some(val) = self.get_margin_left(nd, &node_id, &default_state) {
-                result.tier2_dims[i].margin_left = encode_margin_i16(val);
+                result.tier2_dims[i].margin_left = encode_margin_px_slot(val);
             }
 
             // Border widths (i16 × 10 resolved px)
             if let Some(val) = self.get_border_top_width(nd, &node_id, &default_state) {
-                result.tier2_dims[i].border_top_width = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].border_top_width = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_border_right_width(nd, &node_id, &default_state) {
-                result.tier2_dims[i].border_right_width = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].border_right_width = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_border_bottom_width(nd, &node_id, &default_state) {
-                result.tier2_dims[i].border_bottom_width = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].border_bottom_width = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_border_left_width(nd, &node_id, &default_state) {
-                result.tier2_dims[i].border_left_width = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].border_left_width = encode_css_pixel_as_px_slot(val);
             }
 
             // Position offsets (top/right/bottom/left)
             if let Some(val) = self.get_top(nd, &node_id, &default_state) {
-                result.tier2_dims[i].top = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].top = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_right(nd, &node_id, &default_state) {
-                result.tier2_dims[i].right = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].right = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_bottom(nd, &node_id, &default_state) {
-                result.tier2_dims[i].bottom = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].bottom = encode_css_pixel_as_px_slot(val);
             }
             if let Some(val) = self.get_left(nd, &node_id, &default_state) {
-                result.tier2_dims[i].left = encode_css_pixel_as_i16(val);
+                result.tier2_dims[i].left = encode_css_pixel_as_px_slot(val);
             }
 
             // Flex grow/shrink (u16 × 100)
@@ -363,20 +363,16 @@ impl CssPropertyCache {
             // Border spacing (two PixelValue → i16 × 10 resolved px)
             if let Some(val) = self.get_border_spacing(nd, &node_id, &default_state) {
                 if let Some(spacing) = val.get_property() {
-                    if spacing.horizontal.metric == SizeMetric::Px {
-                        result.tier2_cold[i].border_spacing_h =
-                            encode_resolved_px_i16(spacing.horizontal.number.get());
-                    }
-                    if spacing.vertical.metric == SizeMetric::Px {
-                        result.tier2_cold[i].border_spacing_v =
-                            encode_resolved_px_i16(spacing.vertical.number.get());
-                    }
+                    result.tier2_cold[i].border_spacing_h =
+                        encode_border_spacing_i16(spacing.horizontal);
+                    result.tier2_cold[i].border_spacing_v =
+                        encode_border_spacing_i16(spacing.vertical);
                 }
             }
 
-            // Tab size (PixelValue → i16 × 10 resolved px)
+            // Tab size (its number, of spaces or of px, x 10 in an i16)
             if let Some(val) = self.get_tab_size(nd, &node_id, &default_state) {
-                result.tier2_cold[i].tab_size = encode_css_pixel_as_i16(val);
+                result.tier2_cold[i].tab_size = encode_tab_size_i16(val);
             }
 
             // =====================================================================
@@ -421,19 +417,19 @@ impl CssPropertyCache {
                 }
             }
 
-            // Letter-spacing (PixelValue wrapper → i16 × 10 resolved px)
+            // Letter-spacing (PixelValue wrapper → `PxSlot`, thousandths of a px)
             if let Some(val) = self.get_letter_spacing(nd, &node_id, &default_state) {
-                result.tier2b_text[i].letter_spacing = encode_css_pixel_as_i16(val);
+                result.tier2b_text[i].letter_spacing = encode_css_pixel_as_px_slot(val);
             }
 
-            // Word-spacing (PixelValue wrapper → i16 × 10 resolved px)
+            // Word-spacing (PixelValue wrapper → `PxSlot`)
             if let Some(val) = self.get_word_spacing(nd, &node_id, &default_state) {
-                result.tier2b_text[i].word_spacing = encode_css_pixel_as_i16(val);
+                result.tier2b_text[i].word_spacing = encode_css_pixel_as_px_slot(val);
             }
 
-            // Text-indent (PixelValue wrapper → i16 × 10 resolved px)
+            // Text-indent (PixelValue wrapper → `PxSlot`)
             if let Some(val) = self.get_text_indent(nd, &node_id, &default_state) {
-                result.tier2b_text[i].text_indent = encode_css_pixel_as_i16(val);
+                result.tier2b_text[i].text_indent = encode_css_pixel_as_px_slot(val);
             }
         }
 
@@ -716,28 +712,28 @@ impl CssPropertyCache {
                 // Tier 2 dims
                 match prop {
                     CssProperty::PaddingTop(v) => {
-                        global_dims.padding_top = encode_css_pixel_as_i16(v);
+                        global_dims.padding_top = encode_css_pixel_as_px_slot(v);
                     }
                     CssProperty::PaddingRight(v) => {
-                        global_dims.padding_right = encode_css_pixel_as_i16(v);
+                        global_dims.padding_right = encode_css_pixel_as_px_slot(v);
                     }
                     CssProperty::PaddingBottom(v) => {
-                        global_dims.padding_bottom = encode_css_pixel_as_i16(v);
+                        global_dims.padding_bottom = encode_css_pixel_as_px_slot(v);
                     }
                     CssProperty::PaddingLeft(v) => {
-                        global_dims.padding_left = encode_css_pixel_as_i16(v);
+                        global_dims.padding_left = encode_css_pixel_as_px_slot(v);
                     }
                     CssProperty::MarginTop(v) => {
-                        global_dims.margin_top = encode_margin_i16(v);
+                        global_dims.margin_top = encode_margin_px_slot(v);
                     }
                     CssProperty::MarginRight(v) => {
-                        global_dims.margin_right = encode_margin_i16(v);
+                        global_dims.margin_right = encode_margin_px_slot(v);
                     }
                     CssProperty::MarginBottom(v) => {
-                        global_dims.margin_bottom = encode_margin_i16(v);
+                        global_dims.margin_bottom = encode_margin_px_slot(v);
                     }
                     CssProperty::MarginLeft(v) => {
-                        global_dims.margin_left = encode_margin_i16(v);
+                        global_dims.margin_left = encode_margin_px_slot(v);
                     }
                     CssProperty::Width(v) => {
                         global_dims.width = encode_layout_width(v);
@@ -749,16 +745,16 @@ impl CssPropertyCache {
                         global_dims.font_size = encode_pixel_prop(v);
                     }
                     CssProperty::BorderTopWidth(v) => {
-                        global_dims.border_top_width = encode_css_pixel_as_i16(v);
+                        global_dims.border_top_width = encode_css_pixel_as_px_slot(v);
                     }
                     CssProperty::BorderRightWidth(v) => {
-                        global_dims.border_right_width = encode_css_pixel_as_i16(v);
+                        global_dims.border_right_width = encode_css_pixel_as_px_slot(v);
                     }
                     CssProperty::BorderBottomWidth(v) => {
-                        global_dims.border_bottom_width = encode_css_pixel_as_i16(v);
+                        global_dims.border_bottom_width = encode_css_pixel_as_px_slot(v);
                     }
                     CssProperty::BorderLeftWidth(v) => {
-                        global_dims.border_left_width = encode_css_pixel_as_i16(v);
+                        global_dims.border_left_width = encode_css_pixel_as_px_slot(v);
                     }
                     _ => {}
                 }
@@ -1266,6 +1262,17 @@ impl CssPropertyCache {
                 );
             }
 
+            // A px slot that could not hold its length (beyond the i16
+            // range, or not px) keeps the length beside the slots.
+            note_px_overflow(
+                self,
+                nd,
+                node_id,
+                &default_state,
+                &result.tier2_dims[i],
+                &mut result.px_overflow,
+            );
+
             // Set populated bit
             if result.tier1_enums[i] != 0 {
                 result.tier1_enums[i] |= TIER1_POPULATED_BIT;
@@ -1307,6 +1314,56 @@ impl CssPropertyCache {
 // =============================================================================
 // Helpers extracted from build_compact_cache_with_inheritance_debug
 // =============================================================================
+
+/// Writes into `out` the resting length of every px slot of `dims` that is
+/// the sentinel (`CompactLayoutCache::px_overflow`): what the cascade
+/// answers for the property at rest, when that is an exact length. One
+/// cascade lookup per such slot, here, instead of one per read.
+fn note_px_overflow(
+    cache: &CssPropertyCache,
+    node_data: &NodeData,
+    node_id: NodeId,
+    rest: &StyledNodeState,
+    dims: &CompactNodeProps,
+    out: &mut alloc::collections::BTreeMap<
+        (u32, azul_css::props::property::CssPropertyType),
+        azul_css::props::basic::pixel::PixelValue,
+    >,
+) {
+    use azul_css::props::property::CssPropertyType as T;
+
+    let Ok(node) = u32::try_from(node_id.index()) else {
+        return;
+    };
+    macro_rules! slot {
+        ($field:ident, $ty:ident, $getter:ident) => {
+            if dims.$field == PX_SLOT_SENTINEL {
+                let length = cache
+                    .$getter(node_data, &node_id, rest)
+                    .and_then(|value| value.get_property().copied());
+                if let Some(length) = length {
+                    out.insert((node, T::$ty), length.inner);
+                }
+            }
+        };
+    }
+    slot!(top, Top, get_top);
+    slot!(right, Right, get_right);
+    slot!(bottom, Bottom, get_bottom);
+    slot!(left, Left, get_left);
+    slot!(margin_top, MarginTop, get_margin_top);
+    slot!(margin_right, MarginRight, get_margin_right);
+    slot!(margin_bottom, MarginBottom, get_margin_bottom);
+    slot!(margin_left, MarginLeft, get_margin_left);
+    slot!(padding_top, PaddingTop, get_padding_top);
+    slot!(padding_right, PaddingRight, get_padding_right);
+    slot!(padding_bottom, PaddingBottom, get_padding_bottom);
+    slot!(padding_left, PaddingLeft, get_padding_left);
+    slot!(border_top_width, BorderTopWidth, get_border_top_width);
+    slot!(border_right_width, BorderRightWidth, get_border_right_width);
+    slot!(border_bottom_width, BorderBottomWidth, get_border_bottom_width);
+    slot!(border_left_width, BorderLeftWidth, get_border_left_width);
+}
 
 /// Apply UA CSS defaults for a node type directly to compact values.
 ///
@@ -1860,52 +1917,52 @@ fn apply_css_property_to_compact(
             dims.font_size = encode_pixel_prop(v);
         }
         CssProperty::PaddingTop(v) => {
-            dims.padding_top = encode_css_pixel_as_i16(v);
+            dims.padding_top = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::PaddingRight(v) => {
-            dims.padding_right = encode_css_pixel_as_i16(v);
+            dims.padding_right = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::PaddingBottom(v) => {
-            dims.padding_bottom = encode_css_pixel_as_i16(v);
+            dims.padding_bottom = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::PaddingLeft(v) => {
-            dims.padding_left = encode_css_pixel_as_i16(v);
+            dims.padding_left = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::MarginTop(v) => {
-            dims.margin_top = encode_margin_i16(v);
+            dims.margin_top = encode_margin_px_slot(v);
         }
         CssProperty::MarginRight(v) => {
-            dims.margin_right = encode_margin_i16(v);
+            dims.margin_right = encode_margin_px_slot(v);
         }
         CssProperty::MarginBottom(v) => {
-            dims.margin_bottom = encode_margin_i16(v);
+            dims.margin_bottom = encode_margin_px_slot(v);
         }
         CssProperty::MarginLeft(v) => {
-            dims.margin_left = encode_margin_i16(v);
+            dims.margin_left = encode_margin_px_slot(v);
         }
         CssProperty::BorderTopWidth(v) => {
-            dims.border_top_width = encode_css_pixel_as_i16(v);
+            dims.border_top_width = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::BorderRightWidth(v) => {
-            dims.border_right_width = encode_css_pixel_as_i16(v);
+            dims.border_right_width = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::BorderBottomWidth(v) => {
-            dims.border_bottom_width = encode_css_pixel_as_i16(v);
+            dims.border_bottom_width = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::BorderLeftWidth(v) => {
-            dims.border_left_width = encode_css_pixel_as_i16(v);
+            dims.border_left_width = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::Top(v) => {
-            dims.top = encode_css_pixel_as_i16(v);
+            dims.top = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::Right(v) => {
-            dims.right = encode_css_pixel_as_i16(v);
+            dims.right = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::Bottom(v) => {
-            dims.bottom = encode_css_pixel_as_i16(v);
+            dims.bottom = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::Left(v) => {
-            dims.left = encode_css_pixel_as_i16(v);
+            dims.left = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::FlexGrow(v) => {
             if let Some(exact) = v.get_property() {
@@ -1923,17 +1980,17 @@ fn apply_css_property_to_compact(
         // as no gap at all).
         CssProperty::RowGap(v) => {
             if let Some(g) = v.get_property() {
-                dims.row_gap = encode_gap_i16(g.inner);
+                dims.row_gap = encode_gap_px_slot(g.inner);
             }
         }
         CssProperty::ColumnGap(v) => {
             if let Some(g) = v.get_property() {
-                dims.column_gap = encode_gap_i16(g.inner);
+                dims.column_gap = encode_gap_px_slot(g.inner);
             }
         }
         CssProperty::Gap(v) => {
             if let Some(g) = v.get_property() {
-                let enc = encode_gap_i16(g.inner);
+                let enc = encode_gap_px_slot(g.inner);
                 dims.row_gap = enc;
                 dims.column_gap = enc;
             }
@@ -2016,16 +2073,12 @@ fn apply_css_property_to_compact(
         }
         CssProperty::BorderSpacing(v) => {
             if let Some(spacing) = v.get_property() {
-                if spacing.horizontal.metric == SizeMetric::Px {
-                    cold.border_spacing_h = encode_resolved_px_i16(spacing.horizontal.number.get());
-                }
-                if spacing.vertical.metric == SizeMetric::Px {
-                    cold.border_spacing_v = encode_resolved_px_i16(spacing.vertical.number.get());
-                }
+                cold.border_spacing_h = encode_border_spacing_i16(spacing.horizontal);
+                cold.border_spacing_v = encode_border_spacing_i16(spacing.vertical);
             }
         }
         CssProperty::TabSize(v) => {
-            cold.tab_size = encode_css_pixel_as_i16(v);
+            cold.tab_size = encode_tab_size_i16(v);
         }
 
         // Tier 2b text
@@ -2061,44 +2114,36 @@ fn apply_css_property_to_compact(
             }
         }
         CssProperty::LetterSpacing(v) => {
-            text.letter_spacing = encode_css_pixel_as_i16(v);
+            text.letter_spacing = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::WordSpacing(v) => {
-            text.word_spacing = encode_css_pixel_as_i16(v);
+            text.word_spacing = encode_css_pixel_as_px_slot(v);
         }
         CssProperty::TextIndent(v) => {
-            text.text_indent = encode_css_pixel_as_i16(v);
+            text.text_indent = encode_css_pixel_as_px_slot(v);
         }
 
-        // Border radii (cold): encode px × 10 into i16; sentinel stays = unset/0
+        // Border radii (cold): px x 10 in an i16; a radius the slot cannot hold
+        // (a percentage, an em, beyond its range) as "read the cascade"
+        // (`encode_radius_i16`); the sentinel stays = unset/0
         CssProperty::BorderTopLeftRadius(v) => {
             if let Some(exact) = v.get_property() {
-                if exact.inner.metric == SizeMetric::Px {
-                    cold.border_top_left_radius = encode_resolved_px_i16(exact.inner.number.get());
-                }
+                cold.border_top_left_radius = encode_radius_i16(exact.inner);
             }
         }
         CssProperty::BorderTopRightRadius(v) => {
             if let Some(exact) = v.get_property() {
-                if exact.inner.metric == SizeMetric::Px {
-                    cold.border_top_right_radius = encode_resolved_px_i16(exact.inner.number.get());
-                }
+                cold.border_top_right_radius = encode_radius_i16(exact.inner);
             }
         }
         CssProperty::BorderBottomLeftRadius(v) => {
             if let Some(exact) = v.get_property() {
-                if exact.inner.metric == SizeMetric::Px {
-                    cold.border_bottom_left_radius =
-                        encode_resolved_px_i16(exact.inner.number.get());
-                }
+                cold.border_bottom_left_radius = encode_radius_i16(exact.inner);
             }
         }
         CssProperty::BorderBottomRightRadius(v) => {
             if let Some(exact) = v.get_property() {
-                if exact.inner.metric == SizeMetric::Px {
-                    cold.border_bottom_right_radius =
-                        encode_resolved_px_i16(exact.inner.number.get());
-                }
+                cold.border_bottom_right_radius = encode_radius_i16(exact.inner);
             }
         }
 
@@ -2547,6 +2592,26 @@ const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
                 *flags |= DOM_HAS_FLOW_FROM;
             }
         }
+        CssProperty::TextTransform(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_TEXT_TRANSFORM;
+            }
+        }
+        CssProperty::VerticalAlign(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_VERTICAL_ALIGN;
+            }
+        }
+        CssProperty::Zoom(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_ZOOM_OR_ASPECT_RATIO;
+            }
+        }
+        CssProperty::AspectRatio(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_ZOOM_OR_ASPECT_RATIO;
+            }
+        }
         CssProperty::TextOverflow(v) => {
             if v.get_property().is_some() {
                 *flags |= DOM_HAS_TEXT_OVERFLOW;
@@ -2752,19 +2817,59 @@ fn encode_css_pixel_as_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> 
     azul_css::compact_cache::encode_css_pixel_as_i16(&mapped)
 }
 
-/// A gap for the compact cache: px as it is, any other unit the sentinel (resolved from the
-/// cascade, with the node's font sizes).
-fn encode_gap_i16(gap: azul_css::props::basic::pixel::PixelValue) -> i16 {
-    if gap.metric == SizeMetric::Px {
-        encode_resolved_px_i16(gap.number.get())
+/// One axis of `border-spacing` for its slot: px in tenths; any other unit (`0.5em`) or a
+/// length beyond the slot as the sentinel, which sends the table's reader to the cascade.
+///
+/// A spacing in another unit used to leave the slot at its default, 0, which the reader
+/// takes for "0 px": `border-spacing: 0.5em` was no spacing at all.
+fn encode_border_spacing_i16(spacing: azul_css::props::basic::pixel::PixelValue) -> i16 {
+    if spacing.metric == SizeMetric::Px {
+        encode_resolved_px_i16(spacing.number.get())
     } else {
         I16_SENTINEL
     }
 }
 
-/// Encode margin: same as `encode_css_pixel_as_i16` but Auto is a distinct value.
-fn encode_margin_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
-    encode_css_pixel_as_i16(val)
+/// `tab-size` for its slot: the declared NUMBER in tenths, whatever its unit - what the
+/// cascade's reader takes (`inner.number`: the count of spaces of `tab-size: 4`, which the
+/// parser keeps as `4em`, or the px of a length). The keywords as before.
+///
+/// Encoded as a px length it was the sentinel for every `tab-size: <number>` (an `em` is no
+/// px), and the sentinel reads as the default: a declared tab size was 8 at rest and the
+/// declared one only in another state.
+fn encode_tab_size_i16<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> i16 {
+    match val {
+        CssPropertyValue::Exact(inner) => {
+            encode_resolved_px_i16(inner.get_inner_pixel().number.get())
+        }
+        _ => encode_css_pixel_as_i16(val),
+    }
+}
+
+/// A box length (padding, border width, inset) for its slot: thousandths of a pixel
+/// (`PxSlot`), the keywords as their sentinels. Delegates to the canonical
+/// `azul_css::compact_cache::encode_css_pixel_as_px_slot`.
+fn encode_css_pixel_as_px_slot<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> PxSlot {
+    let mapped = match val {
+        CssPropertyValue::Exact(inner) => CssPropertyValue::Exact(inner.get_inner_pixel()),
+        CssPropertyValue::Auto => CssPropertyValue::Auto,
+        CssPropertyValue::Initial => CssPropertyValue::Initial,
+        CssPropertyValue::Inherit => CssPropertyValue::Inherit,
+        CssPropertyValue::None => CssPropertyValue::None,
+        _ => return PX_SLOT_SENTINEL,
+    };
+    azul_css::compact_cache::encode_css_pixel_as_px_slot(&mapped)
+}
+
+/// A gap for the compact cache: px as it is, any other unit the sentinel (resolved from the
+/// cascade, with the node's font sizes).
+fn encode_gap_px_slot(gap: azul_css::props::basic::pixel::PixelValue) -> PxSlot {
+    encode_px_slot(gap)
+}
+
+/// Encode margin: same as `encode_css_pixel_as_px_slot` but Auto is a distinct value.
+fn encode_margin_px_slot<T: HasInnerPixelValue>(val: &CssPropertyValue<T>) -> PxSlot {
+    encode_css_pixel_as_px_slot(val)
 }
 
 /// Encode `CssPropertyValue`<LayoutFlexBasis> — `LayoutFlexBasis` is Auto | Exact(PixelValue).

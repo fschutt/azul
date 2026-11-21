@@ -262,12 +262,36 @@ pub fn device_rects_to_present_rects(
 /// steady-state is far less). `AZ_WR_ATLAS_SIZE` overrides the large-atlas
 /// dimension: 2048 restores WR's default (for heavy scroll/zoom atlas churn),
 /// 512 gives a mobile profile. Clamped to [512, 4096] (WR requires ≥512).
+///
+/// The atlas size is also what WebRender derives its EVICTION threshold from:
+/// a third of one atlas (1.4 MB of images at 1024 px), two thirds for glyphs
+/// (0.7 MB). Above it, whatever the last frames did not draw is evicted, the
+/// harder the fuller - at 7 thresholds after two frames. A window that shows
+/// more than that (a map on a 2x display: 44 tiles of 1 MB, 1,567 halo
+/// pictures of 28 KB, 2 to 4 MB of glyphs) lost, with every frame that redrew
+/// only a part of it (a tile, a strip of a pan, a hover), the images and
+/// glyphs of the rest, and the next frame that drew all of it - the first step
+/// of a zoom - uploaded some 90 MB and rasterised every glyph again (audit
+/// A4-30). azul deletes the images its lists no longer name itself, so what is
+/// in the cache is what the window shows: it is kept up to a budget,
+/// `AZ_WR_IMAGE_BUDGET_MB` (256) and `AZ_WR_GLYPH_BUDGET_MB` (16); 0 gives
+/// WebRender's rule. A budget is a bound on what is KEPT, nothing is allocated
+/// for it.
 fn azul_texture_cache_config() -> webrender::TextureCacheConfig {
     let big = std::env::var("AZ_WR_ATLAS_SIZE")
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
         .map(|v| v.clamp(512, 4096))
         .unwrap_or(1024);
+    let megabytes = |name: &str, default: usize| -> usize {
+        std::env::var(name)
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(default)
+            .min(1024)
+            * 1024
+            * 1024
+    };
     webrender::TextureCacheConfig {
         color8_linear_texture_size: big,
         color8_nearest_texture_size: 512,
@@ -275,6 +299,8 @@ fn azul_texture_cache_config() -> webrender::TextureCacheConfig {
         alpha8_texture_size: 512,
         alpha8_glyph_texture_size: big,
         alpha16_texture_size: 512,
+        image_budget_bytes: megabytes("AZ_WR_IMAGE_BUDGET_MB", 256),
+        glyph_budget_bytes: megabytes("AZ_WR_GLYPH_BUDGET_MB", 16),
     }
 }
 
@@ -655,6 +681,184 @@ use azul_core::resources::{
 };
 use azul_layout::window::LayoutWindow;
 
+// ==== What the GPU path does for a frame, counted (audit A4) ====
+
+use azul_layout::window::GpuFrameCounters;
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: the bound values `synchronize_gpu_values` walked on this thread for its own
+    /// answer (the walk a debug build makes to check a skipped walk is not counted).
+    pub(crate) static BOUND_VALUES_WALKED: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
+thread_local! {
+    /// What the GPU path did on this thread since the last frame was published
+    /// ([`publish_gpu_frame`]): the UI thread's part of a frame's
+    /// [`GpuFrameCounters`].
+    static GPU_FRAME: std::cell::Cell<GpuFrameCounters> =
+        std::cell::Cell::new(GpuFrameCounters::default());
+    /// A frame was asked of the renderer and its counters are not published yet.
+    static GPU_FRAME_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The renderer's process-wide counters as of the last published frame.
+    static WR_COUNTERS_SEEN: std::cell::Cell<Option<webrender::azul_counters::Counters>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Count into the frame this thread is preparing.
+pub(crate) fn gpu_count(f: impl FnOnce(&mut GpuFrameCounters)) {
+    GPU_FRAME.with(|cell| {
+        let mut frame = cell.get();
+        f(&mut frame);
+        cell.set(frame);
+    });
+}
+
+/// Microseconds since `started`.
+pub(crate) fn elapsed_us(started: std::time::Instant) -> u64 {
+    u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)
+}
+
+/// Which time of [`GpuFrameCounters`] a [`GpuTimer`] adds to.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum GpuTime {
+    Translate,
+    Resources,
+    Values,
+    Transaction,
+}
+
+/// Adds the time it lived to one of the frame's times.
+pub(crate) struct GpuTimer(std::time::Instant, GpuTime);
+
+/// Time what follows, until the value is dropped, as `which`.
+#[must_use]
+pub(crate) fn gpu_time(which: GpuTime) -> GpuTimer {
+    GpuTimer(std::time::Instant::now(), which)
+}
+
+impl Drop for GpuTimer {
+    fn drop(&mut self) {
+        let us = elapsed_us(self.0);
+        let which = self.1;
+        gpu_count(|c| {
+            let slot = match which {
+                GpuTime::Translate => &mut c.translate_us,
+                GpuTime::Resources => &mut c.resources_us,
+                GpuTime::Values => &mut c.values_us,
+                GpuTime::Transaction => &mut c.transaction_us,
+            };
+            *slot = slot.saturating_add(us);
+        });
+    }
+}
+
+/// The bytes of an image a resource update hands to the renderer: the whole
+/// image, or the dirty part of an update. A texture the renderer only refers
+/// to (an external image) has none.
+fn resource_image_bytes(
+    descriptor: &WrImageDescriptor,
+    data: &WrImageData,
+    dirty: Option<&DirtyRect<i32, webrender::api::units::DevicePixel>>,
+) -> u64 {
+    if !matches!(data, WrImageData::Raw(_)) {
+        return 0;
+    }
+    let (w, h) = match dirty {
+        Some(DirtyRect::Partial(rect)) => (
+            rect.width().clamp(0, descriptor.size.width.max(0)),
+            rect.height().clamp(0, descriptor.size.height.max(0)),
+        ),
+        _ => (descriptor.size.width, descriptor.size.height),
+    };
+    let px = u64::try_from(w).unwrap_or(0) * u64::try_from(h).unwrap_or(0);
+    px * u64::try_from(descriptor.format.bytes_per_pixel()).unwrap_or(0)
+}
+
+/// `txn` is about to be sent: it is one transaction of the frame, and its
+/// resource updates are counted by kind. Called by whoever sends it.
+pub fn count_transaction(txn: &WrTransaction) {
+    use webrender::ResourceUpdate as U;
+
+    let (mut adds, mut updates, mut deletes, mut bytes) = (0u64, 0u64, 0u64, 0u64);
+    for update in &txn.resource_updates {
+        match update {
+            U::AddImage(image) => {
+                adds += 1;
+                bytes += resource_image_bytes(&image.descriptor, &image.data, None);
+            }
+            U::UpdateImage(image) => {
+                updates += 1;
+                bytes +=
+                    resource_image_bytes(&image.descriptor, &image.data, Some(&image.dirty_rect));
+            }
+            U::AddBlobImage(..) | U::AddFont(..) | U::AddFontInstance(..) => adds += 1,
+            U::UpdateBlobImage(..) | U::SetBlobImageVisibleArea(..) => updates += 1,
+            U::DeleteImage(..)
+            | U::DeleteBlobImage(..)
+            | U::DeleteFont(..)
+            | U::DeleteFontInstance(..) => deletes += 1,
+        }
+    }
+    gpu_count(|c| {
+        c.transactions += 1;
+        c.resource_adds += adds;
+        c.resource_updates += updates;
+        c.resource_deletes += deletes;
+        c.resource_bytes += bytes;
+    });
+}
+
+/// A transaction asked the renderer for a frame: its counters are owed.
+fn gpu_frame_requested() {
+    GPU_FRAME_OPEN.with(|open| open.set(true));
+}
+
+/// The frame was drawn: what this thread counted for it, with what the
+/// renderer's threads did since the last published frame, becomes the
+/// window's last GPU frame (`FrameClock::note_gpu`: the frame report's
+/// `gpu_last`, `FrameTimings::gpu_*`). `blocked_us`: how long the UI thread
+/// waited for the renderer's threads; `render_us`: how long the draw took.
+///
+/// Called by a shell right after `renderer.render`. A shell that does not call
+/// it has its frames published late and without the two times
+/// ([`publish_stale_gpu_frame`]).
+pub fn publish_gpu_frame(
+    layout_window: &LayoutWindow,
+    blocked_us: u64,
+    render_us: u64,
+    draw_calls: u64,
+) {
+    GPU_FRAME_OPEN.with(|open| open.set(false));
+    let mut frame = GPU_FRAME.with(|cell| cell.replace(GpuFrameCounters::default()));
+    let now = webrender::azul_counters::snapshot();
+    let before = WR_COUNTERS_SEEN
+        .with(|seen| seen.replace(Some(now)))
+        .unwrap_or_default();
+    let wr = now.since(&before);
+    frame.scene_builds = wr.scene_builds;
+    frame.frame_builds = wr.frame_builds;
+    frame.glyphs_rasterized = wr.glyphs_rasterized;
+    frame.texture_uploads = wr.texture_uploads;
+    frame.texture_upload_px = wr.texture_upload_px;
+    frame.scene_build_us = wr.scene_build_ns / 1_000;
+    frame.frame_build_us = wr.frame_build_ns / 1_000;
+    frame.blocked_us = blocked_us;
+    frame.render_us = render_us;
+    frame.draw_calls = draw_calls;
+    layout_window.frame_clock.note_gpu(&frame);
+}
+
+/// Publish the counters of a frame whose shell did not ([`publish_gpu_frame`])
+/// before the next transaction is built, so they are not added to the next
+/// frame's.
+fn publish_stale_gpu_frame(layout_window: &LayoutWindow) {
+    if GPU_FRAME_OPEN.with(std::cell::Cell::get) {
+        publish_gpu_frame(layout_window, 0, 0, 0);
+    }
+}
+
 /// Generate FontKey deterministically from font hash
 /// This ensures the same font always gets the same key across frames
 fn font_key_from_hash(font_hash: u64) -> FontKey {
@@ -672,11 +876,14 @@ fn font_key_from_hash(font_hash: u64) -> FontKey {
 /// Text halos a frame draws however long they take (see
 /// [`collect_image_resource_updates`]): a frame always makes progress.
 const HALOS_DRAWN_ANYWAY: usize = 2;
-/// How long a frame goes on drawing text halos after those.
+/// How long a frame goes on drawing text halos after those (the time it spends
+/// drawing them, `cpurender::within_halo_budget`).
 const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(12);
 /// The most frames in a row that are made only to draw the text halos the scan
 /// before them left (a quarter of a minute at 60 frames a second, and every one
-/// draws at least [`HALOS_DRAWN_ANYWAY`]).
+/// draws at least [`HALOS_DRAWN_ANYWAY`]). A backstop: a scan drops no halo it
+/// uses (audit A5-01), so each follow-up leaves fewer than the one before and the
+/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame.
 const HALO_FOLLOW_UPS_MAX: u32 = 900;
 
 #[cfg(test)]
@@ -703,6 +910,13 @@ pub(crate) fn draw_every_halo_in_this_thread() {
     TEST_HALO_BUDGET.with(|b| b.set(Some((usize::MAX, std::time::Duration::from_secs(3600)))));
 }
 
+/// For a test of the frames that follow a frame that left halos: every frame of
+/// this thread draws `free` new halos and no more, however fast the machine is.
+#[cfg(test)]
+pub(crate) fn draw_this_many_halos_a_frame_in_this_thread(free: usize) {
+    TEST_HALO_BUDGET.with(|b| b.set(Some((free, std::time::Duration::ZERO))));
+}
+
 /// Collects all ImageRefs from display lists and creates AddImage ResourceUpdates
 /// for images that aren't already registered.
 ///
@@ -721,14 +935,116 @@ pub fn collect_image_resource_updates(
     // AddImage messages, which only cover *newly*-seen images).
     azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
 ) {
-    let (updates, live, _halos_left) =
-        collect_image_resource_updates_and_halos_left(layout_window, renderer_resources);
+    let (updates, live, _halos) =
+        collect_image_resource_updates_and_halos(layout_window, renderer_resources);
     (updates, live)
 }
 
-/// [`collect_image_resource_updates`] and the number of text halos the scan
-/// left for a later frame (its budget ran out).
-fn collect_image_resource_updates_and_halos_left(
+/// What a display list names of fonts and images ([`list_names`]).
+#[derive(Debug)]
+pub(crate) struct ListNames {
+    /// Every (font, size) a text item of the list is set in, once.
+    pub(crate) fonts: Vec<(u64, Au)>,
+    /// The indices of the items that draw or clip by an image
+    /// (`LayoutWindow::image_of_item`), in list order.
+    pub(crate) image_items: Vec<usize>,
+}
+
+/// The [`ListNames`] kept for one display list ([`LIST_NAMES`]).
+struct KeptNames {
+    list: std::sync::Weak<azul_layout::solver3::display_list::DisplayList>,
+    names: std::rc::Rc<ListNames>,
+}
+
+thread_local! {
+    /// [`ListNames`] by the list's allocation. The `Weak` is what makes the
+    /// address an identity: while it is held the allocation is not given to
+    /// another list, and a list that has a `Weak` is never changed in place
+    /// (`Arc::get_mut` refuses, `Arc::make_mut` moves it to a new allocation):
+    /// the same address with a living list is the same items.
+    static LIST_NAMES: RefCell<Vec<KeptNames>> = const { RefCell::new(Vec::new()) };
+    /// Tests: how many lists [`list_names`] walked on this thread.
+    #[cfg(test)]
+    static LIST_NAME_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Tests: how many lists [`list_names`] has walked on this thread.
+#[cfg(test)]
+pub(crate) fn list_name_walks() -> usize {
+    LIST_NAME_WALKS.with(std::cell::Cell::get)
+}
+
+/// The fonts and the image items of `list`: one walk of its items, kept while
+/// the list lives. The scans of a frame's resources asked every list of the
+/// window for its fonts and for its images in every transaction that scans
+/// (a full one, and every frame that still draws text halos), also the lists
+/// that had not changed - two walks of the 17,495 items of a map view each time
+/// (audit A4-10g). Lists that are gone are forgotten here.
+pub(crate) fn list_names(
+    list: &std::sync::Arc<azul_layout::solver3::display_list::DisplayList>,
+) -> std::rc::Rc<ListNames> {
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    let at = std::sync::Arc::as_ptr(list);
+    let found = LIST_NAMES.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        kept.retain(|held| held.list.strong_count() > 0);
+        kept.iter()
+            .find(|held| core::ptr::eq(held.list.as_ptr(), at))
+            .map(|held| std::rc::Rc::clone(&held.names))
+    });
+    if let Some(found) = found {
+        return found;
+    }
+    #[cfg(test)]
+    LIST_NAME_WALKS.with(|walks| walks.set(walks.get() + 1));
+    let mut fonts: HashSet<(u64, Au)> = HashSet::new();
+    let mut image_items = Vec::new();
+    for (index, item) in list.items.iter().enumerate() {
+        if let DisplayListItem::Text {
+            font_hash,
+            font_size_px,
+            ..
+        } = item
+        {
+            fonts.insert((font_hash.font_hash, Au::from_px(*font_size_px)));
+        } else if LayoutWindow::image_of_item(item).is_some() {
+            image_items.push(index);
+        }
+    }
+    let names = std::rc::Rc::new(ListNames {
+        fonts: fonts.into_iter().collect(),
+        image_items,
+    });
+    LIST_NAMES.with(|kept| {
+        kept.borrow_mut().push(KeptNames {
+            list: std::sync::Arc::downgrade(list),
+            names: std::rc::Rc::clone(&names),
+        });
+    });
+    names
+}
+
+/// What a scan of the display lists found of text halos
+/// ([`collect_image_resource_updates_and_halos`]).
+#[derive(Debug, Default)]
+struct HaloScan {
+    /// The halos the scan's budget left for a later frame.
+    left: usize,
+    /// Every text shadow the lists paint as a kept picture, per DOM in list
+    /// order, exactly as a translation of the lists made now paints it
+    /// (`compositor2`, which asks the same question of the same pictures).
+    painted: Vec<(DomId, Vec<azul_layout::cpurender::TextHalo>)>,
+    /// Whether a list paints a null image at all (the place of a picture to
+    /// come, [`reserve_image_places`]): no list is walked for places otherwise.
+    null_images: bool,
+}
+
+/// [`collect_image_resource_updates`] and the text halos of the lists. The
+/// pictures of the halos are in the live set and NOT among the images to add:
+/// a halo is painted from a slot, whose key outlives the picture it shows
+/// ([`register_text_halos`]).
+fn collect_image_resource_updates_and_halos(
     layout_window: &LayoutWindow,
     renderer_resources: &azul_core::resources::RendererResources,
 ) -> (
@@ -737,7 +1053,7 @@ fn collect_image_resource_updates_and_halos_left(
         azul_core::resources::AddImageMsg,
     )>,
     azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
-    usize,
+    HaloScan,
 ) {
     use azul_core::{resources::build_add_image_resource_updates, FastBTreeSet};
 
@@ -751,9 +1067,23 @@ fn collect_image_resource_updates_and_halos_left(
     // masks and the mask of a stroke (the GPU backend paints a stroke as a
     // colour through that mask - it has no vector rasteriser - so the mask is
     // uploaded like any other image; the CPU backend ignores it and strokes the
-    // outline directly). ONE scan, the image GC's and the e2e runner's too.
-    let mut images_in_display_list: FastBTreeSet<ImageRef> =
-        layout_window.images_in_display_lists().cloned().collect();
+    // outline directly). ONE definition of which items those are, the image
+    // GC's and the e2e runner's too (`LayoutWindow::image_of_item`); which
+    // items of a list have one is kept while the list lives (`list_names`).
+    let images_in_display_list: FastBTreeSet<ImageRef> = layout_window
+        .layout_results
+        .values()
+        .flat_map(|layout_result| {
+            let list = &layout_result.display_list;
+            let names = list_names(list);
+            (0..names.image_items.len()).filter_map(move |nth| {
+                list.items
+                    .get(names.image_items[nth])
+                    .and_then(LayoutWindow::image_of_item)
+            })
+        })
+        .cloned()
+        .collect();
 
     // The text shadows the compositor paints as kept pictures: drawn here the
     // first time they are seen, and live while a list holds them. A halo is a
@@ -761,25 +1091,46 @@ fn collect_image_resource_updates_and_halos_left(
     // 5.0 s drawing them on the UI thread before anything else could run: a
     // frame draws HALOS_DRAWN_ANYWAY of them however long they take and then
     // only while HALO_FRAME_BUDGET lasts; a shadow whose halo is left for a
-    // later frame is drawn by WebRender's own blur until then - the frames the
-    // platform loop goes on making (`GpuStateManager::halos_owed`) draw the rest.
+    // later frame is painted with a stand-in (a spread shadow: `TextHalo::stand_in`,
+    // an image of this list like the halo itself) or by WebRender's own blur
+    // until then - the frames the platform loop goes on making
+    // (`GpuStateManager::halos_owed`) draw the rest. The scan uses every picture
+    // the translation of these lists will find, so each is in the live set below.
     let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
     let (free, time) = halo_budget();
+    let mut painted: Vec<(DomId, Vec<azul_layout::cpurender::TextHalo>)> = Vec::new();
     let ((), halos_left) = azul_layout::cpurender::within_halo_budget(
         free,
         time,
         || {
-            for layout_result in layout_window.layout_results.values() {
-                for halo in azul_layout::cpurender::text_halos(
-                    &layout_result.display_list.items,
+            for (dom_id, layout_result) in &layout_window.layout_results {
+                let halos = azul_layout::cpurender::text_halos_of_list(
+                    &layout_result.display_list,
                     dpi,
                     Some((renderer_resources, &layout_window.font_manager)),
-                ) {
-                    images_in_display_list.insert(halo.image);
+                );
+                if !halos.is_empty() {
+                    painted.push((*dom_id, halos));
                 }
             }
         },
     );
+    // A scan that drew or dropped a picture, or showed one that waited, changed
+    // what the shadows it had looked at before are painted with: the picture
+    // that stood in for a shape is another one now, a slot shows another
+    // picture. What the lists paint is then asked once more, the way their
+    // translation asks (without fonts: nothing is drawn, nothing counted twice),
+    // so that what is registered is what a translation finds.
+    if azul_layout::cpurender::halo_scan_changed_pictures() {
+        painted.clear();
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            let halos =
+                azul_layout::cpurender::text_halos_of_list(&layout_result.display_list, dpi, None);
+            if !halos.is_empty() {
+                painted.push((*dom_id, halos));
+            }
+        }
+    }
     if halos_left > 0 {
         log_debug!(
             LogCategory::Rendering,
@@ -788,10 +1139,16 @@ fn collect_image_resource_updates_and_halos_left(
         );
     }
 
-    // The live set as hashes (identity), for the GC diff in the caller.
+    // The live set as hashes (identity), for the GC diff in the caller: the
+    // images of the lists and the pictures the halos are painted with.
     let live_hashes: FastBTreeSet<azul_core::resources::ImageRefHash> = images_in_display_list
         .iter()
         .map(azul_core::resources::image_ref_get_hash)
+        .chain(
+            painted
+                .iter()
+                .flat_map(|(_, halos)| halos.iter().map(|halo| halo.image.get_hash())),
+        )
         .collect();
 
     // Build AddImage messages for new images using our gl_texture_integration
@@ -823,7 +1180,16 @@ fn collect_image_resource_updates_and_halos_left(
         image_updates.len()
     );
 
-    (image_updates, live_hashes, halos_left)
+    let null_images = images_in_display_list.iter().any(ImageRef::is_null_image);
+    (
+        image_updates,
+        live_hashes,
+        HaloScan {
+            left: halos_left,
+            painted,
+            null_images,
+        },
+    )
 }
 
 /// This scans all display lists for Text items, extracts their font_hashes,
@@ -844,8 +1210,6 @@ pub fn collect_font_resource_updates(
         AddFontInstance, FontInstanceKey, FontInstanceOptions, FontInstancePlatformOptions,
         FontRenderMode, IdNamespace, FONT_INSTANCE_FLAG_NO_AUTOHINT,
     };
-    use azul_layout::solver3::display_list::{DisplayList, DisplayListItem};
-
     log_debug!(
         LogCategory::Rendering,
         "[collect_font_resource_updates] Scanning {} DOMs for fonts",
@@ -857,18 +1221,10 @@ pub fn collect_font_resource_updates(
     let mut resource_updates = Vec::new();
 
     // Collect all unique font hash + size combinations from display lists
-    for (dom_id, layout_result) in &layout_window.layout_results {
-        for item in &layout_result.display_list.items {
-            if let DisplayListItem::Text {
-                font_hash,
-                font_size_px,
-                ..
-            } = item
-            {
-                let font_sizes = font_hash_sizes.entry(font_hash.font_hash).or_default();
-                let font_size_au = Au::from_px(*font_size_px);
-                font_sizes.insert(font_size_au);
-            }
+    // (kept per list while the list lives: `list_names`).
+    for layout_result in layout_window.layout_results.values() {
+        for &(font_hash, font_size_au) in &list_names(&layout_result.display_list).fonts {
+            font_hash_sizes.entry(font_hash).or_default().insert(font_size_au);
         }
     }
 
@@ -1272,6 +1628,7 @@ pub(crate) fn register_frame_resources(
     txn: &mut WrTransaction,
     dpi: DpiScaleFactor,
 ) -> bool {
+    let _timed = gpu_time(GpuTime::Resources);
     // --- Fonts ---
     let (font_updates, live_font_hashes) =
         collect_font_resource_updates(layout_window, &layout_window.renderer_resources, dpi);
@@ -1345,19 +1702,29 @@ pub(crate) fn register_frame_resources(
 /// the ones it does not hold and delete the ones no list names any more.
 /// Records in `GpuStateManager::halos_owed` whether this scan left halos for a
 /// later frame. A scan that starts while halos are owed is a follow-up, and the
-/// chain of them ends after [`HALO_FOLLOW_UPS_MAX`]: for lists that name more
-/// halos than the kept ones can hold each scan would draw the ones the last one
-/// evicted, and the window would never go idle.
+/// chain of them ends after [`HALO_FOLLOW_UPS_MAX`] at the latest. (Lists that
+/// name more halos than can be kept do not keep the window awake: a scan drops
+/// none of the halos it uses, and one it has no room for is not left for a
+/// later frame.)
 fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
     let follow_up = layout_window.gpu_state_manager.halos_owed;
     // --- Images ---
-    let (image_updates, live_image_hashes, halos_left) =
-        collect_image_resource_updates_and_halos_left(layout_window, &layout_window.renderer_resources);
+    let (image_updates, live_image_hashes, halos) =
+        collect_image_resource_updates_and_halos(layout_window, &layout_window.renderer_resources);
     {
         let state = &mut layout_window.gpu_state_manager;
         state.halo_follow_ups = if follow_up { state.halo_follow_ups + 1 } else { 0 };
-        state.halos_owed = halos_left > 0 && state.halo_follow_ups < HALO_FOLLOW_UPS_MAX;
+        state.halos_owed = halos.left > 0 && state.halo_follow_ups < HALO_FOLLOW_UPS_MAX;
     }
+
+    // --- Text halos: each slot's picture under the slot's key ---
+    // BEFORE the image GC below: a slot that shows a new picture forgets the
+    // old one here (`release_frame`), so the GC does not delete the slot's key
+    // for a picture the key no longer shows.
+    register_text_halos(layout_window, txn, &halos);
+
+    // --- The places of pictures to come (nodes that show a null image) ---
+    reserve_image_places(layout_window, txn, halos.null_images);
 
     // Update currently_registered_images + the reverse image_key_map lookup so
     // the display-list builder can resolve an ImageRefHash to its ImageKey.
@@ -1387,6 +1754,7 @@ fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransa
     // is a never-reused id, so a freed key can't collide with a future image.
     let image_deletes = collect_stale_image_deletes(layout_window, &live_image_hashes);
     if !image_deletes.is_empty() {
+        forget_deleted_halo_slots(&mut layout_window.renderer_resources, &image_deletes);
         let wr_image_deletes: Vec<webrender::ResourceUpdate> = image_deletes
             .into_iter()
             .filter_map(|del| translate_resource_update(del))
@@ -1416,6 +1784,246 @@ fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransa
             txn.update_resources(wr_image_resources);
         }
     }
+}
+
+/// The text halos of a scan, registered with the renderer: every SLOT the lists
+/// paint a halo from (`TextHalo::slot`) has one image key for as long as it is
+/// painted, and the key shows the slot's picture - `add_image` the first time,
+/// `update_image` when the slot shows another picture (the label's own, drawn
+/// into the place of the one that stood in for it, `cpurender::text_halo`).
+/// The picture's hash resolves to the slot's key, which is how the translation
+/// finds it (`compositor2`, `PushTextShadow`).
+///
+/// Then what each DOM's list paints of halos - per shadow the key, the rect,
+/// the colour - is compared, as a digest, with what the scan before found
+/// (`GpuStateManager::text_halo_digests`), and a DOM for which it differs is
+/// marked: its list goes again (`stale_display_lists`, [`submit_display_lists`]).
+/// So a list is sent again exactly when the translation of its halos would
+/// come out different. A scan that only replaced pictures under their keys
+/// marks nothing, every list stays where it is, and its transaction carries
+/// image updates and nothing else (audit A4, the frames after a zoom settles:
+/// each one translated every list and built a scene, 17,495 items a frame on a
+/// municipal map, to say "this label's halo is that picture now").
+///
+/// The order of a slot's updates across transactions - its `add_image` before
+/// every `update_image` - holds because a transaction with resource updates
+/// never skips the scene builder ([`skip_scene_builder_unless_it_carries_resources`]).
+fn register_text_halos(layout_window: &mut LayoutWindow, txn: &mut WrTransaction, halos: &HaloScan) {
+    use azul_core::resources::ImageSlot;
+
+    let namespace = layout_window.id_namespace;
+    // Each slot once, with the picture it shows. (Two shadows of one slot show
+    // one picture: a slot is a kept picture's, and the scan asked what the
+    // lists paint only after it had drawn.)
+    let mut seen: HashSet<u64> = HashSet::new();
+    let frames = halos
+        .painted
+        .iter()
+        .flat_map(|(_, list)| list.iter())
+        .filter(|halo| seen.insert(halo.slot))
+        .map(|halo| (ImageSlot::TextHalo(halo.slot), &halo.image, ImageDirtyRect::All));
+    let uploads =
+        plan_overlay_image_uploads(frames, &mut layout_window.renderer_resources, namespace);
+    for upload in uploads {
+        let key = translate_image_key(upload.key);
+        let descriptor = wr_translate_image_descriptor(&upload.descriptor);
+        let data = translate_image_data(upload.data);
+        if upload.update {
+            // Another picture, and as a rule another size: the whole of it.
+            txn.update_image(key, descriptor, data, &DirtyRect::All);
+        } else {
+            txn.add_image(key, descriptor, data, None);
+        }
+    }
+
+    // What each DOM's list paints of halos now, against what the last scan
+    // found: a DOM for which that differs has a list the renderer holds
+    // translated otherwise.
+    let mut found: BTreeMap<DomId, u64> = BTreeMap::new();
+    for (dom_id, list) in &halos.painted {
+        let mut digest = FrameDigest::new();
+        digest.push_u64(list.len() as u64);
+        for halo in list {
+            let key = layout_window
+                .renderer_resources
+                .currently_registered_images
+                .get(&halo.image.get_hash())
+                .map_or(u64::MAX, |resolved| resolved.key.key);
+            digest.push_u64(halo.push as u64);
+            digest.push_u64(key);
+            digest.push_f32(halo.origin.0);
+            digest.push_f32(halo.origin.1);
+            digest.push_f32(halo.size.0);
+            digest.push_f32(halo.size.1);
+            digest.push_u64(u64::from(u32::from_be_bytes([
+                halo.color.r,
+                halo.color.g,
+                halo.color.b,
+                halo.color.a,
+            ])));
+        }
+        found.insert(*dom_id, digest.finish());
+    }
+    let LayoutWindow {
+        ref layout_results,
+        gpu_state_manager: ref mut state,
+        ..
+    } = *layout_window;
+    // (A DOM that is gone has no list to send.)
+    state
+        .stale_display_lists
+        .retain(|dom_id| layout_results.contains_key(dom_id));
+    for dom_id in layout_results.keys() {
+        if state.text_halo_digests.get(dom_id) != found.get(dom_id) {
+            state.stale_display_lists.insert(*dom_id);
+        }
+    }
+    state.text_halo_digests = found;
+}
+
+/// A node that shows a null image (`ImageRef::null_image`: a size and no
+/// pixels - the place of a picture to come, a map tile that is being drawn) is
+/// given the key of its slot NOW, showing one clear pixel
+/// (`ImageRefHash::PLACE`), and the translation paints the node from that key
+/// (`compositor2`, `Image`). The node's first picture (`change_node_image`) is
+/// then what every later one already was: `update_image` under the key the
+/// display list names (`plan_overlay_image_uploads` finds the slot keyed), with
+/// no list sent and no scene built. Before, the first picture gave the slot
+/// its key (`new_slot`), and every display list of the window was translated
+/// and sent again for it: per arriving tile of a map, its 17,495 items and a
+/// scene build (audit A4-09).
+///
+/// A place whose node shows no null image any more is deleted - unless the
+/// node's first picture took it, which makes it the node's slot like any
+/// other. A DOM in which a place is new is marked: its list is translated
+/// with the place from now on (`stale_display_lists`).
+fn reserve_image_places(
+    layout_window: &mut LayoutWindow,
+    txn: &mut WrTransaction,
+    null_images: bool,
+) {
+    use azul_core::resources::{
+        DecodedImage, ImageRefHash, ImageSlot, RawImage, RawImageData, RawImageFormat,
+    };
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    // The nodes that show a null image now: looked for only when the scan of
+    // the lists' images met one (it has seen every image item already).
+    let mut shown: std::collections::BTreeSet<(DomId, NodeId)> = std::collections::BTreeSet::new();
+    let lists = if null_images {
+        Some(&layout_window.layout_results)
+    } else {
+        None
+    };
+    for (dom_id, layout_result) in lists.into_iter().flatten() {
+        let list = &layout_result.display_list;
+        // Only the items that have an image are looked at (`list_names`).
+        for &index in &list_names(list).image_items {
+            let Some(DisplayListItem::Image { image, .. }) = list.items.get(index) else {
+                continue;
+            };
+            if !image.is_null_image() {
+                continue;
+            }
+            let Some(node) = list.node_mapping.get(index).copied().flatten() else {
+                continue;
+            };
+            // A node that has its picture already (the list is the one from
+            // before it arrived: a layout is pending) keeps the slot it has.
+            if layout_window
+                .content_overlay
+                .image_for_node(*dom_id, node)
+                .is_some()
+            {
+                continue;
+            }
+            shown.insert((*dom_id, node));
+        }
+    }
+
+    let namespace = layout_window.id_namespace;
+    let LayoutWindow {
+        renderer_resources: ref mut rr,
+        gpu_state_manager: ref mut state,
+        ..
+    } = *layout_window;
+
+    let gone: Vec<(ImageSlot, ImageKey)> = rr
+        .image_slots
+        .iter()
+        .filter(|(slot, key)| {
+            rr.image_key_map.get(*key) == Some(&ImageRefHash::PLACE)
+                && !matches!(slot, ImageSlot::Node(dom, node) if shown.contains(&(*dom, *node)))
+        })
+        .map(|(slot, key)| (*slot, *key))
+        .collect();
+    for (slot, key) in gone {
+        rr.image_slots.remove(&slot);
+        rr.image_key_map.remove(&key);
+        txn.delete_image(translate_image_key(key));
+    }
+
+    // One clear pixel, made when the first place needs it.
+    let mut pixel: Option<ImageRef> = None;
+    for (dom_id, node) in shown {
+        let slot = ImageSlot::Node(dom_id, node);
+        let has_its_place = rr
+            .image_slots
+            .get(&slot)
+            .is_some_and(|key| rr.image_key_map.get(key) == Some(&ImageRefHash::PLACE));
+        if has_its_place {
+            continue;
+        }
+        if pixel.is_none() {
+            pixel = ImageRef::new_rawimage(RawImage {
+                pixels: RawImageData::U8(vec![0u8; 4].into()),
+                width: 1,
+                height: 1,
+                premultiplied_alpha: true,
+                data_format: RawImageFormat::RGBA8,
+                tag: Vec::new().into(),
+            });
+        }
+        let Some(DecodedImage::Raw((descriptor, data))) = pixel.as_ref().map(ImageRef::get_data)
+        else {
+            return;
+        };
+        // A slot the node had before (the picture of an earlier view, which
+        // the image GC lets go by its own clock) is not the place: a new key.
+        let key = ImageKey::unique_image_slot(namespace);
+        rr.image_slots.insert(slot, key);
+        rr.image_key_map.insert(key, ImageRefHash::PLACE);
+        txn.add_image(
+            translate_image_key(key),
+            wr_translate_image_descriptor(descriptor),
+            translate_image_data(data.clone()),
+            None,
+        );
+        state.stale_display_lists.insert(dom_id);
+    }
+}
+
+/// The image GC deleted these keys: a text halo's slot whose key went is
+/// forgotten with it (the slots are numbered without end; kept, the map grew by
+/// one entry for every label a window ever showed).
+fn forget_deleted_halo_slots(
+    rr: &mut azul_core::resources::RendererResources,
+    deletes: &[ResourceUpdate],
+) {
+    use azul_core::resources::ImageSlot;
+
+    let deleted: HashSet<ImageKey> = deletes
+        .iter()
+        .filter_map(|update| match update {
+            ResourceUpdate::DeleteImage(key) => Some(*key),
+            _ => None,
+        })
+        .collect();
+    if deleted.is_empty() {
+        return;
+    }
+    rr.image_slots
+        .retain(|slot, key| !(matches!(slot, ImageSlot::TextHalo(_)) && deleted.contains(&*key)));
 }
 
 // ==== Video tiles: one renderer image per tile, updated in place ====
@@ -1452,6 +2060,10 @@ pub struct OverlayImageUpload {
     /// another pixel shape, else the region the app said it repainted
     /// (`CallbackInfo::change_node_image_rect`), clipped to the frame.
     pub dirty: ImageDirtyRect,
+    /// The key holds a frame of another colour model than this one (an NV12
+    /// frame of another matrix or range): the display list says how a YUV
+    /// image is converted, so the lists that name the key go again.
+    pub relist: bool,
 }
 
 /// Plan the uploads of this frame's in-place-replaced images.
@@ -1542,9 +2154,29 @@ where
         } else {
             ImageDirtyRect::All
         };
+        let relist = update
+            && descriptor.format.is_nv12()
+            && rr
+                .image_key_map
+                .get(&key)
+                .and_then(|previous| rr.currently_registered_images.get(previous))
+                .is_some_and(|previous| {
+                    previous.descriptor.format.is_nv12()
+                        && previous.descriptor.format != descriptor.format
+                });
         if let Some(old) = rr.image_key_map.get(&key).copied() {
             if old != hash {
-                rr.release_frame(key, old);
+                if matches!(slot, azul_core::resources::ImageSlot::TextHalo(_)) {
+                    // A halo's picture is one slot's (`TextHalo::slot`): no other
+                    // key shows it, and `release_frame` would look at every key
+                    // of the window to find that out - for each of the pictures
+                    // a frame replaces (2,200 keys x 40 pictures a frame on a
+                    // municipal map).
+                    rr.currently_registered_images.remove(&old);
+                    rr.image_last_seen_epoch.remove(&old);
+                } else {
+                    rr.release_frame(key, old);
+                }
             }
         }
         rr.image_key_map.insert(key, hash);
@@ -1563,6 +2195,7 @@ where
             chroma,
             drop_chroma,
             dirty,
+            relist,
         });
     }
     uploads
@@ -1703,7 +2336,7 @@ fn upload_overlay_images(layout_window: &mut LayoutWindow, txn: &mut WrTransacti
     let mut result = OverlayUploads::default();
     for upload in uploads {
         result.changed = true;
-        result.new_slot |= !upload.update;
+        result.new_slot |= !upload.update || upload.relist;
         let key = translate_image_key(upload.key);
         let data = translate_image_data(upload.data);
         match (upload.chroma, nv12_plane_descriptors(&upload.descriptor)) {
@@ -1868,6 +2501,8 @@ pub fn generate_frame(
     display_list_was_rebuilt: bool,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) {
+    publish_stale_gpu_frame(layout_window);
+    let _timed = gpu_time(GpuTime::Transaction);
     let physical_size = layout_window.current_window_state.size.get_physical_size();
     let framebuffer_size =
         DeviceIntSize::new(physical_size.width as i32, physical_size.height as i32);
@@ -1947,7 +2582,7 @@ pub fn generate_frame(
             LogCategory::Rendering,
             "[generate_frame] Display list unchanged - skipping scene builder"
         );
-        txn.skip_scene_builder();
+        let _ = skip_scene_builder_unless_it_carries_resources(txn);
     }
 
     // CRITICAL: Set root pipeline AFTER display list (matching upstream WebRender order)
@@ -1986,6 +2621,7 @@ pub fn generate_frame(
         "[generate_frame] Calling generate_frame on transaction"
     );
     txn.generate_frame(0, WrRenderReasons::empty());
+    gpu_frame_requested();
     layout_window.note_frame_presented();
 
     log_debug!(
@@ -2100,6 +2736,17 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
         .submitted_digest_changed(SubmittedDigest::ScrollOffsets, digest.finish())
 }
 
+/// `AZ_WALK_GPU_VALUES=1`: [`synchronize_gpu_values`] walks and hashes the bound
+/// values on every frame, as it did before it could tell from the write
+/// generation that none was written (A6-26), and sends them when the walk finds
+/// another set than the one sent. The switch for the real window: a value that
+/// is shown late or not at all without it and at once with it was written
+/// around its stamp. Read once per process.
+fn walk_gpu_values_every_frame() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_WALK_GPU_VALUES").is_ok_and(|v| !v.is_empty() && v != "0"))
+}
+
 /// Synchronize GPU-animated values (transforms, opacities) to WebRender.
 ///
 /// Returns `true` if anything was actually written into `txn` — that is, if the
@@ -2113,6 +2760,8 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
 pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) -> bool {
     use webrender::api::{DynamicProperties, PropertyValue};
 
+    let _timed = gpu_time(GpuTime::Values);
+
     // Get DPI scale factor to match display list coordinate space.
     // Display list items are in logical CSS pixels scaled by DPI in compositor2.
     // Transform values must use the same scaling.
@@ -2123,19 +2772,126 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         .inner
         .get();
 
-    // Collect all dynamic properties to update
-    let mut properties = DynamicProperties {
-        transforms: Vec::new(),
-        floats: Vec::new(),
-        colors: Vec::new(),
-    };
+    // (A6-26) Nothing the digest is made of is another thing than when it was taken: no
+    // value or key of any DOM was written (every bound value stamps itself, whoever writes
+    // it: `GpuStateManager::value_generation`), the scale is the same, every DOM shows the
+    // very list it showed, and the digest kept is still that one (a full frame forgets it).
+    // The walk below would give that digest and answer "not news": a release build does not
+    // make it. A debug build makes it anyway and holds the answer against it (two asserts
+    // below): a wrong skip would leave WebRender painting the old values.
+    let values_as_digested = layout_window
+        .gpu_state_manager
+        .gpu_values_are_the_digested_ones(&layout_window.layout_results, dpi_scale);
+    if values_as_digested && !cfg!(debug_assertions) && !walk_gpu_values_every_frame() {
+        return false;
+    }
 
-    // Every bound value, from THE shared source the CPU renderer reads too
-    // (`GpuValueCache::for_each_bound_value`): scrollbar thumbs and fades,
-    // CSS transforms and opacities, and the animation channel. The animation
-    // channel used to be missing here, so a tick that skipped the scene
-    // rebuild moved nothing on the GPU path; carrying it is what lets an
-    // animation frame be a dynamic-property update instead of a rebuild.
+    // FIRST WALK: is the set the one last sent? Nothing is allocated for the
+    // answer - a pan, a tile, a hover and every frame of a fade's hold ask it
+    // and get "yes". Every bound value, from THE shared source the CPU
+    // renderer reads too (`GpuValueCache::for_each_bound_value`): scrollbar
+    // thumbs and fades, CSS transforms and opacities, the animation channel,
+    // and the backgrounds whose colour fades (`DisplayList::color_bindings`).
+    //
+    // The digest is a SUM of one hash per (kind, key, value): the values come
+    // out of `HashMap`s, whose order is not a promise, and a sum does not
+    // depend on it (the lists used to be collected, copied and sorted for
+    // that, 320 KB for a map view's 2 000 transforms on every frame). Floats go
+    // in bitwise: a NaN opacity must compare equal to itself, or the idle loop
+    // this exists to break is back.
+    let (mut transform_sum, mut transform_count) = (0u64, 0usize);
+    let (mut float_sum, mut float_count) = (0u64, 0usize);
+    let (mut color_sum, mut color_count) = (0u64, 0usize);
+    for dom_id in layout_window.layout_results.keys() {
+        let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
+            continue;
+        };
+        gpu_cache.for_each_bound_value(
+            *dom_id,
+            |key, transform| {
+                let mut h = mix_value(0x7472_616e, key as u64);
+                for row in &transform.m {
+                    h = mix_value(
+                        h,
+                        (u64::from(row[0].to_bits()) << 32) | u64::from(row[1].to_bits()),
+                    );
+                    h = mix_value(
+                        h,
+                        (u64::from(row[2].to_bits()) << 32) | u64::from(row[3].to_bits()),
+                    );
+                }
+                transform_sum = transform_sum.wrapping_add(h);
+                transform_count += 1;
+            },
+            |key, opacity| {
+                let h = mix_value(
+                    mix_value(0x666c_6f61, key as u64),
+                    u64::from(opacity.to_bits()),
+                );
+                float_sum = float_sum.wrapping_add(h);
+                float_count += 1;
+            },
+        );
+        gpu_cache.for_each_bound_color(|key, color| {
+            let h = mix_value(
+                mix_value(0x636f_6c6f, key as u64),
+                u64::from(u32::from_be_bytes([color.r, color.g, color.b, color.a])),
+            );
+            color_sum = color_sum.wrapping_add(h);
+            color_count += 1;
+        });
+    }
+
+    // Nothing collected at all: nothing to send, nothing changed.
+    if transform_count == 0 && float_count == 0 && color_count == 0 {
+        debug_assert!(
+            !values_as_digested,
+            "a digest was taken of bound values, none is left, and the write generation did not move"
+        );
+        return false;
+    }
+
+    let mut digest = mix_value(transform_sum, transform_count as u64);
+    digest = mix_value(mix_value(digest, float_sum), float_count as u64);
+    digest = mix_value(mix_value(digest, color_sum), color_count as u64);
+    // The values are sent in device px: another scale is another set.
+    digest = mix_value(digest, u64::from(dpi_scale.to_bits()));
+    debug_assert!(
+        !values_as_digested
+            || layout_window.gpu_state_manager.last_gpu_value_digest == Some(digest),
+        "the bound values changed and their write generation did not"
+    );
+    if !values_as_digested {
+        #[cfg(test)]
+        BOUND_VALUES_WALKED.with(|n| n.set(n.get() + transform_count + float_count + color_count));
+        // What this digest was taken of, for the frames that follow.
+        let LayoutWindow {
+            ref layout_results,
+            ref mut gpu_state_manager,
+            ..
+        } = *layout_window;
+        gpu_state_manager.note_gpu_value_digest(layout_results, dpi_scale, digest);
+    }
+
+    // The same values as last time are not news.
+    if layout_window.gpu_state_manager.last_gpu_value_digest == Some(digest) {
+        log_debug!(
+            LogCategory::Rendering,
+            "[synchronize_gpu_values] {} floats / {} transforms unchanged - not submitting",
+            float_count,
+            transform_count
+        );
+        return false;
+    }
+    layout_window.gpu_state_manager.last_gpu_value_digest = Some(digest);
+
+    // SECOND WALK, only for a set that differs: the values as WebRender takes
+    // them, in lists of the size the first walk counted.
+    let mut properties = DynamicProperties {
+        transforms: Vec::with_capacity(transform_count),
+        floats: Vec::with_capacity(float_count),
+        colors: Vec::with_capacity(color_count),
+    };
     for dom_id in layout_window.layout_results.keys() {
         let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
             continue;
@@ -2146,19 +2902,21 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                 use webrender::api::units::LayoutTransform;
                 // Translation scaled by DPI: compositor2 lays items out in
                 // logical px x dpi_scale, and a transform acts in that space.
+                // The perspective column is divided by it, as in the list's
+                // own value (`compositor2`, `PushReferenceFrame`; A2-gpu-01).
                 let wr_transform = LayoutTransform::new(
                     transform.m[0][0],
                     transform.m[0][1],
                     transform.m[0][2],
-                    transform.m[0][3],
+                    transform.m[0][3] / dpi_scale,
                     transform.m[1][0],
                     transform.m[1][1],
                     transform.m[1][2],
-                    transform.m[1][3],
+                    transform.m[1][3] / dpi_scale,
                     transform.m[2][0],
                     transform.m[2][1],
                     transform.m[2][2],
-                    transform.m[2][3],
+                    transform.m[2][3] / dpi_scale,
                     transform.m[3][0] * dpi_scale,
                     transform.m[3][1] * dpi_scale,
                     transform.m[3][2] * dpi_scale,
@@ -2176,14 +2934,6 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                 });
             },
         );
-    }
-
-    // The backgrounds whose colour fades, bound by their rects
-    // (`DisplayList::color_bindings`).
-    for dom_id in layout_window.layout_results.keys() {
-        let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
-            continue;
-        };
         gpu_cache.for_each_bound_color(|key, color| {
             properties.colors.push(PropertyValue {
                 key: webrender::api::PropertyBindingKey::new(key as u64),
@@ -2197,64 +2947,17 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         });
     }
 
-    // Nothing collected at all: nothing to send, nothing changed.
-    if properties.floats.is_empty()
-        && properties.transforms.is_empty()
-        && properties.colors.is_empty()
-    {
-        return false;
-    }
-
-    // The same values as last time are not news. Compare bitwise (a NaN opacity
-    // must compare equal to itself, or the loop comes straight back).
-    // Order does not matter here: these are collected out of `HashMap`s, whose
-    // iteration order is not a promise, and `gpu_values_changed` sorts by key
-    // before digesting for exactly that reason.
-    let float_digest_input = properties
-        .floats
-        .iter()
-        .map(|p| (p.key.id.to_u64(), p.value))
-        .collect::<Vec<_>>();
-    let transform_digest_input = properties
-        .transforms
-        .iter()
-        .map(|p| (p.key.id.to_u64(), p.value.to_array()))
-        .collect::<Vec<_>>();
-
-    // The colours in the digest too: a colour fade frame is news, a colour
-    // that stood still is none.
-    let color_digest_input = properties
-        .colors
-        .iter()
-        .map(|p| {
-            let c = p.value;
-            let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-            (p.key.id.to_u64(), [byte(c.r), byte(c.g), byte(c.b), byte(c.a)])
-        })
-        .collect::<Vec<_>>();
-    let changed = layout_window.gpu_state_manager.gpu_values_changed_with_colors(
-        &float_digest_input,
-        &transform_digest_input,
-        &color_digest_input,
-    );
-
-    if !changed {
-        log_debug!(
-            LogCategory::Rendering,
-            "[synchronize_gpu_values] {} floats / {} transforms unchanged - not submitting",
-            properties.floats.len(),
-            properties.transforms.len()
-        );
-        return false;
-    }
-
-    // Store lengths before moving properties
-    let float_count = properties.floats.len();
-    let transform_count = properties.transforms.len();
-    let color_count = properties.colors.len();
-
-    // WebRender renamed update_dynamic_properties to append_dynamic_properties
+    // The set REPLACES the one WebRender holds: `append_dynamic_properties`
+    // alone only ever adds to its pending list (`SceneProperties::add_properties`
+    // extends it, and nothing but a reset empties it), so every changed frame
+    // left the whole set behind once more - a map view's 2 000 label
+    // transforms per zoom step, kept twice, compared, hashed and cloned again
+    // on every later frame (audit A4-01).
+    txn.reset_dynamic_properties();
     txn.append_dynamic_properties(properties);
+    gpu_count(|c| {
+        c.dynamic_properties += (float_count + transform_count + color_count) as u64;
+    });
 
     log_debug!(
         LogCategory::Rendering,
@@ -2265,6 +2968,15 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
     );
 
     true
+}
+
+/// One step of the digest of the bound values ([`synchronize_gpu_values`]):
+/// `word` mixed into `h` (a multiply by the 64-bit golden ratio and a fold,
+/// one per word where the byte-wise FNV took eight).
+#[inline]
+const fn mix_value(h: u64, word: u64) -> u64 {
+    let x = (h ^ word).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    x ^ (x >> 29)
 }
 
 // Additional Translation Functions
@@ -2691,6 +3403,19 @@ pub fn build_webrender_transaction(
     render_api: &mut WrRenderApi,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) -> Result<(), &'static str> {
+    let _ = render_api;
+    build_full_transaction(txn, layout_window, gl_context)
+}
+
+/// [`build_webrender_transaction`] itself. It asks nothing of the renderer's
+/// handle, so a test without a renderer builds a frame's transaction with it.
+pub(crate) fn build_full_transaction(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    gl_context: &azul_core::gl::OptionGlContextPtr,
+) -> Result<(), &'static str> {
+    publish_stale_gpu_frame(layout_window);
+    let _timed = gpu_time(GpuTime::Transaction);
     log_debug!(
         LogCategory::Rendering,
         "[build_atomic_txn] Building atomic transaction"
@@ -2770,7 +3495,7 @@ pub fn build_webrender_transaction(
         } = *layout_window;
 
         for (dom_id, layout_result) in layout_results {
-            gpu_state_manager.update_scrollbar_transforms(
+            gpu_state_manager.refresh_scroll_driven_transforms(
                 *dom_id,
                 scroll_manager,
                 &layout_result.layout_tree,
@@ -2819,11 +3544,16 @@ pub(crate) struct DisplayListSubmission {
     pub(crate) failed: Vec<DomId>,
 }
 
-/// What a display list is translated against besides the list itself: the
-/// renderer's scale (every coordinate is scaled by it) and the text halos drawn
-/// so far (a shadow is translated to its picture once it has one, to a blurred
-/// shadow before: a list translated before a halo was drawn does not hold it).
-/// A held list is held only while this is what it was translated against.
+/// What every display list is translated against besides the list itself: the
+/// renderer's scale (every coordinate is scaled by it). A held list is held
+/// only while this is what it was translated against.
+///
+/// The text halos were part of it, as the NUMBER of halos drawn so far (a
+/// shadow is translated to its picture once it has one): every halo a frame
+/// drew sent every list of the window again. What a list paints of halos is
+/// now followed per DOM ([`register_text_halos`], `stale_display_lists`): a picture
+/// that takes the place of its stand-in - the same key, the same rect - sends
+/// no list, and one that does not sends the list of its DOM.
 pub(crate) fn translation_env(layout_window: &LayoutWindow) -> u64 {
     let scale = u64::from(
         layout_window
@@ -2834,7 +3564,7 @@ pub(crate) fn translation_env(layout_window: &LayoutWindow) -> u64 {
             .get()
             .to_bits(),
     );
-    (scale << 32) ^ azul_layout::cpurender::halos_drawn() as u64
+    scale << 32
 }
 
 /// Record the lists as the renderer now holds them (see
@@ -2847,6 +3577,9 @@ fn note_display_lists_submitted(layout_window: &mut LayoutWindow) {
         ..
     } = *layout_window;
     gpu_state_manager.note_display_lists_submitted(layout_results, env);
+    // Every list the renderer holds is translated against the halos of the
+    // last scan now.
+    gpu_state_manager.stale_display_lists.clear();
 }
 
 /// Translate the DOMs' display lists and put them into `txn` at the current
@@ -2887,6 +3620,10 @@ fn submit_display_lists(
     let mut submission = DisplayListSubmission::default();
     for (dom_id, layout_result) in &layout_window.layout_results {
         if !force_all
+            && !layout_window
+                .gpu_state_manager
+                .stale_display_lists
+                .contains(dom_id)
             && layout_window.gpu_state_manager.display_list_is_held(
                 *dom_id,
                 &layout_result.display_list,
@@ -2901,17 +3638,30 @@ fn submit_display_lists(
             dom_id.inner as u32,
             layout_window.document_id.id,
         ));
-        match crate::desktop::compositor2::translate_displaylist_to_wr(
-            &layout_result.display_list,
-            pipeline_id,
-            viewport_size,
-            &layout_window.renderer_resources,
-            dpi,
-            Vec::new(), // Resources already added above
-            &layout_window.layout_results,
-            layout_window.document_id.id,
-        ) {
+        let translation = {
+            let _timed = gpu_time(GpuTime::Translate);
+            crate::desktop::compositor2::translate_displaylist_to_wr(
+                &layout_result.display_list,
+                pipeline_id,
+                viewport_size,
+                &layout_window.renderer_resources,
+                dpi,
+                Vec::new(), // Resources already added above
+                &layout_window.layout_results,
+                layout_window.document_id.id,
+            )
+        };
+        match translation {
             Ok((_, built_display_list)) => {
+                let (items, bytes) = (
+                    layout_result.display_list.items.len() as u64,
+                    built_display_list.size_in_bytes() as u64,
+                );
+                gpu_count(|c| {
+                    c.lists_translated += 1;
+                    c.items_translated += items;
+                    c.list_bytes += bytes;
+                });
                 log_debug!(
                     LogCategory::Rendering,
                     "[submit_display_lists] Adding display list for DOM {} (pipeline {:?}, \
@@ -3002,6 +3752,7 @@ fn build_webrender_transaction_tail(
         "[build_atomic_txn] Step 7: Calling generate_frame"
     );
     txn.generate_frame(0, webrender::api::RenderReasons::empty());
+    gpu_frame_requested();
     layout_window.note_frame_presented();
 
     // Increment epoch for next frame
@@ -3045,6 +3796,19 @@ pub fn build_image_only_transaction(
     _render_api: &mut WrRenderApi,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) -> Result<LightweightFrame, &'static str> {
+    build_lightweight_transaction(txn, layout_window, gl_context)
+}
+
+/// [`build_image_only_transaction`] itself. It asks nothing of the renderer's
+/// handle, so a test without a renderer makes the pass of a frame that laid
+/// nothing out with it.
+pub(crate) fn build_lightweight_transaction(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    gl_context: &azul_core::gl::OptionGlContextPtr,
+) -> Result<LightweightFrame, &'static str> {
+    publish_stale_gpu_frame(layout_window);
+    let _timed = gpu_time(GpuTime::Transaction);
     log_debug!(
         LogCategory::Rendering,
         "[build_image_only_txn] Building lightweight transaction (layout unchanged)"
@@ -3065,12 +3829,19 @@ pub fn build_image_only_transaction(
 
     // Step 1.6: Text halos. A scan that ran out of its budget left halos for the
     // frames that follow (`GpuStateManager::halos_owed`, which keeps the platform
-    // loop asking for them): this one scans again and draws the next ones, and the
-    // lists that name them are translated again below (the halos drawn so far are
-    // part of what a translation is made against, `translation_env`).
+    // loop asking for them): this one scans again and draws the next ones. A
+    // picture drawn into the place of its stand-in is an image update under the
+    // key the lists name, and no list goes; a DOM whose list would be translated
+    // differently now is marked and its list goes below (`register_text_halos`).
+    let resources_before_the_scan = txn.resource_updates.len();
     if layout_window.gpu_state_manager.halos_owed {
+        let _timed = gpu_time(GpuTime::Resources);
         register_image_resources(layout_window, txn);
     }
+    // What that scan put into the transaction is already recorded as
+    // registered (`currently_registered_images`): the transaction has to
+    // reach the renderer, whatever else it carries.
+    let scan_registered_images = txn.resource_updates.len() != resources_before_the_scan;
 
     // Step 2: Skip scene builder (display lists haven't changed) - unless a
     // slot got its key in this transaction (the display list WebRender holds
@@ -3082,15 +3853,24 @@ pub fn build_image_only_transaction(
     let env_changed = layout_window.gpu_state_manager.submitted_translation_env
         != translation_env(layout_window);
     let lists_unsubmitted = env_changed
+        || !layout_window.gpu_state_manager.stale_display_lists.is_empty()
         || layout_window
             .gpu_state_manager
             .display_lists_unsubmitted(&layout_window.layout_results);
     let lists_sent = overlay.new_slot || textures.new_slot || lists_rebuilt || lists_unsubmitted;
     if lists_sent {
+        // The lists go at a new epoch, and the texture cache frees a GL
+        // texture two epochs after the last list that drew it was SENT
+        // (`gl_texture_cache::remove_old_epochs`, after every render). The
+        // full transaction renews the stamps while it registers the images;
+        // this one registers nothing, so a GL image of a list lost its
+        // texture at the first list patched in place (a caret's blink, a
+        // colour fade) and was drawn from texture 0, black (audit A4-22).
+        renew_gl_textures_of_the_lists(layout_window);
         set_display_lists(txn, layout_window, overlay.new_slot || textures.new_slot)?;
         layout_window.epoch.increment();
     } else {
-        txn.skip_scene_builder();
+        let _ = skip_scene_builder_unless_it_carries_resources(txn);
     }
 
     // Step 3: Add scroll offsets (scroll position may have changed)
@@ -3109,7 +3889,7 @@ pub fn build_image_only_transaction(
         } = *layout_window;
 
         for (dom_id, layout_result) in layout_results {
-            gpu_state_manager.update_scrollbar_transforms(
+            gpu_state_manager.refresh_scroll_driven_transforms(
                 *dom_id,
                 scroll_manager,
                 &layout_result.layout_tree,
@@ -3156,9 +3936,14 @@ pub fn build_image_only_transaction(
     // (the caret's blink, a halo that was drawn) alters no property value, scroll
     // offset or image, and sent without a frame it was dropped with the rest of the
     // idle pass - the renderer never drew it, while the lists were recorded as sent.
-    let changed = images_changed || scroll_changed || gpu_values_changed || lists_sent;
+    let changed = images_changed
+        || scroll_changed
+        || gpu_values_changed
+        || lists_sent
+        || scan_registered_images;
     if changed {
         txn.generate_frame(0, webrender::api::RenderReasons::empty());
+        gpu_frame_requested();
         layout_window.note_frame_presented();
     }
 
@@ -3176,6 +3961,47 @@ pub fn build_image_only_transaction(
     );
 
     Ok(LightweightFrame { changed })
+}
+
+/// A transaction without a display list may skip the scene builder thread
+/// and go straight to the render backend - unless it carries resource
+/// updates. Returns whether it skips.
+///
+/// A transaction that skips "can race ahead of transactions that don't"
+/// (`Transaction::skip_scene_builder`): an `update_image` sent directly could
+/// reach the render backend before the `add_image` of the same key that is
+/// still on its way through the scene builder, and the backend panics on an
+/// update of an image it does not hold (`ResourceCache::update_image_template`).
+/// Today every shell waits for both threads after every send
+/// (`flush_scene_builder`), which hides the race; with this rule every
+/// transaction that adds, updates or deletes a resource takes the same queue,
+/// so add-before-update holds by construction, flush or no flush (audit
+/// A4-24, A5's H8). A transaction with resources and no list costs the scene
+/// builder nothing but the hop: it builds a scene only for a display list.
+fn skip_scene_builder_unless_it_carries_resources(txn: &mut WrTransaction) -> bool {
+    if txn.resource_updates.is_empty() {
+        txn.skip_scene_builder();
+        true
+    } else {
+        false
+    }
+}
+
+/// Every GL texture a display list of the window draws is stamped with the
+/// epoch the lists are about to be sent at: it lives while a list that draws
+/// it is sent (see `collect_image_resource_updates`, which does the same for
+/// a full transaction).
+fn renew_gl_textures_of_the_lists(layout_window: &LayoutWindow) {
+    for image in layout_window
+        .images_in_display_lists()
+        .filter(|image| image.is_gl_texture())
+    {
+        let _ = crate::desktop::gl_texture_cache::keep_alive(
+            &layout_window.document_id,
+            &azul_core::resources::image_ref_hash_to_external_image_id(image.get_hash()),
+            layout_window.epoch,
+        );
+    }
 }
 
 /// The frame's content on the GL path: every render callback whose inputs
@@ -3238,6 +4064,7 @@ fn register_overlay_textures(
     // mutates it. With each texture: whether it is sent again while the key
     // holds it already (a node's canvas, see above).
     let mut to_register: Vec<(
+        azul_core::resources::ImageSlot,
         azul_core::resources::ExternalImageId,
         azul_core::resources::ImageRefHash,
         azul_core::gl::Texture,
@@ -3246,19 +4073,32 @@ fn register_overlay_textures(
     for ((dom_id, node_id), image_ref) in layout_window.content_overlay.iter_images() {
         if let DecodedImage::Gl(texture) = image_ref.get_data() {
             let id = gl_texture_cache::TextureSlotKey::new(*dom_id, *node_id).to_external_image_id();
-            to_register.push((id, image_ref.get_hash(), texture.clone(), true));
+            to_register.push((
+                azul_core::resources::ImageSlot::Node(*dom_id, *node_id),
+                id,
+                image_ref.get_hash(),
+                texture.clone(),
+                true,
+            ));
         }
     }
     for (slot, image_ref) in layout_window.content_overlay.iter_backgrounds() {
         if let DecodedImage::Gl(texture) = image_ref.get_data() {
             let id = gl_texture_cache::background_texture_id(slot);
-            to_register.push((id, image_ref.get_hash(), texture.clone(), false));
+            to_register.push((
+                azul_core::resources::ImageSlot::Background(*slot),
+                id,
+                image_ref.get_hash(),
+                texture.clone(),
+                false,
+            ));
         }
     }
 
+    let namespace = layout_window.id_namespace;
     let mut result = OverlayUploads::default();
     let mut digest = FrameDigest::new();
-    for (external_image_id, produced_hash, texture, sent_again) in to_register {
+    for (slot, external_image_id, produced_hash, texture, sent_again) in to_register {
         digest.push_u64(external_image_id.inner);
         digest.push_u64(produced_hash.inner);
 
@@ -3269,11 +4109,23 @@ fn register_overlay_textures(
             texture.clone(),
         );
 
-        let image_key = ImageKey {
-            namespace: layout_window.id_namespace,
-            key: external_image_id.inner,
-        };
         let rr = &mut layout_window.renderer_resources;
+        // The slot's image key is its own, minted from the counter the images
+        // take their keys from (`RendererResources::image_slots`, as for the
+        // frames in memory, which may share the slot: a node shows one or the
+        // other). It was the slot's external image id - the DOM in the high
+        // and the node in the low 32 bits, or a hash - and the renderer takes
+        // the low 32 bits of a key: the texture of node 7 had the key of the
+        // seventh image ever made, and of node 7 of every other DOM (audit
+        // A4-11). The external image id stays what it was: the texture cache's.
+        let image_key = match rr.image_slots.get(&slot) {
+            Some(&key) if rr.image_key_map.contains_key(&key) => key,
+            _ => {
+                let key = ImageKey::unique_image_slot(namespace);
+                rr.image_slots.insert(slot, key);
+                key
+            }
+        };
         let shown = rr.image_key_map.get(&image_key).copied();
         let new_frame = shown != Some(produced_hash);
         if !new_frame && !sent_again {
@@ -3412,17 +4264,30 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
         ));
 
         // Translate display list to WebRender
-        match crate::desktop::compositor2::translate_displaylist_to_wr(
-            &layout_result.display_list,
-            pipeline_id,
-            viewport_size,
-            &layout_window.renderer_resources,
-            dpi,
-            Vec::new(), // Resources should already be registered
-            &layout_window.layout_results,
-            layout_window.document_id.id,
-        ) {
+        let translation = {
+            let _timed = gpu_time(GpuTime::Translate);
+            crate::desktop::compositor2::translate_displaylist_to_wr(
+                &layout_result.display_list,
+                pipeline_id,
+                viewport_size,
+                &layout_window.renderer_resources,
+                dpi,
+                Vec::new(), // Resources should already be registered
+                &layout_window.layout_results,
+                layout_window.document_id.id,
+            )
+        };
+        match translation {
             Ok((_, built_display_list)) => {
+                let (items, bytes) = (
+                    layout_result.display_list.items.len() as u64,
+                    built_display_list.size_in_bytes() as u64,
+                );
+                gpu_count(|c| {
+                    c.lists_translated += 1;
+                    c.items_translated += items;
+                    c.list_bytes += bytes;
+                });
                 log_debug!(
                     LogCategory::Rendering,
                     "[process_virtual_view_updates] Submitting display list for VirtualView DOM \
@@ -3457,6 +4322,7 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
         layout_window
             .gpu_state_manager
             .note_one_display_list_submitted(dom_id, &list);
+        layout_window.gpu_state_manager.stale_display_lists.remove(&dom_id);
     }
 }
 
@@ -3812,6 +4678,128 @@ mod gl_texture_lifetime_tests {
         }
     }
 
+    /// A4-22. A list patched in place (a caret's blink, a colour fade) is sent
+    /// by the lightweight transaction, at a new epoch, without the image
+    /// registration of a full one. The GL image the list draws keeps its
+    /// texture over any number of such sends. Mutation: without
+    /// `renew_gl_textures_of_the_lists` the texture is gone after the first.
+    #[test]
+    fn a_gl_image_keeps_its_texture_while_its_list_is_only_sent_again() {
+        let image = gl_image();
+        let id = image_ref_hash_to_external_image_id(image.get_hash());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(
+            &mut lw,
+            Dom::create_body().with_child(Dom::create_image(image).with_css("width: 8px; height: 8px;")),
+        );
+        send_frame(&mut lw);
+        assert!(gl_texture_cache::get_texture(&id).is_some(), "drawn, so kept");
+        // What `build_image_only_transaction` does when a list is sent again:
+        // the stamps, the lists at this epoch, the next epoch; then the render
+        // and the cache's clean-up.
+        for send in 0..6 {
+            super::renew_gl_textures_of_the_lists(&lw);
+            lw.epoch.increment();
+            gl_texture_integration::remove_old_gl_textures(&lw.document_id, lw.epoch);
+            assert!(
+                gl_texture_cache::get_texture(&id).is_some(),
+                "send {send}: the list still draws the image, but its texture left the cache"
+            );
+        }
+    }
+
+    /// A4-11. The image key of a canvas' slot is its own. It was the slot's
+    /// external image id - the DOM in the high and the node in the low 32 bits -
+    /// and the renderer's key is the low 32 bits: the canvas at node n of the
+    /// window's DOM had key n, which is the key of the image with id n (an
+    /// image's key is its id, a counter from 1). Here the canvas IS the node
+    /// whose index is the id of a picture the same window shows: one renderer
+    /// image for two pictures, and whichever was added last was drawn for both.
+    ///
+    /// Mutation: `key: external_image_id.inner` back in
+    /// `register_overlay_textures` gives both the picture's key (when the
+    /// picture's id is small enough to make a DOM of: under 4,096).
+    #[test]
+    fn a_canvas_slot_has_an_image_key_no_image_has() {
+        use azul_core::{
+            dom::{DomId, NodeId},
+            resources::{ImageSlot, RawImage, RawImageData},
+        };
+        use azul_layout::overlay::ContentChange;
+
+        let picture = |fill: u8| {
+            ImageRef::new_rawimage(RawImage {
+                pixels: RawImageData::U8(vec![fill; 8 * 8 * 4].into()),
+                width: 8,
+                height: 8,
+                premultiplied_alpha: true,
+                data_format: RawImageFormat::RGBA8,
+                tag: Vec::new().into(),
+            })
+            .expect("a picture in memory")
+        };
+        let shown = picture(9);
+        // The body is node 0, its children 1, 2, ..: the canvas is child
+        // number `id` (as far as a DOM of that many nodes is worth making).
+        let id = usize::try_from(shown.get_hash().inner).expect("an id");
+        let fillers = id.saturating_sub(1).min(4096);
+        let canvas = NodeId::new(fillers + 1);
+        let mut body = Dom::create_body();
+        for _ in 0..fillers {
+            body = body.with_child(Dom::create_div());
+        }
+        body = body
+            .with_child(Dom::create_image(picture(1)).with_css("width: 8px; height: 8px;"))
+            .with_child(Dom::create_image(shown.clone()).with_css("width: 8px; height: 8px;"));
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        lay_out(&mut lw, body);
+
+        // The canvas draws its first frame.
+        let frame = gl_image();
+        let _ = lw.apply_content_change(ContentChange::Image {
+            dom_id: DomId::ROOT_ID,
+            node_id: canvas,
+            image: frame.clone(),
+            dirty_rect: None,
+        });
+        let dpi = lw.current_window_state.size.get_hidpi_factor();
+        let mut txn = WrTransaction::new();
+        let textures = super::register_overlay_textures(&mut lw, &mut txn);
+        assert!(textures.new_slot, "the slot's first frame: a new key");
+        register_frame_resources(&mut lw, &mut txn, dpi);
+
+        let rr = &lw.renderer_resources;
+        let canvas_key = rr.currently_registered_images[&frame.get_hash()].key;
+        let picture_key = rr.currently_registered_images[&shown.get_hash()].key;
+        assert_eq!(
+            rr.image_slots.get(&ImageSlot::Node(DomId::ROOT_ID, canvas)),
+            Some(&canvas_key),
+            "the slot keeps its key"
+        );
+        assert_ne!(
+            super::translate_image_key(canvas_key),
+            super::translate_image_key(picture_key),
+            "the canvas at node {} and the picture with id {id} are two renderer images",
+            canvas.index()
+        );
+
+        // The next frame of the canvas is new pixels under that key.
+        let next = gl_image();
+        let _ = lw.apply_content_change(ContentChange::Image {
+            dom_id: DomId::ROOT_ID,
+            node_id: canvas,
+            image: next.clone(),
+            dirty_rect: None,
+        });
+        let mut txn = WrTransaction::new();
+        let textures = super::register_overlay_textures(&mut lw, &mut txn);
+        assert!(!textures.new_slot && textures.changed);
+        assert_eq!(
+            lw.renderer_resources.currently_registered_images[&next.get_hash()].key,
+            canvas_key
+        );
+    }
+
     #[test]
     fn a_gl_image_no_display_list_draws_any_more_lets_its_texture_go() {
         let image = gl_image();
@@ -4014,5 +5002,113 @@ mod display_list_submission_tests {
         note_display_lists_submitted(&mut lw);
         let settled = submit_display_lists(&mut WrTransaction::new(), &lw, false);
         assert!(settled.translated.is_empty(), "and held again at the new scale");
+    }
+}
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! The GPU path's counters of a frame (audit A4, `## Counters`): what a
+    //! transaction translated and held is what the window reports for the
+    //! frame, and a frame starts at zero.
+
+    use azul_core::{
+        dom::{Dom, DomId},
+        geom::LogicalSize,
+        resources::RendererResources,
+        styled_dom::StyledDom,
+    };
+    use azul_layout::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use super::{count_transaction, publish_gpu_frame, set_display_lists, WrTransaction};
+
+    /// A laid-out window of `boxes` painted boxes.
+    fn window(boxes: usize) -> LayoutWindow {
+        let mut dom = Dom::create_body();
+        for _ in 0..boxes {
+            dom = dom.with_child(
+                Dom::create_div().with_css("width: 20px; height: 4px; background: #3366cc;"),
+            );
+        }
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(200.0, 400.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            StyledDom::create_from_dom(dom),
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the window lays out");
+        lw
+    }
+
+    /// A4-24. Only a transaction without resource updates goes straight to the
+    /// render backend: one that deletes (adds, updates) an image takes the scene
+    /// builder's queue like the transaction that added it.
+    /// Mutation: skipping unconditionally returns `true` for the second.
+    #[test]
+    fn a_transaction_with_resource_updates_does_not_skip_the_scene_builder() {
+        let mut plain = WrTransaction::new();
+        assert!(super::skip_scene_builder_unless_it_carries_resources(&mut plain));
+
+        let mut with_resources = WrTransaction::new();
+        with_resources.update_resources(vec![webrender::ResourceUpdate::DeleteImage(
+            webrender::api::ImageKey(webrender::api::IdNamespace(1), 7),
+        )]);
+        assert!(!super::skip_scene_builder_unless_it_carries_resources(
+            &mut with_resources
+        ));
+    }
+
+    #[test]
+    fn a_frame_counts_its_lists_items_and_transaction_and_the_next_starts_at_zero() {
+        let mut lw = window(32);
+        // Whatever this thread counted before this test is not this frame's.
+        publish_gpu_frame(&lw, 0, 0, 0);
+        let before = lw.frame_clock.gpu_total().items_translated;
+
+        let mut txn = WrTransaction::new();
+        let sent = set_display_lists(&mut txn, &mut lw, false).expect("translates");
+        assert_eq!(sent.translated, vec![DomId::ROOT_ID]);
+        count_transaction(&txn);
+        publish_gpu_frame(&lw, 1_500, 2_500, 7);
+
+        let items = lw.layout_results[&DomId::ROOT_ID].display_list.items.len() as u64;
+        assert!(items >= 32, "a box each at the least: {items}");
+        let frame = lw.frame_clock.gpu_last();
+        assert_eq!(frame.transactions, 1);
+        assert_eq!(frame.lists_translated, 1);
+        assert_eq!(frame.items_translated, items);
+        assert!(frame.list_bytes > 0);
+        assert_eq!(
+            (frame.blocked_us, frame.render_us, frame.draw_calls),
+            (1_500, 2_500, 7)
+        );
+        assert_eq!(lw.frame_timings().gpu_items_translated, items, "what an app reads");
+
+        // The renderer holds the list now: the next frame's transaction
+        // translates nothing, and its counters do not carry the last frame's.
+        let mut txn = WrTransaction::new();
+        let again = set_display_lists(&mut txn, &mut lw, false).expect("ok");
+        assert!(again.translated.is_empty());
+        count_transaction(&txn);
+        publish_gpu_frame(&lw, 0, 0, 0);
+        let frame = lw.frame_clock.gpu_last();
+        assert_eq!(
+            (frame.lists_translated, frame.items_translated, frame.list_bytes),
+            (0, 0, 0),
+            "a held list costs the frame no translation"
+        );
+        assert_eq!(frame.transactions, 1);
+        assert_eq!(
+            lw.frame_clock.gpu_total().items_translated - before,
+            items,
+            "the sum of both frames"
+        );
     }
 }

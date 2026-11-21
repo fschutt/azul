@@ -348,20 +348,6 @@ pub fn white_space_runs(
     text: &str,
     style: &Arc<StyleProperties>,
 ) -> Vec<InlineContent> {
-    // (characters with the Bidi_Control property) as if they were not there"
-    // Strip bidi control characters before white-space processing so they don't
-    // interfere with collapsing (e.g. a bidi mark between two spaces).
-    let text_owned;
-    let text: &str = if text.chars().any(is_bidi_control) {
-        text_owned = text
-            .chars()
-            .filter(|c| !is_bidi_control(*c))
-            .collect::<String>();
-        &text_owned
-    } else {
-        text
-    };
-
     // Get the white-space property - TEXT NODES inherit from parent!
     // We need to check the parent element's white-space, not the text node itself
     let node_hierarchy = styled_dom.node_hierarchy.as_container();
@@ -380,6 +366,104 @@ pub fn white_space_runs(
             _ => StyleWhiteSpace::Normal,
         }
     });
+
+    #[cfg(test)]
+    WHITE_SPACE_RUNS.with(|n| n.set(n.get() + 1));
+    // A label, a word, a sentence typed with single spaces: the processing
+    // below would hand it back as it is, through a dozen allocations.
+    if matches!(
+        white_space,
+        StyleWhiteSpace::Normal | StyleWhiteSpace::Nowrap
+    ) && is_collapsed_plain_text(text)
+    {
+        return collapsed_plain_text_run(dom_id, text, style);
+    }
+    #[cfg(test)]
+    WHITE_SPACE_GENERAL_RUNS.with(|n| n.set(n.get() + 1));
+    white_space_runs_general(white_space, dom_id, text, style)
+}
+
+/// How often [`white_space_runs`] was asked on this thread, and how often it
+/// went through [`white_space_runs_general`] (`audit_tests::a3_solver::ifc`:
+/// plain labels do not).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static WHITE_SPACE_RUNS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static WHITE_SPACE_GENERAL_RUNS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Whether the white-space processing of `white-space: normal` / `nowrap`
+/// ([`white_space_runs_general`]) hands `text` back as it is, one run: a text
+/// without
+///
+/// - a bidi control (the processing strips them),
+/// - a carriage return or a line feed (normalised, then transformed as segment breaks),
+/// - a character of line breaking class BK or NL, the form feed among them (the text is split
+///   there and a forced break put in),
+/// - a tab (collapsed to a space),
+/// - two spaces in a row (collapsed to one).
+///
+/// A single space at the start or the end stays (the lines trim it), and so
+/// does every other character: a no-break space is not document white space.
+pub(super) fn is_collapsed_plain_text(text: &str) -> bool {
+    let mut after_space = false;
+    for c in text.chars() {
+        if c == ' ' {
+            if after_space {
+                return false;
+            }
+            after_space = true;
+        } else {
+            if matches!(c, '\t' | '\n' | '\r') || is_bk_or_nl_class(c) || is_bidi_control(c) {
+                return false;
+            }
+            after_space = false;
+        }
+    }
+    true
+}
+
+/// What [`white_space_runs_general`] makes of a text
+/// [`is_collapsed_plain_text`] accepts under `white-space: normal` /
+/// `nowrap`: the text as one run of `dom_id`, and nothing of an empty text.
+pub(super) fn collapsed_plain_text_run(
+    dom_id: NodeId,
+    text: &str,
+    style: &Arc<StyleProperties>,
+) -> Vec<InlineContent> {
+    let mut result = Vec::with_capacity(1);
+    if !text.is_empty() {
+        result.push(InlineContent::Text(StyledRun {
+            text: Arc::from(text),
+            style: Arc::clone(style),
+            logical_start_byte: 0,
+            source_node_id: Some(dom_id),
+        }));
+    }
+    result
+}
+
+/// [`white_space_runs`] for a text under `white_space`, the value its parent
+/// element resolves: every step of the processing, whatever the text needs.
+pub(super) fn white_space_runs_general(
+    white_space: StyleWhiteSpace,
+    dom_id: NodeId,
+    text: &str,
+    style: &Arc<StyleProperties>,
+) -> Vec<InlineContent> {
+    // (characters with the Bidi_Control property) as if they were not there"
+    // Strip bidi control characters before white-space processing so they don't
+    // interfere with collapsing (e.g. a bidi mark between two spaces).
+    let text_owned;
+    let text: &str = if text.chars().any(is_bidi_control) {
+        text_owned = text
+            .chars()
+            .filter(|c| !is_bidi_control(*c))
+            .collect::<String>();
+        &text_owned
+    } else {
+        text
+    };
 
     let mut result = Vec::new();
 
@@ -600,5 +684,102 @@ pub(super) fn apply_text_transform(text: &str, transform: text3::cache::TextTran
                 })
                 .collect()
         }
+    }
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// A3-solver-23: a text [`is_collapsed_plain_text`] accepts is handed back by
+    /// [`collapsed_plain_text_run`] exactly as the whole white-space processing of
+    /// `white-space: normal` / `nowrap` hands it back ([`white_space_runs_general`]), for a
+    /// table of texts and for every text of up to four characters over an alphabet with one
+    /// character of each kind the processing treats.
+    ///
+    /// Mutation: without the two-spaces-in-a-row check `is_collapsed_plain_text` accepts
+    /// `"a  b"`, which the processing collapses to `"a b"`.
+    #[test]
+    fn a_plain_text_is_handed_back_as_the_white_space_processing_would() {
+        let style = Arc::new(StyleProperties::default());
+        let node = NodeId::new(3);
+        let agree = |text: &str| {
+            let fast = collapsed_plain_text_run(node, text, &style);
+            for white_space in [StyleWhiteSpace::Normal, StyleWhiteSpace::Nowrap] {
+                assert_eq!(
+                    fast,
+                    white_space_runs_general(white_space, node, text, &style),
+                    "{text:?} under {white_space:?}"
+                );
+            }
+        };
+        // (the text, whether the processing leaves it as it is)
+        let table: &[(&str, bool)] = &[
+            ("", true),
+            ("a", true),
+            ("label 12", true),
+            (" ", true),
+            (" a", true),
+            ("a ", true),
+            (" a b ", true),
+            ("Z\u{fc}rich-Nord (K\u{f6}ln)", true),
+            // A no-break space and an ideographic space are no document white space.
+            ("a\u{a0}b", true),
+            ("a\u{3000}\u{3000}b", true),
+            // A zero-width space matters only next to a segment break.
+            ("a\u{200b}b", true),
+            ("a  b", false),
+            ("  ", false),
+            ("  a", false),
+            ("a  ", false),
+            ("a\tb", false),
+            ("a\nb", false),
+            ("a\r\nb", false),
+            ("a\rb", false),
+            ("a\u{c}b", false),
+            ("a\u{b}b", false),
+            ("a\u{85}b", false),
+            ("a\u{2028}b", false),
+            ("a\u{2029}b", false),
+            ("a\u{200f}b", false),
+            ("a \u{200f} b", false),
+            ("\u{61c}", false),
+            ("a\u{2066}b\u{2069}", false),
+        ];
+        for &(text, plain) in table {
+            assert_eq!(is_collapsed_plain_text(text), plain, "{text:?}");
+            if plain {
+                agree(text);
+            }
+        }
+
+        let alphabet = [
+            'a', ' ', '\t', '\n', '\r', '\u{c}', '\u{2028}', '\u{200f}', '\u{a0}',
+        ];
+        let mut texts = vec![String::new()];
+        let mut from = 0;
+        for _ in 0..4 {
+            let until = texts.len();
+            for i in from..until {
+                for c in alphabet {
+                    let mut longer = texts[i].clone();
+                    longer.push(c);
+                    texts.push(longer);
+                }
+            }
+            from = until;
+        }
+        let mut plain_texts = 0_usize;
+        for text in &texts {
+            if is_collapsed_plain_text(text) {
+                plain_texts += 1;
+                agree(text);
+            }
+        }
+        assert!(
+            plain_texts > 20,
+            "harness: {plain_texts} of {} texts need no processing",
+            texts.len()
+        );
     }
 }

@@ -356,7 +356,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseDown] LEFT at ({:.1}, {:.1})",
+            "[mouseDown] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -422,7 +422,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseUp] LEFT at ({:.1}, {:.1})",
+            "[mouseUp] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -2442,7 +2442,10 @@ pub(crate) enum MemoryRelease {
 /// that follow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReleasePlan {
-    /// The CPU compositor's layers (the next frame makes them again).
+    /// What the CPU backend keeps only to make frames cheaper
+    /// (`CpuBackend::release_caches`): the kept group surfaces, the kept text
+    /// halos and turned text pictures, the compositor's layers. The frames
+    /// that follow make again what they show.
     pub compositor: bool,
     /// The glyph cache's older generation.
     pub glyph_generation: bool,
@@ -4753,25 +4756,10 @@ define_class!(
                     set_window_frame_and_dispatch(macos_window, WindowFrame::Minimized);
                     macos_window.set_display_link_paused(true);
                     // A9-09: a window in the Dock shows nothing until it comes back, and what
-                    // is given back here is drawn again then: the CPU compositor's layers
-                    // (its root layer is one frame of pixels: 22 MB at 2940 x 1912, 59 MB
-                    // at 5120 x 2880; made again by the first frame after the window is
-                    // back), the glyph cache's older generation, WebRender's caches
-                    // (textures, glyphs, GPU cache:
-                    // re-uploaded from the templates it keeps), and the allocator's free
-                    // pages. `AZ_KEEP_CACHES_MINIMIZED=1` keeps everything.
-                    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-                    let keep = *KEEP.get_or_init(|| {
-                        std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0")
-                    });
-                    if !keep {
-                        macos_window.cpu_backend.compositor = None;
-                        macos_window.cpu_backend.glyph_cache.gc();
-                        if let Some(api) = macos_window.common.render_api.as_ref() {
-                            api.notify_memory_pressure();
-                        }
-                        azul_layout::probe::hint_purge_allocator();
-                    }
+                    // it gives back is drawn again then. The one release every reason goes
+                    // through (`release_regenerable_memory`: what, and the switch
+                    // `AZ_KEEP_CACHES_MINIMIZED=1`).
+                    macos_window.release_regenerable_memory(MemoryRelease::NotShown);
                 }
                 log_debug!(LogCategory::Window, "[WindowDelegate] Window minimized");
             }
@@ -7577,10 +7565,17 @@ impl MacOSWindow {
             renderer.set_external_image_handler(Box::new(WrCompositor::default()));
 
             let render_api = sender.create_api();
-            let physical_size = azul_core::geom::PhysicalSize {
-                width: (options.window_state.size.dimensions.width * actual_hidpi_factor) as u32,
-                height: (options.window_state.size.dimensions.height * actual_hidpi_factor) as u32,
-            };
+            // The document is born at the size every later frame gives it
+            // (`WindowSize::get_physical_size` -> `LogicalSize::to_physical`:
+            // ROUNDED): truncated here, it was one pixel smaller than the
+            // viewport and the framebuffer for a fractional product (333.7
+            // units at 1.5: 500.55 -> 500 here, 501 everywhere else) until the
+            // first transaction set the document view (audit A10-15).
+            let physical_size = options
+                .window_state
+                .size
+                .dimensions
+                .to_physical(actual_hidpi_factor);
             let framebuffer_size = webrender::api::units::DeviceIntSize::new(
                 physical_size.width as i32,
                 physical_size.height as i32,
@@ -7588,9 +7583,19 @@ impl MacOSWindow {
 
             let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
             let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
-            let hit_tester = render_api
-                .request_hit_tester(wr_translate_document_id(document_id))
-                .resolve();
+            // WebRender's hit tester is asked by nobody: every hit test is
+            // answered by the layout-based tester
+            // (`CommonWindowState::perform_hit_test`). It is not requested
+            // any more - `resolve()` was a blocking round trip to the render
+            // backend at every window creation. `AZ_WR_HIT_TESTER=1` requests
+            // it as before (audit A6-17).
+            let hit_tester = std::env::var_os("AZ_WR_HIT_TESTER").is_some().then(|| {
+                AsyncHitTester::Resolved(
+                    render_api
+                        .request_hit_tester(wr_translate_document_id(document_id))
+                        .resolve(),
+                )
+            });
             let gl_ctx_inner = gl_context
                 .as_ref()
                 .map(|_| GlContextPtr::new(RendererType::Hardware, gl_funcs.clone()));
@@ -7608,7 +7613,7 @@ impl MacOSWindow {
                     Some(render_api),
                     Some(document_id),
                     Some(id_namespace),
-                    Some(AsyncHitTester::Resolved(hit_tester)),
+                    hit_tester,
                     gl_ctx_inner.into(),
                     RendererType::Hardware,
                 )
@@ -9529,7 +9534,13 @@ impl MacOSWindow {
         #[cfg(feature = "cpurender")]
         {
             if plan.compositor {
-                self.cpu_backend.compositor = None;
+                // A1-29: the kept group surfaces (one view of the window with its overscan:
+                // 47 MB at 2940 x 1912), the kept halos and turned text pictures of this
+                // thread (up to 96 MB) and the compositor's layers (its root layer is one
+                // frame of pixels). This is the thread that paints the window's frames
+                // (`drawRect:`), which the halo store belongs to; the halos are the
+                // thread's, so every CPU window on it draws again the ones it shows.
+                self.cpu_backend.release_caches();
             }
             if plan.glyph_generation {
                 self.cpu_backend.glyph_cache.gc();
@@ -10133,6 +10144,19 @@ impl MacOSWindow {
                 "operation_not_allowed" | "not-allowed" => NSCursor::operationNotAllowedCursor(),
                 _ => NSCursor::arrowCursor(), // Default fallback
             };
+            // A pointer move asks for the cursor of the node under it, which
+            // is nearly always the one that is set: AppKit is asked what its
+            // current cursor is, and `set` (a message to the window server)
+            // is sent only for another one. `currentCursor` is what the
+            // application last set, by this call or by AppKit itself (a
+            // resize cursor at the window's edge), so nothing is remembered
+            // here that could go stale. `AZ_CURSOR_SET_ALWAYS=1`: `set` on
+            // every call, as before.
+            if !cursor_is_set_on_every_call()
+                && core::ptr::eq::<NSCursor>(&*NSCursor::currentCursor(), &*cursor)
+            {
+                return;
+            }
             cursor.set();
         }
     }
@@ -10882,12 +10906,16 @@ impl MacOSWindow {
         // frame WebRender published has nothing to send).
         let only_shows_a_published_frame =
             std::mem::take(&mut self.frame_waiting) && !display_list_needs_rebuild && txn.is_empty();
+        // From here to the flush's return the UI thread waits for the scene
+        // builder and the render backend: the frame's `gpu_blocked_us`.
+        let blocked_started = std::time::Instant::now();
         if let Some(layout_window) = self
             .common
             .layout_window
             .as_ref()
             .filter(|_| !only_shows_a_published_frame)
         {
+            crate::desktop::wr_translate2::count_transaction(&txn);
             let doc_id = wr_translate_document_id(layout_window.document_id);
             log_trace!(
                 LogCategory::Rendering,
@@ -10906,8 +10934,11 @@ impl MacOSWindow {
                 .flush_scene_builder();
         }
         log_trace!(LogCategory::Rendering, "[WebRender] Transaction sent");
+        let blocked_us = crate::desktop::wr_translate2::elapsed_us(blocked_started);
 
         // Step 2: Call WebRender to composite the scene
+        let render_started = std::time::Instant::now();
+        let mut draw_calls = 0u64;
         let physical_size = self.common.current_window_state().size.get_physical_size();
         // The canvas follows the mode the window shows (THE clear colour).
         self.common.sync_renderer_clear_color();
@@ -10938,6 +10969,7 @@ impl MacOSWindow {
                         "[WebRender] Render successful: {:?}",
                         results.stats
                     );
+                    draw_calls = results.stats.total_draw_calls as u64;
 
                     // Store WebRender's dirty rects for per-rect compositor invalidation.
                     // request_redraw() uses these to call setNeedsDisplayInRect: instead
@@ -10989,6 +11021,14 @@ impl MacOSWindow {
             // still composites the whole window on present; see the report
             // VIDEO_PATH_2026_09_30.)
             let (paint, present) = gpu_frame_damage(&self.gpu_damage_rects);
+            // What the GPU path did for this frame, for the frame report and
+            // `get_frame_timings` (the swap below is not in `render_us`).
+            crate::desktop::wr_translate2::publish_gpu_frame(
+                layout_window,
+                blocked_us,
+                crate::desktop::wr_translate2::elapsed_us(render_started),
+                draw_calls,
+            );
             layout_window.record_frame(paint, present);
         }
 
@@ -12482,6 +12522,15 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             performanceTime: PERFORM_NOW
         ];
     }
+}
+
+/// `AZ_CURSOR_SET_ALWAYS=1`: `MacOSWindow::set_cursor` sends `-[NSCursor set]`
+/// on every call (every pointer move), as it did before audit A6-12, instead
+/// of only when AppKit's current cursor is another one. For a machine where
+/// the cursor is found stale after it left and re-entered the content.
+fn cursor_is_set_on_every_call() -> bool {
+    static ALWAYS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALWAYS.get_or_init(|| std::env::var_os("AZ_CURSOR_SET_ALWAYS").is_some_and(|v| v != "0"))
 }
 
 #[cfg(test)]

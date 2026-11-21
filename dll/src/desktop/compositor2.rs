@@ -26,7 +26,7 @@ use azul_css::props::{
     style::border_radius::StyleBorderRadius,
 };
 use azul_layout::{
-    cpurender::{text_halos, TextHalo},
+    cpurender::{text_halos_of_held_list, TextHalo},
     solver3::display_list::{BorderRadius, DisplayList},
     window::DomLayoutResult,
 };
@@ -183,6 +183,81 @@ fn show_hit_test_overlay() -> bool {
     *ON.get_or_init(|| azul_core::window::DebugState::from_az_overlay_env().show_hit_test_areas)
 }
 
+/// Whether the hit-test areas of a display list are handed to WebRender
+/// (`AZ_WR_HIT_TEST=1`; off by default).
+///
+/// Nothing in azul asks WebRender's hit tester any more: every backend answers
+/// from the layout's own (`CommonWindowState::perform_hit_test`). The items
+/// were still translated - 3,703 of the 17,495 items of a map view - put into
+/// the scene's hit-testing scene, and they made the render backend build a new
+/// hit tester over every spatial node after each scroll offset or property
+/// value that changed (`Document::rebuild_hit_tester`): once per pan frame and
+/// per zoom step (audit A4-03). Read once per process, like the overlay switch.
+fn wr_hit_test_items() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_WR_HIT_TEST").map(|v| v == "1").unwrap_or(false))
+}
+
+/// The scroll id, and the first half of the spatial key, of the scroll frame a
+/// view's content is put under ([`view_content_scroll_frames`]). A node's scroll
+/// id is a hash and a transform key a counter from 1: neither is this.
+const VIEW_CONTENT_FRAME: u64 = u64::MAX - 1;
+
+#[cfg(test)]
+thread_local! {
+    /// A test's own answer to [`view_content_scroll_frames`], for its thread.
+    static VIEW_CONTENT_FRAMES: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether the content of a view - the display list of a DOM other than the
+/// window's own, which WebRender draws as an iframe - is put under an explicit
+/// scroll frame of its own. On unless the environment says `AZ_WR_VIEW_SLICE=0`
+/// (read once per process).
+///
+/// The frame does not scroll and moves nothing. It is there for WebRender's
+/// picture cache, which cuts its slices by SCROLL ROOT, and an iframe's own
+/// (pipeline root) frame is never one (`SceneSpatialTree::find_scroll_root`).
+/// Without a scroll frame inside it a view's content had the root of the
+/// document for its scroll root: the view scrolls on its pipeline's root
+/// frame, so to the cache every primitive of the view moved on every frame of
+/// a pan, and every tile under it was drawn again - a map's 17,495 items
+/// prepared, batched and rasterised per pan frame. With the frame the view's
+/// slice hangs on the frame, the pan is an offset ABOVE the slice's spatial
+/// node, and WebRender moves the tiles it has and draws the strip that came
+/// into view (audit A4-08). A transform inside the view (a zoom of the map) is
+/// below the frame: its steps draw the tiles again, as before.
+///
+/// This is the arrangement WebRender is made for (a page: a root iframe, in it
+/// an explicit scroll frame, in that the content). What it cannot be checked
+/// for without a window is the picture on the screen while a view pans; hence
+/// the switch. A view under a transformed box of its host gets no slice of its
+/// own (the fork looks above the root pipeline, A4-28).
+fn view_content_scroll_frames() -> bool {
+    #[cfg(test)]
+    if let Some(on) = VIEW_CONTENT_FRAMES.with(core::cell::Cell::get) {
+        return on;
+    }
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| !std::env::var("AZ_WR_VIEW_SLICE").is_ok_and(|v| v == "0"))
+}
+
+/// `builder.push_hit_test` for the lists that still feed WebRender's hit
+/// tester ([`wr_hit_test_items`]); nothing otherwise.
+#[inline]
+fn push_wr_hit_test(
+    builder: &mut WrDisplayListBuilder,
+    rect: LayoutRect,
+    clip_chain_id: WrClipChainId,
+    spatial_id: SpatialId,
+    flags: WrPrimitiveFlags,
+    tag: ItemTag,
+) {
+    if wr_hit_test_items() {
+        builder.push_hit_test(rect, clip_chain_id, spatial_id, flags, tag);
+    }
+}
+
 #[cfg(test)]
 thread_local! {
     /// How many display lists [`translate_displaylist_to_wr`] has translated on
@@ -249,7 +324,28 @@ pub fn translate_displaylist_to_wr(
         display_list.items.len()
     );
 
-    let spatial_id = SpatialId::root_scroll_node(pipeline_id);
+    // The space every item of the list is in unless a frame of the list opens
+    // another: the pipeline's root scroll frame - or, for a view, a scroll frame
+    // of the view's own inside it ([`view_content_scroll_frames`]). It has no
+    // scroll range (content and frame are one rect) and never gets an offset.
+    let spatial_id = if pipeline_id.0 != 0 && view_content_scroll_frames() {
+        let extent = LayoutRect::from_origin_and_size(
+            LayoutPoint::zero(),
+            LayoutSize::new(viewport_size.width as f32, viewport_size.height as f32),
+        );
+        builder.define_scroll_frame(
+            SpatialId::root_scroll_node(pipeline_id),
+            ExternalScrollId(VIEW_CONTENT_FRAME, pipeline_id),
+            extent,
+            extent,
+            LayoutVector2D::zero(),
+            0,
+            HasScrollLinkedEffect::No,
+            SpatialTreeItemKey::new(VIEW_CONTENT_FRAME, 0),
+        )
+    } else {
+        SpatialId::root_scroll_node(pipeline_id)
+    };
     let root_clip_chain_id = WrClipChainId::INVALID;
 
     // NOTE: We DON'T push a stacking context here anymore!
@@ -276,6 +372,17 @@ pub fn translate_displaylist_to_wr(
     // `SpatialTreeItemKey`; `set_scroll_offsets` moves every node carrying
     // the id, so they still scroll as one.
     let mut scroll_frame_pushes: BTreeMap<u64, u64> = BTreeMap::new();
+
+    // The same for the reference frames of a transform key: a node painted
+    // twice in one list (a box broken across regions, a fixed box repeated
+    // per page) opens its frame twice with the one key, and the scene builder
+    // PANICS on a spatial key it has seen (`SceneSpatialTree::add_spatial_node`:
+    // "duplicate key"), which takes the window with it - the UI thread waits
+    // for that thread in `flush_scene_builder`. Almost every key is pushed
+    // once, so only the ones seen before are counted (audit A4-06, A2-gpu-12).
+    let mut reference_frames_seen: std::collections::HashSet<u64> =
+        std::collections::HashSet::with_capacity(64);
+    let mut reference_frame_repeats: BTreeMap<u64, u64> = BTreeMap::new();
 
     // Coordinate offset stack - tracks the origin offset for each spatial context.
     // When we enter a scroll frame, items inside have absolute coordinates but
@@ -311,8 +418,11 @@ pub fn translate_displaylist_to_wr(
 
     // The text shadows drawn as kept pictures (`text_halos`; their images
     // were drawn and registered with the frame's resources), by the index of
-    // their PushTextShadow. Every other shadow goes to WebRender's own.
-    let halos: BTreeMap<usize, TextHalo> = text_halos(&display_list.items, dpi_scale, None)
+    // their PushTextShadow: a shadow's own picture, or for a spread shadow whose
+    // picture a later frame draws the one that stands in for it. Every other
+    // shadow goes to WebRender's own. (What the list's shadows are found by is
+    // kept from the scan of the frame's resources while the list is the same.)
+    let halos: BTreeMap<usize, TextHalo> = text_halos_of_held_list(display_list, dpi_scale, None)
         .into_iter()
         .map(|halo| (halo.push, halo))
         .collect();
@@ -542,7 +652,7 @@ pub fn translate_displaylist_to_wr(
                         *scrollbar_hit_id,
                     );
 
-                    builder.push_hit_test(
+                    push_wr_hit_test(&mut builder,
                         rect,
                         current_clip_chain,
                         current_spatial_id,
@@ -672,7 +782,7 @@ pub fn translate_displaylist_to_wr(
                             crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
                                 track_hit_id,
                             );
-                        builder.push_hit_test(
+                        push_wr_hit_test(&mut builder,
                             track_rect,
                             clip_chain_id,
                             spatial_id,
@@ -742,7 +852,23 @@ pub fn translate_displaylist_to_wr(
                         wr_transform,
                     );
 
-                    let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
+                    // The thumb's key is its NODE's: a scroll box painted twice in
+                    // one list (a box broken across regions, a fixed box
+                    // repeated per page) opens two thumb frames with it. The
+                    // rule of the transformed frames below: how often this list
+                    // has opened the key before (A2-gpu-15; thumb keys and
+                    // frame keys are both `TransformKey::unique()` ids, so the
+                    // two collections serve both).
+                    let push_index = if reference_frames_seen.insert(transform_key.id as u64) {
+                        0
+                    } else {
+                        let repeats = reference_frame_repeats
+                            .entry(transform_key.id as u64)
+                            .or_insert(0);
+                        *repeats += 1;
+                        *repeats
+                    };
+                    let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, push_index);
 
                     builder.push_reference_frame(
                         LayoutPoint::zero(),
@@ -823,7 +949,7 @@ pub fn translate_displaylist_to_wr(
                     let (tag, _) = crate::desktop::wr_translate2::wr_translate_scrollbar_hit_id(
                         *scrollbar_hit_id,
                     );
-                    builder.push_hit_test(
+                    push_wr_hit_test(&mut builder,
                         thumb_rect,
                         clip_chain_id,
                         thumb_spatial_id,
@@ -1113,7 +1239,7 @@ pub fn translate_displaylist_to_wr(
                 // during wheel/trackpad events. This uses TAG_TYPE_SCROLL_CONTAINER (0x0500).
                 // The tag encodes: tag.0 = scroll_id, tag.1 = 0x0500
                 let scroll_container_tag: ItemTag = (*scroll_id, TAG_TYPE_SCROLL_CONTAINER);
-                builder.push_hit_test(
+                push_wr_hit_test(&mut builder,
                     adjusted_frame_rect,
                     scroll_clip_chain, // Use the scroll clip chain we just created
                     parent_space,      // Push in parent space (stationary viewport)
@@ -1199,7 +1325,7 @@ pub fn translate_displaylist_to_wr(
 
                 // Use WebRender's push_hit_test to create a hittable area
                 // This is required for the hit tester to find items at cursor position
-                builder.push_hit_test(
+                push_wr_hit_test(&mut builder,
                     rect,
                     current_clip!(),
                     current_spatial!(),
@@ -1329,8 +1455,32 @@ pub fn translate_displaylist_to_wr(
                 // Get the ImageRefHash from the ImageRef
                 let image_ref_hash = image.get_hash();
 
-                if let Some(resolved_image) = renderer_resources.get_image(&image_ref_hash) {
-                    let wr_image_key = translate_image_key(resolved_image.key);
+                // The picture's key and colour model - or, for a node that
+                // shows a null image, the key kept as the place of its picture
+                // to come (`wr_translate2::reserve_image_places`: one clear
+                // pixel until the picture arrives as an update of that key,
+                // with this list as it is).
+                let resolved = renderer_resources
+                    .get_image(&image_ref_hash)
+                    .map(|resolved| (resolved.key, resolved.descriptor.format))
+                    .or_else(|| {
+                        if !image.is_null_image() {
+                            return None;
+                        }
+                        let node = display_list.node_mapping.get(item_index).copied().flatten()?;
+                        let slot = azul_core::resources::ImageSlot::Node(
+                            DomId {
+                                inner: pipeline_id.0 as usize,
+                            },
+                            node,
+                        );
+                        let key = *renderer_resources.image_slots.get(&slot)?;
+                        (renderer_resources.image_key_map.get(&key)
+                            == Some(&azul_core::resources::ImageRefHash::PLACE))
+                        .then_some((key, azul_core::resources::RawImageFormat::RGBA8))
+                    });
+                if let Some((resolved_key, format)) = resolved {
+                    let wr_image_key = translate_image_key(resolved_key);
 
                     let rect = resolve_rect(bounds, dpi_scale, current_offset!());
 
@@ -1393,11 +1543,10 @@ pub fn translate_displaylist_to_wr(
                     // planes (R8 luma + RG8 chroma, see
                     // `wr_translate2::nv12_plane_descriptors`) are converted to
                     // RGB in the shader, in the frame's own matrix and range.
-                    let format = resolved_image.descriptor.format;
                     let chroma_key = if format.is_nv12() {
                         renderer_resources
                             .nv12_chroma_keys
-                            .get(&resolved_image.key)
+                            .get(&resolved_key)
                             .copied()
                     } else {
                         None
@@ -1499,19 +1648,23 @@ pub fn translate_displaylist_to_wr(
                 // IMPORTANT: Scale the translation components (m[3][0], m[3][1], m[3][2]) by DPI
                 // because the transform operates in the same coordinate space as display list
                 // items, which are all scaled from CSS (logical) pixels to physical pixels.
+                // The perspective column (m[0][3], m[1][3], m[2][3]) multiplies a
+                // coordinate that is now dpi times as large, so it is divided by it:
+                // the matrix in device px is S^-1 * M * S with S = diag(dpi, dpi, dpi, 1)
+                // (audit A2-gpu-01).
                 let wr_transform = LayoutTransform::new(
                     initial_transform.m[0][0],
                     initial_transform.m[0][1],
                     initial_transform.m[0][2],
-                    initial_transform.m[0][3],
+                    initial_transform.m[0][3] / dpi_scale,
                     initial_transform.m[1][0],
                     initial_transform.m[1][1],
                     initial_transform.m[1][2],
-                    initial_transform.m[1][3],
+                    initial_transform.m[1][3] / dpi_scale,
                     initial_transform.m[2][0],
                     initial_transform.m[2][1],
                     initial_transform.m[2][2],
-                    initial_transform.m[2][3],
+                    initial_transform.m[2][3] / dpi_scale,
                     initial_transform.m[3][0] * dpi_scale,
                     initial_transform.m[3][1] * dpi_scale,
                     initial_transform.m[3][2] * dpi_scale,
@@ -1525,8 +1678,19 @@ pub fn translate_displaylist_to_wr(
                     wr_transform,
                 );
 
-                // Use the transform_key.id as the spatial tree item key
-                let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
+                // Use the transform_key.id as the spatial tree item key, with
+                // how often this list has opened the key's frame before (0
+                // for all but a node that is painted more than once).
+                let push_index = if reference_frames_seen.insert(transform_key.id as u64) {
+                    0
+                } else {
+                    let repeats = reference_frame_repeats
+                        .entry(transform_key.id as u64)
+                        .or_insert(0);
+                    *repeats += 1;
+                    *repeats
+                };
+                let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, push_index);
 
                 // The transform works about the box's own top-left corner
                 // (`transform-origin` resolves against the box, and the CPU
@@ -1564,7 +1728,10 @@ pub fn translate_displaylist_to_wr(
                         should_snap: false,
                         paired_with_perspective: false,
                     },
-                    SpatialTreeItemKey::new(transform_key.id as u64, WINDOW_SPACE_FRAME),
+                    SpatialTreeItemKey::new(
+                        transform_key.id as u64,
+                        WINDOW_SPACE_FRAME - push_index,
+                    ),
                 );
 
                 // Children are placed in the window-space frame; the pop
@@ -2226,7 +2393,10 @@ pub fn translate_displaylist_to_wr(
                     let offset = current_offset!();
                     let rect = LayoutRect::from_origin_and_size(
                         LayoutPoint::new(halo.origin.0 - offset.0, halo.origin.1 - offset.1),
-                        LayoutSize::new(halo.width as f32, halo.height as f32),
+                        // The picture's own size, texel for pixel - or, for one
+                        // that stands in for a halo not drawn yet, the size
+                        // that halo will have (`TextHalo::stand_in`).
+                        LayoutSize::new(halo.size.0, halo.size.1),
                     );
                     let info = CommonItemProperties {
                         clip_rect: rect,
@@ -4539,5 +4709,276 @@ mod log_volume_tests {
             trace >= ITEMS,
             "AZ_LOG=trace keeps the per-item dump: at least {ITEMS} records, got {trace}"
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! A4-03: what the translation leaves out, counted in the built list.
+    use azul_layout::solver3::display_list::DisplayListItem;
+    use webrender::api::DisplayItem;
+
+    use super::stacking_context_tests::{built, rect};
+
+    /// The hit-test areas of a list are not WebRender's business: azul's own hit
+    /// tester answers every pointer, so a list of n hit areas reaches WebRender
+    /// with none (and a scene without hit-test items rebuilds no hit tester).
+    /// Mutation: `push_wr_hit_test` pushing unconditionally -> 64 items, not 0.
+    #[test]
+    fn a4_03_hit_test_areas_are_not_sent_to_webrender() {
+        let mut items = Vec::new();
+        for i in 0..64u16 {
+            let r = rect(f32::from(i) * 4.0, 10.0, 3.0, 12.0);
+            items.push(DisplayListItem::Rect {
+                bounds: r.into(),
+                color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                border_radius: Default::default(),
+            });
+            items.push(DisplayListItem::HitTestArea {
+                bounds: r.into(),
+                tag: (u64::from(i), 0x0100),
+            });
+        }
+        let list = built(items, 1.0);
+        let (mut rects, mut hit_tests) = (0usize, 0usize);
+        let mut iter = list.iter();
+        while let Some(item) = iter.next() {
+            match item.item() {
+                DisplayItem::Rectangle(..) => rects += 1,
+                DisplayItem::HitTest(..) => hit_tests += 1,
+                _ => {}
+            }
+        }
+        assert_eq!(rects, 64, "what paints is translated");
+        assert_eq!(hit_tests, 0, "the hit areas stay with azul's hit tester");
+    }
+
+    /// The matrices of the reference frames of `items` as WebRender is handed
+    /// them at `dpi`, with their spatial keys, in list order.
+    fn frames(
+        items: Vec<DisplayListItem>,
+        dpi: f32,
+    ) -> Vec<(webrender::api::SpatialTreeItemKey, webrender::api::units::LayoutTransform)> {
+        use webrender::api::{PropertyBinding, ReferenceTransformBinding, SpatialTreeItem};
+
+        let list = built(items, dpi);
+        let mut out = Vec::new();
+        list.iter_spatial_tree(|item| {
+            if let SpatialTreeItem::ReferenceFrame(f) = item {
+                let ReferenceTransformBinding::Static { binding } = &f.reference_frame.transform
+                else {
+                    panic!("compositor2 opens static frames");
+                };
+                let transform = match binding {
+                    PropertyBinding::Value(t) | PropertyBinding::Binding(_, t) => *t,
+                };
+                out.push((f.reference_frame.key, transform));
+            }
+        });
+        out
+    }
+
+    fn framed(
+        key: azul_core::resources::TransformKey,
+        transform: azul_core::transform::ComputedTransform3D,
+    ) -> Vec<DisplayListItem> {
+        let r = rect(40.0, 20.0, 30.0, 10.0);
+        vec![
+            DisplayListItem::PushReferenceFrame {
+                transform_key: key,
+                initial_transform: transform,
+                bounds: r.into(),
+            },
+            DisplayListItem::Rect {
+                bounds: r.into(),
+                color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                border_radius: Default::default(),
+            },
+            DisplayListItem::PopReferenceFrame,
+        ]
+    }
+
+    /// A2-gpu-01 (applied by A4). `perspective(500px)` has m[2][3] = -1/500 in
+    /// CSS px. On a 2x window every coordinate is twice as large, so the same
+    /// picture needs -1/1000: a point 100 CSS px deep (200 device px) has
+    /// w = 1 - 200/1000 = 0.8, as at 1x (1 - 100/500). The translation row is
+    /// multiplied (10 px -> 20). Before: -1/500 at 2x, w = 0.6.
+    /// Mutation: dropping `/ dpi_scale` in the `PushReferenceFrame` arm fails this.
+    #[test]
+    fn a_perspective_reaches_webrender_in_device_pixels() {
+        let mut m = azul_core::transform::ComputedTransform3D::IDENTITY;
+        m.m[2][3] = -1.0 / 500.0;
+        m.m[3][0] = 10.0;
+        for (dpi, m34, m41) in [(1.0f32, -0.002f32, 10.0f32), (2.0, -0.001, 20.0)] {
+            let frames = frames(framed(azul_core::resources::TransformKey::unique(), m), dpi);
+            let (_, transform) = frames.first().copied().expect("the transformed frame");
+            assert!((transform.m34 - m34).abs() < 1e-7, "dpi {dpi}: m34 {}", transform.m34);
+            assert!((transform.m41 - m41).abs() < 1e-5, "dpi {dpi}: m41 {}", transform.m41);
+        }
+    }
+
+    /// A4-06. A transform key whose frame a list opens twice (a node painted in
+    /// two parts) gives WebRender four DIFFERENT spatial keys: the scene builder
+    /// panics on one it has seen. A key opened once keeps the keys it had.
+    /// Mutation: `push_index` fixed at 0 -> two of the four keys are equal.
+    #[test]
+    fn a4_06_a_transform_key_opened_twice_in_a_list_opens_distinct_frames() {
+        use azul_core::{resources::TransformKey, transform::ComputedTransform3D};
+
+        let key = TransformKey::unique();
+        let mut items = framed(key, ComputedTransform3D::IDENTITY);
+        items.extend(framed(key, ComputedTransform3D::IDENTITY));
+        items.extend(framed(TransformKey::unique(), ComputedTransform3D::IDENTITY));
+        let keys: Vec<_> = frames(items, 1.0).into_iter().map(|(key, _)| key).collect();
+        assert_eq!(keys.len(), 6, "two frames (transformed, window space) per push");
+        let distinct: std::collections::HashSet<_> = keys.iter().copied().collect();
+        assert_eq!(distinct.len(), 6, "every frame of the list has a key of its own: {keys:?}");
+
+        // Once: the keys every list before this change had.
+        let once = frames(framed(key, ComputedTransform3D::IDENTITY), 1.0);
+        assert_eq!(
+            (once[0].0, once[1].0),
+            (
+                webrender::api::SpatialTreeItemKey::new(key.id as u64, 0),
+                webrender::api::SpatialTreeItemKey::new(key.id as u64, u64::MAX),
+            )
+        );
+    }
+
+    /// A4-08. The content of a view (the list of a DOM other than the window's
+    /// own) is under an explicit scroll frame of the view's own, inside the
+    /// pipeline's root frame: the scroll root WebRender cuts the view's picture
+    /// cache by, so a pan of the view moves tiles (see
+    /// `view_content_scroll_frames`). The frame has no scroll range. The
+    /// window's own list has none, and `AZ_WR_VIEW_SLICE=0` (here per thread)
+    /// leaves a view without one, as before.
+    /// Mutation: `pipeline_id.0 != 0 &&` dropped gives the window's list a frame;
+    /// `spatial_id` left at the pipeline's root puts the rect outside the frame.
+    #[test]
+    fn a_views_content_is_under_a_scroll_frame_of_its_own() {
+        use std::collections::BTreeMap;
+
+        use azul_core::resources::{DpiScaleFactor, RendererResources};
+        use azul_layout::solver3::display_list::DisplayList;
+        use webrender::api::{
+            units::DeviceIntSize, ExternalScrollId, PipelineId, SpatialId, SpatialTreeItem,
+        };
+
+        // (the pipeline, its scroll frames as (parent, external id, id, content
+        // == frame), the space of its one rect)
+        let translate = |dom: u32| {
+            let list = DisplayList {
+                items: vec![DisplayListItem::Rect {
+                    bounds: rect(10.0, 10.0, 30.0, 20.0).into(),
+                    color: azul_css::props::basic::color::ColorU::new(30, 60, 170, 255),
+                    border_radius: Default::default(),
+                }],
+                ..DisplayList::default()
+            };
+            let pipeline = PipelineId(dom, 0);
+            let (_, built) = super::translate_displaylist_to_wr(
+                &list,
+                pipeline,
+                DeviceIntSize::new(800, 600),
+                &RendererResources::default(),
+                DpiScaleFactor::new(1.0),
+                Vec::new(),
+                &BTreeMap::new(),
+                0,
+            )
+            .expect("the list translates");
+            let mut frames = Vec::new();
+            built.iter_spatial_tree(|item| {
+                if let SpatialTreeItem::ScrollFrame(f) = item {
+                    frames.push((
+                        f.parent_space,
+                        f.external_id,
+                        f.scroll_frame_id,
+                        f.content_rect == f.frame_rect,
+                    ));
+                }
+            });
+            let mut spaces = Vec::new();
+            let mut iter = built.iter();
+            while let Some(item) = iter.next() {
+                if let DisplayItem::Rectangle(r) = item.item() {
+                    spaces.push(r.common.spatial_id);
+                }
+            }
+            (pipeline, frames, spaces)
+        };
+
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(Some(true)));
+        let (window, frames, spaces) = translate(0);
+        assert!(frames.is_empty(), "the window's own list: {frames:?}");
+        assert_eq!(spaces, vec![SpatialId::root_scroll_node(window)]);
+
+        let (view, frames, spaces) = translate(3);
+        assert_eq!(frames.len(), 1, "a view: one frame for its content");
+        let (parent, external, frame, without_a_range) = frames[0];
+        assert_eq!(parent, SpatialId::root_scroll_node(view));
+        assert_eq!(external, ExternalScrollId(super::VIEW_CONTENT_FRAME, view));
+        assert!(without_a_range, "it does not scroll");
+        assert_eq!(spaces, vec![frame], "the content is in it");
+
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(Some(false)));
+        let (view, frames, spaces) = translate(3);
+        super::VIEW_CONTENT_FRAMES.with(|on| on.set(None));
+        assert!(frames.is_empty(), "the switch: no frame");
+        assert_eq!(spaces, vec![SpatialId::root_scroll_node(view)]);
+    }
+
+    /// A scroll box's bar with a thumb that the GPU moves (`thumb_transform_key`).
+    fn bar(key: azul_core::resources::TransformKey) -> DisplayListItem {
+        use azul_layout::solver3::display_list::ScrollbarDrawInfo;
+
+        let colour = azul_css::props::basic::color::ColorU::new(90, 90, 90, 255);
+        DisplayListItem::ScrollBarStyled {
+            info: Box::new(ScrollbarDrawInfo {
+                bounds: rect(184.0, 0.0, 16.0, 100.0).into(),
+                orientation: azul_core::dom::ScrollbarOrientation::Vertical,
+                track_bounds: rect(184.0, 0.0, 16.0, 100.0).into(),
+                track_color: colour,
+                thumb_bounds: rect(186.0, 0.0, 12.0, 32.0).into(),
+                thumb_color: colour,
+                thumb_border_radius: Default::default(),
+                button_decrement_bounds: None,
+                button_increment_bounds: None,
+                button_color: colour,
+                opacity_key: None,
+                thumb_transform_key: Some(key),
+                thumb_initial_transform: azul_core::transform::ComputedTransform3D::IDENTITY,
+                hit_id: None,
+                clip_to_container_border: false,
+                container_border_radius: Default::default(),
+                visibility: Default::default(),
+            }),
+        }
+    }
+
+    /// A2-gpu-15 (found by A2-gpu reading A4-06, applied by A4). The thumb of a
+    /// scroll box's bar has its frame under the NODE's key, so a scroll box
+    /// that one list paints twice opened two frames with one spatial key, which
+    /// the scene builder panics on. The same bar twice: `(key, 0)` and
+    /// `(key, 1)`; once: `(key, 0)`, as every list before.
+    /// Mutation: `push_index` fixed at 0 in the `ScrollBarStyled` arm -> equal.
+    #[test]
+    fn a_scrollbar_painted_twice_in_a_list_opens_two_thumb_frames_with_two_keys() {
+        use webrender::api::SpatialTreeItemKey;
+
+        let key = azul_core::resources::TransformKey::unique();
+        let twice: Vec<_> = frames(vec![bar(key), bar(key)], 1.0)
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+        assert_eq!(
+            twice,
+            vec![
+                SpatialTreeItemKey::new(key.id as u64, 0),
+                SpatialTreeItemKey::new(key.id as u64, 1),
+            ]
+        );
+        let once: Vec<_> = frames(vec![bar(key)], 1.0).into_iter().map(|(key, _)| key).collect();
+        assert_eq!(once, vec![SpatialTreeItemKey::new(key.id as u64, 0)]);
     }
 }

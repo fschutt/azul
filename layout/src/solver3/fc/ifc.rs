@@ -285,12 +285,34 @@ pub(super) fn editing_host_strut_height<T: ParsedFontTrait>(
 /// of the two, so a path that leaves `unclipped_bounds` at its default still
 /// gets the fragment's own bounds.
 pub(super) fn ifc_extent(main_frag: &text3::cache::UnifiedLayout) -> LogicalSize {
-    let frag_bounds = main_frag.bounds();
-    let unclipped = main_frag.overflow.unclipped_bounds;
+    extent_of(main_frag.bounds(), main_frag.overflow.unclipped_bounds)
+}
+
+/// [`ifc_extent`] from a layout's `bounds()` and the unclipped bounds of its
+/// overflow info: the one place the two are combined.
+fn extent_of(frag_bounds: text3::cache::Rect, unclipped: text3::cache::Rect) -> LogicalSize {
     LogicalSize::new(
         frag_bounds.width.max(unclipped.width),
         frag_bounds.height.max(unclipped.height),
     )
+}
+
+/// How often `layout_ifc` left through its reuse exit on this thread, and how
+/// often that exit expanded a retired layout's dense view into items again
+/// (`audit_tests::a3_solver::ifc`: a reused label is not expanded).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_REUSE_EXITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static IFC_REUSE_EXPANSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many min- or max-content measures `layout_ifc` stored on this thread,
+/// and how many of those stores built the layout's paint runs
+/// (`audit_tests::a3_solver::ifc`: none).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_MEASURE_STORES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static IFC_MEASURE_STORE_RUN_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// Lays an inline formatting context out from the paragraph its shaped
@@ -376,6 +398,31 @@ pub(crate) fn finish_inline_layout(
     output
 }
 
+/// [`finish_inline_layout`] for a RETIRED layout - one stored as its dense
+/// view alone - from the measures kept when it was stored
+/// (`CachedInlineLayout::retired_metrics`: the `bounds()` and the
+/// `last_baseline()` of the layout the dense view expands to) and its
+/// overflow info, without expanding it.
+///
+/// A retired layout holds clusters and nothing else, and at least one
+/// (`CachedInlineLayout::retire_sparse`): it has items for `text-box-trim`,
+/// and no atomic inline whose position it would report.
+fn finish_retired_inline_layout(
+    kept: &crate::solver3::layout_tree::RetiredLayoutMetrics,
+    overflow: &text3::cache::OverflowInfo,
+    constraints: &UnifiedConstraints,
+    styled_dom: &StyledDom,
+    ifc_root_dom_id: NodeId,
+) -> LayoutOutput {
+    let mut output = LayoutOutput {
+        overflow_size: extent_of(kept.bounds, overflow.unclipped_bounds),
+        baseline: kept.last_baseline,
+        ..LayoutOutput::default()
+    };
+    apply_text_box_trim(styled_dom, ifc_root_dom_id, constraints, true, &mut output);
+    output
+}
+
 /// Where a box taken out of an inline formatting context would have stood
 /// in it, in the context's content-box coordinates.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -410,6 +457,11 @@ pub(crate) struct InlineStaticPlace {
 ///
 /// `node_of` names the DOM node an item comes from; DOM node ids are in
 /// document (pre-order) order (`StyledDom`), so "before" is "a lower id".
+///
+/// The definition, by one walk over the items per box. The layout asks
+/// through [`StaticPlaces`] / [`TreeStaticPlaces`], which list the items
+/// once for many boxes and are tested against this.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn inline_static_place(
     items: &[text3::cache::PositionedItem],
     node_of: impl Fn(&ShapedItem) -> Option<NodeId>,
@@ -418,6 +470,8 @@ pub(crate) fn inline_static_place(
     let mut before: Option<(usize, usize)> = None; // (node index, item index)
     let mut after: Option<(usize, usize)> = None;
     for (i, item) in items.iter().enumerate() {
+        #[cfg(test)]
+        STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
         let Some(node) = node_of(&item.item) else {
             continue;
         };
@@ -434,6 +488,37 @@ pub(crate) fn inline_static_place(
         (None, Some((_, i))) => (&items[i], false),
         (None, None) => return None,
     };
+    let mut line: Option<(f32, f32)> = None;
+    for item in items.iter().filter(|i| i.line_index == anchor.line_index) {
+        #[cfg(test)]
+        STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
+        line = widen_line_extent(line, item);
+    }
+    Some(static_place_at(anchor, after_content, line))
+}
+
+/// The extent `(top, bottom)` of a line with one more of its items taken
+/// in: the items that have a height span it.
+fn widen_line_extent(
+    extent: Option<(f32, f32)>,
+    item: &text3::cache::PositionedItem,
+) -> Option<(f32, f32)> {
+    let height = item.item.bounds().height;
+    if height.is_nan() || height <= 0.0 {
+        return extent;
+    }
+    let (top, bottom) = (item.position.y, item.position.y + height);
+    Some(extent.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))))
+}
+
+/// The place at `anchor`, the content the box comes after (`after_content`)
+/// or before, on a line of the extent `line` (`None`: no item of the line
+/// has a height).
+fn static_place_at(
+    anchor: &text3::cache::PositionedItem,
+    after_content: bool,
+    line: Option<(f32, f32)>,
+) -> InlineStaticPlace {
     let rtl = matches!(
         &anchor.item,
         ShapedItem::Cluster(c) if c.direction == text3::cache::BidiDirection::Rtl
@@ -446,28 +531,172 @@ pub(crate) fn inline_static_place(
     } else {
         anchor.position.x + width
     };
-    let mut line: Option<(f32, f32)> = None;
-    for item in items.iter().filter(|i| i.line_index == anchor.line_index) {
-        let height = item.item.bounds().height;
-        if height.is_nan() || height <= 0.0 {
-            continue;
-        }
-        let (top, bottom) = (item.position.y, item.position.y + height);
-        line = Some(line.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
-    }
     let (line_top, line_bottom) = line.unwrap_or((anchor.position.y, anchor.position.y));
-    Some(InlineStaticPlace {
+    InlineStaticPlace {
         x,
         line_top,
         line_bottom,
         after_content,
         line: anchor.line_index,
-    })
+    }
+}
+
+/// How many laid-out items the search for static places looked at on this
+/// thread (`audit_tests::a3_solver::ifc`: once per item for all the boxes
+/// taken out of a context, not once per box).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STATIC_PLACE_ITEM_VISITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// [`inline_static_place`] for MANY boxes taken out of one inline formatting
+/// context: what the search reads of the laid-out `items`, listed once.
+///
+/// `inline_static_place` walks all items for every box (which content comes
+/// before it, which after) and then all items again for the anchor's line:
+/// boxes x items for a paragraph with many absolutely positioned children.
+/// The first walk only asks, of the items of each DOM node, for the LAST one
+/// (the anchor when the node is the nearest before the box) and the FIRST
+/// one (when it is the nearest at or after it); the second folds the items
+/// of one line in their order.
+struct StaticPlaces<'a> {
+    items: &'a [text3::cache::PositionedItem],
+    tables: StaticPlaceTables,
+}
+
+impl<'a> StaticPlaces<'a> {
+    fn new(
+        items: &'a [text3::cache::PositionedItem],
+        node_of: impl Fn(&ShapedItem) -> Option<NodeId>,
+    ) -> Self {
+        Self {
+            items,
+            tables: StaticPlaceTables::new(items, node_of),
+        }
+    }
+
+    /// [`inline_static_place`] of `child` among the items.
+    fn place(&mut self, child: NodeId) -> Option<InlineStaticPlace> {
+        self.tables.place(self.items, child)
+    }
+}
+
+/// What [`StaticPlaces`] lists of a context's items, without the items: a
+/// holder that owns the items keeps this beside them ([`TreeStaticPlaces`])
+/// and hands the same items to every call.
+struct StaticPlaceTables {
+    /// Per DOM node that has items, by node index: its first and its last
+    /// item.
+    by_node: BTreeMap<usize, (usize, usize)>,
+    /// `(line, item)` of every item, sorted: the items of a line together,
+    /// in their order. Made when the first line is asked for.
+    by_line: Option<Vec<(usize, usize)>>,
+    /// The extent of each line asked for so far ([`widen_line_extent`]).
+    line_extents: BTreeMap<usize, Option<(f32, f32)>>,
+}
+
+impl StaticPlaceTables {
+    fn new(
+        items: &[text3::cache::PositionedItem],
+        node_of: impl Fn(&ShapedItem) -> Option<NodeId>,
+    ) -> Self {
+        let mut by_node: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
+        for (i, item) in items.iter().enumerate() {
+            #[cfg(test)]
+            STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
+            let Some(node) = node_of(&item.item) else {
+                continue;
+            };
+            // The items come in their order: the first one seen of a node
+            // is its first, every later one its last so far.
+            by_node
+                .entry(node.index())
+                .and_modify(|first_and_last| first_and_last.1 = i)
+                .or_insert((i, i));
+        }
+        Self {
+            by_node,
+            by_line: None,
+            line_extents: BTreeMap::new(),
+        }
+    }
+
+    /// [`inline_static_place`] of `child` among `items`, the items the
+    /// tables were made of.
+    fn place(
+        &mut self,
+        items: &[text3::cache::PositionedItem],
+        child: NodeId,
+    ) -> Option<InlineStaticPlace> {
+        // The scan keeps, of the nodes below `child`, the greatest and of its
+        // items the last (`>=`); of the nodes at or above it the smallest
+        // and of its items the first (`<`).
+        let before = self
+            .by_node
+            .range(..child.index())
+            .next_back()
+            .map(|(_, &(_, last))| last);
+        let after = self
+            .by_node
+            .range(child.index()..)
+            .next()
+            .map(|(_, &(first, _))| first);
+        let (anchor_index, after_content) = match (before, after) {
+            (Some(i), _) => (i, true),
+            (None, Some(i)) => (i, false),
+            (None, None) => return None,
+        };
+        let anchor = items.get(anchor_index)?;
+        let line = self.line_extent(items, anchor.line_index);
+        Some(static_place_at(anchor, after_content, line))
+    }
+
+    /// The extent of line `line_index`: [`widen_line_extent`] over its items
+    /// in their order, as the scan folds them.
+    fn line_extent(
+        &mut self,
+        items: &[text3::cache::PositionedItem],
+        line_index: usize,
+    ) -> Option<(f32, f32)> {
+        if let Some(known) = self.line_extents.get(&line_index) {
+            return *known;
+        }
+        let by_line = self.by_line.get_or_insert_with(|| {
+            let mut by_line: Vec<(usize, usize)> = items
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    #[cfg(test)]
+                    STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
+                    (item.line_index, i)
+                })
+                .collect();
+            by_line.sort_unstable();
+            by_line
+        });
+        let from = by_line.partition_point(|&(line, _)| line < line_index);
+        let mut extent: Option<(f32, f32)> = None;
+        for &(line, i) in &by_line[from..] {
+            if line != line_index {
+                break;
+            }
+            #[cfg(test)]
+            STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
+            extent = widen_line_extent(extent, &items[i]);
+        }
+        self.line_extents.insert(line_index, extent);
+        extent
+    }
 }
 
 /// [`inline_static_place`] for the out-of-flow layout child `child_index`
 /// of the inline formatting context root `ifc_root`, from the layout the
 /// root holds. `None` when the root holds no inline layout or no content.
+///
+/// One box at a time: the root's stored text is expanded and its items are
+/// walked twice for every box asked about. The callers ask through
+/// [`TreeStaticPlaces`]; this is what its answers are compared with.
+#[cfg(test)]
 pub(crate) fn inline_static_place_in_tree(
     tree: &LayoutTree,
     ifc_root: usize,
@@ -484,6 +713,53 @@ pub(crate) fn inline_static_place_in_tree(
         |item| item_dom_node(tree, child_map.as_deref(), item),
         child,
     )
+}
+
+/// The places of MANY boxes taken out of the inline formatting contexts of
+/// one tree (the footnotes of a page, of a column): where
+/// [`inline_static_place`] puts the out-of-flow layout child `child_index`
+/// of the context root `ifc_root`, from the layout the root holds.
+///
+/// A root's layout is expanded (`LayoutTree::materialized_inline_layout_for_node`:
+/// a copy of every item of a text kept dense) and its items are listed
+/// ([`StaticPlaceTables`]) when the first box taken out of it asks, and both
+/// are kept for the boxes after it. Asked box by box, a paragraph with k
+/// footnotes was expanded k times and its items walked 2 k times: boxes x
+/// items per page.
+///
+/// For a tree as it stands while this lives: nothing here sees a layout of
+/// one of its contexts.
+#[derive(Default)]
+pub(crate) struct TreeStaticPlaces {
+    /// Per context root asked about: its expanded layout and what is listed
+    /// of it; `None` for a root without an inline layout.
+    by_root: BTreeMap<usize, Option<(Arc<text3::cache::UnifiedLayout>, StaticPlaceTables)>>,
+}
+
+impl TreeStaticPlaces {
+    /// The place of `child_index` in the context of `ifc_root`. `None` when
+    /// the root holds no inline layout or no content.
+    pub(crate) fn place(
+        &mut self,
+        tree: &LayoutTree,
+        ifc_root: usize,
+        child_index: usize,
+    ) -> Option<InlineStaticPlace> {
+        let child = tree.get(LayoutNodeId::new(child_index))?.dom_node_id?;
+        let listed = self.by_root.entry(ifc_root).or_insert_with(|| {
+            let layout = tree.materialized_inline_layout_for_node(ifc_root)?;
+            let child_map = tree
+                .warm(LayoutNodeId::new(ifc_root))
+                .and_then(|w| w.inline_content_cache.as_deref())
+                .map(|c| Arc::clone(&c.child_map));
+            let tables = StaticPlaceTables::new(&layout.items, |item| {
+                item_dom_node(tree, child_map.as_deref(), item)
+            });
+            Some((layout, tables))
+        });
+        let (layout, tables) = listed.as_mut()?;
+        tables.place(&layout.items, child)
+    }
 }
 
 /// The DOM node a laid-out inline item comes from: a cluster's text node,
@@ -532,19 +808,40 @@ pub(super) fn out_of_flow_static_positions(
     items: &[text3::cache::PositionedItem],
     child_map: &HashMap<ContentIndex, usize>,
 ) -> BTreeMap<usize, LogicalPosition> {
+    static_positions_of(
+        styled_dom,
+        tree,
+        &out_of_flow_inline_descendants(styled_dom, tree, node_index),
+        items,
+        child_map,
+    )
+}
+
+/// [`out_of_flow_static_positions`] for the boxes `out_of_flow`, the
+/// [`out_of_flow_inline_descendants`] of the context: none for none of them,
+/// whatever `items` holds.
+fn static_positions_of(
+    styled_dom: &StyledDom,
+    tree: &LayoutTree,
+    out_of_flow: &[usize],
+    items: &[text3::cache::PositionedItem],
+    child_map: &HashMap<ContentIndex, usize>,
+) -> BTreeMap<usize, LogicalPosition> {
     let mut out = BTreeMap::new();
-    for child_index in out_of_flow_inline_descendants(styled_dom, tree, node_index) {
+    if out_of_flow.is_empty() {
+        return out;
+    }
+    // The items are listed once for all the boxes (`StaticPlaces`), not
+    // walked for each of them.
+    let mut places = StaticPlaces::new(items, |item| item_dom_node(tree, Some(child_map), item));
+    for &child_index in out_of_flow {
         let Some(child) = tree
             .get(LayoutNodeId::new(child_index))
             .and_then(|n| n.dom_node_id)
         else {
             continue;
         };
-        let Some(place) = inline_static_place(
-            items,
-            |item| item_dom_node(tree, Some(child_map), item),
-            child,
-        ) else {
+        let Some(place) = places.place(child) else {
             continue;
         };
         let display = get_display_property(styled_dom, Some(child)).unwrap_or_default();
@@ -1136,11 +1433,21 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 // The content and the width are unchanged: the cached layout
                 // is this pass's.
                 debug_info!(ctx, "[layout_ifc] Phase 2d: reusing the cached layout");
-                // (d6h) Materialized: the stored layout may be the
-                // retirement sentinel; measuring it raw zeroed the
-                // reuse path's overflow_size (scrollbars vanished on
-                // every reuse).
-                let main_frag = cached.materialized();
+                #[cfg(test)]
+                IFC_REUSE_EXITS.with(|n| n.set(n.get() + 1));
+                // The boxes taken out of this context: their static
+                // positions are read off the laid-out items.
+                let out_of_flow =
+                    out_of_flow_inline_descendants(ctx.styled_dom, tree, node_index);
+                // A retired layout (its items live in the dense view alone)
+                // kept what this exit reads off its lines when it was
+                // stored: with no box taken out of the context, nothing
+                // else needs its items, and they are not expanded again.
+                let kept = if out_of_flow.is_empty() {
+                    cached.retired_metrics
+                } else {
+                    None
+                };
                 // This exit REPLAYS what the full path writes, from the
                 // one `finish_inline_layout`: the extent with
                 // its text-box-trim, the baseline the box's sizing and
@@ -1154,20 +1461,44 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
                 // `atomic_inline_children_are_laid_out` says the atomic
                 // children it places have sizes (carried by their own
                 // clones), and a re-collection lays them out.
-                let mut output = finish_inline_layout(
-                    &main_frag,
-                    &text3_constraints,
-                    ctx.styled_dom,
-                    ifc_root_dom_id,
-                    &child_map,
-                );
-                output.static_positions = out_of_flow_static_positions(
-                    ctx.styled_dom,
-                    tree,
-                    node_index,
-                    &main_frag.items,
-                    &child_map,
-                );
+                let output = if let Some(kept) = kept {
+                    finish_retired_inline_layout(
+                        &kept,
+                        &cached.overflow,
+                        &text3_constraints,
+                        ctx.styled_dom,
+                        ifc_root_dom_id,
+                    )
+                } else {
+                    // (d6h) Materialized: the stored layout may be the
+                    // retirement sentinel; measuring it raw zeroed the
+                    // reuse path's overflow_size (scrollbars vanished on
+                    // every reuse).
+                    let main_frag = cached.materialized();
+                    #[cfg(test)]
+                    {
+                        // `materialized` hands back the stored `Arc` unless
+                        // it expanded the dense view.
+                        if !Arc::ptr_eq(&main_frag, &cached.layout) {
+                            IFC_REUSE_EXPANSIONS.with(|n| n.set(n.get() + 1));
+                        }
+                    }
+                    let mut output = finish_inline_layout(
+                        &main_frag,
+                        &text3_constraints,
+                        ctx.styled_dom,
+                        ifc_root_dom_id,
+                        &child_map,
+                    );
+                    output.static_positions = static_positions_of(
+                        ctx.styled_dom,
+                        tree,
+                        &out_of_flow,
+                        &main_frag.items,
+                        &child_map,
+                    );
+                    output
+                };
                 if let Some(warm_node) = tree.warm_mut(LayoutNodeId::new(node_index)) {
                     warm_node.baseline = output.baseline;
                 }
@@ -1190,18 +1521,33 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     // (`shape_content`), then broken, positioned and reported
     // (`ParagraphToBreak`, `lay_out_shaped_ifc`), the same functions a
     // relayout after an edit runs.
-    // Get pre-loaded fonts from font manager (fonts should be loaded before layout)
-    let loaded_fonts = ctx.font_manager.get_loaded_fonts();
+    // Get pre-loaded fonts from font manager (fonts should be loaded before
+    // layout): asked once per pass (`LayoutContext::loaded_fonts`), not once
+    // per inline formatting context.
+    let loaded_fonts = ctx.loaded_fonts();
     let flow_probe = crate::probe::Probe::span("text_layout_flow");
-    let shaped = text_cache.shape_content(
-        &inline_content,
-        &[],
-        &text3_constraints,
-        &ctx.font_manager.font_chain_cache,
-        &ctx.font_manager.fc_cache,
-        &loaded_fonts,
-        ctx.debug_messages,
-    );
+    // What the intrinsic measure of this root shaped, when it is what
+    // `shape_content` would hand out here (`sizing::MeasuredParagraphs`):
+    // the same content, direction and faces within the same pass.
+    let measured = if ctx.debug_messages.is_none() {
+        ctx.pass_memo
+            .measured
+            .take(node_index, &inline_content, &text3_constraints)
+    } else {
+        None
+    };
+    let shaped = match measured {
+        Some(shaped) => Ok(shaped),
+        None => text_cache.shape_content(
+            &inline_content,
+            &[],
+            &text3_constraints,
+            &ctx.font_manager.font_chain_cache,
+            &ctx.font_manager.fc_cache,
+            &loaded_fonts,
+            ctx.debug_messages,
+        ),
+    };
     let laid_out = shaped.and_then(|(logical_items, shaped_items)| {
         let paragraph = text3::cache::ParagraphToBreak::new(shaped_items, &text3_constraints);
         lay_out_shaped_ifc(
@@ -1375,12 +1721,38 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
         };
 
         if should_store || is_measure {
-            let mut cil = CachedInlineLayout::new_with_constraints(
-                main_frag.clone(),
-                current_width_type,
-                has_floats,
-                text3_constraints.clone(),
-            );
+            #[cfg(test)]
+            let runs_built_before =
+                crate::solver3::layout_tree::GLYPH_RUNS_BUILT_AT_STORE.with(core::cell::Cell::get);
+            // A measure's lines are painted only while they are still the
+            // final layout when the display list is made: their paint runs
+            // are made when they are first read, not for every measure
+            // (`CachedInlineLayout::new_measure_with_constraints`).
+            let mut cil = if is_measure {
+                CachedInlineLayout::new_measure_with_constraints(
+                    main_frag.clone(),
+                    current_width_type,
+                    has_floats,
+                    text3_constraints.clone(),
+                )
+            } else {
+                CachedInlineLayout::new_with_constraints(
+                    main_frag.clone(),
+                    current_width_type,
+                    has_floats,
+                    text3_constraints.clone(),
+                )
+            };
+            #[cfg(test)]
+            {
+                if is_measure {
+                    let built = crate::solver3::layout_tree::GLYPH_RUNS_BUILT_AT_STORE
+                        .with(core::cell::Cell::get)
+                        - runs_built_before;
+                    IFC_MEASURE_STORES.with(|n| n.set(n.get() + 1));
+                    IFC_MEASURE_STORE_RUN_BUILDS.with(|n| n.set(n.get() + built));
+                }
+            }
             // #11 fix: record the content hash so Phase 2d only fast-path-reuses
             // this layout when the inline content is genuinely unchanged, and so
             // the store decision above can detect content changes.
@@ -1675,7 +2047,7 @@ pub(crate) fn flow_paragraph<T: ParsedFontTrait>(
     {
         text3_constraints.text_indent = 0.0;
     }
-    let loaded_fonts = ctx.font_manager.get_loaded_fonts();
+    let loaded_fonts = ctx.loaded_fonts();
     let (logical_items, shaped_items) = text_cache
         .shape_content(
             &content,
@@ -1694,4 +2066,176 @@ pub(crate) fn flow_paragraph<T: ParsedFontTrait>(
         child_map,
         style_dom_id,
     })
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// A positioned cluster of the text node `node`: one glyph 10px wide, at `(x, y)` on line
+    /// `line`, right-to-left or not.
+    fn cluster(node: usize, line: usize, x: f32, y: f32, rtl: bool) -> text3::cache::PositionedItem {
+        use crate::text3::{
+            cache::{
+                BidiDirection, BidiLevel, ClusterFlags, ContentIndex, GlyphKind,
+                GraphemeClusterId, LayoutFontMetrics, Point, PositionedItem, ShapedCluster,
+                ShapedGlyph, ShapedItem, StyleProperties,
+            },
+            script::Script,
+        };
+        let direction = if rtl {
+            BidiDirection::Rtl
+        } else {
+            BidiDirection::Ltr
+        };
+        let glyph = ShapedGlyph {
+            kind: GlyphKind::Character,
+            glyph_id: 7,
+            cluster_offset: 0,
+            advance: 10.0,
+            kerning: 0.0,
+            offset: Point { x: 0.0, y: 0.0 },
+            vertical_advance: 0.0,
+            vertical_offset: Point { x: 0.0, y: 0.0 },
+            script: Script::Latin,
+            font_hash: 0xF0F0,
+            font_metrics: LayoutFontMetrics {
+                ascent: 800.0,
+                descent: -200.0,
+                line_gap: 0.0,
+                units_per_em: 1000,
+                x_height: None,
+                cap_height: None,
+                browser_ascent_boost: false,
+            },
+        };
+        PositionedItem {
+            item: ShapedItem::Cluster(ShapedCluster {
+                flags: ClusterFlags::classify("a"),
+                source_text: Arc::from("a"),
+                source_byte_len: 1,
+                source_cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 0,
+                },
+                source_content_index: ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                source_node_id: Some(NodeId::new(node)),
+                glyphs: core::iter::once(glyph).collect(),
+                advance: 10.0,
+                direction,
+                bidi_level: BidiLevel::paragraph(direction),
+                style: Arc::new(StyleProperties {
+                    font_size_px: 20.0,
+                    ..StyleProperties::default()
+                }),
+                marker_position_outside: None,
+                is_first_fragment: true,
+                is_last_fragment: true,
+            }),
+            position: Point { x, y },
+            line_index: line,
+        }
+    }
+
+    /// A tab `height` tall at the top of line `line`: an item of no DOM node that widens its
+    /// line.
+    fn tab(line: usize, x: f32, height: f32) -> text3::cache::PositionedItem {
+        text3::cache::PositionedItem {
+            item: text3::cache::ShapedItem::Tab {
+                source: text3::cache::ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                bounds: text3::cache::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 8.0,
+                    height,
+                },
+            },
+            position: text3::cache::Point { x, y: 0.0 },
+            line_index: line,
+        }
+    }
+
+    /// A forced break on line `line`: an item without a height.
+    fn line_break(line: usize) -> text3::cache::PositionedItem {
+        text3::cache::PositionedItem {
+            item: text3::cache::ShapedItem::Break {
+                source: text3::cache::ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                break_info: InlineBreak {
+                    break_type: BreakType::Hard,
+                    clear: ClearType::None,
+                    content_index: 0,
+                },
+            },
+            position: text3::cache::Point { x: 0.0, y: 0.0 },
+            line_index: line,
+        }
+    }
+
+    /// A3-solver-16: the places `StaticPlaces` reads off one listing of the items are, to the
+    /// bit, the places `inline_static_place` finds by walking the items for each box - for
+    /// every box before, between and after the nodes with content, asked in any order, over
+    /// items whose nodes come in no order, with a node on two lines, right-to-left anchors, an
+    /// item of no node and an item of no height.
+    ///
+    /// Mutation: `StaticPlaces::place` taking a node's FIRST item where the box comes after
+    /// the node puts a box after node 3 on line 0 instead of line 2.
+    #[test]
+    fn the_places_listed_once_are_the_places_the_scan_finds() {
+        let items = vec![
+            cluster(3, 0, 0.0, 2.0, false),
+            cluster(3, 0, 10.0, 2.0, false),
+            tab(0, 20.0, 30.0),
+            cluster(7, 0, 40.0, 4.0, true),
+            cluster(7, 1, 0.0, 30.0, true),
+            cluster(5, 1, 10.0, 28.0, false),
+            line_break(1),
+            cluster(9, 2, 0.0, 60.0, false),
+            cluster(3, 2, 10.0, 61.0, false),
+        ];
+        let reversed: Vec<text3::cache::PositionedItem> = items.iter().rev().cloned().collect();
+        let node_of = |item: &ShapedItem| match item {
+            ShapedItem::Cluster(c) => c.source_node_id,
+            _ => None,
+        };
+        let bits = |place: Option<InlineStaticPlace>| {
+            place.map(|p| {
+                (
+                    p.x.to_bits(),
+                    p.line_top.to_bits(),
+                    p.line_bottom.to_bits(),
+                    p.after_content,
+                    p.line,
+                )
+            })
+        };
+        for list in [&items[..], &reversed[..], &items[..0]] {
+            let mut places = StaticPlaces::new(list, node_of);
+            // Asked out of order and twice: the extents of the lines are kept between asks.
+            for child in (0..12).chain((0..12).rev()) {
+                let child = NodeId::new(child);
+                assert_eq!(
+                    bits(places.place(child)),
+                    bits(inline_static_place(list, node_of, child)),
+                    "the box {child:?} among {} items",
+                    list.len()
+                );
+            }
+        }
+        // Node 3 has items on the lines 0 and 2: a box right after it stands after its LAST
+        // item, a box before all content before its FIRST.
+        let mut places = StaticPlaces::new(&items, node_of);
+        let after_node_3 = places.place(NodeId::new(4)).expect("content comes before it");
+        assert!(after_node_3.after_content && after_node_3.line == 2);
+        let before_all = places.place(NodeId::new(0)).expect("content comes after it");
+        assert!(!before_all.after_content && before_all.line == 0);
+    }
 }

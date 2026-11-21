@@ -1589,12 +1589,12 @@ mod autotest_generated {
 
     #[test]
     fn parse_clip_edge_quantises_to_thousandths_and_normalises_negative_zero() {
-        // FloatValue is a fixed-point isize in milli-units: anything below 1/1000
-        // truncates toward zero rather than rounding.
+        // FloatValue is a fixed-point isize in milli-units, rounded to the
+        // nearest (A2-cpu-24: it was cut off, and 1.9999px read 1.999).
         assert_eq!(parse_clip_edge("0.001px").unwrap(), OptionF32::Some(0.001));
         assert_eq!(parse_clip_edge("0.0001px").unwrap(), OptionF32::Some(0.0));
-        assert_eq!(parse_clip_edge("-0.0009px").unwrap(), OptionF32::Some(0.0));
-        assert_eq!(parse_clip_edge("1.9999px").unwrap(), OptionF32::Some(1.999));
+        assert_eq!(parse_clip_edge("-0.0004px").unwrap(), OptionF32::Some(0.0));
+        assert_eq!(parse_clip_edge("1.9999px").unwrap(), OptionF32::Some(2.0));
 
         // -0 loses its sign, so it can never poison downstream sign checks.
         let minus_zero = parse_clip_edge("-0px").unwrap().into_option().unwrap();
