@@ -1390,6 +1390,89 @@ fn a_sticky_box_inside_an_absolute_one_is_shifted_once_per_pass() {
     );
 }
 
+/// A3-solver-54. The sticky step moves the sticky box's own position and leaves the boxes
+/// inside it where the flow put them (the relative step moves a box "as a unit", CSS 2.2
+/// 9.4.3, and so must this one: CSS Positioned Layout 3 s3.4 shifts the box, and its content
+/// is in it). Positions are absolute, so a block inside a sticky box that is held away from
+/// its place was painted at the place the box is NOT: a sticky toolbar laid out while its
+/// scroller is scrolled by 300 stands 300 lower than the flow put it, and its buttons stayed
+/// 300 above it, out of view.
+///
+/// `body(0) > .c(1) > .s(2) > .k(3)`, unscrolled window: `.s` (`top: 50px`, at the top of the
+/// 300 px block) is held 50 below its place, at (0, 50). `.k`, its child, goes with it:
+/// (0, 50). Before: `.k` at (0, 0).
+///
+/// Mutation: without the walk over the box's subtree in `positioning::shift_if_sticky`, `.k`
+/// stands at (0, 0).
+#[test]
+fn the_boxes_inside_a_sticky_box_go_with_it() {
+    let page = || {
+        Dom::create_body()
+            .with_child(div_class("c").with_child(div_class("s").with_child(div_class("k"))))
+    };
+    let css = "body { margin: 0; } .c { height: 300px; } \
+               .s { position: sticky; top: 50px; height: 20px; } .k { width: 5px; height: 5px; }";
+    let lw = fresh(page, css);
+    let (s, k) = (position_of(&lw, 2), position_of(&lw, 3));
+    assert!(
+        s.x.abs() < 0.01 && (s.y - 50.0).abs() < 0.01,
+        "harness: the sticky box is held at (0, 50), it stands at ({}, {})",
+        s.x,
+        s.y
+    );
+    assert!(
+        k.x.abs() < 0.01 && (k.y - 50.0).abs() < 0.01,
+        "the block inside the sticky box stands at ({}, {}), not with its box at (0, 50)",
+        k.x,
+        k.y
+    );
+}
+
+/// A3-solver-54, a second pass that lays out another subtree: the sticky box is not placed
+/// by it, its shift stands, and what is inside it is not moved again.
+///
+/// `body(0) > [.c(1) > .s(2) > .k(3), .g(4) > .x(5)]`; `.x` gets another width.
+#[test]
+fn the_boxes_inside_a_sticky_box_are_moved_once() {
+    let page = || {
+        Dom::create_body()
+            .with_child(div_class("c").with_child(div_class("s").with_child(div_class("k"))))
+            .with_child(div_class("g").with_child(div_class("x")))
+    };
+    let base = "body { margin: 0; } .c { height: 300px; } \
+                .s { position: sticky; top: 50px; height: 20px; } .k { width: 5px; height: 5px; } \
+                .g { height: 50px; } .x { height: 20px; }";
+    let (first, second) = (
+        format!("{base} .x {{ width: 100px; }}"),
+        format!("{base} .x {{ width: 150px; }}"),
+    );
+    let incremental = restyled(page, &first, &second);
+    let k = position_of(&incremental, 3);
+    assert!(
+        k.x.abs() < 0.01 && (k.y - 50.0).abs() < 0.01,
+        "after a pass that laid out another subtree the block inside the sticky box stands at \
+         ({}, {}), not at (0, 50)",
+        k.x,
+        k.y
+    );
+    assert_as_in_a_fresh_layout(&incremental, &fresh(page, &second), &[2, 3]);
+}
+
+/// A3-solver-54 below an absolutely positioned box (A3-solver-53's page): `.k` goes with
+/// `.s` to (30, 150).
+#[test]
+fn the_boxes_inside_a_sticky_box_in_an_absolute_one_go_with_it() {
+    let mut lw = window();
+    lay_out(&mut lw, a_sticky_box_in_an_absolute_one());
+    let k = position_of(&lw, 3);
+    assert!(
+        (k.x - 30.0).abs() < 0.01 && (k.y - 150.0).abs() < 0.01,
+        "the block inside the sticky box stands at ({}, {}), not with its box at (30, 150)",
+        k.x,
+        k.y
+    );
+}
+
 /// A3-solver-46. The positioning pass reads a box's static position from its slot of the
 /// position vector and writes the box's final position into the same slot. A pass that does not
 /// derive that slot from the flow again (an incremental pass that lays out another subtree)
