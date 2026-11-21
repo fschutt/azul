@@ -10063,7 +10063,7 @@ impl LayoutWindow {
             &self.layout_cache.calculated_positions,
         );
 
-        if std::env::var("AZ_MAP_DEBUG").is_ok() {
+        if env_flag!("AZ_MAP_DEBUG") {
             eprintln!(
                 "[vview] scan found {} VirtualView node(s): {:?}",
                 vviews.len(),
@@ -10107,7 +10107,7 @@ impl LayoutWindow {
                             clip_rect: placeholder_clip,
                             ..
                         } if *placeholder_nid == node_id => {
-                            if std::env::var("AZ_MAP_DEBUG").is_ok() {
+                            if env_flag!("AZ_MAP_DEBUG") {
                                 eprintln!(
                                     "[vview] placeholder swap: node={} placeholder_bounds={:?} \
                                      scan_bounds={:?}",
@@ -30799,7 +30799,7 @@ impl LayoutWindow {
             // in the root DOM: a page that appears in a view takes the keys.
             let entered_autofocus = first_entered_autofocus(new_node_data, entered.iter().copied());
             #[cfg(feature = "std")]
-            if std::env::var("AZ_VV_RECONCILE_TRACE").is_ok() {
+            if env_flag!("AZ_VV_RECONCILE_TRACE") {
                 eprintln!(
                     "[vv-reconcile] dom={child_dom_id:?} old_n={} new_n={} moves={} sample={:?}",
                     old_node_data.len(),
