@@ -3771,6 +3771,9 @@ pub(crate) struct FrameIndex {
     views: Vec<usize>,
     /// The bounds of the fully opaque, square-cornered rect fills, in list order.
     opaque_fills: Vec<LogicalRect>,
+    /// For each of `opaque_fills`, the pushes of the reference frames open around it,
+    /// outermost first: a fill inside a frame is painted where the frame's matrix puts it.
+    opaque_fill_frames: Vec<Vec<usize>>,
     /// By the index of a frame's push: what its picture depends on besides its items, for the
     /// frames that bind anything inside ([`FrameInner`]).
     inner: std::collections::HashMap<usize, FrameInner>,
@@ -3798,6 +3801,7 @@ impl FrameIndex {
         let mut opacity_keys = std::collections::HashSet::new();
         let mut views = Vec::new();
         let mut opaque_fills = Vec::new();
+        let mut opaque_fill_frames: Vec<Vec<usize>> = Vec::new();
         struct Open {
             push: usize,
             frame_box: LogicalRect,
@@ -3942,6 +3946,7 @@ impl FrameIndex {
                     if color.a == 255 && border_radius.is_zero() =>
                 {
                     opaque_fills.push(*bounds.inner());
+                    opaque_fill_frames.push(open.iter().map(|frame| frame.push).collect());
                 }
                 _ => {}
             }
@@ -4036,6 +4041,7 @@ impl FrameIndex {
             color_keys: list.color_bindings.iter().flatten().map(|k| k.id).collect(),
             views,
             opaque_fills,
+            opaque_fill_frames,
             inner,
             nesting,
         }
@@ -4069,6 +4075,14 @@ impl FrameIndex {
     /// The bounds of the list's opaque, square-cornered rect fills.
     pub(crate) fn opaque_fills(&self) -> &[LogicalRect] {
         &self.opaque_fills
+    }
+
+    /// [`Self::opaque_fills`], each with the pushes of the reference frames open around it
+    /// (outermost first; none for a fill in no frame).
+    pub(crate) fn opaque_fills_in_frames(&self) -> impl Iterator<Item = (&LogicalRect, &[usize])> {
+        self.opaque_fills
+            .iter()
+            .zip(self.opaque_fill_frames.iter().map(Vec::as_slice))
     }
 
     fn entry(&self, push: usize) -> Option<&FrameEntry> {

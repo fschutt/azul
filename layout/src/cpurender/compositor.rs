@@ -3726,6 +3726,43 @@ pub fn execute_virtual_view_shift(
     dpi_factor: f32,
     scroll_offsets: &ScrollOffsetMap,
 ) -> ScrollShiftOutcome {
+    execute_virtual_view_shift_with(
+        pixmap,
+        display_list,
+        views,
+        shift,
+        dpi_factor,
+        scroll_offsets,
+        &HashMap::new(),
+    )
+}
+
+/// An item that has bounds and paints nothing: no overlay to repaint after a move of the
+/// pixels under it (A2-cpu-19: a hit-test area over a view made every pan repaint the view).
+fn paints_nothing(item: &DisplayListItem) -> bool {
+    matches!(
+        item,
+        DisplayListItem::HitTestArea { .. }
+            | DisplayListItem::TextLayout { .. }
+            | DisplayListItem::WebView { .. }
+    )
+}
+
+/// [`execute_virtual_view_shift`] with the live matrices of the window's frames
+/// (`transforms`, by key): an opaque fill of the child covers the view only where it is
+/// painted, and inside a frame that is not the identity it is painted elsewhere than it is
+/// laid out (A2-cpu-27).
+#[must_use]
+#[allow(clippy::implicit_hasher)]
+pub fn execute_virtual_view_shift_with(
+    pixmap: &mut AzulPixmap,
+    display_list: &DisplayList,
+    views: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
+    shift: &ViewShift,
+    dpi_factor: f32,
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> ScrollShiftOutcome {
     let whole = ScrollShiftOutcome {
         damage: vec![shift.clip],
         present_extra: Vec::new(),
@@ -3780,10 +3817,21 @@ pub fn execute_virtual_view_shift(
         let covered_at = |scroll: (f32, f32)| {
             // The child's opaque fills are found once for the list (its index), not by
             // reading the whole child list again on every pan frame.
+            // Only the fills that are painted where they are laid out: in no frame, or in
+            // frames whose live matrix (a key without a value: the push's own) is the identity.
+            let laid_out_in_place = |frames: &[usize]| {
+                frames.iter().all(|push| match child.items.get(*push) {
+                    Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, .. }) => {
+                        is_identity_2d(transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m))
+                    }
+                    _ => false,
+                })
+            };
             let fills: Vec<LogicalRect> = child
                 .frame_index()
-                .opaque_fills()
-                .iter()
+                .opaque_fills_in_frames()
+                .filter(|(_, frames)| laid_out_in_place(frames))
+                .map(|(r, _)| r)
                 .map(|r| {
                     moved_by(
                         *r,
@@ -3832,7 +3880,7 @@ pub fn execute_virtual_view_shift(
     for it in &items[shift.index + 1..] {
         let at = stack.scrolled();
         stack.step(it);
-        if it.is_state_management() {
+        if it.is_state_management() || paints_nothing(it) {
             continue;
         }
         let Some(b) = it.visual_bounds().or_else(|| it.bounds()) else {
@@ -3924,7 +3972,7 @@ pub fn overlay_rects_after_frame_in(
             .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED));
         let moved_with_the_frame = stack.is_open(scroll_id);
         stack.step(it);
-        if i < end || moved_with_the_frame || it.is_state_management() {
+        if i < end || moved_with_the_frame || it.is_state_management() || paints_nothing(it) {
             continue;
         }
         let Some(b) = on_screen else { continue };
@@ -11902,5 +11950,89 @@ mod audit_a1_tests {
         let (whole, none) = scroll_shift_region_moved(&mut still, &clip, (80.0, 0.0), (80.0, 0.0), 1.0);
         assert_eq!((whole.len(), none), (1, None));
         assert_eq!(at(&still, 20, 15), (20, 15));
+    }
+
+    fn lr(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    fn opaque(x: f32, y: f32, w: f32, h: f32, rgb: [u8; 3]) -> DisplayListItem {
+        DisplayListItem::Rect {
+            bounds: lr(x, y, w, h).into(),
+            color: azul_css::props::basic::ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 },
+            border_radius: crate::solver3::display_list::BorderRadius::default(),
+        }
+    }
+
+    /// A2-cpu-19 and A2-cpu-27: a view (20, 10) 200 x 100 over a two-coloured backdrop, its
+    /// child one opaque ground inside a frame (key 7), and a `TextLayout` (it has bounds and
+    /// paints nothing) over the view. A pan by 12 px:
+    /// - with the frame at the identity the ground covers the view: the pixels move and the
+    ///   damage is the strip alone (x 207 .. 220), not the box of the item that paints nothing;
+    /// - with the frame scaled to a half the ground is painted on a quarter of the view: no
+    ///   move, the view is repainted.
+    /// Mutations: the item that paints nothing counted as an overlay adds two rects of the
+    /// view's size; the fills taken where they are laid out move the pixels under the scale.
+    #[test]
+    fn a_views_pan_moves_pixels_only_under_a_ground_that_is_painted_there() {
+        use std::sync::Arc;
+
+        use azul_core::dom::DomId;
+        let identity = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]];
+        let child = DisplayList {
+            items: vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 7 },
+                    initial_transform: azul_core::transform::ComputedTransform3D { m: identity },
+                    bounds: lr(0.0, 0.0, 400.0, 300.0).into(),
+                },
+                opaque(0.0, 0.0, 400.0, 300.0, [240, 240, 230]),
+                DisplayListItem::PopReferenceFrame,
+            ],
+            ..Default::default()
+        };
+        let view = lr(20.0, 10.0, 200.0, 100.0);
+        let host = DisplayList {
+            items: vec![
+                opaque(0.0, 0.0, 120.0, 200.0, [200, 0, 0]),
+                opaque(120.0, 0.0, 200.0, 200.0, [0, 0, 200]),
+                DisplayListItem::VirtualView {
+                    child_dom_id: DomId { inner: 1 },
+                    bounds: view.into(),
+                    clip_rect: view.into(),
+                    content_offset: LogicalPosition { x: -12.0, y: 0.0 },
+                },
+                DisplayListItem::TextLayout {
+                    layout: Arc::new(()),
+                    bounds: view.into(),
+                    font_hash: crate::text3::cache::FontHash::from_hash(0),
+                    font_size_px: 12.0,
+                    color: azul_css::props::basic::ColorU { r: 0, g: 0, b: 0, a: 255 },
+                },
+            ],
+            ..Default::default()
+        };
+        let views: std::collections::BTreeMap<DomId, Arc<DisplayList>> =
+            [(DomId { inner: 1 }, Arc::new(child))].into_iter().collect();
+        let shift = ViewShift { index: 2, clip: view, delta: (12.0, 0.0), offset: (12.0, 0.0) };
+        let pan = |values: &HashMap<usize, azul_core::transform::ComputedTransform3D>| {
+            let mut pm = AzulPixmap::new(300, 200).expect("a pixmap");
+            execute_virtual_view_shift_with(&mut pm, &host, &views, &shift, 1.0, &ScrollOffsetMap::new(), values)
+        };
+        let moved = pan(&HashMap::new());
+        assert_eq!(moved.moves, vec![PresentMove { dst: (20, 10, 188, 100), dx: -12, dy: 0 }]);
+        assert_eq!(moved.damage.len(), 1, "the strip alone: {:?}", moved.damage);
+        assert_eq!((moved.damage[0].origin.x, moved.damage[0].size.width), (207.0, 13.0));
+        let mut half = identity;
+        half[0][0] = 0.5;
+        half[1][1] = 0.5;
+        let scaled: HashMap<usize, azul_core::transform::ComputedTransform3D> =
+            [(7, azul_core::transform::ComputedTransform3D { m: half })].into_iter().collect();
+        let repainted = pan(&scaled);
+        assert!(repainted.moves.is_empty(), "the ground is painted elsewhere: no move");
+        assert_eq!(repainted.damage, vec![view], "the view is repainted");
     }
 }

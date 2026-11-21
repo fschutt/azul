@@ -1095,13 +1095,15 @@ impl CpuBackend {
             // A view whose content scrolled moves the same way: its pixels, the
             // strip that came into view, what is painted over it.
             for shift in &view_shifts {
-                let out = cpurender::execute_virtual_view_shift(
+                let out = cpurender::execute_virtual_view_shift_with(
                     &mut output,
                     display_list,
                     &vview_dls,
                     shift,
                     dpi_factor,
                     &scroll_offsets,
+                    // The matrices this frame paints with.
+                    &self.previous_gpu_values.transforms,
                 );
                 all_damage.extend(out.damage);
                 present_extra.extend(out.present_extra);
