@@ -295,6 +295,12 @@ pub struct CpuBackend {
     /// inside a `VirtualView` binds its key in the view's own cache, and a write
     /// of the value alone moves it there without a new list.
     pub previous_gpu_values: crate::cpurender::WindowGpuValues,
+    /// The write generation of the window's GPU values (`GpuStateManager::value_generation`)
+    /// that `previous_gpu_values` was collected at; `None` while the backend holds no values
+    /// it could use again (before its first frame, and while a frame's render state has
+    /// them). A frame that finds this generation again, with the display lists of the frame
+    /// before, reads no value: `previous_gpu_values` are its values (A6-25).
+    pub previous_gpu_values_generation: Option<u64>,
     /// Where zombie exits painted LAST frame (logical px) — see the
     /// zombie-damage computation in `render_frame`.
     pub previous_zombie_rects: Vec<azul_core::geom::LogicalRect>,
@@ -304,6 +310,14 @@ pub struct CpuBackend {
     pub retained_frames: Arc<crate::cpurender::RetainedFrames>,
 }
 
+
+/// Tests: how many bound GPU values the frames of this thread collected from the caches for
+/// their own use (what a debug build collects to check a skipped collection is not counted).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static GPU_VALUES_COLLECTED: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
 
 impl Default for CpuBackend {
     fn default() -> Self {
@@ -357,6 +371,7 @@ impl CpuBackend {
             previous_scroll_offsets: crate::cpurender::ScrollOffsetMap::new(),
             previous_vview_dls: BTreeMap::new(),
             previous_gpu_values: crate::cpurender::WindowGpuValues::default(),
+            previous_gpu_values_generation: None,
             previous_zombie_rects: Vec::new(),
             retained_frames: Arc::new(crate::cpurender::RetainedFrames::new()),
         }
@@ -598,10 +613,51 @@ impl CpuBackend {
         // inside a view binds its key in the view's own cache, and a write of
         // the value alone (`set_css_property(transform)` on a map's picture)
         // moves it there without a new list - the view's list is diffed too.
-        let gpu_values = cpurender::WindowGpuValues::of_doms(
-            &layout_window.gpu_state_manager,
-            layout_window.layout_results.keys().copied(),
-        );
+        // (A6-25) Is anything this frame's values are made of another thing than in the frame
+        // before? They are a function of the value caches of the window's DOMs - whose write
+        // generation moves with every write that changes a key or a value, whoever makes it
+        // (`GpuStateManager::value_generation`) - and of which DOMs there are. The lists are
+        // compared by allocation: the backend holds the frame before's, so an address cannot
+        // be another list's, and a list built again (also with the same values) is another.
+        let value_generation = layout_window.gpu_state_manager.value_generation();
+        let same_lists = self
+            .previous_display_list
+            .as_ref()
+            .is_some_and(|old| Arc::ptr_eq(old, display_list))
+            && self.previous_vview_dls.len() == vview_dls.len()
+            && self
+                .previous_vview_dls
+                .iter()
+                .zip(&vview_dls)
+                .all(|((old_dom, old), (dom, list))| old_dom == dom && Arc::ptr_eq(old, list));
+        let values_unchanged =
+            same_lists && self.previous_gpu_values_generation == Some(value_generation);
+        // `None`: nothing was written. The values of the frame before (`previous_gpu_values`)
+        // are this frame's: none is read, copied or compared.
+        let fresh_gpu_values = if values_unchanged {
+            // A wrong skip paints stale values: a debug build collects them anyway and holds
+            // the skip against them.
+            debug_assert!(
+                cpurender::WindowGpuValues::of_doms(
+                    &layout_window.gpu_state_manager,
+                    layout_window.layout_results.keys().copied(),
+                ) == self.previous_gpu_values,
+                "the GPU values changed and their write generation did not"
+            );
+            None
+        } else {
+            let values = cpurender::WindowGpuValues::of_doms(
+                &layout_window.gpu_state_manager,
+                layout_window.layout_results.keys().copied(),
+            );
+            #[cfg(test)]
+            GPU_VALUES_COLLECTED.with(|n| {
+                n.set(n.get() + values.transforms.len() + values.opacities.len() + values.colors.len());
+            });
+            Some(values)
+        };
+        let gpu_values: &cpurender::WindowGpuValues =
+            fresh_gpu_values.as_ref().unwrap_or(&self.previous_gpu_values);
         // Which frames scroll by whole device pixels this frame, and the offsets an incremental
         // frame PAINTS at (`next_scroll_baseline`: a frame whose delta is under half a device
         // pixel keeps the offset it was last painted at). Found before the damage, because the
@@ -645,13 +701,19 @@ impl CpuBackend {
         // In VIEWPORT space: an item inside a scrolled frame (a thumb on a
         // scrolled page) is repainted where the frame paints it. A colour fade
         // frame - the bound background rects whose colour moved - is part of it.
-        let gpu_damage = cpurender::window_value_damage(
-            display_list,
-            &vview_dls,
-            &self.previous_gpu_values,
-            &gpu_values,
-            &next_scroll_baseline,
-        );
+        let gpu_damage = if values_unchanged {
+            // The same values: no key changed, nothing is owed (what `window_value_damage`
+            // answers after comparing every value).
+            cpurender::GpuValueDamage::default()
+        } else {
+            cpurender::window_value_damage(
+                display_list,
+                &vview_dls,
+                &self.previous_gpu_values,
+                gpu_values,
+                &next_scroll_baseline,
+            )
+        };
         let has_gpu_damage = !gpu_damage.rects.is_empty() || gpu_damage.needs_full;
         // Zombie exits repaint every tick with no display-list change — their
         // per-frame contribution is `previous ∪ current` painted rects
@@ -674,7 +736,11 @@ impl CpuBackend {
         // repaints read the CURRENT cache; skip only happens when unchanged).
         // The frame before's matrices stay for the list diff below: a change
         // under an animated frame is damaged where each frame painted it.
-        let old_gpu_values = core::mem::replace(&mut self.previous_gpu_values, gpu_values);
+        // `None`: nothing was written; the values stay where they are and are the frame
+        // before's as well.
+        let old_gpu_values: Option<cpurender::WindowGpuValues> = fresh_gpu_values
+            .map(|values| core::mem::replace(&mut self.previous_gpu_values, values));
+        self.previous_gpu_values_generation = Some(value_generation);
 
         // Can the pixels of the previous frame still be trusted? Yes when the
         // buffer did not change size at all, and yes on a GROW (the old pixels
@@ -749,7 +815,12 @@ impl CpuBackend {
                     &next_scroll_baseline,
                     patch_hint.as_ref().map(|(h, _)| h),
                     cpurender::FrameValues {
-                        old: Some(&old_gpu_values.transforms),
+                        old: Some(
+                            &old_gpu_values
+                                .as_ref()
+                                .unwrap_or(&self.previous_gpu_values)
+                                .transforms,
+                        ),
                         new: Some(&self.previous_gpu_values.transforms),
                     },
                 )
@@ -806,7 +877,12 @@ impl CpuBackend {
             &self.previous_scroll_offsets,
             &next_scroll_baseline,
             cpurender::FrameValues {
-                old: Some(&old_gpu_values.transforms),
+                old: Some(
+                    &old_gpu_values
+                        .as_ref()
+                        .unwrap_or(&self.previous_gpu_values)
+                        .transforms,
+                ),
                 new: Some(&self.previous_gpu_values.transforms),
             },
         );
@@ -1347,6 +1423,9 @@ impl CpuBackend {
         // The values are MOVED into the render state and back when the frame is painted (the
         // frame's own copy of three maps was 299 KB per frame for a map view: A9 H5). Nothing
         // between here and there reads `previous_gpu_values`.
+        // Their write generation goes with them: until they are back the backend holds no
+        // values it could use again.
+        let painted_generation = self.previous_gpu_values_generation.take();
         let render_state = cpurender::CpuRenderState::new(render_offsets.clone())
             .with_gpu_values(core::mem::take(&mut self.previous_gpu_values))
             .with_system_style(layout_window.system_style.clone())
@@ -1539,6 +1618,7 @@ impl CpuBackend {
             opacities,
             colors,
         };
+        self.previous_gpu_values_generation = painted_generation;
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
         self.last_consumed_build_seq = layout_window.layout_cache.build_seq;

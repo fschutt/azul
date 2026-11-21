@@ -6146,12 +6146,11 @@ where
     /// a fingerprint over every loaded face per call; an ellipsis and a
     /// placeholder prompt each asked for it again (per clipped line, per
     /// empty field). No font is loaded while a list is built: one answer
-    /// serves the build.
+    /// serves the build - the one the context's pass holds already, when the
+    /// list is built by the pass that laid the page out
+    /// ([`LayoutContext::loaded_fonts`], A3-solver-42).
     fn loaded_fonts(&self) -> std::sync::Arc<text3::cache::LoadedFonts<T>> {
-        std::sync::Arc::clone(
-            self.loaded_fonts
-                .get_or_init(|| self.ctx.font_manager.get_loaded_fonts()),
-        )
+        std::sync::Arc::clone(self.loaded_fonts.get_or_init(|| self.ctx.loaded_fonts()))
     }
 
     /// What the scroll chain of the box at `node_index` depends on: its

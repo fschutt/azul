@@ -863,10 +863,17 @@ mod audit_a3_core_tests {
         cache.apply_opacity_events(&[GpuOpacityKeyEvent::Changed(node, opacity_key, 0.5, 0.25)]);
         assert_ne!(cache.value_generation(), faded, "another opacity");
 
-        // A writer outside this type says so itself.
+        // A writer outside this type has nothing to say: the map stamps
+        // itself (A6-22; before, it was `note_value_write()` or a write no
+        // reader of the generation saw).
         let before = cache.value_generation();
         cache.anim_current_opacity_values.insert(node, 0.75);
+        let direct = cache.value_generation();
+        assert_ne!(direct, before, "an opacity map written directly");
+        cache.anim_current_opacity_values.insert(node, 0.75);
+        assert_eq!(cache.value_generation(), direct, "the same opacity, written directly");
+        // A note is another generation: for what is no value (a rekeying).
         cache.note_value_write();
-        assert_ne!(cache.value_generation(), before);
+        assert_ne!(cache.value_generation(), direct);
     }
 }

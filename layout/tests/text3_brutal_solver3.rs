@@ -62,7 +62,7 @@ fn fake_font_cache() -> FcFontCache {
                 ..Default::default()
             },
             FcFont {
-                bytes: bytes.clone(),
+                bytes: bytes.clone().into(),
                 font_index: 0,
                 id: "faketest".to_string(),
             },
@@ -74,7 +74,7 @@ fn fake_font_cache() -> FcFontCache {
                 ..Default::default()
             },
             FcFont {
-                bytes,
+                bytes: bytes.into(),
                 font_index: 0,
                 id: "faketest_fallback".to_string(),
             },

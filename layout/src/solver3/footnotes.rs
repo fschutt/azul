@@ -633,6 +633,8 @@ pub(crate) fn footnote_boxes(
     if !styled_dom.css_property_cache.ptr.paged_footnotes.get() {
         return found;
     }
+    // The lines of each paragraph with footnotes, listed once for all of them.
+    let mut places = crate::solver3::fc::TreeStaticPlaces::default();
     for (&dom_id, indices) in &tree.dom_to_layout {
         if !is_footnote(styled_dom, dom_id) {
             continue;
@@ -652,7 +654,7 @@ pub(crate) fn footnote_boxes(
         // The inline formatting context it was taken out of: its parent's,
         // or the one its parent's inline boxes (`<em>`, `<a>`) stand in.
         if let Some(parent) = crate::solver3::fc::inline_context_of(styled_dom, tree, index) {
-            let place = crate::solver3::fc::inline_static_place_in_tree(tree, parent, index);
+            let place = places.place(tree, parent, index);
             if let (Some(place), Some(parent_node), Some(parent_pos)) = (
                 place,
                 tree.get(LayoutNodeId::new(parent)),
@@ -681,7 +683,7 @@ pub(crate) fn footnote_boxes(
 /// The footnotes of the canvas `display_list` was made from.
 ///
 /// A note's anchor is the line its static position is on when it was taken
-/// out of an inline formatting context (`fc::ifc::inline_static_place_in_tree`),
+/// out of an inline formatting context (`fc::ifc::TreeStaticPlaces`),
 /// else the block offset it is parked at.
 #[must_use]
 pub fn collect_footnotes(

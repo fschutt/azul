@@ -1614,7 +1614,9 @@ impl FlowWalk<'_> {
             BreakInside::Avoid | BreakInside::AvoidRegion
         );
         self.wraps_around_exclusions = wraps_around_exclusions(ctx.styled_dom, tree, node);
-        let fonts = ctx.font_manager.get_loaded_fonts();
+        // The pass's fonts (`LayoutContext::loaded_fonts`): the ones
+        // `fc::flow_paragraph` just shaped the paragraph with.
+        let fonts = ctx.loaded_fonts();
         let mut flow = ParagraphFlow::new(
             Arc::clone(&paragraph.logical_items),
             Arc::clone(&paragraph.shaped_items),

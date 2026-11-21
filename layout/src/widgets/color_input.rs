@@ -716,46 +716,189 @@ pub const CHECKERBOARD_LIGHT_CLASS: &str = "__azul_native_checkerboard_light";
 /// Class on a checkerboard's dark cells.
 pub const CHECKERBOARD_DARK_CLASS: &str = "__azul_native_checkerboard_dark";
 
-/// A checkerboard of `cell`-px squares filling `w`×`h`, built from DIVS so a
-/// stylesheet can restyle it (`.__azul_native_checkerboard_dark { … }`) and
-/// so it follows the theme: the cells carry a light-theme colour and a dark
-/// one gated on `theme: dark`. What sits behind any colour that is not fully
-/// opaque. (An image would tile faster, but could not be styled or themed.)
+/// How a checkerboard is built, see [`checkerboard`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckerboardBuild {
+    /// One node whose background draws the cells ([`checkerboard_one_node`]).
+    OneNode,
+    /// A div per cell ([`checkerboard_cells`]).
+    Cells,
+}
+
+/// The build the process asked for: one node, or - with the environment
+/// variable `AZ_COLOR_PICKER_CHECKER=cells` - a div per cell, as every
+/// checkerboard was built before. Read once.
+fn checkerboard_build() -> CheckerboardBuild {
+    #[cfg(feature = "std")]
+    {
+        static CELLS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *CELLS.get_or_init(|| {
+            std::env::var_os("AZ_COLOR_PICKER_CHECKER").is_some_and(|v| v == "cells")
+        }) {
+            return CheckerboardBuild::Cells;
+        }
+    }
+    CheckerboardBuild::OneNode
+}
+
+/// A checkerboard of `cell`-px squares filling `w`×`h`: what sits behind any
+/// colour that is not fully opaque. It follows the theme (a light and a dark
+/// pair of colours, the dark one gated on dark mode).
+///
+/// ONE node by default ([`checkerboard_one_node`]). A div per cell was 75
+/// nodes for the picker's alpha bar and 21 for its preview - 96 of the 142
+/// nodes every colour input carries in its closed popup, styled, laid out and
+/// reconciled with every DOM the input is in. `AZ_COLOR_PICKER_CHECKER=cells`
+/// builds the cells again ([`checkerboard_cells`]): for a stylesheet that
+/// restyles them by class (`.__azul_native_checkerboard_dark { … }`; the one
+/// node has no cell to carry a class), and to compare the two on screen.
 fn checkerboard(w: f32, h: f32, cell: f32) -> Dom {
+    match checkerboard_build() {
+        CheckerboardBuild::OneNode => checkerboard_one_node(w, h, cell),
+        CheckerboardBuild::Cells => checkerboard_cells(w, h, cell),
+    }
+}
+
+/// The two colours of a checkerboard's cells - the light cell, the dark cell -
+/// by day and at night.
+const CHECKERBOARD_COLORS: [(ColorU, ColorU); 2] = [
+    (
+        ColorU {
+            r: 0xff,
+            g: 0xff,
+            b: 0xff,
+            a: 255,
+        },
+        ColorU {
+            r: 0xcc,
+            g: 0xcc,
+            b: 0xcc,
+            a: 255,
+        },
+    ),
+    (
+        ColorU {
+            r: 0x55,
+            g: 0x55,
+            b: 0x55,
+            a: 255,
+        },
+        ColorU {
+            r: 0x33,
+            g: 0x33,
+            b: 0x33,
+            a: 255,
+        },
+    ),
+];
+
+/// [`checkerboard`] as one node. Each row of cells is a layer of the node's
+/// background: a strip one cell tall at the row's height that repeats along
+/// the row (`background-repeat: repeat-x`), its tile two cells wide and drawn
+/// by a linear gradient with a hard stop in the middle - `[light | dark]` for
+/// the even rows, `[dark | light]` for the odd ones. The display list tiles a
+/// layer that has a `background-size` (one gradient item per tile, in
+/// `solver3::display_list`), so both renderers are handed the same items, and
+/// both draw a hard stop as an edge.
+///
+/// The cells are the ones [`checkerboard_cells`] draws: whole px wide (a
+/// `cell` of 6.5 is 6), `ceil(w / cell)` by `ceil(h / cell)` of them, and the
+/// node is as large as they are together (no larger than `w`×`h`).
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)] // small cell counts and px sizes
+fn checkerboard_one_node(w: f32, h: f32, cell: f32) -> Dom {
+    use azul_core::dom::IdOrClass::Class;
+    use azul_css::dynamic_selector::DynamicSelector;
+
+    let side = (cell as isize) as f32;
+    let cols = (w / cell).ceil().max(1.0) as usize;
+    let rows = (h / cell).ceil().max(1.0) as usize;
+    let width = (cols as f32 * side).min(w);
+    let height = (rows as f32 * side).min(h);
+
+    let stop = |percent: isize, color: ColorU| NormalizedLinearColorStop {
+        offset: PercentageValue::const_new(percent),
+        color: ColorOrSystem::color(color),
+        offset_px: FloatValue::const_new(0),
+    };
+    // The rows, the top one first: a strip `[first | second]` each.
+    let strips = |(light, dark): (ColorU, ColorU)| -> StyleBackgroundContentVec {
+        (0..rows)
+            .map(|row| {
+                let (first, second) = if row % 2 == 0 {
+                    (light, dark)
+                } else {
+                    (dark, light)
+                };
+                StyleBackgroundContent::LinearGradient(LinearGradient {
+                    direction: Direction::FromTo(DirectionCorners {
+                        dir_from: DirectionCorner::Left,
+                        dir_to: DirectionCorner::Right,
+                    }),
+                    extend_mode: ExtendMode::Clamp,
+                    stops: vec![
+                        stop(0, first),
+                        stop(50, first),
+                        stop(50, second),
+                        stop(100, second),
+                    ]
+                    .into(),
+                })
+            })
+            .collect::<Vec<_>>()
+            .into()
+    };
+    // Where each row's strip starts: at the left, `row` cells down.
+    let positions: Vec<StyleBackgroundPosition> = (0..rows)
+        .map(|row| StyleBackgroundPosition {
+            horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_px(0)),
+            vertical: BackgroundPositionVertical::Exact(PixelValue::px(row as f32 * side)),
+        })
+        .collect();
+
+    Dom::create_div()
+        .with_ids_and_classes(vec![Class(CHECKERBOARD_CLASS.into())].into())
+        .with_css(&format!(
+            "position: absolute; left: 0px; top: 0px; width: {width}px; height: {height}px;"
+        ))
+        .with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_background_content(strips(CHECKERBOARD_COLORS[0])),
+        ))
+        .with_css_property(CssPropertyWithConditions {
+            property: CssProperty::const_background_content(strips(CHECKERBOARD_COLORS[1])),
+            apply_if: vec![DynamicSelector::Mode(dynamic_selector::ModeCondition::Dark)].into(),
+        })
+        .with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_background_size(
+                vec![StyleBackgroundSize::ExactSize(PixelValueSize {
+                    width: PixelValue::px(2.0 * side),
+                    height: PixelValue::px(side),
+                })]
+                .into(),
+            ),
+        ))
+        .with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_background_repeat(vec![StyleBackgroundRepeat::RepeatX].into()),
+        ))
+        .with_css_property(CssPropertyWithConditions::simple(
+            CssProperty::const_background_position(positions.into()),
+        ))
+}
+
+/// [`checkerboard`] built from DIVS, a row of cells per row: a stylesheet can
+/// restyle the cells by class. What `AZ_COLOR_PICKER_CHECKER=cells` builds.
+fn checkerboard_cells(w: f32, h: f32, cell: f32) -> Dom {
     use azul_core::dom::IdOrClass::Class;
     use azul_css::dynamic_selector::{DynamicSelector, ThemeCondition};
 
     let cell_css = |dark: bool| -> CssPropertyWithConditionsVec {
         let (light_mode, dark_mode) = if dark {
-            (
-                ColorU {
-                    r: 0xcc,
-                    g: 0xcc,
-                    b: 0xcc,
-                    a: 255,
-                },
-                ColorU {
-                    r: 0x33,
-                    g: 0x33,
-                    b: 0x33,
-                    a: 255,
-                },
-            )
+            (CHECKERBOARD_COLORS[0].1, CHECKERBOARD_COLORS[1].1)
         } else {
-            (
-                ColorU {
-                    r: 0xff,
-                    g: 0xff,
-                    b: 0xff,
-                    a: 255,
-                },
-                ColorU {
-                    r: 0x55,
-                    g: 0x55,
-                    b: 0x55,
-                    a: 255,
-                },
-            )
+            (CHECKERBOARD_COLORS[0].0, CHECKERBOARD_COLORS[1].0)
         };
         let bg = |c: ColorU| {
             CssProperty::const_background_content(vec![StyleBackgroundContent::Color(c)].into())
@@ -1149,7 +1292,9 @@ extern "C" fn on_color_input_clicked(mut data: RefAny, mut info: CallbackInfo) -
         return Update::DoNothing;
     };
     let swatch = info.get_hit_node();
-    let Some(transient) = info.get_first_child(swatch) else {
+    // The popup is the swatch's LAST child: a translucent colour has its
+    // checkerboard and the colour over it in front of it (`build`).
+    let Some(transient) = info.get_last_child(swatch) else {
         return Update::DoNothing;
     };
     picker.open = !picker.open;
@@ -2914,7 +3059,7 @@ mod autotest_generated {
         for c in SAMPLE_COLORS {
             let (styled, state) = laid_out(ColorInput::create(c));
             // Open: the only thing a click does is ask the engine to hold the
-            // popup (the swatch's first child) open.
+            // popup (the swatch's last child) open.
             let (update, changes) = click(styled.clone(), &state, node(0));
             assert_eq!(
                 update,
@@ -2926,13 +3071,23 @@ mod autotest_generated {
                 1,
                 "{c:?}: a click must push exactly one change"
             );
-            let popup_node = node(1);
+            // The popup: node 1 of an opaque swatch; behind the checkerboard
+            // and the colour over it for a translucent one (A3-solver-34b:
+            // the click named node 1 - the checkerboard - for those too).
+            let popup_node = node(
+                styled
+                    .node_data
+                    .as_ref()
+                    .iter()
+                    .position(|n| matches!(n.get_node_type(), NodeType::TransientWindow(_)))
+                    .expect("the swatch has a popup"),
+            );
             assert!(
                 matches!(
                     &changes[0],
                     CallbackChange::SetTransientWindowOpen { node: n, open: true } if *n == popup_node
                 ),
-                "{c:?}: expected SetTransientWindowOpen(node 1, true), got {:?}",
+                "{c:?}: expected SetTransientWindowOpen(the popup, true), got {:?}",
                 changes[0]
             );
             assert_eq!(
@@ -4269,5 +4424,209 @@ mod app_theme_tests {
                 );
             }
         }
+    }
+}
+
+/// A3-solver-34a: a checkerboard is one node whose background draws the
+/// cells, not a div per cell. Counted: the nodes of a checkerboard and of a
+/// closed picker.
+#[cfg(all(test, feature = "std"))]
+mod audit_a3_solver_tests {
+    use azul_core::dom::IdOrClass;
+
+    use super::*;
+
+    /// The picker's alpha bar, its preview, a translucent swatch of 14 px:
+    /// `(w, h, cell)` as `picker_panel` and `build` ask for them.
+    const BOARDS: [(f32, f32, f32); 3] = [(216.0, 12.0, 6.0), (26.0, 26.0, 6.5), (14.0, 14.0, 7.0)];
+
+    fn nodes(dom: &Dom) -> usize {
+        1 + dom.children.as_ref().iter().map(nodes).sum::<usize>()
+    }
+
+    /// How many nodes of `dom` carry the class `name`.
+    fn with_class(dom: &Dom, name: &str) -> usize {
+        let own = dom
+            .root
+            .get_ids_and_classes()
+            .as_ref()
+            .iter()
+            .any(|c| matches!(c, IdOrClass::Class(s) if s.as_str() == name));
+        usize::from(own)
+            + dom
+                .children
+                .as_ref()
+                .iter()
+                .map(|child| with_class(child, name))
+                .sum::<usize>()
+    }
+
+    /// What `node` declares for `ty` whatever the mode (its first
+    /// declaration of it under no condition).
+    fn declared(node: &Dom, ty: CssPropertyType) -> Option<&CssProperty> {
+        node.root
+            .get_style()
+            .rules
+            .as_ref()
+            .iter()
+            .filter(|rule| rule.conditions.as_ref().is_empty())
+            .flat_map(|rule| rule.declarations.as_ref().iter())
+            .find_map(|declaration| match declaration {
+                azul_css::css::CssDeclaration::Static(property) if property.get_type() == ty => {
+                    Some(property)
+                }
+                _ => None,
+            })
+    }
+
+    /// The layers of the background `node` declares by day.
+    fn day_layers(node: &Dom) -> Vec<StyleBackgroundContent> {
+        match declared(node, CssPropertyType::BackgroundContent) {
+            Some(CssProperty::BackgroundContent(layers)) => layers
+                .get_property()
+                .map(|layers| layers.as_ref().to_vec())
+                .unwrap_or_default(),
+            _ => Vec::new(),
+        }
+    }
+
+    /// A checkerboard was a div per cell under a div per row: 75 nodes for
+    /// the alpha bar (2 x 36 cells), 21 for the preview (4 x 4), 7 for a
+    /// 14 px swatch (2 x 2). It is one node.
+    ///
+    /// Mutation: `checkerboard_one_node` building a child per cell (or
+    /// `checkerboard` answering with `checkerboard_cells`) counts the cells.
+    #[test]
+    fn a_checkerboard_is_one_node_where_it_was_a_div_per_cell() {
+        for ((w, h, cell), cells) in BOARDS.into_iter().zip([75_usize, 21, 7]) {
+            assert_eq!(
+                nodes(&checkerboard_cells(w, h, cell)),
+                cells,
+                "harness: the cells of a {w} x {h} board"
+            );
+            let one = checkerboard_one_node(w, h, cell);
+            assert_eq!(nodes(&one), 1, "the {w} x {h} board");
+            assert_eq!(with_class(&one, CHECKERBOARD_CLASS), 1);
+        }
+    }
+
+    /// The one node draws the picture the cells draw: a strip per row of
+    /// cells, at the row's height, one cell tall, repeated along the row;
+    /// its tile two cells wide with a hard stop in the middle, and the colour
+    /// of each half the colour of the cells it stands for (cell `x` of a row
+    /// is the tile's first half for an even `x`, its second for an odd one).
+    ///
+    /// Mutation: the same strip for every row (stripes), a tile of another
+    /// size, or a strip at another height fails.
+    #[test]
+    fn the_one_node_checkerboard_declares_the_cells_colours_cell_for_cell() {
+        for (w, h, cell) in BOARDS {
+            let cells = checkerboard_cells(w, h, cell);
+            let one = checkerboard_one_node(w, h, cell);
+            // the cells are whole px wide: 6.5 is 6
+            let side = cell.trunc();
+            let rows = cells.children.as_ref();
+            let strips = day_layers(&one);
+            assert_eq!(strips.len(), rows.len(), "{w} x {h}: a strip per row of cells");
+            assert_eq!(
+                declared(&one, CssPropertyType::BackgroundSize),
+                Some(&CssProperty::const_background_size(
+                    vec![StyleBackgroundSize::ExactSize(PixelValueSize {
+                        width: PixelValue::px(2.0 * side),
+                        height: PixelValue::px(side),
+                    })]
+                    .into()
+                )),
+                "{w} x {h}: a tile is two cells wide and one tall"
+            );
+            assert_eq!(
+                declared(&one, CssPropertyType::BackgroundRepeat),
+                Some(&CssProperty::const_background_repeat(
+                    vec![StyleBackgroundRepeat::RepeatX].into()
+                )),
+                "{w} x {h}: a strip repeats along its row only"
+            );
+            let Some(CssProperty::BackgroundPosition(positions)) =
+                declared(&one, CssPropertyType::BackgroundPosition)
+            else {
+                panic!("{w} x {h}: the strips have no positions");
+            };
+            let positions = positions
+                .get_property()
+                .map(|p| p.as_ref().to_vec())
+                .unwrap_or_default();
+            assert_eq!(positions.len(), rows.len(), "{w} x {h}: a position per strip");
+            for (y, row) in rows.iter().enumerate() {
+                #[allow(clippy::cast_precision_loss)] // a handful of rows
+                let top = y as f32 * side;
+                assert_eq!(
+                    positions[y],
+                    StyleBackgroundPosition {
+                        horizontal: BackgroundPositionHorizontal::Exact(PixelValue::const_px(0)),
+                        vertical: BackgroundPositionVertical::Exact(PixelValue::px(top)),
+                    },
+                    "{w} x {h}: strip {y} stands where row {y} of the cells does"
+                );
+                let StyleBackgroundContent::LinearGradient(strip) = &strips[y] else {
+                    panic!("{w} x {h}: strip {y} is no linear gradient");
+                };
+                let stops = strip.stops.as_ref();
+                assert_eq!(stops.len(), 4, "{w} x {h}: strip {y}");
+                assert!(
+                    stops[0].color == stops[1].color
+                        && stops[2].color == stops[3].color
+                        && stops[1].offset == stops[2].offset,
+                    "{w} x {h}: strip {y} is two flat halves with a hard stop between"
+                );
+                for (x, cell_div) in row.children.as_ref().iter().enumerate() {
+                    let of_the_cell = day_layers(cell_div);
+                    let [StyleBackgroundContent::Color(color)] = of_the_cell.as_slice() else {
+                        panic!("harness: cell ({x}, {y}) declares one colour");
+                    };
+                    let half = if x % 2 == 0 { &stops[0] } else { &stops[3] };
+                    assert!(
+                        half.color == ColorOrSystem::color(*color),
+                        "{w} x {h}: cell ({x}, {y}) is {color:?}, its half of the strip {:?}",
+                        half.color
+                    );
+                }
+            }
+        }
+    }
+
+    /// The closed picker every colour input carries: its alpha bar and its
+    /// preview are a checkerboard node each, where they were 96 nodes. (A
+    /// process started with `AZ_COLOR_PICKER_CHECKER=cells` builds the cells:
+    /// the test then has nothing to say.)
+    ///
+    /// Mutation: `checkerboard` building cells without being asked carries
+    /// 88 cell divs and at least 142 nodes.
+    #[test]
+    fn a_closed_picker_carries_a_node_per_checkerboard_not_a_div_per_cell() {
+        if checkerboard_build() != CheckerboardBuild::OneNode {
+            return;
+        }
+        let opaque = ColorU {
+            r: 200,
+            g: 60,
+            b: 20,
+            a: 255,
+        };
+        let cell_divs = |dom: &Dom| {
+            with_class(dom, CHECKERBOARD_LIGHT_CLASS) + with_class(dom, CHECKERBOARD_DARK_CLASS)
+        };
+        let closed = ColorInput::create(opaque).dom();
+        assert_eq!(with_class(&closed, CHECKERBOARD_CLASS), 2, "the alpha bar's and the preview's");
+        assert_eq!(cell_divs(&closed), 0);
+        let total = nodes(&closed);
+        assert!(
+            total < 75,
+            "a closed picker is {total} nodes: more than its alpha bar's cells alone were"
+        );
+        // A translucent colour: the swatch has a checkerboard of its own.
+        let translucent = ColorInput::create(ColorU { a: 128, ..opaque }).dom();
+        assert_eq!(with_class(&translucent, CHECKERBOARD_CLASS), 3);
+        assert_eq!(cell_divs(&translucent), 0);
+        assert_eq!(nodes(&translucent), total + 2, "the swatch's board and the colour over it");
     }
 }

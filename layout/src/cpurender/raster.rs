@@ -16263,7 +16263,7 @@ mod autotest_generated {
                 ..Default::default()
             },
             FcFont {
-                bytes,
+                bytes: bytes.into(),
                 font_index: 0,
                 id: "autotest-sans".to_string(),
             },

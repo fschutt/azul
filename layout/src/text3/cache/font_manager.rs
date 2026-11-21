@@ -115,10 +115,14 @@ impl Default for FaceStyle {
 pub(crate) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
     #[cfg(test)]
     FACE_STYLE_PARSES.with(|n| n.set(n.get() + 1));
-    let Some(faces) = rust_fontconfig::FcParseFontBytes(bytes, family) else {
+    // The patterns alone: `FcParseFontBytes` also built a font record with a
+    // copy of the bytes, thrown away here (rust-fontconfig 5.1). The family only
+    // named that record.
+    let _ = family;
+    let Some(faces) = rust_fontconfig::FcParseFontPatterns(bytes) else {
         return FaceStyle::default();
     };
-    let Some((pat, _)) = faces.into_iter().next() else {
+    let Some(pat) = faces.into_iter().next() else {
         return FaceStyle::default();
     };
     FaceStyle {
@@ -186,8 +190,9 @@ pub(crate) fn with_chain_key<R>(
 struct AppFace {
     /// The family a stylesheet names it by.
     family: String,
-    /// The TrueType / OpenType bytes.
-    bytes: Vec<u8>,
+    /// The TrueType / OpenType bytes, shared with every font cache a manager
+    /// puts the face into (rust-fontconfig 5.1 `FcFont.bytes: Arc<[u8]>`).
+    bytes: Arc<[u8]>,
     /// The code points of its cmap, read once when the app registered it.
     ranges: Vec<UnicodeRange>,
     /// Its weight, slant and stretch, read once when the app registered it
@@ -219,6 +224,27 @@ fn static_face_style(bytes: &'static [u8]) -> FaceStyle {
     style
 }
 
+/// The one shared allocation of the bytes of a face that lives for the whole
+/// process (a bundled UI face, a mock face), kept by the address and length of
+/// its `'static` bytes as [`static_face_style`] keeps its style: every font
+/// cache a manager puts the face into shares it (it was copied into each).
+fn static_face_bytes(bytes: &'static [u8]) -> Arc<[u8]> {
+    static KEPT: std::sync::OnceLock<Mutex<Vec<(usize, Arc<[u8]>)>>> = std::sync::OnceLock::new();
+    let kept = KEPT.get_or_init(|| Mutex::new(Vec::new()));
+    let Ok(mut kept) = kept.lock() else {
+        return Arc::from(bytes);
+    };
+    if let Some((_, shared)) = kept
+        .iter()
+        .find(|(ptr, shared)| *ptr == bytes.as_ptr() as usize && shared.len() == bytes.len())
+    {
+        return Arc::clone(shared);
+    }
+    let shared: Arc<[u8]> = Arc::from(bytes);
+    kept.push((bytes.as_ptr() as usize, Arc::clone(&shared)));
+    shared
+}
+
 /// The font faces the app ships (`AppConfig::add_font`), for the process:
 /// set once by `App::create` before any window exists and read by every
 /// `FontManager` constructor ([`FontManager::register_builtin_ui_fonts`]),
@@ -237,7 +263,7 @@ pub fn set_app_fonts(fonts: &[azul_core::resources::NamedFont]) {
             let ranges = cmap_coverage(font.bytes.as_ref());
             (!ranges.is_empty()).then(|| AppFace {
                 family: font.name.as_str().to_string(),
-                bytes: font.bytes.as_ref().to_vec(),
+                bytes: Arc::from(font.bytes.as_ref()),
                 ranges,
                 style: parse_face_style(font.bytes.as_ref(), font.name.as_str()),
             })
@@ -301,9 +327,9 @@ pub(crate) const fn memory_face(
 /// Unicode cmap, as rust-fontconfig reads it for a font on disk. Empty for
 /// bytes that are no font.
 pub(crate) fn cmap_coverage(bytes: &[u8]) -> Vec<UnicodeRange> {
-    rust_fontconfig::FcParseFontBytes(bytes, "")
+    rust_fontconfig::FcParseFontPatterns(bytes)
         .and_then(|faces| faces.into_iter().next())
-        .map(|(pattern, _)| pattern.unicode_ranges)
+        .map(|pattern| pattern.unicode_ranges)
         .unwrap_or_default()
 }
 
@@ -534,9 +560,14 @@ impl<T: ParsedFontTrait> FontManager<T> {
         coverage: Vec<UnicodeRange>,
         tier: MemoryFontTier,
     ) -> FontId {
-        self.register_named_font_styled(family, bytes, coverage, tier, || {
-            parse_face_style(bytes, family)
-        })
+        self.register_named_font_styled(
+            family,
+            bytes,
+            || Arc::from(bytes),
+            coverage,
+            tier,
+            || parse_face_style(bytes, family),
+        )
     }
 
     /// [`Self::register_named_font_in_tier`] with the face's style from
@@ -549,6 +580,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         &mut self,
         family: &str,
         bytes: &[u8],
+        kept: impl FnOnce() -> Arc<[u8]>,
         coverage: Vec<UnicodeRange>,
         tier: MemoryFontTier,
         style_of: impl FnOnce() -> FaceStyle,
@@ -614,7 +646,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
                 id,
                 pattern,
                 rust_fontconfig::FcFont {
-                    bytes: bytes.to_vec(),
+                    // The caller's allocation where it has one (a bundled, mock or
+                    // app face: shared by every cache), else one copy.
+                    bytes: kept(),
                     font_index: 0,
                     id: family.to_string(),
                 },
@@ -734,7 +768,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
                 id,
                 pattern,
                 rust_fontconfig::FcFont {
-                    bytes: inst_bytes,
+                    bytes: inst_bytes.into(),
                     font_index: 0,
                     id: family.to_string(),
                 },
@@ -768,6 +802,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             self.register_named_font_styled(
                 family,
                 bytes,
+                || static_face_bytes(bytes),
                 crate::text3::mock_fonts::mock_font_ranges(),
                 MemoryFontTier::Primary,
                 || static_face_style(bytes),
@@ -791,6 +826,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
             self.register_named_font_styled(
                 face.family,
                 bytes,
+                || static_face_bytes(bytes),
                 face.ranges(),
                 MemoryFontTier::Fallback,
                 || static_face_style(bytes),
@@ -801,6 +837,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
                 self.register_named_font_styled(
                     &face.family,
                     &face.bytes,
+                    || Arc::clone(&face.bytes),
                     face.ranges.clone(),
                     MemoryFontTier::Fallback,
                     || face.style,
@@ -1611,6 +1648,22 @@ mod audit_a8_tests {
         for face in crate::text3::ui_fonts::bundled_ui_fonts() {
             let kept = format!("{:?}", static_face_style(face.bytes.as_slice()));
             assert_eq!(kept, format!("{:?}", parse_face_style(&face.bytes, face.family)));
+        }
+    }
+
+    /// A8-15 (rust-fontconfig 5.1): a bundled or mock face's bytes are one
+    /// allocation for the process, which every font cache a manager registers
+    /// the face into shares; the style read takes the patterns alone.
+    #[test]
+    fn a_static_faces_bytes_are_one_shared_allocation() {
+        for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
+            let (a, b) = (static_face_bytes(*bytes), static_face_bytes(*bytes));
+            assert!(Arc::ptr_eq(&a, &b), "{family}");
+            assert_eq!(&a[..], *bytes);
+            let patterns = rust_fontconfig::FcParseFontPatterns(bytes).expect("parses");
+            let records = rust_fontconfig::FcParseFontBytes(bytes, family).expect("parses");
+            assert_eq!(patterns.len(), records.len());
+            assert_eq!(format!("{:?}", patterns[0]), format!("{:?}", records[0].0));
         }
     }
 }

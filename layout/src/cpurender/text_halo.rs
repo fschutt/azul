@@ -36,12 +36,27 @@
 //! renderer has no shadow of its own for (it would paint the text without its
 //! halo); a blurred shadow without one is the renderer's own until its picture is
 //! drawn, as before.
+//!
+//! How a picture takes the place of the one that stood in for it (audit A4, the
+//! frames after a zoom settles): every picture a list paints has a SLOT
+//! ([`TextHalo::slot`]), which the renderer's host gives one image key for as long
+//! as it is painted. A stand-in is painted in a rect of whole pixels that is where
+//! the label's own picture will lie, as near as the stand-in tells ([`slot_rect`]);
+//! the own picture is then drawn INTO that rect ([`cropped`]) and takes over the
+//! stand-in's slot. To the renderer that is new pixels under a key it holds - an
+//! image update - and the display list that names the key in that rect stays as it
+//! is: the frames that only draw more halos send no list and build no scene. When
+//! the ink does not fit the rect the picture is cut to its ink as ever, gets a slot
+//! of its own, and the list goes again for that frame. `AZ_HALO_SLOTS=0` in the
+//! environment turns the whole of it off ([`slots_on`]): every picture then has its
+//! own slot and its own rect, and a list is sent again whenever a halo was drawn.
 
 use std::{
     cell::{Cell, RefCell},
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    sync::Arc,
+    rc::Rc,
+    sync::{Arc, Weak},
     time::{Duration, Instant},
 };
 
@@ -58,7 +73,7 @@ use super::raster::{
 use crate::{
     glyph_cache::GlyphCache,
     image_memo::ImageMemo,
-    solver3::display_list::DisplayListItem,
+    solver3::display_list::{DisplayList, DisplayListItem},
     text3::cache::{FontHash, FontManager},
 };
 
@@ -309,6 +324,13 @@ pub fn within_halo_budget<R>(free: usize, time: Duration, f: impl FnOnce() -> R)
     let result = f();
     let budget = BUDGET.with(|b| b.replace(outer));
     let left = budget.map_or(0, |b| b.deferred);
+    // The pictures that wait to be shown (they did not fit the place of the
+    // picture standing in for them, `HaloCache::insert_waiting`) are shown by the
+    // scan that leaves no halo for a later frame: the frames that only draw are
+    // over, and one list goes for all of them.
+    if left == 0 {
+        HALOS.with(|halos| halos.borrow_mut().reveal_all());
+    }
     // The halos' glyphs: a scan that drew none, after scans that drew, is where
     // a view's halos are done - the glyph cache gives up the generation it only
     // keeps to hand glyphs back (`GlyphCache::gc`; it was never called here, and
@@ -483,6 +505,44 @@ pub fn text_halo_bounds_in_this_thread(max_halos: usize, max_bytes: usize) {
     });
 }
 
+/// Whether the last scan of this thread ([`within_halo_budget`]) changed what
+/// shadows are painted with after it had looked at some of them: it drew or
+/// dropped a picture, or showed one that waited. What [`text_halos`] returned to
+/// that scan for the shadows before the change is then not what it returns now;
+/// a host that registers what the lists paint asks again, without fonts.
+#[must_use]
+pub fn halo_scan_changed_pictures() -> bool {
+    HALOS.with(|halos| halos.borrow().changed)
+}
+
+thread_local! {
+    /// This thread's own answer to [`slots_on`], when a host or its tests gave one
+    /// ([`text_halo_slots_in_this_thread`]).
+    static SLOTS: Cell<Option<bool>> = const { Cell::new(None) };
+}
+
+/// Whether a halo's own picture takes the PLACE of the picture that stood in for
+/// it - its slot and the rect it was painted in ([`slot_rect`], [`cropped`]) - so
+/// that the display list which paints the stand-in paints the own picture without
+/// being sent again. On unless the environment says `AZ_HALO_SLOTS=0` (read once)
+/// or the thread was told otherwise. Off, a stand-in is painted where its picture,
+/// stretched, lies to the fraction of a pixel, every picture is cut to its ink and
+/// has a slot of its own, and each halo drawn changes what a list paints.
+fn slots_on() -> bool {
+    SLOTS.with(Cell::get).unwrap_or_else(|| {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| !std::env::var("AZ_HALO_SLOTS").is_ok_and(|v| v == "0"))
+    })
+}
+
+/// Whether, on this thread from now on, a halo's picture takes the place of its
+/// stand-in ([`slots_on`]). For a host that wants the old behaviour without the
+/// environment, and for the tests of both.
+#[doc(hidden)]
+pub fn text_halo_slots_in_this_thread(on: bool) {
+    SLOTS.with(|slots| slots.set(Some(on)));
+}
+
 /// `AZ_HALO_STATS=1`: one line on stderr for every scan that drew, dropped, left or
 /// stood in for a halo - what a run on a real window shows without a recorder.
 fn log_scan() {
@@ -518,6 +578,13 @@ fn log_scan() {
 pub struct TextHalo {
     /// The index of the shadow's `PushTextShadow` in the display list.
     pub push: usize,
+    /// The slot the halo is painted from: a number of this thread's kept
+    /// pictures that names the PLACE in the lists, not the pixels. The
+    /// renderer's host keeps one image key per slot; the picture a slot shows
+    /// ([`Self::image`]) changes when the label's own picture is drawn into the
+    /// place of the one that stood in for it. Two halos with one slot show one
+    /// picture.
+    pub slot: u64,
     /// The halo in premultiplied white; tinted with `color` it is the shadow.
     pub image: ImageRef,
     /// The shadow's colour.
@@ -562,43 +629,252 @@ pub fn text_halos(
     if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
         return Vec::new();
     }
-    // The scan that draws counts what it finds; the one that only looks (the
-    // translation of the same lists, right after) does not count it twice.
-    let counted = fonts.is_some();
+    halos_of(items, &shadows(items, dpi), dpi, fonts)
+}
+
+/// [`text_halos`] of a display list that is held in an `Arc`: what its shadows
+/// are found by is worked out once and kept while the list lives
+/// ([`list_shadows`]). The scans of a frame's resources ask this of every list of
+/// a window in every transaction that scans, also of the lists that did not
+/// change (audit A4-10g).
+#[must_use]
+pub fn text_halos_of_list(
+    list: &Arc<DisplayList>,
+    dpi: f32,
+    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+) -> Vec<TextHalo> {
+    if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
+        return Vec::new();
+    }
+    halos_of(&list.items, &list_shadows(list, Some(list), dpi), dpi, fonts)
+}
+
+/// [`text_halos`] of a display list that [`text_halos_of_list`] may have been
+/// asked about (the translation of a list is handed the list, not its `Arc`):
+/// then what was kept for it is used; nothing is kept here.
+#[must_use]
+pub fn text_halos_of_held_list(
+    list: &DisplayList,
+    dpi: f32,
+    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+) -> Vec<TextHalo> {
+    if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
+        return Vec::new();
+    }
+    halos_of(&list.items, &list_shadows(list, None, dpi), dpi, fonts)
+}
+
+/// What one text shadow of a display list is found and painted by: all that
+/// [`halos_of`] reads of its [`Scope`] unless a picture has to be drawn, as plain
+/// values. A function of the list's items and the scale alone.
+#[derive(Debug, Clone)]
+struct Shadow {
+    /// [`Scope::push`].
+    push: usize,
+    /// [`Scope::color`].
+    color: ColorU,
+    /// [`Scope::offset`].
+    offset: (f32, f32),
+    /// [`Scope::spread`].
+    spread: f32,
+    /// [`Scope::reach`] at the scale.
+    reach: i32,
+    /// [`Scope::sought`] at the scale ...
+    sought: Sought,
+    /// ... and the geometry it filled.
+    geometry: Vec<i32>,
+}
+
+/// The [`Shadow`]s of `items` at `dpi`, in list order: one walk of the items,
+/// two hashes of every glyph under a shadow.
+fn shadows(items: &[DisplayListItem], dpi: f32) -> Vec<Shadow> {
+    #[cfg(test)]
+    SHADOW_WALKS.with(|walks| walks.set(walks.get() + 1));
     let mut geometry = Vec::new();
     scopes(items)
         .into_iter()
-        .filter_map(|scope| {
+        .map(|scope| {
             let sought = scope.sought(dpi, &mut geometry);
-            let own = HALOS.with(|halos| {
+            Shadow {
+                push: scope.push,
+                color: scope.color,
+                offset: scope.offset,
+                spread: scope.spread,
+                reach: scope.reach(dpi),
+                sought,
+                geometry: geometry.clone(),
+            }
+        })
+        .collect()
+}
+
+/// The [`Shadow`]s kept for one display list ([`LIST_SHADOWS`]).
+struct ListShadows {
+    /// The list, by its allocation.
+    list: Weak<DisplayList>,
+    /// The bits of the scale they were worked out at.
+    scale: u32,
+    shadows: Rc<Vec<Shadow>>,
+}
+
+thread_local! {
+    /// The [`Shadow`]s of the display lists [`text_halos_of_list`] was asked about,
+    /// by the list's allocation and the scale. The `Weak` is what makes the
+    /// address an identity: while it is held the allocation is not given to
+    /// another list, and a list that has a `Weak` is never changed in place
+    /// (`Arc::get_mut` refuses, `Arc::make_mut` moves it to a new allocation) -
+    /// so the same address with a living list is the same items.
+    static LIST_SHADOWS: RefCell<Vec<ListShadows>> = const { RefCell::new(Vec::new()) };
+    /// Tests: how often [`shadows`] walked a list on this thread.
+    #[cfg(test)]
+    static SHADOW_WALKS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// The [`Shadow`]s of `list` at `dpi`: the kept ones when the list is one that is
+/// kept for ([`LIST_SHADOWS`]), worked out otherwise - and kept when the caller
+/// has the list's `Arc` (`keep`, the same list). Lists that are gone are
+/// forgotten here.
+fn list_shadows(list: &DisplayList, keep: Option<&Arc<DisplayList>>, dpi: f32) -> Rc<Vec<Shadow>> {
+    let at: *const DisplayList = list;
+    let scale = dpi.to_bits();
+    let found = LIST_SHADOWS.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        kept.retain(|held| held.list.strong_count() > 0);
+        kept.iter()
+            .find(|held| core::ptr::eq(held.list.as_ptr(), at) && held.scale == scale)
+            .map(|held| Rc::clone(&held.shadows))
+    });
+    if let Some(found) = found {
+        return found;
+    }
+    let made = Rc::new(shadows(&list.items, dpi));
+    if let Some(arc) = keep {
+        LIST_SHADOWS.with(|kept| {
+            let mut kept = kept.borrow_mut();
+            // One scale per list: a window that changed its scale asks at the new one.
+            kept.retain(|held| !core::ptr::eq(held.list.as_ptr(), at));
+            kept.push(ListShadows {
+                list: Arc::downgrade(arc),
+                scale,
+                shadows: Rc::clone(&made),
+            });
+        });
+    }
+    made
+}
+
+/// [`text_halos`] for the shadows of `items` as `shadows` tells them
+/// ([`shadows`] of the same items at the same `dpi`).
+fn halos_of(
+    items: &[DisplayListItem],
+    shadows: &[Shadow],
+    dpi: f32,
+    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+) -> Vec<TextHalo> {
+    // The scan that draws counts what it finds; the one that only looks (the
+    // translation of the same lists, right after) does not count it twice.
+    let counted = fonts.is_some();
+    shadows
+        .iter()
+        .filter_map(|shadow| {
+            let sought = shadow.sought;
+            let geometry: &[i32] = &shadow.geometry;
+            // The shadow's own picture: kept and shown, kept and waiting to be
+            // shown (`waiting`: the lists still paint the picture that stands in
+            // for it, `HaloCache::insert_waiting`), or not kept.
+            let (own, mut waiting) = HALOS.with(|halos| {
                 let mut halos = halos.borrow_mut();
-                let id = halos.find(sought.text, &geometry)?;
-                halos.use_own(id, counted)
+                match halos.find(sought.text, geometry) {
+                    Some(id) if halos.waits(id) => (None, Some(id)),
+                    Some(id) => (halos.use_own(id, counted), None),
+                    None => (None, None),
+                }
             });
             let own = match (own, fonts) {
                 // Kept: its picture, or the note that it cannot be one.
                 (Some(kept), _) => kept,
+                // Drawn already: what stands in for it is found below.
+                (None, _) if waiting.is_some() => None,
                 (None, Some((renderer_resources, font_manager))) => {
+                    // The shadow's text itself, for the picture to draw (`shadow`
+                    // was made from this item: it is there).
+                    let scope = scope_at(items, shadow.push)?;
                     let admitted = |box_bytes: usize| admit(box_bytes, sought.shape);
-                    match scope.draw(&sought, dpi, renderer_resources, font_manager, admitted, spend) {
-                        Drawn::Picture { kept, box_bytes } => {
+                    // The place of the picture that stands in for this shadow,
+                    // looked up before room is made for the new one (the
+                    // stand-in may be what gives way to it).
+                    let place = (shadow.spread > 0.0 && slots_on())
+                        .then(|| {
                             HALOS.with(|halos| {
-                                halos.borrow_mut().insert(
-                                    &sought,
-                                    &geometry,
-                                    Some(kept.clone()),
-                                    box_bytes,
-                                    false,
-                                );
+                                halos
+                                    .borrow()
+                                    .place_of(sought.shape, sought.scale, shadow.reach)
+                            })
+                        })
+                        .flatten();
+                    let into = place.map(|place| (place.rect, place.most));
+                    match scope.draw(
+                        &sought,
+                        dpi,
+                        renderer_resources,
+                        font_manager,
+                        admitted,
+                        spend,
+                        into,
+                    ) {
+                        Drawn::Picture { mut kept, box_bytes } => {
+                            let fitted = place.filter(|place| kept.rect() == place.rect);
+                            HALOS.with(|halos| {
+                                let mut halos = halos.borrow_mut();
+                                match (fitted, place) {
+                                    // Drawn into the stand-in's place: the lists
+                                    // that paint the stand-in paint this one.
+                                    (Some(place), _) => {
+                                        kept.slot = halos.take_slot(place);
+                                        halos.insert(
+                                            &sought,
+                                            geometry,
+                                            Some(kept.clone()),
+                                            box_bytes,
+                                            false,
+                                        );
+                                    }
+                                    // It does not fit the place: it waits, and
+                                    // the stand-in goes on being painted.
+                                    (None, Some(place)) => {
+                                        kept.slot = halos.new_slot();
+                                        waiting = halos.insert_waiting(
+                                            &sought,
+                                            geometry,
+                                            kept.clone(),
+                                            box_bytes,
+                                            place.id,
+                                        );
+                                    }
+                                    (None, None) => {
+                                        kept.slot = halos.new_slot();
+                                        halos.insert(
+                                            &sought,
+                                            geometry,
+                                            Some(kept.clone()),
+                                            box_bytes,
+                                            false,
+                                        );
+                                    }
+                                }
                             });
-                            Some(kept)
+                            if waiting.is_some() {
+                                None
+                            } else {
+                                Some(kept)
+                            }
                         }
                         Drawn::NotAPicture => {
                             // Remembered, so it is not tried on every frame.
                             HALOS.with(|halos| {
                                 let mut halos = halos.borrow_mut();
                                 if halos.make_room(0, None) {
-                                    halos.insert(&sought, &geometry, None, 0, false);
+                                    halos.insert(&sought, geometry, None, 0, false);
                                 }
                             });
                             None
@@ -614,36 +890,47 @@ pub fn text_halos(
                 Some(kept) => (kept, false),
                 // Without a spread the renderer's own shadow is the halo until
                 // the picture is drawn.
-                None if scope.spread <= 0.0 => return None,
+                None if shadow.spread <= 0.0 && waiting.is_none() => return None,
                 None => {
                     // Stretched more than eight times either way a picture is
                     // a smear: such a halo waits for its own.
-                    let fits = |kept: &Kept| {
-                        let k = sought.scale / kept.scale;
-                        kept.scale > 0.0 && (0.125..=8.0).contains(&k)
-                    };
+                    let fits = |kept: &Kept| stretch(kept, sought.scale).is_some();
                     let stood = HALOS
                         .with(|halos| halos.borrow_mut().stand_in(sought.shape, counted, fits));
-                    let kept = match (stood, fonts) {
-                        (Some(kept), _) => kept,
-                        (None, Some((renderer_resources, font_manager))) => {
-                            let small =
-                                scope.preview(&sought, dpi, renderer_resources, font_manager)?;
-                            HALOS.with(|halos| halos.borrow_mut().stats.stand_ins += 1);
-                            small
+                    match (stood, waiting, fonts) {
+                        (Some(kept), _, _) => (kept, true),
+                        // Nothing stands in any more for a picture that waited
+                        // to be shown: it is shown.
+                        (None, Some(id), _) => {
+                            let shown =
+                                HALOS.with(|halos| halos.borrow_mut().reveal(id, counted))?;
+                            (shown, false)
                         }
-                        (None, None) => return None,
-                    };
-                    (kept, true)
+                        (None, None, Some((renderer_resources, font_manager))) => {
+                            let small = scope_at(items, shadow.push)?.preview(
+                                &sought,
+                                dpi,
+                                renderer_resources,
+                                font_manager,
+                            )?;
+                            HALOS.with(|halos| halos.borrow_mut().stats.stand_ins += 1);
+                            (small, true)
+                        }
+                        (None, None, None) => return None,
+                    }
                 }
             };
-            let (origin, size) =
-                placed(&kept, sought.anchor, stand_in.then(|| sought.scale / kept.scale));
+            let (origin, size) = placed(
+                &kept,
+                sought.anchor,
+                stand_in.then(|| (sought.scale / kept.scale, shadow.reach)),
+            );
             Some(TextHalo {
-                push: scope.push,
+                push: shadow.push,
+                slot: kept.slot,
                 image: kept.image,
-                color: scope.color,
-                origin: (origin.0 + scope.offset.0 * dpi, origin.1 + scope.offset.1 * dpi),
+                color: shadow.color,
+                origin: (origin.0 + shadow.offset.0 * dpi, origin.1 + shadow.offset.1 * dpi),
                 size,
                 width: kept.width,
                 height: kept.height,
@@ -655,13 +942,29 @@ pub fn text_halos(
 
 /// Where a kept picture is painted for a shadow whose first glyph's pen is on
 /// `anchor`: its top-left corner and its size, in device px. `stretch`: the
-/// picture stands in for the same text at `stretch` times the size it was drawn
-/// at - laid out again at another size, a text keeps its first glyph's pen as
-/// the point everything is measured from, so the picture is scaled about it.
+/// picture stands in for the same text at that many times the size it was drawn
+/// at, under a shadow that grows the glyphs by that many px ([`Scope::reach`]) -
+/// laid out again at another size, a text keeps its first glyph's pen as the
+/// point everything is measured from, so the picture is scaled about it.
+///
+/// With slots ([`slots_on`]) a stand-in is painted in whole pixels, in the rect
+/// its text's own picture is then drawn into ([`slot_rect`]): its ink scaled about
+/// the anchor as before, and the rim of one pixel.
 #[allow(clippy::cast_precision_loss)] // device px
-fn placed(kept: &Kept, anchor: (i32, i32), stretch: Option<f32>) -> ((f32, f32), (f32, f32)) {
+fn placed(
+    kept: &Kept,
+    anchor: (i32, i32),
+    stretch: Option<(f32, i32)>,
+) -> ((f32, f32), (f32, f32)) {
     match stretch {
-        Some(k) => (
+        Some((k, reach)) if slots_on() => {
+            let (left, top, right, bottom) = slot_rect(kept, k, reach);
+            (
+                ((anchor.0 + left) as f32, (anchor.1 + top) as f32),
+                ((right - left) as f32, (bottom - top) as f32),
+            )
+        }
+        Some((k, _)) => (
             (
                 anchor.0 as f32 + kept.offset.0 as f32 * k,
                 anchor.1 as f32 + kept.offset.1 as f32 * k,
@@ -689,6 +992,112 @@ struct Kept {
     /// The size it was drawn at: device px per em of its first run. What a
     /// picture that stands in for the same text at another size is stretched by.
     scale: f32,
+    /// The part of the picture that paints, from the scope's anchor: left, top,
+    /// right and bottom in device px (the picture has a clear border round it).
+    /// What the rect of the same text's picture at another size is told from
+    /// ([`slot_rect`]).
+    ink: (i32, i32, i32, i32),
+    /// How far, in device px, the shadow grew the glyphs' own ink on every side
+    /// when this picture was drawn ([`Scope::reach`]): the ink without it is the
+    /// glyphs', which scales with the text; the shadow's part is rounded to
+    /// pixels at every size anew.
+    reach: i32,
+    /// The slot the lists paint it from ([`TextHalo::slot`]); 0 while it has
+    /// none (it was painted by no list yet, or the picture that took its place
+    /// took its slot).
+    slot: u64,
+}
+
+impl Kept {
+    /// The picture's rect from the scope's anchor: left, top, right, bottom.
+    #[allow(clippy::cast_possible_wrap)] // a picture of at most 2^21 px
+    const fn rect(&self) -> (i32, i32, i32, i32) {
+        (
+            self.offset.0,
+            self.offset.1,
+            self.offset.0 + self.width as i32,
+            self.offset.1 + self.height as i32,
+        )
+    }
+}
+
+/// The clear pixels a stand-in's rect leaves round where the ink of the picture
+/// drawn into it is expected: the rim every kept picture has ([`cropped`]).
+const SLOT_PAD: i32 = 1;
+
+/// By how much the picture `kept` is stretched to stand in for the same text at
+/// `scale` px per em, if it may: stretched more than eight times either way a
+/// picture is a smear, and such a halo waits for its own.
+fn stretch(kept: &Kept, scale: f32) -> Option<f32> {
+    let k = scale / kept.scale;
+    (kept.scale > 0.0 && (0.125..=8.0).contains(&k)).then_some(k)
+}
+
+/// How far a spread of `spread_px` device px grows what it is applied to along
+/// an axis, in whole pixels: `dilate_disk` reaches the pixels nearer than the
+/// radius and a half (1.5 px: 1; 2.25 px: 2; 3 px: 3; 4.5 px: 4).
+#[allow(clippy::cast_possible_truncation)] // at most 64 px
+fn dilation_reach(spread_px: f32) -> i32 {
+    if spread_px > 0.0 {
+        (spread_px + 0.5).ceil() as i32 - 1
+    } else {
+        0
+    }
+}
+
+/// Where the picture `kept` is painted when it stands in for the same text at `k`
+/// times its size, under a shadow that grows the glyphs by `reach` px there
+/// ([`Scope::reach`]), from the anchor: left, top, right and bottom in WHOLE
+/// device px. It is where that text's own picture will lie, as near as the
+/// stand-in tells: the glyphs' own ink (the stand-in's ink without what its
+/// shadow added) scaled about the anchor - the first glyph's pen, which a text
+/// laid out at another size keeps - and rounded outward, grown by `reach`, and
+/// the rim of [`SLOT_PAD`] round that.
+///
+/// Rounded outward the scaled ink holds the new ink as a rule: a glyph's edge at
+/// g px was rounded outward to whole pixels in the stand-in, and k times that
+/// lies beyond k times g - by up to k px, which is how much too large the rect
+/// can be on a side. (Not always: a pixel the stand-in's raster left clear can
+/// have ink at the new size. Then the picture does not take the place,
+/// [`cropped`].)
+///
+/// Whole pixels and a rect that depends on nothing but the stand-in, `k` and
+/// `reach`, because the own picture is drawn into exactly this rect and then
+/// takes the stand-in's slot: the display list that paints the stand-in names
+/// the same image and the same rect for the own picture, texel for pixel, and is
+/// not sent again (audit A4). The stand-in itself is stretched into it: by `k`,
+/// and by a pixel or two more or less along each edge.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)] // device px
+fn slot_rect(kept: &Kept, k: f32, reach: i32) -> (i32, i32, i32, i32) {
+    let (x0, y0, x1, y1) = kept.ink;
+    let own = kept.reach;
+    let grow = reach + SLOT_PAD;
+    let (l, t) = (
+        ((x0 + own) as f32 * k).floor() as i32 - grow,
+        ((y0 + own) as f32 * k).floor() as i32 - grow,
+    );
+    let (r, b) = (
+        ((x1 - own) as f32 * k).ceil() as i32 + grow,
+        ((y1 - own) as f32 * k).ceil() as i32 + grow,
+    );
+    (l, t, r.max(l + 1), b.max(t + 1))
+}
+
+/// The place a shadow's own picture takes over from the picture that stood in
+/// for it ([`HaloCache::place_of`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Place {
+    /// The entry that stood in.
+    id: u64,
+    /// Its slot.
+    slot: u64,
+    /// The rect it was painted in, from the anchor ([`slot_rect`]).
+    rect: (i32, i32, i32, i32),
+    /// How far beyond the new picture's ink the rect may lie on a side and
+    /// still be what the picture is kept in ([`cropped`]): the rim and what the
+    /// stand-in's coarser pixels can have added (`k` px and one of rounding,
+    /// [`slot_rect`]).
+    most: i32,
 }
 
 /// What [`Scope::draw`] made of a shadow that had no picture.
@@ -724,6 +1133,17 @@ struct Entry {
     /// The cache's clock when it was last used: of the entries that may be
     /// dropped the one used longest ago is dropped first.
     last_used: u64,
+    /// A shadow's own picture that is drawn and not shown yet: the lists go on
+    /// painting the picture that stands in for it ([`HaloCache::insert_waiting`]).
+    waiting: bool,
+}
+
+/// Gives `kept` a slot if it has none ([`Kept::slot`]).
+fn slotted(kept: &mut Kept, next_slot: &mut u64) {
+    if kept.slot == 0 {
+        kept.slot = *next_slot;
+        *next_slot += 1;
+    }
 }
 
 /// Whether two geometries ([`Scope::sought`]) are the same text laid out at two
@@ -762,6 +1182,14 @@ struct HaloCache {
     /// a halo of that shape that has no picture of its own yet.
     by_shape: HashMap<u64, u64>,
     next_id: u64,
+    /// The next slot [`Self::new_slot`] gives out (from 1: 0 is "none").
+    next_slot: u64,
+    /// The entries that wait to be shown ([`Entry::waiting`]; one that was
+    /// dropped or shown since may still be listed).
+    waiting: Vec<u64>,
+    /// Whether the scan under way changed what shadows are painted with
+    /// ([`halo_scan_changed_pictures`]).
+    changed: bool,
     /// The sum of every entry's `bytes`.
     bytes: usize,
     /// Ticks once per use; orders the entries by their last use.
@@ -789,6 +1217,9 @@ impl HaloCache {
             by_text: HashMap::new(),
             by_shape: HashMap::new(),
             next_id: 0,
+            next_slot: 1,
+            waiting: Vec::new(),
+            changed: false,
             bytes: 0,
             clock: 0,
             // From 2: "no scan" is 0, and the scan before the first is not it.
@@ -806,6 +1237,7 @@ impl HaloCache {
     fn begin_scan(&mut self) {
         self.scan += 1;
         self.victims = None;
+        self.changed = false;
         self.stats = TextHaloStats {
             scans: self.stats.scans + 1,
             created_total: self.stats.created_total,
@@ -838,6 +1270,9 @@ impl HaloCache {
                 self.stats.frame_box_bytes += entry.box_bytes as u64;
             }
         }
+        if let Some(kept) = entry.kept.as_mut() {
+            slotted(kept, &mut self.next_slot);
+        }
         Some(entry.kept.clone())
     }
 
@@ -852,7 +1287,9 @@ impl HaloCache {
     ) -> Option<Kept> {
         let id = *self.by_shape.get(&shape)?;
         let entry = self.entries.get_mut(&id)?;
-        let kept = entry.kept.as_ref().filter(|kept| fits(*kept))?.clone();
+        let kept = entry.kept.as_mut().filter(|kept| fits(&**kept))?;
+        slotted(kept, &mut self.next_slot);
+        let kept = kept.clone();
         self.clock += 1;
         entry.last_used = self.clock;
         entry.used_in = self.scan;
@@ -950,10 +1387,63 @@ impl HaloCache {
         let entry = self.entries.get_mut(&id)?;
         entry.last_used = self.clock;
         entry.used_in = self.scan;
-        if entry.kept.is_some() {
-            self.by_shape.insert(shape, id);
+        if let Some(kept) = entry.kept.as_mut() {
+            slotted(kept, &mut self.next_slot);
+            if self.by_shape.insert(shape, id) != Some(id) {
+                // Another picture stood in for the shape until now.
+                self.changed = true;
+            }
         }
         Some(entry.kept.clone())
+    }
+
+    /// A slot no picture of this cache is painted from ([`TextHalo::slot`]).
+    fn new_slot(&mut self) -> u64 {
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        slot
+    }
+
+    /// The place a shadow of `shape` is painted in until its own picture, at
+    /// `scale` px per em under a shadow of `reach` px, is drawn - if that
+    /// picture can take it over: the slot
+    /// of the picture that stands in for the shape and the rect it is painted
+    /// in ([`slot_rect`]). `None` when nothing stands in, when the stand-in was
+    /// painted by no list yet, and when it was a shadow's OWN picture in this
+    /// scan or the one before it: a label still shows it as it is, and its slot
+    /// is not another picture's to take (the frame a zoom settles in is such a
+    /// scan for every picture of the old size; that frame sends its lists anyway).
+    #[allow(clippy::cast_possible_truncation)] // k is at most 8
+    fn place_of(&self, shape: u64, scale: f32, reach: i32) -> Option<Place> {
+        let id = *self.by_shape.get(&shape)?;
+        let entry = self.entries.get(&id)?;
+        let kept = entry.kept.as_ref()?;
+        let k = stretch(kept, scale)?;
+        if kept.slot == 0 || entry.own_in + 1 >= self.scan {
+            return None;
+        }
+        Some(Place {
+            id,
+            slot: kept.slot,
+            rect: slot_rect(kept, k, reach),
+            most: SLOT_PAD + 1 + k.ceil() as i32,
+        })
+    }
+
+    /// The slot of `place` for the picture that was drawn into it. The picture
+    /// that stood there, if it is still kept, is left without one: painted
+    /// again (the label is back at the old size) it gets a new one.
+    fn take_slot(&mut self, place: Place) -> u64 {
+        let stood = self
+            .entries
+            .get_mut(&place.id)
+            .and_then(|entry| entry.kept.as_mut());
+        if let Some(kept) = stood {
+            if kept.slot == place.slot {
+                kept.slot = 0;
+            }
+        }
+        place.slot
     }
 
     /// Keeps `kept` for what `sought` and `geometry` name, as used by this scan:
@@ -967,6 +1457,10 @@ impl HaloCache {
         box_bytes: usize,
         preview: bool,
     ) {
+        let mut kept = kept;
+        if let Some(kept) = kept.as_mut() {
+            slotted(kept, &mut self.next_slot);
+        }
         let bytes = kept
             .as_ref()
             .map_or(0, |kept| kept.width as usize * kept.height as usize * 4);
@@ -986,6 +1480,7 @@ impl HaloCache {
         }
         self.by_text.entry(sought.text).or_default().push(id);
         self.bytes += bytes;
+        self.changed = true;
         self.entries.insert(
             id,
             Entry {
@@ -998,8 +1493,86 @@ impl HaloCache {
                 used_in: self.scan,
                 own_in: if preview { 0 } else { self.scan },
                 last_used: self.clock,
+                waiting: false,
             },
         );
+    }
+
+    /// [`Self::insert`] for a shadow's own picture that was drawn while the
+    /// picture `stood` stands in for it and did not fit that picture's place
+    /// ([`cropped`]): it is kept and NOT shown. The shadow goes on being painted
+    /// with its stand-in, so the lists that paint it stay as they are, until a
+    /// scan leaves no halo for a later frame ([`Self::reveal_all`]: one list
+    /// then, for every picture that waited) or nothing stands in for it any more
+    /// ([`Self::reveal`]). Shown at once, each such picture sent the list of its
+    /// DOM again in the frame that drew it. Returns the entry when it waits;
+    /// `None` when `stood` is gone (it gave way to this one, [`Self::make_room`]):
+    /// then it is shown like any other.
+    fn insert_waiting(
+        &mut self,
+        sought: &Sought,
+        geometry: &[i32],
+        kept: Kept,
+        box_bytes: usize,
+        stood: u64,
+    ) -> Option<u64> {
+        let id = self.next_id;
+        self.insert(sought, geometry, Some(kept), box_bytes, false);
+        if !self
+            .entries
+            .get(&stood)
+            .is_some_and(|entry| entry.kept.is_some())
+        {
+            return None;
+        }
+        // The stand-in is still what stands in for the shape.
+        self.by_shape.insert(sought.shape, stood);
+        self.entries.get_mut(&id)?.waiting = true;
+        self.waiting.push(id);
+        Some(id)
+    }
+
+    /// Whether entry `id` waits to be shown ([`Self::insert_waiting`]). Asking
+    /// is a use: the scan that asks, and the next, do not drop it.
+    fn waits(&mut self, id: u64) -> bool {
+        self.clock += 1;
+        let Some(entry) = self.entries.get_mut(&id) else {
+            return false;
+        };
+        if entry.waiting {
+            entry.last_used = self.clock;
+            entry.used_in = self.scan;
+        }
+        entry.waiting
+    }
+
+    /// Entry `id` is shown from now on: its picture as its shadow's own
+    /// ([`Self::use_own`]), and as the newest of its shape unless a newer one is.
+    fn reveal(&mut self, id: u64, counted: bool) -> Option<Kept> {
+        self.show(id);
+        self.use_own(id, counted).flatten()
+    }
+
+    /// Every picture that waits to be shown is shown.
+    fn reveal_all(&mut self) {
+        for id in core::mem::take(&mut self.waiting) {
+            self.show(id);
+        }
+    }
+
+    /// Entry `id` no longer waits, if it did.
+    fn show(&mut self, id: u64) {
+        let Some(entry) = self.entries.get_mut(&id) else {
+            return;
+        };
+        if !entry.waiting {
+            return;
+        }
+        entry.waiting = false;
+        self.changed = true;
+        if entry.kept.is_some() && self.by_shape.get(&entry.shape).is_none_or(|newest| *newest < id) {
+            self.by_shape.insert(entry.shape, id);
+        }
     }
 
     /// Drops entry `id`.
@@ -1007,6 +1580,7 @@ impl HaloCache {
         let Some(entry) = self.entries.remove(&id) else {
             return;
         };
+        self.changed = true;
         self.bytes -= entry.bytes;
         let emptied = self.by_text.get_mut(&entry.text).is_some_and(|ids| {
             ids.retain(|other| *other != id);
@@ -1071,62 +1645,62 @@ fn shadow_px(value: &azul_css::props::basic::pixel::PixelValue) -> f32 {
 /// alone. A shadow with neither is not one: `WebRender` draws it as a plain
 /// copy of the text, without a surface.
 fn scopes(items: &[DisplayListItem]) -> Vec<Scope<'_>> {
-    let mut out = Vec::new();
-    for (push, item) in items.iter().enumerate() {
-        let DisplayListItem::PushTextShadow { shadow } = item else {
-            continue;
-        };
-        let blur = shadow_px(&shadow.blur_radius.inner).max(0.0);
-        let spread = shadow_px(&shadow.spread_radius.inner).max(0.0);
-        if (blur <= 0.0 && spread <= 0.0) || shadow.color.a == 0 {
-            continue;
-        }
-        let mut runs = Vec::new();
-        let mut closed = false;
-        for inner in &items[push + 1..] {
-            match inner {
-                DisplayListItem::Text {
-                    glyphs,
-                    font_hash,
-                    font_size_px,
-                    clip_rect,
-                    ..
-                } => {
-                    if let (false, Some(ink)) = (glyphs.is_empty(), inner.visual_bounds()) {
-                        runs.push(Run {
-                            glyphs,
-                            font_hash: *font_hash,
-                            font_size_px: *font_size_px,
-                            clip_rect: *clip_rect.inner(),
-                            ink,
-                        });
-                    }
+    (0..items.len()).filter_map(|push| scope_at(items, push)).collect()
+}
+
+/// The shadow that `items[push]` opens, when it is one a halo can stand for
+/// ([`scopes`]).
+fn scope_at(items: &[DisplayListItem], push: usize) -> Option<Scope<'_>> {
+    let DisplayListItem::PushTextShadow { shadow } = items.get(push)? else {
+        return None;
+    };
+    let blur = shadow_px(&shadow.blur_radius.inner).max(0.0);
+    let spread = shadow_px(&shadow.spread_radius.inner).max(0.0);
+    if (blur <= 0.0 && spread <= 0.0) || shadow.color.a == 0 {
+        return None;
+    }
+    let mut runs = Vec::new();
+    let mut closed = false;
+    for inner in &items[push + 1..] {
+        match inner {
+            DisplayListItem::Text {
+                glyphs,
+                font_hash,
+                font_size_px,
+                clip_rect,
+                ..
+            } => {
+                if let (false, Some(ink)) = (glyphs.is_empty(), inner.visual_bounds()) {
+                    runs.push(Run {
+                        glyphs,
+                        font_hash: *font_hash,
+                        font_size_px: *font_size_px,
+                        clip_rect: *clip_rect.inner(),
+                        ink,
+                    });
                 }
-                // They paint nothing on either backend: the text's layout
-                // (kept for PDF and accessibility) and its hit area.
-                DisplayListItem::TextLayout { .. } | DisplayListItem::HitTestArea { .. } => {}
-                DisplayListItem::PopTextShadow => {
-                    closed = true;
-                    break;
-                }
-                _ => break,
             }
-        }
-        if closed && !runs.is_empty() {
-            out.push(Scope {
-                push,
-                color: shadow.color,
-                offset: (
-                    shadow_px(&shadow.offset_x.inner),
-                    shadow_px(&shadow.offset_y.inner),
-                ),
-                blur,
-                spread,
-                runs,
-            });
+            // They paint nothing on either backend: the text's layout
+            // (kept for PDF and accessibility) and its hit area.
+            DisplayListItem::TextLayout { .. } | DisplayListItem::HitTestArea { .. } => {}
+            DisplayListItem::PopTextShadow => {
+                closed = true;
+                break;
+            }
+            _ => break,
         }
     }
-    out
+    (closed && !runs.is_empty()).then(|| Scope {
+        push,
+        color: shadow.color,
+        offset: (
+            shadow_px(&shadow.offset_x.inner),
+            shadow_px(&shadow.offset_y.inner),
+        ),
+        blur,
+        spread,
+        runs,
+    })
 }
 
 /// What a scope's halo is found by ([`Scope::sought`]), besides its geometry.
@@ -1203,6 +1777,15 @@ impl Scope<'_> {
         }
     }
 
+    /// How far the shadow grows the glyphs' ink on every side at `dpi`, in whole
+    /// device px: the spread's dilation and the blur's radius, as [`Self::draw`]
+    /// applies them.
+    #[allow(clippy::cast_possible_wrap)] // a radius of at most 254
+    fn reach(&self, dpi: f32) -> i32 {
+        shadow_blur_radius(self.blur, dpi) as i32
+            + dilation_reach(shadow_spread_px(self.spread, dpi))
+    }
+
     /// A small picture of the halo to stand in for it until a frame draws the
     /// real one: the text at a quarter of its size (half, for small type; none for
     /// type under 10 px, where a quarter is a smudge), kept like any halo - it IS
@@ -1240,13 +1823,14 @@ impl Scope<'_> {
             font_manager,
             admit_preview,
             spend_on_previews,
+            None,
         );
         match drawn {
-            Drawn::Picture { kept, box_bytes } => {
+            Drawn::Picture { mut kept, box_bytes } => {
                 HALOS.with(|halos| {
-                    halos
-                        .borrow_mut()
-                        .insert(&small, &geometry, Some(kept.clone()), box_bytes, true);
+                    let mut halos = halos.borrow_mut();
+                    kept.slot = halos.new_slot();
+                    halos.insert(&small, &geometry, Some(kept.clone()), box_bytes, true);
                 });
                 Some(kept)
             }
@@ -1267,8 +1851,15 @@ impl Scope<'_> {
     /// less than a device pixel, so the picture fits the text wherever it
     /// stands. `admit` is asked, with the bytes of the box the glyphs can reach,
     /// once it is known that there is a picture to draw and before it is drawn;
-    /// `spent` is told how long drawing it took.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)]
+    /// `spent` is told how long drawing it took. `into`: the rect, from the
+    /// anchor, of the picture that stands in for this one, which it is kept in
+    /// when its ink fits, and how far beyond the ink it may lie ([`cropped`]).
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss,
+        clippy::too_many_arguments
+    )]
     fn draw(
         &self,
         sought: &Sought,
@@ -1277,6 +1868,7 @@ impl Scope<'_> {
         font_manager: &FontManager<FontRef>,
         admit: impl FnOnce(usize) -> bool,
         spent: impl FnOnce(Duration),
+        into: Option<((i32, i32, i32, i32), i32)>,
     ) -> Drawn {
         let anchor = sought.anchor;
         let first = self.first();
@@ -1374,7 +1966,9 @@ impl Scope<'_> {
                 (0.0, 0.0),
             )
         });
-        let kept = pixels.and_then(|pixels| cropped(pixels.data(), buffer, anchor, sought.scale));
+        let reach = radius as i32 + dilation_reach(spread);
+        let kept = pixels
+            .and_then(|pixels| cropped(pixels.data(), buffer, anchor, sought.scale, reach, into));
         spent(started.elapsed());
         kept.map_or(Drawn::NotAPicture, |kept| Drawn::Picture { kept, box_bytes })
     }
@@ -1410,30 +2004,91 @@ fn ink_box(data: &[u8], width: usize, height: usize) -> Option<(usize, usize, us
 /// runs padded by an em and more each way (`DisplayListItem::visual_bounds`):
 /// kept whole, a street name's halo was 65 KB of which 28 KB paint, a house
 /// number's 23 KB of which 5 KB do. `None` when nothing of it paints.
-#[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)] // a box of at most 2^21 px
-fn cropped(data: &[u8], buffer: PixelBox, anchor: (i32, i32), scale: f32) -> Option<Kept> {
+///
+/// `reach`: how far the shadow grew the glyphs ([`Scope::reach`]), kept with the
+/// picture. `into`: the rect, from the anchor, in which the picture that stands
+/// in for this one is painted ([`slot_rect`]), and a number of pixels. The
+/// picture is kept in exactly that rect instead - the rect's pixels outside the
+/// ink, and outside the box, are clear - when its ink lies inside with a clear
+/// pixel round it and the rect is no more than that many pixels larger than the
+/// ink on any side (a guess further off is not kept as bytes). Then the list that
+/// paints the stand-in paints this picture as it is, texel for pixel; otherwise
+/// it is cut to its ink and the caller sees by its rect that it did not take the
+/// place.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss
+)] // a box of at most 2^21 px
+fn cropped(
+    data: &[u8],
+    buffer: PixelBox,
+    anchor: (i32, i32),
+    scale: f32,
+    reach: i32,
+    into: Option<((i32, i32, i32, i32), i32)>,
+) -> Option<Kept> {
     let (width, height) = (buffer.width as usize, buffer.height as usize);
     let (x0, y0, x1, y1) = ink_box(data, width, height)?;
-    let (x0, y0) = (x0.saturating_sub(1), y0.saturating_sub(1));
-    let (x1, y1) = ((x1 + 1).min(width), (y1 + 1).min(height));
-    let mut pixels = Vec::with_capacity((x1 - x0) * (y1 - y0) * 4);
-    for y in y0..y1 {
-        pixels.extend_from_slice(data.get((y * width + x0) * 4..(y * width + x1) * 4)?);
+    // The box's corner from the anchor; with it the ink, and the ink with its
+    // rim, from the anchor.
+    let (dx, dy) = (buffer.x - anchor.0, buffer.y - anchor.1);
+    let ink = (dx + x0 as i32, dy + y0 as i32, dx + x1 as i32, dy + y1 as i32);
+    let rim = (
+        dx + x0.saturating_sub(1) as i32,
+        dy + y0.saturating_sub(1) as i32,
+        dx + (x1 + 1).min(width) as i32,
+        dy + (y1 + 1).min(height) as i32,
+    );
+    let (left, top, right, bottom) = into
+        .filter(|&((l, t, r, b), most)| {
+            l < ink.0
+                && t < ink.1
+                && ink.2 < r
+                && ink.3 < b
+                && ink.0 - l <= most
+                && ink.1 - t <= most
+                && r - ink.2 <= most
+                && b - ink.3 <= most
+        })
+        .map_or(rim, |(rect, _)| rect);
+    let (w, h) = ((right - left) as usize, (bottom - top) as usize);
+    let mut pixels = vec![0u8; w * h * 4];
+    // The kept rect's corner in the box, and the columns of the rect that lie in
+    // the box: what is outside stays clear.
+    let (bx, by) = (left - dx, top - dy);
+    let (from, to) = (bx.max(0), (bx + w as i32).min(width as i32));
+    if from < to {
+        let run = (to - from) as usize * 4;
+        for row in 0..h {
+            let y = by + row as i32;
+            if y < 0 || y >= height as i32 {
+                continue;
+            }
+            let source = (y as usize * width + from as usize) * 4;
+            let target = (row * w + (from - bx) as usize) * 4;
+            pixels
+                .get_mut(target..target + run)?
+                .copy_from_slice(data.get(source..source + run)?);
+        }
     }
     let image = ImageRef::new_rawimage(RawImage {
         pixels: RawImageData::U8(pixels.into()),
-        width: x1 - x0,
-        height: y1 - y0,
+        width: w,
+        height: h,
         premultiplied_alpha: true,
         data_format: RawImageFormat::RGBA8,
         tag: Vec::new().into(),
     })?;
     Some(Kept {
         image,
-        offset: (buffer.x + x0 as i32 - anchor.0, buffer.y + y0 as i32 - anchor.1),
-        width: (x1 - x0) as u32,
-        height: (y1 - y0) as u32,
+        offset: (left, top),
+        width: w as u32,
+        height: h as u32,
         scale,
+        ink,
+        reach,
+        slot: 0,
     })
 }
 
@@ -1448,7 +2103,9 @@ mod audit_a5_tests {
 
     use super::*;
 
-    /// A halo's picture of `width` x `height` px, drawn at `scale`.
+    /// A halo's picture of `width` x `height` px, drawn at `scale`: its corner 6
+    /// px left of and 22 px above the pen, its ink all of it but a rim of one
+    /// pixel, and no slot yet.
     fn picture(width: u32, height: u32, scale: f32) -> Kept {
         Kept {
             image: ImageRef::null_image(
@@ -1461,6 +2118,9 @@ mod audit_a5_tests {
             width,
             height,
             scale,
+            ink: (-5, -21, width as i32 - 7, height as i32 - 23),
+            reach: 0,
+            slot: 0,
         }
     }
 
@@ -1644,7 +2304,7 @@ mod audit_a5_tests {
 
     /// The display list of a label of two glyphs, `advance` apart, whose first pen
     /// is at `x`, `y`, in 12 px type under a spread shadow.
-    fn label_items(x: f32, y: f32, advance: f32) -> Vec<DisplayListItem> {
+    pub(super) fn label_items(x: f32, y: f32, advance: f32) -> Vec<DisplayListItem> {
         let glyph = |index: u32, dx: f32| GlyphInstance {
             index,
             point: LogicalPosition::new(x + dx, y),
@@ -1719,14 +2379,45 @@ mod audit_a5_tests {
     /// and 22 px above the pen, drawn at 24 px per em; the label at 36 px per em
     /// (a zoom by 1.5) with its pen on (300, 200) paints it from (300 - 9, 200 -
     /// 33) = (291, 167), 150 x 45 px. Its own picture is painted where it lies.
+    ///
+    /// That is the placement without slots (`AZ_HALO_SLOTS=0`). With them (audit
+    /// A4) the stand-in is painted in whole pixels, in the rect its text's own
+    /// picture is then drawn into: the ink - the picture without its rim of one
+    /// pixel, (-5, -21) to (93, 7) from the pen - scaled by 1.5 and rounded
+    /// outward is (-8, -32) to (140, 11), and with the rim (-9, -33) to (141, 12)
+    /// from the pen: painted from (291, 167), 150 x 45 px. Here that is the
+    /// stretched picture's own rect; in general it is that to within a pixel or
+    /// two, and whole.
     #[test]
     fn a_stand_in_is_stretched_about_the_first_glyphs_pen() {
         let old = picture(100, 30, 24.0);
+        text_halo_slots_in_this_thread(false);
         assert_eq!(
-            placed(&old, (300, 200), Some(36.0 / 24.0)),
+            placed(&old, (300, 200), Some((36.0 / 24.0, 0))),
             ((291.0, 167.0), (150.0, 45.0))
         );
         assert_eq!(placed(&old, (300, 200), None), ((294.0, 178.0), (100.0, 30.0)));
+
+        text_halo_slots_in_this_thread(true);
+        assert_eq!(slot_rect(&old, 36.0 / 24.0, 0), (-9, -33, 141, 12));
+        assert_eq!(
+            placed(&old, (300, 200), Some((36.0 / 24.0, 0))),
+            ((291.0, 167.0), (150.0, 45.0))
+        );
+        // A picture whose rim is wider than a pixel (it was itself drawn into a
+        // stand-in's place) is not stretched whole: its ink is what is placed.
+        let mut wide = picture(100, 30, 24.0);
+        wide.ink = (-3, -19, 91, 5);
+        assert_eq!(slot_rect(&wide, 36.0 / 24.0, 0), (-6, -30, 138, 9));
+        assert_eq!(
+            placed(&wide, (300, 200), Some((36.0 / 24.0, 0))),
+            ((294.0, 170.0), (144.0, 39.0))
+        );
+        assert_eq!(
+            placed(&old, (300, 200), None),
+            ((294.0, 178.0), (100.0, 30.0)),
+            "an own picture is painted where it lies, slots or not"
+        );
     }
 
     /// A5-02. The stand-in of a shape is its newest picture; the size is no part
@@ -1800,7 +2491,7 @@ mod audit_a5_tests {
             width: 8,
             height: 6,
         };
-        let kept = cropped(&data, buffer, (104, 53), 24.0).expect("it paints");
+        let kept = cropped(&data, buffer, (104, 53), 24.0, 0, None).expect("it paints");
         assert_eq!((kept.width, kept.height), (4, 4));
         assert_eq!(kept.offset, (100 + 2 - 104, 50 + 1 - 53));
         let bytes = kept.image.get_bytes().expect("a picture in memory");
@@ -1810,11 +2501,11 @@ mod audit_a5_tests {
         assert_eq!(alpha, [0, 200, 200, 0]);
 
         assert_eq!(ink_box(&vec![0u8; 8 * 6 * 4], 8, 6), None, "nothing paints");
-        assert!(cropped(&vec![0u8; 8 * 6 * 4], buffer, (104, 53), 24.0).is_none());
+        assert!(cropped(&vec![0u8; 8 * 6 * 4], buffer, (104, 53), 24.0, 0, None).is_none());
         // Ink in the box's corner: there is no pixel to leave clear beyond it.
         let mut corner = vec![0u8; 8 * 6 * 4];
         corner[..4].copy_from_slice(&[255; 4]);
-        let kept = cropped(&corner, buffer, (104, 53), 24.0).expect("it paints");
+        let kept = cropped(&corner, buffer, (104, 53), 24.0, 0, None).expect("it paints");
         assert_eq!((kept.width, kept.height, kept.offset), (2, 2, (-4, -3)));
     }
 
@@ -1833,5 +2524,398 @@ mod audit_a5_tests {
         let stats = text_halo_stats();
         assert_eq!((stats.pending, stats.unkept, stats.scans), (2, 0, 1));
         assert!(admit(BYTES, 6), "no budget: every halo is drawn");
+    }
+}
+
+/// Guards of audit A4 (`audit/A4.md`, the halo frames after a settle): a halo's
+/// own picture takes the place - the slot and the rect - of the picture that
+/// stood in for it, so the list that paints the stand-in is not sent again.
+#[cfg(test)]
+mod audit_a4_tests {
+    use super::*;
+
+    const GEOMETRY: [i32; 3] = [0, 300, 1836];
+
+    /// A picture of `width` x `height` px drawn at `scale`, its corner at
+    /// `offset` from the pen, its ink all of it but a rim of one pixel.
+    fn picture(offset: (i32, i32), width: u32, height: u32, scale: f32) -> Kept {
+        Kept {
+            image: ImageRef::null_image(
+                width as usize,
+                height as usize,
+                RawImageFormat::RGBA8,
+                Vec::new(),
+            ),
+            offset,
+            width,
+            height,
+            scale,
+            ink: (
+                offset.0 + 1,
+                offset.1 + 1,
+                offset.0 + width as i32 - 1,
+                offset.1 + height as i32 - 1,
+            ),
+            reach: 0,
+            slot: 0,
+        }
+    }
+
+    /// A box of 8 x 6 px at (100, 50) whose ink is columns 3..=4 of rows 2..=3,
+    /// with the anchor on (104, 53): the ink is (-1, -1) to (1, 1) from the
+    /// anchor.
+    fn inked_box() -> (Vec<u8>, PixelBox) {
+        let (width, height) = (8usize, 6usize);
+        let mut data = vec![0u8; width * height * 4];
+        for (x, y) in [(3, 2), (4, 2), (3, 3), (4, 3)] {
+            data[(y * width + x) * 4..(y * width + x) * 4 + 4].copy_from_slice(&[200; 4]);
+        }
+        (
+            data,
+            PixelBox {
+                x: 100,
+                y: 50,
+                width: 8,
+                height: 6,
+            },
+        )
+    }
+
+    /// A picture is kept in the rect its stand-in was painted in when its ink
+    /// fits there. The rect (-3, -4) to (4, 3) from the anchor is 7 x 7 px; the
+    /// ink, (-1, -1) to (1, 1), is columns 2..=3 of rows 3..=4 of it; its first
+    /// row lies above the box (row -1 of it) and is clear like the rest.
+    ///
+    /// Mutation: `l < ink.0` dropped from `cropped` keeps the picture in a rect
+    /// that cuts its ink (the second case); `ink.0 - l <= most` dropped keeps a
+    /// rect of any size (the third).
+    #[test]
+    fn a_picture_is_kept_in_the_rect_of_its_stand_in_when_its_ink_fits() {
+        let (data, buffer) = inked_box();
+        let into = |rect, most| Some((rect, most));
+        let kept = cropped(&data, buffer, (104, 53), 24.0, 3, into((-3, -4, 4, 3), 5)).expect("ink");
+        assert_eq!(kept.rect(), (-3, -4, 4, 3));
+        assert_eq!((kept.width, kept.height), (7, 7));
+        assert_eq!((kept.ink, kept.reach), ((-1, -1, 1, 1), 3));
+        let bytes = kept.image.get_bytes().expect("a picture in memory");
+        assert_eq!(bytes.len(), 7 * 7 * 4);
+        let alpha = |row: usize| -> Vec<u8> {
+            bytes[row * 7 * 4..(row + 1) * 7 * 4]
+                .chunks_exact(4)
+                .map(|p| p[3])
+                .collect()
+        };
+        assert_eq!(alpha(0), [0; 7], "above the box: clear");
+        assert_eq!(alpha(2), [0; 7]);
+        assert_eq!(alpha(3), [0, 0, 200, 200, 0, 0, 0]);
+        assert_eq!(alpha(4), [0, 0, 200, 200, 0, 0, 0]);
+        assert_eq!(alpha(5), [0; 7]);
+
+        // The ink reaches the rect's left edge: no clear pixel there. Cut to
+        // its ink, as a picture without a stand-in is: (-2, -2) to (2, 2).
+        let tight =
+            cropped(&data, buffer, (104, 53), 24.0, 3, into((-1, -4, 4, 3), 5)).expect("ink");
+        assert_eq!(tight.rect(), (-2, -2, 2, 2));
+        // A rect 8 px beyond the ink on one side is a guess too far off when 5
+        // are allowed ...
+        let far = cropped(&data, buffer, (104, 53), 24.0, 3, into((-9, -4, 4, 3), 5)).expect("ink");
+        assert_eq!(far.rect(), (-2, -2, 2, 2));
+        assert_eq!(far.ink, (-1, -1, 1, 1));
+        // ... and the place when 8 are (a stand-in stretched four times): 13 px
+        // wide, of which the box covers columns 5..13, the ink columns 8 and 9.
+        let wide = cropped(&data, buffer, (104, 53), 24.0, 3, into((-9, -4, 4, 3), 8)).expect("ink");
+        assert_eq!((wide.rect(), wide.width), ((-9, -4, 4, 3), 13));
+        let bytes = wide.image.get_bytes().expect("a picture in memory");
+        let row: Vec<u8> = bytes[3 * 13 * 4..4 * 13 * 4]
+            .chunks_exact(4)
+            .map(|p| p[3])
+            .collect();
+        assert_eq!(row, [0, 0, 0, 0, 0, 0, 0, 0, 200, 200, 0, 0, 0]);
+    }
+
+    /// The frames after a zoom settles. The label's picture at the old size
+    /// stands in, painted from its slot in the rect `slot_rect` gives. In the
+    /// frame the zoom settles in its place is not to take (it was a label's
+    /// own picture one scan ago, and that frame's lists go anyway); from the
+    /// next scan on the label's own picture, drawn into that rect, takes the
+    /// slot. What the list names for the label - the slot, the rect - is then
+    /// the same before and after: only the pixels under the slot changed.
+    ///
+    /// Mutation: `entry.own_in + 1 >= self.scan` -> `entry.own_in >= self.scan`
+    /// in `place_of` hands out the place in the settle scan; `kept.slot = 0`
+    /// removed from `take_slot` leaves two pictures in one slot.
+    #[test]
+    fn the_picture_drawn_into_a_stand_ins_place_takes_its_slot() {
+        text_halo_slots_in_this_thread(true);
+        let old = Sought {
+            text: 1,
+            shape: 9,
+            anchor: (0, 0),
+            scale: 24.0,
+        };
+        let new = Sought {
+            text: 2,
+            shape: 9,
+            anchor: (0, 0),
+            scale: 36.0,
+        };
+        let mut cache = HaloCache::new(8, usize::MAX);
+
+        // The view at the old size: the label's picture, painted as its own.
+        cache.begin_scan();
+        assert!(cache.place_of(9, 36.0, 0).is_none(), "nothing is kept");
+        cache.insert(&old, &GEOMETRY, Some(picture((-6, -22), 100, 30, 24.0)), 12_000, false);
+        let old_id = cache.find(1, &GEOMETRY).expect("kept");
+        let own = cache.use_own(old_id, true).flatten().expect("a picture");
+        assert_ne!(own.slot, 0, "a picture a list paints has a slot");
+
+        // The zoom settles at 1.5 times the size; the frame's budget leaves the
+        // label's new picture for later. The old one stands in, from its slot.
+        cache.begin_scan();
+        let stood = cache.stand_in(9, true, |_| true).expect("the old picture stands in");
+        assert_eq!(stood.slot, own.slot);
+        assert!(
+            cache.place_of(9, 36.0, 0).is_none(),
+            "a label's own picture of the scan before: its slot is not to take"
+        );
+
+        // The frame after: the label's own picture is drawn, into the place.
+        cache.begin_scan();
+        let stood = cache.stand_in(9, true, |_| true).expect("still standing in");
+        let place = cache.place_of(9, 36.0, 0).expect("the stand-in's place");
+        assert_eq!((place.slot, place.rect), (own.slot, (-9, -33, 141, 12)));
+        assert_eq!(place.most, 4, "the rim, one of rounding, and the 2 px a stretch by 1.5 can add");
+        let mut drawn = picture((-9, -33), 150, 45, 36.0);
+        assert_eq!(drawn.rect(), place.rect, "premise: drawn into the place");
+        drawn.slot = cache.take_slot(place);
+        cache.insert(&new, &GEOMETRY, Some(drawn), 150 * 45 * 4, false);
+
+        let new_id = cache.find(2, &GEOMETRY).expect("kept");
+        let own_new = cache.use_own(new_id, true).flatten().expect("a picture");
+        assert_eq!(own_new.slot, own.slot, "the slot the stand-in was painted from");
+        assert_eq!(
+            placed(&own_new, (300, 200), None),
+            placed(&stood, (300, 200), Some((1.5, 0))),
+            "and the rect: the list that painted the stand-in paints the own picture"
+        );
+        assert_eq!(placed(&own_new, (300, 200), None), ((291.0, 167.0), (150.0, 45.0)));
+
+        // The picture of the old size is still kept, without a slot: a label
+        // that shows it again is painted from another.
+        let again = cache.use_own(old_id, true).flatten().expect("still kept");
+        assert!(again.slot != 0 && again.slot != own.slot, "{} / {}", again.slot, own.slot);
+    }
+
+    /// A stand-in's rect is where its text's ink is expected at the new size, and
+    /// a rim of one pixel. A quarter-size picture of 46 x 10 px with a rim of 1,
+    /// its corner at (-2, -6), painted four times as large: its ink (-1, -5) to
+    /// (43, 3) becomes (-4, -20) to (172, 12), with the rim (-5, -21) to (173,
+    /// 13). A picture shrunk to 0.4 times its size: ink (-19, -49) to (179, 29)
+    /// becomes (-7.6, -19.6) to (71.6, 11.6), outward (-8, -20) to (72, 12), with
+    /// the rim (-9, -21) to (73, 13).
+    ///
+    /// The shadow's own part of the ink is not scaled but taken as it is at the
+    /// new size: a spread of 3 px grows the glyphs by 3, one of 4.5 px by 4
+    /// (`dilate_disk` reaches what is nearer than the radius and a half), where
+    /// 1.5 times 3 would say 4.5 and, rounded outward, 5. The picture of 100 x
+    /// 30 px at (-6, -22) drawn under 3 px: its ink (-5, -21) to (93, 7) is the
+    /// glyphs' (-2, -18) to (90, 4); times 1.5 that is (-3, -27) to (135, 6);
+    /// grown by 4: (-7, -31) to (139, 10); and the rim: (-8, -32) to (140, 11) -
+    /// a pixel inside what scaling the whole ink gives on each side.
+    ///
+    /// Mutation: `(x0 + own)` -> `x0` in `slot_rect` (the shadow's part scaled
+    /// with the glyphs) gives (-9, -33, 141, 12) for the last one.
+    #[test]
+    fn a_stand_ins_rect_is_the_expected_ink_and_a_rim() {
+        let small = picture((-2, -6), 46, 10, 6.0);
+        assert_eq!(slot_rect(&small, 4.0, 0), (-5, -21, 173, 13));
+        let large = picture((-20, -50), 200, 80, 60.0);
+        assert_eq!(slot_rect(&large, 0.4, 0), (-9, -21, 73, 13));
+
+        assert_eq!(
+            [1.5, 2.25, 3.0, 4.5, 0.3, 0.0, -1.0].map(dilation_reach),
+            [1, 2, 3, 4, 0, 0, 0]
+        );
+        let mut spread = picture((-6, -22), 100, 30, 24.0);
+        spread.reach = dilation_reach(3.0);
+        assert_eq!(slot_rect(&spread, 1.5, dilation_reach(4.5)), (-8, -32, 140, 11));
+
+        assert_eq!(stretch(&large, 24.0), Some(0.4));
+        assert_eq!(stretch(&large, 6.0), None, "a tenth of the size is a smear");
+        assert_eq!(stretch(&picture((0, 0), 4, 4, 0.0), 24.0), None);
+    }
+
+    /// A picture that does not fit its stand-in's place waits. Shown at once it
+    /// would be another image in another rect, and the list that paints the
+    /// stand-in would have to go again in the frame that drew it - one list per
+    /// frame of a view whose labels mostly fit. It is kept and the label goes on
+    /// being painted with its stand-in (the same slot, the same rect: nothing
+    /// for a list to say) until the scan that leaves no halo for a later frame,
+    /// which shows every picture that waited: one list, when the drawing is over.
+    ///
+    /// Mutation: `reveal_all` not called when `left == 0` leaves the label on
+    /// its stand-in for good; `self.by_shape.insert(sought.shape, stood)` dropped
+    /// from `insert_waiting` makes the waiting picture its own stand-in.
+    #[test]
+    fn a_picture_that_does_not_fit_the_place_waits_until_the_scan_that_leaves_none() {
+        let old = Sought {
+            text: 1,
+            shape: 9,
+            anchor: (0, 0),
+            scale: 24.0,
+        };
+        let new = Sought {
+            text: 2,
+            shape: 9,
+            anchor: (0, 0),
+            scale: 36.0,
+        };
+        let (mut stood_id, mut waiting_id) = (0, 0);
+        // The view at the old size, the settle, and the frame after it, in which
+        // the label's own picture is drawn and comes out a pixel wider on the
+        // left than the place: a frame that leaves other halos for later.
+        let ((), left) = within_halo_budget(0, Duration::ZERO, || {
+            HALOS.with(|halos| {
+                let mut cache = halos.borrow_mut();
+                cache.insert(&old, &GEOMETRY, Some(picture((-6, -22), 100, 30, 24.0)), 12_000, false);
+                stood_id = cache.find(1, &GEOMETRY).expect("kept");
+                cache.begin_scan();
+                cache.begin_scan();
+                let place = cache.place_of(9, 36.0, 0).expect("the stand-in's place");
+                let misfit = picture((-10, -33), 151, 45, 36.0);
+                assert_ne!(misfit.rect(), place.rect, "premise: not the place");
+                waiting_id = cache
+                    .insert_waiting(&new, &GEOMETRY, misfit, 151 * 45 * 4, place.id)
+                    .expect("it waits");
+                assert!(cache.waits(waiting_id));
+                assert!(!cache.waits(stood_id));
+                // The label is painted with its stand-in still, from its slot.
+                let stood = cache.stand_in(9, true, |_| true).expect("the stand-in");
+                assert_eq!((stood.scale, stood.slot), (24.0, place.slot));
+                assert!(cache.changed, "a picture was drawn: the host asks again");
+            });
+            // The frame's budget is spent: another label's halo is left.
+            assert!(!admit(64, 77));
+        });
+        assert_eq!(left, 1);
+        assert!(halo_scan_changed_pictures());
+        HALOS.with(|halos| {
+            let mut cache = halos.borrow_mut();
+            assert!(cache.waits(waiting_id), "halos are left: it goes on waiting");
+            assert_eq!(cache.by_shape.get(&9), Some(&stood_id));
+        });
+
+        // The scan that leaves nothing shows it: the label's own picture, the
+        // newest of its shape, and the host is told that pictures changed.
+        let ((), left) = within_halo_budget(0, Duration::ZERO, || {
+            assert!(!halo_scan_changed_pictures(), "nothing yet in this scan");
+        });
+        assert_eq!(left, 0);
+        assert!(halo_scan_changed_pictures(), "a picture that waited is shown");
+        HALOS.with(|halos| {
+            let mut cache = halos.borrow_mut();
+            assert!(!cache.waits(waiting_id));
+            assert_eq!(cache.by_shape.get(&9), Some(&waiting_id));
+            let own = cache.use_own(waiting_id, true).flatten().expect("shown");
+            assert_eq!(own.rect(), (-10, -33, 141, 12));
+        });
+    }
+
+    /// A waiting picture whose stand-in is gone is shown where it is asked for:
+    /// a label is never without its halo because its picture waits.
+    #[test]
+    fn a_waiting_picture_without_a_stand_in_is_shown() {
+        let label = Sought {
+            text: 2,
+            shape: 9,
+            anchor: (0, 0),
+            scale: 36.0,
+        };
+        let mut cache = HaloCache::new(8, usize::MAX);
+        cache.begin_scan();
+        // Nothing stands for the shape (entry 5 does not exist): not waiting.
+        assert_eq!(
+            cache.insert_waiting(&label, &GEOMETRY, picture((0, 0), 8, 8, 36.0), 256, 5),
+            None
+        );
+        let id = cache.find(2, &GEOMETRY).expect("kept");
+        assert!(!cache.waits(id));
+        // One that waits, and then loses its stand-in.
+        let other = Sought {
+            text: 3,
+            shape: 9,
+            anchor: (0, 0),
+            scale: 48.0,
+        };
+        let far = [7, 300, 1836];
+        let waiting = cache
+            .insert_waiting(&other, &far, picture((0, 0), 9, 9, 48.0), 324, id)
+            .expect("it waits behind the first");
+        cache.remove(id);
+        assert!(cache.stand_in(9, true, |_| true).is_none(), "nothing stands in");
+        let shown = cache.reveal(waiting, true).expect("shown");
+        assert_eq!(shown.scale, 48.0);
+        assert!(!cache.waits(waiting));
+        assert_eq!(cache.by_shape.get(&9), Some(&waiting));
+    }
+
+    /// A4-10g. What a list's shadows are found by is worked out once while the
+    /// list lives - the scan of a frame's resources and the translation ask it
+    /// of every list in every transaction that scans, also of the lists that did
+    /// not change (1,567 labels of some 15 glyphs, two hashes a glyph, per
+    /// question) - and again for the list a change makes of it.
+    ///
+    /// Mutation: without `held.scale == scale` in `list_shadows` the count after
+    /// the other scale stays 2; with `keep` ignored the first count is 3.
+    #[test]
+    fn a_lists_shadows_are_worked_out_once_while_the_list_is_the_same() {
+        use super::audit_a5_tests::label_items;
+
+        let walks = || SHADOW_WALKS.with(Cell::get);
+        let list_at = |x: f32| {
+            Arc::new(DisplayList {
+                items: label_items(x, 100.0, 5.0),
+                ..DisplayList::default()
+            })
+        };
+        let mut held = list_at(20.0);
+        let before = walks();
+        assert_eq!(list_shadows(&held, Some(&held), 2.0).len(), 1);
+        assert_eq!(list_shadows(&held, Some(&held), 2.0).len(), 1);
+        // The translation's question: the list, without its `Arc`.
+        assert_eq!(list_shadows(&held, None, 2.0).len(), 1);
+        assert_eq!(walks() - before, 1, "one walk for three questions");
+        assert_eq!(
+            list_shadows(&held, None, 2.0)[0].sought.text,
+            shadows(&held.items, 2.0)[0].sought.text,
+            "the kept answer is the walk's"
+        );
+        assert_eq!(walks() - before, 2, "the line above walked once itself");
+
+        // Another scale is another answer, and the one kept from then on.
+        let _ = list_shadows(&held, Some(&held), 1.0);
+        assert_eq!(walks() - before, 3);
+        let _ = list_shadows(&held, None, 1.0);
+        assert_eq!(walks() - before, 3);
+
+        // A change moves the list: what is kept holds a `Weak` of it, and such a
+        // list is not changed in place. The list the change made is walked.
+        let was_at = Arc::as_ptr(&held);
+        Arc::make_mut(&mut held).items.clear();
+        assert!(!core::ptr::eq(was_at, Arc::as_ptr(&held)));
+        assert!(list_shadows(&held, Some(&held), 1.0).is_empty());
+        assert_eq!(walks() - before, 4);
+
+        // A list nothing is kept for is walked at each question.
+        let loose = list_at(40.0);
+        let _ = list_shadows(&loose, None, 2.0);
+        let _ = list_shadows(&loose, None, 2.0);
+        assert_eq!(walks() - before, 6);
+
+        // A list that is gone is forgotten at the next question.
+        let kept = LIST_SHADOWS.with(|kept| kept.borrow().len());
+        drop(held);
+        let _ = list_shadows(&loose, None, 2.0);
+        assert_eq!(LIST_SHADOWS.with(|kept| kept.borrow().len()), kept - 1);
     }
 }

@@ -1448,7 +1448,7 @@ pub unsafe extern "C" fn AzStartup_solveLayoutReal(
         ..Default::default()
     };
     let fc_font = rust_fontconfig::FcFont {
-        bytes: az_web_fallback_font.to_vec(),
+        bytes: az_web_fallback_font.into(),
         font_index: 0,
         id: "az_web_fallback".to_string(),
     };
