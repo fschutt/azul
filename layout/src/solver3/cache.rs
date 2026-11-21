@@ -4571,6 +4571,25 @@ pub(super) fn position_bfc_child_descendants(
     }
 }
 
+/// How many indices [`is_one_of_sorted`] compared on this thread: what the size
+/// sweep of the tests reads (`audit_tests::a3_solver`) to say that a block of
+/// many absolutely positioned children is not scanned once per child.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CHILD_LOOKUP_STEPS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Whether `index` is one of `sorted`, layout indices in ascending order.
+fn is_one_of_sorted(sorted: &[usize], index: usize) -> bool {
+    sorted
+        .binary_search_by(|probe| {
+            #[cfg(test)]
+            CHILD_LOOKUP_STEPS.with(|n| n.set(n.get() + 1));
+            probe.cmp(&index)
+        })
+        .is_ok()
+}
+
 /// Processes out-of-flow children (absolute/fixed positioned elements).
 ///
 /// Out-of-flow elements don't appear in `layout_output.positions` but still need
@@ -4590,6 +4609,18 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
+    // "Is this box one of the children" is asked by binary search in a sorted
+    // copy of the children, made once. Asked with `children.contains(index)`
+    // for every recorded static position, a block of k absolutely positioned
+    // children - `fc::layout_bfc` records a static position for each - compared
+    // k * k / 2 indices: 72 million at the map editor's 12,000 labels.
+    let sorted_children: Vec<usize> = if static_positions.is_empty() {
+        Vec::new()
+    } else {
+        let mut sorted = tree.children(node_index).to_vec();
+        sorted.sort_unstable();
+        sorted
+    };
     // Collect out-of-flow children (those not already positioned)
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
         let current_node = tree
@@ -4602,7 +4633,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
         let nested = static_positions
             .keys()
             .copied()
-            .filter(|index| !tree.children(node_index).contains(index));
+            .filter(|index| !is_one_of_sorted(&sorted_children, *index));
         tree.children(node_index)
             .iter()
             .copied()
