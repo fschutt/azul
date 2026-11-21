@@ -29471,6 +29471,343 @@
                         },
                         "repr": "C"
                     },
+                    "DomBuilder": {
+                        "doc": [
+                            "Builds a UI tree in its flat form: the nodes go in document order (`open`, the node's classes, properties and handlers, its children, `close`) into arenas all nodes share, so nothing is allocated per node, and each node's change fingerprints are made as it is closed (the early diff of a rebuild reads them instead of hashing the tree).",
+                            "The handle is one pointer: every function takes it by reference and writes the builder in place.",
+                            "`finish` answers a `Dom` that carries the tree flat; return it from a layout callback or a `VirtualView` callback, or give it to `Dom::add_child`. A node's classes, ids, attributes, inline properties, handlers, key, flags, dataset and sheets are given after the node is opened and before its first child. The first node opened is the root. What the builder's own functions do not say (accessibility, a menu, SVG data, a virtual view) is given as a whole `NodeData` (`open_node`)."
+                        ],
+                        "external": "azul_core::dom::DomBuilder",
+                        "is_boxed_object": true,
+                        "custom_impls": [
+                            "Clone",
+                            "Debug",
+                            "Default",
+                            "Drop"
+                        ],
+                        "struct_fields": [
+                            {
+                                "ptr": {
+                                    "type": "c_void",
+                                    "ref_kind": "mutptr",
+                                    "doc": [
+                                        "The builder's state (owned)"
+                                    ]
+                                }
+                            },
+                            {
+                                "run_destructor": {
+                                    "type": "bool"
+                                }
+                            }
+                        ],
+                        "constructors": {
+                            "create": {
+                                "doc": [
+                                    "An empty builder"
+                                ],
+                                "fn_args": [],
+                                "fn_body": "azul_core::dom::DomBuilder::new()"
+                            },
+                            "with_capacity": {
+                                "doc": [
+                                    "An empty builder with room for `nodes` nodes"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "nodes": "usize"
+                                    }
+                                ],
+                                "fn_body": "azul_core::dom::DomBuilder::with_capacity(nodes)"
+                            }
+                        },
+                        "functions": {
+                            "open": {
+                                "doc": [
+                                    "Opens a node of `node_type` as the next child of the open node: the nodes pushed until the matching `close` are its children"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_type": "NodeType"
+                                    }
+                                ],
+                                "fn_body": "object.open(node_type)"
+                            },
+                            "open_node": {
+                                "doc": [
+                                    "Opens `node`, given whole: for what the builder's own functions do not say"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node": "NodeData"
+                                    }
+                                ],
+                                "fn_body": "object.open_node(node)"
+                            },
+                            "open_text": {
+                                "doc": [
+                                    "Opens a text node, its characters in the builder's shared string"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "object.open_text(text)"
+                            },
+                            "close": {
+                                "doc": [
+                                    "Closes the open node (closing the root is left to `finish`)"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    }
+                                ],
+                                "fn_body": "object.close()"
+                            },
+                            "add_node": {
+                                "doc": [
+                                    "A node of `node_type` without children"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "node_type": "NodeType"
+                                    }
+                                ],
+                                "fn_body": "object.add_node(node_type)"
+                            },
+                            "add_text": {
+                                "doc": [
+                                    "A text node without anything of its own"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "text": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_text(text)"
+                            },
+                            "add_dom": {
+                                "doc": [
+                                    "`dom`, a tree built the other way (a widget's), as the next child of the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "dom": "Dom"
+                                    }
+                                ],
+                                "fn_body": "object.add_dom(dom)"
+                            },
+                            "add_class": {
+                                "doc": [
+                                    "`Dom::add_class` for the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "class": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_class(class)"
+                            },
+                            "add_id": {
+                                "doc": [
+                                    "`Dom::with_id` for the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "id": "String"
+                                    }
+                                ],
+                                "fn_body": "object.add_id(id)"
+                            },
+                            "add_attribute": {
+                                "doc": [
+                                    "`Dom::with_attribute` for the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "attr": "AttributeType"
+                                    }
+                                ],
+                                "fn_body": "object.add_attribute(attr)"
+                            },
+                            "add_css_property": {
+                                "doc": [
+                                    "`Dom::add_css_property` for the open node: one inline rule"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "prop": "CssPropertyWithConditions"
+                                    }
+                                ],
+                                "fn_body": "object.add_css_property(prop)"
+                            },
+                            "add_callback": {
+                                "doc": [
+                                    "`Dom::add_callback` for the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "event": "EventFilter"
+                                    },
+                                    {
+                                        "data": "RefAny"
+                                    },
+                                    {
+                                        "callback": "CallbackType"
+                                    }
+                                ],
+                                "fn_body": "object.add_callback(event, data, azul_layout::callbacks::Callback::create(callback).to_core())"
+                            },
+                            "set_key": {
+                                "doc": [
+                                    "`Dom::set_key` for the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "key": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_key(key)"
+                            },
+                            "set_tab_index": {
+                                "doc": [
+                                    "`Dom::set_tab_index` for the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "tab_index": "TabIndex"
+                                    }
+                                ],
+                                "fn_body": "object.set_tab_index(tab_index)"
+                            },
+                            "set_contenteditable": {
+                                "doc": [
+                                    "`Dom::set_contenteditable` for the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "contenteditable": "bool"
+                                    }
+                                ],
+                                "fn_body": "object.set_contenteditable(contenteditable)"
+                            },
+                            "set_dataset": {
+                                "doc": [
+                                    "`Dom::set_dataset` for the open node"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "data": "OptionRefAny"
+                                    }
+                                ],
+                                "fn_body": "object.set_dataset(data)"
+                            },
+                            "add_component_css": {
+                                "doc": [
+                                    "`Dom::add_component_css` for the open node: a sheet for its subtree"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "css": "Css"
+                                    }
+                                ],
+                                "fn_body": "object.add_component_css(css)"
+                            },
+                            "set_css": {
+                                "doc": [
+                                    "`Dom::set_css` for the open node: `style` parsed as a sheet for its subtree"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "style": "String"
+                                    }
+                                ],
+                                "fn_body": "object.set_css(style.as_str())"
+                            },
+                            "node_count": {
+                                "doc": [
+                                    "How many nodes were pushed so far"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "usize"
+                                },
+                                "fn_body": "object.node_count()"
+                            },
+                            "finish": {
+                                "doc": [
+                                    "Closes every node still open and answers the tree as a `Dom` that carries it flat"
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.finish()"
+                            }
+                        },
+                        "repr": "C"
+                    },
                     "NodeData": {
                         "doc": [
                             "Represents all data associated with a single DOM node, such as its type, classes, IDs, callbacks, and inline styles."
