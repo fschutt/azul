@@ -14246,7 +14246,15 @@ mod tests {
             let mut window = a3w_texts_window(&state);
             a3w_change(&state, |app| app.texts[2] = "another text".to_string());
             let before = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
-            a3w_rebuild(&mut window, diff_first);
+            // The step `text` alone: with the later steps on, a text with a handler is a
+            // node changed where it stands (`nodes`), and a page with a mover is reconciled
+            // before it is styled or not at all (`tree`) - other exits, other tests.
+            let steps: &[azul_layout::window::DiffFirstStep] = if diff_first {
+                &[azul_layout::window::DiffFirstStep::Text]
+            } else {
+                &[]
+            };
+            df_rebuild(&mut window, steps);
             azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - before
         };
         assert_eq!(cascades_of(|_| {}, true), 0, "premise: a plain text change keeps the cascade");
@@ -14263,13 +14271,15 @@ mod tests {
     // styled DOM, the reconciliation, the equivalence walk - is what it must agree with.
 
     /// One row of [`df_layout`]: its text, which `df-k<kind>` class it wears, which of
-    /// [`DF_PLACES`] is its inline style, and its id (0: none).
+    /// [`DF_PLACES`] is its inline style, its id (0: none), and how many `div.df-extra`
+    /// boxes follow its cell (a subtree that comes and goes inside the row).
     #[derive(Clone)]
     struct DfRow {
         text: String,
         kind: usize,
         place: usize,
         id: usize,
+        extra: usize,
     }
 
     /// The app state of [`df_layout`]: the rows, whether the list is `df-dense`, and whether
@@ -14280,12 +14290,14 @@ mod tests {
         siblings: bool,
     }
 
-    /// The inline styles a row can have.
-    const DF_PLACES: [&str; 4] = [
+    /// The inline styles a row can have. The walks pick among the first four; the fifth (a
+    /// declared `animation` over every property) is set by the tests that are about it.
+    const DF_PLACES: [&str; 5] = [
         "",
         "position: relative; left: 4px;",
         "position: relative; left: 9px;",
         "width: 150px;",
+        "animation: all 200ms ease-out;",
     ];
 
     /// `body > .df-list[.df-dense] > .df-row.df-k<n>[#df-id<n>] > span.df-cell > text`, under a
@@ -14311,17 +14323,27 @@ mod tests {
             if !DF_PLACES[row.place].is_empty() {
                 node = node.with_css(DF_PLACES[row.place]);
             }
-            list = list.with_child(node.with_child(
+            let mut node = node.with_child(
                 Dom::create_span().with_class("df-cell".into()).with_child(
                     Dom::create_text_do_not_use_without_block_level_wrapper(row.text.clone()),
                 ),
-            ));
+            );
+            for n in 0..row.extra {
+                node = node.with_child(
+                    Dom::create_div().with_class("df-extra".into()).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper(format!("x{n}")),
+                    ),
+                );
+            }
+            list = list.with_child(node);
         }
         let mut sheet = String::from(
             ".df-list { padding: 2px; } .df-row { padding: 4px; background: #eeeeee; } \
              .df-dense .df-row { padding: 1px; } .df-k1 { background: #ddddff; width: 200px; } \
              .df-k2 { color: #aa0000; font-size: 18px; } .df-k3 { margin-top: 3px; } \
-             #df-id1 { background: #00ff00; } .df-row:hover { background: #ffff00; }",
+             #df-id1 { background: #00ff00; } .df-row:hover { background: #ffff00; color: \
+             #0000aa; } .df-extra { height: 6px; background: #cccccc; } .df-k2 .df-extra { \
+             height: 9px; }",
         );
         if siblings {
             sheet.push_str(" .df-k1 + .df-row { margin-left: 6px; }");
@@ -14344,6 +14366,7 @@ mod tests {
                     kind: i % 4,
                     place: 0,
                     id: 0,
+                    extra: 0,
                 })
                 .collect(),
             dense: false,
@@ -14412,9 +14435,13 @@ mod tests {
         lines
     }
 
-    /// The step `kind` of the random walk of [`df_walk`] applied to `page`: texts (0, 1), the
-    /// class of a row (2, 3), its inline style (4), the list's class (5), a row's id (6),
-    /// several rows at once (7), a row added or taken (8: both paths in full), nothing (9).
+    /// The step `kind` of the random walk of [`df_walk`] applied to `page`. Nodes changed
+    /// where they stand: texts (0, 1), the class of a row (2, 3), the list's class (5), a
+    /// row's id (6), several rows at once (7), nothing (9). The TREE or a sheet changed
+    /// (the step `tree`; without it both windows take the full path): a row's own sheet
+    /// (4: `Dom::with_css`), a row added or taken (8), a row moved (10), a subtree inside a
+    /// row that comes or goes (11), a row added, another taken and a third restyled at
+    /// once (12), the first and the last row exchanged (13).
     fn df_mutate(page: &mut DfPage, kind: usize, picks: [usize; 6]) {
         const WORDS: [&str; 8] = ["", "a", "41", "42", "Tuebingen", "one two", "x y z", "row"];
         let rows = page.rows.len();
@@ -14444,10 +14471,36 @@ mod tests {
                             kind: picks[3] % 4,
                             place: picks[4] % 4,
                             id: 0,
+                            extra: 0,
                         },
                     );
                 }
             }
+            10 => {
+                let row = page.rows.remove(picks[0] % rows);
+                page.rows.insert(picks[1] % rows, row);
+            }
+            11 => {
+                let at = picks[0] % rows;
+                page.rows[at].extra = (page.rows[at].extra + 1 + picks[3] % 2) % 3;
+            }
+            12 => {
+                page.rows[picks[2] % rows].kind = picks[5] % 4;
+                page.rows.insert(
+                    picks[1] % (rows + 1),
+                    DfRow {
+                        text: format!("came {}", picks[0]),
+                        kind: picks[3] % 4,
+                        place: 0,
+                        id: 0,
+                        extra: picks[4] % 2,
+                    },
+                );
+                if page.rows.len() > 9 {
+                    let _ = page.rows.remove(picks[0] % page.rows.len());
+                }
+            }
+            13 => page.rows.swap(0, rows - 1),
             _ => {}
         }
     }
@@ -14456,8 +14509,14 @@ mod tests {
     /// on and one down the full path: after every rebuild both hold the same nodes, states,
     /// resolved styles, compact entries, tags, boxes and display list. With `pointer`, the
     /// pointer is put over a row first and moved to another one every few steps, in both;
-    /// `siblings` is whether the page's sheet has its sibling rule.
-    fn df_walk(steps: &[azul_layout::window::DiffFirstStep], pointer: bool, siblings: bool) {
+    /// `siblings` is whether the page's sheet has its sibling rule. Answers how many of the
+    /// rebuilds were reconciled before they were styled and kept rows (the step `tree`).
+    fn df_walk(
+        steps: &[azul_layout::window::DiffFirstStep],
+        pointer: bool,
+        siblings: bool,
+    ) -> usize {
+        let kept_rows_before = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
         for seed in [1u64, 7, 20261121] {
             let state_first = df_state_with(12, siblings);
             let state_full = df_state_with(12, siblings);
@@ -14477,7 +14536,7 @@ mod tests {
                         let _ = step(window, HeadlessEvent::MouseMove { x: 40.0, y });
                     }
                 }
-                let kind = next(10);
+                let kind = next(14);
                 let picks = [next(64), next(64), next(64), next(64), next(64), next(64)];
                 df_change(&state_first, |page| df_mutate(page, kind, picks));
                 df_change(&state_full, |page| df_mutate(page, kind, picks));
@@ -14499,16 +14558,131 @@ mod tests {
                 );
             }
         }
+        azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept_rows_before
     }
 
     /// How to read a failure: the message names the seed, the step and its kind
     /// ([`df_mutate`]) and the first differing line. A `node` / `item` line is the layout or
     /// the list, a `style` / `compact` line the cascade, `tags` the hit-test tags. A
-    /// difference at a step of kind 8 is not this path (both windows take the full path).
+    /// difference at a step whose kind changes the tree (4, 8, 10-13) is not this path:
+    /// without the step `tree` both windows take the full path there.
     #[test]
     fn a_rebuild_that_changed_nodes_leaves_what_the_full_path_leaves() {
         use azul_layout::window::DiffFirstStep;
-        df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], false, true);
+        let _ = df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], false, true);
+    }
+
+    /// The walks with the step `tree` (and the three before it): a rebuild that adds, takes,
+    /// moves or exchanges rows, grows or shrinks a subtree inside a row or changes a row's
+    /// own sheet is reconciled before it is styled, keeps the rows of the nodes that are
+    /// what they were, and leaves what the full path leaves - nodes, states, resolved
+    /// styles, compact entries, tags, boxes and display list. A difference at a step of
+    /// kind 4, 8 or 10-13 is this path; a `style` / `compact` line is the cascade that kept
+    /// rows (`StyledDom::cascade_reusing`), a `node` / `item` line the layout or the list.
+    #[test]
+    fn a_rebuild_that_changed_the_tree_leaves_what_the_full_path_leaves() {
+        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree};
+        let kept = df_walk(&[Text, Nodes, Style, Tree], false, false);
+        assert!(kept >= 20, "premise: rebuilds that change the tree keep rows ({kept} did)");
+        let _ = df_walk(&[Text, Nodes, Style, Tree], false, true);
+        // The step alone: every rebuild the fingerprints do not call identical takes it
+        // (a changed text, a changed class too).
+        let alone = df_walk(&[Tree], false, false);
+        assert!(alone >= 20, "premise: the step alone keeps rows too ({alone} rebuilds did)");
+    }
+
+    /// The same with the pointer over a row, moved every few steps: the hover follows the
+    /// row through the reconciliation BEFORE the cascade, which runs once under it. The
+    /// hover rule hands the row's text a colour (`.df-row:hover { color }`).
+    #[test]
+    fn a_rebuild_that_changed_the_tree_under_the_pointer_leaves_what_the_full_path_leaves() {
+        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree};
+        let _ = df_walk(&[Text, Nodes, Style, Tree], true, false);
+        let _ = df_walk(&[Text, Nodes, Style, Tree], true, true);
+    }
+
+    /// `(whole cascades, nodes the cascade ran for, boxes the solver built fresh, rebuilds
+    /// that kept rows)` when `added` rows come at the end of a page of `rows` rows (3 nodes
+    /// a row, 2 above them; no sibling rule), with `steps` on.
+    fn df_cost_of_rows_that_come(
+        rows: usize,
+        added: usize,
+        steps: &[azul_layout::window::DiffFirstStep],
+    ) -> (usize, usize, usize, usize) {
+        let state = df_state_with(rows, false);
+        let mut window = df_window(&state);
+        df_change(&state, |page| {
+            for i in 0..added {
+                page.rows.push(DfRow {
+                    text: format!("came {i}"),
+                    kind: i % 4,
+                    place: 0,
+                    id: 0,
+                    extra: 0,
+                });
+            }
+        });
+        let whole = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        let nodes = azul_core::styled_dom::nodes_cascaded_on_this_thread();
+        let kept = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        df_rebuild(&mut window, steps);
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        (
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - whole,
+            azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
+            lw.layout_cache.last_reconcile_fresh,
+            azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept,
+        )
+    }
+
+    /// Rows that come are styled and laid out, and no other node: 40 rows are 120 nodes, in
+    /// a page of 300 rows and in one of 1,200. The cascade's count is exact (a row that
+    /// comes at the end leaves every other node its data, its ancestors, its state and -
+    /// the sheet has no sibling and no structural rule - all a rule can read of its place);
+    /// the boxes built fresh do not grow with the page (the rows before keep their ids, so
+    /// the solver keeps their boxes). Down the full path the same rebuild cascades every
+    /// node, once.
+    #[test]
+    fn rows_that_come_are_styled_and_laid_out_and_no_other_node() {
+        use azul_layout::window::DiffFirstStep;
+
+        let (whole_small, nodes_small, fresh_small, kept_small) =
+            df_cost_of_rows_that_come(300, 40, &DiffFirstStep::ALL);
+        let (whole_large, nodes_large, fresh_large, kept_large) =
+            df_cost_of_rows_that_come(1200, 40, &DiffFirstStep::ALL);
+        assert_eq!((kept_small, kept_large), (1, 1), "reconciled first, rows kept");
+        assert_eq!((whole_small, whole_large), (0, 0), "no cascade over the whole DOM");
+        assert_eq!((nodes_small, nodes_large), (120, 120), "the rows that came: 3 nodes each");
+        assert!(fresh_small >= 40, "premise: the solver built the new rows ({fresh_small})");
+        assert!(
+            fresh_large <= fresh_small,
+            "four times the rows, the same boxes: fresh {fresh_small} -> {fresh_large}"
+        );
+
+        // The reference: the full path styles the whole page, in one cascade (the shell does
+        // not build the compact cache a second time for a tree out of one cascade).
+        let (whole_full, nodes_full, _, kept_full) = df_cost_of_rows_that_come(300, 40, &[]);
+        assert_eq!(kept_full, 0, "every step off: the full path");
+        assert_eq!(whole_full, 1, "one cascade, one compact cache");
+        assert_eq!(nodes_full, 2 + 340 * 3, "over every node");
+    }
+
+    /// The case of the trace: about 500 nodes appear among about 3,500 (167 rows after
+    /// 1,166). The cascade runs for the 501 nodes that came.
+    #[test]
+    fn five_hundred_nodes_among_3500_are_styled_alone() {
+        use azul_layout::window::DiffFirstStep;
+
+        let (whole, nodes, fresh, kept) = df_cost_of_rows_that_come(1166, 167, &DiffFirstStep::ALL);
+        assert_eq!(kept, 1, "reconciled first, rows kept");
+        assert_eq!(whole, 0, "no cascade over the whole DOM");
+        assert_eq!(nodes, 501, "167 rows of 3 nodes");
+        // The solver: the rows that came (a box per row at least, three nodes per row at
+        // most, and what the reconcile builds around them), not the 3,500 nodes before.
+        assert!(
+            (167..=501 + 64).contains(&fresh),
+            "the solver builds the boxes of the rows that came: {fresh} fresh"
+        );
     }
 
     /// The same walks with the step `style`: the cascade runs for the nodes a change reaches
@@ -14517,15 +14691,15 @@ mod tests {
     #[test]
     fn a_rebuild_that_styled_its_changed_nodes_leaves_what_the_full_path_leaves() {
         use azul_layout::window::DiffFirstStep;
-        df_walk(&DiffFirstStep::ALL, false, false);
-        df_walk(&DiffFirstStep::ALL, false, true);
+        let _ = df_walk(&DiffFirstStep::ALL, false, false);
+        let _ = df_walk(&DiffFirstStep::ALL, false, true);
     }
 
     #[test]
     fn a_rebuild_that_styled_its_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves()
     {
         use azul_layout::window::DiffFirstStep;
-        df_walk(&DiffFirstStep::ALL, true, false);
+        let _ = df_walk(&DiffFirstStep::ALL, true, false);
     }
 
     /// The same walk with the pointer over a row (a `:hover` rule holds for it), moved every
@@ -14533,7 +14707,7 @@ mod tests {
     #[test]
     fn a_rebuild_that_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves() {
         use azul_layout::window::DiffFirstStep;
-        df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], true, true);
+        let _ = df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], true, true);
     }
 
     /// What one changed class costs with every step on, in a page of `rows` rows without the
@@ -14629,6 +14803,15 @@ mod tests {
             0,
             "a changed text styles no node"
         );
+        // ... and the solver was handed the diff: nobody wrote this DOM since its last pass
+        // (`dom_written_since_its_pass`), so it took over the fingerprints of the nodes the
+        // rebuild did not change instead of hashing all 182 again.
+        let skips = window
+            .common
+            .layout_window
+            .as_ref()
+            .map_or(0, |lw| lw.layout_cache.last_fingerprint_skips);
+        assert!(skips >= 150, "the solver hashed the changed text, not the page: {skips} skips");
     }
 
     /// `(rebuilds that kept the styled DOM, cascades, boxes the solver built fresh)` for one
@@ -14699,8 +14882,10 @@ mod tests {
                 .collect()
         };
         assert_eq!(on("0"), Vec::<&str>::new());
-        assert_eq!(on("1"), vec!["text", "nodes", "style"]);
-        assert_eq!(on(""), vec!["text", "nodes", "style"]);
+        assert_eq!(on("1"), vec!["text", "nodes", "style", "tree", "view"]);
+        assert_eq!(on(""), vec!["text", "nodes", "style", "tree", "view"]);
+        assert_eq!(on("tree"), vec!["tree"]);
+        assert_eq!(on("text,nodes,style"), vec!["text", "nodes", "style"], "the state before `tree`");
         assert_eq!(on("text"), vec!["text"]);
         assert_eq!(on("nodes, style"), vec!["nodes", "style"]);
         assert_eq!(on("text,bogus"), vec!["text"], "an unknown name beside a known one is skipped");
@@ -14713,6 +14898,725 @@ mod tests {
         );
         azul_layout::window::set_diff_first_steps_on_this_thread(None);
         assert_eq!(chosen, (false, true, true));
+    }
+
+    // --- diff-first-10: a full rebuild under a hovered node with an inherited `:hover` value ---
+    //
+    // The full path cascades the new DOM at rest and raises the states afterwards. A node in
+    // a state hands its children the inheritable values the state declares; the children of a
+    // DOM cascaded at rest held the resting ones until the pointer left and came back.
+
+    /// The app state of [`df10_layout`]: how many rows the page has.
+    struct Df10Rows(usize);
+
+    /// `body > .df10-row > span.df10-cell > text`, each row 40 px high; a hovered row's
+    /// `color` (inherited by the cell and the text) is red, a resting one's black.
+    extern "C" fn df10_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        let rows = data
+            .downcast_ref::<Df10Rows>()
+            .map(|rows| rows.0)
+            .expect("app state");
+        let mut body = Dom::create_body()
+            .with_css("margin: 0px; font-size: 14px;")
+            .with_component_css(azul_css::css::Css::from_string(
+                ".df10-row { height: 40px; color: #000000; } .df10-row:hover { color: #ff0000; }"
+                    .into(),
+            ));
+        for i in 0..rows {
+            body = body.with_child(
+                Dom::create_div()
+                    .with_class("df10-row".into())
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::MouseEnter),
+                        RefAny::new(()),
+                        a3w_hover_noop as usize,
+                    )
+                    .with_child(Dom::create_span().with_class("df10-cell".into()).with_child(
+                        Dom::create_text_do_not_use_without_block_level_wrapper(format!("row {i}")),
+                    )),
+            );
+        }
+        body
+    }
+
+    /// The colour the first text of the page is painted in (the text of the first row).
+    fn df10_first_text_colour(window: &HeadlessWindow) -> Option<String> {
+        let lw = window.common.layout_window.as_ref()?;
+        let result = lw.layout_results.get(&azul_core::dom::DomId::ROOT_ID)?;
+        result.display_list.items.iter().find_map(|item| match item {
+            DisplayListItem::Text { color, .. } | DisplayListItem::TextLayout { color, .. } => {
+                Some(format!("{color:?}"))
+            }
+            _ => None,
+        })
+    }
+
+    /// A rebuild that changes the tree (a row comes at the end) while the pointer rests on
+    /// the first row: the text in that row keeps the row's hover colour. Down the full path
+    /// (`AZ_DIFF_FIRST=0`), which is the reference of every equality walk.
+    #[test]
+    fn a_full_rebuild_keeps_the_hover_colour_the_hovered_row_hands_its_text() {
+        let state = Arc::new(RefCell::new(RefAny::new(Df10Rows(3))));
+        let mut window = make_window_sized(&state, df10_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        let resting = df10_first_text_colour(&window);
+        assert!(resting.is_some(), "premise: the first row paints a text");
+
+        // Over the first row.
+        step(&mut window, HeadlessEvent::MouseMove { x: 200.0, y: 20.0 });
+        let hovered = df10_first_text_colour(&window);
+        assert_ne!(hovered, resting, "premise: the hover reaches the text in the row");
+
+        {
+            let mut guard = state.borrow_mut();
+            let any: &mut RefAny = &mut guard;
+            let mut rows = any.downcast_mut::<Df10Rows>().expect("app state");
+            rows.0 = 4;
+        }
+        df_rebuild(&mut window, &[]);
+        assert_eq!(
+            df10_first_text_colour(&window),
+            hovered,
+            "the row is still hovered after the rebuild: its text shows the colour it hands down"
+        );
+    }
+
+    // --- The gate `animation`, narrowed to the nodes a rebuild can restyle ----------------------
+
+    /// What the window's transitions are, as text: node, property, from, to.
+    fn df_transitions(window: &HeadlessWindow) -> Vec<String> {
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let mut out: Vec<String> = lw
+            .css_transitions
+            .iter()
+            .map(|t| format!("{:?} {:?}: {:?} -> {:?}", t.node, t.prop_type, t.from, t.to))
+            .collect();
+        out.sort();
+        out
+    }
+
+    /// A page of 12 rows whose row 2 declares `animation: all 200ms`, after `change`, rebuilt
+    /// with `steps`: `(rebuilds that kept the styled DOM, rebuilds reconciled first that kept
+    /// rows, the transitions that run afterwards)`.
+    fn df_cost_beside_an_animated_row(
+        steps: &[azul_layout::window::DiffFirstStep],
+        change: impl FnOnce(&mut DfPage),
+    ) -> (usize, usize, Vec<String>) {
+        let state = df_state_with(12, false);
+        df_change(&state, |page| page.rows[2].place = 4);
+        let mut window = df_window(&state);
+        df_change(&state, change);
+        let kept = azul_layout::window::kept_dom_rebuilds_on_this_thread();
+        let tree = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        df_rebuild(&mut window, steps);
+        (
+            azul_layout::window::kept_dom_rebuilds_on_this_thread() - kept,
+            azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - tree,
+            df_transitions(&window),
+        )
+    }
+
+    /// A node that declares an `animation` somewhere in the window does not send every
+    /// rebuild down the full path: a class that changes on ANOTHER row keeps the styled DOM
+    /// (exit 1.46), a row that comes is reconciled first and keeps rows (exit 1.47), and no
+    /// transition starts, as down the full path. When the ANIMATED row's own class changes,
+    /// exit 1.46 leaves it alone (its property changes become transitions), exit 1.47 takes
+    /// it and starts the transitions the full path starts.
+    #[test]
+    fn an_animated_node_elsewhere_does_not_send_a_rebuild_down_the_full_path() {
+        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree};
+        let all = [Text, Nodes, Style, Tree];
+
+        let other_class = |page: &mut DfPage| page.rows[7].kind = (page.rows[7].kind + 1) % 4;
+        let (kept, tree, transitions) = df_cost_beside_an_animated_row(&all, other_class);
+        assert_eq!((kept, tree), (1, 0), "another row's class: the styled DOM is kept");
+        assert!(transitions.is_empty(), "and nothing animates: {transitions:?}");
+
+        let row_comes = |page: &mut DfPage| {
+            let row = page.rows[0].clone();
+            page.rows.push(row);
+        };
+        let (kept, tree, transitions) = df_cost_beside_an_animated_row(&all, row_comes);
+        assert_eq!((kept, tree), (0, 1), "a row comes: reconciled first, rows kept");
+        assert!(transitions.is_empty(), "and nothing animates: {transitions:?}");
+
+        // Row 2 is `df-k2` (a colour, a font size); `df-k1` gives it a background and a width.
+        let its_own_class = |page: &mut DfPage| page.rows[2].kind = 1;
+        let (kept, tree, transitions) = df_cost_beside_an_animated_row(&all, its_own_class);
+        assert_eq!((kept, tree), (0, 1), "the animated row's class: not exit 1.46, exit 1.47");
+        let (_, _, reference) = df_cost_beside_an_animated_row(&[], its_own_class);
+        assert!(!reference.is_empty(), "premise: the full path starts transitions for it");
+        assert_eq!(transitions, reference, "the same transitions as down the full path");
+    }
+
+    // --- A style a callback wrote, and the rebuild it asked for (a slider's drag) -------------
+    //
+    // `set_css_property` from a callback writes the node's own style on the KEPT arena, and
+    // the shell lays out once, in the rebuild the callback asked for. The exits that keep the
+    // styled DOM compare the app's two BUILDS: for them the written node is "what it was",
+    // and telling the solver so (`dom_diff_clean`) made it take over the fingerprint from
+    // before the write - the written style was never laid out, from the first rebuild on
+    // that came without a state change (`dragging_the_slider_leaves_no_thumb_behind`).
+
+    /// The app state of [`dfw_layout`]: how often the pad's handler ran.
+    struct DfwMoves(usize);
+
+    /// The pad's handler: slides the pad's first child with `set_css_property(margin-left)`,
+    /// 10 px per call, counts the call and asks for a rebuild - what a slider does on every
+    /// move of a drag in an app that refreshes on change. The app does not store the margin:
+    /// the DOM it builds next differs from the one before in the caption's text alone.
+    extern "C" fn dfw_on_move(
+        mut data: RefAny,
+        mut info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        use azul_css::props::{layout::LayoutMarginLeft, property::CssProperty};
+        let moves = match data.downcast_mut::<DfwMoves>() {
+            Some(mut state) => {
+                state.0 += 1;
+                state.0
+            }
+            None => return azul_core::callbacks::Update::DoNothing,
+        };
+        let pad = info.get_hit_node();
+        if let Some(knob) = info.get_first_child(pad) {
+            info.set_css_property(
+                knob,
+                CssProperty::const_margin_left(LayoutMarginLeft::const_px(10 * moves as isize)),
+            );
+        }
+        azul_core::callbacks::Update::RefreshDom
+    }
+
+    /// `body > (div > "moves: N"), (div.dfw-pad[MouseMove] > div.dfw-knob)`: the caption is
+    /// 20 px high whatever it says, the pad 300 x 100 below it, the knob 10 x 10 at the pad's
+    /// top left.
+    extern "C" fn dfw_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        let moves = data
+            .downcast_ref::<DfwMoves>()
+            .map(|state| state.0)
+            .expect("app state");
+        Dom::create_body()
+            .with_css("margin: 0px; font-size: 14px;")
+            .with_child(Dom::create_div().with_css("height: 20px;").with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(format!("moves: {moves}")),
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_class("dfw-pad".into())
+                    .with_css("width: 300px; height: 100px; background: #dddddd;")
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::MouseMove),
+                        data.clone(),
+                        dfw_on_move as usize,
+                    )
+                    .with_child(
+                        Dom::create_div()
+                            .with_class("dfw-knob".into())
+                            .with_css("width: 10px; height: 10px; background: #333333;"),
+                    ),
+            )
+    }
+
+    /// The pointer walks along the bottom of the pad (away from the knob: after it entered,
+    /// no node's state changes); every move slides the knob by a write from the handler and
+    /// rebuilds a DOM in which only the caption's text is new. After every move the knob
+    /// stands where the handler put it - down the full path, with the step `text` alone, and
+    /// with every step.
+    #[test]
+    fn a_style_a_callback_wrote_is_laid_out_by_the_rebuild_it_asked_for() {
+        use azul_layout::window::DiffFirstStep;
+
+        let knob_x = |window: &HeadlessWindow| {
+            rects_by_class(window, "dfw-knob").first().map(|r| r.origin.x)
+        };
+        let all = DiffFirstStep::ALL;
+        let paths: [&[DiffFirstStep]; 3] = [&[], &[DiffFirstStep::Text], &all];
+        for steps in paths {
+            azul_layout::window::set_diff_first_steps_on_this_thread(Some(steps));
+            let state = Arc::new(RefCell::new(RefAny::new(DfwMoves(0))));
+            let mut window = make_window_sized(&state, dfw_layout, 400.0, 200.0);
+            window.regenerate_layout().expect("initial layout");
+            window.regenerate_layout().expect("settle");
+            let _ = window.common.take_regeneration();
+            let start = knob_x(&window).expect("the knob is laid out");
+            let mut calls_per_move = Vec::new();
+            let mut before = 0;
+            for (i, x) in [100.0_f32, 120.0, 140.0, 160.0, 180.0].into_iter().enumerate() {
+                step(&mut window, HeadlessEvent::MouseMove { x, y: 100.0 });
+                let moves = state
+                    .borrow_mut()
+                    .downcast_ref::<DfwMoves>()
+                    .map(|state| state.0)
+                    .unwrap_or(0);
+                calls_per_move.push(moves - before);
+                before = moves;
+                assert_eq!(
+                    knob_x(&window),
+                    Some(start + 10.0 * moves as f32),
+                    "steps {steps:?}, move {i}: the handler ran {moves} times and wrote a \
+                     margin of {} px, the knob is not there",
+                    10 * moves
+                );
+            }
+            azul_layout::window::set_diff_first_steps_on_this_thread(None);
+            assert!(
+                calls_per_move[2..].iter().all(|calls| *calls >= 1),
+                "premise (steps {steps:?}): the handler runs on every move inside the pad \
+                 ({calls_per_move:?})"
+            );
+        }
+    }
+
+    // --- diff first, step `view`: a VirtualView's document that renders again ----------------
+    //
+    // A map view after a pan: its labels are keyed boxes, absolutely positioned by their own
+    // style (`left`, `top`), under a sheet of classes. Most persist and only moved; some
+    // enter and some leave. The view's callback returns a new DOM every time; the step
+    // pairs its nodes with the render before FIRST and runs the cascade for the labels that
+    // entered, where the full path styles every node.
+
+    /// One label of [`dfv_render`]: its key, where it stands, which `dfv-k<kind>` it wears.
+    #[derive(Clone)]
+    struct DfvLabel {
+        key: u64,
+        left: f32,
+        top: f32,
+        kind: usize,
+    }
+
+    /// The app state of [`dfv_layout`] and the data of the view it builds.
+    #[derive(Clone)]
+    struct DfvLabels(Vec<DfvLabel>);
+
+    /// `div.dfv-picture > (div.dfv-label.dfv-k<n>[key][left, top] > text)*` under a sheet
+    /// with a rule per class (one of them inherited by the text).
+    extern "C" fn dfv_render(
+        data: RefAny,
+        info: azul_core::callbacks::VirtualViewCallbackInfo,
+    ) -> azul_core::callbacks::VirtualViewReturn {
+        use azul_core::geom::{LogicalPosition, LogicalRect};
+        let mut data = data;
+        let labels = data
+            .downcast_ref::<DfvLabels>()
+            .map(|labels| labels.0.clone())
+            .unwrap_or_default();
+        let mut picture = Dom::create_div()
+            .with_class("dfv-picture".into())
+            .with_component_css(azul_css::css::Css::from_string(
+                ".dfv-picture { position: relative; width: 100%; height: 100%; font-size: 10px; } \
+                 .dfv-label { position: absolute; padding: 1px; background: #eeeeee; } \
+                 .dfv-k1 { color: #aa0000; } .dfv-k2 { font-size: 12px; background: #ddddff; } \
+                 .dfv-k3 { padding: 3px; }"
+                    .into(),
+            ));
+        for label in &labels {
+            let mut node = Dom::create_div()
+                .with_class("dfv-label".into())
+                .with_class(format!("dfv-k{}", label.kind).into())
+                .with_key(label.key)
+                .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(format!(
+                    "L{}",
+                    label.key
+                )));
+            // The label's OWN style (not a sheet hung on it), as the map view sets it.
+            node.root
+                .set_css(&format!("left: {}px; top: {}px;", label.left, label.top));
+            picture = picture.with_child(node);
+        }
+        let size = info.get_bounds().get_logical_size();
+        let rect = LogicalRect::new(LogicalPosition::zero(), size);
+        azul_core::callbacks::VirtualViewReturn {
+            dom: azul_core::dom::OptionDom::Some(picture),
+            materialized: rect,
+            virtual_rect: rect,
+        }
+    }
+
+    extern "C" fn dfv_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let labels = data
+            .downcast_ref::<DfvLabels>()
+            .map(|labels| DfvLabels(labels.0.clone()))
+            .expect("app state");
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_virtual_view(
+                RefAny::new(labels),
+                azul_core::callbacks::VirtualViewCallback::create(dfv_render),
+            )
+            .with_css("width: 380px; height: 280px;"),
+        )
+    }
+
+    /// `count` labels on a grid, keys `first_key..`.
+    fn dfv_labels(first_key: u64, count: usize) -> Vec<DfvLabel> {
+        (0..count)
+            .map(|i| DfvLabel {
+                key: first_key + i as u64,
+                left: (i % 20) as f32 * 18.0,
+                top: (i / 20) as f32 * 9.0,
+                kind: i % 4,
+            })
+            .collect()
+    }
+
+    fn dfv_window(state: &Arc<RefCell<RefAny>>) -> HeadlessWindow {
+        let mut window = make_window_sized(state, dfv_layout, 400.0, 300.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        window.common.drain_virtual_view_updates();
+        let _ = window.common.take_regeneration();
+        window
+    }
+
+    fn dfv_change(state: &Arc<RefCell<RefAny>>, change: impl FnOnce(&mut Vec<DfvLabel>)) {
+        let mut guard = state.borrow_mut();
+        let any: &mut RefAny = &mut guard;
+        let mut labels = any.downcast_mut::<DfvLabels>().expect("app state");
+        change(&mut labels.0);
+    }
+
+    /// The view renders again from the app's state, with exactly `steps` of the diff-first
+    /// pipeline on: a rebuild of the window's DOM (identical: the view is the same node)
+    /// queues the view, the drain renders it.
+    fn dfv_rerender(window: &mut HeadlessWindow, steps: &[azul_layout::window::DiffFirstStep]) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        azul_layout::window::set_diff_first_steps_on_this_thread(Some(steps));
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout();
+        window.common.drain_virtual_view_updates();
+        azul_layout::window::set_diff_first_steps_on_this_thread(None);
+        result.expect("the rebuild");
+        let _ = window.common.take_regeneration();
+    }
+
+    /// The view's document: its `DomId`.
+    fn dfv_child(window: &HeadlessWindow) -> Option<azul_core::dom::DomId> {
+        let lw = window.common.layout_window.as_ref()?;
+        lw.layout_results.keys().copied().find(|dom| dom.inner != 0)
+    }
+
+    /// What a render of the view leaves, line by line, as [`df_dump`] writes a window's DOM:
+    /// every node of the view's document (what it is, its classes, its state, its box, its
+    /// resolved properties, its compact entries), the tags, and every item of its list.
+    fn dfv_dump(window: &HeadlessWindow) -> Vec<String> {
+        use azul_core::{
+            dom::{DomNodeId, NodeId},
+            styled_dom::NodeHierarchyItemId,
+        };
+
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let Some(child) = dfv_child(window) else {
+            return vec!["no view document".to_string()];
+        };
+        let result = &lw.layout_results[&child];
+        let styled = &result.styled_dom;
+        let cache = styled.get_css_property_cache();
+        let mut lines = Vec::new();
+        for (index, node) in styled.node_data.as_ref().iter().enumerate() {
+            let id = NodeId::new(index);
+            let dom_node = DomNodeId {
+                dom: child,
+                node: NodeHierarchyItemId::from_crate_internal(Some(id)),
+            };
+            let state = styled.styled_nodes.as_ref()[index].styled_node_state;
+            lines.push(format!(
+                "node {index}: {:?} {:?} state {state:?} at {:?} size {:?} in {:?}",
+                node.get_node_type(),
+                node.get_ids_and_classes()
+                    .iter()
+                    .map(|class| format!("{class:?}"))
+                    .collect::<Vec<_>>(),
+                lw.get_node_position(dom_node),
+                lw.get_node_size(dom_node),
+                styled.node_hierarchy.as_ref()[index],
+            ));
+            let style: Vec<String> = azul_css::props::property::CssPropertyType::ALL
+                .iter()
+                .filter_map(|ty| cache.get_property(node, &id, &state, ty))
+                .map(|property| format!("{property:?}"))
+                .collect();
+            lines.push(format!("style {index}: {style:?}"));
+            if let Some(compact) = cache.compact_cache.as_ref() {
+                lines.push(format!(
+                    "compact {index}: {:?} {:?} {:?} {:?}",
+                    compact.tier1_enums[index],
+                    compact.tier2_dims[index],
+                    compact.tier2_cold[index],
+                    compact.tier2b_text[index],
+                ));
+            }
+        }
+        lines.push(format!("tags: {:?}", styled.tag_ids_to_node_ids));
+        for (index, item) in result.display_list.items.iter().enumerate() {
+            lines.push(match item {
+                DisplayListItem::HitTestArea { bounds, .. } => {
+                    format!("item {index}: hit area {bounds:?}")
+                }
+                DisplayListItem::Text {
+                    glyphs,
+                    font_size_px,
+                    color,
+                    clip_rect,
+                    line_box,
+                    source_node_index,
+                    ..
+                } => format!(
+                    "item {index}: text {glyphs:?} {font_size_px} {color:?} {clip_rect:?} \
+                     {line_box:?} {source_node_index:?}"
+                ),
+                DisplayListItem::TextLayout {
+                    bounds,
+                    font_size_px,
+                    color,
+                    ..
+                } => format!("item {index}: text layout {bounds:?} {font_size_px} {color:?}"),
+                other => format!("item {index}: {other:?}"),
+            });
+        }
+        lines
+    }
+
+    /// The step `kind` of the random walk of a view's labels: every label moves (0, 1: a
+    /// pan), some leave and as many enter anywhere in the list (2, 3), a pan with labels
+    /// leaving at the front and entering at the end (4), a label changes its class (5),
+    /// the list is reversed (6: keyed labels in another order), nothing (7).
+    fn dfv_mutate(labels: &mut Vec<DfvLabel>, next_key: &mut u64, kind: usize, picks: [usize; 6]) {
+        let pan = |labels: &mut Vec<DfvLabel>, dx: f32, dy: f32| {
+            for label in labels.iter_mut() {
+                label.left += dx;
+                label.top += dy;
+            }
+        };
+        let mut enter = |labels: &mut Vec<DfvLabel>, at: usize, pick: usize| {
+            let key = *next_key;
+            *next_key += 1;
+            let at = at.min(labels.len());
+            labels.insert(
+                at,
+                DfvLabel {
+                    key,
+                    left: (pick % 300) as f32,
+                    top: (pick % 7) as f32 * 30.0,
+                    kind: pick % 4,
+                },
+            );
+        };
+        match kind {
+            0 | 1 => pan(labels, picks[0] as f32 - 32.0, picks[1] as f32 * 0.5 - 16.0),
+            2 | 3 => {
+                for i in 0..=(picks[5] % 3) {
+                    if labels.len() > 4 {
+                        let gone = picks[i] % labels.len();
+                        let _ = labels.remove(gone);
+                    }
+                    let at = picks[3 + i % 2] % (labels.len() + 1);
+                    enter(labels, at, picks[i]);
+                }
+            }
+            4 => {
+                pan(labels, -(picks[0] as f32), 3.0);
+                for i in 0..2 {
+                    if labels.len() > 4 {
+                        let _ = labels.remove(0);
+                    }
+                    let end = labels.len();
+                    enter(labels, end, picks[1 + i]);
+                }
+            }
+            5 => {
+                let at = picks[0] % labels.len();
+                labels[at].kind = picks[1] % 4;
+            }
+            6 => labels.reverse(),
+            _ => {}
+        }
+    }
+
+    /// Random re-renders of one view in two windows, one with `steps` on and one down the
+    /// full path: after every render the view's document holds the same nodes, resolved
+    /// styles, compact entries, tags, boxes and display list in both. Answers how many of
+    /// the renders kept rows of the render before.
+    fn dfv_walk(steps: &[azul_layout::window::DiffFirstStep]) -> usize {
+        let kept_before = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        for seed in [1u64, 7, 20261121] {
+            let state_first = Arc::new(RefCell::new(RefAny::new(DfvLabels(dfv_labels(1, 24)))));
+            let state_full = Arc::new(RefCell::new(RefAny::new(DfvLabels(dfv_labels(1, 24)))));
+            let mut first = dfv_window(&state_first);
+            let mut full = dfv_window(&state_full);
+            let (mut key_first, mut key_full) = (1000_u64, 1000_u64);
+            let mut random = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            let mut next = |below: u64| {
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                ((random >> 33) % below) as usize
+            };
+            for step_index in 0..32 {
+                let kind = next(8);
+                let picks = [next(64), next(64), next(64), next(64), next(64), next(64)];
+                dfv_change(&state_first, |labels| dfv_mutate(labels, &mut key_first, kind, picks));
+                dfv_change(&state_full, |labels| dfv_mutate(labels, &mut key_full, kind, picks));
+                dfv_rerender(&mut first, steps);
+                dfv_rerender(&mut full, &[]);
+                let (left, right) = (dfv_dump(&first), dfv_dump(&full));
+                let differs = left
+                    .iter()
+                    .zip(right.iter())
+                    .position(|(a, b)| a != b)
+                    .or((left.len() != right.len()).then_some(left.len().min(right.len())));
+                assert!(
+                    differs.is_none(),
+                    "seed {seed}, step {step_index} (kind {kind}, picks {picks:?}, steps \
+                     {steps:?}): line {differs:?} differs\n diff-first: {:?}\n full:       {:?}",
+                    differs.and_then(|line| left.get(line)),
+                    differs.and_then(|line| right.get(line)),
+                );
+            }
+        }
+        azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept_before
+    }
+
+    /// How to read a failure: the message names the seed, the step and its kind
+    /// ([`dfv_mutate`]) and the first differing line of the view's document. A `style` /
+    /// `compact` line is the cascade that kept rows (`StyledDom::cascade_reusing`; for a
+    /// label that only moved: the compact entries built again from its own style), a `node`
+    /// / `item` line the layout or the list.
+    #[test]
+    fn a_view_rendered_again_leaves_what_the_full_path_leaves() {
+        use azul_layout::window::DiffFirstStep;
+        let kept = dfv_walk(&[DiffFirstStep::View]);
+        assert!(kept >= 30, "premise: the renders keep rows of the render before ({kept} did)");
+        let _ = dfv_walk(&DiffFirstStep::ALL);
+    }
+
+    /// `(whole cascades, nodes the cascade ran for, boxes the view's solver built fresh,
+    /// renders that kept rows)` for one re-render of a view of `count` labels after `change`,
+    /// with `steps` on.
+    fn dfv_cost(
+        count: usize,
+        steps: &[azul_layout::window::DiffFirstStep],
+        change: impl FnOnce(&mut Vec<DfvLabel>),
+    ) -> (usize, usize, usize, usize) {
+        let state = Arc::new(RefCell::new(RefAny::new(DfvLabels(dfv_labels(1, count)))));
+        let mut window = dfv_window(&state);
+        dfv_change(&state, change);
+        let whole = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        let nodes = azul_core::styled_dom::nodes_cascaded_on_this_thread();
+        let kept = azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread();
+        dfv_rerender(&mut window, steps);
+        let child = dfv_child(&window).expect("the view's document");
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        (
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - whole,
+            azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
+            lw.child_layout_caches
+                .get(&child)
+                .map_or(usize::MAX, |cache| cache.last_reconcile_fresh),
+            azul_layout::window::tree_rebuilds_that_kept_rows_on_this_thread() - kept,
+        )
+    }
+
+    /// A pan: every label moves, none enters or leaves. The view's document is KEPT (the
+    /// same tree, the same keys: nothing is flattened or paired). The cascade runs for no
+    /// node (a label's own `left` / `top` live in its compact entries alone, which are built again)
+    /// and the solver builds no box fresh (it places each label again and keeps what is in
+    /// it) - in a view of 100 labels and in one of 400. Down the full path every node of
+    /// the view is cascaded.
+    #[test]
+    fn a_view_whose_labels_all_moved_styles_no_node_and_keeps_every_box() {
+        use azul_layout::window::DiffFirstStep::View;
+        let pan = |labels: &mut Vec<DfvLabel>| {
+            for label in labels.iter_mut() {
+                label.left += 7.0;
+                label.top += 3.0;
+            }
+        };
+        for count in [100, 400] {
+            let (whole, nodes, fresh, kept) = dfv_cost(count, &[View], pan);
+            assert_eq!(kept, 1, "{count} labels: rows kept");
+            assert_eq!((whole, nodes), (0, 0), "{count} labels: no node is cascaded");
+            assert_eq!(fresh, 0, "{count} labels: every label keeps its box");
+        }
+        let (whole, nodes, _, kept) = dfv_cost(100, &[], pan);
+        assert_eq!((kept, whole), (0, 1), "the full path: one whole cascade");
+        assert_eq!(nodes, 1 + 2 * 100, "over the picture and every label with its text");
+    }
+
+    /// One label of a view changes its class, the others stay: the view's document is kept
+    /// and the cascade runs for that label and its text - 2 nodes - in a view of 100 labels
+    /// and in one of 400, and the solver builds the boxes of that label, not the view's.
+    #[test]
+    fn one_changed_label_of_a_view_styles_that_label() {
+        use azul_layout::window::DiffFirstStep::View;
+        let restyle_one = |labels: &mut Vec<DfvLabel>| {
+            let at = labels.len() / 2;
+            labels[at].kind = (labels[at].kind + 1) % 4;
+        };
+        for count in [100, 400] {
+            let (whole, nodes, fresh, kept) = dfv_cost(count, &[View], restyle_one);
+            assert_eq!(kept, 1, "{count} labels: the document is kept");
+            assert_eq!((whole, nodes), (0, 2), "{count} labels: the label and its text");
+            assert!(
+                (1..=6).contains(&fresh),
+                "{count} labels: the boxes of one label are built, {fresh} were"
+            );
+        }
+    }
+
+    /// A settle: every label moves and 5 % of them are exchanged for new ones. The cascade
+    /// runs for the labels that entered (a box and its text each): 10 nodes of 201 for 100
+    /// labels, 40 of 801 for 400 - 5 %, at both sizes. With the exchange at the end of the
+    /// list (the labels that stay keep their node ids) the solver builds the boxes of the
+    /// labels that entered and keeps the others'.
+    ///
+    /// NOT asserted, because it does not hold yet: where the labels that enter are not as
+    /// many as those that leave at the same place of the list, every label after that place
+    /// gets another node id, and the solver lays a renumbered box out anew whatever it is
+    /// told (`solver3::cache::DomDiff::keeps`; `audit/diff-first.md`, diff-first-06). The
+    /// cascade's count does not depend on it.
+    #[test]
+    fn a_view_that_exchanged_5_percent_of_its_labels_styles_5_percent() {
+        use azul_layout::window::DiffFirstStep::View;
+        let settle_at_the_end = |labels: &mut Vec<DfvLabel>| {
+            let exchanged = labels.len() / 20;
+            for label in labels.iter_mut() {
+                label.left += 5.0;
+                label.top += 2.0;
+            }
+            let kept = labels.len() - exchanged;
+            labels.truncate(kept);
+            labels.extend(dfv_labels(50_000, exchanged));
+        };
+        let settle_in_the_middle = |labels: &mut Vec<DfvLabel>| {
+            let exchanged = labels.len() / 20;
+            for label in labels.iter_mut() {
+                label.left += 5.0;
+                label.top += 2.0;
+            }
+            let from = labels.len() / 3;
+            let _ = labels.splice(from..from + exchanged, dfv_labels(50_000, exchanged));
+        };
+        let (whole_small, nodes_small, fresh_small, kept_small) =
+            dfv_cost(100, &[View], settle_at_the_end);
+        let (whole_large, nodes_large, fresh_large, kept_large) =
+            dfv_cost(400, &[View], settle_at_the_end);
+        assert_eq!((kept_small, kept_large), (1, 1), "rows kept");
+        assert_eq!((whole_small, whole_large), (0, 0), "no cascade over the whole view");
+        assert_eq!((nodes_small, nodes_large), (10, 40), "the labels that entered: 2 nodes each");
+        assert!(
+            (5..=5 * 3 + 4).contains(&fresh_small) && (20..=20 * 3 + 4).contains(&fresh_large),
+            "the solver builds the boxes of the labels that entered: {fresh_small} of 100, \
+             {fresh_large} of 400"
+        );
+        // In the middle of the list: the same cascade.
+        let (whole, nodes, _, kept) = dfv_cost(400, &[View], settle_in_the_middle);
+        assert_eq!((kept, whole, nodes), (1, 0, 40), "exchanged in the middle of the list");
     }
 }
 
