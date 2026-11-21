@@ -986,11 +986,11 @@ mod autotest_generated {
     #[cfg(feature = "parser")]
     #[test]
     fn offsets_subnormal_input_flushes_to_zero() {
-        // Below the 1/1000 fixed-point resolution everything truncates to 0.
-        for input in ["1e-40px", "-1e-40px", "0.0001px", "0.0009px"] {
+        // Below half of the 1/1000 fixed-point resolution everything rounds to 0.
+        for input in ["1e-40px", "-1e-40px", "0.0001px", "0.0004px"] {
             let v = parse_layout_bottom(input)
                 .unwrap_or_else(|e| panic!("{input:?} should parse, got {e:?}"));
-            assert_eq!(v.inner.number.get(), 0.0, "{input:?} should truncate to 0");
+            assert_eq!(v.inner.number.get(), 0.0, "{input:?} should round to 0");
         }
     }
 

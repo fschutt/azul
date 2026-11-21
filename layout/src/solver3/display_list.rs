@@ -79,6 +79,9 @@ use crate::{
     },
 };
 
+// One node's background and border painted again into a list that is kept (a `:hover` colour).
+pub(crate) mod node_patch;
+
 /// Fill the unknown grid lines of a table: linear interpolation between
 /// the known ones, the nearest known one past either end (0 without any).
 #[allow(clippy::cast_precision_loss)] // grid line indices are small
@@ -761,12 +764,17 @@ pub struct DisplayList {
     /// Index ranges (start, end) of display list items that belong to fixed-position elements.
     /// In paged media, these items are replicated on every page (CSS Positioned Layout §2.1).
     pub fixed_position_item_ranges: Vec<(usize, usize)>,
-    /// Per-item PROVEN uniform background (Text items only, None elsewhere).
+    /// Per-item uniform background HINT (Text items only, None elsewhere):
+    /// the opaque colour of the nearest ancestor that paints one, with that
+    /// ancestor's rect. Not a proof: whatever else is painted under the text
+    /// (an earlier positioned sibling, an image) is not looked at, and a
+    /// reader has to check the pixels before it relies on the colour, as the
+    /// CPU rasteriser does (`backdrop_is_colour`).
     /// Parallel to `items` like `node_mapping`. Lives on the LIST rather
     /// than in the `Text` variant because printpdf (crates.io, immutable)
     /// pattern-matches the variant exhaustively — a new variant field is a
     /// downstream semver break; a new list field is not. See
-    /// `compute_uniform_text_bg` for what "proven" means and the raster's
+    /// `compute_uniform_text_bg` for what the hint covers and the raster's
     /// pre-blended tile path for what it buys (~6 ms/repaint of per-pixel
     /// linear LCD compositing).
     pub uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
@@ -1442,6 +1450,13 @@ pub enum EmitPhase {
     BgBorder,
     /// Pushed by `paint_node_content`.
     Content,
+    /// Pushed by `paint_selections` for the text block whose IFC root is
+    /// the box: the highlight rects of the local and the remote ranges and
+    /// the selection handles, painted between the box's clips and its
+    /// content run. Tagged so that a patch can find the old run of a block
+    /// whose selection changed (the drag highlight); never substituted
+    /// from a cached list: a build decides it from the selection as it is.
+    Selection,
 }
 
 impl DisplayList {
@@ -4005,14 +4020,36 @@ impl DisplayListBuilder {
     /// `PageBreakPosition::causing_node`).
     /// This is used for CSS break-before: always and break-after: always.
     pub(crate) fn add_forced_page_break(&mut self, y_position: f32, causing_node: Option<NodeId>) {
-        // Avoid duplicates and keep sorted by Y
-        if !self.forced_page_breaks.iter().any(|b| b.y == y_position) {
-            self.forced_page_breaks.push(ForcedBreak {
-                y: y_position,
-                causing_node,
-            });
-            self.forced_page_breaks
-                .sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(core::cmp::Ordering::Equal));
+        // No duplicates, sorted by Y. The list is kept that way, so the
+        // place of a break - or the break that is already there - is found
+        // by bisection; it was a scan for the duplicate and a sort of the
+        // whole list per break (quadratic in the breaks of a long document:
+        // 10,000 forced breaks were 50 million compares and 10,000 sorts).
+        //
+        // A position that is not a number equals no break, itself included:
+        // it is recorded on every call, as it always was, behind the numbers
+        // (which stay sorted among themselves).
+        let numbers = self.forced_page_breaks.len()
+            - self
+                .forced_page_breaks
+                .iter()
+                .rev()
+                .take_while(|b| b.y.is_nan())
+                .count();
+        let new_break = ForcedBreak {
+            y: y_position,
+            causing_node,
+        };
+        if y_position.is_nan() {
+            self.forced_page_breaks.push(new_break);
+            return;
+        }
+        let place = self.forced_page_breaks[..numbers].binary_search_by(|b| {
+            b.y.partial_cmp(&y_position)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+        if let Err(at) = place {
+            self.forced_page_breaks.insert(at, new_break);
         }
     }
 
@@ -5065,6 +5102,19 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// of the flow are painted there with the parts of them that region
     /// holds ([`DisplayListGenerator::region_part`]). `None` outside regions.
     painting_region: Option<usize>,
+    /// Every DOM node's hit-test tag by node index ([`tags_by_node`]), made
+    /// at the first lookup ([`DisplayListGenerator::tag_id_of`]): every box
+    /// asks for its tag, and each ask used to scan the DOM's whole tag list.
+    tags_by_node: core::cell::OnceCell<Vec<Option<u64>>>,
+    /// The fonts the font manager has loaded, asked for once per list
+    /// ([`DisplayListGenerator::loaded_fonts`]).
+    loaded_fonts: core::cell::OnceCell<std::sync::Arc<text3::cache::LoadedFonts<T>>>,
+    /// The links of a box's [`ScrollChain`](crate::solver3::scroll_chain::ScrollChain)
+    /// (their layout indices, outermost first) by the box's parent and how
+    /// the box is positioned - all a box's chain depends on
+    /// ([`DisplayListGenerator::box_chain_key`]). Every positioned box asks
+    /// for its chain; the labels of a map layer share a handful.
+    box_chains: BTreeMap<(usize, u8), Vec<usize>>,
 }
 
 /// What the region being painted holds of a box (see
@@ -5567,7 +5617,9 @@ impl<'a> PatchState<'a> {
                 i += 1;
             }
             if let Some((node, phase)) = tag {
-                if !matches!(phase, EmitPhase::ScWalk) {
+                // A selection run is built from the selection on every pass
+                // and is no paint call a cached run could stand in for.
+                if !matches!(phase, EmitPhase::ScWalk | EmitPhase::Selection) {
                     if prev.items[start..i].iter().all(patchable_item) {
                         runs.entry((node, phase as u8))
                             .or_default()
@@ -5642,6 +5694,82 @@ where
             open_clips: Vec::new(),
             canvas_painted: [None, None],
             painting_region: None,
+            tags_by_node: core::cell::OnceCell::new(),
+            loaded_fonts: core::cell::OnceCell::new(),
+            box_chains: BTreeMap::new(),
+        }
+    }
+
+    /// The fonts the font manager has loaded, as of the first ask of this
+    /// list build. `FontManager::get_loaded_fonts` takes two locks and folds
+    /// a fingerprint over every loaded face per call; an ellipsis and a
+    /// placeholder prompt each asked for it again (per clipped line, per
+    /// empty field). No font is loaded while a list is built: one answer
+    /// serves the build - the one the context's pass holds already, when the
+    /// list is built by the pass that laid the page out
+    /// ([`LayoutContext::loaded_fonts`], A3-solver-42).
+    fn loaded_fonts(&self) -> std::sync::Arc<text3::cache::LoadedFonts<T>> {
+        std::sync::Arc::clone(self.loaded_fonts.get_or_init(|| self.ctx.loaded_fonts()))
+    }
+
+    /// What the scroll chain of the box at `node_index` depends on: its
+    /// parent and whether it is `absolute`, `fixed` or neither
+    /// (`scroll_chain::box_anchor` reads nothing else of the box itself;
+    /// every later step of the chain walk reads its ancestors). `None` for
+    /// a box without a parent, whose chain is empty.
+    fn box_chain_key(&self, node_index: usize) -> Option<(usize, u8)> {
+        let node = self.positioned_tree.tree.get(LayoutNodeId::new(node_index))?;
+        let parent = node.parent?;
+        let kind = match get_position_type(self.ctx.styled_dom, node.dom_node_id) {
+            LayoutPosition::Absolute => 1,
+            LayoutPosition::Fixed => 2,
+            _ => 0,
+        };
+        Some((parent, kind))
+    }
+
+    /// The layout indices of the links of the box chain of `node_index`
+    /// (`ScrollChain::of` with `AncestorsOnly`), outermost first: walked
+    /// once per parent and kind of positioning, read from
+    /// [`Self::box_chains`] after that.
+    ///
+    /// Returns the key the links are filed under in [`Self::box_chains`]
+    /// (`None`: no parent, no links), so that the caller can read them next
+    /// to another field of the generator.
+    fn box_chain_links(&mut self, node_index: usize) -> Option<(usize, u8)> {
+        let key = self.box_chain_key(node_index)?;
+        if !self.box_chains.contains_key(&key) {
+            #[cfg(test)]
+            SCROLL_CHAIN_WALKS.with(|n| n.set(n.get() + 1));
+            let chain = crate::solver3::scroll_chain::ScrollChain::of(
+                self.positioned_tree.tree,
+                self.ctx.styled_dom,
+                self.scroll_ids,
+                LayoutNodeId::new(node_index),
+                azul_core::spaces::Inclusivity::AncestorsOnly,
+            );
+            let links = chain
+                .links
+                .iter()
+                .map(|link| link.layout_index.index())
+                .collect();
+            self.box_chains.insert(key, links);
+        }
+        Some(key)
+    }
+
+    /// The hit-test tag of DOM node `id`, the answer of [`get_tag_id`]: the
+    /// node's FIRST entry in the DOM's tag list, read from a table of the
+    /// whole list by node index that the first ask makes. A node past the
+    /// table (no node of this DOM) is still looked for in the list itself.
+    fn tag_id_of(&self, id: Option<NodeId>) -> Option<DisplayListTagId> {
+        let node_id = id?;
+        let tags = self
+            .tags_by_node
+            .get_or_init(|| tags_by_node(self.ctx.styled_dom));
+        match tags.get(node_id.index()) {
+            Some(tag) => tag.map(|tag| (tag, TAG_TYPE_DOM_NODE)),
+            None => get_tag_id(self.ctx.styled_dom, id),
         }
     }
 
@@ -5738,13 +5866,27 @@ where
         face.with_synthetic_bold(text3::cache::needs_synthetic_bold(true, face_weight))
     }
 
-    /// Prove the SOLID OPAQUE color a text run inside this IFC sits on, or
-    /// `None`. Correct-by-construction: only claims a background when the
-    /// nearest layout ancestor that paints ANY background paints exactly one
-    /// solid opaque color (no gradients/images, no translucency) and no
-    /// selection touches the node (selection rects paint between background
-    /// and glyphs). No claim for canvas-direct text — the clear color is a
+    /// The SOLID OPAQUE color a text run inside this IFC PROBABLY sits on, or
+    /// `None`: a HINT, not a proof. It claims a background when the nearest
+    /// layout ancestor that paints ANY background paints exactly one solid
+    /// opaque color (no gradients/images, no translucency) and no selection
+    /// touches the node (selection rects paint between background and
+    /// glyphs). No claim for canvas-direct text — the clear color is a
     /// renderer detail (`AZ_DEBUG_FILL` can change it).
+    ///
+    /// What it does NOT look at is everything that is not an ancestor and
+    /// is painted between that ancestor's fill and the text: an earlier
+    /// positioned sibling or cousin (a map's tile image under a label, a
+    /// gradient layer, another label that overlaps this one), a negative
+    /// `z-index` box, a float. Finding those here would mean searching the
+    /// items painted so far for every text block. The consumer has the
+    /// answer for free: the CPU rasteriser stamps its pre-blended tiles only
+    /// where every pixel the run covers IS this colour (`backdrop_is_colour`
+    /// in `render_single_item`, the one place a hint is read), and blends
+    /// against the pixels otherwise; the GPU path does not read the hint.
+    /// So a wrong hint costs one scan of the run's pixels up to the first
+    /// other colour, never a wrong pixel - and a consumer that trusted the
+    /// hint without that check would be wrong.
     fn compute_uniform_text_bg(
         &self,
         source_node_index: usize,
@@ -5977,17 +6119,19 @@ where
         // anonymous block's container's (it has no style of its own).
         let dom_id = block.container();
 
-        // Get inline layout using the unified helper that handles IFC membership
-        // This is critical: text nodes don't have their own inline_layout_result,
-        // but they have ifc_membership pointing to their IFC root
-        // (d6h) Materialized: sentinel-safe caret/selection geometry.
-        let Some(layout) = self
-            .positioned_tree
-            .tree
-            .materialized_inline_layout_for_node(node_index)
-        else {
+        // The block's lines are read (and, kept dense, made up into a copy:
+        // `materialized_inline_layout_for_node`) only once a selection asks
+        // for its rects below. Every text block of a display list comes
+        // through here; the copy made up front cost each of them its
+        // clusters, for the one block (or none) a selection is in. A block
+        // without an inline layout paints nothing, as before.
+        if tree
+            .warm(LayoutNodeId::new(node_index))
+            .and_then(|w| w.inline_layout_result.as_ref())
+            .is_none()
+        {
             return Ok(());
-        };
+        }
 
         // Get the absolute position of this node (border-box position)
         let node_pos = self
@@ -6027,6 +6171,15 @@ where
                 .map(|ranges| ranges.iter().collect())
                 .unwrap_or_default();
             if local_ranges.is_some() || !remote_ranges.is_empty() {
+                // Get inline layout using the unified helper that handles IFC membership
+                // This is critical: text nodes don't have their own inline_layout_result,
+                // but they have ifc_membership pointing to their IFC root
+                // (d6h) Materialized: sentinel-safe caret/selection geometry.
+                #[cfg(test)]
+                INLINE_LAYOUT_COPIES.with(|n| n.set(n.get() + 1));
+                let Some(layout) = tree.materialized_inline_layout_for_node(node_index) else {
+                    return Ok(());
+                };
                 let style = get_selection_style(
                     self.ctx.styled_dom,
                     Some(dom_id),
@@ -6240,8 +6393,24 @@ where
         let dom_id = block.container();
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
+        // A block no caret stands in paints none: the loop below skips the
+        // carets of every other block. Said here, before the block's lines
+        // are made up into a copy for the caret's geometry - with a caret
+        // anywhere in the window, every text block of every display list
+        // paid that copy.
+        if !self
+            .ctx
+            .cursor_locations
+            .iter()
+            .any(|location| location.block == block)
+        {
+            return Ok(());
+        }
+
         // Get inline layout
         // (d6h) Materialized: sentinel-safe caret/selection geometry.
+        #[cfg(test)]
+        INLINE_LAYOUT_COPIES.with(|n| n.set(n.get() + 1));
         let Some(layout) = self
             .positioned_tree
             .tree
@@ -6867,7 +7036,7 @@ where
                 let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
                 let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
                 if overflow_x.is_scroll() || overflow_y.is_scroll() {
-                    if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
+                    if let Some(tag_id) = self.tag_id_of(node.dom_node_id) {
                         builder.push_hit_test_area(node_bounds, tag_id);
                     }
                 }
@@ -7099,13 +7268,6 @@ where
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> ChainDetour {
-        let chain = crate::solver3::scroll_chain::ScrollChain::of(
-            self.positioned_tree.tree,
-            self.ctx.styled_dom,
-            self.scroll_ids,
-            LayoutNodeId::new(node_index),
-            azul_core::spaces::Inclusivity::AncestorsOnly,
-        );
         let movable_from = self
             .open_clips
             .iter()
@@ -7115,32 +7277,45 @@ where
             OpenClip::Owner(index) => Some(*index),
             OpenClip::Barrier => None,
         };
-        let fixed: Vec<usize> = self.open_clips[..movable_from]
+        // The three lists this compares - the owners below the barrier,
+        // the owners above it, the links of the chain that are not below
+        // it - are read where they lie. They used to be copied into a
+        // `Vec` each, for every positioned box (a label layer inside one
+        // clipping box: an allocation or two per label), and a box that
+        // needs no detour, the usual case, now allocates nothing: the two
+        // lists below stay empty.
+        let chain = self.box_chain_links(node_index);
+        let links: &[usize] = chain
+            .and_then(|key| self.box_chains.get(&key))
+            .map_or(&[][..], Vec::as_slice);
+        let (fixed, movable) = self.open_clips.split_at(movable_from);
+        let mut open = movable.iter().filter_map(owner);
+        let mut wanted = links
             .iter()
-            .filter_map(owner)
-            .collect();
-        let open: Vec<usize> = self.open_clips[movable_from..]
-            .iter()
-            .filter_map(owner)
-            .collect();
-        let wanted: Vec<usize> = chain
-            .links
-            .iter()
-            .map(|link| link.layout_index.index())
-            .filter(|index| !fixed.contains(index))
-            .collect();
-        let keep = open
-            .iter()
-            .zip(wanted.iter())
-            .take_while(|(a, b)| a == b)
-            .count();
+            .copied()
+            .filter(|index| !fixed.contains(&OpenClip::Owner(*index)));
+        // Past their common start, what is open is closed and what is
+        // wanted is opened.
+        let mut closed: Vec<usize> = Vec::new();
+        let mut to_open: Vec<usize> = Vec::new();
+        loop {
+            match (open.next(), wanted.next()) {
+                (Some(a), Some(b)) if a == b => {}
+                (a, b) => {
+                    closed.extend(a);
+                    closed.extend(open);
+                    to_open.extend(b);
+                    to_open.extend(wanted);
+                    break;
+                }
+            }
+        }
 
-        let closed: Vec<usize> = open[keep..].to_vec();
         for &index in closed.iter().rev() {
             self.close_owner(builder, index);
         }
         let mut opened = Vec::new();
-        for &index in &wanted[keep..] {
+        for &index in &to_open {
             if self.reopen_owner(builder, index) {
                 opened.push(index);
             }
@@ -7199,7 +7374,10 @@ where
 
         // 2. Selection highlights go UNDER the content...
         if paints_its_selection {
-            self.paint_selections(builder, node_index)?;
+            builder.set_current_layout(Some((node_index, EmitPhase::Selection)));
+            let painted = self.paint_selections(builder, node_index);
+            builder.set_current_layout(None);
+            painted?;
         }
 
         // 3. Paint the node's own content (text, images, hit-test areas).
@@ -9324,7 +9502,7 @@ where
         // NOTE: For scrollable containers (overflow: scroll/auto), the hit-test area
         // was already pushed in generate_for_stacking_context BEFORE the scroll frame,
         // so we skip it here to avoid duplicate hit-test areas that would scroll with content.
-        if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
+        if let Some(tag_id) = self.tag_id_of(node.dom_node_id) {
             let is_scrollable = if let Some(dom_id) = node.dom_node_id {
                 let styled_node_state = self.get_styled_node_state(dom_id);
                 let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
@@ -9845,7 +10023,7 @@ where
             )
             .is_some();
 
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.loaded_fonts();
         let glyphs = text3::cache::shape_placeholder_text(
             text,
             &style,
@@ -10644,7 +10822,7 @@ where
                 height: self.ctx.viewport_size.height,
             },
         ));
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.loaded_fonts();
         let glyphs = text3::cache::shape_ellipsis(
             &style,
             &self.ctx.font_manager.font_chain_cache,
@@ -11234,19 +11412,33 @@ where
         let mut ancestors: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
         let mut box_paints: BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>> =
             BTreeMap::new();
-        // Text node -> whether a span around it paints.
+        // Text node -> whether a span around it paints. A text without an
+        // inline box around it (the text of a label, straight in its block)
+        // is in neither map: nothing around it paints, which is what a
+        // missing entry says below, and its (empty) list of boxes is made
+        // again by whoever asks (`paint_inline_box_fragments`). Entering it
+        // cost every text block of a list two map nodes: 12,400 allocations
+        // for the 6,200 labels of a map.
         let mut in_painting_box: BTreeMap<NodeId, bool> = BTreeMap::new();
+        // The text of the run before: the runs of one text come in a row.
+        let mut last_text: Option<NodeId> = None;
         for run in glyph_runs {
             let Some(text) = run.source_node_id else {
                 continue;
             };
-            if in_painting_box.contains_key(&text) {
+            if last_text == Some(text) || in_painting_box.contains_key(&text) {
                 continue;
             }
+            last_text = Some(text);
             let boxes = self.inline_ancestors(text, ifc_root);
+            if boxes.is_empty() {
+                continue;
+            }
             let paints = boxes
                 .iter()
                 .any(|&b| self.inline_box_paint(b, &mut box_paints).is_some());
+            #[cfg(test)]
+            INLINE_BOX_MEMO_ENTRIES.with(|n| n.set(n.get() + 1));
             ancestors.insert(text, boxes);
             in_painting_box.insert(text, paints);
         }
@@ -11868,7 +12060,7 @@ where
         // Push hit-test area for this inline-block element
         // This is critical for buttons and other inline-block elements to receive
         // mouse events and display the correct cursor (e.g., cursor: pointer)
-        if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, Some(node_id)) {
+        if let Some(tag_id) = self.tag_id_of(Some(node_id)) {
             builder.push_hit_test_area(border_box_bounds, tag_id);
         }
     }
@@ -12199,14 +12391,69 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
     content_size
 }
 
+/// How often the display lists of this thread walked a box's scroll chain
+/// (`ScrollChain::of`) for `DisplayListGenerator::enter_scroll_chain`: what
+/// the tests read to say the positioned boxes of one parent share one walk.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SCROLL_CHAIN_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// How many texts the inline content painter entered into its per-block
+    /// maps of inline boxes on this thread (texts with a box around them).
+    pub(crate) static INLINE_BOX_MEMO_ENTRIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How often the selection and caret painters of this thread asked for a
+/// text block's lines as a copy (`materialized_inline_layout_for_node`): what
+/// the tests read to say a block without a selection or a caret costs none.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INLINE_LAYOUT_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many entries of a DOM's tag list the tag lookups of this thread read
+/// ([`get_tag_id`], [`tags_by_node`]): what the size sweep of the tests reads
+/// to say a display list looks at the list once, not once per box.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TAG_LIST_READS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The hit-test tag of DOM node `id`: its first entry in the DOM's tag list,
+/// found by reading the list from the front. One ask costs the list, so a
+/// pass that asks for every box goes through
+/// [`DisplayListGenerator::tag_id_of`] instead.
 fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
     let node_id = id?;
     let tag_mapping = dom
         .tag_ids_to_node_ids
         .as_ref()
         .iter()
-        .find(|m| m.node_id.into_crate_internal() == Some(node_id))?;
+        .find(|m| {
+            #[cfg(test)]
+            TAG_LIST_READS.with(|n| n.set(n.get() + 1));
+            m.node_id.into_crate_internal() == Some(node_id)
+        })?;
     Some((tag_mapping.tag_id.inner, TAG_TYPE_DOM_NODE))
+}
+
+/// Every node's hit-test tag by node index, `None` for a node without one:
+/// for each node the FIRST of its entries in the DOM's tag list, the one
+/// [`get_tag_id`] finds. One read of the list.
+fn tags_by_node(dom: &StyledDom) -> Vec<Option<u64>> {
+    let mut tags = vec![None; dom.node_data.as_ref().len()];
+    for mapping in dom.tag_ids_to_node_ids.as_ref() {
+        #[cfg(test)]
+        TAG_LIST_READS.with(|n| n.set(n.get() + 1));
+        let Some(node) = mapping.node_id.into_crate_internal() else {
+            continue;
+        };
+        if let Some(slot) = tags.get_mut(node.index()) {
+            if slot.is_none() {
+                *slot = Some(mapping.tag_id.inner);
+            }
+        }
+    }
+    tags
 }
 
 /// Resolve an [`ImageSource`] (as carried by an inline `InlineContent::Image`)

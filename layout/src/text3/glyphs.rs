@@ -299,7 +299,8 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                 for glyph in positioned_glyphs {
                     let glyph_color = style.color;
                     let glyph_background = style.background_color;
-                    let glyph_background_content = style.background_content.clone();
+                    // Borrowed: cloned only into a run that starts here (A8-30).
+                    let glyph_background_content = &style.background_content;
                     let glyph_border = style.border;
                     let font_hash = glyph.font_hash;
                     let font_size_px = style.font_size_px;
@@ -323,7 +324,7 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                             && run.font_hash == font_hash
                             && run.color == glyph_color
                             && run.background_color == glyph_background
-                            && run.background_content == glyph_background_content
+                            && run.background_content == *glyph_background_content
                             && run.border == glyph_border
                             && run.font_size_px == font_size_px
                             && run.asks_for_bold == asks_for_bold
@@ -332,9 +333,10 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                         {
                             run.glyphs.push(instance);
                         } else {
-                            runs.push(run.clone());
                             current_baseline = Some(baseline_y);
-                            current_run = Some(SimpleGlyphRun {
+                            // The finished run moves into `runs` (it was cloned, glyph
+                            // list and all, A8-30).
+                            let next = SimpleGlyphRun {
                                 glyphs: vec![instance],
                                 color: glyph_color,
                                 background_color: glyph_background,
@@ -347,7 +349,8 @@ pub fn get_glyph_runs_simple(layout: &UnifiedLayout) -> Vec<SimpleGlyphRun> {
                                 is_ime_preview: false,
                                 source_node_id,
                                 end_x: pen_x,
-                            });
+                            };
+                            runs.push(core::mem::replace(run, next));
                         }
                     } else {
                         current_baseline = Some(baseline_y);
@@ -594,10 +597,10 @@ pub fn get_glyph_runs_pdf<T: ParsedFontTrait>(
             let direction = cluster.direction;
             let writing_mode = cluster.style.writing_mode;
 
-            // Look up the font from the fonts container
-            let font = match fonts.get_by_hash(font_hash) {
-                Some(f) => f.clone(),
-                None => continue, // Skip glyphs with unknown fonts
+            // Look up the font from the fonts container; borrowed, and cloned only
+            // into a run that starts here (it was cloned per glyph, A8-30).
+            let Some(font) = fonts.get_by_hash(font_hash) else {
+                continue; // Skip glyphs with unknown fonts
             };
             let synthetic_bold = crate::text3::cache::needs_synthetic_bold(
                 cluster.style.asks_for_bold(),
@@ -2353,5 +2356,110 @@ mod autotest_generated {
             simple_runs_bit_equal(&compact.expand(), &runs[0]),
             "builder-produced run must roundtrip bit-exactly"
         );
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use std::sync::Arc;
+
+    use super::*;
+    use crate::text3::{
+        cache::{
+            BidiDirection, ContentIndex, GlyphKind, GraphemeClusterId, LayoutFontMetrics,
+            OverflowInfo, PositionedItem, ShapedCluster, StyleProperties,
+        },
+        script::Script,
+    };
+
+    /// A8-30: a paragraph of six lines in a style with a background list gives
+    /// one run a line, each with its own glyphs and the style's background
+    /// content: what the walk gave when it cloned each finished run (glyph
+    /// list and all) and the background list per glyph; now the finished run
+    /// moves into the list and the background is cloned once per run.
+    #[test]
+    #[allow(clippy::cast_precision_loss)] // small line numbers
+    fn each_line_is_one_run_with_its_glyphs_and_background() {
+        let st = Arc::new(StyleProperties {
+            background_content: vec![StyleBackgroundContent::Color(ColorU {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 4,
+            })],
+            ..StyleProperties::default()
+        });
+        // upem 0: the baseline is the item's y (`get_item_vertical_metrics_approx`)
+        let metrics = LayoutFontMetrics {
+            ascent: 0.0,
+            descent: 0.0,
+            line_gap: 0.0,
+            units_per_em: 0,
+            x_height: None,
+            cap_height: None,
+            browser_ascent_boost: false,
+        };
+        let glyph = |glyph_id: u16| ShapedGlyph {
+            kind: GlyphKind::Character,
+            glyph_id,
+            cluster_offset: 0,
+            advance: 10.0,
+            kerning: 0.0,
+            offset: Point { x: 0.0, y: 0.0 },
+            vertical_advance: 0.0,
+            vertical_offset: Point { x: 0.0, y: 0.0 },
+            script: Script::Latin,
+            font_hash: 7,
+            font_metrics: metrics,
+        };
+        let cluster = |glyph_id: u16| ShapedCluster {
+            flags: crate::text3::cache::ClusterFlags::classify("a"),
+            source_text: Arc::from("a"),
+            source_byte_len: 1,
+            source_cluster_id: GraphemeClusterId {
+                source_run: 0,
+                start_byte_in_run: 0,
+            },
+            source_content_index: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
+            source_node_id: None,
+            glyphs: vec![glyph(glyph_id)].into_iter().collect(),
+            advance: 10.0,
+            direction: BidiDirection::Ltr,
+            bidi_level: crate::text3::cache::BidiLevel::paragraph(BidiDirection::Ltr),
+            style: st.clone(),
+            marker_position_outside: None,
+            is_first_fragment: true,
+            is_last_fragment: true,
+        };
+        let mut items = Vec::new();
+        for line in 0..6_usize {
+            for col in 0..4_u16 {
+                items.push(PositionedItem {
+                    item: ShapedItem::Cluster(cluster(col + 1)),
+                    position: Point {
+                        x: f32::from(col) * 10.0,
+                        y: line as f32 * 20.0,
+                    },
+                    line_index: line,
+                });
+            }
+        }
+        let layout = UnifiedLayout {
+            items,
+            overflow: OverflowInfo::default(),
+        };
+        let runs = get_glyph_runs_simple(&layout);
+        assert_eq!(runs.len(), 6, "one run a line");
+        for (line, run) in runs.iter().enumerate() {
+            let ids: Vec<u16> = run.glyphs.iter().map(|g| g.index as u16).collect();
+            assert_eq!(ids, vec![1, 2, 3, 4], "line {line}");
+            assert_eq!(run.background_content, st.background_content);
+            assert_eq!(run.glyphs[0].point.y, line as f32 * 20.0);
+            assert_eq!(run.end_x, 40.0, "the pen after the line's last glyph");
+        }
     }
 }

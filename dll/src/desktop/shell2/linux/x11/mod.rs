@@ -3275,12 +3275,14 @@ impl X11Window {
     /// physical = logical * hidpi(), logical = physical / hidpi().
     #[inline]
     pub(crate) fn hidpi(&self) -> f32 {
-        self.common
-            .current_window_state()
-            .size
-            .get_hidpi_factor()
-            .inner
-            .get()
+        // `dpi / 96` itself, the factor the frame is rendered with, not
+        // `get_hidpi_factor()` (three decimals, cut off: 1.333 for 4/3). The
+        // logical size is px / this, and the frame is logical * the frame's
+        // factor: with two factors a 1920 px window at DPI 128 was 1440.36
+        // logical and its content 1920.48 px wide (A10-17).
+        azul_layout::window::present_geometry::frame_dpi_factor(
+            self.common.current_window_state().size.dpi,
+        )
     }
 
     /// Convert PHYSICAL (X11 wire) coordinates to a LOGICAL position.
@@ -6005,6 +6007,14 @@ impl X11Window {
                             // force a full re-present (the CPU surface re-allocates
                             // itself from the new physical dims in render_frame).
                             self.os_present_requested = true;
+                            // And a full REPAINT of the CPU frame (A10-08): the
+                            // re-present above uploads the retained frame, and
+                            // the list's diff is in logical px - an item that
+                            // kept its logical place kept its old-scale pixels.
+                            #[cfg(feature = "cpurender")]
+                            {
+                                self.cpu_backend.force_full_repaint = true;
+                            }
                             self.request_redraw();
                         }
                     }
@@ -7044,9 +7054,28 @@ impl X11Window {
                         // need to know one exists before computing window dims.
                         if layout_window.layout_results.contains_key(&dom_id) {
                             let ws = &layout_window.current_window_state;
-                            let width = ws.size.dimensions.width;
-                            let height = ws.size.dimensions.height;
-                            let dpi = ws.size.dpi as f32 / 96.0;
+                            // THE factor of the window's frame (A10-17).
+                            let dpi = layout_window.frame_scale();
+                            // A10-05: the frame is as large as the WINDOW, in
+                            // device pixels. The logical size is px / dpi, and
+                            // the renderer's ceil(logical * dpi) of that lands
+                            // one pixel above px wherever the f32 round trip
+                            // overshoots (1003 px at 175 %: a 1004 px frame).
+                            // Hand it the length that renders to exactly px:
+                            // px is round(logical * dpi), with the frame's own
+                            // factor (the round trip is off by 1e-4 px).
+                            let phys_w = azul_layout::window::present_geometry::surface_len_px(
+                                ws.size.dimensions.width, dpi,
+                            );
+                            let phys_h = azul_layout::window::present_geometry::surface_len_px(
+                                ws.size.dimensions.height, dpi,
+                            );
+                            let width = azul_layout::window::present_geometry::logical_len_for_px(
+                                phys_w, dpi,
+                            );
+                            let height = azul_layout::window::present_geometry::logical_len_for_px(
+                                phys_h, dpi,
+                            );
 
                             if width > 0.0 && height > 0.0 {
                                 // Shared CPU renderer (the SAME path as headless):

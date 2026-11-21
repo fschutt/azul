@@ -1593,14 +1593,16 @@ mod autotest_generated {
     }
 
     #[test]
-    fn flex_grow_prop_quantizes_to_three_decimals_by_truncation() {
-        // FloatValue stores value * 1000 truncated to an isize.
+    fn flex_grow_prop_quantizes_to_three_decimals_by_rounding() {
+        // FloatValue stores value * 1000 rounded to an isize (A2-cpu-24: it
+        // was cut off, and this test pinned 666 for two thirds and 0 for
+        // 0.0009): a third and two thirds add up to the whole again.
         assert_eq!(flex_grow_raw(&flex_grow_prop(1.0 / 3.0)), Some(333));
-        assert_eq!(flex_grow_raw(&flex_grow_prop(2.0 / 3.0)), Some(666));
+        assert_eq!(flex_grow_raw(&flex_grow_prop(2.0 / 3.0)), Some(667));
         // Sub-precision ratios are indistinguishable from a fully collapsed
-        // pane: anything under 0.001 encodes as flex-grow: 0.
-        assert_eq!(flex_grow_raw(&flex_grow_prop(0.0009)), Some(0));
-        assert_eq!(flex_grow_of(&flex_grow_prop(0.0009)), Some(0.0));
+        // pane: anything under 0.0005 encodes as flex-grow: 0.
+        assert_eq!(flex_grow_raw(&flex_grow_prop(0.0004)), Some(0));
+        assert_eq!(flex_grow_of(&flex_grow_prop(0.0004)), Some(0.0));
     }
 
     #[test]

@@ -35,9 +35,23 @@ pub enum Counter {
     /// Items visited by the scans of a whole list: a frame's extent, the value damage, the cover
     /// of a shift.
     ScanItems,
+    /// Passes of the damaged walk that were bands of a larger damage rect (0 when every rect was
+    /// painted by one pass).
+    Bands,
+    /// Threads started to paint bands.
+    BandThreads,
+    /// Isolated groups whose box lands nowhere in the pixels below: no surface was made for them
+    /// (they are not in [`Counter::GroupsOpened`]).
+    GroupsEmpty,
+    /// Pixels of the group surfaces a walk could paint: the part of each that can land.
+    GroupPxPainted,
+    /// Groups that could have been served from a retained surface and were painted instead.
+    RetainedMisses,
+    /// Retained surfaces dropped because what they show changed.
+    RetainedInvalidations,
 }
 
-const COUNTERS: usize = 11;
+const COUNTERS: usize = 17;
 
 thread_local! {
     static COUNTS: [Cell<u64>; COUNTERS] = const { [const { Cell::new(0) }; COUNTERS] };
@@ -68,6 +82,18 @@ pub struct CpuFrameCounters {
     pub retained_hits: u64,
     /// See [`Counter::ScanItems`].
     pub scan_items: u64,
+    /// See [`Counter::Bands`].
+    pub bands: u64,
+    /// See [`Counter::BandThreads`].
+    pub band_threads: u64,
+    /// See [`Counter::GroupsEmpty`].
+    pub groups_empty: u64,
+    /// See [`Counter::GroupPxPainted`].
+    pub group_px_painted: u64,
+    /// See [`Counter::RetainedMisses`].
+    pub retained_misses: u64,
+    /// See [`Counter::RetainedInvalidations`].
+    pub retained_invalidations: u64,
 }
 
 impl CpuFrameCounters {
@@ -84,6 +110,12 @@ impl CpuFrameCounters {
         self.group_px += other.group_px;
         self.retained_hits += other.retained_hits;
         self.scan_items += other.scan_items;
+        self.bands += other.bands;
+        self.band_threads += other.band_threads;
+        self.groups_empty += other.groups_empty;
+        self.group_px_painted += other.group_px_painted;
+        self.retained_misses += other.retained_misses;
+        self.retained_invalidations += other.retained_invalidations;
     }
 }
 
@@ -118,8 +150,37 @@ pub fn take() -> CpuFrameCounters {
             group_px: get(Counter::GroupPx),
             retained_hits: get(Counter::RetainedHits),
             scan_items: get(Counter::ScanItems),
+            bands: get(Counter::Bands),
+            band_threads: get(Counter::BandThreads),
+            groups_empty: get(Counter::GroupsEmpty),
+            group_px_painted: get(Counter::GroupPxPainted),
+            retained_misses: get(Counter::RetainedMisses),
+            retained_invalidations: get(Counter::RetainedInvalidations),
         }
     })
+}
+
+/// Add `counted` - what another thread counted for this thread's frame, [`take`]n there - to
+/// this thread's counters. A band of a repaint is painted on a thread of its own and counts
+/// into that thread's cells; the frame's counters are the sum, whichever thread painted what.
+pub fn merge(counted: &CpuFrameCounters) {
+    count(Counter::PxCleared, counted.px_cleared);
+    count(Counter::PxBlitted, counted.px_blitted);
+    count(Counter::ItemsWalked, counted.items_walked);
+    count(Counter::ItemsPainted, counted.items_painted);
+    count(Counter::TextRuns, counted.text_runs);
+    count(Counter::Glyphs, counted.glyphs);
+    count(Counter::HalosDrawn, counted.halos_drawn);
+    count(Counter::GroupsOpened, counted.groups_opened);
+    count(Counter::GroupPx, counted.group_px);
+    count(Counter::RetainedHits, counted.retained_hits);
+    count(Counter::ScanItems, counted.scan_items);
+    count(Counter::Bands, counted.bands);
+    count(Counter::BandThreads, counted.band_threads);
+    count(Counter::GroupsEmpty, counted.groups_empty);
+    count(Counter::GroupPxPainted, counted.group_px_painted);
+    count(Counter::RetainedMisses, counted.retained_misses);
+    count(Counter::RetainedInvalidations, counted.retained_invalidations);
 }
 
 /// What a window keeps of its CPU frames: the last frame's counters and their sum since the
@@ -169,5 +230,48 @@ mod tests {
         let taken = take();
         assert_eq!((taken.items_walked, taken.halos_drawn, taken.glyphs), (7, 1, 0));
         assert_eq!(take(), CpuFrameCounters::default(), "taking zeroes");
+    }
+
+    /// A1-01: what a band thread counted reaches the frame's counters, every counter of it.
+    /// Mutation: a counter left out of `merge` (or of `take`) fails the comparison with `add`.
+    #[test]
+    fn what_another_thread_counted_is_merged_into_this_threads_frame() {
+        reset();
+        count(Counter::ItemsPainted, 5);
+        let all = [
+            Counter::PxCleared,
+            Counter::PxBlitted,
+            Counter::ItemsWalked,
+            Counter::ItemsPainted,
+            Counter::TextRuns,
+            Counter::Glyphs,
+            Counter::HalosDrawn,
+            Counter::GroupsOpened,
+            Counter::GroupPx,
+            Counter::RetainedHits,
+            Counter::ScanItems,
+            Counter::Bands,
+            Counter::BandThreads,
+            Counter::GroupsEmpty,
+            Counter::GroupPxPainted,
+            Counter::RetainedMisses,
+            Counter::RetainedInvalidations,
+        ];
+        assert_eq!(all.len(), COUNTERS, "harness: every counter is listed");
+        let band = std::thread::spawn(move || {
+            for (i, counter) in all.iter().copied().enumerate() {
+                count(counter, 10 + i as u64);
+            }
+            take()
+        })
+        .join()
+        .expect("a band thread");
+        merge(&band);
+        let mut expected = CpuFrameCounters { items_painted: 5, ..Default::default() };
+        expected.add(&band);
+        let merged = take();
+        assert_eq!(merged, expected);
+        assert_eq!(merged.items_painted, 5 + 13, "this thread's 5 and the band's 10 + 3");
+        assert_eq!(merged.retained_invalidations, 26, "the last counter, 10 + 16");
     }
 }

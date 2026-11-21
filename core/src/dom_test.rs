@@ -92,6 +92,37 @@ mod audit_tests {
         assert!(matches!(copy.get_node_type(), NodeType::Div));
         assert!(matches!(nd.get_node_type(), NodeType::Div));
     }
+
+    // A3-core-11c: the node's handlers MOVE to the copy with the data they
+    // carry. Cloned, each handler's data was shared once more and released
+    // again when the consumed node was dropped: a clone and a drop per
+    // handler per node per render.
+    #[test]
+    fn copy_special_moving_complex_moves_the_handlers_and_shares_no_data_again() {
+        extern "C" fn handler() {}
+        let data = crate::refany::RefAny::new(7u32);
+        let alone = data.get_ref_count();
+        let mut nd = NodeData::create_div();
+        nd.add_callback(
+            crate::events::EventFilter::Hover(crate::events::HoverEventFilter::MouseUp),
+            data.clone(),
+            handler as usize,
+        );
+        assert_eq!(data.get_ref_count(), alone + 1, "harness: the node holds the data");
+
+        let copy = nd.copy_special_moving_complex();
+        assert_eq!(
+            data.get_ref_count(),
+            alone + 1,
+            "the handler moved: the data has the one holder it had"
+        );
+        assert_eq!(copy.get_callbacks().as_ref().len(), 1);
+        assert!(nd.get_callbacks().as_ref().is_empty(), "the node keeps no handler");
+        drop(nd);
+        assert_eq!(data.get_ref_count(), alone + 1, "dropping the consumed node releases nothing");
+        drop(copy);
+        assert_eq!(data.get_ref_count(), alone);
+    }
 }
 
 #[cfg(test)]

@@ -817,7 +817,18 @@ impl OverridesOnlyStamp {
 /// holds it, copied when the window still holds the previous result.
 #[must_use]
 pub fn unshare(tree: alloc::sync::Arc<LayoutTree>) -> LayoutTree {
-    alloc::sync::Arc::try_unwrap(tree).unwrap_or_else(|shared| (*shared).clone())
+    alloc::sync::Arc::try_unwrap(tree).unwrap_or_else(|shared| {
+        #[cfg(test)]
+        TREE_COPIES.with(|copies| copies.set(copies.get() + 1));
+        (*shared).clone()
+    })
+}
+
+/// How many times a pass on this thread copied a whole layout tree because the window still
+/// held the previous result of its DOM ([`unshare`]): what a test reads.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TREE_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// The persistent cache that holds the layout state between frames.

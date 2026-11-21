@@ -1256,7 +1256,7 @@ impl StyledDom {
         let mut next_scope_id = 0usize;
         scope_inline_css(&mut swap_dom, &mut next_scope_id);
         let mut node_css: Vec<Css> = Vec::new();
-        collect_css_from_dom(&swap_dom, &mut node_css);
+        take_css_from_dom(&mut swap_dom, &mut node_css);
         let css = if node_css.is_empty() {
             css
         } else {
@@ -1270,9 +1270,24 @@ impl StyledDom {
             merged.keyframes = combined_keyframes.into();
             merged
         };
-        strip_css_from_dom(&mut swap_dom);
 
-        let compact_dom: CompactDom = swap_dom.into();
+        Self::create_from_prepared_dom(swap_dom, css, context, inherited_from_host)
+    }
+
+    /// The flatten and the cascade of a DOM that is PREPARED: its node
+    /// counts are exact (`fixup_children_estimated`), its nodes' sheets are
+    /// scoped and taken out of it (`scope_inline_css`, `take_css_from_dom`)
+    /// and merged into `css`. Both constructors prepare the DOM themselves
+    /// and end here; `create_from_dom_inheriting` used to hand its prepared
+    /// DOM to `create_with_context_inheriting`, which walked it three more
+    /// times to prepare it again and found nothing to do.
+    fn create_from_prepared_dom(
+        dom: Dom,
+        css: Css,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> Self {
+        let compact_dom: CompactDom = dom.into();
         let node_hierarchy: NodeHierarchyItemVec = compact_dom
             .node_hierarchy
             .as_ref()
@@ -1466,8 +1481,9 @@ impl StyledDom {
 
         let non_leaf_nodes: ParentWithNodeDepthVec = non_leaf_nodes.into();
 
-        // A new DOM's nodes are in no interaction state yet.
-        let _restyle_tag_ids = css_property_cache.restyle(
+        // A new DOM's nodes are in no interaction state yet. (The tag ids
+        // are generated below, once, from the compact cache.)
+        css_property_cache.restyle_cascade(
             &mut css,
             &compact_dom.node_data.as_ref(),
             &node_hierarchy,
@@ -1681,9 +1697,12 @@ impl StyledDom {
         let mut next_scope_id = 0usize;
         scope_inline_css(&mut dom, &mut next_scope_id);
 
-        // 1. Collect all CSS objects from the recursive Dom tree (now scoped)
+        // 1. Take all CSS objects out of the recursive Dom tree (now scoped):
+        //    the flat tree does not carry them, and a copy of every sheet
+        //    only to drop the original (collect, then strip) was a parse's
+        //    worth of allocations per node with a style of its own.
         let mut all_css = Vec::new();
-        collect_css_from_dom(&dom, &mut all_css);
+        take_css_from_dom(&mut dom, &mut all_css);
         // ... and the user-origin sheets after them, unscoped (already past
         // `scope_inline_css`, which only walks the DOM's own sheets).
         all_css.extend(user_sheets.iter().cloned());
@@ -1703,12 +1722,9 @@ impl StyledDom {
             css
         };
 
-        // 3. Strip CSS from all Dom nodes before flattening (CSS is already collected, don't need
-        //    it in the flat tree)
-        strip_css_from_dom(&mut dom);
-
-        // 4. Use existing StyledDom::create to flatten + cascade
-        Self::create_with_context_inheriting(&mut dom, combined_css, context, inherited_from_host)
+        // 3. Flatten + cascade. The DOM is prepared: its counts are exact
+        //    and its sheets are scoped, taken and merged above.
+        Self::create_from_prepared_dom(dom, combined_css, context, inherited_from_host)
     }
 
     /// Appends another `StyledDom` as a child to the `self.root`
@@ -1779,6 +1795,9 @@ impl StyledDom {
         self.styled_nodes.append(&mut other.styled_nodes);
         self.get_css_property_cache_mut()
             .append(other.get_css_property_cache_mut());
+        // What the appended subtree inherits and its compact entries are its
+        // own cascade's until `recompute_inheritance_and_compact_cache` runs.
+        self.get_css_property_cache_mut().composed_since_recompute = true;
 
         // Tag IDs are globally unique (AtomicUsize counter) and never collide,
         // so we only shift node_id (which changes when DOMs are merged).
@@ -1897,6 +1916,18 @@ impl StyledDom {
         self.css_property_cache.downcast_mut().compact_cache = Some(compact);
         let cache = self.css_property_cache.downcast_mut();
         cache.cascade_epoch = cache.cascade_epoch.wrapping_add(1);
+        cache.composed_since_recompute = false;
+    }
+
+    /// Whether [`Self::recompute_inheritance_and_compact_cache`] is owed: a
+    /// styled DOM was appended ([`Self::append_child`]) and it has not run
+    /// since. `false` for a DOM that came out of one cascade - its
+    /// inheritance and its compact cache are the composed tree's already, and
+    /// running the pass again builds the same tables a second time (a shell
+    /// did so for every window DOM it regenerated).
+    #[must_use]
+    pub fn needs_recompute_after_append(&self) -> bool {
+        self.get_css_property_cache().composed_since_recompute
     }
 
     /// The state every node is in (hover, focus, active, ...), in node order:
@@ -2105,6 +2136,9 @@ impl StyledDom {
                     Ok(idx) => vec[idx].1 = new_prop.clone(),
                     Err(idx) => vec.insert(idx, (prop_type, new_prop.clone())),
                 }
+                if prop_type == CssPropertyType::TextColor {
+                    cache.text_color_override_seen = true;
+                }
             }
         }
     }
@@ -2130,10 +2164,10 @@ impl StyledDom {
     }
 
     pub fn restyle(&mut self, mut css: Css) {
-        // NOTE: the tag_ids returned by `cache.restyle` here are generated from
-        // the STALE `compact_cache` (display/overflow reads) and are intentionally
-        // discarded — we regenerate them below AFTER the compact cache and
-        // inheritance have been recomputed (audit styled_dom.rs:1404/1426).
+        // NOTE: tag ids made right after the cascade would be generated from
+        // the STALE `compact_cache` (display/overflow reads): the cascade alone
+        // runs here (`restyle_cascade`) and the ids are generated below, once,
+        // AFTER the compact cache and inheritance have been recomputed.
         // The states the nodes are in now: a rule that names a state left of
         // its subject (`.btn:hover .ink`) holds by them.
         let states: Vec<StyledNodeState> = self
@@ -2143,7 +2177,7 @@ impl StyledDom {
             .iter()
             .map(|n| n.styled_node_state)
             .collect();
-        let _stale_tag_ids = self.css_property_cache.downcast_mut().restyle(
+        self.css_property_cache.downcast_mut().restyle_cascade(
             &mut css,
             &self.node_data.as_container(),
             &self.node_hierarchy,
@@ -3503,6 +3537,9 @@ impl StyledDom {
                     .user_overridden_properties
                     .resize(node_count, Vec::new());
             }
+            cache.text_color_override_seen |= old_vec
+                .iter()
+                .any(|(ty, _)| *ty == CssPropertyType::TextColor);
             cache.user_overridden_properties[new_idx] = old_vec;
             migrated_any = true;
         }
@@ -3932,6 +3969,13 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     }
 }
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many nodes the walks that prepare a `Dom` for styling visited on
+    /// this thread (`scope_inline_css`, `take_css_from_dom`).
+    pub(crate) static DOM_PREPARE_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
 /// #47: scope every node's inline css to its own subtree. Walks the tree in the
 /// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat `NodeIds`, so the
 /// `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule (via
@@ -3940,6 +3984,8 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 /// they can no longer leak to the whole tree. `fixup_children_estimated()` must
 /// have run first so `estimated_total_children` is populated/exact.
 fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
+    #[cfg(all(test, feature = "std"))]
+    DOM_PREPARE_STEPS.with(|c| c.set(c.get() + 1));
     let start = *next_id;
     let end = start + dom.estimated_total_children;
     for css in dom.css.as_mut().iter_mut() {
@@ -3960,9 +4006,25 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
     }
 }
 
+/// Recursively MOVE all CSS objects out of a Dom tree into `out`, in the
+/// order [`collect_css_from_dom`] lists them (depth-first: a node's
+/// children first, then its own in their order), leaving every node without
+/// CSS as [`strip_css_from_dom`] does: the two in one walk, without a copy
+/// of every sheet.
+fn take_css_from_dom(dom: &mut Dom, out: &mut Vec<Css>) {
+    #[cfg(all(test, feature = "std"))]
+    DOM_PREPARE_STEPS.with(|c| c.set(c.get() + 1));
+    for child in dom.children.as_mut().iter_mut() {
+        take_css_from_dom(child, out);
+    }
+    let own = core::mem::replace(&mut dom.css, Vec::new().into());
+    out.extend(own.into_library_owned_vec());
+}
+
 /// Recursively collect all CSS objects from a Dom tree (depth-first).
 /// Inner (deeper) CSS objects come first, outer (shallower) CSS objects come last.
 /// This means outer CSS has higher cascade priority when applied in order.
+#[cfg(test)]
 fn collect_css_from_dom(dom: &Dom, out: &mut Vec<Css>) {
     // First, recurse into children (inner CSS = lower priority)
     for child in &dom.children {
@@ -3976,6 +4038,7 @@ fn collect_css_from_dom(dom: &Dom, out: &mut Vec<Css>) {
 
 /// Recursively strip CSS from all Dom nodes (sets css to empty vec).
 /// Called after collecting CSS so the `CompactDom` doesn't carry CSS data.
+#[cfg(test)]
 fn strip_css_from_dom(dom: &mut Dom) {
     dom.css = Vec::new().into();
     for child in dom.children.as_mut().iter_mut() {

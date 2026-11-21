@@ -81,6 +81,19 @@ pub fn is_identity_2d(m: &[[f32; 4]; 4]) -> bool {
         && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
         && m[3][0].abs() < IDENTITY_EPSILON
         && m[3][1].abs() < IDENTITY_EPSILON
+        && has_no_perspective(m)
+}
+
+/// Is `w` of `m` over its z = 0 plane 1 everywhere (no perspective)? EXACTLY, not to an
+/// epsilon: `w = m33 + m03 x + m13 y`, so a term of 5e-5 is `w = 1.1` at x = 2000 px, and a
+/// point drawn at 1818 instead of 2000. The test [`affine_rect_about`] and `FrameStack::map`
+/// make before they call the image of a rect a rect; a matrix built from translations,
+/// scales, rotations and skews has exact zeros there. Without it a frame whose 2-D part is the
+/// identity (or a translation) was painted in place, untilted, while its damage was "cannot be
+/// placed".
+#[allow(clippy::float_cmp)] // exact on purpose, see above
+fn has_no_perspective(m: &[[f32; 4]; 4]) -> bool {
+    m[0][3] == 0.0 && m[1][3] == 0.0 && (m[3][3] - 1.0).abs() < f32::EPSILON
 }
 
 /// The `(x, y)` offset of a matrix that only MOVES its content - a 2-D
@@ -91,9 +104,7 @@ pub fn translation_2d(m: &[[f32; 4]; 4]) -> Option<(f32, f32)> {
         && m[0][1].abs() < IDENTITY_EPSILON
         && m[1][0].abs() < IDENTITY_EPSILON
         && (m[1][1] - 1.0).abs() < IDENTITY_EPSILON
-        && m[0][3].abs() < IDENTITY_EPSILON
-        && m[1][3].abs() < IDENTITY_EPSILON
-        && (m[3][3] - 1.0).abs() < IDENTITY_EPSILON;
+        && has_no_perspective(m);
     moves_only.then_some((m[3][0], m[3][1]))
 }
 
@@ -1322,9 +1333,22 @@ impl CompositorState {
             // frame's) is turned about that point, its own origin offset from
             // it.
             let pivot = layer.transform_origin.unwrap_or(layer.bounds.origin);
+            // A reference frame's layer turns about its box's corner WHERE THE CORNER IS: the
+            // flat walk (`GroupGeometry::of`, `o = bounds.origin * dpi`) and WebRender do not
+            // round it, and its pixels are resampled either way. Rounded here, a full repaint
+            // composited a frame at a fractional device position up to half a pixel from where
+            // the damage repaint of the same frame puts it. Every other layer (a scroll frame,
+            // an opacity group) is placed on a whole pixel and takes the integer blit.
+            let place_at = |logical: f32| {
+                if layer.transform_origin.is_some() {
+                    f64::from(logical) * dpi
+                } else {
+                    layout_offset_device_px(logical, dpi)
+                }
+            };
             let place = mat3_translation(
-                layout_offset_device_px(pivot.x - layer.inherited_offset.0, dpi),
-                layout_offset_device_px(pivot.y - layer.inherited_offset.1, dpi),
+                place_at(pivot.x - layer.inherited_offset.0),
+                place_at(pivot.y - layer.inherited_offset.1),
             );
             let from_pivot = mat3_translation(
                 f64::from(layer.bounds.origin.x - pivot.x) * dpi,
@@ -2805,14 +2829,6 @@ pub fn gpu_value_damage(
     // compositor renders with. Only a non-affine matrix (perspective) is
     // genuinely unknowable and keeps the full-repaint fallback; the previous
     // blanket needs_full made EVERY spring/move tick a full-frame repaint.
-    let identity = azul_core::transform::ComputedTransform3D {
-        m: [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-            [0.0, 0.0, 0.0, 1.0],
-        ],
-    };
     let items = &display_list.items;
     // THE walk of the scroll frames open at each item (`ScrollStack`, shared
     // with the scroll-shift producers): an item is painted `scrolled` up and
@@ -2858,8 +2874,9 @@ pub fn gpu_value_damage(
                         reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner()),
                         scrolled,
                     );
-                    let old_m = old_transforms.get(&transform_key.id).unwrap_or(&identity);
-                    let new_m = new_transforms.get(&transform_key.id).unwrap_or(&identity);
+                    // With the matrix each frame PAINTED it with: a key without a
+                    // value is painted with the list's own matrix (`raster.rs`, the
+                    // `PushReferenceFrame` arm), not with the identity.
                     // The content through its own matrix and the frames
                     // around it, in one go (`FrameStack::map`).
                     let through = |frames: &FrameStack, m: &azul_core::transform::ComputedTransform3D| {
@@ -2867,7 +2884,7 @@ pub fn gpu_value_damage(
                         frames.push(origin, *m);
                         frames.map(content)
                     };
-                    match (through(&frames_old, old_m), through(&frames_new, new_m)) {
+                    match (through(&frames_old, &old_m), through(&frames_new, &new_m)) {
                         (Some(a), Some(b)) => {
                             out.rects.push(a);
                             out.rects.push(b);
@@ -3122,18 +3139,27 @@ fn list_value_damage(
 ///
 /// A node's GROUP is the reference frame the display list opens for it (or,
 /// without one, its opacity group): the item its animation drives. The group
-/// is on screen when its content - mapped through its own live transform and
-/// every enclosing reference frame's, about each frame's origin
-/// (`affine_rect_about`), then moved by the scroll frames around it - meets
-/// `viewport` and every clip around it (`ScrollStack::visible`, the walk the
-/// damage producers share), and no enclosing opacity group is fully
-/// transparent.
+/// is on screen when its content, where the rasteriser PAINTS it, meets
+/// `viewport` and every clip around it, and no enclosing opacity group is
+/// fully transparent.
+///
+/// "Where it is painted" is the walk the damage producers share
+/// ([`ScrollStack`] with the live matrices): the content less the scroll
+/// frames around it, through its own live matrix and every enclosing
+/// frame's, each about its box's corner where that corner is painted, in
+/// list order. (It used to map through all the frames about their UNSCROLLED
+/// corners and subtract the whole scroll afterwards, which is the same thing
+/// only while no scroll frame lies inside a frame that turns or scales: a
+/// group down a scrolled list inside a scaled panel was placed `(M - 1) x
+/// offset` from where it shows, and could be judged off screen while it was
+/// in view.) The clips and scroll boxes around the group are taken where
+/// they are painted, too, each through the frames it was pushed under.
 ///
 /// The node's OWN opacity is not consulted: it is what its animation drives,
-/// and a fade-in that starts at 0 must not cull itself. Clips opened INSIDE a
-/// transformed frame are in that frame's local space and are skipped, and a
-/// perspective matrix on the way out makes the answer "visible": the culler
-/// may keep a hidden animation running, never stop a visible one.
+/// and a fade-in that starts at 0 must not cull itself. A perspective matrix
+/// on the way out makes the answer "visible" (and a clip under one counts as
+/// everywhere): the culler may keep a hidden animation running, never stop a
+/// visible one.
 ///
 /// One entry per queried node that has a group in this list. A node missing
 /// from the map has none - its keys are not minted yet, or it paints nothing
@@ -3148,25 +3174,13 @@ pub fn node_groups_on_screen(
     viewport: LogicalRect,
     nodes: &std::collections::BTreeSet<azul_core::dom::NodeId>,
 ) -> std::collections::BTreeMap<azul_core::dom::NodeId, bool> {
-    /// A reference frame open at the current item.
-    struct OpenFrame {
-        origin: LogicalPosition,
-        matrix: azul_core::transform::ComputedTransform3D,
-        /// Moves its content (not the identity).
-        transformed: bool,
-        /// How many scroll frames and clips were open OUTSIDE it: the
-        /// ones in screen space for everything painted inside it.
-        frames_outside: usize,
-        clips_outside: usize,
-    }
-
     let mut out = std::collections::BTreeMap::new();
     if nodes.is_empty() {
         return out;
     }
     let items = &display_list.items;
-    let mut stack = ScrollStack::new(scroll_offsets);
-    let mut frames: Vec<OpenFrame> = Vec::new();
+    // The frames, scroll boxes and clips open at the current item, as they are painted.
+    let mut stack = ScrollStack::with_transforms(scroll_offsets, live_transforms);
     // One entry per open opacity group: is it fully transparent?
     let mut transparent: Vec<bool> = Vec::new();
 
@@ -3178,8 +3192,10 @@ pub fn node_groups_on_screen(
             _ => None,
         };
         if let Some(node) = group_node {
-            // The group's content in its own space, under its own matrix.
-            let own = match item {
+            // Read BEFORE stepping over the group's own push: the scroll frames around it.
+            let scrolled = stack.scrolled();
+            // Where the group's content is painted; `None`: it cannot be placed (perspective).
+            let on_screen = match item {
                 DisplayListItem::PushReferenceFrame {
                     transform_key,
                     initial_transform,
@@ -3187,37 +3203,25 @@ pub fn node_groups_on_screen(
                 } => {
                     let m = live_transforms
                         .get(&transform_key.id)
-                        .unwrap_or(initial_transform);
+                        .copied()
+                        .unwrap_or(*initial_transform);
                     let content =
                         reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner());
-                    affine_rect_about(m, bounds.inner().origin, content)
+                    // Through its own matrix and the frames around it, in one go.
+                    let mut frames = stack.frames.clone();
+                    frames.push(moved_by(*bounds.inner(), scrolled).origin, m);
+                    frames.map(moved_by(content, scrolled))
                 }
-                DisplayListItem::PushOpacity { bounds, .. } => Some(*bounds.inner()),
+                DisplayListItem::PushOpacity { bounds, .. } => stack.on_screen(*bounds.inner()),
                 _ => None,
             };
-            // Out through every enclosing frame, innermost first.
-            let on_page = own.and_then(|r| {
-                frames
-                    .iter()
-                    .rev()
-                    .try_fold(r, |r, f| affine_rect_about(&f.matrix, f.origin, r))
-            });
-            let visible = match on_page {
+            let visible = match on_screen {
                 None => true,
                 Some(r) => {
-                    let on_screen = moved_by(r, stack.scrolled());
-                    let (open, clips) = frames
-                        .iter()
-                        .find(|f| f.transformed)
-                        .map_or((stack.open.len(), stack.clips.len()), |f| {
-                            (f.frames_outside, f.clips_outside)
-                        });
-                    let area = stack.open[..open.min(stack.open.len())]
-                        .iter()
-                        .map(|(_, _, clip)| *clip)
-                        .chain(stack.clips[..clips.min(stack.clips.len())].iter().copied())
-                        .fold(viewport, intersect_logical_rects);
-                    let shown = intersect_logical_rects(on_screen, area);
+                    let area = stack
+                        .visible()
+                        .map_or(viewport, |around| intersect_logical_rects(viewport, around));
+                    let shown = intersect_logical_rects(r, area);
                     !transparent.iter().any(|t| *t)
                         && shown.size.width > 0.0
                         && shown.size.height > 0.0
@@ -3231,25 +3235,6 @@ pub fn node_groups_on_screen(
 
         stack.step(item);
         match item {
-            DisplayListItem::PushReferenceFrame {
-                transform_key,
-                initial_transform,
-                bounds,
-            } => {
-                let matrix = *live_transforms
-                    .get(&transform_key.id)
-                    .unwrap_or(initial_transform);
-                frames.push(OpenFrame {
-                    origin: bounds.inner().origin,
-                    transformed: !is_identity_2d(&matrix.m),
-                    matrix,
-                    frames_outside: stack.open.len(),
-                    clips_outside: stack.clips.len(),
-                });
-            }
-            DisplayListItem::PopReferenceFrame => {
-                frames.pop();
-            }
             DisplayListItem::PushOpacity {
                 opacity,
                 opacity_key,
@@ -4825,8 +4810,18 @@ fn windowed_structural_damage(
     // live matrix, which an animation may have moved in between).
     let mut frames_old = FrameStack::default();
     let mut frames_new = FrameStack::default();
+    // The reach of the text shadows open at the prefix boundary (A2-cpu-29): a run in the
+    // changed window under a shadow pushed in the equal prefix paints its halo that far past
+    // its ink.
+    let mut open_shadows: Vec<f32> = Vec::new();
     for item in &n[..prefix] {
         match item {
+            DisplayListItem::PushTextShadow { shadow } => {
+                open_shadows.push(super::raster::text_shadow_reach(core::slice::from_ref(shadow)));
+            }
+            DisplayListItem::PopTextShadow => {
+                open_shadows.pop();
+            }
             DisplayListItem::PushScrollFrame { scroll_id, .. } => {
                 let (ax, ay) = *stack.last().unwrap_or(&(0.0, 0.0));
                 let (sx, sy) = new_offsets.get(scroll_id).copied().unwrap_or((0.0, 0.0));
@@ -4884,7 +4879,10 @@ fn windowed_structural_damage(
     let mut skipped_nonpainting = false;
     // A window item under a perspective transform: no rect covers its image.
     let mut unmappable = false;
-    let mut collect_window = |items: &[DisplayListItem],
+    // `all` is one list and `window` its changed middle: a frame pushed inside the window is
+    // read down to its pop, which may lie past the window (in the equal suffix).
+    let mut collect_window = |all: &[DisplayListItem],
+                              window: core::ops::Range<usize>,
                               offsets: &ScrollOffsetMap,
                               frames: &FrameStack,
                               live: &dyn Fn(
@@ -4893,7 +4891,11 @@ fn windowed_structural_damage(
     ) -> azul_core::transform::ComputedTransform3D| {
         let mut stack = stack.clone();
         let mut frames = frames.clone();
-        for item in items {
+        // The shadows of the prefix that are still open (a push inside a window was ruled
+        // out above; a pop inside it closes one of the prefix's).
+        let mut shadows = open_shadows.clone();
+        for at in window {
+            let item = &all[at];
             match item {
                 DisplayListItem::PushReferenceFrame {
                     transform_key,
@@ -4906,6 +4908,9 @@ fn windowed_structural_damage(
                         LogicalPosition { x: o.x - ax, y: o.y - ay },
                         live(transform_key.id, *initial_transform),
                     );
+                }
+                DisplayListItem::PopTextShadow => {
+                    shadows.pop();
                 }
                 DisplayListItem::PopReferenceFrame => frames.pop(),
                 DisplayListItem::PushScrollFrame { scroll_id, .. } => {
@@ -4954,7 +4959,15 @@ fn windowed_structural_damage(
             // un-expanded rects left the moved shadow's fringe stale — the
             // Switch toggle's 2830 stale px — and, for Text, the LCD
             // subpixel fringe one column outside the box.
-            let Some(b) = item.visual_bounds().or_else(|| item.bounds()) else {
+            // A frame in the window is damaged by what it PAINTS (its box and everything down
+            // to its pop: `reference_frame_extent_walked`), not by its box alone: its matrix
+            // may be what changed, and what it paints past its box (an overflowing child, a
+            // shadow) can lie in the equal suffix, where no item is damaged.
+            let painted = match item {
+                DisplayListItem::PushReferenceFrame { .. } => reference_frame_extent_walked(all, at),
+                _ => item.visual_bounds().or_else(|| item.bounds()),
+            };
+            let Some(b) = painted else {
                 continue;
             };
             let (ox, oy) = *stack.last().unwrap_or(&(0.0, 0.0));
@@ -4967,11 +4980,16 @@ fn windowed_structural_damage(
             };
             // Mirror the paired path's rule: LCD subpixel AA (the shipping
             // default) bleeds 1 logical px past the glyph ink.
+            // Under text shadows that are open: by the halo, their reach and the slack
+            // (A2-cpu-29), as the paired path does.
             if matches!(item, DisplayListItem::Text { .. }) {
-                visual.origin.x -= 1.0;
-                visual.origin.y -= 1.0;
-                visual.size.width += 2.0;
-                visual.size.height += 2.0;
+                let pad = shadows
+                    .iter()
+                    .fold(1.0_f32, |pad, reach| pad.max(reach + TEXT_SHADOW_DAMAGE_SLACK));
+                visual.origin.x -= pad;
+                visual.origin.y -= pad;
+                visual.size.width += 2.0 * pad;
+                visual.size.height += 2.0 * pad;
             }
             match frames.map(visual) {
                 Some(painted) => damage.push(painted),
@@ -4981,13 +4999,15 @@ fn windowed_structural_damage(
     };
 
     collect_window(
-        &o[prefix..o.len() - suffix],
+        o,
+        prefix..o.len() - suffix,
         old_offsets,
         &frames_old,
         &|key, built| values.old_matrix(key, built),
     );
     collect_window(
-        &n[prefix..n.len() - suffix],
+        n,
+        prefix..n.len() - suffix,
         new_offsets,
         &frames_new,
         &|key, built| values.new_matrix(key, built),
@@ -5095,6 +5115,14 @@ pub fn compute_display_list_damage(
     .map(|(damage, _moved)| damage)
 }
 
+/// What the damage of a run under a CHANGED text shadow is widened by on top of the shadow's
+/// reach, logical px. The blur radius and the spread are each rounded up to whole device
+/// pixels when the shadow is drawn (`shadow_blur_radius`, the `spread.ceil()` of
+/// `render_text_shadow`, the rim of `dilate_disk`: 2.5 device px in all), and the edge of a
+/// run hangs a fraction of a pixel past its ink (the text fringe of the item diff). Enough
+/// from a scale of 1 up.
+const TEXT_SHADOW_DAMAGE_SLACK: f32 = 3.0;
+
 #[allow(clippy::too_many_lines)]
 fn compute_display_list_damage_impl(
     old: &DisplayList,
@@ -5131,6 +5159,9 @@ fn compute_display_list_damage_impl(
     let mut frames_old = FrameStack::default();
     let mut frames_new = FrameStack::default();
     let mut mapped = 0usize;
+    // The text shadows open at the current item: how far the old and the new shadow paint
+    // past a run (`text_shadow_reach`), and whether the shadow differs between the two lists.
+    let mut shadows: Vec<(f32, f32, bool)> = Vec::new();
 
     for (idx, (old_item, new_item)) in old.items.iter().zip(new.items.iter()).enumerate() {
         // Compare discriminant first (cheap)
@@ -5206,6 +5237,52 @@ fn compute_display_list_damage_impl(
             DisplayListItem::PopScrollFrame => {
                 if offset_stack.len() > 1 {
                     offset_stack.pop();
+                }
+            }
+            _ => {}
+        }
+
+        // A text shadow that changed (a halo's colour, its width) repaints every run down
+        // to its pop: where the old shadow painted and where the new one paints, the run's
+        // ink widened by the shadow's reach. The push itself has no bounds and the runs
+        // under it are equal, so nothing below damages them: the frame was idle, or - in
+        // a view whose diff found anything else - kept the old halo.
+        match (old_item, new_item) {
+            (
+                DisplayListItem::PushTextShadow { shadow: old_shadow },
+                DisplayListItem::PushTextShadow { shadow: new_shadow },
+            ) => {
+                shadows.push((
+                    super::raster::text_shadow_reach(core::slice::from_ref(old_shadow)),
+                    super::raster::text_shadow_reach(core::slice::from_ref(new_shadow)),
+                    old_shadow != new_shadow,
+                ));
+                continue;
+            }
+            (DisplayListItem::PopTextShadow, _) => {
+                shadows.pop();
+                continue;
+            }
+            (DisplayListItem::Text { .. }, DisplayListItem::Text { .. }) => {
+                let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
+                for &(old_reach, new_reach, _) in shadows.iter().filter(|shadow| shadow.2) {
+                    for (run, acc, reach) in
+                        [(old_item, acc_old, old_reach), (new_item, acc_new, new_reach)]
+                    {
+                        if let Some(ink) = run.visual_bounds() {
+                            let grow = reach + TEXT_SHADOW_DAMAGE_SLACK;
+                            damage.push(LogicalRect {
+                                origin: LogicalPosition {
+                                    x: ink.origin.x - acc.0 - grow,
+                                    y: ink.origin.y - acc.1 - grow,
+                                },
+                                size: LogicalSize {
+                                    width: 2.0f32.mul_add(grow, ink.size.width),
+                                    height: 2.0f32.mul_add(grow, ink.size.height),
+                                },
+                            });
+                        }
+                    }
                 }
             }
             _ => {}
@@ -5550,15 +5627,32 @@ fn compute_display_list_damage_impl(
                     }
                 }
             }
+            // A2-cpu-29: a run under text shadows paints their halo past its ink, whether the
+            // shadow changed or not (`render_text_shadow`: the ink moved by the offset, grown
+            // by the blur and the spread). How far, for the old and for the new run; 0 for
+            // anything but a run and for a run under no shadow. A run that changed under a
+            // shadow that did not was damaged by its ink and the fringe alone: the halo of
+            // the old run stayed where it was, the new one's was cut at the damage rect.
+            let (old_halo, new_halo) = if shadows.is_empty()
+                || !matches!(new_item, DisplayListItem::Text { .. })
+            {
+                (0.0, 0.0)
+            } else {
+                let (o, n) = shadows
+                    .iter()
+                    .fold((0.0_f32, 0.0_f32), |(o, n), shadow| (o.max(shadow.0), n.max(shadow.1)));
+                (o + TEXT_SHADOW_DAMAGE_SLACK, n + TEXT_SHADOW_DAMAGE_SLACK)
+            };
             // Round-3: a pure translation by the hint's delta, inside its
             // region, is a MOVE — the caller blits it; no damage here.
+            // (With its halo inside the region: what the blit does not move is damaged.)
             if let Some(h) = hint {
                 if let Some(ob) = old_item.visual_bounds() {
-                    let inside = ob.origin.x >= h.region_old.origin.x - 0.5
-                        && ob.origin.y >= h.region_old.origin.y - 0.5
-                        && ob.origin.x + ob.size.width
+                    let inside = ob.origin.x - old_halo >= h.region_old.origin.x - 0.5
+                        && ob.origin.y - old_halo >= h.region_old.origin.y - 0.5
+                        && ob.origin.x + ob.size.width + old_halo
                             <= h.region_old.origin.x + h.region_old.size.width + 0.5
-                        && ob.origin.y + ob.size.height
+                        && ob.origin.y + ob.size.height + old_halo
                             <= h.region_old.origin.y + h.region_old.size.height + 0.5;
                     if inside && items_equal_translated(old_item, new_item, h.delta) {
                         let vr = LogicalRect {
@@ -5594,33 +5688,43 @@ fn compute_display_list_damage_impl(
             } else {
                 0.0
             };
-            let inflate = |r: LogicalRect| LogicalRect {
-                origin: LogicalPosition {
-                    x: r.origin.x - fringe,
-                    y: r.origin.y - fringe,
-                },
-                size: LogicalSize {
-                    width: 2.0f32.mul_add(fringe, r.size.width),
-                    height: 2.0f32.mul_add(fringe, r.size.height),
-                },
+            // By the fringe, or by the halo of the shadows the run is under (A2-cpu-29).
+            let inflate = |r: LogicalRect, halo: f32| {
+                let pad: f32 = if halo > fringe { halo } else { fringe };
+                LogicalRect {
+                    origin: LogicalPosition {
+                        x: r.origin.x - pad,
+                        y: r.origin.y - pad,
+                    },
+                    size: LogicalSize {
+                        width: 2.0f32.mul_add(pad, r.size.width),
+                        height: 2.0f32.mul_add(pad, r.size.height),
+                    },
+                }
             };
             if let Some(ob) = old_item.visual_bounds() {
-                damage.push(inflate(LogicalRect {
-                    origin: LogicalPosition {
-                        x: ob.origin.x - acc_old.0,
-                        y: ob.origin.y - acc_old.1,
+                damage.push(inflate(
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: ob.origin.x - acc_old.0,
+                            y: ob.origin.y - acc_old.1,
+                        },
+                        size: ob.size,
                     },
-                    size: ob.size,
-                }));
+                    old_halo,
+                ));
             }
             if let Some(nb) = new_item.visual_bounds() {
-                damage.push(inflate(LogicalRect {
-                    origin: LogicalPosition {
-                        x: nb.origin.x - acc_new.0,
-                        y: nb.origin.y - acc_new.1,
+                damage.push(inflate(
+                    LogicalRect {
+                        origin: LogicalPosition {
+                            x: nb.origin.x - acc_new.0,
+                            y: nb.origin.y - acc_new.1,
+                        },
+                        size: nb.size,
                     },
-                    size: nb.size,
-                }));
+                    new_halo,
+                ));
             }
         }
     }

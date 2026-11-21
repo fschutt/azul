@@ -81,14 +81,22 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
     // text + shared properties. Check cache. On miss, shape the group and cache it.
     let mut shaped = Vec::new();
     let mut idx = 0;
+    // The layout hash of the item the previous group's look-ahead stopped at
+    // (the next group's first item): `(index, hash)`, so it is not hashed again
+    // (A8-35).
+    let mut carried: Option<(usize, u64)> = None;
 
     while idx < bidi_runs.len() {
         let item = &bidi_runs[idx];
 
         // Determine coalesce group boundaries (same logic as shape_bidi_runs)
-        let (layout_hash, bidi_level, script) = match &item.logical_source {
+        let (head_style, layout_hash, bidi_level, script) = match &item.logical_source {
             LogicalItem::Text { style, .. } | LogicalItem::CombinedText { style, .. } => {
-                (style.layout_hash(), item.bidi_level, item.script)
+                let hash = match carried {
+                    Some((at, hash)) if at == idx => hash,
+                    _ => style.layout_hash(),
+                };
+                (style, hash, item.bidi_level, item.script)
             }
             _ => {
                 // Non-text items: shape individually (no coalescing)
@@ -110,7 +118,13 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             let next = &bidi_runs[coalesce_end];
             let next_layout_hash = match &next.logical_source {
                 LogicalItem::Text { style, .. } | LogicalItem::CombinedText { style, .. } => {
-                    Some(style.layout_hash())
+                    // The same style object (the items of one styled run share it)
+                    // has the same hash: not hashed again (A8-35).
+                    Some(if Arc::ptr_eq(style, head_style) {
+                        layout_hash
+                    } else {
+                        style.layout_hash()
+                    })
                 }
                 _ => None,
             };
@@ -118,6 +132,7 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
                 if nlh == layout_hash && next.bidi_level == bidi_level && next.script == script {
                     coalesce_end += 1;
                 } else {
+                    carried = Some((coalesce_end, nlh));
                     break;
                 }
             } else {
@@ -221,6 +236,8 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             }));
         } else {
             // Cache miss — shape this group
+            #[cfg(test)]
+            GROUPS_SHAPED.with(|n| n.set(n.get() + 1));
             let deficit_before = thread_font_shape_deficit();
             let group_items = shape_bidi_runs(
                 &bidi_runs[idx..coalesce_end],
@@ -450,6 +467,13 @@ pub(crate) static FONT_SHAPE_DEFICIT: core::sync::atomic::AtomicU32 =
 #[must_use]
 pub fn take_font_shape_deficit() -> u32 {
     FONT_SHAPE_DEFICIT.swap(0, core::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: the shaping groups this thread has shaped (that missed the
+    /// per-item cache).
+    pub(crate) static GROUPS_SHAPED: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 std::thread_local! {
@@ -772,7 +796,8 @@ pub fn shape_bidi_runs<T: ParsedFontTrait>(
                         style: next_style, ..
                     } = &next.logical_source
                     {
-                        if next_style.layout_hash() == layout_hash
+                        // The same style object hashes alike: not hashed again (A8-35).
+                        if (Arc::ptr_eq(next_style, style) || next_style.layout_hash() == layout_hash)
                             && next.bidi_level == bidi_level
                             && next.script == script
                         {
@@ -1862,4 +1887,94 @@ pub(super) fn apply_text_orientation(
     }
 
     Arc::new(oriented_items)
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+
+    /// A8-35: the grouping of a paragraph's bidi runs hashes each style object
+    /// once where it starts or meets another: an item with the very style of
+    /// the group's first is not hashed again, nor is the item a look-ahead
+    /// stopped at when it starts the next group. Six runs styled a a b b a' a
+    /// (a' an equal copy of a): groups [a a] [b b] [a' a], 8 hashes on the
+    /// shaping call (was 14) and 4 on the call that finds every group cached
+    /// (was 8), and the same clusters from both calls.
+    /// Mutation: dropping the `carried` hand-over makes it 10 and 6.
+    #[test]
+    fn a_style_object_is_hashed_once_where_its_group_starts() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let selectors = vec![FontSelector {
+            family: "Azul Mock Mono".to_string(),
+            ..FontSelector::default()
+        }];
+        let key = FontChainKey::from_selectors(&selectors);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        let mut chains = HashMap::new();
+        chains.insert(key.clone(), chain.clone());
+        let mut resolved = crate::solver3::getters::ResolvedFontChains::default();
+        resolved.chains.insert(FontChainKeyOrRef::Chain(key), chain);
+        let loader = crate::text3::default::PathLoader::new();
+        let failed = fm.load_missing_for_chains(&resolved, |bytes, index| {
+            loader.load_font_shared(bytes, index)
+        });
+        assert!(failed.is_empty(), "premise: the mock face loads: {failed:?}");
+        let style = |size: f32| {
+            Arc::new(StyleProperties {
+                font_stack: FontStack::Stack(selectors.clone()),
+                font_size_px: size,
+                ..StyleProperties::default()
+            })
+        };
+        let (a, b) = (style(20.0), style(24.0));
+        let a_copy = Arc::new((*a).clone());
+        let content: Vec<InlineContent> = [&a, &a, &b, &b, &a_copy, &a]
+            .iter()
+            .zip(["ab", "cd", "ef", "gh", "ij", "kl"])
+            .map(|(style, text)| {
+                InlineContent::Text(StyledRun {
+                    text: Arc::from(text),
+                    style: Arc::clone(style),
+                    logical_start_byte: 0,
+                    source_node_id: None,
+                })
+            })
+            .collect();
+        let logical = create_logical_items(&content, &[], &mut None);
+        let (base, mode) = paragraph_bidi(&logical, &UnifiedConstraints::default());
+        let runs = split_into_bidi_runs(&logical, base, mode, &mut None).expect("bidi runs");
+        assert_eq!(runs.len(), 6, "premise: one run an item");
+        let loaded = fm.get_loaded_fonts();
+        let hashes = || super::super::styles::audit_a8_tests::LAYOUT_HASHES.with(core::cell::Cell::get);
+        let mut cache = HashMap::new();
+        let mut accessed = HashSet::new();
+        let mut shape = |cache: &mut HashMap<u64, Arc<PerItemShapedEntry>>| {
+            let before = hashes();
+            let shaped = shape_bidi_runs_with_per_item_cache(
+                &runs,
+                cache,
+                &mut accessed,
+                &chains,
+                &fm.fc_cache,
+                &loaded,
+                &mut None,
+            )
+            .expect("shaped");
+            let texts: Vec<String> = shaped
+                .iter()
+                .filter_map(|item| item.as_cluster().map(|c| c.text().to_string()))
+                .collect();
+            (hashes() - before, texts)
+        };
+        let (first, shaped) = shape(&mut cache);
+        assert_eq!(cache.len(), 3, "three groups shaped and kept");
+        let (again, reshaped) = shape(&mut cache);
+        assert_eq!((first, again), (8, 4));
+        assert_eq!(shaped, reshaped);
+        assert_eq!(shaped.concat(), "abcdefghijkl");
+    }
 }

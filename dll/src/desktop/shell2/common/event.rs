@@ -702,6 +702,23 @@ fn repaint_restyled_dom(layout_window: &mut LayoutWindow, dom_id: DomId) -> Proc
     ProcessEventResult::ShouldReRenderCurrentWindow
 }
 
+/// [`repaint_restyled_dom`] for a restyle whose changed nodes are at hand (a `:hover`, an
+/// `:active`): when all that changed are DECORATIONS of a few nodes - a background, a border
+/// colour, a shadow - their runs are painted into the list the DOM has
+/// (`LayoutWindow::patch_restyled_decorations`) and no list is built. A map's label under the
+/// pointer built the view's whole list again - every label - on every enter and every leave.
+/// Anything the patch cannot show builds the list as before.
+fn repaint_restyled_nodes(
+    layout_window: &mut LayoutWindow,
+    dom_id: DomId,
+    restyle_result: &azul_core::styled_dom::RestyleResult,
+) -> ProcessEventResult {
+    if layout_window.patch_restyled_decorations(dom_id, &restyle_result.changed_nodes) {
+        return ProcessEventResult::ShouldReRenderCurrentWindow;
+    }
+    repaint_restyled_dom(layout_window, dom_id)
+}
+
 /// `:seat-focus` restyle for a NON-primary seat (9b-ii-a-i-d-iii-a): the node
 /// that lost this seat's focus drops the pseudo-class unless another seat
 /// still focuses it; the node that gained it takes it. Same classification
@@ -956,6 +973,19 @@ fn stage_css_dirty(
         }
         layout_window.pending_css_dirty = Some((dom_id, merged.into_iter().collect()));
     } else {
+        // The slot holds ONE DOM's dirt, and it is another DOM's. Dirt that asks for layout
+        // is not dropped for the newcomer: it waits beside the slot for its DOM's pass
+        // (`LayoutWindow::hold_css_dirt`). A pass that restyles two DOMs - the pointer
+        // leaves a node of the window and enters one of a view - returned "relayout" for
+        // the first and then lost what to lay out. Paint-only dirt was served by the
+        // restyle that staged it (a list patched or built) and goes, as before.
+        let (other_dom, other_dirt) = current;
+        if other_dirt
+            .iter()
+            .any(|(_, scope)| *scope > azul_css::props::property::RelayoutScope::None)
+        {
+            layout_window.hold_css_dirt(other_dom, other_dirt);
+        }
         layout_window.pending_css_dirty = Some((dom_id, dirty));
     }
 }
@@ -1059,7 +1089,7 @@ fn apply_active_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                repaint_restyled_dom(layout_window, dom_id)
+                repaint_restyled_nodes(layout_window, dom_id, &restyle_result)
             } else {
                 // Nothing to lay out and nothing to paint (a pointer shape alone): the diff
                 // the restyle staged owes no pass, and no list is rebuilt.
@@ -1127,7 +1157,7 @@ pub(crate) fn apply_hover_restyle(
             if accumulator.needs_layout() {
                 ProcessEventResult::ShouldIncrementalRelayout
             } else if accumulator.needs_paint_only() {
-                repaint_restyled_dom(layout_window, dom_id)
+                repaint_restyled_nodes(layout_window, dom_id, &restyle_result)
             } else {
                 // Nothing to lay out and nothing to paint (a pointer shape alone): the diff
                 // the restyle staged owes no pass, and no list is rebuilt.
@@ -1283,6 +1313,41 @@ pub(crate) fn drag_classification_target(
     event_target: Option<azul_core::dom::DomNodeId>,
 ) -> Option<azul_core::dom::DomNodeId> {
     drag_source.or(event_target)
+}
+
+/// The nodes of `styled_dom` that listen to a WINDOW event
+/// (`EventFilter::Window`), in node order: where a window event's callbacks
+/// are looked for.
+///
+/// From `StyledDom::nodes_with_window_callbacks`, the list the styled DOM is
+/// built with and nothing read. A window event used to be planned by walking
+/// every node of every DOM and comparing each of its callbacks - once per
+/// event and window filter of a pass: every pointer move walked the 12,500
+/// nodes of a map's view (and their 4,700 label handlers) to find the two
+/// nodes that listen to the window, a move that changed the hovered label
+/// five times (leave, enter, out, over, move).
+///
+/// The list is right for as long as the DOM lives: `StyledDom::create` makes
+/// it, `append_child_with_index` (and so `append_under_rightmost` and
+/// `insert_runtime_child`) extends it, and a rebuild that keeps the DOM
+/// carries new handlers onto it only when every node's handler EVENTS are the
+/// ones it had (`NodeField::Callbacks` is compared: `hash_shape`,
+/// `reads_alike`), so no node starts to listen to the window in place. A node
+/// that stopped (`DeleteNode` empties its handlers) stays listed and matches
+/// nothing. Sorted and without doubles whatever the list holds: a callback
+/// runs once, in node order, as the walk ran it.
+pub(crate) fn nodes_listening_to_window_events(
+    styled_dom: &azul_core::styled_dom::StyledDom,
+) -> Vec<NodeId> {
+    let mut nodes: Vec<NodeId> = styled_dom
+        .nodes_with_window_callbacks
+        .as_ref()
+        .iter()
+        .filter_map(|id| id.into_crate_internal())
+        .collect();
+    nodes.sort_unstable();
+    nodes.dedup();
+    nodes
 }
 
 #[cfg(test)]
@@ -4134,14 +4199,32 @@ impl CommonWindowState {
         // all. `cpu_hit_tester` is therefore allocated and rebuilt on EVERY
         // backend now, GPU included — it used to be `None` there.
         // CPU path: layout-based hit tester
-        if let Some(ref cpu_ht) = self.cpu_hit_tester {
+        if let Some(cpu_ht) = self.cpu_hit_tester.as_mut() {
             // SAFETY: neither layout_results nor the managers are modified by
             // hit testing
             let lw = unsafe { &*layout_results_ptr };
+            // A view that panned or scrolled since the tester was built had
+            // its item's `content_offset` re-pointed in place (no layout, so
+            // no rebuild of the tester): its child's boxes are hit where the
+            // item puts them NOW. One item read per child dom.
+            cpu_ht.sync_view_placements(&lw.layout_results);
             let resolve = |d: DomId, n: NodeId| lw.scroll_manager.get_current_offset(d, n);
             // Same map the CPU raster paints reference frames from.
             let resolve_tf = |d: DomId, n: NodeId| lw.gpu_state_manager.painted_transform_of(d, n);
-            let nodes = cpu_ht.hit_test_scrolled(position, &resolve, &resolve_tf);
+            // The stamps of the maps `resolve_tf` reads: while a dom's are
+            // what they were, each of its reference frames has the matrix it
+            // had, and the tester's kept bounds of where every turned label
+            // is painted still hold (2,118 matrix look-ups per pointer move
+            // in a city map otherwise).
+            let frame_stamps = |d: DomId| {
+                lw.gpu_state_manager
+                    .get_cache(d)
+                    .map_or([0; 6], azul_core::gpu::GpuValueCache::transform_stamps)
+            };
+            cpu_ht.sync_frame_bounds(&resolve_tf, &frame_stamps);
+            let cpu_ht = &*cpu_ht;
+            let nodes =
+                cpu_ht.hit_test_scrolled_stamped(position, &resolve, &resolve_tf, &frame_stamps);
             return crate::desktop::wr_translate2::convert_cpu_hit_test_to_full(
                 cpu_ht,
                 &nodes,
@@ -10224,11 +10307,15 @@ pub trait PlatformWindow {
                             }
                         }
                         EventFilter::Window(_) => {
-                            // Window events fire on ALL nodes with matching callback
+                            // Window events fire on ALL nodes with matching
+                            // callback - found through the list every styled
+                            // DOM keeps of its window listeners, not by a walk
+                            // over every node of every DOM for every event of
+                            // every pass (a pointer move is one, a hover change
+                            // five: see `nodes_listening_to_window_events`).
                             for (dom_id, lr) in &layout_window.layout_results {
                                 let ndc = lr.styled_dom.node_data.as_container();
-                                for node_idx in 0..ndc.len() {
-                                    let node_id = NodeId::new(node_idx);
+                                for node_id in nodes_listening_to_window_events(&lr.styled_dom) {
                                     if let Some(nd) = ndc.get(node_id) {
                                         for cb in nd.get_callbacks().as_ref().iter() {
                                             if cb.event == *filter {
@@ -12242,6 +12329,17 @@ pub trait PlatformWindow {
             }
         }
 
+        // The hover change between the pointer's last two hit tests has been
+        // determined (the enter / leave events above) and the tooltip timer
+        // has seen it: it is told once. Without this every later pass that
+        // ran without a new hit test - a key, a window event, the re-run
+        // after a callback rebuilt the DOM - found the same two frames and
+        // sent the same events, restyled `:hover` and re-armed the tooltip
+        // again.
+        if let Some(lw) = self.get_layout_window_mut() {
+            lw.hover_manager.mark_hover_changes_delivered();
+        }
+
         // MWA-A3c: incremental :hover restyle. Enter/leave events dispatched
         // to callbacks, but the styled DOM's :hover flags were never updated
         // outside a full DOM regeneration — pure-CSS hover styling was dead
@@ -12548,8 +12646,17 @@ pub trait PlatformWindow {
             // armed drag-autoscroll and scrolled the UI away. `user-select:
             // none` is honoured too, through the engine's own
             // `is_text_selectable`.
+            // Asked at the press EDGE only (the one moment the answer is
+            // read, below): on every other pass - every pointer move - the
+            // hit nodes are not collected and no ancestor or child of theirs
+            // is walked.
+            let press_edge = left_down
+                && self
+                    .get_layout_window()
+                    .is_some_and(|lw| !lw.prev_left_down);
             let press_targets: Vec<azul_core::dom::DomNodeId> = hit_test_for_dispatch
                 .as_ref()
+                .filter(|_| press_edge)
                 .map(|ht| {
                     ht.hovered_nodes
                         .iter()
@@ -12564,7 +12671,7 @@ pub trait PlatformWindow {
                         .collect()
                 })
                 .unwrap_or_default();
-            let press_on_editable = press_targets.iter().any(|dnid| {
+            let press_on_editable = press_edge && press_targets.iter().any(|dnid| {
                 if self.node_is_window_drag_region(*dnid) {
                     return false;
                 }
@@ -17355,6 +17462,21 @@ mod paint_restyle_tests {
         (root_before, child_before): (*const DisplayList, *const DisplayList),
         what: &str,
     ) {
+        assert_a_repaint_of_the_views_list(page, tier, (root_before, child_before), what, 1);
+    }
+
+    /// As above, for a state whose restyle is shown by `rebuilds` builds of the view's list:
+    /// 1 where the list is built again (`:focus`, `:seat-focus`: the caret and the rings are
+    /// built from the focus), 0 where the label's own run is painted into the list the view
+    /// has (`:hover`, `:active`: `LayoutWindow::patch_restyled_decorations`). The callers
+    /// check the list's content either way (the label is painted in the state's colour).
+    fn assert_a_repaint_of_the_views_list(
+        page: &Page,
+        tier: ProcessEventResult,
+        (root_before, child_before): (*const DisplayList, *const DisplayList),
+        what: &str,
+        rebuilds: u32,
+    ) {
         assert_eq!(
             tier,
             ProcessEventResult::ShouldReRenderCurrentWindow,
@@ -17366,12 +17488,24 @@ mod paint_restyle_tests {
             root_before,
             "{what}: the window's list of thousands of items was not touched"
         );
-        assert_ne!(
-            list_of(page, page.child),
-            child_before,
-            "{what}: the list that holds the label was rebuilt"
+        if rebuilds > 0 {
+            assert_ne!(
+                list_of(page, page.child),
+                child_before,
+                "{what}: the list that holds the label was rebuilt"
+            );
+        } else {
+            // Patched where it lies: a list nobody else holds keeps its place, so its
+            // pointer says nothing; the patch is counted instead.
+            assert_eq!(
+                page.lw.frame_report.dl_node_patches, 1,
+                "{what}: the label's run was painted into the list"
+            );
+        }
+        assert_eq!(
+            page.lw.frame_report.dl_rebuilds, rebuilds,
+            "{what}: {rebuilds} list(s) rebuilt"
         );
-        assert_eq!(page.lw.frame_report.dl_rebuilds, 1, "{what}: one list rebuilt");
         assert_eq!(page.lw.frame_report.layout_passes, 0, "{what}: no layout");
         assert!(
             page.lw.pending_css_dirty.is_none(),
@@ -17381,7 +17515,7 @@ mod paint_restyle_tests {
     }
 
     #[test]
-    fn a_hover_over_a_label_rebuilds_the_views_list_and_asks_for_a_repaint() {
+    fn a_hover_over_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
         let mut page = page();
         let before = (
             list_of(&page, DomId::ROOT_ID),
@@ -17398,7 +17532,7 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, enter);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "enter");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "enter", 0);
         assert_eq!(painted(&page, page.child), 1, "the label is painted in its hover colour");
 
         // And leaves it.
@@ -17415,12 +17549,12 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, leave);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "leave");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "leave", 0);
         assert_eq!(painted(&page, page.child), 0, "and loses it");
     }
 
     #[test]
-    fn a_press_on_a_label_rebuilds_the_views_list_and_asks_for_a_repaint() {
+    fn a_press_on_a_label_paints_its_run_into_the_views_list_and_asks_for_a_repaint() {
         let mut page = page();
         let before = (
             list_of(&page, DomId::ROOT_ID),
@@ -17429,7 +17563,7 @@ mod paint_restyle_tests {
         // The press lands on the deepest node, the text; its span is active with it.
         let press = BTreeMap::from([(page.child, vec![NodeId::new(ACTIVE_TEXT)])]);
         let tier = apply_active_restyle(&mut page.lw, press, false);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "press");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "press", 0);
         assert_eq!(painted(&page, page.child), 1, "the pressed label is painted active");
 
         let before = (
@@ -17438,7 +17572,7 @@ mod paint_restyle_tests {
         );
         page.lw.frame_report.reset_counters();
         let tier = apply_active_restyle(&mut page.lw, BTreeMap::new(), true);
-        assert_a_repaint_of_the_views_list_alone(&page, tier, before, "release");
+        assert_a_repaint_of_the_views_list(&page, tier, before, "release", 0);
         assert_eq!(painted(&page, page.child), 0, "and is not after the release");
     }
 
@@ -17477,5 +17611,55 @@ mod paint_restyle_tests {
         let tier = apply_focus_restyle(&mut page.lw, None, Some(label));
         assert_a_repaint_of_the_views_list_alone(&page, tier, before, "focus");
         assert_eq!(painted(&page, page.child), 1, "the focused label is painted in its colour");
+    }
+
+    /// A3-window-33: one pass restyles a node of the window and a node of a view, both in
+    /// a way that asks for layout. The slot of the staged CSS diff holds one DOM's dirt; the
+    /// window's used to be dropped when the view's was staged, and the relayout the pass
+    /// asked for found no node of the window to lay out again.
+    #[test]
+    fn the_layout_dirt_of_one_dom_waits_while_another_doms_is_staged() {
+        use azul_core::styled_dom::{ChangedCssProperty, RestyleResult, StyledNodeState};
+        use azul_css::props::{
+            basic::PixelValue,
+            layout::dimensions::LayoutWidth,
+            property::{CssProperty, RelayoutScope},
+        };
+
+        use super::stage_css_dirty;
+
+        let width = |px: f32| CssProperty::width(LayoutWidth::Px(PixelValue::px(px)));
+        let restyle_of = |node: usize, from: f32, to: f32| {
+            let mut result = RestyleResult::default();
+            result.changed_nodes.insert(
+                NodeId::new(node),
+                vec![ChangedCssProperty {
+                    previous_state: StyledNodeState::default(),
+                    previous_prop: width(from),
+                    current_state: StyledNodeState::default(),
+                    current_prop: width(to),
+                }],
+            );
+            result
+        };
+
+        let mut page = page();
+        stage_css_dirty(&mut page.lw, DomId::ROOT_ID, &restyle_of(1, 100.0, 120.0));
+        stage_css_dirty(&mut page.lw, DomId::ROOT_ID, &restyle_of(1, 120.0, 100.0));
+        stage_css_dirty(&mut page.lw, page.child, &restyle_of(HOVER_LABEL, 50.0, 60.0));
+
+        assert_eq!(
+            page.lw.pending_css_dirty.as_ref().map(|(dom, _)| *dom),
+            Some(page.child),
+            "the slot holds the view's dirt"
+        );
+        let held = page
+            .lw
+            .css_dirty_waiting
+            .get(&DomId::ROOT_ID)
+            .expect("the window's dirt waits for the window's pass");
+        assert_eq!(held.len(), 1, "one entry for the node, however often it was restyled");
+        assert_eq!(held[0].0, NodeId::new(1));
+        assert!(held[0].1 > RelayoutScope::None, "a width is laid out again");
     }
 }

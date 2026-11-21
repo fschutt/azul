@@ -1750,17 +1750,15 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         let is_single_line = node.dom_node_id.is_none_or(|dom_id| {
             let node_state =
                 &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
-            let wrap_prop = crate::solver3::getters::get_flex_wrap_prop(
-                self.ctx.styled_dom,
-                dom_id,
-                node_state,
-            );
-            wrap_prop.is_none_or(|val| {
-                matches!(
-                    val.get_property_or_default().unwrap_or_default(),
-                    LayoutFlexWrap::NoWrap
+            // The compact slot at rest - what the layout itself reads for
+            // the container (`taffy_bridge`) - and the cascade in any other
+            // state; it was a cascade lookup per flex container.
+            !matches!(
+                crate::solver3::getters::get_wrap(self.ctx.styled_dom, dom_id, node_state),
+                crate::solver3::getters::MultiValue::Exact(
+                    LayoutFlexWrap::Wrap | LayoutFlexWrap::WrapReverse
                 )
-            })
+            )
         });
 
         let min_main = if is_single_line {

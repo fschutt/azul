@@ -930,14 +930,16 @@ fn labels_that_only_moved_and_turned_keep_their_boxes_and_stand_as_in_a_fresh_la
 }
 
 /// A3-solver-41, the product path: the shell hands a rebuilt page to
-/// `LayoutWindow::begin_reconciliation` first, whose CSS diff reports the moved insets as css
+/// `LayoutWindow::begin_reconciliation` first, whose CSS diff reported the moved insets as css
 /// dirt of scope `Full` (`CssPropertyType::relayout_scope`), and a node the css diff names is
-/// built fresh whatever its fingerprint says (`ReconciliationResult::css_relayout`). The
-/// solver cannot tell "only the insets moved" from that entry; until the css diff says so (see
-/// the notes: For area A3-window), the labels are fresh boxes on this path.
+/// built fresh whatever its fingerprint says (`ReconciliationResult::css_relayout`). The CSS
+/// diff leaves a node whose own insets / transform values alone moved to its fingerprint
+/// (A3-window-40, `restyle_is_left_to_the_fingerprint`), so the labels keep their boxes on
+/// this path too.
+///
+/// Mutation: `left_to_the_fingerprint` = `false` in `begin_reconciliation` names every label
+/// with scope `Full`: 200 fresh boxes.
 #[test]
-#[ignore = "needs A3-window: begin_reconciliation must not stage css dirt of scope Full for an \
-            out-of-flow box whose inset values alone moved"]
 fn labels_that_only_moved_keep_their_boxes_when_the_shell_rebuilds_the_page() {
     let k = 200;
     let mut lw = window();

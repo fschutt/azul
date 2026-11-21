@@ -389,6 +389,12 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
             every_state: true,
         };
         let mut in_svg = alloc::vec![false; n];
+        // What the `~` combinators of the host rules found (the rules and
+        // the states are the same for every node): the three lists of rules
+        // are numbered one after the other.
+        let mut sibling_memo = crate::style::GeneralSiblingMemo::default();
+        let footnote_base = marker_rules.len();
+        let rules_base = footnote_base + footnote_rules.len();
         for (i, node) in data.internal.iter().enumerate().take(n) {
             let id = NodeId::new(i);
             in_svg[i] = matches!(node.get_node_type(), NodeType::Svg)
@@ -398,38 +404,9 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
             if in_svg[i] || !can_host(node) {
                 continue;
             }
-            marker[i] = inline_list_item_inline(node) || marker_rules.iter().any(|host| {
-                matches_html_element_in(
-                    host,
-                    id,
-                    &hierarchy,
-                    &data,
-                    &cascade.as_ref(),
-                    None,
-                    Some(in_any_state),
-                )
-            });
-            footnote[i] = dom.node_hierarchy.internal[i].parent.is_some()
-                && (footnote_inline(node)
-                    || footnote_rules.iter().any(|host| {
-                        matches_html_element_in(
-                            host,
-                            id,
-                            &hierarchy,
-                            &data,
-                            &cascade.as_ref(),
-                            None,
-                            Some(in_any_state),
-                        )
-                    }));
-            for (is_before, host) in &rules {
-                let slot = if *is_before {
-                    &mut before[i]
-                } else {
-                    &mut after[i]
-                };
-                if !*slot
-                    && matches_html_element_in(
+            marker[i] = inline_list_item_inline(node)
+                || marker_rules.iter().enumerate().any(|(rule, host)| {
+                    crate::style::matches_html_element_remembering(
                         host,
                         id,
                         &hierarchy,
@@ -437,6 +414,39 @@ pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
                         &cascade.as_ref(),
                         None,
                         Some(in_any_state),
+                        Some((&mut sibling_memo, rule)),
+                    )
+                });
+            footnote[i] = dom.node_hierarchy.internal[i].parent.is_some()
+                && (footnote_inline(node)
+                    || footnote_rules.iter().enumerate().any(|(rule, host)| {
+                        crate::style::matches_html_element_remembering(
+                            host,
+                            id,
+                            &hierarchy,
+                            &data,
+                            &cascade.as_ref(),
+                            None,
+                            Some(in_any_state),
+                            Some((&mut sibling_memo, footnote_base + rule)),
+                        )
+                    }));
+            for (rule, (is_before, host)) in rules.iter().enumerate() {
+                let slot = if *is_before {
+                    &mut before[i]
+                } else {
+                    &mut after[i]
+                };
+                if !*slot
+                    && crate::style::matches_html_element_remembering(
+                        host,
+                        id,
+                        &hierarchy,
+                        &data,
+                        &cascade.as_ref(),
+                        None,
+                        Some(in_any_state),
+                        Some((&mut sibling_memo, rules_base + rule)),
                     )
                 {
                     *slot = true;

@@ -681,6 +681,53 @@ pub struct A11yRetainedTree {
     pub focus: Option<A11yNodeId>,
     /// Counts the passes ([`RetainedA11yNode::seen`]).
     pub pass: u64,
+    /// Per DOM, what the last pass that walked it found - kept only while
+    /// the pass is told the DOMs' generations
+    /// ([`A11yTreeInputs::dom_generations`]), so that a DOM that is still
+    /// the one it was is replayed instead of walked.
+    pub doms: BTreeMap<DomId, RetainedA11yDom>,
+    /// What every replay depends on beside its own DOM
+    /// (`A11yManager::replay_key`), as the last pass found it.
+    pub replay_key: u64,
+}
+
+/// What a pass keeps of one DOM it walked (`A11yManager::rebuild_retained`):
+/// enough to put the DOM's nodes back into the next pass without reading one
+/// of them, and what has to be unchanged for that to be the same tree.
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone, Default)]
+pub struct RetainedA11yDom {
+    /// The DOM's generation at the walk.
+    pub generation: u64,
+    /// Where the DOM's space started in the window (`dom_window_origin`,
+    /// the bits of x and y).
+    pub origin: (u32, u32),
+    /// A text override or the caret was in the DOM: its nodes carried
+    /// content that is not the DOM's.
+    pub edited: bool,
+    /// The node of another DOM its top-level nodes hang off (a view's host);
+    /// `None`: the window root.
+    pub host_parent: Option<A11yNodeId>,
+    /// That node's origin in the window (the bits), when the pass that
+    /// walked this DOM also walked the host's and gave it a box.
+    pub host_space: Option<(u64, u64)>,
+    /// Which of the DOM's nodes are exposed, by node index.
+    pub exposed: Vec<bool>,
+    /// Its exposed nodes, in document order.
+    pub entries: Vec<RetainedA11yEntry>,
+}
+
+/// One exposed node of a [`RetainedA11yDom`].
+#[cfg(feature = "a11y")]
+#[derive(Debug, Clone, Copy)]
+pub struct RetainedA11yEntry {
+    pub id: A11yNodeId,
+    /// Its accessible parent (`None`: the window root).
+    pub parent: Option<A11yNodeId>,
+    /// `parent` is the host's node, in another DOM.
+    pub hosted: bool,
+    /// Its own origin in the window, physical px (`None`: no box).
+    pub origin: Option<(f64, f64)>,
 }
 
 #[cfg(feature = "a11y")]
@@ -788,6 +835,13 @@ pub struct A11yTreeInputs<'a> {
     /// Translates the keys among the strings nodes declare (`None`: the
     /// window has no translations, a key is read as it is).
     pub translate: Option<A11yTranslate<'a>>,
+    /// The generation of each DOM (`LayoutWindow::dom_generation`): equal
+    /// values of a DOM promise the same nodes (types, texts, attributes),
+    /// the same layout tree and positions. A DOM whose generation and whose
+    /// other inputs (see `A11yManager::rebuild_retained`) are the ones of
+    /// the pass that last walked it is not walked again. `None`: unknown,
+    /// every DOM is walked in every pass.
+    pub dom_generations: Option<&'a BTreeMap<DomId, u64>>,
 }
 
 /// What one accessibility pass did ([`A11yManager::refresh`]) - the cost
@@ -807,6 +861,10 @@ pub struct A11yPassStats {
     pub published: bool,
     /// The update was a full tree (the first one, or a resync).
     pub full: bool,
+    /// Exposed nodes read from their DOM (signature, box, parent).
+    pub walked: usize,
+    /// Exposed nodes put back from the last walk of their DOM, unread.
+    pub replayed: usize,
 }
 
 /// A node as it was published: its content and its child list.
@@ -862,6 +920,8 @@ struct A11yRebuild {
     built: usize,
     removed: usize,
     focus_changed: bool,
+    walked: usize,
+    replayed: usize,
 }
 
 /// Manager for accessibility tree state and updates.
@@ -904,6 +964,29 @@ pub struct A11yManager {
     /// (`ScrollManager::offsets_fingerprint`). A tick that finds another
     /// fingerprint marks the tree scroll-dirty, whoever moved the offset.
     pub scroll_fingerprint: u64,
+    /// The tree is built ON DEMAND: a pass asked for
+    /// (`LayoutWindow::update_a11y_tree`, after every layout and at most
+    /// every 100 ms of scrolling) only marks the tree [`Self::stale`], and
+    /// the pass runs when the shell asks for the update
+    /// (`LayoutWindow::a11y_update_on_demand`) - which a shell does from
+    /// inside its platform adapter's `update_if_active` closure, so that it
+    /// runs only while an assistive technology reads the tree. `false`
+    /// (the default): every pass asked for runs at once, as it always did.
+    /// Only a shell whose adapter has such a closure sets it.
+    ///
+    /// While no assistive technology is active nothing is built, and the
+    /// retained tree ("what was sent last") does not advance either: it
+    /// changes only inside `a11y_update_on_demand`, that is, only when an
+    /// adapter takes the result. An adapter that becomes active holds no
+    /// tree; the shell asks for the whole one then (`full`), so the first
+    /// update after an activation is never a patch against a tree the
+    /// adapter was not given.
+    pub on_demand: bool,
+    /// A pass was asked for and not run yet ([`Self::on_demand`]).
+    pub stale: bool,
+    /// The focus of the last update [`Self::hand_to_adapter`] handed out:
+    /// what an adapter that is fed on demand holds as its focus.
+    pub handed_focus: Option<A11yNodeId>,
 }
 
 #[cfg(feature = "a11y")]
@@ -934,6 +1017,9 @@ impl A11yManager {
             scroll_fingerprint: 0,
             retained: A11yRetainedTree::default(),
             last_pass: A11yPassStats::default(),
+            on_demand: false,
+            stale: false,
+            handed_focus: None,
         }
     }
 
@@ -961,6 +1047,8 @@ impl A11yManager {
             built: rebuild.built,
             removed: rebuild.removed,
             full,
+            walked: rebuild.walked,
+            replayed: rebuild.replayed,
             ..A11yPassStats::default()
         };
         let update = if full {
@@ -1025,6 +1113,8 @@ impl A11yManager {
             r.content = node;
             r.children = None;
         }
+        // The node has to be built again: its DOM is walked, not replayed.
+        self.retained.doms.remove(&decode_a11y_node_id(id).0);
         self.retained.focus = Some(focus);
     }
 
@@ -1124,6 +1214,57 @@ impl A11yManager {
     /// adapter holds afterwards: [`Self::publish`] advanced it.)
     pub const fn take_pending(&mut self) -> Option<TreeUpdate> {
         self.last_tree_update.take()
+    }
+
+    /// An adapter is owed something: a pass was asked for and has not run
+    /// ([`Self::on_demand`]), or an update is parked.
+    #[must_use]
+    pub const fn update_pending(&self) -> bool {
+        self.stale || self.last_tree_update.is_some()
+    }
+
+    /// What a platform adapter is handed by a shell that builds on demand
+    /// ([`Self::on_demand`]), once the pass that was due has run
+    /// (`LayoutWindow::a11y_update_on_demand`). Always an update the adapter
+    /// can take, because the adapter's closure has to return one:
+    ///
+    /// - `full` (the adapter holds no tree: it was just activated, or it
+    ///   missed an update): the WHOLE tree as published so far, whatever was
+    ///   parked (the parked patch is part of it);
+    /// - otherwise the parked patch, or, when nothing a screen reader can
+    ///   see changed, a patch without a node that repeats the focus the
+    ///   adapter already holds.
+    ///
+    /// When no tree could be built (the pass was refused or panicked, the
+    /// retained tree is empty): `full` hands out the window alone, which is
+    /// a valid tree, otherwise the adapter keeps what it has; the next pass
+    /// publishes the whole tree either way (`Self::refresh`).
+    pub fn hand_to_adapter(&mut self, full: bool) -> TreeUpdate {
+        let parked = self.take_pending();
+        let patch_of = |focus: A11yNodeId| TreeUpdate {
+            nodes: Vec::new(),
+            tree: None,
+            focus,
+            tree_id: accesskit::TreeId::ROOT,
+        };
+        let update = if self.retained.nodes.is_empty() {
+            if full {
+                TreeUpdate {
+                    nodes: vec![(self.root_id, Node::new(Role::Window))],
+                    tree: Some(Tree::new(self.root_id)),
+                    focus: self.root_id,
+                    tree_id: accesskit::TreeId::ROOT,
+                }
+            } else {
+                parked.unwrap_or_else(|| patch_of(self.handed_focus.unwrap_or(self.root_id)))
+            }
+        } else if full {
+            self.full_tree()
+        } else {
+            parked.unwrap_or_else(|| patch_of(self.retained.focus.unwrap_or(self.root_id)))
+        };
+        self.handed_focus = Some(update.focus);
+        update
     }
 
     /// A scroll offset changed: bounds and `scroll_x/y` in the delivered tree
@@ -1271,6 +1412,7 @@ impl A11yManager {
             language,
             language_is_rtl,
             translate: None,
+            dom_generations: None,
         };
         let mut retained = A11yRetainedTree::default();
         drop(Self::rebuild_retained(&mut retained, root_id, &inputs));
@@ -1344,8 +1486,34 @@ impl A11yManager {
         // `is_exposed_to_accessibility`). Known for every dom before any
         // node is placed: a virtual view's content hangs off the element
         // around its view, in another dom.
+        //
+        // A DOM that is still the one the last pass walked (the same
+        // generation) has the flags it had: they are taken from what that
+        // pass kept. `memos` holds only such DOMs from here on.
+        // (Without generations nothing is kept and no key is made: the
+        // pass is the walk of every DOM it always was.)
+        let replay_key = if inputs.dom_generations.is_some() {
+            Self::replay_key(inputs)
+        } else {
+            0
+        };
+        let mut memos = core::mem::take(&mut retained.doms);
+        if inputs.dom_generations.is_none() || retained.replay_key != replay_key {
+            memos.clear();
+        }
+        retained.replay_key = replay_key;
+        let generation_of =
+            |dom_id: &DomId| inputs.dom_generations.and_then(|g| g.get(dom_id).copied());
+        memos.retain(|dom_id, memo| {
+            inputs.layout_results.contains_key(dom_id)
+                && generation_of(dom_id) == Some(memo.generation)
+        });
         let mut exposed_by_dom: BTreeMap<DomId, Vec<bool>> = BTreeMap::new();
         for (dom_id, layout_result) in inputs.layout_results {
+            if let Some(memo) = memos.get_mut(dom_id) {
+                exposed_by_dom.insert(*dom_id, core::mem::take(&mut memo.exposed));
+                continue;
+            }
             let rendered = rendered_nodes(layout_result);
             let exposed = layout_result
                 .styled_dom
@@ -1369,6 +1537,16 @@ impl A11yManager {
         // Lists that took a node of another dom (a virtual view's content):
         // sorted into reading order below.
         let mut mixed_parents: Vec<A11yNodeId> = Vec::new();
+        // Each node's own origin in the window (physical px) and its
+        // accessible parent, filled as the entries are made (see below
+        // where they are read).
+        let hidpi = f64::from(inputs.hidpi_factor);
+        let mut own_origin: A11yIdMap<(f64, f64)> = A11yIdMap::default();
+        let mut parent_of_entry: A11yIdMap<Option<A11yNodeId>> = A11yIdMap::default();
+        // The doms in document order: the entries a walk of the dom made,
+        // or `None` for a dom that is replayed from its last walk.
+        let mut plan: Vec<(DomId, Option<core::ops::Range<usize>>)> = Vec::new();
+        let mut replayed_doms: BTreeSet<DomId> = BTreeSet::new();
         for (dom_id, layout_result) in inputs.layout_results {
             let node_hierarchy = layout_result.styled_dom.node_hierarchy.as_ref();
             let Some(exposed) = exposed_by_dom.get(dom_id) else {
@@ -1378,6 +1556,54 @@ impl A11yManager {
             // virtual view's content is laid out from its own origin and
             // composited at its view (zero for the window's own dom).
             let dom_origin = inputs.scroll_manager.dom_window_origin(*dom_id);
+            // The node of another dom this dom's top-level nodes hang off.
+            let host_parent = Self::host_parent(
+                *dom_id,
+                inputs.nested_dom_hosts,
+                &exposed_by_dom,
+                inputs.layout_results,
+            );
+
+            // REPLAY. Everything a node of this dom is built from is either
+            // the dom's (nodes, hierarchy, boxes, positions: the generation,
+            // checked above), the same for every dom (`replay_key`), or one
+            // of: a text override or the caret in this dom (`edited`), where
+            // the dom starts in the window, which node its top-level nodes
+            // hang off and where that node is. When none of them moved, a
+            // walk would find every node's inputs equal to the retained
+            // ones and only mark it seen: the nodes are put back from what
+            // the last walk kept, in the same order, under the same parents.
+            let edited = inputs.cursor_info.is_some_and(|c| c.dom_id == *dom_id)
+                || inputs
+                    .dirty_text_overrides
+                    .range((*dom_id, NodeId::new(0))..)
+                    .next()
+                    .is_some_and(|((dom, _), _)| dom == dom_id);
+            let origin_bits = (dom_origin.x.to_bits(), dom_origin.y.to_bits());
+            // Known only when the host's dom was walked earlier in this
+            // pass and the host has a box.
+            let host_space = host_parent
+                .and_then(|host| own_origin.get(&host))
+                .map(|origin| (origin.0.to_bits(), origin.1.to_bits()));
+            let replay = memos.get(dom_id).is_some_and(|memo| {
+                !edited
+                    && !memo.edited
+                    && memo.origin == origin_bits
+                    && memo.host_parent == host_parent
+                    && host_parent.is_none_or(|host| {
+                        // A replayed host has every node where it was; a
+                        // walked one has to show the host where it was.
+                        replayed_doms.contains(&decode_a11y_node_id(host).0)
+                            || (host_space.is_some() && host_space == memo.host_space)
+                    })
+            });
+            if replay {
+                replayed_doms.insert(*dom_id);
+                plan.push((*dom_id, None));
+                continue;
+            }
+            memos.remove(dom_id);
+            let first_entry = entries.len();
             // Every box chain of this dom in one linear pass - see
             // `ancestor_scroll_offset`. Without a scroll id no frame moves
             // anything, and there is nothing to resolve.
@@ -1443,23 +1669,80 @@ impl A11yManager {
                         .and_then(NodeHierarchyItem::parent_id);
                 }
                 if parent.is_none() {
-                    parent = Self::host_parent(
-                        *dom_id,
-                        inputs.nested_dom_hosts,
-                        &exposed_by_dom,
-                        inputs.layout_results,
-                    );
+                    parent = host_parent;
                     if let Some(host) = parent {
                         mixed_parents.push(host);
                     }
                 }
+                let id = Self::encode_a11y_node_id(dom_id.inner, dom_idx);
+                if let Some((_, Some(pos))) = layout_info {
+                    let origin = (f64::from(pos.x) * hidpi, f64::from(pos.y) * hidpi);
+                    if origin.0.is_finite() && origin.1.is_finite() {
+                        own_origin.insert(id, origin);
+                    }
+                }
+                parent_of_entry.insert(id, parent);
                 entries.push(ExposedEntry {
                     dom_id: *dom_id,
                     dom_idx,
-                    id: Self::encode_a11y_node_id(dom_id.inner, dom_idx),
+                    id,
                     parent,
                     layout_info,
                 });
+            }
+            plan.push((*dom_id, Some(first_entry..entries.len())));
+            // What a later pass replays this dom from.
+            if let Some(generation) = generation_of(dom_id) {
+                let kept = entries[first_entry..]
+                    .iter()
+                    .map(|e| RetainedA11yEntry {
+                        id: e.id,
+                        parent: e.parent,
+                        hosted: e.parent.is_some_and(|p| decode_a11y_node_id(p).0 != *dom_id),
+                        origin: own_origin.get(&e.id).copied(),
+                    })
+                    .collect();
+                memos.insert(
+                    *dom_id,
+                    RetainedA11yDom {
+                        generation,
+                        origin: origin_bits,
+                        edited,
+                        host_parent,
+                        host_space,
+                        exposed: Vec::new(),
+                        entries: kept,
+                    },
+                );
+            }
+        }
+        // A walked dom under a replayed host places its top-level nodes
+        // against the host's boxes: the origins and parents the host's last
+        // walk found are put back for it (and its host's, and so on up).
+        if !replayed_doms.is_empty() {
+            let mut put_back: BTreeSet<DomId> = BTreeSet::new();
+            for (dom_id, walked) in &plan {
+                if walked.is_none() {
+                    continue;
+                }
+                let mut dom = *dom_id;
+                // Views nest a handful deep; a host map that loops must not hang.
+                for _ in 0..64 {
+                    let Some(&(host_dom, _)) = inputs.nested_dom_hosts.get(&dom) else {
+                        break;
+                    };
+                    if replayed_doms.contains(&host_dom) && put_back.insert(host_dom) {
+                        if let Some(memo) = memos.get(&host_dom) {
+                            for e in &memo.entries {
+                                if let Some(origin) = e.origin {
+                                    own_origin.insert(e.id, origin);
+                                }
+                                parent_of_entry.insert(e.id, e.parent);
+                            }
+                        }
+                    }
+                    dom = host_dom;
+                }
             }
         }
 
@@ -1471,18 +1754,7 @@ impl A11yManager {
         // the list's container, not every row of it. With window-space
         // bounds every node under a moving box was a changed node, and the
         // macOS adapter walks each one's ancestors.
-        let hidpi = f64::from(inputs.hidpi_factor);
-        let own_origin: A11yIdMap<(f64, f64)> = entries
-            .iter()
-            .filter_map(|e| {
-                let (_, pos) = e.layout_info?;
-                let pos = pos?;
-                let origin = (f64::from(pos.x) * hidpi, f64::from(pos.y) * hidpi);
-                (origin.0.is_finite() && origin.1.is_finite()).then_some((e.id, origin))
-            })
-            .collect();
-        let parent_of_entry: A11yIdMap<Option<A11yNodeId>> =
-            entries.iter().map(|e| (e.id, e.parent)).collect();
+        // (`own_origin` and `parent_of_entry` were filled with the entries.)
         // The origin of a node's space: its own box's, else (no box) its
         // parent's - the root window's is the window's top-left.
         let space_origin = |id: Option<A11yNodeId>| -> (f64, f64) {
@@ -1503,88 +1775,114 @@ impl A11yManager {
 
         let mut current_dom: Option<DomId> = None;
         let mut labels: BTreeMap<usize, String> = BTreeMap::new();
-        for entry in &entries {
-            let Some(layout_result) = inputs.layout_results.get(&entry.dom_id) else {
-                continue;
-            };
-            let styled_dom = &layout_result.styled_dom;
-            let node_data_slice = styled_dom.node_data.as_ref();
-            let node_hierarchy = styled_dom.node_hierarchy.as_ref();
-            if current_dom != Some(entry.dom_id) {
-                current_dom = Some(entry.dom_id);
-                labels = label_texts(node_data_slice, node_hierarchy);
-            }
-            let Some(node_data) = node_data_slice.get(entry.dom_idx) else {
-                continue;
-            };
-            let (dom_id, dom_idx, a11y_node_id) = (entry.dom_id, entry.dom_idx, entry.id);
-            let dom_node_id = NodeId::new(dom_idx);
-            let layout_info = entry.layout_info;
-            let placement = own_origin.get(&a11y_node_id).map(|origin| {
-                let parent = space_origin(entry.parent);
-                A11yPlacement {
-                    bounds: layout_info.and_then(|(hot, _)| {
-                        Self::screen_bounds(hot, Some(LogicalPosition::zero()), inputs.hidpi_factor)
-                    }),
-                    offset: (
-                        quantize_a11y_offset(origin.0 - parent.0),
-                        quantize_a11y_offset(origin.1 - parent.1),
-                    ),
+        let walked = entries.len();
+        let mut replayed = 0usize;
+        for (plan_dom, walked_entries) in &plan {
+            let Some(walked_entries) = walked_entries else {
+                // Replayed: each node as the last walk of its dom left it.
+                let kept = memos.get(plan_dom).map_or(&[][..], |memo| memo.entries.as_slice());
+                for e in kept {
+                    let Some(r) = retained.nodes.get_mut(&e.id) else {
+                        continue;
+                    };
+                    r.seen = pass;
+                    replayed += 1;
+                    order.push(e.id);
+                    match e.parent {
+                        Some(parent_id) => {
+                            parent_children_map.entry(parent_id).or_default().push(e.id);
+                            if e.hosted {
+                                mixed_parents.push(parent_id);
+                            }
+                        }
+                        None => root_children.push(e.id),
+                    }
                 }
-            });
-            let scroll_info = inputs.scroll_manager.a11y_scroll_info(dom_id, dom_node_id);
-            let text_override = inputs.dirty_text_overrides.get(&(dom_id, dom_node_id));
-            let cursor = inputs
-                .cursor_info
-                .filter(|ci| ci.dom_id == dom_id && ci.node_id == dom_node_id);
-            let label = labels.get(&dom_idx).map(String::as_str);
-            let node_inputs = Self::node_signature(
-                node_data,
-                node_data_slice,
-                node_hierarchy,
-                dom_idx,
-                layout_info.is_some(),
-                placement,
-                scroll_info,
-                text_override,
-                cursor.as_ref(),
-                inputs.language,
-                label,
-            );
+                continue;
+            };
+            for entry in &entries[walked_entries.clone()] {
+                let Some(layout_result) = inputs.layout_results.get(&entry.dom_id) else {
+                    continue;
+                };
+                let styled_dom = &layout_result.styled_dom;
+                let node_data_slice = styled_dom.node_data.as_ref();
+                let node_hierarchy = styled_dom.node_hierarchy.as_ref();
+                if current_dom != Some(entry.dom_id) {
+                    current_dom = Some(entry.dom_id);
+                    labels = label_texts(node_data_slice, node_hierarchy);
+                }
+                let Some(node_data) = node_data_slice.get(entry.dom_idx) else {
+                    continue;
+                };
+                let (dom_id, dom_idx, a11y_node_id) = (entry.dom_id, entry.dom_idx, entry.id);
+                let dom_node_id = NodeId::new(dom_idx);
+                let layout_info = entry.layout_info;
+                let placement = own_origin.get(&a11y_node_id).map(|origin| {
+                    let parent = space_origin(entry.parent);
+                    A11yPlacement {
+                        bounds: layout_info.and_then(|(hot, _)| {
+                            Self::screen_bounds(hot, Some(LogicalPosition::zero()), inputs.hidpi_factor)
+                        }),
+                        offset: (
+                            quantize_a11y_offset(origin.0 - parent.0),
+                            quantize_a11y_offset(origin.1 - parent.1),
+                        ),
+                    }
+                });
+                let scroll_info = inputs.scroll_manager.a11y_scroll_info(dom_id, dom_node_id);
+                let text_override = inputs.dirty_text_overrides.get(&(dom_id, dom_node_id));
+                let cursor = inputs
+                    .cursor_info
+                    .filter(|ci| ci.dom_id == dom_id && ci.node_id == dom_node_id);
+                let label = labels.get(&dom_idx).map(String::as_str);
+                let node_inputs = Self::node_signature(
+                    node_data,
+                    node_data_slice,
+                    node_hierarchy,
+                    dom_idx,
+                    layout_info.is_some(),
+                    placement,
+                    scroll_info,
+                    text_override,
+                    cursor.as_ref(),
+                    inputs.language,
+                    label,
+                );
 
-            order.push(a11y_node_id);
-            Self::retain_or_build(
-                retained,
-                pass,
-                a11y_node_id,
-                node_inputs,
-                &mut rebuilt,
-                &mut built,
-                || {
-                    Self::build_content(
-                        a11y_node_id,
-                        node_data,
-                        node_data_slice,
-                        node_hierarchy,
-                        dom_idx,
-                        layout_info,
-                        placement,
-                        scroll_info,
-                        text_override,
-                        cursor.as_ref(),
-                        inputs.hidpi_factor,
-                        inputs.translate,
-                        label,
-                    )
-                },
-            );
+                order.push(a11y_node_id);
+                Self::retain_or_build(
+                    retained,
+                    pass,
+                    a11y_node_id,
+                    node_inputs,
+                    &mut rebuilt,
+                    &mut built,
+                    || {
+                        Self::build_content(
+                            a11y_node_id,
+                            node_data,
+                            node_data_slice,
+                            node_hierarchy,
+                            dom_idx,
+                            layout_info,
+                            placement,
+                            scroll_info,
+                            text_override,
+                            cursor.as_ref(),
+                            inputs.hidpi_factor,
+                            inputs.translate,
+                            label,
+                        )
+                    },
+                );
 
-            match entry.parent {
-                Some(parent_id) => parent_children_map
-                    .entry(parent_id)
-                    .or_default()
-                    .push(a11y_node_id),
-                None => root_children.push(a11y_node_id),
+                match entry.parent {
+                    Some(parent_id) => parent_children_map
+                        .entry(parent_id)
+                        .or_default()
+                        .push(a11y_node_id),
+                    None => root_children.push(a11y_node_id),
+                }
             }
         }
         for parent in mixed_parents {
@@ -1678,13 +1976,54 @@ impl A11yManager {
         let focus_changed = retained.focus != Some(focus);
         retained.focus = Some(focus);
         retained.order = order;
+        // What the next pass replays from: each dom kept gets its exposure
+        // flags back (a replayed dom's were lent to this pass, a walked
+        // dom's were made by it).
+        for (dom_id, memo) in &mut memos {
+            if let Some(exposed) = exposed_by_dom.remove(dom_id) {
+                memo.exposed = exposed;
+            }
+        }
+        retained.doms = memos;
 
         A11yRebuild {
             changed,
             built,
             removed,
             focus_changed,
+            walked,
+            replayed,
         }
+    }
+
+    /// What a replayed dom's nodes depend on that is not the dom's own and
+    /// not checked per dom in [`Self::rebuild_retained`]: the pixel factor
+    /// (bounds), the language and whether there are translations (names),
+    /// and every scroll node's offset and travel (a node's place under its
+    /// scroll frames, its scroll state). A pass that finds another value
+    /// than the last one walks every dom.
+    fn replay_key(inputs: &A11yTreeInputs<'_>) -> u64 {
+        use core::hash::Hash;
+
+        let mut h = azul_core::hash::FastHasher::new();
+        inputs.hidpi_factor.to_bits().hash(&mut h);
+        inputs.language.hash(&mut h);
+        inputs.language_is_rtl.hash(&mut h);
+        inputs.translate.is_some().hash(&mut h);
+        inputs.scroll_manager.offsets_fingerprint().hash(&mut h);
+        for (dom_id, node_id) in inputs.scroll_manager.state_keys() {
+            if let Some((offset, max_x, max_y)) =
+                inputs.scroll_manager.a11y_scroll_info(dom_id, node_id)
+            {
+                dom_id.inner.hash(&mut h);
+                node_id.index().hash(&mut h);
+                offset.x.to_bits().hash(&mut h);
+                offset.y.to_bits().hash(&mut h);
+                max_x.to_bits().hash(&mut h);
+                max_y.to_bits().hash(&mut h);
+            }
+        }
+        Self::finish_signature(&h)
     }
 
     /// The element the top-level nodes of a virtual view's dom hang off:
@@ -4682,6 +5021,7 @@ mod retained_tree_tests {
             language: "",
             language_is_rtl: false,
             translate: None,
+            dom_generations: None,
         };
         let _ = m.refresh(&inputs);
         m.take_pending()
@@ -4779,6 +5119,7 @@ mod retained_tree_tests {
             language: "",
             language_is_rtl: false,
             translate: None,
+            dom_generations: None,
         }
     }
 

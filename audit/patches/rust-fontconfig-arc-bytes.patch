@@ -1,0 +1,281 @@
+diff -ru a/src/ffi.rs b/src/ffi.rs
+--- a/src/ffi.rs	2026-11-21 03:37:31
++++ b/src/ffi.rs	2026-11-21 03:42:31
+@@ -1233,7 +1233,7 @@
+                 memory_fonts.push((
+                     pattern,
+                     FcFont {
+-                        bytes,
++                        bytes: bytes.into(),
+                         font_index: font.font_index,
+                         id: font_id,
+                     },
+diff -ru a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs	2026-11-21 03:37:31
++++ b/src/lib.rs	2026-11-21 03:42:31
+@@ -1020,10 +1020,16 @@
+ }
+ 
+ /// In-memory font data.
++///
++/// The bytes are shared: a memory font is cloned whenever it is looked up
++/// ([`FcFontCache::get_font_by_id`], [`FcFontCache::get_memory_font`]) and handed
++/// out by [`FcFontCache::get_font_bytes`], and with a `Vec<u8>` each of those
++/// copied the whole font. A `Vec<u8>` or a `&[u8]` becomes one with `.into()`
++/// (`Arc::from`).
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ #[repr(C)]
+ pub struct FcFont {
+-    pub bytes: Vec<u8>,
++    pub bytes: alloc::sync::Arc<[u8]>,
+     pub font_index: usize,
+     pub id: String, // For identification in tests
+ }
+@@ -1572,7 +1578,7 @@
+         use std::sync::Arc;
+         match self.get_font_by_id(id)? {
+             OwnedFontSource::Memory(font) => {
+-                Some(Arc::new(FontBytes::Owned(Arc::from(font.bytes.as_slice()))))
++                Some(Arc::new(FontBytes::Owned(Arc::clone(&font.bytes))))
+             }
+             OwnedFontSource::Disk(path) => {
+                 let hash = path.bytes_hash;
+@@ -3278,12 +3284,27 @@
+     FcParseFontBytesInner(font_bytes, font_id)
+ }
+ 
++/// The patterns of the faces of `font_bytes`, as [`FcParseFontBytes`] makes
++/// them, without the font records: for a caller that wants a face's coverage
++/// or style and holds the bytes itself. Copies none of the bytes.
++#[cfg(all(feature = "std", feature = "parsing"))]
++#[allow(non_snake_case)]
++pub fn FcParseFontPatterns(font_bytes: &[u8]) -> Option<Vec<FcPattern>> {
++    Some(
++        parse_font_faces(font_bytes)?
++            .into_iter()
++            .map(|face| face.pattern)
++            .collect(),
++    )
++}
++
+ /// Internal implementation for parsing font bytes.
+ #[cfg(all(feature = "std", feature = "parsing"))]
+ fn FcParseFontBytesInner(font_bytes: &[u8], font_id: &str) -> Option<Vec<(FcPattern, FcFont)>> {
+     let faces = parse_font_faces(font_bytes)?;
+     let id = font_id.to_string();
+-    let bytes = font_bytes.to_vec();
++    // One copy for all the faces of a collection (each record shares it).
++    let bytes: alloc::sync::Arc<[u8]> = alloc::sync::Arc::from(font_bytes);
+ 
+     Some(
+         faces
+@@ -3292,7 +3313,7 @@
+                 (
+                     face.pattern,
+                     FcFont {
+-                        bytes: bytes.clone(),
++                        bytes: alloc::sync::Arc::clone(&bytes),
+                         font_index: face.font_index,
+                         id: id.clone(),
+                     },
+diff -ru a/tests/issue_26_unicode_fallback_ranking.rs b/tests/issue_26_unicode_fallback_ranking.rs
+--- a/tests/issue_26_unicode_fallback_ranking.rs	2026-11-21 03:37:31
++++ b/tests/issue_26_unicode_fallback_ranking.rs	2026-11-21 03:42:31
+@@ -32,7 +32,7 @@
+         ..Default::default()
+     };
+     let font = FcFont {
+-        bytes: vec![0, 1, 2, 3],
++        bytes: vec![0, 1, 2, 3].into(),
+         font_index: 0,
+         id: family.to_string(),
+     };
+diff -ru a/tests/tests.rs b/tests/tests.rs
+--- a/tests/tests.rs	2026-11-21 03:37:31
++++ b/tests/tests.rs	2026-11-21 03:42:54
+@@ -159,19 +159,19 @@
+ fn test_unicode_range_matching() {
+     // Create mock fonts with different Unicode ranges
+     let latin_font = FcFont {
+-        bytes: vec![0, 1, 2, 3], // Dummy data
++        bytes: vec![0, 1, 2, 3].into(), // Dummy data
+         font_index: 0,
+         id: "latin-font".to_string(),
+     };
+ 
+     let cyrillic_font = FcFont {
+-        bytes: vec![4, 5, 6, 7], // Dummy data
++        bytes: vec![4, 5, 6, 7].into(), // Dummy data
+         font_index: 0,
+         id: "cyrillic-font".to_string(),
+     };
+ 
+     let cjk_font = FcFont {
+-        bytes: vec![8, 9, 10, 11], // Dummy data
++        bytes: vec![8, 9, 10, 11].into(), // Dummy data
+         font_index: 0,
+         id: "cjk-font".to_string(),
+     };
+@@ -338,13 +338,13 @@
+ fn test_weight_matching() {
+     // Create fonts with different weights
+     let normal_font = FcFont {
+-        bytes: vec![0, 1, 2, 3],
++        bytes: vec![0, 1, 2, 3].into(),
+         font_index: 0,
+         id: "normal-font".to_string(),
+     };
+ 
+     let bold_font = FcFont {
+-        bytes: vec![4, 5, 6, 7],
++        bytes: vec![4, 5, 6, 7].into(),
+         font_index: 0,
+         id: "bold-font".to_string(),
+     };
+@@ -482,7 +482,7 @@
+ fn test_trace_messages() {
+     // Create a simple font cache with one font
+     let test_font = FcFont {
+-        bytes: vec![0, 1, 2, 3],
++        bytes: vec![0, 1, 2, 3].into(),
+         font_index: 0,
+         id: "test-font".to_string(),
+     };
+@@ -610,7 +610,7 @@
+                 ..Default::default()
+             },
+             FcFont {
+-                bytes: vec![1, 2, 3, 4],
++                bytes: vec![1, 2, 3, 4].into(),
+                 font_index: 0,
+                 id: "arial-regular".to_string(),
+             },
+@@ -630,7 +630,7 @@
+                 ..Default::default()
+             },
+             FcFont {
+-                bytes: vec![5, 6, 7, 8],
++                bytes: vec![5, 6, 7, 8].into(),
+                 font_index: 0,
+                 id: "arial-bold".to_string(),
+             },
+@@ -650,7 +650,7 @@
+                 ..Default::default()
+             },
+             FcFont {
+-                bytes: vec![9, 10, 11, 12],
++                bytes: vec![9, 10, 11, 12].into(),
+                 font_index: 0,
+                 id: "courier-new".to_string(),
+             },
+@@ -669,7 +669,7 @@
+                 ..Default::default()
+             },
+             FcFont {
+-                bytes: vec![13, 14, 15, 16],
++                bytes: vec![13, 14, 15, 16].into(),
+                 font_index: 0,
+                 id: "fira-code".to_string(),
+             },
+@@ -695,7 +695,7 @@
+                 ..Default::default()
+             },
+             FcFont {
+-                bytes: vec![17, 18, 19, 20],
++                bytes: vec![17, 18, 19, 20].into(),
+                 font_index: 0,
+                 id: "noto-sans-cjk".to_string(),
+             },
+@@ -873,7 +873,7 @@
+         ..Default::default()
+     };
+     let font = FcFont {
+-        bytes: font_bytes,
++        bytes: font_bytes.into(),
+         font_index: 0,
+         id: "bundled-serif".to_string(),
+     };
+@@ -918,7 +918,7 @@
+     cache.with_memory_fonts(vec![(
+         installed.clone(),
+         FcFont {
+-            bytes: vec![0, 1, 2, 3],
++            bytes: vec![0, 1, 2, 3].into(),
+             font_index: 0,
+             id: "only-font".to_string(),
+         },
+@@ -1026,7 +1026,7 @@
+     cache.with_memory_fonts(vec![(
+         pattern.clone(),
+         FcFont {
+-            bytes: font_bytes,
++            bytes: font_bytes.into(),
+             font_index: 0,
+             id: "instrument".to_string(),
+         },
+@@ -1165,7 +1165,7 @@
+ #[test]
+ fn a_family_lookup_finds_its_faces_and_misses_cheaply() {
+     let mk = |id: &str| FcFont {
+-        bytes: vec![0, 1, 2, 3],
++        bytes: vec![0, 1, 2, 3].into(),
+         font_index: 0,
+         id: id.to_string(),
+     };
+@@ -1471,7 +1471,7 @@
+             ..Default::default()
+         },
+         FcFont {
+-            bytes: vec![0],
++            bytes: vec![0].into(),
+             font_index: 0,
+             id: "messy".to_string(),
+         },
+@@ -1542,7 +1542,7 @@
+     assert_eq!(cache.lookup_paths_cached("/fonts/none.ttf"), None);
+ 
+     let font = |bytes: &[u8]| FcFont {
+-        bytes: bytes.to_vec(),
++        bytes: bytes.into(),
+         font_index: 0,
+         id: "mem".to_string(),
+     };
+@@ -1586,4 +1586,38 @@
+ 
+     assert_eq!(files.len(), 1, "{files:?}");
+     assert!(files[0].ends_with("one.ttf"));
++}
++
++/// `FcFont.bytes` is shared: a lookup of a memory font (`get_font_by_id`) and
++/// the bytes it hands out (`get_font_bytes`) are the registered allocation,
++/// not copies of the font.
++#[test]
++fn a_memory_fonts_bytes_are_shared_not_copied() {
++    let bytes: std::sync::Arc<[u8]> = vec![7u8; 4096].into();
++    let cache = FcFontCache::default();
++    let id = FontId::new();
++    let pattern = FcPattern {
++        name: Some("Shared Bytes".to_string()),
++        family: Some("Shared Bytes".to_string()),
++        unicode_ranges: vec![UnicodeRange { start: 0x41, end: 0x5A }],
++        ..Default::default()
++    };
++    let font = FcFont {
++        bytes: bytes.clone(),
++        font_index: 0,
++        id: "shared".to_string(),
++    };
++    cache.with_memory_font_with_id(id, pattern, font);
++    let Some(OwnedFontSource::Memory(found)) = cache.get_font_by_id(&id) else {
++        panic!("a memory font");
++    };
++    assert!(std::sync::Arc::ptr_eq(&found.bytes, &bytes), "the lookup shares the bytes");
++    let handed = cache.get_font_bytes(&id).expect("its bytes");
++    match &*handed {
++        FontBytes::Owned(owned) => {
++            assert!(std::sync::Arc::ptr_eq(owned, &bytes), "the handed-out bytes are shared")
++        }
++        #[allow(unreachable_patterns)]
++        _ => panic!("a memory font's bytes are owned"),
++    }
+ }

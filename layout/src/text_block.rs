@@ -385,8 +385,21 @@ impl TextTarget {
         point: WindowPoint,
     ) -> Option<ScrolledContentPoint> {
         let dom = self.block.dom();
-        let host = window.window_space_offset_of_dom(dom);
-        let in_dom = LogicalPosition::new(point.x() - host.x, point.y() - host.y);
+        // Back through the frames the dom's view is painted in (a host that
+        // scales or turns the view: `headless::window_point_to_nested_dom`,
+        // audit A6-07); the dom's origin subtracted where there is no such
+        // answer (the window's own dom).
+        let in_dom = crate::headless::window_point_to_nested_dom(
+            &window.layout_results,
+            dom,
+            LogicalPosition::new(point.x(), point.y()),
+            &|d, n| window.scroll_manager.get_current_offset(d, n),
+            &|d, n| window.painted_transform_of(d, n),
+        )
+        .unwrap_or_else(|| {
+            let host = window.window_space_offset_of_dom(dom);
+            LogicalPosition::new(point.x() - host.x, point.y() - host.y)
+        });
         window.window_point_to_ifc_local(dom, self.layout_index.index(), in_dom)
     }
 }
