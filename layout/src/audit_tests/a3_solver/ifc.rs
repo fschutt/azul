@@ -58,3 +58,30 @@ fn a_reused_label_reports_its_lines_without_expanding_them() {
         "{reuses} reuses of stored lines expanded their dense view {expansions} times"
     );
 }
+
+/// A3-solver-23. Collecting a text for its lines runs the white-space processing on it
+/// (`fc::white_space_runs`): a split at forced breaks, the segment break transform, the
+/// collapsing and the trimmed ends, about a dozen allocations for the ten characters of a
+/// label - which come out as they went in. A text the processing leaves as it is
+/// (`fc::is_collapsed_plain_text`) becomes its run directly.
+///
+/// Mutation: `is_collapsed_plain_text` answering `false` (no fast path) sends every label
+/// through the general processing.
+#[test]
+fn plain_labels_skip_the_white_space_processing() {
+    use crate::solver3::fc::{WHITE_SPACE_GENERAL_RUNS, WHITE_SPACE_RUNS};
+    let mut lw = window();
+    WHITE_SPACE_RUNS.with(|n| n.set(0));
+    WHITE_SPACE_GENERAL_RUNS.with(|n| n.set(0));
+    lay_out(&mut lw, layer_of_absolute_spans(300));
+    let asked = WHITE_SPACE_RUNS.with(std::cell::Cell::get);
+    let general = WHITE_SPACE_GENERAL_RUNS.with(std::cell::Cell::get);
+    assert!(
+        asked >= 300,
+        "harness: the text of each of the 300 labels was collected ({asked})"
+    );
+    assert!(
+        general <= 4,
+        "{general} of {asked} plain label texts went through the whole white-space processing"
+    );
+}
