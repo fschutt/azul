@@ -29,6 +29,49 @@ pub const DEFAULT_FONT_SIZE: f32 = 16.0;
 /// Conversion factor from points to pixels (1pt = 1/72 inch, 1in = 96px, therefore 1pt = 96/72 px)
 pub const PT_TO_PX: f32 = 96.0 / 72.0;
 
+/// CSS px per inch (CSS Values 3, section 5.2: `1in = 96px`).
+pub const IN_TO_PX: f32 = 96.0;
+
+/// Centimetres per inch (`1in = 2.54cm`).
+pub const CM_PER_IN: f32 = 2.54;
+
+/// Millimetres per inch (`1in = 25.4mm`).
+pub const MM_PER_IN: f32 = 25.4;
+
+/// The px of `number` units of an ABSOLUTE length unit (CSS Values 3,
+/// section 5.2): `1in = 96px`, `1cm = 96px / 2.54`, `1mm = 96px / 25.4`,
+/// `1pt = 96px / 72`. `None` for a unit that needs a context (a font size, a
+/// containing block, a viewport).
+///
+/// THE conversion of the absolute units for the cascade (`prop_cache.rs`)
+/// and the compact cache (`compact.rs`), which both call it: a font size is
+/// one number of px whichever of the two a reader asks. The factors are the
+/// ones [`PixelValue::to_pixels_internal`] and
+/// [`PixelValue::resolve_with_context`] spell out, in the same order of
+/// operations (bit-identical results). The match names every unit: a new
+/// `SizeMetric` does not compile until it is given an answer here. (The pica
+/// and the quarter-millimetre have no `SizeMetric`: the parser stores them
+/// as the points and millimetres they are an exact multiple of,
+/// `parse_pixel_value_inner`.)
+#[inline]
+#[must_use]
+pub fn absolute_length_to_px(metric: SizeMetric, number: f32) -> Option<f32> {
+    match metric {
+        SizeMetric::Px => Some(number),
+        SizeMetric::Pt => Some(number * PT_TO_PX),
+        SizeMetric::In => Some(number * IN_TO_PX),
+        SizeMetric::Cm => Some(number * IN_TO_PX / CM_PER_IN),
+        SizeMetric::Mm => Some(number * IN_TO_PX / MM_PER_IN),
+        SizeMetric::Em
+        | SizeMetric::Rem
+        | SizeMetric::Percent
+        | SizeMetric::Vw
+        | SizeMetric::Vh
+        | SizeMetric::Vmin
+        | SizeMetric::Vmax => None,
+    }
+}
+
 /// A normalized percentage value (0.0 = 0%, 1.0 = 100%)
 ///
 /// This type prevents double-division bugs by making it explicit that the value
@@ -563,6 +606,14 @@ impl PixelValue {
         }
     }
 
+    /// The px of a length in an absolute unit (px, pt, in, cm, mm), `None`
+    /// for one that needs a context: [`absolute_length_to_px`].
+    #[inline]
+    #[must_use]
+    pub fn absolute_px(&self) -> Option<f32> {
+        absolute_length_to_px(self.metric, self.number.get())
+    }
+
     /// Internal fallback method for converting to pixels with manual % resolution.
     ///
     /// Used internally by prop_cache.rs resolve_property_dependency().
@@ -919,6 +970,29 @@ fn parse_pixel_value_inner<'a>(
                     Err(e) => Err(CssPixelValueParseError::ValueParseErr(e, value)),
                 };
             }
+        }
+    }
+
+    // The absolute units without a `SizeMetric` of their own (CSS Values 3,
+    // section 5.2): the pica, `1pc = 12pt`, and the quarter-millimetre,
+    // `1Q = 0.25mm`. Each is kept as the unit it is an exact multiple of,
+    // wherever the caller accepts that unit (`6pc` is `72pt`, 96 px). They
+    // used to be no length at all: the declaration was dropped. Only a
+    // number in front of the unit makes it one; anything else keeps the
+    // error it had.
+    for (unit, metric, factor) in [
+        ("pc", SizeMetric::Pt, 12.0_f32),
+        ("Q", SizeMetric::Mm, 0.25_f32),
+        ("q", SizeMetric::Mm, 0.25_f32),
+    ] {
+        if !match_values.iter().any(|(_, m)| *m == metric) {
+            continue;
+        }
+        if let Some(Ok(number)) = input
+            .strip_suffix(unit)
+            .map(|value| value.trim().parse::<f32>())
+        {
+            return Ok(PixelValue::from_metric(metric, number * factor));
         }
     }
 
