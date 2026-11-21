@@ -460,9 +460,23 @@ fn a_hover_over_one_label_of_many_touches_that_labels_items_alone() {
     lw.frame_report.reset_counters();
 
     // Label 201 (201 % 3 == 0: no background of its own).
+    let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
     let hovered = hover(&mut lw, child, 201, true);
     assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built");
     assert_eq!(lw.frame_report.dl_node_patches, 1, "one patch");
+    // A3-window-38: patched where it lies. The view's own solver cache holds the list too,
+    // and lets go of it for the patch; it was copied whole the first time after every pass.
+    assert!(
+        core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&child].display_list)),
+        "the view's list is the allocation it was"
+    );
+    assert!(
+        lw.child_layout_caches[&child]
+            .cached_display_list
+            .as_ref()
+            .is_none_or(|cached| Arc::ptr_eq(&cached.5, &lw.layout_results[&child].display_list)),
+        "and the view's solver cache holds the patched list, not the one before the patch"
+    );
     assert_eq!(hovered.len(), before.len() + 1, "one item more: the hover colour");
     let at = hovered
         .iter()
@@ -480,9 +494,125 @@ fn a_hover_over_one_label_of_many_touches_that_labels_items_alone() {
     assert_eq!(&hovered[..at], &before[..at], "the items before it are untouched");
     assert_eq!(&hovered[at + 1..], &before[at..], "the items behind it moved by one, unchanged");
 
+    // The leave (A4-23): the item put in was bound to a colour key of the label, and the
+    // colour going is that key's value. No list is built or patched for it; the list keeps
+    // the rect, which paints nothing now, and is painted as it was before the hover.
     let left = hover(&mut lw, child, 201, false);
     assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built for the leave either");
-    assert_eq!(left, before, "the list is the one it was before the hover");
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "nor patched: the leave is a value");
+    assert_eq!(left, hovered, "the list holds the items it held");
+    assert_eq!(painted_lines(&lw, child), before, "and is painted as before the hover");
+}
+
+/// The list of `dom` as the renderers paint it: a rect bound to a colour key in the key's
+/// value (`GpuValueCache::for_each_bound_color`), left out where that value is see-through
+/// (both renderers paint nothing for it); every other item as it is.
+fn painted_lines(lw: &LayoutWindow, dom: DomId) -> Vec<String> {
+    let list = &lw.layout_results[&dom].display_list;
+    let mut values: BTreeMap<usize, azul_css::props::basic::color::ColorU> = BTreeMap::new();
+    if let Some(cache) = lw.gpu_state_manager.caches.get(&dom) {
+        cache.for_each_bound_color(|key, color| {
+            values.insert(key, color);
+        });
+    }
+    list.items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            let value = list.color_binding(i).and_then(|key| values.get(&key.id).copied());
+            let item = match (item, value) {
+                (
+                    DisplayListItem::Rect {
+                        bounds,
+                        border_radius,
+                        ..
+                    },
+                    Some(color),
+                ) => {
+                    if color.a == 0 {
+                        return None;
+                    }
+                    DisplayListItem::Rect {
+                        bounds: *bounds,
+                        color,
+                        border_radius: *border_radius,
+                    }
+                }
+                _ => item.clone(),
+            };
+            Some(format!(
+                "{item:?} | node {:?} | call {:?}",
+                list.node_mapping.get(i),
+                list.layout_node_mapping.get(i)
+            ))
+        })
+        .collect()
+}
+
+/// Audit A4-23. A hover that comes AGAIN over a label is a value: the first enter paints the
+/// label's background into the list and binds it to a colour key; the leave, the next enter
+/// and the next leave write that key's colour and touch no list (to the GPU renderer a
+/// patched list is a whole list: translated and scene-built again for every enter and
+/// leave). What is painted is at every step what a list built from the styles paints.
+/// Mutations: the bind of step 4 removed, or `by_value` always empty (the leave patches:
+/// `dl_node_patches` 1); `set_color_value` not called (the painted list keeps the hover
+/// colour after the leave).
+#[test]
+fn a_hover_that_comes_again_is_a_value_and_no_list() {
+    let (mut lw, child) = label_window(40);
+    let at_rest = lines(&lw.layout_results[&child].display_list);
+    // Label 9 (9 % 3 == 0: no background of its own).
+    let hovered = hover(&mut lw, child, 9, true);
+    assert_eq!(painted_lines(&lw, child), hovered, "the bound colour is the hover colour");
+    let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
+    lw.frame_report.reset_counters();
+
+    for (enters, painted) in [(false, &at_rest), (true, &hovered), (false, &at_rest)] {
+        drop(hover(&mut lw, child, 9, enters));
+        assert_eq!(lw.frame_report.dl_rebuilds, 0, "enters {enters}: no list is built");
+        assert_eq!(lw.frame_report.dl_node_patches, 0, "enters {enters}: no list is patched");
+        assert!(
+            core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&child].display_list)),
+            "enters {enters}: the list is the allocation it was"
+        );
+        assert_eq!(&painted_lines(&lw, child), painted, "enters {enters}: what is painted");
+    }
+
+    // A build of the list lets the key go: the list holds what the styles say and nothing
+    // else, and the next enter is a patch again.
+    lw.regenerate_display_list_for_dom(child);
+    assert_eq!(lines(&lw.layout_results[&child].display_list), at_rest, "a built list at rest");
+    lw.frame_report.reset_counters();
+    drop(hover(&mut lw, child, 9, true));
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "after a build the hover is painted in");
+    assert_eq!(painted_lines(&lw, child), hovered);
+}
+
+/// A node whose state colour is NOT one solid background takes the patch, bound or not: label
+/// 10 has a background of its own, so its hover run replaces a rect (it is bound then, and
+/// its leave is a value back to its own colour); a label left through a build of the list
+/// has no key and its leave is a patch.
+#[test]
+fn a_state_colour_without_a_key_still_takes_the_patch() {
+    let (mut lw, child) = label_window(40);
+    let at_rest = lines(&lw.layout_results[&child].display_list);
+    lw.frame_report.reset_counters();
+    drop(hover(&mut lw, child, 10, true));
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "the enter is painted into the list");
+    drop(hover(&mut lw, child, 10, false));
+    assert_eq!(lw.frame_report.dl_node_patches, 1, "the leave is the key's value");
+    assert_eq!(painted_lines(&lw, child), at_rest, "its own background is painted again");
+
+    drop(hover(&mut lw, child, 9, true));
+    lw.regenerate_display_list_for_dom(child);
+    lw.frame_report.reset_counters();
+    drop(hover(&mut lw, child, 9, false));
+    assert_eq!(
+        (lw.frame_report.dl_rebuilds, lw.frame_report.dl_node_patches),
+        (0, 1),
+        "no key after a build: the leave takes the run out of the list"
+    );
+    assert_eq!(lines(&lw.layout_results[&child].display_list), at_rest);
 }
 
 /// A restyle the patch cannot show is refused whole and leaves the list as it is: a property
@@ -941,6 +1071,146 @@ fn an_image_replaced_in_place_leaves_the_list_the_renderer_holds() {
     assert!(!held(&lw), "harness: a rebuilt list is not the one that was sent");
     arrive(&mut lw, picture(4));
     assert!(!held(&lw), "a change still owed to the renderer is not marked as sent");
+}
+
+/// The FIRST picture that arrives for a node that shows a null image (a map's tile being
+/// drawn) leaves the list the renderer holds too, once the renderer has keyed the node's
+/// place (`reserve_image_places` of the GPU scan, A4's `93aeb0a41`: the slot's key shows
+/// `ImageRefHash::PLACE`): the list names that key before and after. Without a place the
+/// first picture is a change of the list, as before.
+/// Mutation: the null-image alternative of `slot_keeps_its_shape` removed (the list is owed
+/// again after the first arrival).
+#[test]
+fn the_first_picture_on_a_kept_place_leaves_the_list_the_renderer_holds() {
+    use azul_core::resources::{
+        ImageKey, ImageRef, ImageRefHash, ImageSlot, RawImage, RawImageData, RawImageFormat,
+    };
+
+    use crate::overlay::ContentChange;
+
+    let being_drawn = || ImageRef::null_image(4, 4, RawImageFormat::RGBA8, Vec::new());
+    let pixels = |fill: u8| {
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![fill; 4 * 4 * 4].into()),
+            width: 4,
+            height: 4,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::new().into(),
+        })
+        .expect("a picture in memory")
+    };
+    let dom = Dom::create_body()
+        .with_css("margin: 0px;")
+        .with_child(Dom::create_image(being_drawn()).with_css("width: 40px; height: 30px;"))
+        .with_child(Dom::create_image(being_drawn()).with_css("width: 40px; height: 30px;"));
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        StyledDom::create_from_dom(dom),
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let (root, kept, unkept) = (DomId::ROOT_ID, NodeId::new(1), NodeId::new(2));
+    const ENV: u64 = 7;
+    // What the GPU scan does for a node that shows a null image: its slot gets its key, and
+    // the key shows the place.
+    let key = ImageKey::unique_image_slot(lw.id_namespace);
+    lw.renderer_resources
+        .image_slots
+        .insert(ImageSlot::Node(root, kept), key);
+    lw.renderer_resources
+        .image_key_map
+        .insert(key, ImageRefHash::PLACE);
+    lw.gpu_state_manager
+        .note_display_lists_submitted(&lw.layout_results, ENV);
+    let held = |lw: &LayoutWindow| {
+        lw.gpu_state_manager
+            .display_list_is_held(root, &lw.layout_results[&root].display_list, ENV)
+    };
+    assert!(held(&lw), "harness: the renderer holds the list it was sent");
+
+    let _ = lw.apply_content_change(ContentChange::Image {
+        dom_id: root,
+        node_id: kept,
+        image: pixels(200),
+        dirty_rect: None,
+    });
+    assert!(held(&lw), "the first picture on a kept place is pixels under the place's key");
+
+    let _ = lw.apply_content_change(ContentChange::Image {
+        dom_id: root,
+        node_id: unkept,
+        image: pixels(90),
+        dirty_rect: None,
+    });
+    assert!(!held(&lw), "a node without a place: its first picture is a change of the list");
+}
+
+/// A view of one image (a map's tile layer).
+extern "C" fn tile_page(_data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let layer = Dom::create_div()
+        .with_child(Dom::create_image(picture(4)).with_css("width: 40px; height: 30px;"));
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 400.0));
+    VirtualViewReturn::with_dom(layer, window, window)
+}
+
+/// A3-window-54: a tile that arrives in a VIEW is patched into the view's list where it lies.
+/// The view's document has a solver cache of its own that holds its list; the patch lets it
+/// go of the list and gives it the patched one, as the window's cache always did. It copied
+/// the view's whole list for the first tile after every pass of the view, and the cache kept
+/// the list with the tile from before.
+/// Mutation: the `else` arm of `patch_display_list` answering `None` again (the list is
+/// another allocation after the patch, and the cache holds the old one).
+#[test]
+fn a_tile_that_arrives_in_a_view_is_patched_into_the_list_where_it_lies() {
+    use crate::overlay::ContentChange;
+
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(tile_page))
+            .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
+    let _ = lw.apply_content_change(ContentChange::Image {
+        dom_id: child,
+        node_id: NodeId::new(1),
+        image: picture(4),
+        dirty_rect: None,
+    });
+    assert!(
+        core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&child].display_list)),
+        "the view's list is the allocation it was"
+    );
+    assert!(
+        lw.child_layout_caches[&child]
+            .cached_display_list
+            .as_ref()
+            .is_none_or(|cached| Arc::ptr_eq(&cached.5, &lw.layout_results[&child].display_list)),
+        "the view's solver cache holds the patched list"
+    );
 }
 
 // -- A3-window-31: the CSS diff of a view that rendered again ---------------------------------
@@ -1823,4 +2093,726 @@ fn a_node_dragged_inside_a_view_moves_by_a_value_after_its_first_move() {
 
     assert!(lw.end_drag_visual(), "the drag moved something back");
     assert_eq!(frames_under(&lw, child, key), 0, "the view's list closed the frame");
+}
+
+// -- A3-window-49: a label whose `left` / `top` alone moved is moved where it lies -------------
+
+/// The data of the view of [`turned_label_page`]: how many labels it draws, and where label 2
+/// stands and how far it is turned.
+struct TurnedLabels {
+    count: usize,
+    left: f32,
+    top: f32,
+    degrees: f32,
+}
+
+/// The style a map editor writes for a label it drags or turns (`set_node_style` per mouse
+/// move): its place, its pivot, its angle.
+fn dragged_label_css(left: f32, top: f32, degrees: f32) -> String {
+    format!(
+        "position: absolute; left: {left}px; top: {top}px; width: 60px; height: 12px; font-size: \
+         12px; line-height: 1; white-space: pre; transform-origin: 0px 9px; transform: \
+         rotate({degrees}deg);"
+    )
+}
+
+/// A map's label layer in which every label opens a reference frame (the style of
+/// [`dragged_label_css`]): `count` spans with a text, label 2 at the place and angle of the
+/// view's data. Child DOM: div 0, then span `1 + 2 i` and its text `2 + 2 i` for label `i`.
+extern "C" fn turned_label_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let (count, left, top, degrees) = data
+        .downcast_ref::<TurnedLabels>()
+        .map(|labels| (labels.count, labels.left, labels.top, labels.degrees))
+        .expect("the view's data");
+    let mut layer = Dom::create_div();
+    for i in 0..count {
+        let css = if i == 2 {
+            dragged_label_css(left, top, degrees)
+        } else {
+            dragged_label_css(
+                (10 + (i % 8) * 70) as f32,
+                (10 + (i / 8) * 16) as f32,
+                if i % 3 == 2 { 12.0 } else { 0.0 },
+            )
+        };
+        layer = layer.with_child(Dom::create_span_with_text(format!("Label {i}")).with_css(&css));
+    }
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 400.0));
+    VirtualViewReturn::with_dom(layer, window, window)
+}
+
+/// A window whose view holds `count` labels of [`turned_label_page`], laid out; the view's
+/// document.
+fn turned_label_window(count: usize, left: f32, top: f32, degrees: f32) -> (LayoutWindow, DomId) {
+    let data = TurnedLabels {
+        count,
+        left,
+        top,
+        degrees,
+    };
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(RefAny::new(data), VirtualViewCallback::create(turned_label_page))
+            .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    (lw, child)
+}
+
+/// The span of label 2 of [`turned_label_page`].
+const DRAGGED: usize = 5;
+
+/// The app writes label 2's style: another place, another angle.
+fn write_label(
+    lw: &mut LayoutWindow,
+    child: DomId,
+    left: f32,
+    top: f32,
+    degrees: f32,
+) -> crate::overlay::ContentDirtyTier {
+    lw.apply_content_change(crate::overlay::ContentChange::NodeStyle {
+        dom_id: child,
+        node_id: NodeId::new(DRAGGED),
+        style: azul_css::css::Css::parse_inline(&dragged_label_css(left, top, degrees)),
+    })
+    .tier
+}
+
+/// What a move of the drag of label 2 looked at, in a view of `count` labels: `(layout boxes,
+/// display-list items, layout passes, list builds, the tier, how far the box moved)` of the
+/// third move (the first may be any write, the second finds the frames of the list once).
+fn a_move_of_a_drag(
+    count: usize,
+) -> (usize, usize, u32, u32, crate::overlay::ContentDirtyTier, (f32, f32)) {
+    use azul_core::{dom::DomNodeId, styled_dom::NodeHierarchyItemId};
+
+    use crate::{solver3::display_list::node_patch::MOVE_ITEM_VISITS, window::MOVED_BOXES};
+
+    let (mut lw, child) = turned_label_window(count, 150.0, 10.0, 12.0);
+    let id = DomNodeId {
+        dom: child,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(DRAGGED))),
+    };
+    drop(write_label(&mut lw, child, 175.0, 31.0, 12.0));
+    drop(write_label(&mut lw, child, 178.0, 33.0, 12.0));
+    let before = lw.get_node_position(id).expect("the label is laid out");
+    lw.frame_report.reset_counters();
+    MOVED_BOXES.with(|boxes| boxes.set(0));
+    MOVE_ITEM_VISITS.with(|items| items.set(0));
+    let tier = write_label(&mut lw, child, 181.0, 36.0, 12.0);
+    let after = lw.get_node_position(id).expect("the label is laid out");
+    (
+        MOVED_BOXES.with(core::cell::Cell::get),
+        MOVE_ITEM_VISITS.with(core::cell::Cell::get),
+        lw.frame_report.layout_passes,
+        lw.frame_report.dl_rebuilds,
+        tier,
+        (after.x - before.x, after.y - before.y),
+    )
+}
+
+/// One move of a label drag looks at the label's own boxes and items: as many in a view of 40
+/// labels as in one of 160, with no layout pass and no list build. It was a pass over the
+/// view's document (the cascade's tail, the walks of a layout pass, the patched list) per
+/// mouse move.
+/// Mutations: `move_node_in_place` answering `None` (the pass runs: `layout_passes` 1, tier
+/// `Relayout`); `frame_push_of` walking the list on every ask (the items grow with the view);
+/// `bump_for_a_move` not keeping the table of frames (the same).
+#[test]
+fn a_move_of_a_label_drag_looks_at_that_label_alone() {
+    let small = a_move_of_a_drag(40);
+    let large = a_move_of_a_drag(160);
+    for (count, (boxes, items, passes, builds, tier, moved)) in [(40, small), (160, large)] {
+        assert_eq!(tier, crate::overlay::ContentDirtyTier::Paint, "{count} labels: a move is a repaint");
+        assert_eq!(passes, 0, "{count} labels: no layout pass");
+        assert_eq!(builds, 0, "{count} labels: no list build");
+        assert_eq!(moved, (3.0, 3.0), "{count} labels: left 178 -> 181, top 33 -> 36");
+        assert!(boxes >= 1 && boxes <= 4, "{count} labels: the label's boxes, {boxes}");
+        assert!(items >= 2 && items <= 64, "{count} labels: the label's items, {items}");
+    }
+    assert_eq!(small.0, large.0, "the boxes looked at do not grow with the view");
+    assert_eq!(small.1, large.1, "the items looked at do not grow with the view");
+}
+
+/// Whether two lists say the same: the same items in the same order for the same nodes and
+/// paint calls, their boxes and glyphs within a hundredth of a pixel (a sum of the same terms
+/// in another order), the proven backgrounds on the same runs.
+fn same_lists(got: &DisplayList, want: &DisplayList) -> Result<(), String> {
+    let near = |a: f32, b: f32| (a - b).abs() <= 0.01;
+    let near_rect = |a: LogicalRect, b: LogicalRect| {
+        near(a.origin.x, b.origin.x)
+            && near(a.origin.y, b.origin.y)
+            && near(a.size.width, b.size.width)
+            && near(a.size.height, b.size.height)
+    };
+    if got.items.len() != want.items.len() {
+        return Err(format!("{} items against {}", got.items.len(), want.items.len()));
+    }
+    for (i, (a, b)) in got.items.iter().zip(&want.items).enumerate() {
+        if core::mem::discriminant(a) != core::mem::discriminant(b) {
+            return Err(format!("item {i}: {a:?} against {b:?}"));
+        }
+        if got.node_mapping.get(i) != want.node_mapping.get(i)
+            || got.layout_node_mapping.get(i) != want.layout_node_mapping.get(i)
+        {
+            return Err(format!("item {i}: another node or paint call"));
+        }
+        match (a.bounds(), b.bounds()) {
+            (Some(x), Some(y)) if near_rect(x, y) => {}
+            (None, None) => {}
+            (x, y) => return Err(format!("item {i}: bounds {x:?} against {y:?}")),
+        }
+        if let (
+            DisplayListItem::Text { glyphs: x, .. },
+            DisplayListItem::Text { glyphs: y, .. },
+        ) = (a, b)
+        {
+            let same = x.len() == y.len()
+                && x.iter().zip(y).all(|(p, q)| {
+                    p.index == q.index && near(p.point.x, q.point.x) && near(p.point.y, q.point.y)
+                });
+            if !same {
+                return Err(format!("item {i}: other glyphs"));
+            }
+        }
+        match (
+            got.uniform_text_bgs.get(i).copied().flatten(),
+            want.uniform_text_bgs.get(i).copied().flatten(),
+        ) {
+            (Some((c, r)), Some((d, s))) if c == d && near_rect(r.0, s.0) => {}
+            (None, None) => {}
+            (x, y) => return Err(format!("item {i}: proven background {x:?} against {y:?}")),
+        }
+    }
+    Ok(())
+}
+
+/// After two moves of the drag the view's document is what a fresh layout of the moved DOM
+/// gives: every box where that layout puts it (in the window's result and in the solver's
+/// cache, which the next pass starts from) and the list the list of that layout.
+/// Mutations: `+ delta` -> `- delta` in `move_node_in_place` or in `move_frame`; the
+/// `PushReferenceFrame` arm of `move_frame` removed (the frame's box stays behind); the
+/// solver's positions not moved; the compact slots not written (the next pass puts the label
+/// back: the last block); the box's `AbsPlacement` not dropped by the move (the next pass
+/// places the label from its last solve, at (175, 31): the solver's own check panics in a
+/// test build, the last assertion fails without it).
+#[test]
+fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
+    let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
+    drop(write_label(&mut lw, child, 175.0, 31.0, 12.0));
+    drop(write_label(&mut lw, child, 178.0, 33.0, 12.0));
+    assert_eq!(
+        write_label(&mut lw, child, 181.5, 36.25, 12.0),
+        crate::overlay::ContentDirtyTier::Paint,
+        "premise: the third move is made where the label lies"
+    );
+    // The solver keeps no placement for the moved box: the one it had was solved from the
+    // insets of (175, 31), and no solve was made for where the box is now.
+    let moved_box = lw.layout_results[&child].layout_tree.dom_to_layout[&NodeId::new(DRAGGED)][0]
+        .index();
+    assert!(
+        lw.child_layout_caches[&child]
+            .cache_map
+            .entries
+            .get(moved_box)
+            .and_then(|entry| entry.abs_interior.as_deref())
+            .is_none_or(|run| run.placement.is_none()),
+        "the placement of the solve before the moves does not stand for the moved box"
+    );
+    let (fresh, fresh_child) = turned_label_window(40, 181.5, 36.25, 12.0);
+
+    let near = |a: f32, b: f32| (a - b).abs() <= 0.01;
+    let got = &lw.layout_results[&child];
+    let want = &fresh.layout_results[&fresh_child];
+    assert_eq!(got.calculated_positions.len(), want.calculated_positions.len());
+    for (i, (a, b)) in got
+        .calculated_positions
+        .iter()
+        .zip(&want.calculated_positions)
+        .enumerate()
+    {
+        assert!(near(a.x, b.x) && near(a.y, b.y), "box {i}: {a:?}, a fresh layout: {b:?}");
+    }
+    for (i, (a, b)) in lw.child_layout_caches[&child]
+        .calculated_positions
+        .iter()
+        .zip(&want.calculated_positions)
+        .enumerate()
+    {
+        assert!(near(a.x, b.x) && near(a.y, b.y), "the solver's box {i}: {a:?}, fresh: {b:?}");
+    }
+    if let Err(difference) = same_lists(&got.display_list, &want.display_list) {
+        panic!("the moved list against the list of a fresh layout: {difference}");
+    }
+
+    // A pass over the document afterwards (label 0 gets another width: a write that is no
+    // move) starts from the moved boxes and from the styles as they are: label 2 stays.
+    use azul_core::{dom::DomNodeId, styled_dom::NodeHierarchyItemId};
+    let tier = lw
+        .apply_content_change(crate::overlay::ContentChange::NodeStyle {
+            dom_id: child,
+            node_id: NodeId::new(1),
+            style: azul_css::css::Css::parse_inline(
+                "position: absolute; left: 10px; top: 10px; width: 64px; height: 12px; font-size: \
+                 12px; line-height: 1; white-space: pre;",
+            ),
+        })
+        .tier;
+    assert_eq!(tier, crate::overlay::ContentDirtyTier::Relayout, "premise: a width is a pass");
+    let label = |dom: DomId| DomNodeId {
+        dom,
+        node: NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(DRAGGED))),
+    };
+    let stands = lw.get_node_position(label(child)).expect("the label is laid out");
+    let should = fresh
+        .get_node_position(label(fresh_child))
+        .expect("the label is laid out");
+    assert!(
+        near(stands.x, should.x) && near(stands.y, should.y),
+        "after a pass the label stands at {stands:?}, a fresh layout puts it at {should:?}"
+    );
+}
+
+/// The data of the view of [`float_box_page`]: where the dragged box stands, and how wide the
+/// box beside it is.
+struct FloatBoxPage {
+    left: f32,
+    top: f32,
+    beside: f32,
+}
+
+/// The style of the dragged box of [`float_box_page`]: placed by `left` / `top`, with a frame
+/// of its own (a transform).
+fn dragged_box_css(left: f32, top: f32) -> String {
+    format!(
+        "position: absolute; left: {left}px; top: {top}px; width: 120px; height: 60px; \
+         transform-origin: 0px 0px; transform: rotate(5deg);"
+    )
+}
+
+/// A box that is dragged and holds a FLOAT with a block of inline content beside it. Child
+/// DOM: div 0; 1 an absolutely placed box beside; 2 the dragged box; 3 its float; 4 a block;
+/// 5 the inline box in that block.
+extern "C" fn float_box_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let (left, top, beside) = data
+        .downcast_ref::<FloatBoxPage>()
+        .map(|page| (page.left, page.top, page.beside))
+        .expect("the view's data");
+    let dragged = Dom::create_div()
+        .with_css(&dragged_box_css(left, top))
+        .with_child(
+            Dom::create_div()
+                .with_css("float: left; width: 40px; height: 30px; background: #ff0000;"),
+        )
+        .with_child(Dom::create_div().with_child(Dom::create_div().with_css(
+            "display: inline-block; width: 30px; height: 10px; background: #0000ff;",
+        )));
+    let layer = Dom::create_div()
+        .with_child(Dom::create_div().with_css(&format!(
+            "position: absolute; left: 10px; top: 10px; width: {beside}px; height: 12px;"
+        )))
+        .with_child(dragged);
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 400.0));
+    VirtualViewReturn::with_dom(layer, window, window)
+}
+
+/// A window whose view holds [`float_box_page`], laid out; the view's document.
+fn float_box_window(left: f32, top: f32, beside: f32) -> (LayoutWindow, DomId) {
+    let data = FloatBoxPage { left, top, beside };
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(RefAny::new(data), VirtualViewCallback::create(float_box_page))
+            .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    (lw, child)
+}
+
+/// The float contexts the solver keeps for `dom` (`LayoutCache::float_cache`), as text, by
+/// the layout box of their block formatting context.
+fn kept_floats(lw: &LayoutWindow, dom: DomId) -> BTreeMap<usize, String> {
+    lw.child_layout_caches[&dom]
+        .float_cache
+        .iter()
+        .map(|(bfc, floats)| (*bfc, format!("{floats:?}")))
+        .collect()
+}
+
+/// A move in place and the solver's kept FLOATS (`LayoutCache::float_cache`). A float
+/// context is kept per block formatting context, its floats in that context's own space
+/// (`layout_bfc`: the rects it writes into the flow's relative positions). The box a move
+/// in place moves is absolutely positioned or fixed: it is no float of any context (CSS 2.2
+/// 9.7; `layout_bfc` places it before it asks for `float`) and nothing flows around it; the
+/// floats INSIDE it stand relative to their context, which moved with them. So a move leaves
+/// every kept context what a fresh layout of the moved DOM keeps, and nothing is dropped for
+/// it. Here: a dragged box that holds a float is moved where it lies; its boxes, its list
+/// and the kept float contexts are those of a fresh layout, also after a later pass.
+/// Mutations: the boxes below the moved one not shifted in `move_node_in_place` (the float
+/// stays behind); a float context kept in the window's space (it would differ from the fresh
+/// one by the drag's (31.5, 26.25)).
+#[test]
+fn a_dragged_box_that_holds_a_float_stands_as_a_fresh_layout_puts_it() {
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let near = |a: f32, b: f32| (a - b).abs() <= 0.01;
+    let same_boxes = |got: &LayoutWindow, dom: DomId, want: &LayoutWindow, want_dom: DomId, when: &str| {
+        let got = &got.layout_results[&dom].calculated_positions;
+        let want = &want.layout_results[&want_dom].calculated_positions;
+        assert_eq!(got.len(), want.len(), "{when}: the boxes of the document");
+        for (i, (a, b)) in got.iter().zip(want).enumerate() {
+            assert!(
+                near(a.x, b.x) && near(a.y, b.y),
+                "{when}: box {i} stands at {a:?}, a fresh layout puts it at {b:?}"
+            );
+        }
+    };
+    let write = |lw: &mut LayoutWindow, dom: DomId, left: f32, top: f32| {
+        lw.apply_content_change(ContentChange::NodeStyle {
+            dom_id: dom,
+            node_id: NodeId::new(2),
+            style: azul_css::css::Css::parse_inline(&dragged_box_css(left, top)),
+        })
+        .tier
+    };
+
+    let (mut lw, child) = float_box_window(150.0, 40.0, 60.0);
+    drop(write(&mut lw, child, 175.0, 61.0));
+    drop(write(&mut lw, child, 178.0, 63.0));
+    assert_eq!(
+        write(&mut lw, child, 181.5, 66.25),
+        ContentDirtyTier::Paint,
+        "premise: the third move is made where the box lies"
+    );
+
+    let (fresh, fresh_child) = float_box_window(181.5, 66.25, 60.0);
+    let floats = kept_floats(&fresh, fresh_child);
+    assert!(
+        floats.values().any(|context| context.contains("Left")),
+        "harness: the solver keeps the context of the left float: {floats:?}"
+    );
+    same_boxes(&lw, child, &fresh, fresh_child, "after the moves");
+    assert_eq!(
+        kept_floats(&lw, child),
+        floats,
+        "the kept float contexts are those of a fresh layout of the moved box"
+    );
+    if let Err(difference) = same_lists(
+        &lw.layout_results[&child].display_list,
+        &fresh.layout_results[&fresh_child].display_list,
+    ) {
+        panic!("the moved list against the list of a fresh layout: {difference}");
+    }
+
+    // A pass over the document afterwards (the box beside gets another width) starts from
+    // the moved boxes and from the kept float contexts.
+    let tier = lw
+        .apply_content_change(ContentChange::NodeStyle {
+            dom_id: child,
+            node_id: NodeId::new(1),
+            style: azul_css::css::Css::parse_inline(
+                "position: absolute; left: 10px; top: 10px; width: 64px; height: 12px;",
+            ),
+        })
+        .tier;
+    assert_eq!(tier, ContentDirtyTier::Relayout, "premise: a width is a pass");
+    let (fresh, fresh_child) = float_box_window(181.5, 66.25, 64.0);
+    same_boxes(&lw, child, &fresh, fresh_child, "after a pass");
+    assert_eq!(
+        kept_floats(&lw, child),
+        kept_floats(&fresh, fresh_child),
+        "after a pass the kept float contexts are those of a fresh layout"
+    );
+}
+
+/// A turn alone (the rotate tool: `transform` is all that differs) is a value under the key
+/// the list binds: no pass, no list build, the list the allocation it was, the matrix the one
+/// a fresh layout of the turned DOM publishes.
+/// Mutation: `refresh_transform_value_of` not called in `move_node_in_place` (the value stays
+/// the one of 12 degrees).
+#[test]
+fn a_label_turned_where_it_lies_is_a_value_and_no_list() {
+    let (mut lw, child) = turned_label_window(40, 150.0, 10.0, 12.0);
+    drop(write_label(&mut lw, child, 150.0, 10.0, 20.0));
+    let list = Arc::as_ptr(&lw.layout_results[&child].display_list);
+    lw.frame_report.reset_counters();
+    assert_eq!(
+        write_label(&mut lw, child, 150.0, 10.0, 31.0),
+        crate::overlay::ContentDirtyTier::Paint
+    );
+    assert_eq!(lw.frame_report.layout_passes, 0, "no layout pass");
+    assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list build");
+    assert!(
+        core::ptr::eq(list, Arc::as_ptr(&lw.layout_results[&child].display_list)),
+        "the list is the allocation it was"
+    );
+    let (fresh, fresh_child) = turned_label_window(40, 150.0, 10.0, 31.0);
+    let value = |window: &LayoutWindow, dom: DomId| {
+        window
+            .gpu_state_manager
+            .caches
+            .get(&dom)
+            .and_then(|cache| cache.css_current_transform_values.get(&NodeId::new(DRAGGED)).copied())
+            .expect("the label has a transform value")
+    };
+    assert_eq!(value(&lw, child), value(&fresh, fresh_child), "rotate(31deg) about (0, 9)");
+}
+
+// -- A3-solver-55 (the engine half): clearing an override the node's own style states too ------
+
+/// `set_css_property(transform)` pins its value as an override and keeps the node's own
+/// style in sync with it. Clearing that override afterwards (a widget handing the value back
+/// when its gesture ends: `override_css_property(node, initial)`) changes nothing any reader
+/// resolves, so it takes the entry out and rebuilds no table of the cascade - it was a rebuild
+/// of the tables of the whole DOM per cleared box. Nothing is left to migrate onto the next
+/// rebuild's node (`migrate_user_overrides_from`), which then stands where its own style
+/// puts it.
+/// Mutation: the fast path of `apply_node_css_change` removed (the clear runs
+/// `restyle_user_properties`: one compact-cache build, tier not `Unchanged`).
+#[test]
+fn clearing_an_override_the_own_style_states_too_rebuilds_no_cascade() {
+    use azul_css::props::{
+        basic::PixelValue,
+        property::{CssProperty, CssPropertyType},
+        style::{StyleTransform, StyleTransformTranslate2D},
+    };
+
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_div().with_css("width: 40px; height: 20px; transform: translate(10px, 0px);"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 200.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let (root, node) = (DomId::ROOT_ID, NodeId::new(1));
+    let moved = CssProperty::transform(
+        vec![StyleTransform::Translate(StyleTransformTranslate2D {
+            x: PixelValue::px(30.0),
+            y: PixelValue::px(0.0),
+        })]
+        .into(),
+    );
+    let pinned = |lw: &LayoutWindow| {
+        lw.layout_results[&root]
+            .styled_dom
+            .get_css_property_cache()
+            .user_overridden_properties
+            .get(node.index())
+            .is_some_and(|entries| {
+                entries.iter().any(|(ty, _)| *ty == CssPropertyType::Transform)
+            })
+    };
+    let published = |lw: &LayoutWindow| {
+        lw.gpu_state_manager
+            .caches
+            .get(&root)
+            .and_then(|cache| cache.css_current_transform_values.get(&node).copied())
+            .expect("the box has a transform value")
+    };
+
+    // The gesture: the widget writes the transform (inline style and override).
+    drop(lw.apply_content_change(ContentChange::NodeCss {
+        dom_id: root,
+        node_id: node,
+        props: vec![moved],
+        override_only: false,
+    }));
+    assert!(pinned(&lw), "harness: the write pinned its value");
+    let shown = published(&lw);
+
+    // The gesture ends: the override is cleared.
+    let tables = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+    let tier = lw
+        .apply_content_change(ContentChange::NodeCss {
+            dom_id: root,
+            node_id: node,
+            props: vec![CssProperty::initial(CssPropertyType::Transform)],
+            override_only: true,
+        })
+        .tier;
+    assert_eq!(tier, ContentDirtyTier::Unchanged, "nothing any reader resolves changed");
+    assert_eq!(
+        azul_core::styled_dom::compact_cache_rebuilds_on_this_thread(),
+        tables,
+        "no table of the cascade was built for the clear"
+    );
+    assert!(!pinned(&lw), "the override is gone: a rebuild has none to carry over");
+    assert_eq!(published(&lw), shown, "the box stays where the gesture left it");
+}
+
+// -- A3-window-16: a patched frame of a fade writes the window's list where it lies -------------
+
+/// A text or border colour fade patches the colour into the window's list on every frame
+/// (`patch_paint_colors`; a border's here). The solver's cache holds that very list (each patched frame hands
+/// it the patched one), so `Arc::make_mut` copied the whole list per frame; the cache now
+/// lets go of it for the patch. With nobody else holding the list, a patched frame leaves it
+/// the allocation it was.
+/// Mutation: the release of `cached.5` before the patches removed (every patched frame is
+/// another allocation).
+#[test]
+fn a_patched_frame_of_a_colour_fade_copies_no_list() {
+    use azul_css::props::{
+        basic::color::ColorU,
+        property::{CssProperty, CssPropertyType},
+        style::StyleBorderTopColor,
+    };
+
+    use crate::overlay::ContentChange;
+
+    // A border colour, not a text colour: this window has no font (an empty font cache), so
+    // a text paints no glyph run, a fade of its colour finds no item to patch and every
+    // frame of it builds the list - the fixture never reached the patch it is about.
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_div().with_css(
+            "width: 80px; height: 24px; border: 2px solid #000000; animation: all 300ms linear;",
+        ),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 200.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let (root, node) = (DomId::ROOT_ID, NodeId::new(1));
+    drop(lw.apply_content_change(ContentChange::NodeCss {
+        dom_id: root,
+        node_id: node,
+        props: vec![CssProperty::border_top_color(StyleBorderTopColor {
+            inner: ColorU {
+                r: 255,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+        })],
+        override_only: false,
+    }));
+    assert!(
+        lw.css_transitions
+            .iter()
+            .any(|t| t.node == node && t.prop_type == CssPropertyType::BorderTopColor),
+        "harness: the colour write seeds a fade"
+    );
+    assert!(
+        lw.layout_cache
+            .cached_display_list
+            .as_ref()
+            .is_some_and(|cached| Arc::ptr_eq(&cached.5, &lw.layout_results[&root].display_list)),
+        "harness: the solver's cache holds the window's list (what a patched frame copied)"
+    );
+
+    // Frame 1 as the shells run it (it may build the list); then the fade's frames.
+    let _ = lw.tick_animations(0.016);
+    if !lw.take_transition_patched() && !lw.animation_tick_is_values_only() {
+        lw.regenerate_display_list_for_dom(root);
+    }
+    let mut patched_frames = 0;
+    for frame in 2..14 {
+        if lw.css_transitions.is_empty() {
+            break;
+        }
+        let before = Arc::as_ptr(&lw.layout_results[&root].display_list);
+        let _ = lw.tick_animations(0.016);
+        if lw.take_transition_patched() {
+            patched_frames += 1;
+            assert!(
+                core::ptr::eq(before, Arc::as_ptr(&lw.layout_results[&root].display_list)),
+                "frame {frame}: the list is patched where it lies"
+            );
+        } else if !lw.animation_tick_is_values_only() {
+            lw.regenerate_display_list_for_dom(root);
+        }
+    }
+    assert!(patched_frames >= 3, "harness: the fade's frames are patches ({patched_frames})");
+}
+
+// -- A3-window-15: a decoration written from a callback is painted into the kept list ----------
+
+/// `set_css_property(background)` on one label of a view: its background run is painted into
+/// the list the view has, as a hover's is, and the write is a repaint - not a build of the
+/// view's whole list per written property. What the list then holds is what a build gives.
+/// Mutation: the patch arm of `apply_node_css_change` removed (one list build, tier
+/// `RebuildDisplayList`).
+#[test]
+fn a_decoration_written_from_a_callback_is_painted_into_the_list() {
+    use azul_css::props::{
+        basic::color::ColorU, property::CssProperty, style::StyleBackgroundContent,
+    };
+
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let (mut lw, child) = label_window(40);
+    lw.frame_report.reset_counters();
+    let marked = CssProperty::background_content(
+        vec![StyleBackgroundContent::Color(ColorU {
+            r: 255,
+            g: 200,
+            b: 0,
+            a: 255,
+        })]
+        .into(),
+    );
+    // Label 3 (3 % 3 == 0: no background of its own): its span is node 7.
+    let tier = lw
+        .apply_content_change(ContentChange::NodeCss {
+            dom_id: child,
+            node_id: NodeId::new(7),
+            props: vec![marked],
+            override_only: false,
+        })
+        .tier;
+    assert_eq!(tier, ContentDirtyTier::Paint, "a decoration is a repaint");
+    assert_eq!(lw.frame_report.dl_rebuilds, 0, "no list was built");
+    let patched = painted_lines(&lw, child);
+    lw.regenerate_display_list_for_dom(child);
+    assert_eq!(patched, lines(&lw.layout_results[&child].display_list), "what a build gives");
 }

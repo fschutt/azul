@@ -1315,6 +1315,7 @@ fn the_layout_of_a_label_takes_what_its_measure_shaped() {
     let mut lw = window();
     MEASURED_PARAGRAPHS_KEPT.with(|n| n.set(0));
     MEASURED_PARAGRAPHS_TAKEN.with(|n| n.set(0));
+    crate::solver3::sizing::MEASURED_PARAGRAPHS_REFUSED.with(|n| n.set([0; 4]));
     // In the built-in mock font (`text3::mock_fonts`, registered in every font manager): the
     // labels are shaped into glyphs.
     let mut layer = Dom::create_div().with_css("position: relative; width: 600px; height: 400px;");
@@ -1336,9 +1337,11 @@ fn the_layout_of_a_label_takes_what_its_measure_shaped() {
     let kept = MEASURED_PARAGRAPHS_KEPT.with(std::cell::Cell::get);
     let taken = MEASURED_PARAGRAPHS_TAKEN.with(std::cell::Cell::get);
     assert!(kept >= k, "harness: the measure of the {k} labels kept what it shaped ({kept})");
+    let refused = crate::solver3::sizing::MEASURED_PARAGRAPHS_REFUSED.with(std::cell::Cell::get);
     assert!(
         taken >= k,
-        "the layout of {taken} of {k} labels took what the label's measure had shaped"
+        "the layout of {taken} of {k} labels took what the label's measure had shaped; refused \
+         by (direction, unicode-bidi, registered faces, content): {refused:?}"
     );
     // The labels stand at their insets (label i at 10 * (i % 50), 9 * (i / 50)).
     let label = position_of(&lw, 2 + 2 * 57);
@@ -1951,8 +1954,48 @@ fn labels_that_moved_are_solved_again() {
     );
 }
 
+/// A3-solver-25b, on the product path: a page laid out through a window holds the boxes of its
+/// DOM nodes in one table and no list per node, at n rows and at 4 n. The map it was held a
+/// heap list per DOM node, made by every reconciling pass (the second layout below is one).
+///
+/// Mutation: `DomBoxes::push` opening a list for a node's first box -> 101 and 401 lists.
+#[test]
+fn a_laid_out_page_keeps_the_boxes_of_its_nodes_in_one_table() {
+    for n in [100_usize, 400] {
+        let page = || {
+            let mut body = Dom::create_body().with_css("margin: 0px;");
+            for _ in 0..n {
+                body = body.with_child(Dom::create_div().with_css("height: 2px;"));
+            }
+            body
+        };
+        let mut lw = window();
+        lay_out(&mut lw, page());
+        lay_out(&mut lw, page());
+        let tree = &lw.layout_results[&DomId::ROOT_ID].layout_tree;
+        assert_eq!(
+            tree.dom_to_layout.len(),
+            n + 1,
+            "harness: the body and every row have a box"
+        );
+        assert_eq!(
+            tree.dom_to_layout.list_count(),
+            0,
+            "{n} rows of one box each: no list beside the table"
+        );
+        for row in 1..=n {
+            assert_eq!(
+                tree.dom_to_layout.get(&NodeId::new(row)).map(<[_]>::len),
+                Some(1),
+                "row {row} has its one box"
+            );
+        }
+    }
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
+mod raised_bars;
 mod sizing;
 mod styles;
 mod taffy;

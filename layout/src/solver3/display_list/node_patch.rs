@@ -431,3 +431,217 @@ pub(crate) fn commit(list: &mut DisplayList, patches: &[DecorationPatch], placem
     }
     list.frame_index.clear();
 }
+
+/// Where the run of each patch lies in the list AFTER [`commit`] put the runs in at
+/// `placements`: `(first item, items)` per patch. A run in front of another one moved it by
+/// the difference between what it replaced and what it is.
+pub(crate) fn committed_runs(
+    patches: &[DecorationPatch],
+    placements: &[(usize, usize)],
+) -> Vec<(usize, usize)> {
+    let n = patches.len().min(placements.len());
+    (0..n)
+        .map(|k| {
+            let at = placements[k].0;
+            let mut first = at;
+            for j in 0..n {
+                if placements[j].0 < at {
+                    // A run in front: `first` is behind its old items, so the subtraction
+                    // cannot wrap.
+                    first = first + patches[j].run.items.len() - placements[j].1;
+                }
+            }
+            (first, patches[k].run.items.len())
+        })
+        .collect()
+}
+
+// ---------------------------------------------------------------------------------------
+// A box that MOVED where it lies: the items of its reference frame shifted (A3-window-49).
+//
+// A node that opens a reference frame (a `transform`: a turned label of a map) paints
+// everything it and the boxes below it paint between that frame's push and its pop, and
+// nothing else is painted there. When the node's `left` / `top` alone move, every item of
+// that range moves by the same vector and nothing else of the list changes: the range is
+// shifted in place instead of the document being laid out and its list built or patched.
+// ---------------------------------------------------------------------------------------
+
+/// How many items the reference frame of a moved node may hold; a larger one is laid out
+/// and built by a pass.
+pub(crate) const MAX_MOVED_ITEMS: usize = 4096;
+
+/// How many display-list items the search for a moved node's frame and the move itself
+/// looked at on this thread ([`frame_owners`], [`movable_frame`], [`move_frame`]): what a
+/// test reads to say that a move looks at its own items and not at the list.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MOVE_ITEM_VISITS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn moved_items(steps: usize) {
+    MOVE_ITEM_VISITS.with(|visits| visits.set(visits.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn moved_items(_steps: usize) {}
+
+/// The pushes of the reference frames of `list`, by the node each belongs to (the builder
+/// writes a frame's owner into `node_mapping`, `DisplayListBuilder::push_reference_frame`).
+/// One walk of the list, kept by the caller while the list holds the items it held; a node
+/// that owns two frames is left out (which of them is its box's is not known).
+pub(crate) fn frame_owners(list: &DisplayList) -> BTreeMap<NodeId, usize> {
+    moved_items(list.items.len());
+    let mut owners: BTreeMap<NodeId, usize> = BTreeMap::new();
+    let mut twice: Vec<NodeId> = Vec::new();
+    for (index, item) in list.items.iter().enumerate() {
+        if !matches!(item, DisplayListItem::PushReferenceFrame { .. }) {
+            continue;
+        }
+        let Some(owner) = list.node_mapping.get(index).copied().flatten() else {
+            continue;
+        };
+        if owners.insert(owner, index).is_some() {
+            twice.push(owner);
+        }
+    }
+    for owner in twice {
+        owners.remove(&owner);
+    }
+    owners
+}
+
+/// Whether two rects are the same box (to a hundredth of a pixel).
+fn same_box(a: LogicalRect, b: LogicalRect) -> bool {
+    let near = |x: f32, y: f32| (x - y).abs() <= 0.01;
+    near(a.origin.x, b.origin.x)
+        && near(a.origin.y, b.origin.y)
+        && near(a.size.width, b.size.width)
+        && near(a.size.height, b.size.height)
+}
+
+/// Where the reference frame that `owner` opens at `push` in `list` ends (the index of its
+/// pop), when that frame is the box `frame_box` and every item from the push to the pop
+/// can be moved with the box by [`move_frame`]. `None`, and the caller lays the document
+/// out: the push is not that frame any more (a list changed behind the index), or the
+/// frame holds something whose place is kept elsewhere too or in a space of its own - a
+/// scroll frame, a scrollbar, a `VirtualView`, a web view, an image mask, a stroked path -
+/// or its box's scrollbars follow it (a stacking context paints them behind its pop), or
+/// it holds more than [`MAX_MOVED_ITEMS`] items.
+pub(crate) fn movable_frame(
+    list: &DisplayList,
+    push: usize,
+    owner: NodeId,
+    frame_box: LogicalRect,
+) -> Option<usize> {
+    let n = list.items.len();
+    if list.node_mapping.len() != n || list.uniform_text_bgs.len() != n {
+        return None;
+    }
+    let DisplayListItem::PushReferenceFrame { bounds, .. } = list.items.get(push)? else {
+        return None;
+    };
+    if list.node_mapping[push] != Some(owner) || !same_box(bounds.0, frame_box) {
+        return None;
+    }
+    let mut depth = 0_usize;
+    let mut index = push;
+    loop {
+        if index >= n || index - push > MAX_MOVED_ITEMS {
+            return None;
+        }
+        moved_items(1);
+        match &list.items[index] {
+            DisplayListItem::PushReferenceFrame { .. } => depth += 1,
+            DisplayListItem::PopReferenceFrame => {
+                // The first item of the walk is a push: `depth` is at least 1 here.
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    break;
+                }
+            }
+            DisplayListItem::ScrollBar { .. }
+            | DisplayListItem::ScrollBarStyled { .. }
+            | DisplayListItem::VirtualView { .. }
+            | DisplayListItem::VirtualViewPlaceholder { .. }
+            | DisplayListItem::WebView { .. }
+            | DisplayListItem::PushScrollFrame { .. }
+            | DisplayListItem::PopScrollFrame
+            | DisplayListItem::PushImageMaskClip { .. }
+            | DisplayListItem::PopImageMaskClip
+            | DisplayListItem::StrokedPath { .. } => return None,
+            _ => {}
+        }
+        index += 1;
+    }
+    if matches!(
+        list.items.get(index + 1),
+        Some(DisplayListItem::ScrollBar { .. } | DisplayListItem::ScrollBarStyled { .. })
+    ) {
+        return None;
+    }
+    Some(index)
+}
+
+/// Moves the items `push ..= pop` of `list` - a frame [`movable_frame`] found in this very
+/// list - by `delta`, where they lie: the frame's own box, the rects, glyphs, clips and
+/// groups inside it and the frames inside it (a frame turns its content about its own
+/// box's corner, so its matrix stays). No item changes its kind or its index.
+///
+/// `proven_inside` (sorted) are the layout boxes whose text has its background proven by a
+/// box of the moved subtree ([`DisplayList::uniform_text_bgs`]): that proof's rect moves
+/// with them. A proof by a box outside stays (that box did not move); one of a run that
+/// does not name its box is dropped (a run without a proof is painted right, the proof is
+/// a faster path).
+pub(crate) fn move_frame(
+    list: &mut DisplayList,
+    push: usize,
+    pop: usize,
+    delta: LogicalPosition,
+    proven_inside: &[usize],
+) {
+    if list.items.is_empty() || (delta.x == 0.0 && delta.y == 0.0) {
+        return;
+    }
+    let pop = pop.min(list.items.len() - 1);
+    for index in push..=pop {
+        moved_items(1);
+        let source = match &list.items[index] {
+            DisplayListItem::Text {
+                source_node_index, ..
+            } => *source_node_index,
+            _ => None,
+        };
+        match &mut list.items[index] {
+            // The three pushes `translate_item` leaves where they are.
+            DisplayListItem::PushReferenceFrame { bounds, .. }
+            | DisplayListItem::PushFilter { bounds, .. }
+            | DisplayListItem::PushBackdropFilter { bounds, .. } => {
+                bounds.0.origin.x += delta.x;
+                bounds.0.origin.y += delta.y;
+            }
+            item => {
+                let taken = core::mem::replace(item, DisplayListItem::PopClip);
+                *item = translate_item(taken, delta);
+            }
+        }
+        if let Some(proof) = list.uniform_text_bgs.get_mut(index) {
+            if proof.is_some() {
+                match source {
+                    Some(source) => {
+                        if proven_inside.binary_search(&source).is_ok() {
+                            if let Some((_, rect)) = proof.as_mut() {
+                                rect.0.origin.x += delta.x;
+                                rect.0.origin.y += delta.y;
+                            }
+                        }
+                    }
+                    None => *proof = None,
+                }
+            }
+        }
+    }
+    list.frame_index.clear();
+}

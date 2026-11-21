@@ -104,8 +104,12 @@ pub const FADE_MAX_BYTES: usize = 24 * 1024 * 1024;
 /// it is looked up, and there are a thousand of them.
 pub(crate) const MIN_SURFACE_PX: u64 = 256 * 256;
 
-/// The most painted boxes remembered for one surface.
-const MAX_VALID_BOXES: usize = 32;
+/// The most painted boxes remembered for one surface. (A10-06: 96, was 32. A surface shown as
+/// a layer is completed strip by strip while its view pans, one or two boxes a strip on top
+/// of one per band of its first frame; with 32 the oldest box - a band of the first frame,
+/// still shown - was forgotten in a long diagonal pan and painted again, forgetting the
+/// next.)
+const MAX_VALID_BOXES: usize = 96;
 
 /// What the picture in a kept surface depends on, besides the items of the list it holds: see
 /// the module (rules 1 to 6).
@@ -143,6 +147,10 @@ pub(crate) struct Entry {
     /// (not repaired) when its list is replaced.
     pub(crate) fade: bool,
     last_used: u64,
+    /// (A10-06) The clock when the surface's pixels last changed: a commit that made it or
+    /// merged a painted part into it, a repair ([`RetainedFrames::put_back`]). What a
+    /// presenter that shows the surface itself compares ([`RetainedFrames::kept`]).
+    painted_at: u64,
 }
 
 /// Where a kept picture was painted from, for a repaint of a part of it when its list is
@@ -218,6 +226,23 @@ fn covers(boxes: &[[i32; 4]], needed: [i32; 4]) -> bool {
         }
     }
     left.iter().all(|p| p[2] <= p[0] || p[3] <= p[1])
+}
+
+/// (A10-06) What of `needed` no box of `boxes` covers, as boxes (none of them empty): empty
+/// exactly when [`covers`] is true.
+fn uncovered(boxes: &[[i32; 4]], needed: [i32; 4]) -> Vec<[i32; 4]> {
+    let mut left = vec![needed];
+    for b in boxes {
+        left = left
+            .into_iter()
+            .flat_map(|piece| super::raster::box_minus(piece, *b))
+            .collect();
+        if left.is_empty() {
+            break;
+        }
+    }
+    left.retain(|p| p[2] > p[0] && p[3] > p[1]);
+    left
 }
 
 /// Copy the box `part` of `from` into `to`; both have the same size.
@@ -325,6 +350,28 @@ impl RetainedFrames {
         Some(Arc::clone(&entry.surface))
     }
 
+    /// (A10-06) The parts of the box `needed` (surface px) of the surface kept for `key` that
+    /// are NOT painted, as boxes: empty when [`Self::lookup`] of the same box would hit.
+    /// `None` when no surface is kept for `key`. Not a use: nothing is stamped.
+    pub(crate) fn missing(&self, key: &SurfaceKey, needed: [i32; 4]) -> Option<Vec<[i32; 4]>> {
+        let inner = self.inner.lock().ok()?;
+        let entry = inner.entries.iter().find(|entry| entry.key == *key)?;
+        Some(uncovered(&entry.valid, needed))
+    }
+
+    /// (A10-06) The surface kept for `key` and the stamp of its pixels (another value
+    /// whenever they changed), for a presenter that shows the surface itself. A use, stamped
+    /// with its frame like a lookup. The caller lets go of the surface before the next
+    /// [`Self::commit`]: a part painted then is merged into a surface nobody else holds, and
+    /// replaces one that somebody does.
+    pub(crate) fn kept(&self, key: &SurfaceKey) -> Option<(Arc<AzulPixmap>, u64)> {
+        let mut inner = self.inner.lock().ok()?;
+        let clock = inner.clock;
+        let entry = inner.entries.iter_mut().find(|entry| entry.key == *key)?;
+        entry.last_used = clock;
+        Some((Arc::clone(&entry.surface), entry.painted_at))
+    }
+
     /// Whether a surface of `bytes` bytes can be kept at all.
     pub(crate) fn can_keep(&self, bytes: usize) -> bool {
         let max_bytes = self.inner.lock().map_or(0, |inner| inner.max_bytes);
@@ -395,7 +442,7 @@ impl RetainedFrames {
     }
 
     /// Keep `entry` again (after [`Self::take_stale`]), unless a surface of its frame is kept.
-    pub(crate) fn put_back(&self, entry: Entry) {
+    pub(crate) fn put_back(&self, mut entry: Entry) {
         if let Ok(mut inner) = self.inner.lock() {
             let taken = inner
                 .entries
@@ -404,6 +451,9 @@ impl RetainedFrames {
             // (Only a frame's surface is repaired and put back; the pictures of opacity
             // groups are counted apart.)
             if !taken && inner.entries.iter().filter(|e| !e.fade).count() < MAX_ENTRIES {
+                // (A10-06) A repaired surface holds other pixels than it did.
+                inner.clock += 1;
+                entry.painted_at = inner.clock;
                 inner.entries.push(entry);
             }
         }
@@ -432,6 +482,7 @@ impl RetainedFrames {
                         entry.valid.remove(0);
                     }
                     entry.last_used = clock;
+                    entry.painted_at = clock;
                     continue;
                 }
             }
@@ -490,6 +541,7 @@ impl RetainedFrames {
                 placement: painted.placement,
                 fade,
                 last_used: clock,
+                painted_at: clock,
             });
         }
     }

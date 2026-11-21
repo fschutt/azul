@@ -702,6 +702,35 @@ fn repaint_restyled_dom(layout_window: &mut LayoutWindow, dom_id: DomId) -> Proc
     ProcessEventResult::ShouldReRenderCurrentWindow
 }
 
+/// A drag state (`:dragging`, `:drag-over`) of a node of `dom_id` was raised or lowered flag
+/// by flag (`SystemChange::InitDragVisualState`, `SetDragOverState`, `DeactivateDrag`). The
+/// node's OWN styles follow the flag (the getters read the state). A rule that names the
+/// state LEFT of its subject (`.card:dragging .grip`) holds by the states the cascade saw:
+/// when the DOM's sheets have such a rule (`CssPropertyCache::left_state_mask`) the cascade
+/// is run again here, once, at the write. Returns whether it ran.
+///
+/// Without it the DOM was not cascaded under the drag states it held, and every rebuild
+/// that found the window's DOM unchanged ran the whole cascade again for as long as a drag
+/// state was raised, to make up for it (`regenerate_layout`: `drag_state_raised`). A DOM
+/// without such a rule - nearly every DOM - pays one mask test.
+fn recascade_for_a_drag_state(
+    layout_window: &mut LayoutWindow,
+    dom_id: DomId,
+    state: azul_css::dynamic_selector::PseudoStateType,
+) -> bool {
+    let Some(layout_result) = layout_window.layout_results.get_mut(&dom_id) else {
+        return false;
+    };
+    let cache = layout_result.styled_dom.get_css_property_cache();
+    // One bit per state, as `azul_core::style::state_bit` numbers them.
+    if cache.left_state_mask & (1_u32 << (state as u32)) == 0 {
+        return false;
+    }
+    let css = cache.retained_author_css.clone();
+    layout_result.styled_dom.restyle(css);
+    true
+}
+
 /// [`repaint_restyled_dom`] for a restyle whose changed nodes are at hand (a `:hover`, an
 /// `:active`): when all that changed are DECORATIONS of a few nodes - a background, a border
 /// colour, a shadow - their runs are painted into the list the DOM has
@@ -4174,6 +4203,17 @@ impl CommonWindowState {
         position: LogicalPosition,
     ) -> azul_core::hit_test::FullHitTest {
         use azul_core::window::CursorPosition;
+
+        // A3-window-49: boxes that were moved where they lie (a label dragged by its
+        // `left` / `top`: no layout pass, so nothing built the tester again) are hit where
+        // they are now.
+        if self
+            .layout_window
+            .as_mut()
+            .is_some_and(|lw| lw.take_boxes_moved_in_place())
+        {
+            self.rebuild_cpu_hit_tester();
+        }
 
         let focused_node = self
             .layout_window
@@ -9334,6 +9374,15 @@ pub trait PlatformWindow {
                                     styled_node.styled_node_state.dragging = true;
                                 }
                             }
+                            // The rules that read `:dragging` left of their subject see it
+                            // now, and the list shows what they restyled.
+                            if recascade_for_a_drag_state(
+                                layout_window,
+                                dom_id,
+                                azul_css::dynamic_selector::PseudoStateType::Dragging,
+                            ) {
+                                return repaint_restyled_dom(layout_window, dom_id);
+                            }
                         }
                     }
                 }
@@ -9343,15 +9392,31 @@ pub trait PlatformWindow {
             SystemChange::SetDragOverState { target, active } => {
                 if let Some(target_node_id) = target.node.into_crate_internal() {
                     if let Some(layout_window) = self.get_layout_window_mut() {
-                        if let Some(layout_result) =
-                            layout_window.layout_results.get_mut(&target.dom)
-                        {
-                            let mut styled_nodes =
-                                layout_result.styled_dom.styled_nodes.as_container_mut();
-                            if let Some(styled_node) = styled_nodes.get_mut(target_node_id) {
-                                styled_node.styled_node_state.drag_over = *active;
-                                return ProcessEventResult::ShouldReRenderCurrentWindow;
+                        let written = layout_window
+                            .layout_results
+                            .get_mut(&target.dom)
+                            .is_some_and(|layout_result| {
+                                let mut styled_nodes =
+                                    layout_result.styled_dom.styled_nodes.as_container_mut();
+                                match styled_nodes.get_mut(target_node_id) {
+                                    Some(styled_node) => {
+                                        styled_node.styled_node_state.drag_over = *active;
+                                        true
+                                    }
+                                    None => false,
+                                }
+                            });
+                        if written {
+                            // As for `:dragging`: a rule with `:drag-over` left of its
+                            // subject is cascaded when the state is written.
+                            if recascade_for_a_drag_state(
+                                layout_window,
+                                target.dom,
+                                azul_css::dynamic_selector::PseudoStateType::DragOver,
+                            ) {
+                                return repaint_restyled_dom(layout_window, target.dom);
                             }
+                            return ProcessEventResult::ShouldReRenderCurrentWindow;
                         }
                     }
                 }
@@ -9420,6 +9485,43 @@ pub trait PlatformWindow {
                                         }
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // The rules that read a drag state left of their subject held by
+                    // the states that just went: cascaded again, and their list built.
+                    let dragged_in = layout_window
+                        .gesture_drag_manager
+                        .get_drag_context()
+                        .and_then(|ctx| ctx.as_node_drag())
+                        .map(|node_drag| {
+                            (
+                                node_drag.dom_id,
+                                match &node_drag.current_drop_target {
+                                    azul_core::dom::OptionDomNodeId::Some(target) => {
+                                        Some(target.dom)
+                                    }
+                                    azul_core::dom::OptionDomNodeId::None => None,
+                                },
+                            )
+                        });
+                    if let Some((source_dom, target_dom)) = dragged_in {
+                        use azul_css::dynamic_selector::PseudoStateType;
+                        if recascade_for_a_drag_state(
+                            layout_window,
+                            source_dom,
+                            PseudoStateType::Dragging,
+                        ) {
+                            layout_window.regenerate_display_list_for_dom(source_dom);
+                        }
+                        if let Some(target_dom) = target_dom {
+                            if recascade_for_a_drag_state(
+                                layout_window,
+                                target_dom,
+                                PseudoStateType::DragOver,
+                            ) {
+                                layout_window.regenerate_display_list_for_dom(target_dom);
                             }
                         }
                     }
@@ -17453,8 +17555,31 @@ mod paint_restyle_tests {
         Arc::as_ptr(&page.lw.layout_results[&dom].display_list)
     }
 
+    /// How many rectangles of the list of `dom` are painted in the colour of a state, as the
+    /// renderers paint them: a rect bound to a colour key in the key's value (A4-23: a state
+    /// colour that goes by value leaves its rect in the list, painted see-through).
     fn painted(page: &Page, dom: DomId) -> usize {
-        states_painted(&page.lw.layout_results[&dom].display_list)
+        let list = &page.lw.layout_results[&dom].display_list;
+        let mut values: BTreeMap<usize, azul_css::props::basic::color::ColorU> = BTreeMap::new();
+        if let Some(cache) = page.lw.gpu_state_manager.caches.get(&dom) {
+            cache.for_each_bound_color(|key, color| {
+                values.insert(key, color);
+            });
+        }
+        list.items
+            .iter()
+            .enumerate()
+            .filter(|(index, item)| {
+                let DisplayListItem::Rect { color, .. } = item else {
+                    return false;
+                };
+                let shown = list
+                    .color_binding(*index)
+                    .and_then(|key| values.get(&key.id).copied())
+                    .unwrap_or(*color);
+                shown == STATE
+            })
+            .count()
     }
 
     /// What the restyle of a state costs, as the pass sees it: the tier, the DOMs whose list
@@ -17480,6 +17605,20 @@ mod paint_restyle_tests {
         what: &str,
         rebuilds: u32,
     ) {
+        assert_a_repaint_of_the_view(page, tier, (root_before, child_before), what, rebuilds, 1);
+    }
+
+    /// As above, with the number of runs painted into the view's list (`patches`): 1 for a
+    /// state colour that comes (the run is put in and bound to a colour key), 0 for one
+    /// that goes or comes again (A4-23: the key's value is written, no list is touched).
+    fn assert_a_repaint_of_the_view(
+        page: &Page,
+        tier: ProcessEventResult,
+        (root_before, child_before): (*const DisplayList, *const DisplayList),
+        what: &str,
+        rebuilds: u32,
+        patches: u32,
+    ) {
         assert_eq!(
             tier,
             ProcessEventResult::ShouldReRenderCurrentWindow,
@@ -17501,9 +17640,16 @@ mod paint_restyle_tests {
             // Patched where it lies: a list nobody else holds keeps its place, so its
             // pointer says nothing; the patch is counted instead.
             assert_eq!(
-                page.lw.frame_report.dl_node_patches, 1,
+                page.lw.frame_report.dl_node_patches, patches,
                 "{what}: the label's run was painted into the list"
             );
+            if patches == 0 {
+                assert_eq!(
+                    list_of(page, page.child),
+                    child_before,
+                    "{what}: a value leaves the list the allocation it was"
+                );
+            }
         }
         assert_eq!(
             page.lw.frame_report.dl_rebuilds, rebuilds,
@@ -17514,6 +17660,73 @@ mod paint_restyle_tests {
             page.lw.pending_css_dirty.is_none(),
             "{what}: the CSS diff of a paint-only restyle is served by the rebuild (it is \
              not a layout owed - the headless frame laid the window out for it)"
+        );
+    }
+
+    /// A drag state written flag by flag is cascaded when it is written, where a rule names it
+    /// left of its subject: the grip of a card that is being dragged takes the rule's colour
+    /// at once and loses it when the state goes; a DOM without such a rule builds no table.
+    /// (The rebuild exit that ran the whole cascade while a drag state was raised can then
+    /// trust the DOM it kept: see the notes, For area diff-first.)
+    /// Mutation: `recascade_for_a_drag_state` answering `false` without the restyle (the
+    /// grip stays green while its card is dragged).
+    #[test]
+    fn a_drag_state_is_cascaded_where_a_rule_reads_it_left_of_its_subject() {
+        use azul_css::dynamic_selector::PseudoStateType;
+
+        let window_of = |sheet: &str| {
+            let dom = Dom::create_body()
+                .with_css("margin: 0px;")
+                .with_component_css(azul_css::css::Css::from_string(sheet.to_string().into()))
+                .with_child(
+                    Dom::create_div()
+                        .with_class("card".into())
+                        .with_child(Dom::create_div().with_class("grip".into())),
+                );
+            let mut lw = LayoutWindow::new(rust_fontconfig::FcFontCache::build()).unwrap();
+            let mut ws = FullWindowState::default();
+            ws.size.dimensions = LogicalSize::new(300.0, 200.0);
+            lw.layout_and_generate_display_list(
+                StyledDom::create_from_dom(dom),
+                &ws,
+                &RendererResources::default(),
+                &ExternalSystemCallbacks::rust_internal(),
+                &mut None,
+            )
+            .expect("the page lays out");
+            lw
+        };
+        let (card, grip) = (NodeId::new(1), NodeId::new(2));
+        let grip_colour = |lw: &LayoutWindow| {
+            let styled_dom = &lw.layout_results[&DomId::ROOT_ID].styled_dom;
+            let state = styled_dom.styled_nodes.as_container()[grip].styled_node_state;
+            azul_layout::solver3::getters::get_background_color(styled_dom, grip, &state)
+        };
+        let drag = |lw: &mut LayoutWindow, on: bool| {
+            let result = lw.layout_results.get_mut(&DomId::ROOT_ID).expect("the window's DOM");
+            result.styled_dom.styled_nodes.as_container_mut()[card]
+                .styled_node_state
+                .dragging = on;
+            super::recascade_for_a_drag_state(lw, DomId::ROOT_ID, PseudoStateType::Dragging)
+        };
+        let base = ".card { width: 120px; height: 60px; } .grip { width: 20px; height: 20px; \
+                    background: #00ff00; }";
+
+        let mut lw = window_of(&format!("{base} .card:dragging .grip {{ background: #ff0000; }}"));
+        let at_rest = grip_colour(&lw);
+        assert!(drag(&mut lw, true), "the sheet reads `:dragging` left of a subject");
+        let dragged = grip_colour(&lw);
+        assert_ne!(dragged, at_rest, "the grip of the dragged card takes the rule's colour");
+        assert!(drag(&mut lw, false), "and the state that goes is cascaded too");
+        assert_eq!(grip_colour(&lw), at_rest, "the grip is as at rest");
+
+        let mut plain = window_of(base);
+        let tables = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        assert!(!drag(&mut plain, true), "no rule reads the state: nothing to cascade");
+        assert_eq!(
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread(),
+            tables,
+            "and no table of the cascade is built"
         );
     }
 
@@ -17552,7 +17765,7 @@ mod paint_restyle_tests {
             },
         )]);
         let tier = apply_hover_restyle(&mut page.lw, leave);
-        assert_a_repaint_of_the_views_list(&page, tier, before, "leave", 0);
+        assert_a_repaint_of_the_view(&page, tier, before, "leave", 0, 0);
         assert_eq!(painted(&page, page.child), 0, "and loses it");
     }
 
@@ -17575,7 +17788,7 @@ mod paint_restyle_tests {
         );
         page.lw.frame_report.reset_counters();
         let tier = apply_active_restyle(&mut page.lw, BTreeMap::new(), true);
-        assert_a_repaint_of_the_views_list(&page, tier, before, "release", 0);
+        assert_a_repaint_of_the_view(&page, tier, before, "release", 0, 0);
         assert_eq!(painted(&page, page.child), 0, "and is not after the release");
     }
 

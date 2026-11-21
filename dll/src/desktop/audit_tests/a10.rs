@@ -717,3 +717,6 @@ fn the_macos_shell_gives_memory_back_when_hidden_and_under_pressure() {
         "and so does a window that goes to the Dock"
     );
 }
+
+/// A10-06, the layer-backed present of the macOS CPU view.
+mod layer;

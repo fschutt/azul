@@ -4352,8 +4352,10 @@ impl FrameIndex {
                     }
                 }
                 DisplayListItem::VirtualView { .. } => views.push(i),
+                // Not a rect bound to a colour key: it is painted in the key's value, which
+                // may be see-through while the item's own colour is not (A4-23).
                 DisplayListItem::Rect { bounds, color, border_radius }
-                    if color.a == 255 && border_radius.is_zero() =>
+                    if color.a == 255 && border_radius.is_zero() && list.color_binding(i).is_none() =>
                 {
                     opaque_fills.push(*bounds.inner());
                     opaque_fill_frames.push(open.iter().map(|frame| frame.push).collect());

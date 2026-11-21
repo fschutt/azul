@@ -2209,6 +2209,89 @@ impl StyledDom {
         }
     }
 
+    /// The nodes whose cascade a change of the OWN DATA of the nodes `changed` can move, the
+    /// tree and the sheets staying what they are: `reached[i]` for every node index.
+    ///
+    /// A node's matched rules read the node, its ancestors, and the element siblings before
+    /// it and before each of its ancestors (`crate::style::matches_html_element_remembering`:
+    /// the compounds left of a subject are reached through the descendant, child and sibling
+    /// combinators, never downward and never forward); what it inherits comes from its
+    /// parent; its UA defaults and its compact entries are its own and its parent's. So a
+    /// changed node reaches itself and its descendants - and, when a rule of the retained
+    /// sheet has a sibling combinator (`+`, `~`), the siblings after it with their
+    /// descendants, for which this names the whole subtree of its parent.
+    #[must_use]
+    pub fn nodes_reached_by_changes(&self, changed: &[usize]) -> Vec<bool> {
+        let hierarchy = self.node_hierarchy.as_container();
+        let n = hierarchy.len();
+        let mut reached = vec![false; n];
+        let by_sibling = self
+            .get_css_property_cache()
+            .retained_author_css
+            .rules()
+            .any(|rule| crate::style::has_sibling_combinator(&rule.path));
+        for index in changed {
+            if *index >= n {
+                continue;
+            }
+            let node = NodeId::new(*index);
+            let root = if by_sibling {
+                hierarchy[node].parent_id().unwrap_or(node)
+            } else {
+                node
+            };
+            if reached[root.index()] && !by_sibling {
+                // Inside a subtree that is named already.
+                continue;
+            }
+            let end = (root.index() + hierarchy.subtree_len(root)).min(n - 1);
+            for flag in &mut reached[root.index()..=end] {
+                *flag = true;
+            }
+        }
+        reached
+    }
+
+    /// Styles the nodes `dirty` names (`dirty[node]`) again and keeps every other node's
+    /// styles: [`CssPropertyCache::recascade_nodes`] under the retained sheet and the states
+    /// the nodes are in, then the hit-test tags and the `:backdrop` flags, as
+    /// [`Self::restyle`] ends. For a DOM whose named nodes are the ones a change reaches
+    /// ([`Self::nodes_reached_by_changes`]); the proof is on `recascade_nodes`.
+    ///
+    /// `false`, having changed nothing, where the whole cascade has to run
+    /// ([`Self::restyle`]): see `recascade_nodes`.
+    pub fn restyle_changed_nodes(&mut self, dirty: &[bool]) -> bool {
+        let states = self.node_states();
+        let mut css = core::mem::take(
+            &mut self
+                .css_property_cache
+                .downcast_mut()
+                .retained_author_css,
+        );
+        let done = self.css_property_cache.downcast_mut().recascade_nodes(
+            &mut css,
+            &self.node_data.as_container(),
+            &self.node_hierarchy,
+            &self.non_leaf_nodes,
+            &self.cascade_info.as_container(),
+            &states,
+            dirty,
+        );
+        self.css_property_cache.downcast_mut().retained_author_css = css;
+        if !done {
+            return false;
+        }
+        // The tags read the nodes' display, overflow and state rules: made again, as after
+        // every cascade.
+        let new_tag_ids = self
+            .css_property_cache
+            .downcast_mut()
+            .generate_tag_ids(&self.node_data.as_container(), &self.node_hierarchy);
+        self.tag_ids_to_node_ids = new_tag_ids.into();
+        self.sync_backdrop_state();
+        true
+    }
+
     pub fn restyle_retained(&mut self) {
         let css = self
             .css_property_cache
@@ -4450,6 +4533,37 @@ pub fn compact_cache_rebuilds_on_this_thread() -> usize {
     #[cfg(feature = "std")]
     {
         COMPACT_CACHE_REBUILDS.with(core::cell::Cell::get)
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        0
+    }
+}
+
+#[cfg(feature = "std")]
+std::thread_local! {
+    /// Nodes the cascade ran for on this thread ([`nodes_cascaded_on_this_thread`]).
+    static NODES_CASCADED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Count `nodes` nodes a cascade ran for: every node of the DOM for a whole cascade
+/// (`CssPropertyCache::restyle_cascade`), the named ones for a cascade over a few nodes
+/// (`CssPropertyCache::recascade_nodes`).
+pub(crate) fn count_nodes_cascaded(nodes: usize) {
+    #[cfg(feature = "std")]
+    NODES_CASCADED.with(|n| n.set(n.get() + nodes));
+    #[cfg(not(feature = "std"))]
+    let _ = nodes;
+}
+
+/// For how many nodes this thread ran the cascade (matched rules, inherited rows, computed
+/// values, compact entries): what the tests of a rebuild read to say it styled the nodes it
+/// changed and not the DOM. Always 0 without `std`.
+#[must_use]
+pub fn nodes_cascaded_on_this_thread() -> usize {
+    #[cfg(feature = "std")]
+    {
+        NODES_CASCADED.with(core::cell::Cell::get)
     }
     #[cfg(not(feature = "std"))]
     {

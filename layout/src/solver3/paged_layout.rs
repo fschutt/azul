@@ -980,7 +980,7 @@ fn canvas_events(
     };
     let flows = &cache.cache_map.column_pages.flows;
     let mut events = Vec::new();
-    for (&dom_id, indices) in &tree.dom_to_layout {
+    for (dom_id, indices) in &tree.dom_to_layout {
         let (Some(&idx), true) = (indices.first(), dom_id.index() < styled_dom.node_data.len())
         else {
             continue;

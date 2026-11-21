@@ -1451,15 +1451,19 @@ impl ReferenceFrameGroup {
         real_clip_stack: &mut Vec<Option<AzRect>>,
         scroll_offset_stack: &mut Vec<(f32, f32)>,
         below: (u32, u32),
+        // (A10-06) The frame the shell shows as a layer (`CpuRenderState::promote`): an
+        // isolated group whatever its matrix is, so that its picture is a surface.
+        promoted: Option<PromoteFrame>,
     ) -> Self {
+        let isolate = promoted.is_some();
         // As the layer builder places the frame: the identity paints where it
         // is laid out, a translation paints moved into the pixels below (the
         // compositor paints it in its parent layer, too), and any other
         // matrix is a layer there and an isolated group here.
-        if is_identity_2d(m) {
+        if !isolate && is_identity_2d(m) {
             return Self::Identity;
         }
-        if let Some((tx, ty)) = translation_2d(m) {
+        if let Some((tx, ty)) = translation_2d(m).filter(|_| !isolate) {
             let (sx, sy) = scroll_offset_stack.last().copied().unwrap_or((0.0, 0.0));
             scroll_offset_stack.push((sx - tx, sy - ty));
             return Self::Translated;
@@ -1482,7 +1486,13 @@ impl ReferenceFrameGroup {
         // Of the group's box, only the part that can land in the pixels below is painted: the
         // clip around the push, mapped back through the matrix (and the walk culls the items
         // outside it). Where the matrix cannot be inverted, or has a perspective part, all of it.
-        let part = group_visible_part(&matrix, outer_clip, below, (width, height));
+        // (A10-06) For the frame shown as a layer, as far around that part as the frame's
+        // render state says (`PromoteFrame::paint_margin`; `retained_candidate` offers the
+        // same box).
+        let part = match promoted.and_then(|p| p.paint_margin) {
+            Some(margin) => group_part_within(&matrix, outer_clip, below, (width, height), margin),
+            None => group_visible_part(&matrix, outer_clip, below, (width, height)),
+        };
         let lands = width > 0
             && height > 0
             && part.is_none_or(|(x0, y0, x1, y1)| x1 > x0 && y1 > y0);
@@ -2596,6 +2606,31 @@ pub struct CpuRenderState {
     /// it was painted from, and a walk is handed a `&DisplayList`. (A view's list is found in
     /// `virtual_view_display_lists`.) `None`: the frames of the window's own list are not kept.
     pub root_display_list: Option<std::sync::Arc<DisplayList>>,
+    /// (A10-06) The reference frame the shell shows as a layer of its own ([`PromoteFrame`]);
+    /// `None` (every caller but a backend asked for the layer present): no frame is treated
+    /// differently and every pixel is the one painted before this field existed.
+    pub promote: Option<PromoteFrame>,
+}
+
+/// A reference frame the shell shows as a layer of its own (A10-06, `present_layer`): the
+/// frame whose push carries the transform key `transform_key`.
+///
+/// The walk paints it as an isolated group whatever its matrix is - also the identity and a
+/// translation, which it otherwise paints in place - so that its picture is a kept surface
+/// (`retained`). With `composite` the walk puts that surface into the pixels below it, as it
+/// does for every group; without, it leaves those pixels as what is painted BEFORE the frame
+/// left them, and the shell composites the surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PromoteFrame {
+    /// `TransformKey::id` of the frame's push.
+    pub transform_key: usize,
+    /// Whether the walk composites the frame's surface into the pixels below.
+    pub composite: bool,
+    /// How far around the part of the surface that lands a pass paints, surface px; `None`:
+    /// as for every group (64 px). A frame that completes a surface strip by strip (a pan
+    /// of a layer) paints further ahead: every strip is one more copy of the surface handed
+    /// to the window system.
+    pub paint_margin: Option<i32>,
 }
 
 impl CpuRenderState {
@@ -2612,6 +2647,7 @@ impl CpuRenderState {
             paint_threads: 0,
             retained: None,
             root_display_list: None,
+            promote: None,
         }
     }
 
@@ -2695,6 +2731,7 @@ impl CpuRenderState {
             paint_threads: 0,
             retained: None,
             root_display_list: None,
+            promote: None,
         }
     }
 }
@@ -3056,7 +3093,14 @@ pub(crate) fn walk_range(
                     transform_stack.pop();
                 }
                 if matches!(mask_stack.last(), Some(MaskEntry::Transform(_))) {
-                    if let Some(MaskEntry::Transform(group)) = mask_stack.pop() {
+                    if let Some(MaskEntry::Transform(mut group)) = mask_stack.pop() {
+                        // (A10-06) The frame the shell shows as a layer is painted and kept,
+                        // not composited: a group that lands nowhere composites nothing.
+                        if candidate.layer {
+                            if let ReferenceFrameGroup::Isolated(isolated) = &mut group {
+                                isolated.lands = false;
+                            }
+                        }
                         let surface = group.finish_keeping(
                             pixmap,
                             surfaces,
@@ -3179,10 +3223,14 @@ pub(crate) fn walk_range(
                     font_manager,
                     render_state,
                     retained,
+                    false,
                 ) {
                     if let Some(surface) = retained.lookup(&candidate.key, candidate.needed) {
                         crate::cpu_counters::count(crate::cpu_counters::Counter::RetainedHits, 1);
-                        candidate.group.finish(&surface, pixmap);
+                        // (A10-06) The frame the shell shows as a layer is not composited.
+                        if !candidate.layer {
+                            candidate.group.finish(&surface, pixmap);
+                        }
                         skipped += 1;
                         next = frame.end + 1;
                         continue;
@@ -3391,6 +3439,10 @@ struct RetainedCandidate {
     group: TransformGroup,
     list: std::sync::Arc<DisplayList>,
     placement: super::retained::Placement,
+    /// (A10-06) The frame the shell shows as a layer, composited by the shell
+    /// (`CpuRenderState::promote` without `composite`): the walk paints and keeps its
+    /// surface and puts none of it into the pixels below.
+    layer: bool,
 }
 
 /// `list` as the shared list the render state holds (the window's own, or a view's), if it is
@@ -3533,6 +3585,10 @@ fn retained_candidate(
     font_manager: &FontManager<FontRef>,
     render_state: &CpuRenderState,
     retained: &RetainedFrames,
+    // (A10-06) Also a frame whose matrix is the identity or a translation: what the planner
+    // of the layer present asks ([`layer_candidate`]). The walk passes `false`: for it only
+    // the frame `CpuRenderState::promote` names is one.
+    any_matrix: bool,
 ) -> Option<RetainedCandidate> {
     let DisplayListItem::PushReferenceFrame {
         transform_key,
@@ -3549,7 +3605,10 @@ fn retained_candidate(
         .transforms
         .get(&transform_key.id)
         .map_or(&initial_transform.m, |t| &t.m);
-    if is_identity_2d(m) || translation_2d(m).is_some() {
+    // (A10-06) The frame the shell shows as a layer is an isolated group whatever its matrix
+    // (`ReferenceFrameGroup::begin`), so its surface is kept like any other group's.
+    let promoted = render_state.promote.filter(|p| p.transform_key == transform_key.id);
+    if !any_matrix && promoted.is_none() && (is_identity_2d(m) || translation_2d(m).is_some()) {
         return None;
     }
     let on_surface = |r: &LogicalRect| LogicalRect {
@@ -3571,7 +3630,11 @@ fn retained_candidate(
         return None;
     }
     let size = (g.width, g.height);
-    let (x0, y0, x1, y1) = group_visible_part(&g.matrix, g.outer_clip, below, size)?;
+    // (A10-06) What `ReferenceFrameGroup::begin` paints of this frame: the same box.
+    let (x0, y0, x1, y1) = match promoted.and_then(|p| p.paint_margin) {
+        Some(margin) => group_part_within(&g.matrix, g.outer_clip, below, size, margin)?,
+        None => group_visible_part(&g.matrix, g.outer_clip, below, size)?,
+    };
     let (nx0, ny0, nx1, ny1) = group_part_within(&g.matrix, g.outer_clip, below, size, 2)?;
     let (shared, slot) = shared_list(list, render_state)?;
     let list_at = std::sync::Arc::as_ptr(&shared) as usize;
@@ -3604,6 +3667,75 @@ fn retained_candidate(
             ),
             slot,
         },
+        layer: promoted.is_some_and(|p| !p.composite),
+    })
+}
+
+/// (A10-06) What the planner of the layer present (`present_layer`) asks of a frame it could
+/// show as a layer of its own: the key of the frame's surface, the part of the surface that
+/// shows, and how the surface lands.
+pub(super) struct LayerCandidate {
+    pub(super) key: super::retained::SurfaceKey,
+    /// Surface px, half-open: what shows under the clip, with the taps of a composite.
+    pub(super) needed: [i32; 4],
+    /// Surface pixel -> device pixel of the frame, a column-vector homography.
+    pub(super) matrix: Mat3,
+    /// The clip open around the frame, device px of the frame, half-open.
+    pub(super) clip: Option<(i32, i32, i32, i32)>,
+    /// `TransformKey::id` of the frame's push.
+    pub(super) transform_key: usize,
+}
+
+/// (A10-06) [`retained_candidate`] for the planner of the layer present: `frame`, pushed by
+/// `item` of `list`, as a frame whose picture is a kept surface WHATEVER its matrix is (the
+/// walk paints it so once `CpuRenderState::promote` names it), under `clip` (the clip a walk
+/// without a damage rect has at the push) and at the walk's offset `scroll_offset`, in no
+/// group and under no text shadow. `None` for a frame the walk would not keep.
+///
+/// The key, the surface's size and the matrix are the ones a pass of the walk finds for the
+/// same frame at the same offset: both come out of [`retained_candidate`], and neither
+/// depends on the clip.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn layer_candidate(
+    list: &DisplayList,
+    item: &DisplayListItem,
+    frame: &crate::solver3::display_list::FrameEntry,
+    inner: Option<&crate::solver3::display_list::FrameInner>,
+    below: (u32, u32),
+    dpi_factor: f32,
+    clip: Option<AzRect>,
+    scroll_offset: (f32, f32),
+    glyph_cache: &GlyphCache,
+    font_manager: &FontManager<FontRef>,
+    render_state: &CpuRenderState,
+    retained: &RetainedFrames,
+) -> Option<LayerCandidate> {
+    let DisplayListItem::PushReferenceFrame { transform_key, .. } = item else {
+        return None;
+    };
+    let candidate = retained_candidate(
+        list,
+        item,
+        frame,
+        inner,
+        false,
+        below,
+        dpi_factor,
+        clip,
+        scroll_offset,
+        &[],
+        glyph_cache,
+        font_manager,
+        render_state,
+        retained,
+        true,
+    )?;
+    Some(LayerCandidate {
+        key: candidate.key,
+        needed: candidate.needed,
+        matrix: candidate.group.matrix,
+        clip: candidate.group.outer_clip,
+        transform_key: transform_key.id,
     })
 }
 
@@ -5345,6 +5477,7 @@ pub fn render_single_item(
                 real_clip_stack,
                 scroll_offset_stack,
                 below,
+                render_state.promote.filter(|p| p.transform_key == transform_key.id),
             );
             mask_stack.push(MaskEntry::Transform(group));
             return Ok(());
@@ -17127,15 +17260,15 @@ pub(super) mod lcd_pretile_tests {
     use super::*;
     use crate::font::parsed::ParsedFont;
 
-    pub(super) fn load_test_font_pub() -> Option<ParsedFont> {
+    pub(in crate::cpurender) fn load_test_font_pub() -> Option<ParsedFont> {
         load_test_font()
     }
-    pub(super) fn rr_with_pub(
+    pub(in crate::cpurender) fn rr_with_pub(
         f: &ParsedFont,
     ) -> (RendererResources, FontManager<FontRef>, FontHash) {
         rr_with(f)
     }
-    pub(super) fn shape_pub(
+    pub(in crate::cpurender) fn shape_pub(
         p: &ParsedFont,
         t: &str,
         sz: f32,
