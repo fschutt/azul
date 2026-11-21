@@ -4324,8 +4324,31 @@ impl CssPropertyCache {
             // PRIORITY 3: cascaded / inherited properties, while nothing is
             // declared.
             if found.is_none() {
-                if let Some(p) = Self::find_in_stateful(inherited, state, css_property_type) {
-                    return Some((CascadeRank::INHERITED, p));
+                if let Some(entry) = Self::find_entry_in_stateful(inherited, state, css_property_type)
+                {
+                    // A resting COPY of the parent's value (not a UA default,
+                    // which is the node's own) where the inheritance pass
+                    // passed it over: the parent shows the property from a
+                    // state (`.row:hover { color }`, its own or one above
+                    // it), and the node holds what the parent shows, as an
+                    // inherited value (`apply_cascade_properties`). That is
+                    // the only way a node with such a copy holds the type
+                    // inherited: the pass applies every other copy as the
+                    // node's own. The row keeps the copy for the day the
+                    // state ends; until then the value is the inherited one.
+                    if state == PseudoStateType::Normal
+                        && !entry.ua_origin
+                        && css_property_type.is_inheritable()
+                    {
+                        if let Some(shown) = self
+                            .computed_values
+                            .get(index, *css_property_type)
+                            .filter(|value| value.origin == CssPropertyOrigin::Inherited)
+                        {
+                            return Some((CascadeRank::INHERITED, &shown.property));
+                        }
+                    }
+                    return Some((CascadeRank::INHERITED, &entry.property));
                 }
             }
         }
@@ -6478,6 +6501,14 @@ impl CssPropertyCache {
         // The values a node in a state hands its children on top of its
         // resting ones (Step 5b): few nodes are in a state at a time.
         let mut state_overlays: Vec<(usize, Vec<CssProperty>)> = Vec::new();
+        // The inheritable types a node shows its children FROM A STATE: what
+        // it holds for a state of its own (`state_overlays`) and what came to
+        // it from a state above and it declares nothing against. A child's
+        // copy of the resting value does not win over those
+        // (`apply_cascade_properties`). Empty while no node in a state hands
+        // a value down.
+        let mut from_a_state: alloc::collections::BTreeMap<usize, Vec<CssPropertyType>> =
+            alloc::collections::BTreeMap::new();
         // The nodes whose children the walk is in, outermost first: each
         // with the values it stored (what `values_for` reads back for it)
         // and the buckets they went to. The arena is in document order, so
@@ -6574,6 +6605,13 @@ impl CssPropertyCache {
                     Self::inherit_from_parent(&mut ctx, parent_values);
                 }
 
+                // What the parent shows from a state, its own or one above.
+                let held_above: Vec<CssPropertyType> =
+                    match parent_id.and_then(|pid| from_a_state.get(&pid.index())) {
+                        Some(types) => types.clone(),
+                        None => Vec::new(),
+                    };
+
                 // Steps 2-5: Apply cascade in priority order
                 self.apply_cascade_properties(
                     &mut ctx,
@@ -6581,16 +6619,29 @@ impl CssPropertyCache {
                     parent_computed,
                     node_data,
                     node_index,
+                    &held_above,
                 );
                 // Step 5b: what a state the node is in declares, for its
                 // children to inherit (`state_inherited_values`). Kept out of
                 // the node's own values, which stay its resting ones: the
                 // restyle that ends the state compares against those.
+                let mut hands_on: Vec<CssPropertyType> = Vec::new();
                 if let Some(state) = node_states.get(node_index) {
                     let held = self.state_inherited_values(&node_data[node_index], node_index, state);
                     if !held.is_empty() {
+                        hands_on.extend(held.iter().map(|p| p.get_type()));
                         state_overlays.push((node_index, held));
                     }
+                }
+                // ... and what it took from a state above without declaring
+                // the property itself: its children take that from it too.
+                for ty in &held_above {
+                    if !hands_on.contains(ty) && holds_inherited(&ctx.computed_values, *ty) {
+                        hands_on.push(*ty);
+                    }
+                }
+                if !hands_on.is_empty() && hierarchy_item.last_child_id().is_some() {
+                    from_a_state.insert(node_index, hands_on);
                 }
 
                 // Step 6: a `line-height` in `em` / `%` computes to a length
@@ -6783,6 +6834,16 @@ impl CssPropertyCache {
     }
 
     /// Apply all cascade properties in priority order
+    ///
+    /// `from_a_state`: the inheritable types the node's PARENT shows it from a state - its
+    /// own (`.row:hover { color }`) or one above it that it hands on. The node's inherited
+    /// row holds a COPY of what its parent holds AT REST for each such type (the walk of
+    /// the cascade copies resting values), and Step 2 takes a copy for a declaration of
+    /// the node's own: applied, it put the resting colour back over the hover colour the
+    /// node had just inherited, on every node below a hovered one whenever the pass ran
+    /// over rows that still held their resting copies (a cascade before its prune:
+    /// `recascade_nodes`, `restyle`). A copy of such a type is passed over; a UA default
+    /// (a link's colour) is the node's own declaration and applies as ever.
     fn apply_cascade_properties(
         &self,
         ctx: &mut InheritanceContext,
@@ -6790,12 +6851,14 @@ impl CssPropertyCache {
         parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>>,
         node_data: &[NodeData],
         node_index: usize,
+        from_a_state: &[CssPropertyType],
     ) {
         // Step 2: Cascaded properties (UA CSS)
         {
             let cascaded_slice = self.cascaded_props.get_slice(node_id.index());
             for p in cascaded_slice {
                 if p.state == azul_css::dynamic_selector::PseudoStateType::Normal
+                    && (p.ua_origin || !from_a_state.contains(&p.prop_type))
                     && Self::should_apply_cascaded(&ctx.computed_values, p.prop_type, &p.property)
                 {
                     Self::process_property(
@@ -7157,10 +7220,71 @@ struct InheritanceContext {
     computed_values: Vec<(CssPropertyType, CssPropertyWithOrigin)>,
 }
 
+/// Whether `computed` (a node's values, ascending by type) holds `ty` as an INHERITED
+/// value: the node took it from its parent and declares nothing for it.
+fn holds_inherited(
+    computed: &[(CssPropertyType, CssPropertyWithOrigin)],
+    ty: CssPropertyType,
+) -> bool {
+    computed
+        .binary_search_by_key(&ty, |(k, _)| *k)
+        .is_ok_and(|at| computed[at].1.origin == CssPropertyOrigin::Inherited)
+}
+
 impl CssPropertyCache {
     /// Clear the entire compact cache. Call after major DOM changes.
     pub(crate) fn invalidate_resolved_cache(&mut self) {
         self.compact_cache = None;
+    }
+
+    /// The inheritable types node `node` shows its children FROM A STATE, read from what
+    /// the cache holds for it and its ancestors (a node whose rows and values a cascade
+    /// over other nodes keeps, [`Self::recascade_nodes`]): what it holds for a state it is
+    /// in itself ([`Self::state_inherited_values`]), and what an ancestor in a state hands
+    /// down to it through nodes that declare nothing against it - each of them, `node`
+    /// included, holds the type as an inherited value. What the inheritance pass keeps per
+    /// node while it walks a whole DOM (`compute_inherited_values`), found again for one
+    /// node: a walk up its ancestors, which asks a node at rest nothing.
+    fn types_shown_from_a_state(
+        &self,
+        node_data: &[NodeData],
+        node_hierarchy: &[NodeHierarchyItem],
+        node_states: &[StyledNodeState],
+        node: usize,
+    ) -> Vec<CssPropertyType> {
+        let mut found: Vec<CssPropertyType> = Vec::new();
+        // The nodes from `node` up to, not including, the one asked: each has to hand a
+        // type on for it to reach the children of `node`.
+        let mut below: Vec<usize> = Vec::new();
+        let mut at = Some(node);
+        while let Some(index) = at {
+            let (Some(data), Some(state)) = (node_data.get(index), node_states.get(index)) else {
+                break;
+            };
+            for held in self.state_inherited_values(data, index, state) {
+                let ty = held.get_type();
+                if found.contains(&ty) {
+                    continue;
+                }
+                let handed_on = below.iter().all(|passed| {
+                    self.computed_values
+                        .get(*passed, ty)
+                        .is_some_and(|value| value.origin == CssPropertyOrigin::Inherited)
+                });
+                if handed_on {
+                    found.push(ty);
+                }
+            }
+            below.push(index);
+            // Document order: a parent stands before its child (and a malformed arena
+            // ends the walk instead of going round).
+            at = node_hierarchy
+                .get(index)
+                .and_then(NodeHierarchyItem::parent_id)
+                .map(|parent| parent.index())
+                .filter(|parent| *parent < index);
+        }
+        found
     }
 }
 
@@ -7860,6 +7984,12 @@ impl CssPropertyCache {
         self.css_wide_values
             .retain(|(node, _, _), _| !dirty.get(*node).copied().unwrap_or(false));
         let mut state_overlays: Vec<(usize, Vec<CssProperty>)> = Vec::new();
+        // The inheritable types a node shows its children from a state, as the whole pass
+        // keeps them (`compute_inherited_values`): written for a named node where the walk
+        // finds any, and for the KEPT parent of a named node read once from what the cache
+        // holds (`types_shown_from_a_state`; its entry may be empty).
+        let mut from_a_state: alloc::collections::BTreeMap<usize, Vec<CssPropertyType>> =
+            alloc::collections::BTreeMap::new();
         let mut ancestors: Vec<(usize, Vec<(CssPropertyType, CssPropertyWithOrigin)>, Vec<u32>)> =
             Vec::new();
         for node_index in 0..node_count {
@@ -7868,6 +7998,24 @@ impl CssPropertyCache {
             }
             let node_id = NodeId::new(node_index);
             let parent_id = items[node_index].parent_id();
+            if let Some(pid) = parent_id {
+                if !dirty.get(pid.index()).copied().unwrap_or(false)
+                    && !from_a_state.contains_key(&pid.index())
+                {
+                    let shown = self.types_shown_from_a_state(
+                        node_data.internal,
+                        items,
+                        node_states,
+                        pid.index(),
+                    );
+                    from_a_state.insert(pid.index(), shown);
+                }
+            }
+            let held_above: Vec<CssPropertyType> =
+                match parent_id.and_then(|pid| from_a_state.get(&pid.index())) {
+                    Some(types) => types.clone(),
+                    None => Vec::new(),
+                };
             // The parent's stored values are on top of `ancestors` when the parent is a named
             // node (the walk stored them); a parent that keeps its values reads the store.
             let mut parent_on_top = false;
@@ -7957,13 +8105,24 @@ impl CssPropertyCache {
                 parent_computed,
                 node_data.internal,
                 node_index,
+                &held_above,
             );
+            let mut hands_on: Vec<CssPropertyType> = Vec::new();
             if let Some(state) = node_states.get(node_index) {
                 let held =
                     self.state_inherited_values(&node_data.internal[node_index], node_index, state);
                 if !held.is_empty() {
+                    hands_on.extend(held.iter().map(|p| p.get_type()));
                     state_overlays.push((node_index, held));
                 }
+            }
+            for ty in &held_above {
+                if !hands_on.contains(ty) && holds_inherited(&ctx_node.computed_values, *ty) {
+                    hands_on.push(*ty);
+                }
+            }
+            if !hands_on.is_empty() && items[node_index].last_child_id().is_some() {
+                from_a_state.insert(node_index, hands_on);
             }
             Self::compute_font_relative_line_height(&mut ctx_node);
 

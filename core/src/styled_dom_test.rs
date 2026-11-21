@@ -3476,33 +3476,62 @@ mod audit_diff_first_tests {
         assert_eq!(cost(8, true), (1 + 8 * 5, false, 2 + 8 * 5));
     }
 
-    /// diff-first-19: a state that hands its children a value costs no OTHER node an
-    /// inherited value. Section 1's box comes under the pointer (`.box:hover { color }`
-    /// reaches its texts): the list keeps its colour, and the link of section 0 keeps the
-    /// UA's link colour, which its text inherits - a colour that is not black and that no
-    /// rule of the page declares. First on a DOM cascaded at rest that is given the state
-    /// flag by flag (what a full rebuild under the pointer does: `let_raised_states_in`),
-    /// then as the pointer moves on to section 2 (`restyle_on_state_change`).
+    /// diff-first-19: a state that hands its children a value reaches every node below it
+    /// that declares none of its own, in BOTH stores (what `get_property` answers and the
+    /// compact entry the text is painted from), and costs no OTHER node an inherited value.
+    /// Section 1's box comes under the pointer (`.box:hover { color }`): its heading, its
+    /// paragraph and their texts take the colour; the list keeps its colour, and the link of
+    /// section 0 keeps the UA's link colour, which its text inherits - a colour that is not
+    /// black and that no rule of the page declares. First on a DOM cascaded at rest that is
+    /// given the state flag by flag (what a full rebuild under the pointer does:
+    /// `let_raised_states_in`), then for nodes below the hovered box styled again on their
+    /// own (a rebuild that changed them), then as the pointer moves on
+    /// (`restyle_on_state_change`): to a section whose heading has a colour of its own, to a
+    /// section with a link, and away.
     ///
-    /// Both ran the inheritance pass over the rows as they lay, after the cascade had pruned
-    /// the resting rows the compact cache holds - the UA's defaults among them - so every
-    /// node whose colour came from such a row lost it: the link read the list's colour.
-    /// Mutation: `recascade_subtrees` replaced by `compute_inherited_values` over the whole
-    /// DOM (the body `recompute_inheritance_for_states` had): the link and its text answer
-    /// the list's colour after the hover.
+    /// Two defects, one after the other:
+    /// 1. before `8e9ead705` both paths ran the inheritance pass over the rows as they lay,
+    ///    after the cascade had pruned the resting rows the compact cache holds - the UA's
+    ///    defaults among them - so every node whose colour came from such a row lost it: the
+    ///    link read the list's colour. Mutation: `recascade_subtrees` replaced by
+    ///    `compute_inherited_values` over the whole DOM: "the list and the link keep their
+    ///    colours" fails for the link and its text (#222222 for #0000ee).
+    /// 2. `8e9ead705` styled the subtree by the cascade over named nodes, whose inheritance
+    ///    pass reads the rows BEFORE their prune: a child's row holds a copy of what its
+    ///    parent holds at rest, and the pass applied the copy over the hover colour the
+    ///    child had just inherited. The compact entries (copied slot by slot from the
+    ///    parent) had the hover colour, `get_property` the resting one. Mutations, each
+    ///    named at the assertion that fails for it:
+    ///    - the copy is applied again (`apply_cascade_properties` without `from_a_state`):
+    ///      "the hovered box hands its text its hover colour", and every node below the box;
+    ///    - a node does not hand on what it took from above (`hands_on` without the types
+    ///      of `held_above`): the TEXTS below the box (grandchildren) keep the list's;
+    ///    - the kept parent of a named node is asked nothing (`types_shown_from_a_state`
+    ///      answers none): "a paragraph styled again below the hovered box";
+    ///    - it is asked for its own state only (no walk up): "its text styled again alone";
+    ///    - a UA default of the type is passed over like a copy (`p.ua_origin ||` dropped):
+    ///      "the link below a hovered box keeps the UA's colour";
+    ///    - the node that LEFT the state is not styled again: "the pointer left".
     #[test]
     fn a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits() {
         use crate::styled_dom::HoverChange;
 
         // Pre-order: body 0, the list 1; section 0 (with a link): box 2, heading 3 and its
         // text 4, paragraph 5 and its text 6, the link 7 and its text 8; section 1: box 9,
-        // heading 10 and its text 11, paragraph 12 and its text 13; section 2: box 14,
-        // heading 15 and its text 16, paragraph 17 and its text 18. The texts watched are
-        // the paragraphs': a paragraph has no colour of its own (a heading wears its
-        // section's class), so its text shows what the box hands down.
+        // heading 10 and its text 11, paragraph 12 and its text 13; section 2 (class `k2`,
+        // which gives the box and the heading a colour): box 14, heading 15 and its text
+        // 16, paragraph 17 and its text 18; section 3 (with a link): box 19, heading 20 and
+        // its text 21, paragraph 22 and its text 23, the link 24 and its text 25. The texts
+        // watched first are the paragraphs': a paragraph has no colour of its own, so its
+        // text shows what the box hands down.
+        const HOVER: (u8, u8, u8) = (0x00, 0xaa, 0x00);
+        const LIST: (u8, u8, u8) = (0x22, 0x22, 0x22);
+        const K2: (u8, u8, u8) = (0xaa, 0x00, 0x00);
+        const LINK: (u8, u8, u8) = (0x00, 0x00, 0xee);
         let (list, link, link_text) = (NodeId::new(1), NodeId::new(7), NodeId::new(8));
         let (first, first_text) = (NodeId::new(9), NodeId::new(13));
         let (second, second_text) = (NodeId::new(14), NodeId::new(18));
+        let third = NodeId::new(19);
         let colour = |dom: &StyledDom, node: NodeId| {
             let state = dom.styled_nodes.as_ref()[node.index()].styled_node_state;
             dom.get_css_property_cache()
@@ -3514,11 +3543,31 @@ mod audit_diff_first_tests {
                 )
                 .cloned()
         };
+        // The two stores: what `get_property` answers for the state the node is in, and
+        // the compact entry (what the text is painted from).
+        let both = |dom: &StyledDom, node: usize| {
+            let slow = match colour(dom, NodeId::new(node)) {
+                Some(CssProperty::TextColor(v)) => {
+                    v.get_property().map(|c| (c.inner.r, c.inner.g, c.inner.b))
+                }
+                _ => None,
+            };
+            let raw = dom
+                .get_css_property_cache()
+                .compact_cache
+                .as_ref()
+                .map_or(0, |compact| compact.get_text_color_raw(node));
+            let fast = (raw != 0).then_some(((raw >> 24) as u8, (raw >> 16) as u8, (raw >> 8) as u8));
+            (slow, fast)
+        };
+        let in_both = |c: (u8, u8, u8)| (Some(c), Some(c));
         // Premise corrected by the verifier: an `<a>` without `href` is not `:link` and gets no
         // UA colour (`ua_css::is_link`): on `page` the link answered the list's #222222 and
         // the third premise below could not hold. The page is `page` with an `href` on each
-        // link; every other line of the test is as its owner wrote it.
+        // link.
         let mut dom = StyledDom::create_from_dom(page_with_hrefs(&sections(4)));
+        let count = dom.node_data.as_ref().len();
+        assert_eq!(count, 26, "premise: the page is the one numbered above");
         let at_rest = [colour(&dom, list), colour(&dom, link), colour(&dom, link_text)];
         assert!(at_rest[0].is_some(), "premise: the list has a colour of its own");
         assert!(
@@ -3527,12 +3576,25 @@ mod audit_diff_first_tests {
         );
         assert_ne!(at_rest[1], at_rest[0], "premise: the link's colour is the UA's, not the list's");
         let (first_rest, second_rest) = (colour(&dom, first_text), colour(&dom, second_text));
+        let rest: Vec<_> = (0..count).map(|node| both(&dom, node)).collect();
+        for node in 10..=13 {
+            assert_eq!(rest[node], in_both(LIST), "premise: node {node} rests at the list's colour");
+        }
+        assert_eq!(rest[18], in_both(K2), "premise: section 2's text rests at its box's colour");
+        assert_eq!(rest[7], in_both(LINK), "premise: the link rests at the UA's colour");
 
         // The state comes back after a cascade at rest, as in a full rebuild.
         dom.styled_nodes.as_container_mut()[first].styled_node_state.hover = true;
         dom.let_raised_states_in();
         let hovered_text = colour(&dom, first_text);
         assert_ne!(hovered_text, first_rest, "the hovered box hands its text its hover colour");
+        for node in 10..=13 {
+            assert_eq!(
+                both(&dom, node),
+                in_both(HOVER),
+                "node {node} below the hovered box: the hover colour, in both stores"
+            );
+        }
         assert_eq!(
             [colour(&dom, list), colour(&dom, link), colour(&dom, link_text)],
             at_rest,
@@ -3540,7 +3602,27 @@ mod audit_diff_first_tests {
         );
         assert_eq!(colour(&dom, second_text), second_rest, "a text beside it stays at rest");
 
-        // The pointer moves on to the next section.
+        // Nodes below the hovered box styled again on their own (a rebuild changed them):
+        // their parent is KEPT, and what it shows from the state is read from the cache.
+        let mut named = vec![false; count];
+        named[12] = true;
+        named[13] = true;
+        assert!(dom.restyle_changed_nodes(&named), "harness: the cascade over two nodes runs");
+        for node in [12, 13] {
+            assert_eq!(
+                both(&dom, node),
+                in_both(HOVER),
+                "a paragraph styled again below the hovered box: node {node}"
+            );
+        }
+        // The text alone: its parent, the paragraph, is in no state and hands on what the
+        // box hands it.
+        let mut named = vec![false; count];
+        named[13] = true;
+        assert!(dom.restyle_changed_nodes(&named), "harness: the cascade over one node runs");
+        assert_eq!(both(&dom, 13), in_both(HOVER), "its text styled again alone");
+
+        // The pointer moves on to the next section, whose heading has a colour of its own.
         let _ = dom.restyle_on_state_change(
             None,
             Some(HoverChange {
@@ -3551,11 +3633,141 @@ mod audit_diff_first_tests {
         );
         assert_eq!(colour(&dom, first_text), first_rest, "the text the pointer left is at rest");
         assert_eq!(colour(&dom, second_text), hovered_text, "the text it entered has the colour");
+        for node in 10..=13 {
+            assert_eq!(both(&dom, node), rest[node], "the pointer left: node {node} is at rest again");
+        }
+        for node in [17, 18] {
+            assert_eq!(both(&dom, node), in_both(HOVER), "the paragraph it entered: node {node}");
+        }
+        for node in [15, 16] {
+            assert_eq!(
+                both(&dom, node),
+                in_both(K2),
+                "a heading with a colour of its own keeps it below a hovered box, and its \
+                 text with it: node {node}"
+            );
+        }
         assert_eq!(
             [colour(&dom, list), colour(&dom, link), colour(&dom, link_text)],
             at_rest,
             "after the pointer moved: the list and the link (with its text) keep their colours"
         );
+
+        // On to the section with a link: the paragraph and its text take the colour, the
+        // link (a grandchild of the box) keeps the UA's, which is its own, and its text
+        // inherits the link's.
+        let _ = dom.restyle_on_state_change(
+            None,
+            Some(HoverChange {
+                left_nodes: vec![second],
+                entered_nodes: vec![third],
+            }),
+            None,
+        );
+        for node in 15..=18 {
+            assert_eq!(both(&dom, node), rest[node], "the pointer left: node {node} is at rest again");
+        }
+        for node in [20, 21, 22, 23] {
+            assert_eq!(both(&dom, node), in_both(HOVER), "below the third box: node {node}");
+        }
+        for node in [24, 25] {
+            assert_eq!(
+                both(&dom, node),
+                in_both(LINK),
+                "the link below a hovered box keeps the UA's colour, and its text with it: \
+                 node {node}"
+            );
+        }
+
+        // And away: every node answers what it answered before the pointer came.
+        let _ = dom.restyle_on_state_change(
+            None,
+            Some(HoverChange {
+                left_nodes: vec![third],
+                entered_nodes: Vec::new(),
+            }),
+            None,
+        );
+        for node in 0..count {
+            assert_eq!(both(&dom, node), rest[node], "the pointer is gone: node {node}");
+        }
+    }
+
+    /// The same for a property the compact cache has no slot the prune trusts for
+    /// (`cursor`): the child's copy of the resting value SURVIVES the prune, and
+    /// `get_property` finds the row before it asks the inherited values. A bar under the
+    /// pointer hands its paragraph and the text in it `cursor: pointer`; they answer what
+    /// the bar answers, and the resting cursor again once the pointer is gone. With four
+    /// more nodes beside the bar the cascade over the bar's three nodes runs; without them
+    /// they are more than half of the DOM and the whole cascade runs in place: both ways.
+    ///
+    /// Mutation: the lookup's third tier answers the row's resting copy where the node
+    /// holds the type as an inherited value (the branch on `CssPropertyOrigin::Inherited`
+    /// in `get_declared_property_ranked` removed): the paragraph and its text answer
+    /// `default` under the hovered bar.
+    #[test]
+    fn a_state_hands_down_a_property_whose_copy_survives_the_prune() {
+        use crate::styled_dom::HoverChange;
+
+        for beside in [4_usize, 0] {
+            let text = Dom::create_text_do_not_use_without_block_level_wrapper("x".to_string());
+            let mut body = Dom::create_body()
+                .with_component_css(azul_css::css::Css::from_string(
+                    ".bar { cursor: default; } .bar:hover { cursor: pointer; }".into(),
+                ))
+                .with_child(
+                    Dom::create_div()
+                        .with_class("bar".into())
+                        .with_child(Dom::create_node(NodeType::P).with_child(text)),
+                );
+            for _ in 0..beside {
+                body = body.with_child(Dom::create_div());
+            }
+            // Pre-order: body 0, the bar 1, its paragraph 2, the text 3, then the others.
+            let mut dom = StyledDom::create_from_dom(body);
+            assert_eq!(dom.node_data.as_ref().len(), 4 + beside, "premise: the nodes as numbered");
+            let bar = NodeId::new(1);
+            let cursor = |dom: &StyledDom, node: usize| {
+                let id = NodeId::new(node);
+                let state = dom.styled_nodes.as_ref()[node].styled_node_state;
+                dom.get_css_property_cache()
+                    .get_property(&dom.node_data.as_ref()[node], &id, &state, &CssPropertyType::Cursor)
+                    .cloned()
+            };
+            let resting = cursor(&dom, 1);
+            assert!(resting.is_some(), "premise: the bar declares a cursor");
+            for node in [2, 3] {
+                assert_eq!(cursor(&dom, node), resting, "premise: node {node} inherits the bar's");
+            }
+
+            dom.styled_nodes.as_container_mut()[bar].styled_node_state.hover = true;
+            dom.let_raised_states_in();
+            let hovered = cursor(&dom, 1);
+            assert_ne!(hovered, resting, "premise: the hovered bar has another cursor");
+            for node in [2, 3] {
+                assert_eq!(
+                    cursor(&dom, node),
+                    hovered,
+                    "{beside} nodes beside the bar: node {node} takes the hovered bar's cursor"
+                );
+            }
+
+            let _ = dom.restyle_on_state_change(
+                None,
+                Some(HoverChange {
+                    left_nodes: vec![bar],
+                    entered_nodes: Vec::new(),
+                }),
+                None,
+            );
+            for node in [1, 2, 3] {
+                assert_eq!(
+                    cursor(&dom, node),
+                    resting,
+                    "{beside} nodes beside the bar: node {node} is at rest again"
+                );
+            }
+        }
     }
 
     /// Without a sibling rule in the sheet a changed node reaches itself and its descendants.
