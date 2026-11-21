@@ -4017,14 +4017,36 @@ impl DisplayListBuilder {
     /// `PageBreakPosition::causing_node`).
     /// This is used for CSS break-before: always and break-after: always.
     pub(crate) fn add_forced_page_break(&mut self, y_position: f32, causing_node: Option<NodeId>) {
-        // Avoid duplicates and keep sorted by Y
-        if !self.forced_page_breaks.iter().any(|b| b.y == y_position) {
-            self.forced_page_breaks.push(ForcedBreak {
-                y: y_position,
-                causing_node,
-            });
-            self.forced_page_breaks
-                .sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(core::cmp::Ordering::Equal));
+        // No duplicates, sorted by Y. The list is kept that way, so the
+        // place of a break - or the break that is already there - is found
+        // by bisection; it was a scan for the duplicate and a sort of the
+        // whole list per break (quadratic in the breaks of a long document:
+        // 10,000 forced breaks were 50 million compares and 10,000 sorts).
+        //
+        // A position that is not a number equals no break, itself included:
+        // it is recorded on every call, as it always was, behind the numbers
+        // (which stay sorted among themselves).
+        let numbers = self.forced_page_breaks.len()
+            - self
+                .forced_page_breaks
+                .iter()
+                .rev()
+                .take_while(|b| b.y.is_nan())
+                .count();
+        let new_break = ForcedBreak {
+            y: y_position,
+            causing_node,
+        };
+        if y_position.is_nan() {
+            self.forced_page_breaks.push(new_break);
+            return;
+        }
+        let place = self.forced_page_breaks[..numbers].binary_search_by(|b| {
+            b.y.partial_cmp(&y_position)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+        if let Err(at) = place {
+            self.forced_page_breaks.insert(at, new_break);
         }
     }
 
@@ -5081,6 +5103,9 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// at the first lookup ([`DisplayListGenerator::tag_id_of`]): every box
     /// asks for its tag, and each ask used to scan the DOM's whole tag list.
     tags_by_node: core::cell::OnceCell<Vec<Option<u64>>>,
+    /// The fonts the font manager has loaded, asked for once per list
+    /// ([`DisplayListGenerator::loaded_fonts`]).
+    loaded_fonts: core::cell::OnceCell<std::sync::Arc<text3::cache::LoadedFonts<T>>>,
     /// The links of a box's [`ScrollChain`](crate::solver3::scroll_chain::ScrollChain)
     /// (their layout indices, outermost first) by the box's parent and how
     /// the box is positioned - all a box's chain depends on
@@ -5667,8 +5692,22 @@ where
             canvas_painted: [None, None],
             painting_region: None,
             tags_by_node: core::cell::OnceCell::new(),
+            loaded_fonts: core::cell::OnceCell::new(),
             box_chains: BTreeMap::new(),
         }
+    }
+
+    /// The fonts the font manager has loaded, as of the first ask of this
+    /// list build. `FontManager::get_loaded_fonts` takes two locks and folds
+    /// a fingerprint over every loaded face per call; an ellipsis and a
+    /// placeholder prompt each asked for it again (per clipped line, per
+    /// empty field). No font is loaded while a list is built: one answer
+    /// serves the build.
+    fn loaded_fonts(&self) -> std::sync::Arc<text3::cache::LoadedFonts<T>> {
+        std::sync::Arc::clone(
+            self.loaded_fonts
+                .get_or_init(|| self.ctx.font_manager.get_loaded_fonts()),
+        )
     }
 
     /// What the scroll chain of the box at `node_index` depends on: its
@@ -9982,7 +10021,7 @@ where
             )
             .is_some();
 
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.loaded_fonts();
         let glyphs = text3::cache::shape_placeholder_text(
             text,
             &style,
@@ -10781,7 +10820,7 @@ where
                 height: self.ctx.viewport_size.height,
             },
         ));
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.loaded_fonts();
         let glyphs = text3::cache::shape_ellipsis(
             &style,
             &self.ctx.font_manager.font_chain_cache,
