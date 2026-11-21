@@ -27,7 +27,7 @@ use core::{
     ffi::c_void,
     hash::{Hash, Hasher},
     ops,
-    sync::atomic::{AtomicI64, AtomicUsize, Ordering as AtomicOrdering},
+    sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
 
 use azul_css::{
@@ -62,29 +62,8 @@ use crate::{
 
 pub const DEFAULT_TITLE: &str = "Azul App";
 
-static LAST_WINDOW_ID: AtomicI64 = AtomicI64::new(0);
-
-/// Unique identifier for a window, auto-assigned via atomic counter.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Ord, PartialOrd)]
-#[repr(transparent)]
-pub struct WindowId {
-    pub id: i64,
-}
-
-impl Default for WindowId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl WindowId {
-    pub fn new() -> Self {
-        Self {
-            id: LAST_WINDOW_ID.fetch_add(1, AtomicOrdering::SeqCst),
-        }
-    }
-}
-
+// Process-wide: an `IconKey` made anywhere must differ from every other whichever window or tray
+// icon holds it, and `IconKey::default()` is a C-API entry point (api.json) with no owner to ask.
 static LAST_ICON_KEY: AtomicUsize = AtomicUsize::new(0);
 
 /// Key that is used for checking whether a window icon has changed -

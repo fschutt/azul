@@ -539,14 +539,6 @@ mod autotest_generated {
     }
 
     #[test]
-    fn external_image_id_new_is_monotonic() {
-        let a = ExternalImageId::new();
-        let b = ExternalImageId::new();
-        assert!(b.inner > a.inner, "the counter must strictly increase");
-        assert!(ExternalImageId::default().inner > b.inner);
-    }
-
-    #[test]
     fn shared_raw_image_data_new_invariants() {
         let empty = SharedRawImageData::new(U8Vec::from_vec(Vec::new()));
         assert_eq!(empty.len(), 0);
@@ -1105,10 +1097,10 @@ mod autotest_generated {
     fn unique_keys_are_strictly_increasing_and_keep_their_namespace() {
         let ns = IdNamespace(u32::MAX);
 
-        let a = ImageKey::unique(ns);
-        let b = ImageKey::unique(ns);
+        let a = ImageKey::unique_image_slot(ns);
+        let b = ImageKey::unique_image_slot(ns);
         assert_eq!(a.namespace, ns);
-        assert!(b.key > a.key, "ImageKey counter must strictly increase");
+        assert!(b.key > a.key, "the slot key counter must strictly increase");
         // The counter starts at 1 so a live key can never collide with DUMMY.
         assert_eq!(ImageKey::DUMMY.key, 0);
         assert_ne!(a, ImageKey::DUMMY);
@@ -2043,7 +2035,7 @@ mod autotest_generated {
 
     #[test]
     fn add_image_msg_into_resource_update_preserves_the_key_and_descriptor() {
-        let key = ImageKey::unique(IdNamespace(2));
+        let key = ImageKey::unique_image_slot(IdNamespace(2));
         let descriptor = ImageDescriptor {
             format: RawImageFormat::BGRA8,
             width: 3,

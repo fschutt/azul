@@ -208,6 +208,8 @@ pub struct SelectionId {
 impl SelectionId {
     /// Generate a new unique `SelectionId`.
     pub fn new() -> Self {
+        // Process-wide: `SelectionId::default()` is a C-API entry point (api.json) with no
+        // `MultiCursorState` to ask, and the ids are said to be unique for the life of the process.
         static COUNTER: AtomicU64 = AtomicU64::new(1);
         Self {
             inner: COUNTER.fetch_add(1, Ordering::Relaxed),

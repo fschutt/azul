@@ -2236,8 +2236,9 @@ impl RgbToYuv {
     }
 }
 
-// NOTE: starts at 1 (0 = DUMMY)
-static IMAGE_KEY: AtomicU64 = AtomicU64::new(1);
+// Process-wide: `FontKey::unique(ns)` / `FontInstanceKey::unique(ns)` take a namespace but no window, and
+// the shell derives the namespace from a font's hash, so only a counter outliving every window keeps
+// the (namespace, key) pairs distinct.
 static FONT_KEY: AtomicU64 = AtomicU64::new(0);
 static FONT_INSTANCE_KEY: AtomicU64 = AtomicU64::new(0);
 
@@ -2252,13 +2253,6 @@ impl ImageKey {
         namespace: IdNamespace(0),
         key: 0,
     };
-
-    pub fn unique(render_api_namespace: IdNamespace) -> Self {
-        Self {
-            namespace: render_api_namespace,
-            key: IMAGE_KEY.fetch_add(1, AtomicOrdering::SeqCst),
-        }
-    }
 
     /// A key no image will ever derive: drawn from the never-reused
     /// `ImageRef` id counter that registered images take their keys from
@@ -2348,6 +2342,9 @@ pub struct ImageRef {
 
 /// Never-reused source of [`ImageRef::id`]. Starts at 1 so `id == 0` can flag
 /// an un-initialised / raw-reconstructed handle.
+///
+/// Process-wide: the `ImageRef` constructors are C-API entry points with no owner to ask, and an
+/// id must not repeat while any image of the process lives (it keys the renderer's image map).
 static IMAGE_REF_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 #[must_use]
@@ -3215,16 +3212,13 @@ macro_rules! unique_id {
     };
 }
 
-// NOTE: the property key is unique across transform, color and opacity properties
+// NOTE: the property key is unique across transform, color and opacity properties.
+// Process-wide: the keys are made at some seventy sites of azul-layout and azul-dll with no shared
+// owner in reach, and a WebRender property binding is unique per document, not per DOM.
 static PROPERTY_KEY_COUNTER: AtomicUsize = AtomicUsize::new(0);
 unique_id!(TransformKey, PROPERTY_KEY_COUNTER);
 unique_id!(ColorKey, PROPERTY_KEY_COUNTER);
 unique_id!(OpacityKey, PROPERTY_KEY_COUNTER);
-
-static IMAGE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-unique_id!(ImageId, IMAGE_ID_COUNTER);
-static FONT_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
-unique_id!(FontId, FONT_ID_COUNTER);
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[repr(C)]
@@ -4436,23 +4430,6 @@ pub enum ExternalImageType {
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct ExternalImageId {
     pub inner: u64,
-}
-
-static LAST_EXTERNAL_IMAGE_ID: AtomicUsize = AtomicUsize::new(0);
-
-impl Default for ExternalImageId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ExternalImageId {
-    /// Creates a new, unique `ExternalImageId`
-    pub fn new() -> Self {
-        Self {
-            inner: LAST_EXTERNAL_IMAGE_ID.fetch_add(1, AtomicOrdering::SeqCst) as u64,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
