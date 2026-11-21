@@ -543,8 +543,22 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
 - fix (not made: the queue is A6's `focus_cursor.rs`, the dispatch the shell's): skip entries whose `dom` is not
   the reconciled one here, and resolve a view's entries in `reconcile_rematerialized_child`, where its old arena
   is at hand (it already resolves `BeforeUnmount` there).
+- the change, refined by the third successor (read: the shell's loop at "A FOCUSED node that the rebuild did
+  not carry over", `FocusManager::take_focus_lost_to_unmount`, `reconcile_rematerialized_child`); three
+  edits, none made (no context left to write its test, which needs a focused node inside a view that
+  unmounts on a re-render and a window node of the same index with a `FocusLost` handler that must stay
+  silent):
+  1. `layout/src/managers/focus_cursor.rs`: `pub fn take_focus_lost_to_unmount_of(&mut self, dom: DomId) ->
+     Vec<DomNodeId>` (the entries of one DOM leave the queue, the others stay);
+  2. the shell: take the entries of `DomId::ROOT_ID` only (its loop reads `pending.old_node_data`, the
+     window's old arena);
+  3. `reconcile_rematerialized_child`, right after `self.remap_node_ids(child_dom_id, &map)` (which records
+     the view's lost focus): take the entries of `child_dom_id` and queue each old node's `FocusLost`
+     handlers into `pending_unmount_invocations` with a `Blur` event, as the shell does - the old arena is
+     still at hand there (`layout_results` / `retired_child_results` hold the old result until the pass
+     replaces it, or the local `stashed`); `now` must be cloned before `reconcile_dom` takes it.
 - severity: low
-- status: open: the exact change is given; it touches A6's queue contract (which reconciliation drains which DOM's entries)
+- status: open: three edits and a test (above); it touches A6's queue (a method that drains one DOM's entries)
 
 ### diff-first-13 the kept exits told the solver "unchanged" for a node a callback had written
 - file:line: `layout.rs` exits 1.45, 1.46 and the GRANULAR DIFF block; `layout/src/window.rs` `DomGenerations`
@@ -1349,9 +1363,11 @@ diff-first-20 = step `wlist` (`554d8ccd2`), diff-first-07 = step `tlist` (`dd0ef
 - whether a layout or dll test pins a view's re-render or a window rebuild as a FULL emission
   (`last_build_was_patched == false`, a damage list): such a rebuild is a patched build now.
 
+**Stopped here: context short** (third successor). Everything is committed; nothing is half-written.
+
 **Left, each with its design in the block named:**
 1. The solver across renumbering: diff-first-06b (A3-solver's and A8's files): what is left of every case
-   where a node comes or goes before others.
+   where a node comes or goes before others. Its block has the inventory of ids and the four steps.
 2. Gates: the table above. Open with a design and no code: `+` / `~` on exit 1.46 (the later siblings only),
    the drag state (rows agent 2).
 3. The rows agent's changes 2-4 (above).
