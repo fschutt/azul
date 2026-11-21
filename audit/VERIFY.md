@@ -583,7 +583,23 @@ GIT_CONFIG_VALUE_0=https://github.com/fschutt/azul` (cargo found `98a2ebd8b` wit
   first measured call holds 113 more).
 - `scripts/e2e.sh` (with `pinenv.sh` sourced; builds `--release --features e2e` into the shared target and
   OVERWRITES the shared `target/release/mapedit3`; the e2e binary is copied to `<m4p worktree>/mapedit3/target/e2e/
-  mapedit3-e2e`; log `94-e2e`): result below.
+  mapedit3-e2e`; log `94-e2e`; per scenario `<m4p worktree>/mapedit3/target/e2e/<name>/log.txt`): e2e build 0 errors
+  (6 min 50 s); **13 scenarios run: 7 ok, 6 FAILED** (cleanup runs through `scripts/cleanup-gui.sh`: not run).
+  ok: effects, idle_frames, open_and_draw, pan_sidebar, panels, session, tiles_in_place. FAILED, verbatim (all
+  sent to the coordinator; NOT triaged; the first three kinds look like behaviour, not budgets):
+  - hand_corrections (2 passed, 3 failed): step 24 and step 59 `'result.selected_kind' differs: expected "text",
+    got null`; step 52 `'result.corrections.edit_log' differs: expected 2, got 1`.
+  - map_items (2 / 2): step 36 `'dl_rebuilds' is out of range: expected at_most 1, got 2`; step 27
+    `'result.corrections.street_index_blocks' differs: expected 1, got 0` (the same thing as the unit test
+    `a_refused_block_op_...`: a good `move_block` leaves no block correction).
+  - view_motion (4 / 1): step 34 `'result.pan.x' is out of range: expected at_least 29.95, got 20.0`.
+  - zoom_labels (5 / 4): step 29 `'result.offset.x' is out of range: expected at_most -1, got 0.0`; steps 43 and 23
+    `'cpu_since_reset.px_blitted' is out of range: expected at_least 400000, got 0`; step 27
+    `'cpu_since_reset.glyphs' is out of range: expected at_most 49000, got 50350` (a budget).
+  - zoom_halos (1 / 2): steps 21 and 24 `'cpu_since_reset.px_blitted' ... expected at_least 1500000, got 0`.
+  - render_budget (1 / 1): step 32 `'cpu_since_reset.px_cleared' ... expected at_least 1000000, got 0`.
+  The budgets calibration and the performance matrix were NOT run on this build (the coordinator moved them to
+  the final pin).
 
 ### After the checkpoint: the fix of the open core test (towards milestone 6)
 
