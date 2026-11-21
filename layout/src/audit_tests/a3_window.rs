@@ -502,3 +502,233 @@ fn a_restyle_that_is_no_decoration_is_not_patched() {
     assert!(!lw.patch_restyled_decorations(child, &restyle), "a width is no decoration");
     assert_eq!(lines(&lw.layout_results[&child].display_list), before, "the list is untouched");
 }
+
+// -- A3-window-19: the generation of a DOM, and what is kept per generation (A3-window-05) ------
+
+/// The generation of a DOM moves when the DOM is another one - a layout pass of it, a style
+/// the app wrote - and stays through everything else: a frame, a hover (shown by a patch), a
+/// value the display list binds (a zoom step's transform), a pass of ANOTHER DOM, and a
+/// re-render that built the DOM the view had.
+#[test]
+fn a_doms_generation_moves_with_the_dom_and_only_then() {
+    use azul_css::props::{
+        basic::{AngleValue, PixelValue},
+        layout::dimensions::LayoutWidth,
+        property::CssProperty,
+        style::transform::StyleTransform,
+    };
+
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let (mut lw, child) = label_window(12);
+    let generations = |lw: &LayoutWindow| (lw.dom_generation(DomId::ROOT_ID), lw.dom_generation(child));
+    let (root, view) = generations(&lw);
+    assert!(root > 0 && view > 0 && root != view, "a laid-out DOM has a generation of its own");
+    assert_eq!(lw.dom_generation(DomId { inner: 999 }), 0, "a DOM without a result has none");
+
+    // A frame.
+    lw.prepare_frame_content();
+    assert_eq!(generations(&lw), (root, view), "a frame changes no DOM");
+
+    // A hover, shown by a patch of the list.
+    let _ = hover(&mut lw, child, 0, true);
+    assert_eq!(generations(&lw), (root, view), "an interaction state is not the DOM");
+
+    // A value the list binds: the turned label 2 (span 5) is turned further.
+    let turned = lw.apply_content_change(ContentChange::NodeCss {
+        dom_id: child,
+        node_id: NodeId::new(5),
+        props: vec![CssProperty::transform(
+            vec![StyleTransform::Rotate(AngleValue::deg(20.0))].into(),
+        )],
+        override_only: false,
+    });
+    assert!(
+        matches!(turned.tier, ContentDirtyTier::Paint),
+        "harness: the transform of a turned label is a bound value"
+    );
+    assert_eq!(generations(&lw), (root, view), "a bound value is not the DOM");
+
+    // A style the app writes into the view's DOM: that DOM alone is another one.
+    let _ = lw.apply_content_change(ContentChange::NodeCss {
+        dom_id: child,
+        node_id: NodeId::new(1),
+        props: vec![CssProperty::width(LayoutWidth::Px(PixelValue::px(90.0)))],
+        override_only: false,
+    });
+    let (root_after, view_styled) = generations(&lw);
+    assert_eq!(root_after, root, "the window's own DOM was not written");
+    assert!(view_styled > view, "the view's DOM has another style");
+
+    // The window's DOM laid out again (the same DOM, the same size): the view is kept and
+    // nothing in it moved.
+    let previous = lw
+        .layout_results
+        .remove(&DomId::ROOT_ID)
+        .expect("the root's result");
+    let styled = previous.styled_dom;
+    drop(previous.layout_tree);
+    let ws = lw.current_window_state.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out again");
+    let (root_relaid, view_kept) = generations(&lw);
+    assert!(root_relaid > root, "a layout pass of the root");
+    assert_eq!(view_kept, view_styled, "the kept view's DOM is the one it was");
+}
+
+/// A view rendered again: another DOM is another generation; the same DOM built again is not.
+#[test]
+fn a_view_rendered_again_has_another_generation_only_with_another_dom() {
+    // `watched_page` draws another colour on every render.
+    let mut w = WatchedWindow::new();
+    let (root, view) = (w.lw.dom_generation(DomId::ROOT_ID), w.lw.dom_generation(w.child));
+    w.render_again();
+    assert!(w.lw.dom_generation(w.child) > view, "the view's DOM was laid out again");
+    assert_eq!(w.lw.dom_generation(DomId::ROOT_ID), root, "the window's DOM was not");
+
+    // `label_page` draws the same labels on every render: the view takes its child back.
+    let (mut lw, child) = label_window(12);
+    let view = lw.dom_generation(child);
+    let (host, node) = *lw
+        .virtual_view_manager
+        .all_view_keys()
+        .first()
+        .expect("the page holds a view");
+    let mut updates = BTreeMap::new();
+    let mut views = FastBTreeSet::new();
+    views.insert(node);
+    updates.insert(host, views);
+    lw.queue_virtual_view_updates(updates);
+    let ws = lw.current_window_state.clone();
+    let _ = lw.process_pending_virtual_view_updates(
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+    );
+    assert_eq!(lw.dom_generation(child), view, "the same DOM built again is the DOM it was");
+}
+
+/// The count budget of A3-window-05: the search for callback images walks a DOM's layout
+/// nodes once per generation of the DOM. Every frame used to walk every layout node of
+/// every DOM (400 labels here, 12,470 in a map view) to find none.
+#[test]
+fn a_frame_of_an_unchanged_dom_walks_no_layout_node_for_callback_images() {
+    use crate::window::CALLBACK_IMAGE_SCAN;
+
+    let (mut lw, child) = label_window(400);
+    CALLBACK_IMAGE_SCAN.with(|scanned| scanned.set(0));
+    lw.prepare_frame_content();
+    let first = CALLBACK_IMAGE_SCAN.with(std::cell::Cell::get);
+    assert!(first >= 400, "harness: the first frame walks each DOM once ({first})");
+
+    lw.prepare_frame_content();
+    lw.prepare_frame_content();
+    let _ = hover(&mut lw, child, 3, true);
+    lw.prepare_frame_content();
+    assert_eq!(
+        CALLBACK_IMAGE_SCAN.with(std::cell::Cell::get),
+        first,
+        "frames (and a hover) over unchanged DOMs walk no layout node"
+    );
+}
+
+/// How often the canvas of [`canvas_page`] was drawn.
+static LATE_CANVAS_DRAWN: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn late_canvas(
+    _data: RefAny,
+    _info: crate::callbacks::RenderImageCallbackInfo,
+) -> azul_core::resources::ImageRef {
+    LATE_CANVAS_DRAWN.fetch_add(1, Ordering::SeqCst);
+    azul_core::resources::ImageRef::null_image(
+        4,
+        4,
+        azul_core::resources::RawImageFormat::BGRA8,
+        Vec::new(),
+    )
+}
+
+/// A view without a canvas on its first render and with one from the second on.
+extern "C" fn canvas_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let call = data
+        .downcast_ref::<Watched>()
+        .map(|watched| watched.0.fetch_add(1, Ordering::SeqCst))
+        .expect("the view's data");
+    let mut dom = Dom::create_div().with_child(Dom::create_div().with_css(
+        "position: absolute; left: 10px; top: 10px; width: 20px; height: 20px; background: \
+         #336699;",
+    ));
+    if call > 0 {
+        let canvas = azul_core::resources::ImageRef::callback(
+            crate::callbacks::RenderImageCallback::create(late_canvas).to_core(),
+            RefAny::new(()),
+        );
+        dom = dom.with_child(
+            Dom::create_image(canvas)
+                .with_css("position: absolute; left: 50px; top: 10px; width: 40px; height: 30px;"),
+        );
+    }
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(300.0, 300.0));
+    VirtualViewReturn::with_dom(dom, window, window)
+}
+
+/// What is kept per generation is found again when the DOM is another one: a canvas that
+/// comes with a view's re-render is drawn by the next frame (a search that kept "this DOM
+/// has no canvas" across the re-render would never draw it).
+#[test]
+fn a_canvas_that_comes_with_a_re_render_is_drawn_by_the_next_frame() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(
+            RefAny::new(Watched(Arc::clone(&calls))),
+            VirtualViewCallback::create(canvas_page),
+        )
+        .with_css("position: absolute; left: 0px; top: 0px; width: 300px; height: 300px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(300.0, 300.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    lw.prepare_frame_content();
+    assert_eq!(LATE_CANVAS_DRAWN.load(Ordering::SeqCst), 0, "harness: no canvas yet");
+
+    let (host, node) = *lw
+        .virtual_view_manager
+        .all_view_keys()
+        .first()
+        .expect("the page holds a view");
+    let mut updates = BTreeMap::new();
+    let mut views = FastBTreeSet::new();
+    views.insert(node);
+    updates.insert(host, views);
+    lw.queue_virtual_view_updates(updates);
+    let updated = lw.process_pending_virtual_view_updates(
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+    );
+    assert_eq!(updated.len(), 1, "harness: the view was rendered again");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "harness: its callback ran again");
+
+    lw.prepare_frame_content();
+    assert_eq!(
+        LATE_CANVAS_DRAWN.load(Ordering::SeqCst),
+        1,
+        "the canvas that came with the re-render is drawn"
+    );
+}

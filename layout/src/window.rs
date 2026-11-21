@@ -1412,6 +1412,8 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         image_cache: _,
         content_overlay: _,
         image_callback_inputs: _,
+        // A counter per DOM and the few callback-image boxes found per DOM.
+        dom_generations: _,
         // One small entry per background layer that declares a render
         // callback: bounded by such layers.
         background_callback_inputs: _,
@@ -2068,6 +2070,9 @@ pub struct LayoutWindow {
     /// `update_all_image_callbacks`) - a canvas at rest mints no new
     /// `ImageRef` and repaints nothing (`AzReview` never idled, FB3).
     pub image_callback_inputs: BTreeMap<(DomId, NodeId), ImageCallbackInputs>,
+    /// The generation of each DOM ([`Self::dom_generation`]) and what is kept per
+    /// generation (the boxes that draw a callback image).
+    pub dom_generations: DomGenerations,
     /// What each background layer that declares a render callback
     /// (`background: url(id)` / `builtin(<name>)` naming a callback image)
     /// was last drawn from. A frame asks the callback again only when these
@@ -2583,6 +2588,80 @@ impl RefAnyHolder for LayoutWindow {
         self.virtual_view_manager.for_each_refany(visit);
     }
 }
+
+/// The GENERATION of each DOM of a window: a number that moves whenever the DOM is no longer
+/// the one it was, so that work whose result depends on the DOM alone (which boxes draw a
+/// callback image; the accessibility tree of a view nobody rendered again) is done once per
+/// generation instead of once per frame or per layout pass.
+///
+/// EQUAL generations of a DOM promise: the same node arena (the nodes, their types, texts,
+/// attributes and the identity of their payloads as far as a rebuild carries them), the same
+/// layout tree and positions, the same viewport, and no style the APP wrote in between
+/// (`set_css_property` / `set_node_style` / a clip mask). They do NOT cover: the interaction
+/// states and what they restyle (`:hover`, `:active`, `:focus`), the frames of a running
+/// transition, the values a display list binds by key (a bound `transform` / `opacity`,
+/// scroll offsets, animation channels), the display list itself, the content overlay (typed
+/// text not yet committed, swapped images, callback frames), focus, caret and selection, and
+/// a scrollbar flag raised after the pass (`scroll_registration`).
+///
+/// It moves in ONE place, [`LayoutWindow::note_dom_changed`], called where a layout result is
+/// installed (the two inserts of `layout_dom_recursive_impl`: every layout pass of the DOM)
+/// or written in place (the node-CSS, node-style and clip-mask arms of
+/// `apply_content_change`, a text edit's reshape, a kept view's viewport). A view whose
+/// callback built the DOM it built last keeps its generation (`reclaim_unchanged_child`:
+/// the result it had comes back, with the new build's handlers and data on the same nodes).
+/// A DOM without a layout result has no generation (0); the values come from one clock per
+/// window, so a DOM that goes and comes back never gets a value it had before.
+#[derive(Debug, Default)]
+pub struct DomGenerations {
+    /// The last value handed out.
+    clock: u64,
+    /// The generation of each DOM that has one.
+    of: BTreeMap<DomId, u64>,
+    /// Per DOM: the generation its layout nodes were last walked at, and the boxes found to
+    /// draw a callback image then, `(layout index, node)` in tree order
+    /// (`LayoutWindow::invoke_image_callbacks_into_overlay`).
+    callback_images: BTreeMap<DomId, (u64, Vec<(usize, NodeId)>)>,
+}
+
+impl DomGenerations {
+    /// The generation of `dom_id`, 0 while it has none.
+    #[must_use]
+    pub fn get(&self, dom_id: DomId) -> u64 {
+        self.of.get(&dom_id).copied().unwrap_or(0)
+    }
+
+    /// `dom_id` is another DOM than it was.
+    fn bump(&mut self, dom_id: DomId) {
+        self.clock = self.clock.wrapping_add(1).max(1);
+        self.of.insert(dom_id, self.clock);
+    }
+
+    /// Lets go of everything kept for a DOM that has no result in `live`.
+    fn forget_all_but(&mut self, live: &BTreeMap<DomId, DomLayoutResult>) {
+        self.of.retain(|dom_id, _| live.contains_key(dom_id));
+        self.callback_images
+            .retain(|dom_id, _| live.contains_key(dom_id));
+    }
+}
+
+/// How many layout nodes the search for callback images looked at on this thread
+/// (`LayoutWindow::invoke_image_callbacks_into_overlay`): what a test reads to say a frame of
+/// an unchanged DOM looks at none.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CALLBACK_IMAGE_SCAN: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn callback_image_scan(steps: usize) {
+    CALLBACK_IMAGE_SCAN.with(|scanned| scanned.set(scanned.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn callback_image_scan(_steps: usize) {}
 
 /// One DOM's part of a focus move (`LayoutWindow::focus_change_per_dom`):
 /// the nodes `:focus` moves between, and the nodes `:focus-within` follows.
@@ -3114,6 +3193,7 @@ impl LayoutWindow {
             image_cache: crate::texture::image_cache_with_builtin_textures(),
             content_overlay: crate::overlay::ContentOverlay::default(),
             image_callback_inputs: BTreeMap::new(),
+            dom_generations: DomGenerations::default(),
             background_callback_inputs: BTreeMap::new(),
             background_callbacks_waiting: BTreeSet::new(),
             material_light: crate::texture::MaterialLight::DEFAULT,
@@ -3587,6 +3667,9 @@ impl LayoutWindow {
                 );
             }
         }
+        // A DOM that has no result after the pass has no generation (`DomGenerations`): one
+        // that comes back gets a new value from the clock.
+        self.dom_generations.forget_all_but(&self.layout_results);
         // A kept view this pass never reached (its host laid out no box for
         // it any more - hidden by a restyle) keeps nothing: its child result
         // goes, as the clear above took it before views were kept, and the
@@ -8960,6 +9043,7 @@ impl LayoutWindow {
                         scroll_id_to_node_id: self.layout_cache.scroll_id_to_node_id.clone(),
                     },
                 );
+                self.note_dom_changed(dom_id);
             }
             return Ok(());
         }
@@ -9759,6 +9843,8 @@ impl LayoutWindow {
                 scroll_id_to_node_id,
             },
         );
+        // The DOM has another layout result: its generation moves.
+        self.note_dom_changed(dom_id);
 
         // Caret / selection tween post-pass: compare the freshly built caret /
         // selection geometry against what the previous frame rendered and, if
@@ -9892,6 +9978,21 @@ impl LayoutWindow {
                 }
             })
             .collect()
+    }
+
+    /// The generation of `dom_id` ([`DomGenerations`]): equal values, the same DOM (its
+    /// arena, layout tree, positions and viewport, and no style the app wrote in between);
+    /// 0 for a DOM without a layout result.
+    #[must_use]
+    pub fn dom_generation(&self, dom_id: DomId) -> u64 {
+        self.dom_generations.get(dom_id)
+    }
+
+    /// `dom_id` is another DOM than it was: THE one place its generation moves. Called by
+    /// every site that installs a layout result or writes one in place (the list in
+    /// [`DomGenerations`]); a new such site calls it too.
+    pub fn note_dom_changed(&mut self, dom_id: DomId) {
+        self.dom_generations.bump(dom_id);
     }
 
     /// Shared per-frame content preparation for CPU-presented frames.
@@ -10268,6 +10369,7 @@ impl LayoutWindow {
                     };
                 }
                 layout_result.styled_dom.node_data.as_container_mut()[node_id].set_clip_mask(mask);
+                self.note_dom_changed(dom_id);
                 self.regenerate_display_list_for_dom(dom_id);
                 ContentChangeResult {
                     tier: ContentDirtyTier::RebuildDisplayList,
@@ -10392,6 +10494,8 @@ impl LayoutWindow {
             // Regrouped, not restyled: every property resolves as before.
             return unchanged;
         }
+        // A style the app wrote: the DOM is another one (`DomGenerations`).
+        self.dom_generations.bump(dom_id);
 
         // A user override outranks every declaration: one left on a property
         // the new style declares (an older `set_css_property`) would keep the
@@ -10731,6 +10835,9 @@ impl LayoutWindow {
             .chain(seeded.iter().map(|tr| (tr.node, tr.from.clone())))
             .collect();
         let _restyle_result = layout_result.styled_dom.restyle_user_properties(&writes);
+        // A style the app wrote (not a value the list binds: that path returned above): the
+        // DOM is another one (`DomGenerations`).
+        self.dom_generations.bump(dom_id);
         // The value the node already resolves to, written again: the pin above is the whole
         // effect. Nothing is laid out, no display list is rebuilt, and the tier says so, so
         // the host runs no frame for it. (A seeded transition is a change of its own: it
@@ -11417,7 +11524,8 @@ impl LayoutWindow {
     /// `None`/unusable, so a callback like `AzulPaint`'s `render_canvas` takes
     /// its CPU branch and returns a raw `RawImage`.
     ///
-    /// No-op when there are no callback images, so normal apps pay nothing.
+    /// Without callback images a frame pays a lookup per DOM: which boxes draw one is
+    /// found once per generation of a DOM ([`DomGenerations`]), not per frame.
     fn invoke_image_callbacks_into_overlay(&mut self, gl_context: &OptionGlContextPtr) {
         use azul_core::resources::DecodedImage;
 
@@ -11427,10 +11535,68 @@ impl LayoutWindow {
         let hidpi_factor = self.current_window_state.size.get_hidpi_factor();
         let mut to_invoke: Vec<(DomId, NodeId, HidpiAdjustedBounds, ImageRef, ImageCallbackInputs)> =
             Vec::new();
-        for (dom_id, lr) in &self.layout_results {
+        // WHICH boxes draw a callback image is a fact of the DOM: found by one walk of its
+        // layout nodes and kept while the DOM is the one it was (`DomGenerations`). The walk
+        // used to run here on every frame, over every layout node of every DOM - 12,470
+        // labels of a map view per pan move and zoom step - to find none.
+        let walk_again: Vec<DomId> = self
+            .layout_results
+            .keys()
+            .copied()
+            .filter(|dom_id| {
+                let generation = self.dom_generations.get(*dom_id);
+                self.dom_generations
+                    .callback_images
+                    .get(dom_id)
+                    .is_none_or(|(found_at, _)| *found_at != generation)
+            })
+            .collect();
+        for dom_id in walk_again {
+            let Some(lr) = self.layout_results.get(&dom_id) else {
+                continue;
+            };
             let node_data_container = lr.styled_dom.node_data.as_container();
-            for node in &lr.layout_tree.nodes {
+            let mut boxes: Vec<(usize, NodeId)> = Vec::new();
+            for (index, node) in lr.layout_tree.nodes.iter().enumerate() {
+                callback_image_scan(1);
                 let Some(node_dom_id) = node.dom_node_id else {
+                    continue;
+                };
+                let Some(node_data) = node_data_container.get(node_dom_id) else {
+                    continue;
+                };
+                if let NodeType::Image(image_ref) = node_data.get_node_type() {
+                    if matches!(image_ref.get_data(), DecodedImage::Callback(_)) {
+                        boxes.push((index, node_dom_id));
+                    }
+                }
+            }
+            let generation = self.dom_generations.get(dom_id);
+            self.dom_generations
+                .callback_images
+                .insert(dom_id, (generation, boxes));
+        }
+        self.dom_generations.callback_images.retain(|dom_id, _| {
+            self.layout_results.contains_key(dom_id)
+        });
+        // The boxes found, each read as it is NOW: its size, and the callback its node
+        // declares (a rebuild that kept the DOM may have handed the node another one).
+        for (dom_id, (_, boxes)) in &self.dom_generations.callback_images {
+            if boxes.is_empty() {
+                continue;
+            }
+            let Some(lr) = self.layout_results.get(dom_id) else {
+                continue;
+            };
+            let node_data_container = lr.styled_dom.node_data.as_container();
+            for (index, node_dom_id) in boxes {
+                let node_dom_id = *node_dom_id;
+                let Some(node) = lr
+                    .layout_tree
+                    .nodes
+                    .get(*index)
+                    .filter(|node| node.dom_node_id == Some(node_dom_id))
+                else {
                     continue;
                 };
                 let Some(node_data) = node_data_container.get(node_dom_id) else {
@@ -12989,6 +13155,8 @@ impl LayoutWindow {
             if let Some(kept) = self.layout_results.get_mut(&child) {
                 kept.viewport.size = size;
             }
+            // Its viewport is another one.
+            self.note_dom_changed(child);
             return;
         }
         let viewport = LogicalRect::new(LogicalPosition::zero(), size);
@@ -26536,6 +26704,9 @@ impl LayoutWindow {
             }
         }
 
+        // The layout tree was written in place: the DOM is another one (`DomGenerations`).
+        self.note_dom_changed(dom_id);
+
         // CRITICAL: Regenerate the display list after updating the inline layout.
         // Without this, the old display list (with old text glyphs) is sent to WebRender,
         // so the screen still shows the old text even though the layout tree is updated.
@@ -30190,6 +30361,10 @@ impl LayoutWindow {
             // may have changed the data a canvas draws from, so each of its
             // canvases renders once more.
             image_callback_inputs,
+            // Keyed by DOM, not by node; the boxes kept for the rebuilt DOM name
+            // nodes of its old arena and go (below) - its layout pass, which
+            // follows, starts a new generation anyway.
+            dom_generations,
             // Remapped, not dropped: a rebuild changes none of what a
             // background layer's frame is drawn from (an app that changed the
             // data of a callback it reuses says so with
@@ -30523,6 +30698,7 @@ impl LayoutWindow {
         // already installed.
         content_overlay.remap_node_ids(dom, map);
         image_callback_inputs.retain(|(d, _), _| *d != dom);
+        dom_generations.callback_images.remove(&dom);
         crate::managers::remap_background_slots(background_callback_inputs, dom, map);
         crate::managers::remap_background_slot_set(background_callbacks_waiting, dom, map);
         crate::managers::remap_dom_keys(&mut material_sheen.surfaces, dom, map);
