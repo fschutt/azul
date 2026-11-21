@@ -1636,6 +1636,10 @@ pub fn render_xml_to_png(
         .display_list;
 
     let mut gc = azul_layout::glyph_cache::GlyphCache::new();
+    // The harness chooses the anti-aliasing with AZ_TEXT_AA (`pin_comparison_text_blend` in reftest/mod.rs);
+    // since bf4dd8c9a the renderer no longer reads it, a glyph cache is told: without this the
+    // pages were drawn with LCD fringes and compared to Chrome's grayscale, ~11,000 pixels off.
+    gc.set_text_aa(azul_layout::cpurender::TextAaSettings::from_env());
     let pixmap = azul_layout::cpurender::render_with_font_manager(
         &dl,
         &rr,
