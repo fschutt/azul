@@ -308,6 +308,17 @@ pub fn translate_displaylist_to_wr(
     // the id, so they still scroll as one.
     let mut scroll_frame_pushes: BTreeMap<u64, u64> = BTreeMap::new();
 
+    // The same for the reference frames of a transform key: a node painted
+    // twice in one list (a box broken across regions, a fixed box repeated
+    // per page) opens its frame twice with the one key, and the scene builder
+    // PANICS on a spatial key it has seen (`SceneSpatialTree::add_spatial_node`:
+    // "duplicate key"), which takes the window with it - the UI thread waits
+    // for that thread in `flush_scene_builder`. Almost every key is pushed
+    // once, so only the ones seen before are counted (audit A4-06, A2-gpu-12).
+    let mut reference_frames_seen: std::collections::HashSet<u64> =
+        std::collections::HashSet::with_capacity(64);
+    let mut reference_frame_repeats: BTreeMap<u64, u64> = BTreeMap::new();
+
     // Coordinate offset stack - tracks the origin offset for each spatial context.
     // When we enter a scroll frame, items inside have absolute coordinates but
     // WebRender expects coordinates relative to the scroll frame's content_rect origin.
@@ -1560,8 +1571,19 @@ pub fn translate_displaylist_to_wr(
                     wr_transform,
                 );
 
-                // Use the transform_key.id as the spatial tree item key
-                let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, 0);
+                // Use the transform_key.id as the spatial tree item key, with
+                // how often this list has opened the key's frame before (0
+                // for all but a node that is painted more than once).
+                let push_index = if reference_frames_seen.insert(transform_key.id as u64) {
+                    0
+                } else {
+                    let repeats = reference_frame_repeats
+                        .entry(transform_key.id as u64)
+                        .or_insert(0);
+                    *repeats += 1;
+                    *repeats
+                };
+                let spatial_key = SpatialTreeItemKey::new(transform_key.id as u64, push_index);
 
                 // The transform works about the box's own top-left corner
                 // (`transform-origin` resolves against the box, and the CPU
@@ -1599,7 +1621,10 @@ pub fn translate_displaylist_to_wr(
                         should_snap: false,
                         paired_with_perspective: false,
                     },
-                    SpatialTreeItemKey::new(transform_key.id as u64, WINDOW_SPACE_FRAME),
+                    SpatialTreeItemKey::new(
+                        transform_key.id as u64,
+                        WINDOW_SPACE_FRAME - push_index,
+                    ),
                 );
 
                 // Children are placed in the window-space frame; the pop
@@ -4680,5 +4705,33 @@ mod audit_a4_tests {
             assert!((transform.m34 - m34).abs() < 1e-7, "dpi {dpi}: m34 {}", transform.m34);
             assert!((transform.m41 - m41).abs() < 1e-5, "dpi {dpi}: m41 {}", transform.m41);
         }
+    }
+
+    /// A4-06. A transform key whose frame a list opens twice (a node painted in
+    /// two parts) gives WebRender four DIFFERENT spatial keys: the scene builder
+    /// panics on one it has seen. A key opened once keeps the keys it had.
+    /// Mutation: `push_index` fixed at 0 -> two of the four keys are equal.
+    #[test]
+    fn a4_06_a_transform_key_opened_twice_in_a_list_opens_distinct_frames() {
+        use azul_core::{resources::TransformKey, transform::ComputedTransform3D};
+
+        let key = TransformKey::unique();
+        let mut items = framed(key, ComputedTransform3D::IDENTITY);
+        items.extend(framed(key, ComputedTransform3D::IDENTITY));
+        items.extend(framed(TransformKey::unique(), ComputedTransform3D::IDENTITY));
+        let keys: Vec<_> = frames(items, 1.0).into_iter().map(|(key, _)| key).collect();
+        assert_eq!(keys.len(), 6, "two frames (transformed, window space) per push");
+        let distinct: std::collections::HashSet<_> = keys.iter().copied().collect();
+        assert_eq!(distinct.len(), 6, "every frame of the list has a key of its own: {keys:?}");
+
+        // Once: the keys every list before this change had.
+        let once = frames(framed(key, ComputedTransform3D::IDENTITY), 1.0);
+        assert_eq!(
+            (once[0].0, once[1].0),
+            (
+                webrender::api::SpatialTreeItemKey::new(key.id as u64, 0),
+                webrender::api::SpatialTreeItemKey::new(key.id as u64, u64::MAX),
+            )
+        );
     }
 }
