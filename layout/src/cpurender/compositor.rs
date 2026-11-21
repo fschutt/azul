@@ -802,8 +802,12 @@ impl CompositorState {
                     // frame's origin.
                     let live = azul_core::transform::ComputedTransform3D { m: *m };
                     let origin = bounds.inner().origin;
+                    // (With the frames inside it where their live matrices paint them, A1-60.)
                     let extent = device_pixel_box(
-                        reference_frame_extent(display_list, i)
+                        display_list
+                            .frame_index()
+                            .extent_with(&display_list.items, i, live_transforms)
+                            .or_else(|| reference_frame_extent(display_list, i))
                             .unwrap_or_else(|| *bounds.inner()),
                         dpi_factor,
                     );
@@ -1389,11 +1393,16 @@ impl CompositorState {
                     // Already where it is: `render_layers` moved each
                     // wrapping clip by the frames it was opened in.
                     let (sx, sy) = (sc.origin.x, sc.origin.y);
+                    // The pixels a paint under the clip may write (`AzRect::pixel_box`: both
+                    // edges truncated, A2-cpu-06). Rounded, a layer under a clip that ends
+                    // between two pixels lost the column the clip starts in and gained the
+                    // one it ends in, against every fill under the same clip.
+                    #[allow(clippy::cast_possible_truncation)] // saturating; cut to the frame below
                     let r = (
-                        (f64::from(sx) * dpi + pm.tx).round() as i32,
-                        (f64::from(sy) * dpi + pm.ty).round() as i32,
-                        (f64::from(sx + sc.size.width) * dpi + pm.tx).round() as i32,
-                        (f64::from(sy + sc.size.height) * dpi + pm.ty).round() as i32,
+                        (f64::from(sx) * dpi + pm.tx) as i32,
+                        (f64::from(sy) * dpi + pm.ty) as i32,
+                        (f64::from(sx + sc.size.width) * dpi + pm.tx) as i32,
+                        (f64::from(sy + sc.size.height) * dpi + pm.ty) as i32,
                     );
                     Some(clip.map_or(r, |c| {
                         (c.0.max(r.0), c.1.max(r.1), c.2.min(r.2), c.3.min(r.3))
@@ -1724,7 +1733,9 @@ fn painted_over_later(
                 } else {
                     // Everything it paints, moved - then past its pop.
                     let frame = index.frame_at(i);
-                    let content = frame.map_or_else(|| *bounds.inner(), |f| f.extent);
+                    let content = index
+                        .extent_with(items, i, live_transforms)
+                        .unwrap_or_else(|| frame.map_or_else(|| *bounds.inner(), |f| f.extent));
                     let moved = affine_rect_about(m, bounds.inner().origin, content)
                         .unwrap_or(UNBOUNDED);
                     let seen = later.iter().flatten().next().copied().unwrap_or(moved);
@@ -2908,9 +2919,14 @@ fn gpu_value_damage_of(
                 // unlike a moved reference frame whose content extent is
                 // unknowable from the item.
                 if changed_o.contains(&k.id) {
-                    // All of what the group paints fades (A2-gpu-06), not only its box.
-                    let faded = index.opacity_extent(idx).unwrap_or_else(|| *bounds.inner());
-                    both(&mut out, moved_by(faded, scrolled), &frames_old, &frames_new);
+                    // All of what the group paints fades (A2-gpu-06), not only its box: where
+                    // the frames inside it were painted and where they are (A1-60).
+                    for values in [old_transforms, new_transforms] {
+                        let faded = index
+                            .opacity_extent_with(items, idx, values)
+                            .unwrap_or_else(|| *bounds.inner());
+                        both(&mut out, moved_by(faded, scrolled), &frames_old, &frames_new);
+                    }
                 }
             }
             _ => {}
@@ -3213,8 +3229,11 @@ pub fn node_groups_on_screen(
                         .get(&transform_key.id)
                         .copied()
                         .unwrap_or(*initial_transform);
-                    let content =
-                        reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner());
+                    let content = display_list
+                        .frame_index()
+                        .extent_with(&display_list.items, idx, live_transforms)
+                        .or_else(|| reference_frame_extent(display_list, idx))
+                        .unwrap_or_else(|| *bounds.inner());
                     // Through its own matrix and the frames around it, in one go.
                     let mut frames = stack.frames.clone();
                     frames.push(moved_by(*bounds.inner(), scrolled).origin, m);
@@ -4365,7 +4384,12 @@ fn render_display_list_range(
         render_single_item(
             item,
             display_list.uniform_text_bgs.get(i).copied().flatten(),
-            reference_frame_extent(display_list, i),
+            // A frame's extent with the frames inside it where their live matrices paint
+            // them, as the flat walk takes it (A1-60).
+            display_list
+                .frame_index()
+                .extent_with(&display_list.items, i, &render_state.transforms)
+                .or_else(|| reference_frame_extent(display_list, i)),
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -10376,6 +10400,50 @@ mod autotest_generated {
             moved[0] == 255 && (120..136).contains(&moved[1]),
             "the faded box is moved by (8, 4): {moved:?}"
         );
+    }
+
+    /// A2-cpu-06 (the layered clip): a layer under a clip that ends between device pixels is
+    /// cut to the pixels a paint under the clip may write (`AzRect::pixel_box`: both edges
+    /// truncated). A clip (4.5, 0) 10 x 8 at a scale factor of 1 is 4.5 .. 14.5: a fill under
+    /// it writes the columns 4 .. 13, and so does the opacity group's layer.
+    /// Mutation: `round()` on the clip's edges (5 .. 15) leaves column 4 white and paints 14.
+    #[test]
+    fn a_layer_is_cut_by_the_clip_around_it_where_a_fill_is_cut() {
+        let red = ColorU {
+            r: 255,
+            g: 0,
+            b: 0,
+            a: 255,
+        };
+        let list = dlist(vec![
+            DisplayListItem::PushClip {
+                bounds: wlr(4.5, 0.0, 10.0, 8.0),
+                border_radius: crate::solver3::display_list::BorderRadius::default(),
+            },
+            DisplayListItem::PushOpacity {
+                bounds: wlr(0.0, 0.0, 24.0, 8.0),
+                opacity: 0.5,
+                opacity_key: None,
+                mix_blend_mode: azul_css::props::style::effects::StyleMixBlendMode::Normal,
+            },
+            rect_item(0.0, 0.0, 24.0, 8.0, red),
+            DisplayListItem::PopOpacity,
+            DisplayListItem::PopClip,
+        ]);
+        let mut c = CompositorState::new(24, 24);
+        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
+        assert_eq!(c.layers.len(), 2, "premise: the opacity group is a layer");
+        let (rr, mut gc, st) = render_deps();
+        c.render_layers(&list, 1.0, &rr, &test_font_manager(), &mut gc, &st)
+            .unwrap();
+        let mut out = AzulPixmap::new(24, 24).unwrap();
+        out.fill(255, 255, 255, 255);
+        c.composite_frame(&mut out, 1.0);
+        let white = [255, 255, 255, 255];
+        assert_eq!(at(&out, 3, 4), white, "left of the clip");
+        assert_ne!(at(&out, 4, 4), white, "the column the clip starts in is the clip's");
+        assert_ne!(at(&out, 13, 4), white, "its last whole column");
+        assert_eq!(at(&out, 14, 4), white, "the column it ends in is not written, as for a fill");
     }
 
     /// The matrix baked into a `PushReferenceFrame` is the value at display-list

@@ -1041,6 +1041,55 @@ impl_vec_partialord!(ContentGroup, ContentGroupVec);
 impl_vec_clone!(ContentGroup, ContentGroupVec, ContentGroupVecDestructor);
 impl_vec_partialeq!(ContentGroup, ContentGroupVec);
 
+/// The node lists a [`StyledDom`] DERIVES from its node data, each ascending by
+/// node: what is asked per event of "every node that ..." without a walk over
+/// every node. Made in ONE place ([`Self::of`]): `StyledDom::create` and
+/// [`StyledDom::rebuild_derived_node_lists`] call it, and
+/// `StyledDom::append_child_with_index` carries the four lists the same way.
+/// A list added here is carried at those three places and nowhere else.
+struct DerivedNodeLists {
+    /// Nodes with a callback on a window event (`EventFilter::Window`).
+    window_callbacks: Vec<NodeHierarchyItemId>,
+    /// Nodes with a callback or a dataset.
+    datasets: Vec<NodeHierarchyItemId>,
+    /// Nodes that can take focus (`NodeData::is_focusable`).
+    focusable: Vec<NodeHierarchyItemId>,
+    /// Nodes with a marker (`NodeData::get_marker`).
+    markers: Vec<NodeHierarchyItemId>,
+}
+
+impl DerivedNodeLists {
+    /// The lists of `node_data`, in one pass.
+    fn of(node_data: &[NodeData]) -> Self {
+        let mut lists = Self {
+            window_callbacks: Vec::new(),
+            datasets: Vec::new(),
+            focusable: Vec::new(),
+            markers: Vec::new(),
+        };
+        for (node_id, c) in node_data.iter().enumerate() {
+            let id = NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(node_id)));
+            let cbs = c.get_callbacks();
+            if !cbs.is_empty() || c.get_dataset().is_some() {
+                lists.datasets.push(id);
+            }
+            if cbs
+                .iter()
+                .any(|cb| matches!(cb.event, crate::dom::EventFilter::Window(_)))
+            {
+                lists.window_callbacks.push(id);
+            }
+            if c.is_focusable() {
+                lists.focusable.push(id);
+            }
+            if c.get_marker().is_some() {
+                lists.markers.push(id);
+            }
+        }
+        lists
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 #[repr(C)]
 pub struct StyledDom {
@@ -1051,6 +1100,15 @@ pub struct StyledDom {
     pub cascade_info: CascadeInfoVec,
     pub nodes_with_window_callbacks: NodeHierarchyItemIdVec,
     pub nodes_with_datasets: NodeHierarchyItemIdVec,
+    /// Every node that can take focus (`NodeData::is_focusable`: a link, a
+    /// button, an input, a contenteditable node, a node with a tab index or
+    /// a focus callback), ascending. Derived from `node_data`
+    /// (`DerivedNodeLists`): a Tab press reads this list, not every node.
+    pub focusable_nodes: NodeHierarchyItemIdVec,
+    /// Every node with a marker (`NodeData::get_marker`), ascending. Derived
+    /// from `node_data` (`DerivedNodeLists`): a lookup by marker compares
+    /// the markers of these nodes, not of every node.
+    pub nodes_with_markers: NodeHierarchyItemIdVec,
     pub tag_ids_to_node_ids: TagIdToNodeIdMappingVec,
     pub non_leaf_nodes: ParentWithNodeDepthVec,
     pub css_property_cache: CssPropertyCachePtr,
@@ -1087,6 +1145,8 @@ impl Default for StyledDom {
             .into(),
             nodes_with_window_callbacks: Vec::new().into(),
             nodes_with_datasets: Vec::new().into(),
+            focusable_nodes: Vec::new().into(),
+            nodes_with_markers: Vec::new().into(),
             css_property_cache: CssPropertyCachePtr::new(CssPropertyCache::empty(1)),
             dom_id: DomId::ROOT_ID,
         }
@@ -1191,7 +1251,9 @@ impl StyledDom {
             tag_ids_bytes: size_of_val(self.tag_ids_to_node_ids.as_ref()),
             non_leaf_nodes_bytes: size_of_val(self.non_leaf_nodes.as_ref()),
             callback_vecs_bytes: self.nodes_with_window_callbacks.as_ref().len() * 8
-                + self.nodes_with_datasets.as_ref().len() * 8,
+                + self.nodes_with_datasets.as_ref().len() * 8
+                + self.focusable_nodes.as_ref().len() * 8
+                + self.nodes_with_markers.as_ref().len() * 8,
             css_property_cache: self.css_property_cache.ptr.memory_breakdown(),
         }
     }
@@ -1405,7 +1467,6 @@ impl StyledDom {
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
         inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
     ) -> Self {
-        use crate::dom::EventFilter;
 
         static CASCADE_BREAKDOWN: crate::sync::OnceLock<bool> = crate::sync::OnceLock::new();
 
@@ -1577,39 +1638,11 @@ impl StyledDom {
             let _ = bd;
         }
 
-        // Collect callback/dataset nodes in a single pass (avoids 3 separate 50K scans).
-        // For XHTML-parsed DOMs with no callbacks, this early-exits immediately.
-        let has_any_callbacks = compact_dom
-            .node_data
-            .as_ref()
-            .internal
-            .iter()
-            .any(|c| !c.get_callbacks().is_empty() || c.get_dataset().is_some());
-
-        let (nodes_with_window_callbacks, nodes_with_datasets) = if has_any_callbacks {
-            let mut win_cbs = Vec::new();
-            let mut datasets = Vec::new();
-            for (node_id, c) in compact_dom.node_data.as_ref().internal.iter().enumerate() {
-                let cbs = c.get_callbacks();
-                let has_dataset = c.get_dataset().is_some();
-                if !cbs.is_empty() || has_dataset {
-                    datasets.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
-                        node_id,
-                    ))));
-                }
-                for cb in cbs {
-                    if let EventFilter::Window(_) = cb.event {
-                        win_cbs.push(NodeHierarchyItemId::from_crate_internal(Some(NodeId::new(
-                            node_id,
-                        ))));
-                        break;
-                    }
-                }
-            }
-            (win_cbs, datasets)
-        } else {
-            (Vec::new(), Vec::new())
-        };
+        // The derived node lists (window listeners, callback / dataset nodes,
+        // the nodes that can take focus, the nodes with a marker) in ONE pass
+        // over the node data: the pass that asked "is there a callback or a
+        // dataset at all?" visited every node of a DOM without one anyway.
+        let derived = DerivedNodeLists::of(compact_dom.node_data.as_ref().internal);
         let mut styled_dom = Self {
             root: NodeHierarchyItemId::from_crate_internal(Some(compact_dom.root)),
             node_hierarchy,
@@ -1617,8 +1650,10 @@ impl StyledDom {
             cascade_info: html_tree.internal.into(),
             styled_nodes: styled_nodes.into(),
             tag_ids_to_node_ids: tag_ids.into(),
-            nodes_with_window_callbacks: nodes_with_window_callbacks.into(),
-            nodes_with_datasets: nodes_with_datasets.into(),
+            nodes_with_window_callbacks: derived.window_callbacks.into(),
+            nodes_with_datasets: derived.datasets.into(),
+            focusable_nodes: derived.focusable.into(),
+            nodes_with_markers: derived.markers.into(),
             non_leaf_nodes,
             css_property_cache: CssPropertyCachePtr::new(css_property_cache),
             dom_id: DomId::ROOT_ID,
@@ -1820,6 +1855,17 @@ impl StyledDom {
         self.nodes_with_datasets
             .append(&mut other.nodes_with_datasets);
 
+        for nid in &mut other.focusable_nodes {
+            nid.inner += self_len;
+        }
+        self.focusable_nodes.append(&mut other.focusable_nodes);
+
+        for nid in &mut other.nodes_with_markers {
+            nid.inner += self_len;
+        }
+        self.nodes_with_markers
+            .append(&mut other.nodes_with_markers);
+
         // edge case: if the other StyledDom consists of only one node
         // then it is not a parent itself
         if other_len != 1 {
@@ -1834,6 +1880,26 @@ impl StyledDom {
 
     /// Call this after all `append_child_with_index` operations are complete
     /// to sort `non_leaf_nodes` by depth (required for correct rendering)
+    /// Makes the lists this DOM derives from its node data
+    /// (`nodes_with_window_callbacks`, `nodes_with_datasets`,
+    /// `focusable_nodes`, `nodes_with_markers`) again, in one pass.
+    ///
+    /// `create` makes them and `append_child_with_index` carries them. Call
+    /// this after anything ELSE wrote `node_data` of a DOM that is kept: a
+    /// carry of a rebuild's fresh values (the marker is carried without
+    /// being compared), a tab index set by a callback, a node spliced in.
+    /// Without it a node that became focusable or got a marker in place is
+    /// in no list: Tab passes it, a lookup by its marker finds nothing. (A
+    /// node that STOPPED being one only costs its readers a look: they ask
+    /// the node again.)
+    pub fn rebuild_derived_node_lists(&mut self) {
+        let derived = DerivedNodeLists::of(self.node_data.as_ref());
+        self.nodes_with_window_callbacks = derived.window_callbacks.into();
+        self.nodes_with_datasets = derived.datasets.into();
+        self.focusable_nodes = derived.focusable.into();
+        self.nodes_with_markers = derived.markers.into();
+    }
+
     pub fn finalize_non_leaf_nodes(&mut self) {
         self.non_leaf_nodes.sort_by(|a, b| a.depth.cmp(&b.depth));
     }
@@ -4431,5 +4497,88 @@ pub fn compact_cache_rebuilds_on_this_thread() -> usize {
     #[cfg(not(feature = "std"))]
     {
         0
+    }
+}
+
+/// A6-16b / A6-18b: the lists a styled DOM derives from its node data.
+#[cfg(test)]
+mod audit_a6_tests {
+    use azul_css::css::Css;
+
+    use super::*;
+    use crate::dom::{Dom, NodeType, TabIndex};
+
+    fn ids(list: &NodeHierarchyItemIdVec) -> Vec<usize> {
+        list.as_ref()
+            .iter()
+            .filter_map(|id| id.into_crate_internal())
+            .map(|node| node.index())
+            .collect()
+    }
+
+    /// body (0): div (1), div with a tab index (2), div with a marker (3), div (4), a
+    /// button (5), div with a marker and tab index -1 (6).
+    fn page() -> StyledDom {
+        let mut dom = Dom::create_body().with_children(
+            vec![
+                Dom::create_div(),
+                Dom::create_div().with_tab_index(TabIndex::OverrideInParent(0)),
+                Dom::create_div().with_marker(Some("a".into()).into()),
+                Dom::create_div(),
+                Dom::create_node(NodeType::Button),
+                Dom::create_div()
+                    .with_marker(Some("b".into()).into())
+                    .with_tab_index(TabIndex::NoKeyboardFocus),
+            ]
+            .into(),
+        );
+        StyledDom::create(&mut dom, Css::empty())
+    }
+
+    /// `create` lists the nodes that can take focus and the nodes with a marker, ascending;
+    /// `append_child` carries the lists with the appended nodes' new ids (3 higher under a
+    /// parent of 3 nodes); and what is carried is what `rebuild_derived_node_lists` makes
+    /// from the node data: ONE function decides what is in a list.
+    ///
+    /// Mutations: a list left out of `append_child_with_index` fails "carried"; a predicate
+    /// changed in `DerivedNodeLists::of` fails the first two lines.
+    #[test]
+    fn the_derived_lists_are_made_once_and_carried_by_an_append() {
+        let dom = page();
+        assert_eq!(ids(&dom.focusable_nodes), vec![2, 5, 6]);
+        assert_eq!(ids(&dom.nodes_with_markers), vec![3, 6]);
+        let mut again = dom.clone();
+        again.rebuild_derived_node_lists();
+        assert!(again == dom, "made again from the same node data: the same DOM");
+
+        let mut parent_dom = Dom::create_body().with_children(
+            vec![
+                Dom::create_div(),
+                Dom::create_div().with_tab_index(TabIndex::OverrideInParent(0)),
+            ]
+            .into(),
+        );
+        let mut parent = StyledDom::create(&mut parent_dom, Css::empty());
+        assert_eq!(ids(&parent.focusable_nodes), vec![2]);
+        parent.append_child(page());
+        assert_eq!(ids(&parent.focusable_nodes), vec![2, 5, 8, 9], "carried");
+        assert_eq!(ids(&parent.nodes_with_markers), vec![6, 9], "carried");
+        let carried = (
+            ids(&parent.focusable_nodes),
+            ids(&parent.nodes_with_markers),
+            ids(&parent.nodes_with_window_callbacks),
+            ids(&parent.nodes_with_datasets),
+        );
+        parent.rebuild_derived_node_lists();
+        assert_eq!(
+            carried,
+            (
+                ids(&parent.focusable_nodes),
+                ids(&parent.nodes_with_markers),
+                ids(&parent.nodes_with_window_callbacks),
+                ids(&parent.nodes_with_datasets),
+            ),
+            "what an append carries is what the node data gives"
+        );
     }
 }

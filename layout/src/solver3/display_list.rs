@@ -3557,6 +3557,53 @@ struct GroupBounds {
     /// ink alone left the halo out of a frame's extent: a moved frame's damage missed the
     /// ring of the halo, and a group's surface cut it.
     shadows: Vec<f32>,
+    /// The reference frames open inside the group, outermost first: each frame's origin, the
+    /// matrix its push was built with, and the clip that was open around it. What is painted
+    /// inside a frame counts where the frame's matrix puts it ([`frame_image`]), not where it
+    /// is laid out (A1-60): a child moved by `translate(-100px)` was missing from every
+    /// bound that is gathered here - a frame's laid-out extent, an opacity group's extent,
+    /// the bounds the builder gives a `PushOpacity`.
+    frames: Vec<(LogicalPosition, [[f32; 4]; 4], Option<LogicalRect>)>,
+}
+
+/// Whether `m` is the identity, exactly: content in such a frame is where it is laid out, and
+/// is not put through the arithmetic of [`frame_image`] (which may round its last bit).
+fn is_exact_identity(m: &[[f32; 4]; 4]) -> bool {
+    (0..4).all(|row| (0..4).all(|col| m[row][col] == if row == col { 1.0 } else { 0.0 }))
+}
+
+/// The box of `inside` - a rect in the space of a reference frame with the origin `o` - where
+/// the frame's matrix `m` paints it: each corner `q` goes to `o + (L (q - o) + t) / w`, `w =
+/// m03 qx + m13 qy + m33` (1 for an affine matrix), as the rasteriser composites the frame.
+/// `None` when a corner is at or behind the eye (`w <= 0`) or is not finite: no box bounds it.
+fn frame_image(o: LogicalPosition, m: &[[f32; 4]; 4], inside: LogicalRect) -> Option<LogicalRect> {
+    let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+    let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+    for (cx, cy) in [
+        (inside.origin.x, inside.origin.y),
+        (inside.origin.x + inside.size.width, inside.origin.y),
+        (inside.origin.x, inside.origin.y + inside.size.height),
+        (inside.origin.x + inside.size.width, inside.origin.y + inside.size.height),
+    ] {
+        let (qx, qy) = (cx - o.x, cy - o.y);
+        let w = qx * m[0][3] + qy * m[1][3] + m[3][3];
+        if !(w > 1e-6) {
+            return None;
+        }
+        let x = o.x + (qx * m[0][0] + qy * m[1][0] + m[3][0]) / w;
+        let y = o.y + (qx * m[0][1] + qy * m[1][1] + m[3][1]) / w;
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    }
+    if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    Some(LogicalRect {
+        origin: LogicalPosition { x: x0, y: y0 },
+        size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+    })
 }
 
 impl GroupBounds {
@@ -3585,7 +3632,19 @@ impl GroupBounds {
     }
 
     fn add(&mut self, clip: Option<LogicalRect>, r: LogicalRect) {
-        let r = clip.map_or(r, |c| rect_intersection(r, c));
+        let mut r = clip.map_or(r, |c| rect_intersection(r, c));
+        // Out through the frames open around the item, innermost first: through each frame's
+        // matrix, then under the clip that was open around that frame. A frame without a
+        // bounded image (a corner behind the eye) counts where it is laid out, as before.
+        for (origin, m, around) in self.frames.iter().rev() {
+            if !(r.size.width > 0.0 && r.size.height > 0.0) {
+                return;
+            }
+            if !is_exact_identity(m) {
+                r = frame_image(*origin, m, r).unwrap_or(r);
+            }
+            r = around.map_or(r, |c| rect_intersection(r, c));
+        }
         if r.size.width > 0.0 && r.size.height > 0.0 {
             self.union = Some(self.union.map_or(r, |u| rect_union(u, r)));
         }
@@ -3605,6 +3664,18 @@ impl GroupBounds {
                 self.in_scroll_frames = self.in_scroll_frames.saturating_sub(1);
             }
             _ if self.in_scroll_frames > 0 => {}
+            DisplayListItem::PushReferenceFrame { bounds, initial_transform, .. } => {
+                self.frames.push((bounds.inner().origin, initial_transform.m, clip));
+                // The clips opened inside the frame are in the frame's space: a chain of their
+                // own, from nothing.
+                self.clips.push(None);
+            }
+            DisplayListItem::PopReferenceFrame => {
+                // (A pop of a frame opened before the group has nothing to close here.)
+                if self.frames.pop().is_some() {
+                    self.clips.pop();
+                }
+            }
             DisplayListItem::PushClip { bounds, .. }
             | DisplayListItem::PushImageMaskClip { bounds, .. } => {
                 let b = *bounds.inner();
@@ -3829,6 +3900,10 @@ pub(crate) struct FrameIndex {
     /// own box: the box united with what the items down to the pop paint
     /// ([`FrameIndex::opacity_extent`]).
     opacity_extents: std::collections::HashMap<usize, LogicalRect>,
+    /// By the index of a `PushOpacity`, for the groups that hold reference frames: the group's
+    /// box and what its own items paint, and the frames directly inside it
+    /// ([`FrameIndex::opacity_extent_with`]).
+    opacity_nesting: std::collections::HashMap<usize, FrameNest>,
 }
 
 /// A frame that holds frames: `own` is its box and what its own items paint (not what is
@@ -3871,9 +3946,23 @@ impl FrameIndex {
         let mut frames: Vec<FrameEntry> = Vec::new();
         let mut inner: std::collections::HashMap<usize, FrameInner> = std::collections::HashMap::new();
         let mut nesting: std::collections::HashMap<usize, FrameNest> = std::collections::HashMap::new();
-        // The opacity groups open at the item: (push, the group's box, what its items paint).
-        let mut fading: Vec<(usize, LogicalRect, GroupBounds)> = Vec::new();
+        // The opacity groups open at the item.
+        struct Fading {
+            push: usize,
+            group_box: LogicalRect,
+            /// What its items paint.
+            bounds: GroupBounds,
+            /// As `bounds`, counting only the items in no frame opened inside the group.
+            own: GroupBounds,
+            /// How many frames were open at the group's push.
+            frames_before: usize,
+            /// The pushes of the frames opened directly inside the group.
+            children: Vec<usize>,
+        }
+        let mut fading: Vec<Fading> = Vec::new();
         let mut opacity_extents: std::collections::HashMap<usize, LogicalRect> =
+            std::collections::HashMap::new();
+        let mut opacity_nesting: std::collections::HashMap<usize, FrameNest> =
             std::collections::HashMap::new();
         // The scopes open at the item, outermost first: a frame is self-contained when the
         // scopes opened inside it are closed inside it, innermost first.
@@ -3941,23 +4030,43 @@ impl FrameIndex {
             // What each open opacity group paints (A2-gpu-06: a group fades all of it, not only
             // what lies in its node's box).
             if let DisplayListItem::PopOpacity = item {
-                if let Some((push, group_box, bounds)) = fading.pop() {
-                    if let Some(content) = bounds.finish() {
+                if let Some(group) = fading.pop() {
+                    let group_box = group.group_box;
+                    if let Some(content) = group.bounds.finish() {
                         let extent = rect_union(group_box, content);
                         if extent != group_box {
-                            opacity_extents.insert(push, extent);
+                            opacity_extents.insert(group.push, extent);
                         }
+                    }
+                    if !group.children.is_empty() {
+                        let own = group.own.finish().map_or(group_box, |c| rect_union(group_box, c));
+                        opacity_nesting.insert(group.push, FrameNest { own, children: group.children });
                     }
                 }
             }
             if !fading.is_empty() {
                 let visual = GroupBounds::visual_of(item);
-                for (_, _, bounds) in &mut fading {
-                    bounds.step(item, visual);
+                // `open` holds the frames open BEFORE this item: a push here is directly inside
+                // every group that no frame was opened in since.
+                let frames_open = open.len();
+                for group in &mut fading {
+                    group.bounds.step(item, visual);
+                    let its_own = frames_open <= group.frames_before;
+                    group.own.step(item, if its_own { visual } else { None });
+                    if its_own && matches!(item, DisplayListItem::PushReferenceFrame { .. }) {
+                        group.children.push(i);
+                    }
                 }
             }
             if let DisplayListItem::PushOpacity { bounds, .. } = item {
-                fading.push((i, *bounds.inner(), GroupBounds::default()));
+                fading.push(Fading {
+                    push: i,
+                    group_box: *bounds.inner(),
+                    bounds: GroupBounds::default(),
+                    own: GroupBounds::default(),
+                    frames_before: open.len(),
+                    children: Vec::new(),
+                });
             }
             // What the open frames' pictures depend on besides their items.
             if !open.is_empty() {
@@ -4119,6 +4228,7 @@ impl FrameIndex {
             inner,
             nesting,
             opacity_extents,
+            opacity_nesting,
         }
     }
 
@@ -4215,37 +4325,7 @@ impl FrameIndex {
             // affine matrix `w` is 1.0 exactly and nothing changes. (The test used to be
             // `|m03| <= 1e-6`, another tolerance than the rasteriser's, with the laid-out
             // extent as the answer above it: a tilted card's surface was cut.)
-            let o = bounds.inner().origin;
-            let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
-            let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
-            for (cx, cy) in [
-                (inside.origin.x, inside.origin.y),
-                (inside.origin.x + inside.size.width, inside.origin.y),
-                (inside.origin.x, inside.origin.y + inside.size.height),
-                (inside.origin.x + inside.size.width, inside.origin.y + inside.size.height),
-            ] {
-                let (qx, qy) = (cx - o.x, cy - o.y);
-                let w = qx * m[0][3] + qy * m[1][3] + m[3][3];
-                if !(w > 1e-6) {
-                    return None;
-                }
-                let x = o.x + (qx * m[0][0] + qy * m[1][0] + m[3][0]) / w;
-                let y = o.y + (qx * m[0][1] + qy * m[1][1] + m[3][1]) / w;
-                x0 = x0.min(x);
-                y0 = y0.min(y);
-                x1 = x1.max(x);
-                y1 = y1.max(y);
-            }
-            if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
-                return None;
-            }
-            extent = rect_union(
-                extent,
-                LogicalRect {
-                    origin: LogicalPosition { x: x0, y: y0 },
-                    size: LogicalSize { width: x1 - x0, height: y1 - y0 },
-                },
-            );
+            extent = rect_union(extent, frame_image(bounds.inner().origin, m, inside)?);
         }
         Some(extent)
     }
@@ -4253,9 +4333,45 @@ impl FrameIndex {
     /// What the opacity group pushed at `push` paints when that is more than the group's own
     /// box: the box united with the visual bounds of its items (shadows and overflowing
     /// children included), in list space. `None`: the box is all of it. Content inside a
-    /// reference frame of the group is counted where it is laid out.
+    /// reference frame of the group is counted where the matrix the frame's push was built
+    /// with paints it; [`Self::opacity_extent_with`] takes the live matrices.
     pub(crate) fn opacity_extent(&self, push: usize) -> Option<LogicalRect> {
         self.opacity_extents.get(&push).copied()
+    }
+
+    /// [`Self::opacity_extent`] with the frames inside the group where their LIVE matrices
+    /// paint them (`transforms` by key; a key without a value is painted with its push's
+    /// matrix), as [`Self::extent_with`] does for a frame: the group's own items united with
+    /// the image of each frame directly inside it (A1-60). A child of a faded panel that an
+    /// animation or a drag moves out of the panel's laid-out extent was painted outside the
+    /// group's region: at full opacity, and never cleared by the group. An inner matrix
+    /// without a bounded image falls back to the laid-out answer.
+    pub(crate) fn opacity_extent_with(
+        &self,
+        items: &[DisplayListItem],
+        push: usize,
+        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    ) -> Option<LogicalRect> {
+        let Some(nest) = self.opacity_nesting.get(&push) else {
+            return self.opacity_extent(push);
+        };
+        let mut extent = nest.own;
+        for child in &nest.children {
+            let Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, bounds }) =
+                items.get(*child)
+            else {
+                return self.opacity_extent(push);
+            };
+            let m = transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m);
+            let image = self
+                .extent_with(items, *child, transforms)
+                .and_then(|inside| frame_image(bounds.inner().origin, m, inside));
+            let Some(image) = image else {
+                return self.opacity_extent(push);
+            };
+            extent = rect_union(extent, image);
+        }
+        Some(extent)
     }
 
     /// What the picture of the frame pushed at `push` depends on besides its items; `None`
@@ -6146,12 +6262,11 @@ where
     /// a fingerprint over every loaded face per call; an ellipsis and a
     /// placeholder prompt each asked for it again (per clipped line, per
     /// empty field). No font is loaded while a list is built: one answer
-    /// serves the build.
+    /// serves the build - the one the context's pass holds already, when the
+    /// list is built by the pass that laid the page out
+    /// ([`LayoutContext::loaded_fonts`], A3-solver-42).
     fn loaded_fonts(&self) -> std::sync::Arc<text3::cache::LoadedFonts<T>> {
-        std::sync::Arc::clone(
-            self.loaded_fonts
-                .get_or_init(|| self.ctx.font_manager.get_loaded_fonts()),
-        )
+        std::sync::Arc::clone(self.loaded_fonts.get_or_init(|| self.ctx.loaded_fonts()))
     }
 
     /// What the scroll chain of the box at `node_index` depends on: its

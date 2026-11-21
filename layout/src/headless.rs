@@ -105,6 +105,14 @@ pub struct CpuHitTester {
     /// Per dom: its boxes grouped by chain, and the viewports it shows
     /// through ([`DomIndex`]).
     index: BTreeMap<DomId, DomIndex>,
+    /// The matrix each node's reference frame was BUILT with
+    /// (`PushReferenceFrame::initial_transform` of the list the tester was
+    /// built from). What the renderers paint a frame with while its key has
+    /// no live value - the frames between the end of an animation, which
+    /// drops the key, and the list that is built without the frame - and so
+    /// what the frame is hit with then ([`painted_or_baked`]). Not in
+    /// [`HitChainLink`]: a link is a key of the chain table.
+    baked_frames: std::collections::HashMap<(DomId, NodeId), azul_core::transform::ComputedTransform3D>,
 }
 
 /// Where a child dom's `VirtualView` item is, and how far it has moved the
@@ -1001,6 +1009,22 @@ fn frame_to_local(
         return None;
     }
     Some((ox + lx, oy + ly))
+}
+
+/// The matrix a reference frame is PAINTED with: its live value (`live`),
+/// or - where its key has none - the matrix its list was built with
+/// (`baked`, [`CpuHitTester::baked_frames`]). The rule of the rasteriser
+/// (`render_state.transforms.get(key).map_or(&initial_transform.m, ..)`) and
+/// of `WebRender`'s property binding (the value, else the binding's own).
+/// With the live value alone such a frame was hit as the identity while it
+/// was painted moved.
+fn painted_or_baked<'a>(
+    live: &'a dyn Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D>,
+    baked: &'a std::collections::HashMap<(DomId, NodeId), azul_core::transform::ComputedTransform3D>,
+) -> impl Fn(DomId, NodeId) -> Option<azul_core::transform::ComputedTransform3D> + 'a {
+    move |dom_id, node_id| {
+        live(dom_id, node_id).or_else(|| baked.get(&(dom_id, node_id)).copied())
+    }
 }
 
 /// One link, from the space INSIDE it to the space around it - where the
@@ -2122,6 +2146,7 @@ impl CpuHitTester {
             view_hosts: BTreeMap::new(),
             view_items: BTreeMap::new(),
             index: BTreeMap::new(),
+            baked_frames: std::collections::HashMap::new(),
         }
     }
 
@@ -2173,9 +2198,10 @@ impl CpuHitTester {
             return p;
         }
         let view_shift = |dom_id: DomId| self.view_shift_of(dom_id);
+        let painted = painted_or_baked(resolve_transform, &self.baked_frames);
         let live = LiveValues {
             scroll: resolve_scroll,
-            transform: resolve_transform,
+            transform: &painted,
             view_shift: &view_shift,
         };
         chain_to_local(&self.chain_links(chain), p, &live)
@@ -2248,6 +2274,15 @@ impl CpuHitTester {
         ) -> Option<azul_core::transform::ComputedTransform3D>,
         stamps_of: &dyn Fn(DomId) -> TransformStamps,
     ) {
+        // The bounds are of where the frames are painted: with the list's own
+        // matrix where a key has no live value (the stamps move when a key
+        // goes, and the baked matrices change only with a rebuild, which
+        // drops the bounds).
+        let painted = painted_or_baked(resolve_transform, &self.baked_frames);
+        let resolve_transform: &dyn Fn(
+            DomId,
+            NodeId,
+        ) -> Option<azul_core::transform::ComputedTransform3D> = &painted;
         for (dom_id, index) in &mut self.index {
             if index.framed.is_empty() {
                 continue;
@@ -2348,6 +2383,7 @@ impl CpuHitTester {
         self.scroll_containers.clear();
         self.dom_placements.clear();
         self.index.clear();
+        self.baked_frames.clear();
 
         let placements = resolve_virtual_view_placements(layout_results);
 
@@ -2425,7 +2461,8 @@ impl CpuHitTester {
             for (item_idx, item) in layout_result.display_list.items.iter().enumerate() {
                 let crate::solver3::display_list::DisplayListItem::PushReferenceFrame {
                     bounds: frame_box,
-                    ..
+                    transform_key,
+                    initial_transform,
                 } = item
                 else {
                     continue;
@@ -2440,6 +2477,17 @@ impl CpuHitTester {
                     frame_corners
                         .entry(owner)
                         .or_insert(frame_box.inner().origin);
+                    // The matrix this frame was built with, for the time its
+                    // key has no live value (A6-24). The node's OWN frame: the
+                    // first it opens, and not the sheen layer a material's
+                    // node opens as well (another key, the highlight's place).
+                    let sheen_layer = gpu_cache
+                        .is_some_and(|c| c.sheen_transform_keys.get(&owner) == Some(transform_key));
+                    if !sheen_layer {
+                        self.baked_frames
+                            .entry((*dom_id, owner))
+                            .or_insert(*initial_transform);
+                    }
                 }
             }
             let chain_of = compute_node_chains(
@@ -2936,11 +2984,14 @@ impl CpuHitTester {
         // for it, from its parent chain's point and its own innermost link,
         // and kept for the rest of the query.
         let view_shift = |dom_id: DomId| self.view_shift_of(dom_id);
+        // A frame whose key has no live value is hit where the list's own
+        // matrix paints it (A6-24).
+        let painted = painted_or_baked(resolve_transform, &self.baked_frames);
         let mut points = ChainPoints::new(
             &self.chains,
             LiveValues {
                 scroll: resolve_scroll,
-                transform: resolve_transform,
+                transform: &painted,
                 view_shift: &view_shift,
             },
             position,
@@ -5627,6 +5678,76 @@ mod audit_a6_tests {
             assert!(!hits_node(&hits, dom(0), 1), "({x}, {y}) hit the collapsed box");
             assert!(hits_node(&hits, dom(0), 0), "({x}, {y}) still hits the body");
         }
+    }
+
+    /// A6-24 (A2-cpu-R09). A reference frame whose key has no live value is painted with the
+    /// matrix its list was built with (`PushReferenceFrame::initial_transform`: the rasteriser's
+    /// `transforms.get(key).map_or(&initial_transform.m, ..)`), and was hit as the identity:
+    /// the frames between the end of an animation, which drops key and value, and the list
+    /// that is built without the frame.
+    ///
+    /// By hand. The frame's corner is (100, 100); its list bakes "scale by 2, then move by
+    /// (40, 0)": a point `p` of the content is painted at `(100, 100) + 2 (p - (100, 100)) +
+    /// (40, 0)`. The box, 50 x 50 at (100, 100), is painted at (140, 100), 100 x 100.
+    /// - the window point (230, 190) is the box's (100 + (230 - 140) / 2, 100 + (190 - 100) / 2)
+    ///   = (145, 145): inside, a hit. As the identity it was (230, 190): a miss.
+    /// - the window point (120, 120) is the box's (100 + (120 - 140) / 2, 110) = (90, 110): left
+    ///   of the box, no hit. As the identity it was (120, 120): a hit on a box drawn elsewhere.
+    ///
+    /// Mutation: `painted_or_baked` answering `live` alone fails both points.
+    #[test]
+    fn a_frame_whose_key_lost_its_value_is_hit_where_its_list_paints_it() {
+        use azul_core::gpu::TransformChannel;
+
+        let baked = scaled(2.0, 40.0, 0.0);
+        let key = TransformKey::unique();
+        let node = NodeId::new(1);
+        let mut result = layout(
+            styled(1),
+            vec![hot(0, (400.0, 300.0), None), hot(1, (50.0, 50.0), Some(0))],
+            vec![p(0.0, 0.0), p(100.0, 100.0)],
+            vec![
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: key,
+                    initial_transform: baked,
+                    bounds: WindowLogicalRect::new(p(100.0, 100.0), LogicalSize::new(50.0, 50.0)),
+                },
+                DisplayListItem::PopReferenceFrame,
+            ],
+        );
+        // The frame is the box's own.
+        std::sync::Arc::get_mut(&mut result.display_list)
+            .expect("the list has one holder")
+            .node_mapping = vec![Some(node), None];
+        let mut results = BTreeMap::new();
+        results.insert(dom(0), result);
+
+        // The list was built while a slide moved the box: its key has a value.
+        let mut gpu = GpuStateManager::default();
+        let _ = gpu
+            .get_or_create_cache(dom(0))
+            .set_transform(TransformChannel::Animation, node, key, baked);
+        let mut tester = CpuHitTester::new();
+        tester.rebuild_from_layout_with_gpu(&results, Some(&gpu));
+        let hits = nodes_at(&tester, &gpu, &|_, _| None, 230.0, 190.0);
+        assert!(hits_node(&hits, dom(0), 1), "harness: with its live value the box is hit there");
+
+        // The slide ends: key and value go. The list is still the one that was built.
+        let _ = gpu
+            .get_or_create_cache(dom(0))
+            .remove_transform(TransformChannel::Animation, node);
+        assert_eq!(gpu.painted_transform_of(dom(0), node), None, "harness: no live value");
+
+        let hits = nodes_at(&tester, &gpu, &|_, _| None, 230.0, 190.0);
+        assert!(hits_node(&hits, dom(0), 1), "(230, 190) is (145, 145) of the box: a hit");
+        let hits = nodes_at(&tester, &gpu, &|_, _| None, 120.0, 120.0);
+        assert!(!hits_node(&hits, dom(0), 1), "(120, 120) is (90, 110): left of the box");
+        assert!(hits_node(&hits, dom(0), 0), "and the body is under it");
+
+        // A tester built again in that state has no frame for the node any more (the cache
+        // has none) and no stale matrix either: the table is the rebuild's.
+        tester.rebuild_from_layout_with_gpu(&BTreeMap::new(), Some(&gpu));
+        assert!(tester.baked_frames.is_empty());
     }
 
     /// The editor's zoom, by hand. A view at the window's corner shows its

@@ -182,6 +182,12 @@ impl HitTestingScene {
         self.items.clear();
     }
 
+    /// Whether the scene holds no hit-test item at all: every query of it
+    /// answers "nothing", whatever the spatial tree holds.
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
     /// Get stats about the current scene allocation sizes.
     pub fn get_stats(&self) -> HitTestingSceneStats {
         HitTestingSceneStats {
@@ -275,7 +281,14 @@ impl HitTester {
             scene,
             spatial_nodes: FastHashMap::default(),
         };
-        hit_tester.read_spatial_tree(spatial_tree);
+        // `hit_test` reads a spatial node only for an item or for the clip of
+        // one: a scene without items needs none of them. A host that does its
+        // own hit testing (azul) pushes no items, and this copy of every
+        // node's world transforms was made after each scroll and each animated
+        // value all the same (audit A4-03).
+        if !hit_tester.scene.is_empty() {
+            hit_tester.read_spatial_tree(spatial_tree);
+        }
         hit_tester
     }
 
@@ -396,5 +409,64 @@ pub struct HitTest {
 impl HitTest {
     pub fn new(point: WorldPoint) -> HitTest {
         HitTest { point }
+    }
+}
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! A4-03: a hit tester over a scene without items copies nothing of the
+    //! spatial tree, and one with an item still answers.
+    use std::sync::Arc;
+
+    use api::units::{LayoutPoint, LayoutRect, LayoutSize, WorldPoint};
+
+    use super::{HitTest, HitTester, HitTestingItem, HitTestingScene, HitTestingSceneStats};
+    use crate::{
+        clip::ClipNodeId,
+        scene::SceneProperties,
+        spatial_tree::{SceneSpatialTree, SpatialTree},
+    };
+
+    fn tree() -> SpatialTree {
+        let mut scene_tree = SceneSpatialTree::new();
+        let mut tree = SpatialTree::new();
+        tree.apply_updates(scene_tree.end_frame_and_get_pending_updates());
+        tree.update_tree(&SceneProperties::new());
+        tree
+    }
+
+    #[test]
+    fn a_scene_without_hit_test_items_reads_no_spatial_node() {
+        let tree = tree();
+        assert!(tree.spatial_node_count() >= 1, "the root frame is a node");
+
+        let none = HitTester::new(
+            Arc::new(HitTestingScene::new(&HitTestingSceneStats::empty())),
+            &tree,
+        );
+        assert_eq!(none.spatial_nodes.len(), 0, "nothing to test against: nothing copied");
+        assert!(none
+            .hit_test(HitTest::new(WorldPoint::new(5.0, 5.0)))
+            .items
+            .is_empty());
+
+        let mut scene = HitTestingScene::new(&HitTestingSceneStats::empty());
+        scene.items.push(HitTestingItem {
+            rect: LayoutRect::from_origin_and_size(LayoutPoint::zero(), LayoutSize::new(10.0, 10.0)),
+            tag: (7, 1),
+            animation_id: 0,
+            is_backface_visible: true,
+            spatial_node_index: tree.root_reference_frame_index(),
+            clip_node_id: ClipNodeId::NONE,
+        });
+        let one = HitTester::new(Arc::new(scene), &tree);
+        assert_eq!(
+            one.spatial_nodes.len(),
+            tree.spatial_node_count(),
+            "a scene with an item copies every node, as before"
+        );
+        let hit = one.hit_test(HitTest::new(WorldPoint::new(5.0, 5.0)));
+        assert_eq!(hit.items.len(), 1);
+        assert_eq!(hit.items[0].tag, (7, 1));
     }
 }
