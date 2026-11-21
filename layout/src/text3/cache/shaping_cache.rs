@@ -455,10 +455,16 @@ pub struct TextShapingCache {
     /// `shape_content` sweeps ([`Self::sweep_if_due`]): twice what the last
     /// sweep kept, within [`SWEEP_AT_LEAST`] ..= [`SWEEP_AT_MOST`].
     pub(super) sweep_at: usize,
-    /// What the shaping through this cache did ([`ShapingCounters`]): counted
-    /// by the shaping calls, read by the window that owns the cache and by the
-    /// tests of the cache.
-    pub(super) counters: super::shaping::ShapingCounters,
+    /// The generation of the registered fonts
+    /// ([`RegisteredFonts::generation`](crate::text3::fontreg::RegisteredFonts::generation))
+    /// the text is shaped under, which the owner of the font state sets
+    /// ([`Self::set_fonts_generation`]): a face registered while the app runs changes the face a
+    /// family resolves to, which a group's key holds nothing else of, so text shaped with the
+    /// fallback before is shaped again. 0 until it is set (nothing registered).
+    pub(super) fonts_generation: u64,
+    /// What the shaping through this cache has noted: the shaping calls that came up short of a
+    /// font ([`Self::take_font_shape_deficit`]) and, in tests, the groups it shaped.
+    pub(super) tally: ShapingTally,
 }
 
 /// The caches are not swept below this many entries (in the largest of
@@ -567,32 +573,25 @@ impl TextShapingCache {
             stage_accessed: HashSet::new(),
             generation: 0,
             sweep_at: SWEEP_AT_LEAST,
-            counters: super::shaping::ShapingCounters::default(),
+            fonts_generation: 0,
+            tally: ShapingTally::default(),
         }
     }
 
-    /// The shaping calls of this cache that came up short of a font since the
-    /// last call of this function, which starts the count again: what a window
-    /// takes per layout pass for `FrameReport::font_shape_deficit`. A text
-    /// whose face is not loaded (yet) shapes to fewer glyphs than it has
-    /// characters, or none.
+    /// The shaping calls through this cache since the last time that came up short of a font -
+    /// their face not loaded, or no face for any of their characters - drained: the layout pass
+    /// hands them to the frame report (`FrameReport::font_shape_deficit`). A window's cache
+    /// counts the window's text and nothing else's.
     pub fn take_font_shape_deficit(&mut self) -> u32 {
-        core::mem::take(&mut self.counters.font_shape_deficit)
+        core::mem::take(&mut self.tally.font_deficit)
     }
 
-    /// The shaping calls of this cache that came up short of a font so far:
-    /// unchanged across one call means the call had every face it needed.
-    #[must_use]
-    pub const fn font_shape_deficit(&self) -> u32 {
-        self.counters.font_shape_deficit
-    }
-
-    /// The coalesce groups this cache shaped so far, because its per-item
-    /// cache had none for them: a text shaped before costs one, shaped again
-    /// it costs none.
-    #[must_use]
-    pub const fn groups_shaped(&self) -> u64 {
-        self.counters.groups_shaped
+    /// Tells the cache the generation of the registered fonts the text is shaped under from now
+    /// on ([`RegisteredFonts::generation`](crate::text3::fontreg::RegisteredFonts::generation)
+    /// of the font manager the caller shapes with). A layout pass sets it first thing
+    /// (`solver3::layout_document`), as does each path that shapes outside a pass.
+    pub const fn set_fonts_generation(&mut self, generation: u64) {
+        self.fonts_generation = generation;
     }
 
     /// #28: fork this cache for a SPECULATIVE layout query (`LayoutWindow::
@@ -614,8 +613,9 @@ impl TextShapingCache {
             stage_accessed: HashSet::new(),
             generation: self.generation,
             sweep_at: self.sweep_at,
-            // A fork counts its own: the query that made it is not the window's frame.
-            counters: super::shaping::ShapingCounters::default(),
+            fonts_generation: self.fonts_generation,
+            // What the fork shapes is its own to count: it dies with it.
+            tally: ShapingTally::default(),
         }
     }
 
@@ -1102,11 +1102,12 @@ impl TextShapingCache {
             &bidi_runs,
             &mut self.per_item_shaped,
             &mut self.per_item_accessed,
+            self.fonts_generation,
+            &mut self.tally,
             font_chain_cache,
             fc_cache,
             loaded_fonts,
             debug_messages,
-            &mut self.counters,
         )?);
 
         Ok((logical_items, shaped_items))
@@ -1700,27 +1701,16 @@ mod audit_a8_tests {
                 }
             }
         };
-        // The shaped store's key holds the font registry's generation, which is the
-        // PROCESS's: a face another test of this binary registers while a pass runs makes
-        // every later key a new one (2,275 paragraphs were shaped again in the first run of
-        // this test beside the `fontreg` tests). The two passes are counted only when no face
-        // was registered from the first call to the last.
-        let registry = crate::text3::fontreg::generation;
-        for attempt in 0.. {
-            assert!(attempt < 50, "premise: the font registry stands still for two passes");
-            let stood_at = registry();
-            let mut cache = TextShapingCache::new();
-            pass(&mut cache);
-            let first = cache.groups_shaped();
-            pass(&mut cache);
-            let second = cache.groups_shaped() - first;
-            if registry() != stood_at {
-                continue;
-            }
-            assert_eq!(first, 5_000, "each paragraph is shaped once in a pass");
-            assert_eq!(second, 0, "the next pass over the same text shapes nothing");
-            break;
-        }
+        // The shaped store's key holds the generation of the registered fonts, which is the
+        // font manager's own: no other test registers a face in this one's registry.
+        let mut cache = TextShapingCache::new();
+        cache.set_fonts_generation(fm.registered_fonts.generation());
+        pass(&mut cache);
+        let first = cache.tally.groups_shaped;
+        pass(&mut cache);
+        let second = cache.tally.groups_shaped - first;
+        assert_eq!(first, 5_000, "each paragraph is shaped once in a pass");
+        assert_eq!(second, 0, "the next pass over the same text shapes nothing");
     }
 
     /// A8-16 (wrong output): the same text of the same node laid out at

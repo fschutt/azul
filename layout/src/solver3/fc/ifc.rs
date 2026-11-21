@@ -1574,9 +1574,12 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
     // `shape_content` would hand out here (`sizing::MeasuredParagraphs`):
     // the same content, direction and faces within the same pass.
     let measured = if ctx.debug_messages.is_none() {
-        ctx.pass_memo
-            .measured
-            .take(node_index, &inline_content, &text3_constraints)
+        ctx.pass_memo.measured.take(
+            node_index,
+            &inline_content,
+            &text3_constraints,
+            ctx.font_manager.registered_fonts.generation(),
+        )
     } else {
         None
     };

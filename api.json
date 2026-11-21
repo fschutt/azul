@@ -20905,7 +20905,7 @@
                                     "`register_font` for bytes the app keeps as well (`SharedBytes`): the",
                                     "registry keeps that very allocation - every window's font cache and every",
                                     "face loaded from it share it with the app's handle - and copies nothing.",
-                                    "The bytes stay alive for the process, whatever the app does with its",
+                                    "The bytes stay alive for the life of the app, whatever the app does with its",
                                     "handle afterwards. Returns `false` for bytes that are no font."
                                 ],
                                 "fn_args": [

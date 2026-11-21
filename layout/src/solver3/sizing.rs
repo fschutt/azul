@@ -1413,10 +1413,13 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         // writes them, and the layout's would be missing.
         match shaped {
             Some(shaped) if self.ctx.debug_messages.is_none() => {
-                self.ctx
-                    .pass_memo
-                    .measured
-                    .keep(node_index, inline_content, &constraints, shaped);
+                self.ctx.pass_memo.measured.keep(
+                    node_index,
+                    inline_content,
+                    &constraints,
+                    shaped,
+                    self.ctx.font_manager.registered_fonts.generation(),
+                );
             }
             _ => {
                 self.ctx.pass_memo.measured.forget(node_index);
@@ -2953,8 +2956,8 @@ struct MeasuredParagraph {
     /// `Some(Ltr)`, no layout ever took what its measure had shaped.
     direction: crate::text3::cache::BidiDirection,
     unicode_bidi: crate::text3::cache::UnicodeBidi,
-    /// `text3::fontreg::generation()` at the shaping: a face registered
-    /// since changes what a family resolves to.
+    /// The font manager's `RegisteredFonts::generation()` at the shaping: a
+    /// face registered since changes what a family resolves to.
     fonts_generation: u64,
     shaped: ShapedParagraph,
 }
@@ -2998,13 +3001,15 @@ impl core::fmt::Debug for MeasuredParagraphs {
 impl MeasuredParagraphs {
     /// Keeps what the measure of the inline formatting context `root` shaped
     /// `content` into under `constraints`, while there is room
-    /// ([`MEASURED_ITEMS_KEPT_AT_MOST`]).
+    /// ([`MEASURED_ITEMS_KEPT_AT_MOST`]). `fonts_generation` is the generation of the
+    /// registered fonts it was shaped under.
     fn keep(
         &mut self,
         root: usize,
         content: Vec<InlineContent>,
         constraints: &UnifiedConstraints,
         shaped: ShapedParagraph,
+        fonts_generation: u64,
     ) {
         self.forget(root);
         let items = shaped.1.len();
@@ -3020,7 +3025,7 @@ impl MeasuredParagraphs {
                 content,
                 direction: base_direction_of(constraints),
                 unicode_bidi: constraints.unicode_bidi,
-                fonts_generation: crate::text3::fontreg::generation(),
+                fonts_generation,
                 shaped,
             },
         );
@@ -3045,19 +3050,21 @@ impl MeasuredParagraphs {
     }
 
     /// What the measure of `root` shaped, if `shape_content` would hand the
-    /// layout the same for `content` under `constraints`. Whatever is kept
-    /// for the root is dropped: its layout is the one use.
+    /// layout the same for `content` under `constraints` and the registered fonts of
+    /// generation `fonts_generation`. Whatever is kept for the root is dropped: its layout is
+    /// the one use.
     pub(crate) fn take(
         &mut self,
         root: usize,
         content: &[InlineContent],
         constraints: &UnifiedConstraints,
+        fonts_generation: u64,
     ) -> Option<ShapedParagraph> {
         let kept = self.forget(root)?;
         let differs = [
             kept.direction != base_direction_of(constraints),
             kept.unicode_bidi != constraints.unicode_bidi,
-            kept.fonts_generation != crate::text3::fontreg::generation(),
+            kept.fonts_generation != fonts_generation,
         ];
         // The content last: the one comparison that walks the paragraph.
         let refused_by = differs
@@ -6538,11 +6545,11 @@ mod audit_a3_solver_tests {
         let constraints = UnifiedConstraints::default();
         let mut memo = MeasuredParagraphs::default();
 
-        memo.keep(7, vec![text("label")], &constraints, shaped());
-        assert!(memo.take(7, &[text("other")], &constraints).is_none(), "other content");
-        assert!(memo.take(7, &[text("label")], &constraints).is_none(), "gone after one try");
+        memo.keep(7, vec![text("label")], &constraints, shaped(), 0);
+        assert!(memo.take(7, &[text("other")], &constraints, 0).is_none(), "other content");
+        assert!(memo.take(7, &[text("label")], &constraints, 0).is_none(), "gone after one try");
 
-        memo.keep(7, vec![text("label")], &constraints, shaped());
+        memo.keep(7, vec![text("label")], &constraints, shaped(), 0);
         let turned = UnifiedConstraints {
             direction: Some(match constraints.direction {
                 Some(crate::text3::cache::BidiDirection::Rtl) => {
@@ -6552,12 +6559,12 @@ mod audit_a3_solver_tests {
             }),
             ..UnifiedConstraints::default()
         };
-        assert!(memo.take(7, &[text("label")], &turned).is_none(), "another direction");
+        assert!(memo.take(7, &[text("label")], &turned, 0).is_none(), "another direction");
 
-        memo.keep(7, vec![text("label")], &constraints, shaped());
+        memo.keep(7, vec![text("label")], &constraints, shaped(), 0);
         memo.hand_up(7, 3);
-        assert!(memo.take(7, &[text("label")], &constraints).is_none(), "handed up");
-        assert!(memo.take(3, &[text("label")], &constraints).is_some(), "to the box around");
+        assert!(memo.take(7, &[text("label")], &constraints, 0).is_none(), "handed up");
+        assert!(memo.take(3, &[text("label")], &constraints, 0).is_some(), "to the box around");
         assert_eq!(memo.items_kept, 0);
 
         // The intrinsic measure sets no direction (`ifc_measure_constraints`), the layout
@@ -6569,9 +6576,9 @@ mod audit_a3_solver_tests {
             direction: Some(crate::text3::cache::BidiDirection::Ltr),
             ..UnifiedConstraints::default()
         };
-        memo.keep(7, vec![text("label")], &constraints, shaped());
+        memo.keep(7, vec![text("label")], &constraints, shaped(), 0);
         assert!(
-            memo.take(7, &[text("label")], &ltr).is_some(),
+            memo.take(7, &[text("label")], &ltr, 0).is_some(),
             "a measure without a direction and a layout in `ltr` shape alike"
         );
     }

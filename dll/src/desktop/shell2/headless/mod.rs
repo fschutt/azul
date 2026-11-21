@@ -512,6 +512,21 @@ impl HeadlessWindow {
         })
     }
 
+    /// Makes this window draw with `registered_fonts`, the faces the app ships and the ones it
+    /// registers while it runs: those of the app that runs it (`AppInternal::font_manager`) or
+    /// of the window that opened it. A window made by [`Self::new`] has a registry of its own,
+    /// as the platform windows would without the app's font manager.
+    pub fn share_registered_fonts(
+        &mut self,
+        registered_fonts: &Arc<azul_layout::text3::fontreg::RegisteredFonts>,
+    ) {
+        if let Some(layout_window) = self.common.layout_window.as_mut() {
+            layout_window
+                .font_manager
+                .set_registered_fonts(Arc::clone(registered_fonts));
+        }
+    }
+
     // === Lifecycle ===
 
     /// One turn of this window's loop: the injected events, the virtual views, the
@@ -1184,6 +1199,12 @@ impl HeadlessWindow {
                 "[Headless] Spawning sub-HeadlessWindow (type: {:?})",
                 pending_create.window_state.flags.window_type
             );
+            // The window that opens it shares its registered fonts with it.
+            let registered_fonts = self
+                .common
+                .layout_window
+                .as_ref()
+                .map(|lw| Arc::clone(&lw.font_manager.registered_fonts));
             match HeadlessWindow::new(
                 pending_create,
                 self.common.app_data.clone(),
@@ -1194,6 +1215,9 @@ impl HeadlessWindow {
                 self.font_registry.clone(),
             ) {
                 Ok(mut child) => {
+                    if let Some(registered_fonts) = &registered_fonts {
+                        child.share_registered_fonts(registered_fonts);
+                    }
                     child.common.owner_window_id = owner;
                     child.regenerate_all = self.regenerate_all.clone();
                     child.regenerate_all_seen = self
@@ -16751,6 +16775,45 @@ mod child_window_tests {
         }
         assert_eq!(CHILD_TIMER_RUNS.load(Ordering::SeqCst), 1, "its timer ran");
         assert_eq!(CHILD_CREATED.load(Ordering::SeqCst), 1, "created once, pumped many times");
+    }
+
+    /// A window opened from a callback draws with the registered fonts of the window that opened
+    /// it, as the windows of the other shells draw with the app's through the app's font manager:
+    /// a face registered through the one is the other's too. A window built on its own has
+    /// registered fonts of its own, and so has one given the app's
+    /// (`HeadlessWindow::share_registered_fonts`).
+    #[test]
+    fn a_window_opened_from_a_callback_shares_the_registered_fonts_of_its_opener() {
+        let fonts = |window: &HeadlessWindow| {
+            Arc::clone(
+                &window
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .expect("a layout window")
+                    .font_manager
+                    .registered_fonts,
+            )
+        };
+        let mut opener = root();
+        opener.queue_window_create(window(root_layout, "child"));
+        opener.pump_children();
+        assert_eq!(opener.children.len(), 1, "the child window exists");
+        assert!(
+            Arc::ptr_eq(&fonts(&opener), &fonts(&opener.children[0])),
+            "the child draws with the registered fonts of its opener"
+        );
+
+        let mut alone = root_with(root_layout);
+        assert!(
+            !Arc::ptr_eq(&fonts(&opener), &fonts(&alone)),
+            "a window built on its own has registered fonts of its own"
+        );
+        alone.share_registered_fonts(&fonts(&opener));
+        assert!(
+            Arc::ptr_eq(&fonts(&opener), &fonts(&alone)),
+            "and takes the ones it is given"
+        );
     }
 
     static ROOT_LAYOUTS: AtomicUsize = AtomicUsize::new(0);

@@ -5189,8 +5189,8 @@ impl LayoutWindow {
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
         // Drain the shaping deficit this pass accumulated: > 0 means some
         // text produced zero glyphs because its font was not loaded when the
-        // shaper ran (the window's own shaping cache counts it:
-        // `text3::cache::ShapingCounters`).
+        // shaper ran (see `text3::cache::ShapingTally`). The window's own text
+        // cache counts it: no other window's text is in it.
         self.frame_report.font_shape_deficit = self
             .frame_report
             .font_shape_deficit
@@ -31701,6 +31701,8 @@ impl LayoutWindow {
             layout_result.viewport.size,
         );
         let loaded_fonts = self.font_manager.get_loaded_fonts();
+        self.text_cache
+            .set_fonts_generation(self.font_manager.registered_fonts.generation());
         let intrinsic = solver3::sizing::measure_ifc_intrinsic_sizes(
             &mut self.text_cache,
             content,
@@ -31841,6 +31843,8 @@ impl LayoutWindow {
         self.ensure_fonts_loaded_for_content(content);
 
         let loaded_fonts = self.font_manager.get_loaded_fonts();
+        self.text_cache
+            .set_fonts_generation(self.font_manager.registered_fonts.generation());
         self.text_cache
             .shape_content(
                 content,

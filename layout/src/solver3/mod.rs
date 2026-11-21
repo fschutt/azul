@@ -426,7 +426,7 @@ impl<T: ParsedFontTrait> LayoutContext<'_, T> {
     /// locks and a fold over every loaded face (its memo's check): every
     /// inline formatting context asked twice per pass, 12,000 labels 24,000
     /// times. A face registered while a pass runs (another thread) is seen by
-    /// the pass that follows - `text3::fontreg::generation` lays that one out
+    /// the pass that follows - `RegisteredFonts::generation` lays that one out
     /// cold - instead of by the boxes of this pass that happened to come
     /// after it.
     #[cfg(feature = "text_layout")]
@@ -888,7 +888,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // A face registered at runtime (`text3::fontreg`) changes the face text
     // naming its family is drawn in: what this cache laid out and shaped
     // with the fallback is stale, so the document is laid out cold once.
-    let font_epoch = crate::text3::fontreg::generation();
+    // The generation is the font manager's own (its registered fonts'); the
+    // text cache shapes under it from here on.
+    let font_epoch = font_manager.registered_fonts.generation();
+    text_cache.set_fonts_generation(font_epoch);
     if cache.font_epoch != font_epoch {
         cache.font_epoch = font_epoch;
         cache.tree = None;
