@@ -276,6 +276,8 @@ impl ShapedItem {
     // can't merge)
     #[must_use]
     pub fn bounds(&self) -> Rect {
+        #[cfg(test)]
+        ITEM_BOUNDS_CALLS.with(|n| n.set(n.get() + 1));
         match self {
             Self::Cluster(cluster) => {
                 // The width of a text cluster is its total advance.
@@ -610,6 +612,12 @@ pub struct PositionedItem {
     pub item: ShapedItem,
     pub position: Point,
     pub line_index: usize,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: how often this thread has measured an item's bounds.
+    pub(crate) static ITEM_BOUNDS_CALLS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
