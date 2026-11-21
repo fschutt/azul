@@ -727,7 +727,8 @@ fn random_step(s: &mut Stage, rng: &mut Lcg, badge: bool) -> String {
     const TURNS: [f32; 5] = [0.0, 15.0, 30.0, 90.0, -45.0];
     const NUDGES: [f32; 5] = [-40.0, -7.5, 0.0, 7.5, 40.0];
     let child = s.child;
-    match rng.next() % if badge { 7 } else { 6 } {
+    let kinds = if badge { 7 } else { 6 };
+    match rng.next() % kinds {
         0 => {
             let (x, y) = (rng.pick(&PANS), rng.pick(&PANS) * 0.5);
             s.pan(x, y);
