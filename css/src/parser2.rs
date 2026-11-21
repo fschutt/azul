@@ -1787,6 +1787,8 @@ fn new_from_str_inner<'a>(
     // whole `@page` rule was before. A rule for a named page (`@page
     // chapter`) is skipped whole, with a warning; a pseudo-page (`@page
     // :first`) never gets here, the tokenizer stops at its `:`.
+    // the helper type sits next to the code that uses it
+    #[allow(clippy::items_after_statements)]
     struct PageCapture<'a> {
         /// The rule has a page selector: nothing of it is honoured.
         ignored: bool,

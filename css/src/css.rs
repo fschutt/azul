@@ -2250,10 +2250,10 @@ impl_vec_partialeq!(CssPathSelector, CssPathSelectorVec);
 impl_vec_eq!(CssPathSelector, CssPathSelectorVec);
 impl_vec_hash!(CssPathSelector, CssPathSelectorVec);
 
-/// The path the declarations of `@page { @footnote { ... } }` are kept
-/// under (CSS Generated Content for Paged Media, "The footnote area": "A
-/// page area that can be used to display footnotes is described in the
-/// page context using an @footnote rule").
+/// The path the declarations of `@page { @footnote { ... } }` are kept under.
+///
+/// (CSS Generated Content for Paged Media, "The footnote area": "A page area that can be used to
+/// display footnotes is described in the page context using an @footnote rule").
 ///
 /// The footnote area is no element: no node of a document is selected by
 /// its rule. The stylesheet parser stores the rule as an ordinary rule
@@ -2853,12 +2853,12 @@ impl ParsedStyles {
             .as_ref()
             .iter()
             .map(|rule| {
-                core::mem::size_of::<CssRuleBlock>()
-                    + rule.path.selectors.as_ref().len() * core::mem::size_of::<CssPathSelector>()
-                    + rule.declarations.as_ref().len() * core::mem::size_of::<CssDeclaration>()
+                size_of::<CssRuleBlock>()
+                    + size_of_val(rule.path.selectors.as_ref())
+                    + size_of_val(rule.declarations.as_ref())
             })
             .sum();
-        text.len() + rules + css.keyframes.as_ref().len() * core::mem::size_of::<Keyframes>()
+        text.len() + rules + size_of_val(css.keyframes.as_ref())
     }
 
     fn keep(&mut self, text: &str, css: &Css) {
@@ -2958,7 +2958,7 @@ mod scoped_parse_tests {
         assert!(rules >= 1, "harness: a rule");
         assert!(
             ParsedStyles::kept_bytes(text, &css)
-                >= text.len() + rules * core::mem::size_of::<super::CssRuleBlock>(),
+                >= text.len() + std::mem::size_of_val(css.rules.as_ref()),
             "the rules are counted"
         );
     }

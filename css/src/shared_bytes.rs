@@ -44,6 +44,8 @@ impl SharedBytes {
     /// `Vec`'s buffer cannot become an `Arc<[u8]>` without a copy: the counts
     /// sit in front of the bytes). Every clone afterwards shares it.
     #[must_use]
+    // an API method: the C API hands the value over (api.json), so the signature is fixed
+    #[allow(clippy::needless_pass_by_value)]
     pub fn create(bytes: U8Vec) -> Self {
         Self::from_arc(Arc::from(bytes.as_ref()))
     }
@@ -52,21 +54,15 @@ impl SharedBytes {
     /// a zeroed handle.
     #[must_use]
     pub fn to_arc(&self) -> Arc<[u8]> {
-        match self.raw() {
-            // Safety: `raw` is the pointer `Arc::into_raw` returned for this
-            // handle's reference, which stays alive while `self` does; the
-            // `ManuallyDrop` keeps that reference, the clone is a new one.
-            Some(raw) => {
+        self.raw().map_or_else(|| Arc::from(&[][..]), |raw| {
                 let held = ManuallyDrop::new(unsafe { Arc::from_raw(raw) });
                 Arc::clone(&held)
-            }
-            None => Arc::from(&[][..]),
-        }
+            })
     }
 
     /// The bytes.
     #[must_use]
-    pub fn as_slice(&self) -> &[u8] {
+    pub const fn as_slice(&self) -> &[u8] {
         if self.ptr.is_null() {
             return &[];
         }

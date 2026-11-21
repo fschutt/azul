@@ -70,10 +70,10 @@ pub const I16_INITIAL: i16 = 0x7FFC; // 32764
 /// Any i16 value >= this threshold is a sentinel
 pub const I16_SENTINEL_THRESHOLD: i16 = 0x7FFC; // 32764
 
-/// A box length slot of [`CompactNodeProps`] (paddings, margins, border
-/// widths, insets, gaps): a px length in THOUSANDTHS of a pixel - the very
-/// number a `FloatValue` holds, so a declared px length is kept exactly - or
-/// one of the `PX_SLOT_*` sentinels at the top of the range.
+/// A box length slot of [`CompactNodeProps`] (paddings, margins, border widths, insets, gaps).
+///
+/// A px length in THOUSANDTHS of a pixel - the very number a `FloatValue` holds, so a declared px
+/// length is kept exactly - or one of the `PX_SLOT_*` sentinels at the top of the range.
 ///
 /// These slots were `i16` tenths of a pixel: `left: 10.04px` was laid out at
 /// 10.0, and a length beyond 3,276.3 px did not fit (A3-core-12).
@@ -1300,9 +1300,10 @@ pub fn encode_resolved_px_i16(px: f32) -> i16 {
     i16::try_from(scaled).unwrap_or(I16_SENTINEL)
 }
 
-/// Encode a length into a box slot ([`PxSlot`]): a px length as its
-/// thousandths, exact up to +-2,147,483.643 px; `PX_SLOT_SENTINEL` for a
-/// length in another unit (it needs a context to resolve) or beyond that.
+/// Encode a length into a box slot ([`PxSlot`]).
+///
+/// A px length as its thousandths, exact up to +-2,147,483.643 px; `PX_SLOT_SENTINEL` for a length
+/// in another unit (it needs a context to resolve) or beyond that.
 #[inline]
 #[must_use]
 pub fn encode_px_slot(length: PixelValue) -> PxSlot {
@@ -1338,11 +1339,11 @@ pub fn decode_px_slot(slot: PxSlot) -> Option<f32> {
     px_slot_length(slot).map(|length| length.number.get())
 }
 
-/// A length as a reader of a slot that is still tenths of a pixel in an
-/// `i16` (the border radii, the border spacing, the tab size) gets it: a px
-/// length within the slot's range in tenths of a pixel, exactly the number
-/// `decode` of [`encode_resolved_px_i16`] gives; any other length (another
-/// unit, beyond the range) as it is.
+/// A length as a reader of a slot that is still tenths of a pixel in an `i16` (the border radii,
+/// the border spacing, the tab size) gets it.
+///
+/// A px length within the slot's range in tenths of a pixel, exactly the number `decode` of
+/// [`encode_resolved_px_i16`] gives; any other length (another unit, beyond the range) as it is.
 ///
 /// The resting state reads such a property from its slot and every other
 /// state (hover) from the cascade; the cascade's answer goes through this,
@@ -1353,17 +1354,15 @@ pub fn px_as_a_tenths_slot_reads_it(value: PixelValue) -> PixelValue {
     if value.metric != SizeMetric::Px {
         return value;
     }
-    match decode_resolved_px_i16(encode_resolved_px_i16(value.number.get())) {
-        Some(px) => PixelValue::px(px),
-        None => value,
-    }
+    decode_resolved_px_i16(encode_resolved_px_i16(value.number.get())).map_or(value, PixelValue::px)
 }
 
-/// A border radius for its `i16` slot: a px radius within the slot's range
-/// in tenths of a pixel; `I16_AUTO` for a declared radius the slot cannot
-/// hold (a percentage, an `em`, a radius beyond 3276 px such as the
-/// `9999px` of a pill): the readers ask the cascade for it. `I16_SENTINEL`
-/// stays what it was, "no radius declared", which the readers answer with 0.
+/// A border radius for its `i16` slot.
+///
+/// A px radius within the slot's range in tenths of a pixel; `I16_AUTO` for a declared radius the
+/// slot cannot hold (a percentage, an `em`, a radius beyond 3276 px such as the `9999px` of a
+/// pill): the readers ask the cascade for it. `I16_SENTINEL` stays what it was, "no radius
+/// declared", which the readers answer with 0.
 ///
 /// Such a radius used to be left out of the slot, and the slot then said
 /// "none declared": `border-radius: 50%` was square at rest and round only
@@ -1473,9 +1472,10 @@ pub fn decode_flex_u16(v: u16) -> Option<f32> {
     Some(f32::from(v) / 100.0)
 }
 
-/// A flex factor as a reader of its slot gets it (hundredths in a `u16`):
-/// exactly the number `decode_flex_u16` of `encode_flex_u16` gives, or the
-/// factor itself when the slot cannot hold it (negative, 655.29 and above).
+/// A flex factor as a reader of its slot gets it (hundredths in a `u16`).
+///
+/// Exactly the number `decode_flex_u16` of `encode_flex_u16` gives, or the factor itself when the
+/// slot cannot hold it (negative, 655.29 and above).
 ///
 /// `flex-grow` and `flex-shrink` are read from the slot at rest and from the
 /// cascade in any other state; the cascade's answer goes through this, so a
@@ -1703,9 +1703,10 @@ pub const DOM_HAS_TEXT_TRANSFORM: u32 = 1 << 29;
 /// `vertical-align`, a UA default included (table parts, `sub`, `sup`): read
 /// for every inline item, and its tier-1 slot cannot hold a length.
 pub const DOM_HAS_VERTICAL_ALIGN: u32 = 1 << 30;
-/// `zoom` OR `aspect-ratio`. One bit for the two (the word is full): both
-/// are rare and author-only, a DOM that declares either reads both from the
-/// cascade as before. `zoom` is asked of every node of a new DOM,
+/// `zoom` OR `aspect-ratio`.
+///
+/// One bit for the two (the word is full): both are rare and author-only, a DOM that declares
+/// either reads both from the cascade as before. `zoom` is asked of every node of a new DOM,
 /// `aspect-ratio` in every used-size computation.
 pub const DOM_HAS_ZOOM_OR_ASPECT_RATIO: u32 = 1 << 31;
 pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;

@@ -40,7 +40,9 @@ pub const MM_PER_IN: f32 = 25.4;
 
 /// The px of `number` units of an ABSOLUTE length unit (CSS Values 3,
 /// section 5.2): `1in = 96px`, `1cm = 96px / 2.54`, `1mm = 96px / 25.4`,
-/// `1pt = 96px / 72`. `None` for a unit that needs a context (a font size, a
+/// `1pt = 96px / 72`.
+///
+/// `None` for a unit that needs a context (a font size, a
 /// containing block, a viewport).
 ///
 /// THE conversion of the absolute units for the cascade (`prop_cache.rs`)
