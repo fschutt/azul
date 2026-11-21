@@ -227,19 +227,21 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
 <!-- STATE-BEGIN -->
 Tree: `audit/integration`, clean. Merged since the first verifier's hand-over: `audit/A4` at `a1fc02edf`
 (`d6ff63ad7`), `audit/A3-solver` at `79a700d1f` (`1fc01c22b`), `audit/A1` at `6c4d7265a` (`45720ab97`),
-`audit/A3-window` at `1af12829a` (`f1e2af9c8`); verifier commits `2f34d89fa` (guard fixtures), `b1a7898b2`
+`audit/A3-window` at `1af12829a` (`f1e2af9c8`), `audit/A1` again at `269117619` (`cb9574447`); verifier commits `2f34d89fa` (guard fixtures), `b1a7898b2`
 (compile fix), `270e178c9` (swept-pointer harness), `13545f86c` (widgets golden).
 
 Results on this tree (targeted builds, whole suites run from the binaries; NOT yet the gate):
-- layout lib 10897 / 1 / 1 ignored: the 1 is the swept-pointer harness, corrected after the run (`270e178c9`),
-  not yet confirmed by a build;
+- layout lib 10903 / 0 / 1 ignored (head `cb9574447`): green;
 - layout `tests/all` 3060 / 0 / 5 after the widgets golden (`13545f86c`);
-- dll lib 3846 / 7 / 9 ignored: the 7 are diff-first's (list in the log below);
+- dll lib 3846 / 7 / 9 ignored (before A1 `269117619`): the 7 are diff-first's (list in the log below);
 - core lib: not run again (7 failing at the last gate, all diff-first's); css: unchanged since the last gate.
 
 Open, with whom:
 - `audit/diff-first`: the coordinator names the tip. It brings the slider fix `6c43652f1`, the fix in
   `try_copy_cached_run` (switch `AZ_DL_TRANSLATE_MOVED_RUNS=1`), fixes for the 7 core and the 7 dll failures.
+  EXPECT also a conflict in `layout/src/window.rs` `DomGenerations` (two hunks; both sides only add: keep
+  A3-window's `frame_owners` / `boxes_moved_in_place` / `state_colors` and `bump_for_a_move`, and diff-first's
+  `laid_out_at` field and its `retain` line inside `forget_all_but`).
   EXPECT a conflict in `solver3/display_list.rs` `try_copy_cached_run` (it now holds A1's `next_text_ink` line and
   A3-window's `binding`): all must be present; its commit message says how the lines read.
 - After that merge: run `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`
@@ -419,3 +421,9 @@ What is left for the checkpoint, in order:
   `::a_rebuild_that_styled_its_changed_nodes_leaves_what_the_full_path_leaves`,
   `::a_rebuild_that_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves`,
   `::a_rebuild_that_styled_its_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves`.
+- the swept-pointer harness fix confirmed (log `57-build-layout-lib`): `audit_tests::a3_window` 54 / 0.
+- merge `audit/A1` at `269117619` (`cb9574447`, no conflict, 0 compile errors; A3-core-26 (b, d) `8111f75bf`, A1-67
+  `417d2a428`). Layout lib, whole suite (log `59-layout-lib`): **10903 passed, 0 failed, 1 ignored**. The five
+  named tests pass, no font test skips (`--nocapture`), `a_turned_label_of_a_view_is_drawn_without_a_surface`
+  passes; `cpurender` 876 / 0 / 1 ignored, `audit_tests::a2_cpu` 19 / 0, `a1` 2 / 0, `a10` 20 / 0;
+  `dl_patch_golden` 3 of 3. The dll was not rebuilt for this merge.
