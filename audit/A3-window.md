@@ -598,8 +598,15 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   `Arc::make_mut(&mut result.display_list)` while `cached.5 = patched` keeps a second `Arc` after every patched tick.
 - class: waste, per tween frame: O(transitions x items) + one deep copy of the root's list per frame of a colour or
   layer fade (root DOM only: 60-70 items in the editor, thousands in a document window).
+- fix: before a frame's patches the solver's cache lets go of the list when it holds this very one (the hand-back
+  after the patches was there); `color_bindings.contains` and the `PushOpacity` walk (also
+  `opacity_layer_is_bound`, asked per `set_css_property(opacity)`) ask the list's `FrameIndex`. Left as it is:
+  `list_shows_target` (one walk on a fade's last frame), `patch_paint_colors` / `patch_background_layers` /
+  `bind_background_color` themselves (one walk of the list's node tags per patched frame: a text or border
+  colour fade patches every frame; a background fade once, then it is a value).
+- test: `a_patched_frame_of_a_colour_fade_copies_no_list`.
 - severity: medium
-- status: open: not started (per transition per frame a scan of the root's items; one copy of the root's list per patched tick while `cached.5` holds a second Arc)
+- status: fixed 9d456543a
 
 ### A3-window-17 a mouse release scans every styled node of every DOM for `active`
 - file:line: `event.rs` `apply_active_restyle`
@@ -1084,6 +1091,38 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
 - severity: medium
 - status: fixed 4d00e3327
 
+### A3-window-52 the drag states are written without a cascade, so an unchanged rebuild cascades while one is raised (the shell's half)
+- file:line: `event.rs` `SystemChange::InitDragVisualState`, `SetDragOverState`, `DeactivateDrag`;
+  `common/layout.rs` `regenerate_layout` (`drag_state_raised`, twice)
+- class: waste, per `RefreshDom` with an unchanged DOM while a node is dragged or a drop target is entered: the
+  whole cascade (A3-window-46's exception); and wrong-output before: a rule with `:dragging` / `:drag-over` left
+  of its subject was not applied until some rebuild ran.
+- fix: `recascade_for_a_drag_state` at the three writes (a cascade only where the sheets read the state left of
+  a subject; the DOM's list is built then). The exit's clause can go now: For area diff-first.
+- test: `a_drag_state_is_cascaded_where_a_rule_reads_it_left_of_its_subject` (dll `event.rs`).
+- severity: low
+- status: fixed 23ba0306f
+
+### A3-window-53 the decoration patch of a view's list copied the list the view's own solver cache holds
+- file:line: `window.rs` `patch_restyled_decorations` (the cache was let go of "ROOT only")
+- class: waste (one deep copy of the view's list, 17,495 items, at the first hover patch after every pass of
+  the view) + wrong-output in waiting (the view's cache kept the list from before the patch)
+- fix: the cache of the patched DOM (`layout_cache` or `child_layout_caches[dom]`).
+- test: `a_hover_over_one_label_of_many_touches_that_labels_items_alone` (the allocation, the cache's list).
+- severity: medium
+- status: fixed 44c7836da
+
+### A3-window-54 a content patch of a view's list (a tile that arrives) copied the list the view's solver cache holds
+- file:line: `window.rs` `patch_display_list`
+- class: waste (as 53: the first tile patched after every pass of the view) + wrong-output in waiting (a cache
+  hit of the view would paint the tile from before)
+- fix: as 53. Not changed: `apply_caret_visibility_in_place` hands the patched list back to the window's cache
+  only (a caret inside a view: one copy at the first blink after a pass; the cache's key holds the caret's
+  phase, so the stale list is not served).
+- test: `a_tile_that_arrives_in_a_view_is_patched_into_the_list_where_it_lies`.
+- severity: medium
+- status: fixed a0b428212
+
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
 - `images_in_display_lists`: per list the GPU path takes (`register_frame_resources`), not per frame.
@@ -1226,6 +1265,14 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   leave the flag right: not read. Test: the dll's `an_identical_rebuild_under_a_hovered_node_runs_no_cascade`
   counts compact-cache builds (`compact_cache_rebuilds_on_this_thread`): a rebuild of a plain window DOM must
   stay at one build with the new line.
+
+- `regenerate_layout`, the two `drag_state_raised` clauses (`common/layout.rs` about 813 and 1005: `let
+  drag_state_raised = retained.styled_nodes.as_ref().iter().any(|n| n.styled_node_state.dragging ||
+  n.styled_node_state.drag_over); if states_changed || drag_state_raised { .. restyle_for_raised_states() }`):
+  since A3-window-52 (`23ba0306f`) the shell cascades a drag state where it writes it, so the kept DOM IS
+  cascaded under the drag states it holds. As it should be: `if states_changed { .. }` at both places (and the
+  walk for `drag_state_raised` gone). Test to extend: `an_identical_rebuild_under_a_hovered_node_runs_no_cascade`
+  with a node in the `dragging` state (0 compact-cache builds).
 
 ## For area A2-cpu
 - `virtual_view_frame_scroll_offsets` (`window.rs` about 4490, per GPU frame): `all_view_keys()` allocates a `Vec`
