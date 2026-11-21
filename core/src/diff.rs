@@ -3708,6 +3708,10 @@ pub fn same_tree_changes(prev: &DomFingerprints, next: &DomFingerprints) -> Opti
 ///   (`transfer_states`), and counts as re-initialised;
 /// - an icon, a virtual view, a localizable text or a text that was translated: the passes
 ///   between the app's callback and the cascade resolve, host or translate them;
+/// - a node whose Fluent arguments changed: the translated text below it (a key whose
+///   arguments hang on its paragraph) was formatted with the old ones, and only the translation
+///   pass of a full rebuild formats it again - the text is no changed node itself (its key is
+///   what it was), so nothing else would redo it;
 /// - a presentational attribute (a `Custom` attribute on the fresh node, a hint already in
 ///   the retained node's style): `StyledDom`'s creation turns those into declarations;
 /// - a style that makes generated content (an inline list item, a footnote): the creation
@@ -3760,6 +3764,7 @@ pub fn changed_nodes_are_adoptable(
                 && !has_hint(new)
                 && !crate::generated_content::node_generates_nodes(new)
                 && crate::layout_inputs::NodeField::Callbacks.reads_alike(old, new)
+                && crate::layout_inputs::NodeField::FluentArgs.reads_alike(old, new)
                 && old.get_dataset().is_some() == new.get_dataset().is_some()
                 && !new
                     .attributes()

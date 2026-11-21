@@ -5520,4 +5520,38 @@ mod audit_diff_first_tests {
         ));
         assert!(!adoptable(&leaf(div("a")), &hinted, identity));
     }
+
+    /// A node whose Fluent arguments changed is not adoptable where it stands: the translated
+    /// text below it (a key whose arguments hang on the paragraph) was formatted with the old
+    /// arguments, the text is no changed node itself (its key is what it was), and only the
+    /// translation pass of a full rebuild formats it again.
+    #[test]
+    fn a_node_whose_fluent_arguments_changed_is_not_adoptable() {
+        use crate::dom::{FluentArg, FluentArgKV};
+
+        let identity = NodeIdentityConfig::default();
+        let unread = |count: i32, class: &'static str| {
+            Dom::create_body().with_child(
+                Dom::create_p_with_text(azul_css::corety::AzString::tr("unread"))
+                    .with_class(class.into())
+                    .with_fluent_args(vec![FluentArgKV {
+                        key: "count".into(),
+                        value: FluentArg::I32(count),
+                    }]),
+            )
+        };
+        let adoptable = |old: &Dom, fresh: &Dom| {
+            let changed = changes(old, fresh).expect("premise: the same tree, the paragraph changed");
+            assert_eq!(changed, vec![1], "premise: the paragraph differs, its text does not");
+            changed_nodes_are_adoptable(&arena(old), fresh, &changed, identity)
+        };
+
+        // Another count: the paragraph's text would stay "3 new emails".
+        assert!(!adoptable(&unread(3, "a"), &unread(1, "a")));
+        // Another count and another class: the arguments still decide.
+        assert!(!adoptable(&unread(3, "a"), &unread(1, "b")));
+        // The same arguments and another class: the translated text below stands, the class is
+        // the node's own, so it is written where it stands.
+        assert!(adoptable(&unread(3, "a"), &unread(3, "b")));
+    }
 }
