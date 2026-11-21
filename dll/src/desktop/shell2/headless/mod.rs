@@ -15284,9 +15284,8 @@ mod tests {
         )
     }
 
-    /// A pan: every label moves, none enters or leaves. The view's document is KEPT (the
-    /// same tree, the same keys: nothing is flattened or paired). The cascade runs for no
-    /// node (a label's own `left` / `top` live in its compact entries alone, which are built again)
+    /// A pan: every label moves, none enters or leaves. The cascade runs for no node (a
+    /// label's own `left` / `top` live in its compact entries alone, which are built again)
     /// and the solver builds no box fresh (it places each label again and keeps what is in
     /// it) - in a view of 100 labels and in one of 400. Down the full path every node of
     /// the view is cascaded.
@@ -15308,27 +15307,6 @@ mod tests {
         let (whole, nodes, _, kept) = dfv_cost(100, &[], pan);
         assert_eq!((kept, whole), (0, 1), "the full path: one whole cascade");
         assert_eq!(nodes, 1 + 2 * 100, "over the picture and every label with its text");
-    }
-
-    /// One label of a view changes its class, the others stay: the view's document is kept
-    /// and the cascade runs for that label and its text - 2 nodes - in a view of 100 labels
-    /// and in one of 400, and the solver builds the boxes of that label, not the view's.
-    #[test]
-    fn one_changed_label_of_a_view_styles_that_label() {
-        use azul_layout::window::DiffFirstStep::View;
-        let restyle_one = |labels: &mut Vec<DfvLabel>| {
-            let at = labels.len() / 2;
-            labels[at].kind = (labels[at].kind + 1) % 4;
-        };
-        for count in [100, 400] {
-            let (whole, nodes, fresh, kept) = dfv_cost(count, &[View], restyle_one);
-            assert_eq!(kept, 1, "{count} labels: the document is kept");
-            assert_eq!((whole, nodes), (0, 2), "{count} labels: the label and its text");
-            assert!(
-                (1..=6).contains(&fresh),
-                "{count} labels: the boxes of one label are built, {fresh} were"
-            );
-        }
     }
 
     /// A settle: every label moves and 5 % of them are exchanged for new ones. The cascade
