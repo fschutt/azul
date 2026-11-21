@@ -4782,6 +4782,8 @@ fn render_glyphs_lcd(
     let (ras, sl) = pooled.parts();
 
     let p_outline = crate::probe::Probe::span("glyph_lcd_outline");
+    // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
+    parsed_font.touch();
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
@@ -4827,17 +4829,15 @@ fn render_glyphs_lcd(
             }
         }
 
-        let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
-            continue;
-        };
         // Builds (and caches) the hinted outline; we only need to know which
-        // coordinate space it came back in.
-        let Some(cached) = glyph_cache.get_or_build(
+        // coordinate space it came back in. The glyph is decoded only when
+        // its path is not cached yet (`get_or_build_decoding`).
+        let Some(cached) = glyph_cache.get_or_build_decoding(
             font_hash.font_hash,
             glyph_index,
-            &glyph_data,
             parsed_font,
             ppem,
+            || parsed_font.get_or_decode_glyph(glyph_index),
         ) else {
             continue;
         };
@@ -5156,6 +5156,8 @@ fn render_text_prerendered_lcd(
     }
     let mut placed: Vec<Placed> = Vec::with_capacity(glyphs.len());
     let mut next_component = 0usize;
+    // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
+    parsed_font.touch();
     for glyph in glyphs {
         let gx = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let gy = (glyph.point.y - scroll_offset.1) * dpi_factor;
@@ -5165,18 +5167,15 @@ fn render_text_prerendered_lcd(
             continue;
         }
         let glyph_index = glyph.index as u16;
-        let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
+        // A glyph without an outline has no tile: skipped here as below.
+        let Some(is_hinted) = glyph_cache
+            .get_or_build_decoding(font_hash.font_hash, glyph_index, parsed_font, ppem, || {
+                parsed_font.get_or_decode_glyph(glyph_index)
+            })
+            .map(|c| c.is_hinted)
+        else {
             continue;
         };
-        let is_hinted = glyph_cache
-            .get_or_build(
-                font_hash.font_hash,
-                glyph_index,
-                &glyph_data,
-                parsed_font,
-                ppem,
-            )
-            .is_some_and(|c| c.is_hinted);
         let Some((tile, int_x, int_y)) = glyph_cache.get_or_build_lcd_tile(
             font_hash.font_hash,
             glyph.index as u16,
@@ -5456,6 +5455,8 @@ pub(super) fn render_text(
 
     // Accumulate all glyph cells into one rasterizer, then render once.
     // This amortizes sort_cells cost across all glyphs in the run.
+    // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
+    parsed_font.touch();
     for glyph in glyphs {
         let glyph_index = glyph.index as u16;
 
@@ -5466,22 +5467,18 @@ pub(super) fn render_text(
             continue;
         }
 
-        // Lazy decode: first access to a given gid for this face does
-        // the allsorts glyf walk + OwnedGlyph conversion; subsequent
-        // accesses are an Arc bump + BTreeMap lookup.
-        let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
+        // Lazy decode: the first access to a given gid for this face does
+        // the allsorts glyf walk + OwnedGlyph conversion, and only while its
+        // path is not cached (`get_or_build_decoding`). A glyph without an
+        // outline has no cells: skipped here as below.
+        let Some(is_hinted) = glyph_cache
+            .get_or_build_decoding(font_hash.font_hash, glyph_index, parsed_font, ppem, || {
+                parsed_font.get_or_decode_glyph(glyph_index)
+            })
+            .map(|c| c.is_hinted)
+        else {
             continue;
         };
-
-        let is_hinted = glyph_cache
-            .get_or_build(
-                font_hash.font_hash,
-                glyph_index,
-                &glyph_data,
-                parsed_font,
-                ppem,
-            )
-            .is_some_and(|c| c.is_hinted);
 
         let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells_emboldened(
             font_hash.font_hash,
@@ -6601,6 +6598,56 @@ mod audit_a8_halo_tests {
             let alpha: Vec<u8> = whole.data().chunks_exact(4).map(|p| p[3]).collect();
             assert!(alpha.iter().any(|a| *a > 0), "the glyphs paint");
             assert_eq!(coverage, alpha, "radius {radius}, spread {spread}");
+        }
+    }
+
+    /// A8-03: a repaint of a run whose glyph paths are cached decodes no glyph
+    /// (grayscale and the LCD sweep), and paints the pixels the first paint did.
+    /// Mutation: in `get_or_build_decoding`, count and call `decode()` before the
+    /// `contains_key` check (a decode per glyph, as before) fails it.
+    #[test]
+    fn a_repaint_of_cached_glyphs_decodes_no_glyph() {
+        let Some(font) = load_test_font_pub() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = rr_with_pub(&font);
+        let glyphs = shape_pub(&font, "Tuebingen Altstadt", 18.0, 10.25, 30.0);
+        let clip_rect = LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize { width: 300.0, height: 60.0 },
+        };
+        let decodes = || crate::glyph_cache::GLYPH_DECODES.with(core::cell::Cell::get);
+        for grayscale in [true, false] {
+            let paint = |cache: &mut GlyphCache| {
+                let mut pm = AzulPixmap::new(300, 60).expect("a pixmap");
+                pm.fill(255, 255, 255, 255);
+                render_text(
+                    &glyphs,
+                    font_hash,
+                    18.0,
+                    ColorU { r: 10, g: 10, b: 10, a: 255 },
+                    &mut pm,
+                    &clip_rect,
+                    None,
+                    &rr,
+                    &fm,
+                    1.0,
+                    cache,
+                    (0.0, 0.0),
+                    grayscale,
+                );
+                pm
+            };
+            let mut cache = GlyphCache::new();
+            let before = decodes();
+            let first = paint(&mut cache);
+            let after_first = decodes();
+            assert!(after_first > before, "grayscale {grayscale}: the first paint decodes");
+            let second = paint(&mut cache);
+            assert_eq!(decodes(), after_first, "grayscale {grayscale}: a repaint decodes nothing");
+            assert!(first.data() == second.data(), "grayscale {grayscale}: the same pixels");
+            assert!(first.data().iter().any(|b| *b < 200), "grayscale {grayscale}: text paints");
         }
     }
 }

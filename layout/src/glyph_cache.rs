@@ -390,6 +390,8 @@ impl GlyphCache {
             if let Some(v) = self.paths_prev.remove(&key) {
                 self.paths.insert(key, v);
             } else {
+                #[cfg(test)]
+                GLYPH_DECODES.with(|n| n.set(n.get() + 1));
                 let glyph = decode()?;
                 return self.get_or_build(font_hash, glyph_id, &glyph, parsed_font, ppem);
             }
@@ -2093,6 +2095,13 @@ impl GlyphCache {
         self.lcd_tiles.insert(key, Some(tile.clone()));
         Some((tile, int_x, int_y))
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: how often `get_or_build_decoding` has asked its caller to decode a
+    /// glyph on this thread.
+    pub(crate) static GLYPH_DECODES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// Guards of the 2026-11-21 audit (area A8, `audit/A8.md`).
