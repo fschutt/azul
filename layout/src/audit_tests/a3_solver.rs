@@ -976,6 +976,73 @@ fn a_pass_asks_the_font_manager_for_its_fonts_once() {
     );
 }
 
+/// A3-solver-43. `positioning::adjust_relative_positions` ADDS a relatively positioned box's
+/// offset to the position the box has, for every such box of the tree, on every pass. An
+/// incremental pass computes positions only below its layout roots and keeps all others from
+/// the pass before - with the offset in them already: a relative box beside the re-laid
+/// subtree moved by its offset again on every such pass. `.x` gets another width (its parent
+/// `.a` is laid out again); `.r` (`top: 10px; left: 4px`) stands at (4, 10) in a fresh layout
+/// and was put at (8, 20).
+///
+/// `body(0) > [.r(1), .a(2) > .x(3)]`.
+#[test]
+fn a_relatively_positioned_box_beside_a_re_laid_one_is_not_shifted_again() {
+    let page = || {
+        Dom::create_body()
+            .with_child(div_class("r"))
+            .with_child(div_class("a").with_child(div_class("x")))
+    };
+    let base = "body { margin: 0; } .r { position: relative; top: 10px; left: 4px; height: 20px; } \
+                .x { height: 20px; }";
+    let (first, second) = (
+        format!("{base} .x {{ width: 100px; }}"),
+        format!("{base} .x {{ width: 150px; }}"),
+    );
+    let incremental = restyled(page, &first, &second);
+    assert_as_in_a_fresh_layout(&incremental, &fresh(page, &second), &[1, 2, 3]);
+}
+
+/// A3-solver-43. The re-laid box INSIDE a relatively positioned one: `.a` is laid out where it
+/// stood, which is 10 below the flow already, and its content from there. `.r` and what it
+/// holds were shifted by 10 again (fresh: all three at y = 10; they were put at 20).
+///
+/// `body(0) > .r(1) > .a(2) > .x(3)`.
+#[test]
+fn a_relatively_positioned_box_around_a_re_laid_one_is_not_shifted_again() {
+    let page = || {
+        Dom::create_body()
+            .with_child(div_class("r").with_child(div_class("a").with_child(div_class("x"))))
+    };
+    let base = "body { margin: 0; } .r { position: relative; top: 10px; } .x { height: 20px; }";
+    let (first, second) = (
+        format!("{base} .x {{ width: 100px; }}"),
+        format!("{base} .x {{ width: 150px; }}"),
+    );
+    let incremental = restyled(page, &first, &second);
+    assert_as_in_a_fresh_layout(&incremental, &fresh(page, &second), &[1, 2, 3]);
+}
+
+/// A3-solver-43, the other side: a relatively positioned box BELOW the re-laid one gets its
+/// position from the flow in that pass and is shifted, once (`.q`, `top: 7px`, under `.x`'s
+/// 20: y = 27 fresh and incremental).
+///
+/// `body(0) > .a(1) > [.x(2), .q(3)]`.
+#[test]
+fn a_relatively_positioned_box_inside_a_re_laid_one_is_shifted_once() {
+    let page = || {
+        Dom::create_body()
+            .with_child(div_class("a").with_child(div_class("x")).with_child(div_class("q")))
+    };
+    let base = "body { margin: 0; } .x { height: 20px; } \
+                .q { position: relative; top: 7px; height: 5px; }";
+    let (first, second) = (
+        format!("{base} .x {{ width: 100px; }}"),
+        format!("{base} .x {{ width: 150px; }}"),
+    );
+    let incremental = restyled(page, &first, &second);
+    assert_as_in_a_fresh_layout(&incremental, &fresh(page, &second), &[1, 2, 3]);
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;

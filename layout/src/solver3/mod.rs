@@ -1462,6 +1462,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
     let mut calculated_positions = cache.calculated_positions.clone();
     let mut loop_count = 0;
+    // The layout roots of the last turn of the loop that laid its roots out.
+    let mut laid_out_roots: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     loop {
         loop_count += 1;
         if loop_count > MAX_SCROLLBAR_REFLOW_ITERATIONS {
@@ -1751,6 +1753,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 &mut calculated_positions,
             );
         }
+        // The roots whose subtrees `calculated_positions` now holds as this
+        // pass placed them (the set below may be replaced for another turn
+        // of the loop that never lays it out: the iteration limit).
+        laid_out_roots.clone_from(&recon_result.layout_roots);
 
         if reflow_needed_for_scrollbars {
             debug_log!(
@@ -1812,11 +1818,42 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // Pass the viewport to correctly resolve percentage offsets for the root element.
     {
         let _p = crate::probe::Probe::span("adjust_relative_positions");
-        positioning::adjust_relative_positions(
+        // The boxes whose position this pass computed from the flow: every
+        // box BELOW a layout root that was laid out. A root's own position
+        // is the one it had (it is laid out where it stood) - the tree
+        // root's too, unless no pass had placed it yet - and so is every
+        // position outside the roots' subtrees: the relative shift is in
+        // those already and must not be added again.
+        let placed_now: Vec<bool> = {
+            let mut placed = vec![false; new_tree.nodes.len()];
+            let mut stack: Vec<usize> = Vec::new();
+            for &root in &laid_out_roots {
+                stack.extend_from_slice(new_tree.children(root));
+            }
+            while let Some(index) = stack.pop() {
+                if let Some(seen) = placed.get_mut(index) {
+                    if *seen {
+                        continue;
+                    }
+                    *seen = true;
+                }
+                stack.extend_from_slice(new_tree.children(index));
+            }
+            if laid_out_roots.contains(&new_tree.root)
+                && !pos_contains(&cache.calculated_positions, new_tree.root)
+            {
+                if let Some(root) = placed.get_mut(new_tree.root) {
+                    *root = true;
+                }
+            }
+            placed
+        };
+        positioning::adjust_relative_positions_of(
             &mut ctx,
             &new_tree,
             &mut calculated_positions,
             viewport,
+            Some(&placed_now),
         );
     }
 

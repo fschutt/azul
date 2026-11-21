@@ -1382,6 +1382,26 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
     calculated_positions: &mut super::PositionVec,
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
 ) {
+    adjust_relative_positions_of(ctx, tree, calculated_positions, viewport, None);
+}
+
+/// [`adjust_relative_positions`] for the boxes this pass placed.
+///
+/// The shift is ADDED to the position a box has, so it may be added only to
+/// a position the pass has just computed from the flow. An incremental pass
+/// lays out the subtrees of its layout roots and takes every other position
+/// - the roots' own included - from the pass before, where the shift is in
+/// already. `placed_now[i]` says that the position of box `i` is one this
+/// pass computed; `None`: all of them (a pass that lays everything out).
+/// Shifting every relatively positioned box of the tree on every pass moved
+/// the ones outside the re-laid subtrees by their offset again, each pass.
+pub fn adjust_relative_positions_of<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &mut super::PositionVec,
+    viewport: LogicalRect, // The viewport is needed if the root element is relative.
+    placed_now: Option<&[bool]>,
+) {
     use azul_css::props::style::StyleDirection;
     // NOTE: returns `()` (not `Result<()>`). This fn is Ok-always — its only `?` are on `Option`
     // inside `.and_then` closures, never propagating to the fn body. The previous `Result<(),
@@ -1390,6 +1410,10 @@ pub fn adjust_relative_positions<T: ParsedFontTrait>(
     // whole layout in the web backend (rect=0). Matches sibling reposition_* fns that return ().
     // Iterate through all nodes. We need the index to modify the position map.
     for node_index in 0..tree.nodes.len() {
+        // A position kept from the pass before has its shift in it.
+        if placed_now.is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false)) {
+            continue;
+        }
         let node = &tree.nodes[node_index];
         let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
 
