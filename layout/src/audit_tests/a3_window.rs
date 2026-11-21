@@ -3058,14 +3058,22 @@ fn rows_window(above: f32) -> (LayoutWindow, DomId) {
 }
 
 /// The list of a PATCHED pass is the list a build gives, bit for bit. The box above forty
-/// rows gets another height: the rows move down by 27.2 px and nothing else of them changes.
-/// The pass copied their runs with every coordinate shifted by the row's move, and
-/// `(old + 2.3) + move` is not `new + 2.3` in the last bit for about a quarter of such sums
-/// (two roundings against one): the patched list and a built one differed by an ulp in a
-/// row's rect, which is what the equality walks of the diff-first pipeline found. A row that
-/// moved is painted again (the fix is the diff-first owner's, in `try_copy_cached_run`:
-/// a run is copied only where it lies; this test needs it and fails without it).
-/// Mutation: a moved node's run copied and shifted again (`AZ_DL_TRANSLATE_MOVED_RUNS=1`):
+/// rows gets another height (10.7 to 255.8 px): the rows move down by 245.1 px and nothing
+/// else of them changes. A pass that copies their runs shifts every coordinate by the row's
+/// move, and `(old + 2.3) + move` is not `new + 2.3` in the last bit for some of such sums
+/// (two roundings against one; in single precision, rows 3, 4, 6, 8, 10, 12 and 28 of this
+/// page when a row's place is the sum of the heights above it): the patched list and a
+/// built one differ by an ulp in a row's rect, which is what the equality walks of the
+/// diff-first pipeline found. A row that moved is painted again (the diff-first owner's
+/// fix in `try_copy_cached_run`: a run is copied only where it lies).
+///
+/// The test runs its own mutant first, because the page it had (a move by 27.2 px) passed
+/// with and without the fix: under `MovedRunPolicy::AlwaysTranslate` (the per-thread twin
+/// of `AZ_DL_TRANSLATE_MOVED_RUNS=1`) the same pass must translate the runs of the forty
+/// rows - or it is no patched pass that meets moved boxes, and proves nothing - and must
+/// leave a list that is NOT the built one - or these sums add exactly, and prove nothing
+/// either. Then the default policy: bit for bit the built list.
+/// Mutation: a moved node's run copied and shifted again by every pass: the last
 /// `same_bits` names the first row whose rect is an ulp off.
 #[test]
 fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
@@ -3073,20 +3081,58 @@ fn a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it() {
         basic::PixelValue, layout::dimensions::LayoutHeight, property::CssProperty,
     };
 
-    use crate::overlay::{ContentChange, ContentDirtyTier};
+    use crate::{
+        overlay::{ContentChange, ContentDirtyTier},
+        solver3::display_list::{
+            moved_runs_translated_on_this_thread, set_moved_run_policy_on_this_thread,
+            MovedRunPolicy,
+        },
+    };
 
-    let (mut lw, child) = rows_window(10.7);
-    let tier = lw
-        .apply_content_change(ContentChange::NodeCss {
-            dom_id: child,
-            node_id: NodeId::new(1),
-            props: vec![CssProperty::height(LayoutHeight::Px(PixelValue::px(37.9)))],
-            override_only: false,
-        })
-        .tier;
-    assert_eq!(tier, ContentDirtyTier::Relayout, "premise: a height is a pass");
-    let (fresh, fresh_child) = rows_window(37.9);
-    if let Err(difference) = same_bits(&lw, child, &fresh, fresh_child) {
+    const BEFORE: f32 = 10.7;
+    const AFTER: f32 = 255.8;
+    // The box above the rows gets its new height: one pass of the view's document.
+    let grow = |lw: &mut LayoutWindow, child: DomId| {
+        let tier = lw
+            .apply_content_change(ContentChange::NodeCss {
+                dom_id: child,
+                node_id: NodeId::new(1),
+                props: vec![CssProperty::height(LayoutHeight::Px(PixelValue::px(AFTER)))],
+                override_only: false,
+            })
+            .tier;
+        assert_eq!(tier, ContentDirtyTier::Relayout, "premise: a height is a pass");
+    };
+    let (fresh, fresh_child) = rows_window(AFTER);
+
+    // The mutant, run here: every moved run copied and shifted.
+    set_moved_run_policy_on_this_thread(Some(MovedRunPolicy::AlwaysTranslate));
+    let translated_before = moved_runs_translated_on_this_thread();
+    let (mut shifted, shifted_child) = rows_window(BEFORE);
+    grow(&mut shifted, shifted_child);
+    let translated = moved_runs_translated_on_this_thread() - translated_before;
+    let shifted_is_the_built_list =
+        same_bits(&shifted, shifted_child, &fresh, fresh_child).is_ok();
+    set_moved_run_policy_on_this_thread(None);
+    assert!(
+        translated >= 40,
+        "premise: the pass patches its list and meets the forty rows it moved ({translated} \
+         runs were translated; with none, this pass builds its list in full and the test \
+         needs a pass that patches: a resize, as `audit_tests::diff_first` has)"
+    );
+    assert!(
+        !shifted_is_the_built_list,
+        "premise: a list whose moved runs are shifted is not the built one on this page \
+         (if it is, these moves add exactly and the page tells nothing)"
+    );
+
+    // The pass as it is: a moved box is painted anew.
+    set_moved_run_policy_on_this_thread(Some(MovedRunPolicy::TweenFramesTranslate));
+    let (mut lw, child) = rows_window(BEFORE);
+    grow(&mut lw, child);
+    let painted = same_bits(&lw, child, &fresh, fresh_child);
+    set_moved_run_policy_on_this_thread(None);
+    if let Err(difference) = painted {
         panic!("after the pass: {difference}");
     }
 }
