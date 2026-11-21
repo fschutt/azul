@@ -662,3 +662,52 @@ fn an_adapter_built_on_demand_gets_the_whole_tree_first_and_after_a_miss() {
     feed.built_and_taken();
     assert!(!feed.wants_full_tree());
 }
+
+/// A10-26. The macOS shell gives regenerable memory back at three moments,
+/// through one function (`MacOSWindow::release_regenerable_memory`): the
+/// window goes to the Dock (A9-09), the app is hidden (Cmd-H), the system
+/// reports memory pressure (a dispatch source for the warning and the
+/// critical level, on the main queue).
+///
+/// Mutations: `applicationDidHide:` removed, the source made for another
+/// mask or never resumed, or a release that no longer drops the compositor,
+/// each fail here.
+#[test]
+fn the_macos_shell_gives_memory_back_when_hidden_and_under_pressure() {
+    assert!(
+        MACOS_RS.contains("#[unsafe(method(applicationDidHide:))]")
+            && body(MACOS_RS, "fn application_did_hide(")
+                .contains("release_memory_of_every_window(MemoryRelease::NotShown);"),
+        "a hidden app gives back what a minimised window gives back"
+    );
+    let install = body(MACOS_RS, "pub fn install() {");
+    for call in [
+        "core::ptr::addr_of!(_dispatch_source_type_memorypressure)",
+        "WARN | CRITICAL",
+        "core::ptr::addr_of!(_dispatch_main_q)",
+        "dispatch_source_set_event_handler_f(source, Some(on_memory_pressure));",
+        "dispatch_resume(source);",
+    ] {
+        assert!(install.contains(call), "the memory-pressure source: `{call}` is missing");
+    }
+    assert!(
+        MACOS_RS.matches("memory_pressure::install();").count() >= 2,
+        "the source is installed at launch and with the first window"
+    );
+    let release = body(MACOS_RS, "pub(crate) fn release_regenerable_memory(");
+    for call in [
+        "release_plan(reason, keep_caches())",
+        "self.cpu_backend.compositor = None;",
+        "self.cpu_backend.glyph_cache.gc();",
+        "cpu_view.release_staging_bitmap();",
+        "api.notify_memory_pressure();",
+        "azul_layout::probe::hint_purge_allocator();",
+    ] {
+        assert!(release.contains(call), "the release: `{call}` is missing");
+    }
+    assert!(
+        body(MACOS_RS, "extern \"C\" fn on_memory_pressure(")
+            .contains("super::release_memory_of_every_window(reason);"),
+        "a pressure event releases through the same function"
+    );
+}

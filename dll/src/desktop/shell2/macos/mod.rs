@@ -2426,6 +2426,156 @@ pub(crate) fn present_copy_bytes(options: CpuPresentOptions, span: (usize, usize
     }
 }
 
+/// Why a window gives its regenerable memory back (A9-09, A10-26).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MemoryRelease {
+    /// Nobody sees the window: it is in the Dock, or the app is hidden (Cmd-H).
+    NotShown,
+    /// The system warns that memory is getting short (the window may be on
+    /// screen).
+    PressureWarn,
+    /// The system is critically short of memory.
+    PressureCritical,
+}
+
+/// What one release gives back. Everything in it is made again by the frames
+/// that follow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ReleasePlan {
+    /// The CPU compositor's layers (the next frame makes them again).
+    pub compositor: bool,
+    /// The glyph cache's older generation.
+    pub glyph_generation: bool,
+    /// The CPU view's staging bitmap (only there with `AZ_CPU_PRESENT=bitmap`).
+    pub staging_bitmap: bool,
+    /// WebRender's caches (textures, glyphs, GPU cache: uploaded again from
+    /// the templates it keeps).
+    pub webrender_caches: bool,
+    /// The allocator's free pages, back to the system.
+    pub free_pages: bool,
+}
+
+/// What a window gives back for `reason`. `keep` is the user's switch
+/// (`AZ_KEEP_CACHES_MINIMIZED=1`): nothing.
+///
+/// A window nobody sees, and any window when memory is critical, gives back
+/// everything. On a WARNING a window that may be on screen keeps WebRender's
+/// caches: flushing them makes the next frame upload every texture again (a
+/// visible hitch, and more memory for its duration), which is the right price
+/// only when the system is about to kill something.
+pub(crate) fn release_plan(reason: MemoryRelease, keep: bool) -> ReleasePlan {
+    if keep {
+        return ReleasePlan {
+            compositor: false,
+            glyph_generation: false,
+            staging_bitmap: false,
+            webrender_caches: false,
+            free_pages: false,
+        };
+    }
+    ReleasePlan {
+        compositor: true,
+        glyph_generation: true,
+        staging_bitmap: true,
+        webrender_caches: reason != MemoryRelease::PressureWarn,
+        free_pages: true,
+    }
+}
+
+/// The release a memory-pressure event asks for, from the flags the dispatch
+/// source reports (`DISPATCH_MEMORYPRESSURE_WARN` 0x02, `_CRITICAL` 0x04;
+/// `_NORMAL` 0x01 is not asked for and asks for nothing).
+pub(crate) fn memory_release_for_pressure(flags: usize) -> Option<MemoryRelease> {
+    if flags & memory_pressure::CRITICAL != 0 {
+        Some(MemoryRelease::PressureCritical)
+    } else if flags & memory_pressure::WARN != 0 {
+        Some(MemoryRelease::PressureWarn)
+    } else {
+        None
+    }
+}
+
+/// `AZ_KEEP_CACHES_MINIMIZED=1`: A9-09's switch, for every release (the Dock,
+/// Cmd-H, memory pressure).
+fn keep_caches() -> bool {
+    static KEEP: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *KEEP.get_or_init(|| std::env::var_os("AZ_KEEP_CACHES_MINIMIZED").is_some_and(|v| v != "0"))
+}
+
+/// Every open window gives back what `reason` asks for. Main thread.
+fn release_memory_of_every_window(reason: MemoryRelease) {
+    for window in registry::get_all_window_ptrs() {
+        // SAFETY: a registered window is alive; this runs on the main thread,
+        // from an AppKit delegate callback or from the main queue (the
+        // precedent of `windowDidMiniaturize:` and of the vsync tick).
+        unsafe { (*window).release_regenerable_memory(reason) };
+    }
+}
+
+/// The system's memory-pressure events, delivered on the main queue (A10-26).
+mod memory_pressure {
+    use std::ffi::c_void;
+
+    /// `DISPATCH_MEMORYPRESSURE_WARN`.
+    pub const WARN: usize = 0x02;
+    /// `DISPATCH_MEMORYPRESSURE_CRITICAL`.
+    pub const CRITICAL: usize = 0x04;
+
+    extern "C" {
+        static _dispatch_source_type_memorypressure: c_void;
+        static _dispatch_main_q: c_void;
+        fn dispatch_source_create(
+            source_type: *const c_void,
+            handle: usize,
+            mask: usize,
+            queue: *const c_void,
+        ) -> *mut c_void;
+        fn dispatch_set_context(object: *mut c_void, context: *mut c_void);
+        fn dispatch_source_set_event_handler_f(
+            source: *mut c_void,
+            handler: Option<extern "C" fn(*mut c_void)>,
+        );
+        fn dispatch_source_get_data(source: *mut c_void) -> usize;
+        fn dispatch_resume(object: *mut c_void);
+    }
+
+    /// The handler: its context is the source itself, which says the level.
+    extern "C" fn on_memory_pressure(source: *mut c_void) {
+        // SAFETY: `source` is the live source this handler was installed on.
+        let flags = unsafe { dispatch_source_get_data(source) };
+        if let Some(reason) = super::memory_release_for_pressure(flags) {
+            // A panic must not cross into libdispatch.
+            let _ = crate::desktop::recoverable_panic::catch(|| {
+                super::release_memory_of_every_window(reason);
+            });
+        }
+    }
+
+    /// Ask the system, once per process, to say when memory gets short
+    /// (warning and critical). The source lives as long as the process.
+    pub fn install() {
+        static ONCE: std::sync::Once = std::sync::Once::new();
+        ONCE.call_once(|| {
+            // SAFETY: the documented way to make and start a dispatch source;
+            // the type and the main queue are process-wide statics.
+            unsafe {
+                let source = dispatch_source_create(
+                    core::ptr::addr_of!(_dispatch_source_type_memorypressure),
+                    0,
+                    WARN | CRITICAL,
+                    core::ptr::addr_of!(_dispatch_main_q),
+                );
+                if source.is_null() {
+                    return;
+                }
+                dispatch_set_context(source, source);
+                dispatch_source_set_event_handler_f(source, Some(on_memory_pressure));
+                dispatch_resume(source);
+            }
+        });
+    }
+}
+
 /// Whether the accessibility tree is built eagerly, after every layout, as
 /// before A10-19: asked for with `AZ_A11Y_EAGER=1`, and always with the debug
 /// server or an E2E script attached (they read the layout side's tree,
@@ -4300,6 +4450,19 @@ impl CPUView {
             .collect()
     }
 
+    /// Let go of the staging bitmap (A10-26). It is only a copy of rows of
+    /// the framebuffer on their way to AppKit: the next `drawRect:` that
+    /// needs one makes it again.
+    pub fn release_staging_bitmap(&self) {
+        let ivars = self.ivars();
+        if let Ok(mut cached) = ivars.cached_bitmap.try_borrow_mut() {
+            *cached = None;
+            ivars.cached_bitmap_w.set(0);
+            ivars.cached_bitmap_h.set(0);
+            ivars.cached_bitmap_stale.set(true);
+        }
+    }
+
     /// Whether the framebuffer holds the blank fill instead of a frame (see
     /// the ivar): the next present has to copy the whole frame in, even one
     /// whose damage says that nothing changed.
@@ -4407,6 +4570,16 @@ define_class!(
             });
             // SAFETY: null or the live NSNotification AppKit hands this method.
             unsafe { crate::desktop::notifications::note_launch_notification(ptr) };
+            // A10-26: from here on the system can say when memory gets short.
+            memory_pressure::install();
+        }
+
+        /// The app was hidden (Cmd-H, "Hide" in the app menu): none of its
+        /// windows shows anything until it is shown again. Each gives back
+        /// what a window in the Dock gives back (A9-09, A10-26).
+        #[unsafe(method(applicationDidHide:))]
+        fn application_did_hide(&self, _notification: Option<&objc2::runtime::AnyObject>) {
+            release_memory_of_every_window(MemoryRelease::NotShown);
         }
 
         /// The app is asked to quit: the app menu's Quit (Cmd+Q), the Dock's
@@ -9346,6 +9519,37 @@ impl MacOSWindow {
         }
     }
 
+    /// Give back what `reason` asks for of this window's regenerable memory
+    /// (`release_plan`): the release A9-09 does when the window goes to the
+    /// Dock, for the app being hidden and for memory pressure too (A10-26).
+    /// What is given back is made again by the frames that follow; the frame
+    /// on screen (the view's framebuffer, AppKit's backing store) stays.
+    pub(crate) fn release_regenerable_memory(&mut self, reason: MemoryRelease) {
+        let plan = release_plan(reason, keep_caches());
+        #[cfg(feature = "cpurender")]
+        {
+            if plan.compositor {
+                self.cpu_backend.compositor = None;
+            }
+            if plan.glyph_generation {
+                self.cpu_backend.glyph_cache.gc();
+            }
+        }
+        if plan.staging_bitmap {
+            if let Some(ref cpu_view) = self.cpu_view {
+                cpu_view.release_staging_bitmap();
+            }
+        }
+        if plan.webrender_caches {
+            if let Some(api) = self.common.render_api.as_ref() {
+                api.notify_memory_pressure();
+            }
+        }
+        if plan.free_pages {
+            azul_layout::probe::hint_purge_allocator();
+        }
+    }
+
     /// The window's DPI factor is changing: the next CPU frame is repainted
     /// in full.
     ///
@@ -10022,6 +10226,8 @@ impl MacOSWindow {
     /// - The window must not be moved in memory after this call
     /// - The delegate is owned by the window and doesn't outlive it
     pub unsafe fn finalize_delegate_pointer(&mut self) {
+        // A10-26: also for an app whose delegate is not azul's (once per process).
+        memory_pressure::install();
         unsafe {
             let window_ptr = self as *mut MacOSWindow as *mut std::ffi::c_void;
             let delegate_ptr = &*self.window_delegate as *const WindowDelegate;
@@ -12522,6 +12728,56 @@ mod audit_a10_tests {
                 );
             }
         }
+    }
+
+    /// A10-26. What a window gives back, and when. Nobody sees it (the Dock,
+    /// Cmd-H) or memory is critical: everything regenerable. A warning while
+    /// it may be on screen: everything but WebRender's caches (flushing them
+    /// makes the next frame upload every texture again). The user's switch:
+    /// nothing.
+    ///
+    /// Mutation: WebRender's caches flushed on a warning fails the second
+    /// assertion; a release that ignores the switch fails the last.
+    #[test]
+    fn a_window_gives_back_its_regenerable_memory_when_hidden_or_under_pressure() {
+        let everything = ReleasePlan {
+            compositor: true,
+            glyph_generation: true,
+            staging_bitmap: true,
+            webrender_caches: true,
+            free_pages: true,
+        };
+        assert_eq!(release_plan(MemoryRelease::NotShown, false), everything);
+        assert_eq!(
+            release_plan(MemoryRelease::PressureWarn, false),
+            ReleasePlan { webrender_caches: false, ..everything }
+        );
+        assert_eq!(release_plan(MemoryRelease::PressureCritical, false), everything);
+        let nothing = ReleasePlan {
+            compositor: false,
+            glyph_generation: false,
+            staging_bitmap: false,
+            webrender_caches: false,
+            free_pages: false,
+        };
+        for reason in [
+            MemoryRelease::NotShown,
+            MemoryRelease::PressureWarn,
+            MemoryRelease::PressureCritical,
+        ] {
+            assert_eq!(release_plan(reason, true), nothing, "AZ_KEEP_CACHES_MINIMIZED=1: {reason:?}");
+        }
+    }
+
+    /// A10-26. The dispatch source reports the pressure level as flags:
+    /// warning 0x02, critical 0x04 (normal, 0x01, is not asked for).
+    #[test]
+    fn a_memory_pressure_event_names_its_release() {
+        assert_eq!(memory_release_for_pressure(0x02), Some(MemoryRelease::PressureWarn));
+        assert_eq!(memory_release_for_pressure(0x04), Some(MemoryRelease::PressureCritical));
+        assert_eq!(memory_release_for_pressure(0x06), Some(MemoryRelease::PressureCritical));
+        assert_eq!(memory_release_for_pressure(0x01), None);
+        assert_eq!(memory_release_for_pressure(0), None);
     }
 
     /// A10-19. The accessibility tree is built on demand unless the user asks
