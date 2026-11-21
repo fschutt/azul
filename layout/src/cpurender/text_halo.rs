@@ -13,7 +13,7 @@
 //! renderer's halo.
 //!
 //! What is kept, and for how long ([`HaloCache`]): a frame's scan of the display
-//! lists ([`within_halo_budget`]) never drops a picture that it or the scan before
+//! lists ([`TextHaloStore::within_halo_budget`]) never drops a picture that it or the scan before
 //! it has used, so the kept pictures follow what the frames show, however many
 //! labels that is. A cache of a fixed size smaller than one frame's labels dropped,
 //! for each halo it drew, one the same frame showed, which the next frame drew
@@ -48,14 +48,20 @@
 //! is: the frames that only draw more halos send no list and build no scene. When
 //! the ink does not fit the rect the picture is cut to its ink as ever, gets a slot
 //! of its own, and the list goes again for that frame. `AZ_HALO_SLOTS=0` in the
-//! environment turns the whole of it off ([`slots_on`]): every picture then has its
-//! own slot and its own rect, and a list is sent again whenever a halo was drawn.
+//! environment turns the whole of it off ([`TextHaloStore::slots_on`]): every picture
+//! then has its own slot and its own rect, and a list is sent again whenever a halo
+//! was drawn.
+//!
+//! Who owns all of it: a [`TextHaloStore`], one per window (a field of the layout
+//! window). The kept pictures, the budget of the scan under way, the counters, the
+//! glyph cache of the halos' glyphs and the shadows kept per display list are its:
+//! a window's frames, its numbers and its release of memory are its own, and no other
+//! window (or test) can move them.
 
 use std::{
     cell::{Cell, RefCell},
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
-    rc::Rc,
     sync::{Arc, Weak},
     time::{Duration, Instant},
 };
@@ -67,8 +73,6 @@ use azul_core::{
 };
 use azul_css::props::basic::{pixel::DEFAULT_FONT_SIZE, ColorU, FontRef};
 
-#[cfg(test)]
-use super::raster::blurred_glyphs;
 use super::raster::{
     blurred_glyph_coverage, shadow_blur_radius, shadow_spread_px, text_run_clip, BufferedRun,
     PixelBox,
@@ -216,27 +220,10 @@ pub(super) fn keep_cpu_halos(scratch: &mut PaintScratch, on: bool) {
     scratch.halos.with(|halos| halos.off = !on);
 }
 
-thread_local! {
-    /// How many halo pictures this thread has DRAWN (not found kept): what a
-    /// test reads to say "this frame drew no halo". Per thread because the
-    /// halos are kept per thread ([`HALOS`]) and the tests run in parallel.
-    static DRAWN: Cell<usize> = const { Cell::new(0) };
-}
-
-/// How many halos [`text_halos`] has drawn on this thread.
-#[must_use]
-pub fn halos_drawn() -> usize {
-    DRAWN.with(Cell::get)
-}
-
-thread_local! {
-    /// The budget of the frame being prepared on this thread
-    /// ([`within_halo_budget`]): how long it may draw, how long it has drawn,
-    /// how many halos it has drawn, how many it had to leave.
-    static BUDGET: Cell<Option<Budget>> = const { Cell::new(None) };
-}
-
-#[derive(Copy, Clone)]
+/// The budget of the scan under way ([`TextHaloStore::within_halo_budget`]): how
+/// long it may draw, how long it has drawn, how many halos it has drawn, how many
+/// it had to leave.
+#[derive(Debug, Copy, Clone)]
 struct Budget {
     /// Halos drawn however long they take: a frame always makes progress.
     free: usize,
@@ -251,35 +238,9 @@ struct Budget {
     previews: usize,
     previews_spent: Duration,
     /// The scan after a window's pictures were given back
-    /// ([`draw_every_small_halo_in_the_next_scan`]): a small picture for every
+    /// ([`TextHaloStore::draw_every_small_halo_in_the_next_scan`]): a small picture for every
     /// halo that has none, however many and however long.
     every_small: bool,
-}
-
-thread_local! {
-    /// Whether the next scan of this thread is one with [`Budget::every_small`].
-    static EVERY_SMALL_NEXT: Cell<bool> = const { Cell::new(false) };
-}
-
-/// The next scan of this thread ([`within_halo_budget`]) draws a small picture
-/// for EVERY spread shadow that has neither its own picture nor one standing in,
-/// however many they are and however long it takes, and the own picture of type
-/// too small for a small one ([`SMALLEST_PREVIEWED`]). For the first scan of a
-/// window whose pictures were given back while nobody saw it (audit A5-20,
-/// [`text_halos_forget_use`]): its labels were on screen with their halos before,
-/// and a frame's 64 small pictures and 6 ms would paint the rest of them without
-/// outline for the frames it takes to draw the others. A small picture is a
-/// sixteenth of its halo's pixels and some fiftieth of its work: est. 30-60 ms
-/// for the 1,567 labels of a municipal map on a 2x display, once, in the frame
-/// the window comes back with. The labels' own pictures follow by the frame's
-/// budget, each into the place of its small one, as after a zoom.
-pub fn draw_every_small_halo_in_the_next_scan() {
-    EVERY_SMALL_NEXT.with(|next| next.set(true));
-}
-
-/// Whether the scan under way draws every small picture ([`Budget::every_small`]).
-fn every_small() -> bool {
-    BUDGET.with(|cell| cell.get().is_some_and(|budget| budget.every_small))
 }
 
 /// The smallest type, in device px per em, that a small picture is drawn for
@@ -292,198 +253,9 @@ const PREVIEWS_ANYWAY: usize = 64;
 /// halo.
 const PREVIEW_TIME: Duration = Duration::from_millis(6);
 
-/// Runs `f` - a scan of display lists for text halos ([`text_halos`] with fonts)
-/// - with a BUDGET: the first `free` halos it has to draw are drawn, the rest
-/// only while the halos drawn so far took less than `time`, and the others are
-/// left for a later frame (nothing is kept for them: they are found missing,
-/// and the shadow they stand for is painted with a stand-in or by the renderer's
-/// own blur, until a later scan draws the picture). Returns what `f` returned and
-/// how many halos it left.
-///
-/// The time is the time spent DRAWING, not the time since the scan began: a scan
-/// of ten thousand labels that are all kept takes its time too, and a budget
-/// counted from its start left such a frame the `free` halos only.
-///
-/// A halo is a CPU raster of the label's glyphs, a disk dilation and a blur: 25 new
-/// labels of a map that panned were 5.0 s on the UI thread in one frame (1.2 s
-/// for 80 in another, 9.0 s over a session), and nothing in the frame could
-/// run before they were done. A frame that finds more halos than it may draw
-/// draws the rest as the map settles.
-///
-/// A call is one SCAN of the kept halos ([`HaloCache::begin_scan`]): the pictures
-/// it uses are not dropped by it or by the next call, whatever else they draw.
-pub fn within_halo_budget<R>(free: usize, time: Duration, f: impl FnOnce() -> R) -> (R, usize) {
-    HALOS.with(|halos| halos.borrow_mut().begin_scan());
-    let outer = BUDGET.with(|b| {
-        b.replace(Some(Budget {
-            free,
-            time,
-            spent: Duration::ZERO,
-            drawn: 0,
-            deferred: 0,
-            previews: 0,
-            previews_spent: Duration::ZERO,
-            every_small: EVERY_SMALL_NEXT.with(|next| next.replace(false)),
-        }))
-    });
-    let result = f();
-    let budget = BUDGET.with(|b| b.replace(outer));
-    // Left by the frame's time, and - once - by the pictures of the frame before
-    // (`HaloCache::owes_a_scan_for_room`): either way a later scan draws them.
-    let left = budget.map_or(0, |b| b.deferred)
-        + usize::from(HALOS.with(|halos| halos.borrow_mut().owes_a_scan_for_room()));
-    // The pictures that wait to be shown (they did not fit the place of the
-    // picture standing in for them, `HaloCache::insert_waiting`) are shown by the
-    // scan that leaves no halo for a later frame: the frames that only draw are
-    // over, and one list goes for all of them.
-    if left == 0 {
-        HALOS.with(|halos| halos.borrow_mut().reveal_all());
-    }
-    // The halos' glyphs: a scan that drew none, after scans that drew, is where
-    // a view's halos are done - the glyph cache gives up the generation it only
-    // keeps to hand glyphs back (`GlyphCache::gc`; it was never called here, and
-    // the cache held both generations for the life of the thread, audit A9 #30).
-    let drew = budget.is_some_and(|b| b.drawn + b.previews > 0);
-    if drew {
-        GLYPHS_USED.with(|used| used.set(true));
-    } else if left == 0 && GLYPHS_USED.with(|used| used.replace(false)) {
-        GLYPHS.with(|glyph_cache| glyph_cache.borrow_mut().gc());
-    }
-    log_scan();
-    (result, left)
-}
-
-/// Whether the budget of this thread lets one more halo be drawn.
-fn budget_left() -> bool {
-    BUDGET.with(|cell| {
-        cell.get()
-            .is_none_or(|budget| budget.drawn < budget.free || budget.spent < budget.time)
-    })
-}
-
-/// Counts a halo the budget of this thread let be drawn (`drawn`) or not.
-fn count_in_budget(drawn: bool) {
-    BUDGET.with(|cell| {
-        if let Some(mut budget) = cell.get() {
-            if drawn {
-                budget.drawn += 1;
-            } else {
-                budget.deferred += 1;
-            }
-            cell.set(Some(budget));
-        }
-    });
-}
-
-/// Counts `time` as spent drawing halos by the budget of this thread.
-fn spend(time: Duration) {
-    BUDGET.with(|cell| {
-        if let Some(mut budget) = cell.get() {
-            budget.spent += time;
-            cell.set(Some(budget));
-        }
-    });
-}
-
-/// Whether a halo of `shape` whose box holds `box_bytes` is drawn now: the
-/// frame's budget lets it, and there is room to keep it
-/// ([`HaloCache::make_room`]). Counted either way: a halo the budget leaves is
-/// `pending` (a later frame draws it, and is owed), one there is no room for is
-/// `unkept` (no frame is owed, the next one would find the same - unless what
-/// holds the room is the frame before's pictures, which the next scan may drop:
-/// [`HaloCache::owes_a_scan_for_room`]).
-fn admit(box_bytes: usize, shape: u64) -> bool {
-    admit_if(budget_left(), box_bytes, shape)
-}
-
-/// [`admit`] with the budget's answer given (`time_left`): a scan after a release
-/// draws some halos whatever the time ([`draw_every_small_halo_in_the_next_scan`]).
-fn admit_if(time_left: bool, box_bytes: usize, shape: u64) -> bool {
-    if !time_left {
-        count_in_budget(false);
-        HALOS.with(|halos| halos.borrow_mut().stats.pending += 1);
-        return false;
-    }
-    let room = HALOS.with(|halos| {
-        let mut halos = halos.borrow_mut();
-        let room = halos.make_room(box_bytes, Some(shape));
-        if !room {
-            halos.stats.unkept += 1;
-        }
-        room
-    });
-    if !room {
-        return false;
-    }
-    count_in_budget(true);
-    DRAWN.with(|n| n.set(n.get() + 1));
-    true
-}
-
-/// Whether a small stand-in picture whose box holds `box_bytes` is drawn now:
-/// the frame has drawn fewer than [`PREVIEWS_ANYWAY`] or spent less than
-/// [`PREVIEW_TIME`] on them, and there is room to keep it.
-fn admit_preview(box_bytes: usize) -> bool {
-    let within = BUDGET.with(|cell| {
-        cell.get().is_none_or(|budget| {
-            budget.every_small
-                || budget.previews < PREVIEWS_ANYWAY
-                || budget.previews_spent < PREVIEW_TIME
-        })
-    });
-    if !within || !HALOS.with(|halos| halos.borrow_mut().make_room(box_bytes, None)) {
-        return false;
-    }
-    BUDGET.with(|cell| {
-        if let Some(mut budget) = cell.get() {
-            budget.previews += 1;
-            cell.set(Some(budget));
-        }
-    });
-    // A translation made before it does not paint it: the lists go again.
-    DRAWN.with(|n| n.set(n.get() + 1));
-    true
-}
-
-/// Counts `time` as spent drawing small stand-in pictures by this thread's budget.
-fn spend_on_previews(time: Duration) {
-    BUDGET.with(|cell| {
-        if let Some(mut budget) = cell.get() {
-            budget.previews_spent += time;
-            cell.set(Some(budget));
-        }
-    });
-}
-
 pub use crate::cpu_counters::TextHaloStats;
 
-/// What the scans of this thread did with the text halos ([`TextHaloStats`]).
-#[must_use]
-pub fn text_halo_stats() -> TextHaloStats {
-    HALOS.with(|halos| {
-        let halos = halos.borrow();
-        let mut stats = halos.stats;
-        stats.kept = halos.entries.len() as u64;
-        stats.kept_bytes = halos.bytes as u64;
-        stats
-    })
-}
-
-/// How much this thread's halo cache holds from now on: at most `max_halos`
-/// pictures of `max_bytes` bytes together (`MAX_HALOS`, `MAX_HALO_BYTES` unless
-/// set). What is kept beyond them goes as a frame needs room, by the cache's own
-/// rules. For a host that knows its budget, and for the tests of a host: a view
-/// that does not fit can be told from one that does without drawing 96 MB.
-#[doc(hidden)]
-pub fn text_halo_bounds_in_this_thread(max_halos: usize, max_bytes: usize) {
-    HALOS.with(|halos| {
-        let mut halos = halos.borrow_mut();
-        halos.max_entries = max_halos;
-        halos.max_bytes = max_bytes;
-    });
-}
-
-/// What [`release_text_halos`] gave back.
+/// What [`TextHaloStore::release_text_halos`] gave back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct TextHalosReleased {
     /// The kept halos it dropped (pictures, and notes that a shadow has none) ...
@@ -492,158 +264,471 @@ pub struct TextHalosReleased {
     pub bytes: usize,
 }
 
-/// Marks as in use every kept halo picture the display lists `lists` paint at
-/// `dpi`, the way a translation of them made now finds it (the picture itself, or
-/// the one standing in). For [`release_text_halos`]: the kept pictures are a
-/// thread's, and the windows of a thread each hold lists that paint from them; a
-/// window that made no scan lately has its pictures marked as used by this.
-// The named lifetime stays: clippy and `single_use_lifetimes` would elide it, but an anonymous
-// lifetime in `impl Trait` is unstable (E0658) on the pinned 1.91 toolchain, so their suggestion
-// does not compile.
-#[allow(clippy::needless_lifetimes, single_use_lifetimes)]
-pub fn text_halos_in_use<'a>(lists: impl IntoIterator<Item = &'a Arc<DisplayList>>, dpi: f32) {
-    for list in lists {
-        let _unused = text_halos_of_list(list, dpi, None);
+/// What a [`TextHaloStore`] keeps behind its lock.
+#[derive(Debug)]
+struct StoreState {
+    /// The halos drawn so far.
+    halos: HaloCache,
+    /// How many halo pictures the store has DRAWN (not found kept): what a test reads
+    /// to say "this frame drew no halo" ([`TextHaloStore::halos_drawn`]).
+    drawn: usize,
+    /// The budget of the scan under way, when one is ([`TextHaloStore::within_halo_budget`]).
+    budget: Option<Budget>,
+    /// Whether the next scan is one with [`Budget::every_small`].
+    every_small_next: bool,
+    /// The store's own answer to [`TextHaloStore::slots_on`], when a host or its tests gave one
+    /// ([`TextHaloStore::text_halo_slots`]).
+    slots: Option<bool>,
+    /// Whether halos were drawn since the glyph cache last gave up its older generation
+    /// ([`TextHaloStore::within_halo_budget`]).
+    glyphs_used: bool,
+    /// The [`Shadow`]s of the display lists [`TextHaloStore::text_halos_of_list`] was asked
+    /// about, by the list's allocation and the scale. The `Weak` is what makes the
+    /// address an identity: while it is held the allocation is not given to
+    /// another list, and a list that has a `Weak` is never changed in place
+    /// (`Arc::get_mut` refuses, `Arc::make_mut` moves it to a new allocation) -
+    /// so the same address with a living list is the same items.
+    list_shadows: Vec<ListShadows>,
+}
+
+/// The text halos one window keeps as pictures, and all that goes with them: the
+/// pictures drawn so far ([`HaloCache`]) with their numbers ([`TextHaloStats`]), the
+/// budget of the scan under way, the glyph cache of the halos' glyphs and the
+/// shadows kept per display list.
+///
+/// One store belongs to one window (`LayoutWindow::text_halo_store`). The pictures a
+/// window's lists paint, the slots they are painted from and the numbers a recorder
+/// reads are that window's alone: what one window draws, drops or gives back (a
+/// hidden window gives back its own) moves nothing of another's, and a test that
+/// makes a window makes the store it works with.
+///
+/// Every method takes `&self`: the state is behind a lock that is taken for the length
+/// of one call and never while a halo is drawn or while the caller's own code runs
+/// ([`Self::within_halo_budget`] lets its closure ask the store again).
+pub struct TextHaloStore {
+    /// The kept pictures with their counters, the budget and the memo of shadows.
+    state: std::sync::Mutex<StoreState>,
+    /// The glyph rasteriser's cache for the halos' glyphs: locked only while a halo's
+    /// pixels are made, with nothing else of the store taken meanwhile.
+    glyphs: std::sync::Mutex<GlyphCache>,
+}
+
+impl core::fmt::Debug for TextHaloStore {
+    // The pictures are not printed: what tells one store from another is how much it keeps.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TextHaloStore")
+            .field("stats", &self.text_halo_stats())
+            .finish_non_exhaustive()
     }
 }
 
-/// Forgets which kept halos the last scan used: from here on only what
-/// [`text_halos_in_use`] marks counts as painted, and [`release_text_halos`]
-/// gives back all the rest. For a window nobody sees any more (audit A5-20): the
-/// renderer host deletes that window's image keys (which is what frees a painted
-/// picture: the renderer holds the same bytes), calls this, has the windows that
-/// ARE shown mark what their lists paint, and releases. A picture two windows
-/// paint is kept while either is shown; the hidden window's own go.
-///
-/// Nothing is forgotten while a scan is under way.
-pub fn text_halos_forget_use() {
-    if BUDGET.with(|budget| budget.get().is_some()) {
-        return;
+impl Default for TextHaloStore {
+    fn default() -> Self {
+        Self::new()
     }
-    HALOS.with(|halos| halos.borrow_mut().forget_use());
 }
 
-/// Gives back what this thread keeps of text halos and no display list paints:
-/// for memory pressure, and for windows nobody sees (audit A5-18).
-///
-/// Dropped is every kept halo the last scan ([`within_halo_budget`]) did not use
-/// and no look at a list has used since ([`text_halos_in_use`], a translation):
-/// the pictures of labels that left the view, of the sizes before the last zoom,
-/// the small ones that stood in until a label's own was drawn. Kept is every
-/// picture a list paints - the label's own, one standing in, one drawn and
-/// waiting to be shown - for two reasons. Its bytes are not this cache's alone:
-/// the renderer was handed the same allocation (a shared `ImageData::Raw`) and
-/// holds it for as long as a list names its key, so dropping it here frees
-/// nothing. And a list that is translated without a scan (one patched in place: a
-/// hover's colour) finds its pictures here; without them every label of it is
-/// painted without its halo, and no frame is owed that would draw them. So the
-/// frame after a release costs nothing more than the one before: no halo is drawn
-/// again, no image changes, no list goes. What the release costs comes later: a
-/// label that returns to the view, or a zoom back to a size that was kept, draws
-/// its picture again.
-///
-/// The pictures a HIDDEN window's lists paint go when the host first deleted
-/// their keys and then asked to forget them ([`text_halos_forget_use`]).
-///
-/// `not_shown` (no window of the thread is on screen: the app is hidden, the
-/// window is in the Dock) also gives back what only makes the next halo cheaper:
-/// the halos' whole glyph cache (the glyphs of a halo drawn later are rasterised
-/// again) and the shadows kept per display list (walked again at the next scan);
-/// with a window on screen the glyph cache gives up its older generation only,
-/// since frames may be drawing halos right now.
-///
-/// Nothing is released while a scan is under way (it returns zeros).
-#[must_use] 
-pub fn release_text_halos(not_shown: bool) -> TextHalosReleased {
-    if BUDGET.with(|budget| budget.get().is_some()) {
-        return TextHalosReleased::default();
+impl TextHaloStore {
+    /// A store that keeps no halo yet, bounded as the halos are
+    /// ([`MAX_HALOS`] pictures, [`MAX_HALO_BYTES`] bytes of them).
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            state: std::sync::Mutex::new(StoreState {
+                halos: HaloCache::new(MAX_HALOS, MAX_HALO_BYTES),
+                drawn: 0,
+                budget: None,
+                every_small_next: false,
+                slots: None,
+                glyphs_used: false,
+                list_shadows: Vec::new(),
+            }),
+            glyphs: std::sync::Mutex::new(GlyphCache::new()),
+        }
     }
-    let released = HALOS.with(|halos| {
-        let mut halos = halos.borrow_mut();
-        let released = halos.release_unused();
+
+    /// Runs `f` on the state under its lock. A lock that a panic poisoned is taken all
+    /// the same: what the store holds is a memo of pictures, and the worst a half-made
+    /// change leaves is one picture drawn again.
+    fn with_state<R>(&self, f: impl FnOnce(&mut StoreState) -> R) -> R {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        f(&mut state)
+    }
+
+    /// Runs `f` on the kept halos under the state's lock.
+    fn with_halos<R>(&self, f: impl FnOnce(&mut HaloCache) -> R) -> R {
+        self.with_state(|state| f(&mut state.halos))
+    }
+
+    /// Runs `f` on the glyph cache of the halos' glyphs under its lock.
+    fn with_glyphs<R>(&self, f: impl FnOnce(&mut GlyphCache) -> R) -> R {
+        let mut glyphs = self.glyphs.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        f(&mut glyphs)
+    }
+
+    /// How many halos [`Self::text_halos`] has drawn for this store.
+    #[must_use]
+    pub fn halos_drawn(&self) -> usize {
+        self.with_state(|state| state.drawn)
+    }
+
+    /// The next scan of this store ([`Self::within_halo_budget`]) draws a small picture
+    /// for EVERY spread shadow that has neither its own picture nor one standing in,
+    /// however many they are and however long it takes, and the own picture of type
+    /// too small for a small one ([`SMALLEST_PREVIEWED`]). For the first scan of a
+    /// window whose pictures were given back while nobody saw it (audit A5-20,
+    /// [`Self::text_halos_forget_use`]): its labels were on screen with their halos before,
+    /// and a frame's 64 small pictures and 6 ms would paint the rest of them without
+    /// outline for the frames it takes to draw the others. A small picture is a
+    /// sixteenth of its halo's pixels and some fiftieth of its work: est. 30-60 ms
+    /// for the 1,567 labels of a municipal map on a 2x display, once, in the frame
+    /// the window comes back with. The labels' own pictures follow by the frame's
+    /// budget, each into the place of its small one, as after a zoom.
+    pub fn draw_every_small_halo_in_the_next_scan(&self) {
+        self.with_state(|state| state.every_small_next = true);
+    }
+
+    /// Whether the scan under way draws every small picture ([`Budget::every_small`]).
+    fn every_small(&self) -> bool {
+        self.with_state(|state| state.budget.is_some_and(|budget| budget.every_small))
+    }
+
+    /// Runs `f` - a scan of display lists for text halos ([`Self::text_halos`] with fonts)
+    /// - with a BUDGET: the first `free` halos it has to draw are drawn, the rest
+    /// only while the halos drawn so far took less than `time`, and the others are
+    /// left for a later frame (nothing is kept for them: they are found missing,
+    /// and the shadow they stand for is painted with a stand-in or by the renderer's
+    /// own blur, until a later scan draws the picture). Returns what `f` returned and
+    /// how many halos it left.
+    ///
+    /// The time is the time spent DRAWING, not the time since the scan began: a scan
+    /// of ten thousand labels that are all kept takes its time too, and a budget
+    /// counted from its start left such a frame the `free` halos only.
+    ///
+    /// A halo is a CPU raster of the label's glyphs, a disk dilation and a blur: 25 new
+    /// labels of a map that panned were 5.0 s on the UI thread in one frame (1.2 s
+    /// for 80 in another, 9.0 s over a session), and nothing in the frame could
+    /// run before they were done. A frame that finds more halos than it may draw
+    /// draws the rest as the map settles.
+    ///
+    /// A call is one SCAN of the kept halos ([`HaloCache::begin_scan`]): the pictures
+    /// it uses are not dropped by it or by the next call, whatever else they draw.
+    /// The store is not locked while `f` runs: `f` asks it for the halos of the lists.
+    pub fn within_halo_budget<R>(
+        &self,
+        free: usize,
+        time: Duration,
+        f: impl FnOnce() -> R,
+    ) -> (R, usize) {
+        let outer = self.with_state(|state| {
+            state.halos.begin_scan();
+            let every_small = core::mem::take(&mut state.every_small_next);
+            state.budget.replace(Budget {
+                free,
+                time,
+                spent: Duration::ZERO,
+                drawn: 0,
+                deferred: 0,
+                previews: 0,
+                previews_spent: Duration::ZERO,
+                every_small,
+            })
+        });
+        let result = f();
+        let (left, glyphs_are_done_with) = self.with_state(|state| {
+            let budget = core::mem::replace(&mut state.budget, outer);
+            // Left by the frame's time, and - once - by the pictures of the frame before
+            // (`HaloCache::owes_a_scan_for_room`): either way a later scan draws them.
+            let left = budget.map_or(0, |b| b.deferred)
+                + usize::from(state.halos.owes_a_scan_for_room());
+            // The pictures that wait to be shown (they did not fit the place of the
+            // picture standing in for them, `HaloCache::insert_waiting`) are shown by the
+            // scan that leaves no halo for a later frame: the frames that only draw are
+            // over, and one list goes for all of them.
+            if left == 0 {
+                state.halos.reveal_all();
+            }
+            // The halos' glyphs: a scan that drew none, after scans that drew, is where
+            // a view's halos are done - the glyph cache gives up the generation it only
+            // keeps to hand glyphs back (`GlyphCache::gc`; it was never called here, and
+            // the cache held both generations for as long as it lived, audit A9 #30).
+            let drew = budget.is_some_and(|b| b.drawn + b.previews > 0);
+            let done = if drew {
+                state.glyphs_used = true;
+                false
+            } else {
+                left == 0 && core::mem::take(&mut state.glyphs_used)
+            };
+            (left, done)
+        });
+        if glyphs_are_done_with {
+            self.with_glyphs(GlyphCache::gc);
+        }
+        self.log_scan();
+        (result, left)
+    }
+
+    /// Whether the budget of the scan under way lets one more halo be drawn.
+    fn budget_left(&self) -> bool {
+        self.with_state(|state| {
+            state
+                .budget
+                .is_none_or(|budget| budget.drawn < budget.free || budget.spent < budget.time)
+        })
+    }
+
+    /// Counts `time` as spent drawing halos by the budget of the scan under way.
+    fn spend(&self, time: Duration) {
+        self.with_state(|state| {
+            if let Some(budget) = state.budget.as_mut() {
+                budget.spent += time;
+            }
+        });
+    }
+
+    /// Whether a halo of `shape` whose box holds `box_bytes` is drawn now: the
+    /// frame's budget lets it, and there is room to keep it
+    /// ([`HaloCache::make_room`]). Counted either way: a halo the budget leaves is
+    /// `pending` (a later frame draws it, and is owed), one there is no room for is
+    /// `unkept` (no frame is owed, the next one would find the same - unless what
+    /// holds the room is the frame before's pictures, which the next scan may drop:
+    /// [`HaloCache::owes_a_scan_for_room`]).
+    fn admit(&self, box_bytes: usize, shape: u64) -> bool {
+        self.admit_if(self.budget_left(), box_bytes, shape)
+    }
+
+    /// [`Self::admit`] with the budget's answer given (`time_left`): a scan after a release
+    /// draws some halos whatever the time ([`Self::draw_every_small_halo_in_the_next_scan`]).
+    fn admit_if(&self, time_left: bool, box_bytes: usize, shape: u64) -> bool {
+        self.with_state(|state| {
+            if !time_left {
+                if let Some(budget) = state.budget.as_mut() {
+                    budget.deferred += 1;
+                }
+                state.halos.stats.pending += 1;
+                return false;
+            }
+            if !state.halos.make_room(box_bytes, Some(shape)) {
+                state.halos.stats.unkept += 1;
+                return false;
+            }
+            if let Some(budget) = state.budget.as_mut() {
+                budget.drawn += 1;
+            }
+            state.drawn += 1;
+            true
+        })
+    }
+
+    /// Whether a small stand-in picture whose box holds `box_bytes` is drawn now:
+    /// the frame has drawn fewer than [`PREVIEWS_ANYWAY`] or spent less than
+    /// [`PREVIEW_TIME`] on them, and there is room to keep it.
+    fn admit_preview(&self, box_bytes: usize) -> bool {
+        self.with_state(|state| {
+            let within = state.budget.is_none_or(|budget| {
+                budget.every_small
+                    || budget.previews < PREVIEWS_ANYWAY
+                    || budget.previews_spent < PREVIEW_TIME
+            });
+            if !within || !state.halos.make_room(box_bytes, None) {
+                return false;
+            }
+            if let Some(budget) = state.budget.as_mut() {
+                budget.previews += 1;
+            }
+            // A translation made before it does not paint it: the lists go again.
+            state.drawn += 1;
+            true
+        })
+    }
+
+    /// Counts `time` as spent drawing small stand-in pictures by the budget of the scan under way.
+    fn spend_on_previews(&self, time: Duration) {
+        self.with_state(|state| {
+            if let Some(budget) = state.budget.as_mut() {
+                budget.previews_spent += time;
+            }
+        });
+    }
+
+    /// What the scans of this store did with the text halos ([`TextHaloStats`]).
+    #[must_use]
+    pub fn text_halo_stats(&self) -> TextHaloStats {
+        self.with_halos(|halos| {
+            let mut stats = halos.stats;
+            stats.kept = halos.entries.len() as u64;
+            stats.kept_bytes = halos.bytes as u64;
+            stats
+        })
+    }
+
+    /// How much this store's halo cache holds from now on: at most `max_halos`
+    /// pictures of `max_bytes` bytes together (`MAX_HALOS`, `MAX_HALO_BYTES` unless
+    /// set). What is kept beyond them goes as a frame needs room, by the cache's own
+    /// rules. For a host that knows its budget, and for the tests of a host: a view
+    /// that does not fit can be told from one that does without drawing 96 MB.
+    #[doc(hidden)]
+    pub fn text_halo_bounds(&self, max_halos: usize, max_bytes: usize) {
+        self.with_halos(|halos| {
+            halos.max_entries = max_halos;
+            halos.max_bytes = max_bytes;
+        });
+    }
+
+    /// Marks as in use every kept halo picture the display lists `lists` paint at
+    /// `dpi`, the way a translation of them made now finds it (the picture itself, or
+    /// the one standing in). For [`Self::release_text_halos`]: a window whose lists were
+    /// translated without a scan lately has its pictures marked as used by this.
+    // The named lifetime stays: clippy and `single_use_lifetimes` would elide it, but an anonymous
+    // lifetime in `impl Trait` is unstable (E0658) on the pinned 1.91 toolchain, so their suggestion
+    // does not compile.
+    #[allow(clippy::needless_lifetimes, single_use_lifetimes)]
+    pub fn text_halos_in_use<'a>(
+        &self,
+        lists: impl IntoIterator<Item = &'a Arc<DisplayList>>,
+        dpi: f32,
+    ) {
+        for list in lists {
+            let _unused = self.text_halos_of_list(list, dpi, None);
+        }
+    }
+
+    /// Forgets which kept halos the last scan used: from here on only what
+    /// [`Self::text_halos_in_use`] marks counts as painted, and [`Self::release_text_halos`]
+    /// gives back all the rest. For a window nobody sees any more (audit A5-20): the
+    /// renderer host deletes the window's image keys (which is what frees a painted
+    /// picture: the renderer holds the same bytes), calls this, and releases - a
+    /// hidden window gives back every picture of its own.
+    ///
+    /// Nothing is forgotten while a scan is under way.
+    pub fn text_halos_forget_use(&self) {
+        self.with_state(|state| {
+            if state.budget.is_none() {
+                state.halos.forget_use();
+            }
+        });
+    }
+
+    /// Gives back what this store keeps of text halos and no display list paints:
+    /// for memory pressure, and for a window nobody sees (audit A5-18).
+    ///
+    /// Dropped is every kept halo the last scan ([`Self::within_halo_budget`]) did not use
+    /// and no look at a list has used since ([`Self::text_halos_in_use`], a translation):
+    /// the pictures of labels that left the view, of the sizes before the last zoom,
+    /// the small ones that stood in until a label's own was drawn. Kept is every
+    /// picture a list paints - the label's own, one standing in, one drawn and
+    /// waiting to be shown - for two reasons. Its bytes are not this cache's alone:
+    /// the renderer was handed the same allocation (a shared `ImageData::Raw`) and
+    /// holds it for as long as a list names its key, so dropping it here frees
+    /// nothing. And a list that is translated without a scan (one patched in place: a
+    /// hover's colour) finds its pictures here; without them every label of it is
+    /// painted without its halo, and no frame is owed that would draw them. So the
+    /// frame after a release costs nothing more than the one before: no halo is drawn
+    /// again, no image changes, no list goes. What the release costs comes later: a
+    /// label that returns to the view, or a zoom back to a size that was kept, draws
+    /// its picture again.
+    ///
+    /// The pictures a HIDDEN window's lists paint go when the host first deleted
+    /// their keys and then asked to forget them ([`Self::text_halos_forget_use`]).
+    ///
+    /// `not_shown` (the window is not on screen: it is in the Dock, or the app is
+    /// hidden) also gives back what only makes the next halo cheaper: the halos'
+    /// whole glyph cache (the glyphs of a halo drawn later are rasterised again) and
+    /// the shadows kept per display list (walked again at the next scan); with the
+    /// window on screen the glyph cache gives up its older generation only, since
+    /// frames may be drawing halos right now.
+    ///
+    /// Nothing is released while a scan is under way (it returns zeros).
+    #[must_use]
+    pub fn release_text_halos(&self, not_shown: bool) -> TextHalosReleased {
+        let released = self.with_state(|state| {
+            if state.budget.is_some() {
+                return None;
+            }
+            let released = state.halos.release_unused();
+            if not_shown {
+                state.halos.entries.shrink_to_fit();
+                state.halos.by_text.shrink_to_fit();
+                state.halos.by_shape.shrink_to_fit();
+                state.glyphs_used = false;
+                state.list_shadows = Vec::new();
+            }
+            Some(released)
+        });
+        let Some(released) = released else {
+            return TextHalosReleased::default();
+        };
         if not_shown {
-            halos.entries.shrink_to_fit();
-            halos.by_text.shrink_to_fit();
-            halos.by_shape.shrink_to_fit();
+            self.with_glyphs(|glyph_cache| *glyph_cache = GlyphCache::new());
+        } else {
+            self.with_glyphs(GlyphCache::gc);
         }
         released
-    });
-    if not_shown {
-        GLYPHS.with(|glyph_cache| *glyph_cache.borrow_mut() = GlyphCache::new());
-        GLYPHS_USED.with(|used| used.set(false));
-        LIST_SHADOWS.with(|kept| *kept.borrow_mut() = Vec::new());
-    } else {
-        GLYPHS.with(|glyph_cache| glyph_cache.borrow_mut().gc());
     }
-    released
-}
 
-/// Whether the last scan of this thread ([`within_halo_budget`]) changed what
-/// shadows are painted with after it had looked at some of them: it drew or
-/// dropped a picture, or showed one that waited. What [`text_halos`] returned to
-/// that scan for the shadows before the change is then not what it returns now;
-/// a host that registers what the lists paint asks again, without fonts.
-#[must_use]
-pub fn halo_scan_changed_pictures() -> bool {
-    HALOS.with(|halos| halos.borrow().changed)
-}
+    /// Whether the last scan of this store ([`Self::within_halo_budget`]) changed what
+    /// shadows are painted with after it had looked at some of them: it drew or
+    /// dropped a picture, or showed one that waited. What [`Self::text_halos`] returned to
+    /// that scan for the shadows before the change is then not what it returns now;
+    /// a host that registers what the lists paint asks again, without fonts.
+    #[must_use]
+    pub fn halo_scan_changed_pictures(&self) -> bool {
+        self.with_halos(|halos| halos.changed)
+    }
 
-thread_local! {
-    /// This thread's own answer to [`slots_on`], when a host or its tests gave one
-    /// ([`text_halo_slots_in_this_thread`]).
-    static SLOTS: Cell<Option<bool>> = const { Cell::new(None) };
-}
+    /// Whether, in this store from now on, a halo's picture takes the place of its
+    /// stand-in ([`Self::slots_on`]). For a host that wants the old behaviour without the
+    /// environment, and for the tests of both.
+    #[doc(hidden)]
+    pub fn text_halo_slots(&self, on: bool) {
+        self.with_state(|state| state.slots = Some(on));
+    }
 
-/// Whether a halo's own picture takes the PLACE of the picture that stood in for
-/// it - its slot and the rect it was painted in ([`slot_rect`], [`cropped`]) - so
-/// that the display list which paints the stand-in paints the own picture without
-/// being sent again. On unless the environment says `AZ_HALO_SLOTS=0` (read once)
-/// or the thread was told otherwise. Off, a stand-in is painted where its picture,
-/// stretched, lies to the fraction of a pixel, every picture is cut to its ink and
-/// has a slot of its own, and each halo drawn changes what a list paints.
-fn slots_on() -> bool {
-    SLOTS.with(Cell::get).unwrap_or_else(|| {
+    /// Whether a halo's own picture takes the PLACE of the picture that stood in for
+    /// it - its slot and the rect it was painted in ([`slot_rect`], [`cropped`]) - so
+    /// that the display list which paints the stand-in paints the own picture without
+    /// being sent again. On unless the environment says `AZ_HALO_SLOTS=0` (read once)
+    /// or the store was told otherwise. Off, a stand-in is painted where its picture,
+    /// stretched, lies to the fraction of a pixel, every picture is cut to its ink and
+    /// has a slot of its own, and each halo drawn changes what a list paints.
+    fn slots_on(&self) -> bool {
+        self.with_state(|state| state.slots).unwrap_or_else(|| {
+            // Process-wide configuration read once from the environment, not state of a window.
+            static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *ON.get_or_init(|| !std::env::var("AZ_HALO_SLOTS").is_ok_and(|v| v == "0"))
+        })
+    }
+
+    /// `AZ_HALO_STATS=1`: one line on stderr for every scan that drew, dropped, left or
+    /// stood in for a halo - what a run on a real window shows without a recorder.
+    fn log_scan(&self) {
+        // Process-wide configuration read once from the environment, not state of a window.
         static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        *ON.get_or_init(|| !std::env::var("AZ_HALO_SLOTS").is_ok_and(|v| v == "0"))
-    })
-}
-
-/// Whether, on this thread from now on, a halo's picture takes the place of its
-/// stand-in ([`slots_on`]). For a host that wants the old behaviour without the
-/// environment, and for the tests of both.
-#[doc(hidden)]
-pub fn text_halo_slots_in_this_thread(on: bool) {
-    SLOTS.with(|slots| slots.set(Some(on)));
-}
-
-/// `AZ_HALO_STATS=1`: one line on stderr for every scan that drew, dropped, left or
-/// stood in for a halo - what a run on a real window shows without a recorder.
-fn log_scan() {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if !*ON.get_or_init(|| std::env::var("AZ_HALO_STATS").is_ok_and(|v| !v.is_empty() && v != "0")) {
-        return;
+        if !*ON.get_or_init(|| std::env::var("AZ_HALO_STATS").is_ok_and(|v| !v.is_empty() && v != "0")) {
+            return;
+        }
+        let s = self.text_halo_stats();
+        if s.created + s.evicted + s.pending + s.unkept + s.stand_ins + s.previews == 0 {
+            return;
+        }
+        #[allow(clippy::cast_precision_loss)] // bytes as megabytes, for a log line
+        let mb = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
+        eprintln!(
+            "[azul halos] scan {}: created {} evicted {} pending {} unkept {} stand-ins {} \
+             previews {} | the frame uses {} pictures ({:.1} MB as boxes) | kept {} ({:.1} MB)",
+            s.scans,
+            s.created,
+            s.evicted,
+            s.pending,
+            s.unkept,
+            s.stand_ins,
+            s.previews,
+            s.frame_halos,
+            mb(s.frame_box_bytes),
+            s.kept,
+            mb(s.kept_bytes),
+        );
     }
-    let s = text_halo_stats();
-    if s.created + s.evicted + s.pending + s.unkept + s.stand_ins + s.previews == 0 {
-        return;
-    }
-    #[allow(clippy::cast_precision_loss)] // bytes as megabytes, for a log line
-    let mb = |bytes: u64| bytes as f64 / (1024.0 * 1024.0);
-    eprintln!(
-        "[azul halos] scan {}: created {} evicted {} pending {} unkept {} stand-ins {} \
-         previews {} | the frame uses {} pictures ({:.1} MB as boxes) | kept {} ({:.1} MB)",
-        s.scans,
-        s.created,
-        s.evicted,
-        s.pending,
-        s.unkept,
-        s.stand_ins,
-        s.previews,
-        s.frame_halos,
-        mb(s.frame_box_bytes),
-        s.kept,
-        mb(s.kept_bytes),
-    );
 }
 
 /// A text shadow drawn as a picture, where its `PushTextShadow` stands.
@@ -651,7 +736,7 @@ fn log_scan() {
 pub struct TextHalo {
     /// The index of the shadow's `PushTextShadow` in the display list.
     pub push: usize,
-    /// The slot the halo is painted from: a number of this thread's kept
+    /// The slot the halo is painted from: a number of its window's kept
     /// pictures that names the PLACE in the lists, not the pixels. The
     /// renderer's host keeps one image key per slot; the picture a slot shows
     /// ([`Self::image`]) changes when the label's own picture is drawn into the
@@ -680,65 +765,70 @@ pub struct TextHalo {
     pub stand_in: bool,
 }
 
-/// The text shadows of `items` that are drawn as pictures at `dpi`: blurred
-/// or spread shadows over nothing but text (decorations or anything else under a
-/// shadow leave it to the renderer's own). With `fonts` a halo that is not
-/// kept yet is drawn and kept; without, only kept ones are found. The GPU
-/// backend draws them while it collects a frame's images, before it builds
-/// the frame's display list, so the second call finds every one it can use.
-///
-/// A SPREAD shadow whose own picture is not drawn yet (the frame's budget left it,
-/// or there is no room to keep it) is painted with a stand-in
-/// ([`TextHalo::stand_in`]): a kept picture of the same text at another size, or
-/// a small one drawn now (with `fonts`). It is not in the result when there is
-/// neither, and a shadow without a spread never is before its own picture.
-#[must_use]
-pub fn text_halos(
-    items: &[DisplayListItem],
-    dpi: f32,
-    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
-) -> Vec<TextHalo> {
-    // NaN too: no positive scale, no halo.
-    if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
-        return Vec::new();
+impl TextHaloStore {
+    /// The text shadows of `items` that are drawn as pictures at `dpi`: blurred
+    /// or spread shadows over nothing but text (decorations or anything else under a
+    /// shadow leave it to the renderer's own). With `fonts` a halo that is not
+    /// kept yet is drawn and kept; without, only kept ones are found. The GPU
+    /// backend draws them while it collects a frame's images, before it builds
+    /// the frame's display list, so the second call finds every one it can use.
+    ///
+    /// A SPREAD shadow whose own picture is not drawn yet (the frame's budget left it,
+    /// or there is no room to keep it) is painted with a stand-in
+    /// ([`TextHalo::stand_in`]): a kept picture of the same text at another size, or
+    /// a small one drawn now (with `fonts`). It is not in the result when there is
+    /// neither, and a shadow without a spread never is before its own picture.
+    #[must_use]
+    pub fn text_halos(
+        &self,
+        items: &[DisplayListItem],
+        dpi: f32,
+        fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+    ) -> Vec<TextHalo> {
+        // NaN too: no positive scale, no halo.
+        if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
+            return Vec::new();
+        }
+        self.halos_of(items, &shadows(items, dpi), dpi, fonts)
     }
-    halos_of(items, &shadows(items, dpi), dpi, fonts)
-}
 
-/// [`text_halos`] of a display list that is held in an `Arc`: what its shadows
-/// are found by is worked out once and kept while the list lives
-/// ([`list_shadows`]). The scans of a frame's resources ask this of every list of
-/// a window in every transaction that scans, also of the lists that did not
-/// change (audit A4-10g).
-#[must_use]
-pub fn text_halos_of_list(
-    list: &Arc<DisplayList>,
-    dpi: f32,
-    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
-) -> Vec<TextHalo> {
-    if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
-        return Vec::new();
+    /// [`Self::text_halos`] of a display list that is held in an `Arc`: what its shadows
+    /// are found by is worked out once and kept while the list lives
+    /// ([`Self::list_shadows`]). The scans of a frame's resources ask this of every list of
+    /// a window in every transaction that scans, also of the lists that did not
+    /// change (audit A4-10g).
+    #[must_use]
+    pub fn text_halos_of_list(
+        &self,
+        list: &Arc<DisplayList>,
+        dpi: f32,
+        fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+    ) -> Vec<TextHalo> {
+        if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
+            return Vec::new();
+        }
+        self.halos_of(&list.items, &self.list_shadows(list, Some(list), dpi), dpi, fonts)
     }
-    halos_of(&list.items, &list_shadows(list, Some(list), dpi), dpi, fonts)
-}
 
-/// [`text_halos`] of a display list that [`text_halos_of_list`] may have been
-/// asked about (the translation of a list is handed the list, not its `Arc`):
-/// then what was kept for it is used; nothing is kept here.
-#[must_use]
-pub fn text_halos_of_held_list(
-    list: &DisplayList,
-    dpi: f32,
-    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
-) -> Vec<TextHalo> {
-    if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
-        return Vec::new();
+    /// [`Self::text_halos`] of a display list that [`Self::text_halos_of_list`] may have been
+    /// asked about (the translation of a list is handed the list, not its `Arc`):
+    /// then what was kept for it is used; nothing is kept here.
+    #[must_use]
+    pub fn text_halos_of_held_list(
+        &self,
+        list: &DisplayList,
+        dpi: f32,
+        fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+    ) -> Vec<TextHalo> {
+        if dpi.partial_cmp(&0.0) != Some(core::cmp::Ordering::Greater) {
+            return Vec::new();
+        }
+        self.halos_of(&list.items, &self.list_shadows(list, None, dpi), dpi, fonts)
     }
-    halos_of(&list.items, &list_shadows(list, None, dpi), dpi, fonts)
 }
 
 /// What one text shadow of a display list is found and painted by: all that
-/// [`halos_of`] reads of its [`Scope`] unless a picture has to be drawn, as plain
+/// [`TextHaloStore::halos_of`] reads of its [`Scope`] unless a picture has to be drawn, as plain
 /// values. A function of the list's items and the scale alone.
 #[derive(Debug, Clone)]
 struct Shadow {
@@ -761,8 +851,6 @@ struct Shadow {
 /// The [`Shadow`]s of `items` at `dpi`, in list order: one walk of the items,
 /// two hashes of every glyph under a shadow.
 fn shadows(items: &[DisplayListItem], dpi: f32) -> Vec<Shadow> {
-    #[cfg(test)]
-    SHADOW_WALKS.with(|walks| walks.set(walks.get() + 1));
     let mut geometry = Vec::new();
     scopes(items)
         .into_iter()
@@ -781,244 +869,244 @@ fn shadows(items: &[DisplayListItem], dpi: f32) -> Vec<Shadow> {
         .collect()
 }
 
-/// The [`Shadow`]s kept for one display list ([`LIST_SHADOWS`]).
+/// The [`Shadow`]s kept for one display list ([`StoreState::list_shadows`]).
+#[derive(Debug)]
 struct ListShadows {
     /// The list, by its allocation.
     list: Weak<DisplayList>,
     /// The bits of the scale they were worked out at.
     scale: u32,
-    shadows: Rc<Vec<Shadow>>,
+    shadows: Arc<Vec<Shadow>>,
 }
 
-thread_local! {
-    /// The [`Shadow`]s of the display lists [`text_halos_of_list`] was asked about,
-    /// by the list's allocation and the scale. The `Weak` is what makes the
-    /// address an identity: while it is held the allocation is not given to
-    /// another list, and a list that has a `Weak` is never changed in place
-    /// (`Arc::get_mut` refuses, `Arc::make_mut` moves it to a new allocation) -
-    /// so the same address with a living list is the same items.
-    static LIST_SHADOWS: RefCell<Vec<ListShadows>> = const { RefCell::new(Vec::new()) };
-    /// Tests: how often [`shadows`] walked a list on this thread.
-    #[cfg(test)]
-    static SHADOW_WALKS: Cell<usize> = const { Cell::new(0) };
-}
-
-/// The [`Shadow`]s of `list` at `dpi`: the kept ones when the list is one that is
-/// kept for ([`LIST_SHADOWS`]), worked out otherwise - and kept when the caller
-/// has the list's `Arc` (`keep`, the same list). Lists that are gone are
-/// forgotten here.
-fn list_shadows(list: &DisplayList, keep: Option<&Arc<DisplayList>>, dpi: f32) -> Rc<Vec<Shadow>> {
-    let at: *const DisplayList = list;
-    let scale = dpi.to_bits();
-    let found = LIST_SHADOWS.with(|kept| {
-        let mut kept = kept.borrow_mut();
-        kept.retain(|held| held.list.strong_count() > 0);
-        kept.iter()
-            .find(|held| core::ptr::eq(held.list.as_ptr(), at) && held.scale == scale)
-            .map(|held| Rc::clone(&held.shadows))
-    });
-    if let Some(found) = found {
-        return found;
-    }
-    let made = Rc::new(shadows(&list.items, dpi));
-    if let Some(arc) = keep {
-        LIST_SHADOWS.with(|kept| {
-            let mut kept = kept.borrow_mut();
-            // One scale per list: a window that changed its scale asks at the new one.
-            kept.retain(|held| !core::ptr::eq(held.list.as_ptr(), at));
-            kept.push(ListShadows {
-                list: Arc::downgrade(arc),
-                scale,
-                shadows: Rc::clone(&made),
-            });
+impl TextHaloStore {
+    /// The [`Shadow`]s of `list` at `dpi`: the kept ones when the list is one that is
+    /// kept for ([`StoreState::list_shadows`]), worked out otherwise - and kept when the caller
+    /// has the list's `Arc` (`keep`, the same list). Lists that are gone are
+    /// forgotten here. The walk of the list's items runs outside the store's lock.
+    fn list_shadows(
+        &self,
+        list: &DisplayList,
+        keep: Option<&Arc<DisplayList>>,
+        dpi: f32,
+    ) -> Arc<Vec<Shadow>> {
+        let at: *const DisplayList = list;
+        let scale = dpi.to_bits();
+        let found = self.with_state(|state| {
+            let kept = &mut state.list_shadows;
+            kept.retain(|held| held.list.strong_count() > 0);
+            kept.iter()
+                .find(|held| core::ptr::eq(held.list.as_ptr(), at) && held.scale == scale)
+                .map(|held| Arc::clone(&held.shadows))
         });
-    }
-    made
-}
-
-/// [`text_halos`] for the shadows of `items` as `shadows` tells them
-/// ([`shadows`] of the same items at the same `dpi`).
-fn halos_of(
-    items: &[DisplayListItem],
-    shadows: &[Shadow],
-    dpi: f32,
-    fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
-) -> Vec<TextHalo> {
-    // The scan that draws counts what it finds; the one that only looks (the
-    // translation of the same lists, right after) does not count it twice.
-    let counted = fonts.is_some();
-    shadows
-        .iter()
-        .filter_map(|shadow| {
-            let sought = shadow.sought;
-            let geometry: &[i32] = &shadow.geometry;
-            // The shadow's own picture: kept and shown, kept and waiting to be
-            // shown (`waiting`: the lists still paint the picture that stands in
-            // for it, `HaloCache::insert_waiting`), or not kept.
-            let (own, mut waiting) = HALOS.with(|halos| {
-                let mut halos = halos.borrow_mut();
-                match halos.find(sought.text, geometry) {
-                    Some(id) if halos.waits(id) => (None, Some(id)),
-                    Some(id) => (halos.use_own(id, counted), None),
-                    None => (None, None),
-                }
+        if let Some(found) = found {
+            return found;
+        }
+        let made = Arc::new(shadows(&list.items, dpi));
+        if let Some(arc) = keep {
+            self.with_state(|state| {
+                let kept = &mut state.list_shadows;
+                // One scale per list: a window that changed its scale asks at the new one.
+                kept.retain(|held| !core::ptr::eq(held.list.as_ptr(), at));
+                kept.push(ListShadows {
+                    list: Arc::downgrade(arc),
+                    scale,
+                    shadows: Arc::clone(&made),
+                });
             });
-            let own = match (own, fonts) {
-                // Kept: its picture, or the note that it cannot be one.
-                (Some(kept), _) => kept,
-                // Drawn already: what stands in for it is found below.
-                (None, _) if waiting.is_some() => None,
-                (None, Some((renderer_resources, font_manager))) => {
-                    // The shadow's text itself, for the picture to draw (`shadow`
-                    // was made from this item: it is there).
-                    let scope = scope_at(items, shadow.push)?;
-                    // In the scan after a release, type too small for a small
-                    // picture gets its own whatever the time: it had its halo
-                    // on screen before, and nothing else can stand in for it.
-                    let whatever_the_time = shadow.spread > 0.0
-                        && sought.scale < SMALLEST_PREVIEWED
-                        && every_small();
-                    let admitted = |box_bytes: usize| {
-                        admit_if(whatever_the_time || budget_left(), box_bytes, sought.shape)
-                    };
-                    // The place of the picture that stands in for this shadow,
-                    // looked up before room is made for the new one (the
-                    // stand-in may be what gives way to it).
-                    let place = (shadow.spread > 0.0 && slots_on())
-                        .then(|| {
-                            HALOS.with(|halos| {
-                                halos
-                                    .borrow()
-                                    .place_of(sought.shape, sought.scale, shadow.reach)
+        }
+        made
+    }
+
+    /// [`Self::text_halos`] for the shadows of `items` as `shadows` tells them
+    /// ([`shadows`] of the same items at the same `dpi`).
+    fn halos_of(
+        &self,
+        items: &[DisplayListItem],
+        shadows: &[Shadow],
+        dpi: f32,
+        fonts: Option<(&RendererResources, &FontManager<FontRef>)>,
+    ) -> Vec<TextHalo> {
+        // The scan that draws counts what it finds; the one that only looks (the
+        // translation of the same lists, right after) does not count it twice.
+        let counted = fonts.is_some();
+        // Whether a stand-in's place is taken over is the store's answer for the whole scan.
+        let slots = self.slots_on();
+        shadows
+            .iter()
+            .filter_map(|shadow| {
+                let sought = shadow.sought;
+                let geometry: &[i32] = &shadow.geometry;
+                // The shadow's own picture: kept and shown, kept and waiting to be
+                // shown (`waiting`: the lists still paint the picture that stands in
+                // for it, `HaloCache::insert_waiting`), or not kept.
+                let (own, mut waiting) = self.with_halos(|halos| {
+                    match halos.find(sought.text, geometry) {
+                        Some(id) if halos.waits(id) => (None, Some(id)),
+                        Some(id) => (halos.use_own(id, counted), None),
+                        None => (None, None),
+                    }
+                });
+                let own = match (own, fonts) {
+                    // Kept: its picture, or the note that it cannot be one.
+                    (Some(kept), _) => kept,
+                    // Drawn already: what stands in for it is found below.
+                    (None, _) if waiting.is_some() => None,
+                    (None, Some((renderer_resources, font_manager))) => {
+                        // The shadow's text itself, for the picture to draw (`shadow`
+                        // was made from this item: it is there).
+                        let scope = scope_at(items, shadow.push)?;
+                        // In the scan after a release, type too small for a small
+                        // picture gets its own whatever the time: it had its halo
+                        // on screen before, and nothing else can stand in for it.
+                        let whatever_the_time = shadow.spread > 0.0
+                            && sought.scale < SMALLEST_PREVIEWED
+                            && self.every_small();
+                        let admitted = |box_bytes: usize| {
+                            self.admit_if(
+                                whatever_the_time || self.budget_left(),
+                                box_bytes,
+                                sought.shape,
+                            )
+                        };
+                        // The place of the picture that stands in for this shadow,
+                        // looked up before room is made for the new one (the
+                        // stand-in may be what gives way to it).
+                        let place = (shadow.spread > 0.0 && slots)
+                            .then(|| {
+                                self.with_halos(|halos| {
+                                    halos.place_of(sought.shape, sought.scale, shadow.reach)
+                                })
                             })
-                        })
-                        .flatten();
-                    let into = place.map(|place| (place.rect, place.most));
-                    match scope.draw(
-                        &sought,
-                        dpi,
-                        renderer_resources,
-                        font_manager,
-                        admitted,
-                        spend,
-                        into,
-                    ) {
-                        Drawn::Picture { mut kept, box_bytes } => {
-                            let fitted = place.filter(|place| kept.rect() == place.rect);
-                            HALOS.with(|halos| {
-                                let mut halos = halos.borrow_mut();
-                                match (fitted, place) {
-                                    // Drawn into the stand-in's place: the lists
-                                    // that paint the stand-in paint this one.
-                                    (Some(place), _) => {
-                                        kept.slot = halos.take_slot(place);
-                                        halos.insert(
-                                            &sought,
-                                            geometry,
-                                            Some(kept.clone()),
-                                            box_bytes,
-                                            false,
-                                        );
+                            .flatten();
+                        let into = place.map(|place| (place.rect, place.most));
+                        match scope.draw(
+                            self,
+                            &sought,
+                            dpi,
+                            renderer_resources,
+                            font_manager,
+                            halo_pixels,
+                            admitted,
+                            |time| self.spend(time),
+                            into,
+                        ) {
+                            Drawn::Picture { mut kept, box_bytes } => {
+                                let fitted = place.filter(|place| kept.rect() == place.rect);
+                                self.with_halos(|halos| {
+                                    match (fitted, place) {
+                                        // Drawn into the stand-in's place: the lists
+                                        // that paint the stand-in paint this one.
+                                        (Some(place), _) => {
+                                            kept.slot = halos.take_slot(place);
+                                            halos.insert(
+                                                &sought,
+                                                geometry,
+                                                Some(kept.clone()),
+                                                box_bytes,
+                                                false,
+                                            );
+                                        }
+                                        // It does not fit the place: it waits, and
+                                        // the stand-in goes on being painted.
+                                        (None, Some(place)) => {
+                                            kept.slot = halos.new_slot();
+                                            waiting = halos.insert_waiting(
+                                                &sought,
+                                                geometry,
+                                                kept.clone(),
+                                                box_bytes,
+                                                place.id,
+                                            );
+                                        }
+                                        (None, None) => {
+                                            kept.slot = halos.new_slot();
+                                            halos.insert(
+                                                &sought,
+                                                geometry,
+                                                Some(kept.clone()),
+                                                box_bytes,
+                                                false,
+                                            );
+                                        }
                                     }
-                                    // It does not fit the place: it waits, and
-                                    // the stand-in goes on being painted.
-                                    (None, Some(place)) => {
-                                        kept.slot = halos.new_slot();
-                                        waiting = halos.insert_waiting(
-                                            &sought,
-                                            geometry,
-                                            kept.clone(),
-                                            box_bytes,
-                                            place.id,
-                                        );
-                                    }
-                                    (None, None) => {
-                                        kept.slot = halos.new_slot();
-                                        halos.insert(
-                                            &sought,
-                                            geometry,
-                                            Some(kept.clone()),
-                                            box_bytes,
-                                            false,
-                                        );
-                                    }
+                                });
+                                if waiting.is_some() {
+                                    None
+                                } else {
+                                    Some(kept)
                                 }
-                            });
-                            if waiting.is_some() {
-                                None
-                            } else {
-                                Some(kept)
                             }
+                            Drawn::NotAPicture => {
+                                // Remembered, so it is not tried on every frame.
+                                self.with_halos(|halos| {
+                                    if halos.make_room(0, None) {
+                                        halos.insert(&sought, geometry, None, 0, false);
+                                    }
+                                });
+                                None
+                            }
+                            // Over the frame's budget, or no room: not drawn, not
+                            // kept - found missing, and drawn by a later scan.
+                            Drawn::Left => None,
                         }
-                        Drawn::NotAPicture => {
-                            // Remembered, so it is not tried on every frame.
-                            HALOS.with(|halos| {
-                                let mut halos = halos.borrow_mut();
-                                if halos.make_room(0, None) {
-                                    halos.insert(&sought, geometry, None, 0, false);
-                                }
-                            });
-                            None
-                        }
-                        // Over the frame's budget, or no room: not drawn, not
-                        // kept - found missing, and drawn by a later scan.
-                        Drawn::Left => None,
                     }
-                }
-                (None, None) => None,
-            };
-            let (kept, stand_in) = match own {
-                Some(kept) => (kept, false),
-                // Without a spread the renderer's own shadow is the halo until
-                // the picture is drawn.
-                None if shadow.spread <= 0.0 && waiting.is_none() => return None,
-                None => {
-                    // Stretched more than eight times either way a picture is
-                    // a smear: such a halo waits for its own.
-                    let fits = |kept: &Kept| stretch(kept, sought.scale).is_some();
-                    let stood = HALOS
-                        .with(|halos| halos.borrow_mut().stand_in(sought.shape, counted, fits));
-                    match (stood, waiting, fonts) {
-                        (Some(kept), _, _) => (kept, true),
-                        // Nothing stands in any more for a picture that waited
-                        // to be shown: it is shown.
-                        (None, Some(id), _) => {
-                            let shown =
-                                HALOS.with(|halos| halos.borrow_mut().reveal(id, counted))?;
-                            (shown, false)
+                    (None, None) => None,
+                };
+                let (kept, stand_in) = match own {
+                    Some(kept) => (kept, false),
+                    // Without a spread the renderer's own shadow is the halo until
+                    // the picture is drawn.
+                    None if shadow.spread <= 0.0 && waiting.is_none() => return None,
+                    None => {
+                        // Stretched more than eight times either way a picture is
+                        // a smear: such a halo waits for its own.
+                        let fits = |kept: &Kept| stretch(kept, sought.scale).is_some();
+                        let stood = self
+                            .with_halos(|halos| halos.stand_in(sought.shape, counted, fits));
+                        match (stood, waiting, fonts) {
+                            (Some(kept), _, _) => (kept, true),
+                            // Nothing stands in any more for a picture that waited
+                            // to be shown: it is shown.
+                            (None, Some(id), _) => {
+                                let shown = self.with_halos(|halos| halos.reveal(id, counted))?;
+                                (shown, false)
+                            }
+                            (None, None, Some((renderer_resources, font_manager))) => {
+                                let small = scope_at(items, shadow.push)?.preview(
+                                    self,
+                                    &sought,
+                                    dpi,
+                                    renderer_resources,
+                                    font_manager,
+                                )?;
+                                self.with_halos(|halos| halos.stats.stand_ins += 1);
+                                (small, true)
+                            }
+                            (None, None, None) => return None,
                         }
-                        (None, None, Some((renderer_resources, font_manager))) => {
-                            let small = scope_at(items, shadow.push)?.preview(
-                                &sought,
-                                dpi,
-                                renderer_resources,
-                                font_manager,
-                            )?;
-                            HALOS.with(|halos| halos.borrow_mut().stats.stand_ins += 1);
-                            (small, true)
-                        }
-                        (None, None, None) => return None,
                     }
-                }
-            };
-            let (origin, size) = placed(
-                &kept,
-                sought.anchor,
-                stand_in.then(|| (sought.scale / kept.scale, shadow.reach)),
-            );
-            Some(TextHalo {
-                push: shadow.push,
-                slot: kept.slot,
-                image: kept.image,
-                color: shadow.color,
-                origin: (origin.0 + shadow.offset.0 * dpi, origin.1 + shadow.offset.1 * dpi),
-                size,
-                width: kept.width,
-                height: kept.height,
-                stand_in,
+                };
+                let (origin, size) = placed(
+                    &kept,
+                    sought.anchor,
+                    stand_in.then(|| (sought.scale / kept.scale, shadow.reach)),
+                    slots,
+                );
+                Some(TextHalo {
+                    push: shadow.push,
+                    slot: kept.slot,
+                    image: kept.image,
+                    color: shadow.color,
+                    origin: (origin.0 + shadow.offset.0 * dpi, origin.1 + shadow.offset.1 * dpi),
+                    size,
+                    width: kept.width,
+                    height: kept.height,
+                    stand_in,
+                })
             })
-        })
-        .collect()
+            .collect()
+    }
 }
 
 /// Where a kept picture is painted for a shadow whose first glyph's pen is on
@@ -1028,7 +1116,7 @@ fn halos_of(
 /// laid out again at another size, a text keeps its first glyph's pen as the
 /// point everything is measured from, so the picture is scaled about it.
 ///
-/// With slots ([`slots_on`]) a stand-in is painted in whole pixels, in the rect
+/// With `slots` ([`TextHaloStore::slots_on`]) a stand-in is painted in whole pixels, in the rect
 /// its text's own picture is then drawn into ([`slot_rect`]): its ink scaled about
 /// the anchor as before, and the rim of one pixel.
 #[allow(clippy::cast_precision_loss)] // device px
@@ -1036,9 +1124,10 @@ fn placed(
     kept: &Kept,
     anchor: (i32, i32),
     stretch: Option<(f32, i32)>,
+    slots: bool,
 ) -> ((f32, f32), (f32, f32)) {
     match stretch {
-        Some((k, reach)) if slots_on() => {
+        Some((k, reach)) if slots => {
             let (left, top, right, bottom) = slot_rect(kept, k, reach);
             (
                 ((anchor.0 + left) as f32, (anchor.1 + top) as f32),
@@ -1189,7 +1278,7 @@ enum Drawn {
     Picture { kept: Kept, box_bytes: usize },
     /// It cannot be a picture: nothing of it paints, or it is too large.
     NotAPicture,
-    /// Not drawn now ([`admit`]).
+    /// Not drawn now ([`TextHaloStore::admit_if`]).
     Left,
 }
 
@@ -1243,13 +1332,13 @@ fn close(a: &[i32], b: &[i32]) -> bool {
             .all(|(x, y)| (i64::from(*x) - i64::from(*y)).abs() <= 1)
 }
 
-/// The halos kept on this thread.
+/// The halos a [`TextHaloStore`] keeps.
 ///
 /// A halo is found by what its pixels depend on: the text (`by_text`: fonts,
 /// sizes, glyphs, blur, spread and scale, exactly) and the geometry (clips and
 /// glyph positions, to within a step: [`close`]). Bounded by entries and by
 /// bytes, with one rule above both ([`Self::make_room`]): a SCAN - one frame's
-/// look at its display lists, [`within_halo_budget`] - drops no entry that it or
+/// look at its display lists, [`TextHaloStore::within_halo_budget`] - drops no entry that it or
 /// the scan before it has used, as a shadow's own picture or as a stand-in. (The
 /// scan before it: a scan uses its entries one by one, in list order, and the
 /// ones it has not come to yet are the last frame's.) So what a frame paints is
@@ -1271,7 +1360,7 @@ struct HaloCache {
     /// dropped or shown since may still be listed).
     waiting: Vec<u64>,
     /// Whether the scan under way changed what shadows are painted with
-    /// ([`halo_scan_changed_pictures`]).
+    /// ([`TextHaloStore::halo_scan_changed_pictures`]).
     changed: bool,
     /// The sum of every entry's `bytes`.
     bytes: usize,
@@ -1710,7 +1799,7 @@ impl HaloCache {
     }
 
     /// What the last scan used counts as unused from here on, until it is used
-    /// again ([`text_halos_forget_use`]): a scan's number that no scan had. The
+    /// again ([`TextHaloStore::text_halos_forget_use`]): a scan's number that no scan had. The
     /// scan after it treats what is marked since as the scan before's.
     fn forget_use(&mut self) {
         self.scan += 1;
@@ -1718,7 +1807,7 @@ impl HaloCache {
     }
 
     /// Drops every entry the last scan did not use and nothing has used since
-    /// ([`release_text_halos`]). Between two scans every entry a display list
+    /// ([`TextHaloStore::release_text_halos`]). Between two scans every entry a display list
     /// paints from has the last scan's number: the scan looked at every list, and
     /// a look without fonts stamps what it finds with it too. What has an older
     /// number is painted by no list - [`Self::make_room`] would drop it two scans
@@ -1745,16 +1834,6 @@ impl HaloCache {
         self.stats.evicted_total += released.halos as u64;
         released
     }
-}
-
-thread_local! {
-    /// The halos drawn so far.
-    static HALOS: RefCell<HaloCache> = RefCell::new(HaloCache::new(MAX_HALOS, MAX_HALO_BYTES));
-    /// The glyph rasteriser's cache for the halos' glyphs.
-    static GLYPHS: RefCell<GlyphCache> = RefCell::new(GlyphCache::new());
-    /// Whether halos were drawn since [`GLYPHS`] last gave up its older
-    /// generation ([`within_halo_budget`]).
-    static GLYPHS_USED: Cell<bool> = const { Cell::new(false) };
 }
 
 /// One glyph run under a text shadow.
@@ -1948,6 +2027,7 @@ impl Scope<'_> {
     /// the frame the label first shows.
     fn preview(
         &self,
+        store: &TextHaloStore,
         sought: &Sought,
         dpi: f32,
         renderer_resources: &RendererResources,
@@ -1963,32 +2043,32 @@ impl Scope<'_> {
         let small_dpi = dpi / divisor;
         let mut geometry = Vec::new();
         let small = self.sought(small_dpi, &mut geometry);
-        let kept = HALOS
-            .with(|halos| halos.borrow_mut().kept_preview(small.text, &geometry, small.shape));
+        let kept =
+            store.with_halos(|halos| halos.kept_preview(small.text, &geometry, small.shape));
         if let Some(kept) = kept {
             return kept;
         }
         let drawn = self.draw(
+            store,
             &small,
             small_dpi,
             renderer_resources,
             font_manager,
-            admit_preview,
-            spend_on_previews,
+            halo_pixels,
+            |box_bytes| store.admit_preview(box_bytes),
+            |time| store.spend_on_previews(time),
             None,
         );
         match drawn {
             Drawn::Picture { mut kept, box_bytes } => {
-                HALOS.with(|halos| {
-                    let mut halos = halos.borrow_mut();
+                store.with_halos(|halos| {
                     kept.slot = halos.new_slot();
                     halos.insert(&small, &geometry, Some(kept.clone()), box_bytes, true);
                 });
                 Some(kept)
             }
             Drawn::NotAPicture => {
-                HALOS.with(|halos| {
-                    let mut halos = halos.borrow_mut();
+                store.with_halos(|halos| {
                     if halos.make_room(0, None) {
                         halos.insert(&small, &geometry, None, 0, true);
                     }
@@ -2008,6 +2088,9 @@ impl Scope<'_> {
     /// `spent` is told how long drawing it took. `into`: the rect, from the
     /// anchor, of the picture that stands in for this one, which it is kept in
     /// when its ink fits, and how far beyond the ink it may lie ([`cropped`]).
+    /// `store` lends the glyph cache the halo's glyphs are rasterised with, and
+    /// `make_pixels` is what makes the picture's pixels from them ([`halo_pixels`]; a
+    /// test hands another to hold the picture against the way it was drawn before).
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
@@ -2016,10 +2099,12 @@ impl Scope<'_> {
     )]
     fn draw(
         &self,
+        store: &TextHaloStore,
         sought: &Sought,
         dpi: f32,
         renderer_resources: &RendererResources,
         font_manager: &FontManager<FontRef>,
+        make_pixels: HaloPixels,
         admit: impl FnOnce(usize) -> bool,
         spent: impl FnOnce(Duration),
         into: Option<((i32, i32, i32, i32), i32)>,
@@ -2106,8 +2191,8 @@ impl Scope<'_> {
                 clip: paints,
             });
         }
-        let pixels = GLYPHS.with(|glyph_cache| {
-            halo_pixels(
+        let pixels = store.with_glyphs(|glyph_cache| {
+            make_pixels(
                 &runs,
                 buffer,
                 radius,
@@ -2115,7 +2200,7 @@ impl Scope<'_> {
                 renderer_resources,
                 font_manager,
                 dpi,
-                &mut glyph_cache.borrow_mut(),
+                glyph_cache,
             )
         });
         let reach = radius as i32 + dilation_reach(spread);
@@ -2129,13 +2214,20 @@ impl Scope<'_> {
     }
 }
 
-#[cfg(test)]
-thread_local! {
-    /// Tests: a halo is drawn the way it was before it was made from its
-    /// coverage - four channels grown and blurred over the whole box
-    /// (`blurred_glyphs`) - which is what [`halo_pixels`] is held against.
-    static HALO_FROM_THE_WHOLE_BOX: Cell<bool> = const { Cell::new(false) };
-}
+/// What makes a halo's pixels from the glyphs of its runs ([`halo_pixels`]): the part of
+/// the box they can paint, and that part's RGBA pixels. A parameter of [`Scope::draw`], so
+/// that a test can hold the halo against the way it was drawn before it was made from its
+/// coverage (four channels grown and blurred over the whole box, `blurred_glyphs`).
+type HaloPixels = fn(
+    &[BufferedRun<'_>],
+    PixelBox,
+    u32,
+    f32,
+    &RendererResources,
+    &FontManager<FontRef>,
+    f32,
+    &mut GlyphCache,
+) -> Option<(PixelBox, Vec<u8>)>;
 
 /// The halo of `runs` in premultiplied white: the part of `buffer` the glyphs
 /// can paint once grown by `spread` and blurred by `radius` (device px of the
@@ -2160,24 +2252,6 @@ fn halo_pixels(
     dpi: f32,
     glyph_cache: &mut GlyphCache,
 ) -> Option<(PixelBox, Vec<u8>)> {
-    #[cfg(test)]
-    {
-        if HALO_FROM_THE_WHOLE_BOX.with(Cell::get) {
-            let whole = blurred_glyphs(
-                runs,
-                ColorU::WHITE,
-                buffer,
-                radius,
-                spread,
-                renderer_resources,
-                font_manager,
-                dpi,
-                glyph_cache,
-                (0.0, 0.0),
-            )?;
-            return Some((buffer, whole.data().to_vec()));
-        }
-    }
     let (part, coverage) = blurred_glyph_coverage(
         runs,
         ColorU::WHITE,
@@ -2617,17 +2691,17 @@ mod audit_a5_tests {
     #[test]
     fn a_stand_in_is_stretched_about_the_first_glyphs_pen() {
         let old = picture(100, 30, 24.0);
-        text_halo_slots_in_this_thread(false);
+        // Without slots.
         assert_eq!(
-            placed(&old, (300, 200), Some((36.0 / 24.0, 0))),
+            placed(&old, (300, 200), Some((36.0 / 24.0, 0)), false),
             ((291.0, 167.0), (150.0, 45.0))
         );
-        assert_eq!(placed(&old, (300, 200), None), ((294.0, 178.0), (100.0, 30.0)));
+        assert_eq!(placed(&old, (300, 200), None, false), ((294.0, 178.0), (100.0, 30.0)));
 
-        text_halo_slots_in_this_thread(true);
+        // With them.
         assert_eq!(slot_rect(&old, 36.0 / 24.0, 0), (-9, -33, 141, 12));
         assert_eq!(
-            placed(&old, (300, 200), Some((36.0 / 24.0, 0))),
+            placed(&old, (300, 200), Some((36.0 / 24.0, 0)), true),
             ((291.0, 167.0), (150.0, 45.0))
         );
         // A picture whose rim is wider than a pixel (it was itself drawn into a
@@ -2636,11 +2710,11 @@ mod audit_a5_tests {
         wide.ink = (-3, -19, 91, 5);
         assert_eq!(slot_rect(&wide, 36.0 / 24.0, 0), (-6, -30, 138, 9));
         assert_eq!(
-            placed(&wide, (300, 200), Some((36.0 / 24.0, 0))),
+            placed(&wide, (300, 200), Some((36.0 / 24.0, 0)), true),
             ((294.0, 170.0), (144.0, 39.0))
         );
         assert_eq!(
-            placed(&old, (300, 200), None),
+            placed(&old, (300, 200), None, true),
             ((294.0, 178.0), (100.0, 30.0)),
             "an own picture is painted where it lies, slots or not"
         );
@@ -2739,17 +2813,49 @@ mod audit_a5_tests {
     /// began, and a halo that is left counts as left, not as drawn.
     #[test]
     fn the_budget_counts_what_is_drawn_and_what_is_left() {
-        let ((), left) = within_halo_budget(2, Duration::from_millis(5), || {
-            assert!(admit(BYTES, 1) && admit(BYTES, 2), "two as of right");
-            assert!(admit(BYTES, 3), "no time spent yet: a third");
-            spend(Duration::from_millis(5));
-            assert!(!admit(BYTES, 4), "the time is spent");
-            assert!(!admit(BYTES, 5));
+        let store = TextHaloStore::new();
+        let ((), left) = store.within_halo_budget(2, Duration::from_millis(5), || {
+            assert!(store.admit(BYTES, 1) && store.admit(BYTES, 2), "two as of right");
+            assert!(store.admit(BYTES, 3), "no time spent yet: a third");
+            store.spend(Duration::from_millis(5));
+            assert!(!store.admit(BYTES, 4), "the time is spent");
+            assert!(!store.admit(BYTES, 5));
         });
         assert_eq!(left, 2);
-        let stats = text_halo_stats();
+        let stats = store.text_halo_stats();
         assert_eq!((stats.pending, stats.unkept, stats.scans), (2, 0, 1));
-        assert!(admit(BYTES, 6), "no budget: every halo is drawn");
+        assert!(store.admit(BYTES, 6), "no budget: every halo is drawn");
+        assert_eq!(store.halos_drawn(), 4, "three in the scan, and the one without a budget");
+    }
+
+    /// The halo's pixels the way they were made before they were made from the glyphs'
+    /// coverage (audit A5-17): the four channels of a halo in white grown and blurred
+    /// over the whole box (`blurred_glyphs`), what [`halo_pixels`] is held against.
+    fn halo_pixels_over_the_whole_box(
+        runs: &[BufferedRun<'_>],
+        buffer: PixelBox,
+        radius: u32,
+        spread: f32,
+        renderer_resources: &RendererResources,
+        font_manager: &FontManager<FontRef>,
+        dpi: f32,
+        glyph_cache: &mut GlyphCache,
+    ) -> Option<(PixelBox, Vec<u8>)> {
+        use super::super::raster::blurred_glyphs;
+
+        let whole = blurred_glyphs(
+            runs,
+            ColorU::WHITE,
+            buffer,
+            radius,
+            spread,
+            renderer_resources,
+            font_manager,
+            dpi,
+            glyph_cache,
+            (0.0, 0.0),
+        )?;
+        Some((buffer, whole.data().to_vec()))
     }
 
     /// A5-17. A halo made from its coverage is the halo that was drawn in four
@@ -2774,6 +2880,7 @@ mod audit_a5_tests {
             return;
         };
         let (rr, fm, font_hash) = rr_with_pub(&font);
+        let store = TextHaloStore::new();
         // A label under a text shadow, its first pen at `x`, `y` (CSS px).
         let shadowed = |text: &str, size: f32, x: f32, y: f32, blur: f32, spread: f32| {
             let clip = LogicalRect::new(
@@ -2815,9 +2922,8 @@ mod audit_a5_tests {
             let scope = scope_at(items, 0).expect("a shadow over text");
             let mut geometry = Vec::new();
             let sought = scope.sought(dpi, &mut geometry);
-            HALO_FROM_THE_WHOLE_BOX.with(|from| from.set(whole));
-            let drawn = scope.draw(&sought, dpi, &rr, &fm, |_| true, |_| (), into);
-            HALO_FROM_THE_WHOLE_BOX.with(|from| from.set(false));
+            let pixels: HaloPixels = if whole { halo_pixels_over_the_whole_box } else { halo_pixels };
+            let drawn = scope.draw(&store, &sought, dpi, &rr, &fm, pixels, |_| true, |_| (), into);
             match drawn {
                 Drawn::Picture { kept, box_bytes } => Some((kept, box_bytes)),
                 Drawn::NotAPicture | Drawn::Left => None,
@@ -2882,13 +2988,13 @@ mod audit_a5_tests {
     /// not fit owes a frame for ever.
     #[test]
     fn a_halo_refused_for_room_owes_the_one_scan_that_can_make_it() {
-        text_halo_bounds_in_this_thread(3, usize::MAX);
+        let store = TextHaloStore::new();
+        store.text_halo_bounds(3, usize::MAX);
         // One frame of a view: the labels left without a picture, and what the
         // scan leaves for a later one.
         let view = |labels: core::ops::Range<u64>| {
-            within_halo_budget(usize::MAX, Duration::ZERO, || {
-                HALOS.with(|halos| {
-                    let mut cache = halos.borrow_mut();
+            store.within_halo_budget(usize::MAX, Duration::ZERO, || {
+                store.with_halos(|cache| {
                     let mut without = 0;
                     for n in labels {
                         let sought = label(n);
@@ -2906,20 +3012,25 @@ mod audit_a5_tests {
         };
         assert_eq!(view(0..3), (0, 0), "the view's three pictures fill the cache");
         assert_eq!(view(1..4), (1, 1), "label 3 has no room in the pan's scan: one scan is owed");
-        assert_eq!(text_halo_stats().evicted, 0, "the frame before's picture is not this scan's to drop");
+        assert_eq!(
+            store.text_halo_stats().evicted,
+            0,
+            "the frame before's picture is not this scan's to drop"
+        );
         assert_eq!(view(1..4), (0, 0), "the owed scan: label 0 made room for label 3");
-        assert_eq!(text_halo_stats().evicted, 1);
+        assert_eq!(store.text_halo_stats().evicted, 1);
         // A view of four labels in a cache of three: nothing to wait for.
         assert_eq!(view(1..5), (1, 0));
         assert_eq!(view(1..5), (1, 0), "at rest: no frame is owed for a halo that cannot be kept");
-        assert_eq!(text_halo_stats().evicted_total, 1);
+        assert_eq!(store.text_halo_stats().evicted_total, 1);
     }
 
     /// A5-18. A release gives back the kept halos no display list paints and
     /// keeps the ones a list paints, with their pictures and the slots the
     /// renderer's keys stand for. A view of labels 0..6, then - a pan - of labels
-    /// 3..9: 0, 1 and 2 left it, and label 1 is still painted by another window's
-    /// list (a look without fonts, `text_halos_in_use`). The release drops 0 and
+    /// 3..9: 0, 1 and 2 left it, and label 1 is still painted by a list of the
+    /// window that was translated since, without a scan (a look without fonts,
+    /// `text_halos_in_use`). The release drops 0 and
     /// 2: two pictures of 64 bytes. The frame after it finds every label of the
     /// view kept: it draws nothing and drops nothing.
     ///
@@ -2953,7 +3064,7 @@ mod audit_a5_tests {
         assert_eq!((cache.entries.len(), cache.bytes), (9, 9 * BYTES));
         let before: Vec<_> = (3..9).map(|n| painted(&cache, n)).collect();
         assert!(before.iter().all(|kept| matches!(kept, Some((slot, _)) if *slot != 0)));
-        // Another window's list paints label 1.
+        // A list of the window paints label 1.
         let other = cache.find(label(1).text, &GEOMETRY).expect("kept");
         assert!(cache.use_own(other, false).is_some());
 
@@ -2983,7 +3094,7 @@ mod audit_a5_tests {
         scan(&mut cache, 3..9);
         assert_eq!((cache.stats.created, cache.stats.evicted), (0, 0));
         assert_eq!(cache.stats.frame_halos, 6);
-        // The other window's list was not looked at again: its picture goes now.
+        // That list was not looked at again: its picture goes now.
         assert_eq!(cache.release_unused().halos, 1);
         assert!(painted(&cache, 1).is_none());
         assert_eq!(cache.release_unused(), TextHalosReleased::default(), "nothing left to give");
@@ -2995,31 +3106,32 @@ mod audit_a5_tests {
     /// go too, with the halos' glyph cache. Under a scan nothing is released: the
     /// scan is using what it has looked at.
     ///
-    /// Mutation: the `BUDGET` guard removed from `release_text_halos` drops the
+    /// Mutation: the `budget.is_some()` guard removed from `release_text_halos` drops the
     /// picture inside the scan (the first count is 1).
     #[test]
     fn a_release_under_a_scan_does_nothing_and_one_for_no_window_also_drops_what_is_kept_per_list() {
+        let store = TextHaloStore::new();
         let list = Arc::new(DisplayList {
             items: label_items(20.0, 100.0, 5.0),
             ..DisplayList::default()
         });
-        let kept_lists = || LIST_SHADOWS.with(|kept| kept.borrow().len());
-        let _ = list_shadows(&list, Some(&list), 2.0);
+        let kept_lists = || store.with_state(|state| state.list_shadows.len());
+        let _ = store.list_shadows(&list, Some(&list), 2.0);
         assert_eq!(kept_lists(), 1);
         // A picture of a frame gone: used by the scan before the last one.
-        HALOS.with(|halos| {
-            let mut cache = halos.borrow_mut();
+        store.with_halos(|cache| {
             cache.begin_scan();
             cache.insert(&label(0), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
             cache.begin_scan();
         });
-        assert_eq!(text_halo_stats().kept, 1);
+        assert_eq!(store.text_halo_stats().kept, 1);
 
-        let (released, _) = within_halo_budget(0, Duration::ZERO, || release_text_halos(true));
+        let (released, _) =
+            store.within_halo_budget(0, Duration::ZERO, || store.release_text_halos(true));
         assert_eq!(released, TextHalosReleased::default(), "a scan is under way");
-        assert_eq!((text_halo_stats().kept, kept_lists()), (1, 1));
+        assert_eq!((store.text_halo_stats().kept, kept_lists()), (1, 1));
 
-        let released = release_text_halos(false);
+        let released = store.release_text_halos(false);
         assert_eq!(
             released,
             TextHalosReleased {
@@ -3027,82 +3139,88 @@ mod audit_a5_tests {
                 bytes: BYTES
             }
         );
-        let stats = text_halo_stats();
+        let stats = store.text_halo_stats();
         assert_eq!((stats.kept, stats.kept_bytes, stats.evicted_total), (0, 0, 1));
-        assert_eq!(kept_lists(), 1, "a window is on screen: its lists' shadows stay");
+        assert_eq!(kept_lists(), 1, "the window is on screen: its lists' shadows stay");
 
-        assert_eq!(release_text_halos(true), TextHalosReleased::default());
-        assert_eq!(kept_lists(), 0, "no window is on screen: they go too");
+        assert_eq!(store.release_text_halos(true), TextHalosReleased::default());
+        assert_eq!(kept_lists(), 0, "the window is not on screen: they go too");
         assert_eq!(
-            GLYPHS.with(|glyphs| glyphs.borrow().cells_len() + glyphs.borrow().paths_len()),
+            store.with_glyphs(|glyphs| glyphs.cells_len() + glyphs.paths_len()),
             0
         );
     }
 
     /// A5-20. A window that is hidden gives back its OWN pictures, and no other
-    /// window's. Window A paints labels 0..4, window B labels 2..6 (2 and 3 are
-    /// both windows'), B scanned last. B is hidden: its use is forgotten, A's
-    /// lists mark what they paint, the rest goes - labels 4 and 5, two pictures
-    /// of 64 bytes. A's four keep their pictures and slots. Then A is hidden too:
-    /// nothing is marked, and nothing is kept.
+    /// window's: the pictures are kept in a store per window. Window A paints
+    /// labels 0..4, window B labels 2..6 (2 and 3 are both windows' labels: each
+    /// store keeps a picture of its own for them). B is hidden: its use is forgotten
+    /// and all it keeps goes - four pictures of 64 bytes. A's four keep their pictures
+    /// and slots, and A's next frame draws nothing and drops nothing. Then A is hidden
+    /// too: nothing is kept.
     ///
     /// Mutation: `self.scan += 1` removed from `forget_use`: the hidden window's
     /// pictures are the last scan's and stay (the first count is 0).
     #[test]
     fn a_hidden_window_gives_back_its_own_pictures_and_no_other_windows() {
-        let scan = |cache: &mut HaloCache, labels: core::ops::Range<u64>| {
-            cache.begin_scan();
-            for n in labels {
-                let sought = label(n);
-                if let Some(id) = cache.find(sought.text, &GEOMETRY) {
-                    let _ = cache.use_own(id, true);
-                } else {
-                    assert!(cache.make_room(BYTES, None));
-                    cache.insert(&sought, &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
-                }
-            }
+        // One frame of a window that shows `labels`: a kept halo is used, a missing one
+        // drawn.
+        let scan = |store: &TextHaloStore, labels: core::ops::Range<u64>| {
+            store.within_halo_budget(usize::MAX, Duration::ZERO, || {
+                store.with_halos(|cache| {
+                    for n in labels {
+                        let sought = label(n);
+                        if let Some(id) = cache.find(sought.text, &GEOMETRY) {
+                            let _ = cache.use_own(id, true);
+                        } else {
+                            assert!(cache.make_room(BYTES, None));
+                            cache.insert(&sought, &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
+                        }
+                    }
+                });
+            });
         };
-        // A look without fonts at the lists of a window that is shown.
-        let mark = |cache: &mut HaloCache, labels: core::ops::Range<u64>| {
-            for n in labels {
-                let id = cache.find(label(n).text, &GEOMETRY).expect("kept");
-                assert!(cache.use_own(id, false).is_some());
-            }
+        let painted = |store: &TextHaloStore, n: u64| {
+            store.with_halos(|cache| {
+                let id = cache.find(label(n).text, &GEOMETRY)?;
+                let kept = cache.entries.get(&id)?.kept.as_ref()?;
+                Some((kept.slot, kept.image.get_hash()))
+            })
         };
-        let painted = |cache: &HaloCache, n: u64| {
-            let id = cache.find(label(n).text, &GEOMETRY)?;
-            let kept = cache.entries.get(&id)?.kept.as_ref()?;
-            Some((kept.slot, kept.image.get_hash()))
+        let kept = |store: &TextHaloStore| {
+            let stats = store.text_halo_stats();
+            (stats.kept, stats.kept_bytes)
         };
-        let mut cache = HaloCache::new(64, usize::MAX);
-        scan(&mut cache, 0..4);
-        scan(&mut cache, 2..6);
-        assert_eq!((cache.entries.len(), cache.bytes), (6, 6 * BYTES));
-        let before: Vec<_> = (0..4).map(|n| painted(&cache, n)).collect();
+        let (a, b) = (TextHaloStore::new(), TextHaloStore::new());
+        scan(&a, 0..4);
+        scan(&b, 2..6);
+        let each = (4, 4 * BYTES as u64);
+        assert_eq!((kept(&a), kept(&b)), (each, each), "every window keeps its own pictures");
+        let before: Vec<_> = (0..4).map(|n| painted(&a, n)).collect();
 
         // B is hidden.
-        cache.forget_use();
-        mark(&mut cache, 0..4);
+        b.text_halos_forget_use();
         assert_eq!(
-            cache.release_unused(),
+            b.release_text_halos(true),
             TextHalosReleased {
-                halos: 2,
-                bytes: 2 * BYTES
+                halos: 4,
+                bytes: 4 * BYTES
             },
-            "labels 4 and 5: the hidden window's own"
+            "labels 2 to 5: all the hidden window's own"
         );
-        assert!(painted(&cache, 4).is_none() && painted(&cache, 5).is_none());
-        let after: Vec<_> = (0..4).map(|n| painted(&cache, n)).collect();
-        assert_eq!(after, before, "the shown window's pictures and slots, the shared ones too");
+        assert_eq!(kept(&b), (0, 0));
+        let after: Vec<_> = (0..4).map(|n| painted(&a, n)).collect();
+        assert_eq!(after, before, "the shown window's pictures and slots");
         // A's next frame draws nothing and drops nothing.
-        scan(&mut cache, 0..4);
-        assert_eq!((cache.stats.created, cache.stats.evicted), (0, 0));
+        scan(&a, 0..4);
+        let stats = a.text_halo_stats();
+        assert_eq!((stats.created, stats.evicted), (0, 0));
 
         // A is hidden too: nothing is painted any more.
-        cache.forget_use();
-        assert_eq!(cache.release_unused().halos, 4);
-        assert_eq!((cache.entries.len(), cache.bytes), (0, 0));
-        assert!(cache.by_text.is_empty() && cache.by_shape.is_empty());
+        a.text_halos_forget_use();
+        assert_eq!(a.release_text_halos(true).halos, 4);
+        assert_eq!(kept(&a), (0, 0));
+        assert!(a.with_halos(|cache| cache.by_text.is_empty() && cache.by_shape.is_empty()));
     }
 
     /// A5-20. The scan after a window's pictures were given back draws a small
@@ -3115,25 +3233,29 @@ mod audit_a5_tests {
     /// `within_halo_budget` draws 74 in the second.
     #[test]
     fn the_scan_after_a_release_draws_every_small_picture_and_the_next_scan_a_frames_worth() {
+        let store = TextHaloStore::new();
         let asked = PREVIEWS_ANYWAY + 10;
         let small_pictures = || {
-            let (drawn, _) = within_halo_budget(0, Duration::ZERO, || {
-                spend_on_previews(Duration::from_secs(1));
+            let (drawn, _) = store.within_halo_budget(0, Duration::ZERO, || {
+                store.spend_on_previews(Duration::from_secs(1));
                 (
-                    (0..asked).filter(|_| admit_preview(BYTES)).count(),
-                    every_small(),
+                    (0..asked).filter(|_| store.admit_preview(BYTES)).count(),
+                    store.every_small(),
                 )
             });
             drawn
         };
         assert_eq!(small_pictures(), (PREVIEWS_ANYWAY, false), "a frame's worth");
-        draw_every_small_halo_in_the_next_scan();
+        store.draw_every_small_halo_in_the_next_scan();
         assert_eq!(small_pictures(), (asked, true), "after a release: every one");
         assert_eq!(small_pictures(), (PREVIEWS_ANYWAY, false), "and a frame's worth again");
         // Type too small for a small picture: its own, whatever the time.
-        let ((), left) = within_halo_budget(0, Duration::ZERO, || {
-            assert!(!admit_if(budget_left(), BYTES, 1), "premise: the frame's budget is spent");
-            assert!(admit_if(true, BYTES, 2));
+        let ((), left) = store.within_halo_budget(0, Duration::ZERO, || {
+            assert!(
+                !store.admit_if(store.budget_left(), BYTES, 1),
+                "premise: the frame's budget is spent"
+            );
+            assert!(store.admit_if(true, BYTES, 2));
         });
         assert_eq!(left, 1, "what the budget left is still counted as left");
     }
@@ -3258,7 +3380,6 @@ mod audit_a4_tests {
     /// removed from `take_slot` leaves two pictures in one slot.
     #[test]
     fn the_picture_drawn_into_a_stand_ins_place_takes_its_slot() {
-        text_halo_slots_in_this_thread(true);
         let old = Sought {
             text: 1,
             shape: 9,
@@ -3306,11 +3427,11 @@ mod audit_a4_tests {
         let own_new = cache.use_own(new_id, true).flatten().expect("a picture");
         assert_eq!(own_new.slot, own.slot, "the slot the stand-in was painted from");
         assert_eq!(
-            placed(&own_new, (300, 200), None),
-            placed(&stood, (300, 200), Some((1.5, 0))),
+            placed(&own_new, (300, 200), None, true),
+            placed(&stood, (300, 200), Some((1.5, 0)), true),
             "and the rect: the list that painted the stand-in paints the own picture"
         );
-        assert_eq!(placed(&own_new, (300, 200), None), ((291.0, 167.0), (150.0, 45.0)));
+        assert_eq!(placed(&own_new, (300, 200), None, true), ((291.0, 167.0), (150.0, 45.0)));
 
         // The picture of the old size is still kept, without a slot: a label
         // that shows it again is painted from another.
@@ -3382,13 +3503,13 @@ mod audit_a4_tests {
             anchor: (0, 0),
             scale: 36.0,
         };
+        let store = TextHaloStore::new();
         let (mut stood_id, mut waiting_id) = (0, 0);
         // The view at the old size, the settle, and the frame after it, in which
         // the label's own picture is drawn and comes out a pixel wider on the
         // left than the place: a frame that leaves other halos for later.
-        let ((), left) = within_halo_budget(0, Duration::ZERO, || {
-            HALOS.with(|halos| {
-                let mut cache = halos.borrow_mut();
+        let ((), left) = store.within_halo_budget(0, Duration::ZERO, || {
+            store.with_halos(|cache| {
                 cache.insert(&old, &GEOMETRY, Some(picture((-6, -22), 100, 30, 24.0)), 12_000, false);
                 stood_id = cache.find(1, &GEOMETRY).expect("kept");
                 cache.begin_scan();
@@ -3407,25 +3528,23 @@ mod audit_a4_tests {
                 assert!(cache.changed, "a picture was drawn: the host asks again");
             });
             // The frame's budget is spent: another label's halo is left.
-            assert!(!admit(64, 77));
+            assert!(!store.admit(64, 77));
         });
         assert_eq!(left, 1);
-        assert!(halo_scan_changed_pictures());
-        HALOS.with(|halos| {
-            let mut cache = halos.borrow_mut();
+        assert!(store.halo_scan_changed_pictures());
+        store.with_halos(|cache| {
             assert!(cache.waits(waiting_id), "halos are left: it goes on waiting");
             assert_eq!(cache.by_shape.get(&9), Some(&stood_id));
         });
 
         // The scan that leaves nothing shows it: the label's own picture, the
         // newest of its shape, and the host is told that pictures changed.
-        let ((), left) = within_halo_budget(0, Duration::ZERO, || {
-            assert!(!halo_scan_changed_pictures(), "nothing yet in this scan");
+        let ((), left) = store.within_halo_budget(0, Duration::ZERO, || {
+            assert!(!store.halo_scan_changed_pictures(), "nothing yet in this scan");
         });
         assert_eq!(left, 0);
-        assert!(halo_scan_changed_pictures(), "a picture that waited is shown");
-        HALOS.with(|halos| {
-            let mut cache = halos.borrow_mut();
+        assert!(store.halo_scan_changed_pictures(), "a picture that waited is shown");
+        store.with_halos(|cache| {
             assert!(!cache.waits(waiting_id));
             assert_eq!(cache.by_shape.get(&9), Some(&waiting_id));
             let own = cache.use_own(waiting_id, true).flatten().expect("shown");
@@ -3475,15 +3594,18 @@ mod audit_a4_tests {
     /// list lives - the scan of a frame's resources and the translation ask it
     /// of every list in every transaction that scans, also of the lists that did
     /// not change (1,567 labels of some 15 glyphs, two hashes a glyph, per
-    /// question) - and again for the list a change makes of it.
+    /// question) - and again for the list a change makes of it. A walk is told by
+    /// its answer: the kept answer is the same allocation (`Arc::ptr_eq`), a
+    /// walked one is a new one.
     ///
-    /// Mutation: without `held.scale == scale` in `list_shadows` the count after
-    /// the other scale stays 2; with `keep` ignored the first count is 3.
+    /// Mutation: without `held.scale == scale` in `list_shadows` the answer at the
+    /// other scale is the first one; with `keep` ignored the first three answers
+    /// are three.
     #[test]
     fn a_lists_shadows_are_worked_out_once_while_the_list_is_the_same() {
         use super::audit_a5_tests::label_items;
 
-        let walks = || SHADOW_WALKS.with(Cell::get);
+        let store = TextHaloStore::new();
         let list_at = |x: f32| {
             Arc::new(DisplayList {
                 items: label_items(x, 100.0, 5.0),
@@ -3491,43 +3613,49 @@ mod audit_a4_tests {
             })
         };
         let mut held = list_at(20.0);
-        let before = walks();
-        assert_eq!(list_shadows(&held, Some(&held), 2.0).len(), 1);
-        assert_eq!(list_shadows(&held, Some(&held), 2.0).len(), 1);
+        let first = store.list_shadows(&held, Some(&held), 2.0);
+        assert_eq!(first.len(), 1);
+        let again = store.list_shadows(&held, Some(&held), 2.0);
         // The translation's question: the list, without its `Arc`.
-        assert_eq!(list_shadows(&held, None, 2.0).len(), 1);
-        assert_eq!(walks() - before, 1, "one walk for three questions");
+        let translated = store.list_shadows(&held, None, 2.0);
+        assert!(
+            Arc::ptr_eq(&first, &again) && Arc::ptr_eq(&first, &translated),
+            "one walk for three questions"
+        );
         assert_eq!(
-            list_shadows(&held, None, 2.0)[0].sought.text,
+            translated[0].sought.text,
             shadows(&held.items, 2.0)[0].sought.text,
             "the kept answer is the walk's"
         );
-        assert_eq!(walks() - before, 2, "the line above walked once itself");
 
         // Another scale is another answer, and the one kept from then on.
-        let _ = list_shadows(&held, Some(&held), 1.0);
-        assert_eq!(walks() - before, 3);
-        let _ = list_shadows(&held, None, 1.0);
-        assert_eq!(walks() - before, 3);
+        let other = store.list_shadows(&held, Some(&held), 1.0);
+        assert!(!Arc::ptr_eq(&first, &other), "another scale is another walk");
+        assert!(Arc::ptr_eq(&other, &store.list_shadows(&held, None, 1.0)));
 
         // A change moves the list: what is kept holds a `Weak` of it, and such a
         // list is not changed in place. The list the change made is walked.
         let was_at = Arc::as_ptr(&held);
         Arc::make_mut(&mut held).items.clear();
         assert!(!core::ptr::eq(was_at, Arc::as_ptr(&held)));
-        assert!(list_shadows(&held, Some(&held), 1.0).is_empty());
-        assert_eq!(walks() - before, 4);
+        let changed = store.list_shadows(&held, Some(&held), 1.0);
+        assert!(changed.is_empty());
+        assert!(!Arc::ptr_eq(&other, &changed), "the list the change made is walked");
 
         // A list nothing is kept for is walked at each question.
         let loose = list_at(40.0);
-        let _ = list_shadows(&loose, None, 2.0);
-        let _ = list_shadows(&loose, None, 2.0);
-        assert_eq!(walks() - before, 6);
+        let once = store.list_shadows(&loose, None, 2.0);
+        let twice = store.list_shadows(&loose, None, 2.0);
+        assert!(!Arc::ptr_eq(&once, &twice));
 
         // A list that is gone is forgotten at the next question.
-        let kept = LIST_SHADOWS.with(|kept| kept.borrow().len());
+        let kept = store.with_state(|state| state.list_shadows.len());
         drop(held);
-        let _ = list_shadows(&loose, None, 2.0);
-        assert_eq!(LIST_SHADOWS.with(|kept| kept.borrow().len()), kept - 1);
+        let _ = store.list_shadows(&loose, None, 2.0);
+        assert_eq!(store.with_state(|state| state.list_shadows.len()), kept - 1);
     }
 }
+
+#[cfg(test)]
+#[path = "text_halo_test.rs"]
+mod text_halo_test;

@@ -31,7 +31,7 @@ use azul_core::{
 };
 use azul_layout::{
     callbacks::ExternalSystemCallbacks,
-    cpurender::{text_halo_bounds_in_this_thread, text_halo_stats, text_halos, TextHaloStats},
+    cpurender::{TextHaloStats, TextHalosReleased},
     managers::gpu_state::HaloRelease,
     window::LayoutWindow,
     window_state::FullWindowState,
@@ -176,7 +176,7 @@ impl Recorder {
             deleted,
             updated,
             halos,
-            stats: text_halo_stats(),
+            stats: self.window.text_halo_store.text_halo_stats(),
             owed: self.window.gpu_state_manager.halos_owed,
         };
         // The shells go on to the next epoch after a frame with lists.
@@ -200,6 +200,7 @@ impl Recorder {
             PipelineId(0, 0),
             DeviceIntSize::new(2000, 2000),
             &self.window.renderer_resources,
+            &self.window.text_halo_store,
             dpi,
             Vec::new(),
             &BTreeMap::new(),
@@ -207,11 +208,14 @@ impl Recorder {
         )
         .expect("the frame translates");
         // The shadows painted as pictures, in list order: own or standing in.
-        // Every picture a look at the list finds is registered - except in a
-        // window whose pictures were given back (audit A5-20): the kept
-        // pictures of the thread may hold some another window paints, and this
-        // window's translation gives those shadows to the renderer.
-        let found = text_halos(&list.items, self.dpi, None);
+        // Every picture a look at the list finds is registered. A window whose
+        // pictures were given back (audit A5-20) keeps none: its store was
+        // released with them, and its translation gives every shadow to the
+        // renderer.
+        let found = self.window.text_halo_store.text_halos(&list.items, self.dpi, None);
+        if self.window.gpu_state_manager.halo_release == HaloRelease::Hidden {
+            assert!(found.is_empty(), "the store of a window whose pictures were given back keeps none");
+        }
         let registered = |halo: &&azul_layout::cpurender::TextHalo| {
             self.window
                 .renderer_resources
@@ -354,18 +358,14 @@ fn labels_from(first: usize, count: usize, zoom: f32) -> Dom {
 }
 
 /// The bytes the own pictures of `labels(count, 1.0)` hold at `dpi`, measured on
-/// a thread of its own (the kept halos are a thread's).
+/// a window of their own (the kept halos are a window's).
 fn bytes_of_the_views_pictures(count: usize, dpi: f32) -> usize {
-    std::thread::spawn(move || {
-        draw_every_halo_in_this_thread();
-        let mut view = Recorder::new(dpi);
-        view.lay_out(labels(count, 1.0));
-        let frame = view.frame();
-        assert_eq!(frame.own().len(), count, "premise: a frame with no budget draws every halo");
-        usize::try_from(text_halo_stats().kept_bytes).expect("bytes")
-    })
-    .join()
-    .expect("the measuring thread")
+    draw_every_halo_in_this_thread();
+    let mut view = Recorder::new(dpi);
+    view.lay_out(labels(count, 1.0));
+    let frame = view.frame();
+    assert_eq!(frame.own().len(), count, "premise: a frame with no budget draws every halo");
+    usize::try_from(view.window.text_halo_store.text_halo_stats().kept_bytes).expect("bytes")
 }
 
 /// A5-01, the flicker. A view whose halos the cache cannot all hold - here 24
@@ -384,10 +384,10 @@ fn bytes_of_the_views_pictures(count: usize, dpi: f32) -> usize {
 fn a_view_that_does_not_fit_keeps_its_halos_and_comes_to_rest(dpi: f32) {
     const LABELS: usize = 24;
     let all = bytes_of_the_views_pictures(LABELS, dpi);
-    text_halo_bounds_in_this_thread(usize::MAX, all * 8 / 10);
     draw_this_many_halos_a_frame_in_this_thread(3);
 
     let mut view = Recorder::new(dpi);
+    view.window.text_halo_store.text_halo_bounds(usize::MAX, all * 8 / 10);
     view.lay_out(labels(LABELS, 1.0));
     let first = view.frame();
     assert_eq!(first.own(), [0, 1, 2], "the first frame draws what its budget allows");
@@ -561,10 +561,12 @@ fn registered(
         .map(|resolved| resolved.key)
 }
 
-/// A5-15 (review of A4-27, invariant I-g: the kept pictures are a thread's, the
-/// slot keys a window's). Giving a slot's key a new picture removed the
-/// registration of the picture the key had shown, whoever held it. With two
-/// windows A and B on one thread a picture can be another slot's by then:
+/// A5-15 (review of A4-27, invariant I-g: the slot keys are a window's). Giving a
+/// slot's key a new picture removed the registration of the picture the key had
+/// shown, whoever held it. A picture can be another slot's by then - when this
+/// was found the kept pictures were a thread's, and a second window's scans moved
+/// them between the slots of the first (they are a window's now, and what a
+/// registration is given is still whatever the slots show by then):
 ///
 /// 1. A paints `old` from slot 1 (key K1) and `other` from slot 2 (key K2).
 /// 2. B's scans change what the slots show: slot 2 shows `old` now, slot 1
@@ -649,8 +651,9 @@ fn a5_15_a_picture_given_a_new_slot_stays_registered_when_its_old_slot_shows_ano
     assert!(!rr.image_last_seen_epoch.contains_key(&old.get_hash()));
 }
 
-/// A5-16 (review of A4-27, invariant I-c / I-g). With two windows A and B on one
-/// thread:
+/// A5-16 (review of A4-27, invariant I-c / I-g). When this was found the kept
+/// pictures were a thread's; with two windows A and B on one thread (B's scans
+/// moved pictures between the slots of A):
 ///
 /// 1. A paints a label with `old` from slot 1 (A's key K1 shows it).
 /// 2. B's scans draw the label's picture at another size into the place of
@@ -749,6 +752,7 @@ fn without_halo_in_a_translation_alone(view: &Recorder) -> usize {
         PipelineId(0, 0),
         DeviceIntSize::new(2000, 2000),
         &view.window.renderer_resources,
+        &view.window.text_halo_store,
         DpiScaleFactor::new(view.dpi),
         Vec::new(),
         &BTreeMap::new(),
@@ -767,7 +771,7 @@ fn without_halo_in_a_translation_alone(view: &Recorder) -> usize {
 
 /// A5-18, the memory release (`MacOSWindow::release_regenerable_memory`: the
 /// window goes to the Dock, the app is hidden, memory is short). Twelve labels,
-/// then a zoom that settles: when the view is at rest the thread keeps the
+/// then a zoom that settles: when the view is at rest the window's store keeps the
 /// labels' pictures at the new size, which the list paints, and the ones of the
 /// size before, which nothing paints. A release gives back the second kind and
 /// only that, with a window on screen and with none:
@@ -784,8 +788,6 @@ fn without_halo_in_a_translation_alone(view: &Recorder) -> usize {
 /// the translation alone paints twelve labels without halo, and the frame after
 /// draws pictures again and owes frames.
 fn a_release_keeps_what_the_lists_paint(not_shown: bool) {
-    use azul_layout::cpurender::{release_text_halos, text_halos_in_use};
-
     const LABELS: usize = 12;
     draw_this_many_halos_a_frame_in_this_thread(4);
     let mut view = Recorder::new(2.0);
@@ -808,7 +810,8 @@ fn a_release_keeps_what_the_lists_paint(not_shown: bool) {
     }
     assert_eq!(resting, 5, "premise: the view came to rest: {:?}", before.stats);
     assert_eq!(before.own().len(), LABELS, "premise: every label has its own picture");
-    let kept = text_halo_stats();
+    let store = &view.window.text_halo_store;
+    let kept = store.text_halo_stats();
     assert!(
         kept.kept as usize > LABELS,
         "premise: pictures of the size before are kept: {}",
@@ -823,9 +826,9 @@ fn a_release_keeps_what_the_lists_paint(not_shown: bool) {
         .expect("the root DOM is laid out")
         .display_list
         .clone();
-    text_halos_in_use([&list], view.dpi);
-    let released = release_text_halos(not_shown);
-    let left = text_halo_stats();
+    store.text_halos_in_use([&list], view.dpi);
+    let released = store.release_text_halos(not_shown);
+    let left = store.text_halo_stats();
     assert_eq!(left.kept as usize, LABELS, "the pictures the list paints, and no other");
     assert_eq!(released.halos, kept.kept as usize - LABELS);
     assert!(released.bytes > 0);
@@ -847,7 +850,7 @@ fn a_release_keeps_what_the_lists_paint(not_shown: bool) {
     );
     assert_eq!(after.halos, before.halos, "each label's own picture, from the key it had");
     assert_eq!(after.stats.frame_halos as usize, LABELS);
-    assert_eq!(text_halo_stats().kept as usize, LABELS);
+    assert_eq!(view.window.text_halo_store.text_halo_stats().kept as usize, LABELS);
 }
 
 #[test]
@@ -861,17 +864,17 @@ fn a5_18_a_release_keeps_what_the_lists_paint_with_no_window_on_screen() {
 }
 
 /// A5-18. The macOS shell's release (`MacOSWindow::release_regenerable_memory`:
-/// the Dock, Cmd-H, memory pressure) gives back the kept text halos through
-/// `release_text_halos`, AFTER every window's lists marked what they paint: the
-/// pictures are the thread's, and a window that made no scan lately would lose
-/// the pictures its list paints to the windows that did. (The delegate cannot
-/// run headless: the statements are read from the source, as A10's guard of the
-/// same function does.)
+/// the Dock, Cmd-H, memory pressure) gives back the kept text halos of the window
+/// through `release_text_halos`, AFTER the window's lists marked what they paint:
+/// a list translated without a scan lately would lose its pictures to the
+/// release. The store is the window's own, so no other window's lists are
+/// marked or released. (The delegate cannot run headless: the statements are read
+/// from the source, as A10's guard of the same function does.)
 ///
-/// Mutation: the release moved above the loop over the windows, or the loop
-/// removed, fails this.
+/// Mutation: the release moved above the marking, or the marking removed, fails
+/// this; a loop over the other windows back in the release fails the last check.
 #[test]
-fn a5_18_the_macos_release_marks_what_every_window_paints_before_it_gives_halos_back() {
+fn a5_18_the_macos_release_marks_what_the_windows_lists_paint_before_it_gives_halos_back() {
     const MACOS_RS: &str = include_str!("../shell2/macos/mod.rs");
     let from = MACOS_RS
         .find("pub(crate) fn release_regenerable_memory(")
@@ -879,17 +882,18 @@ fn a5_18_the_macos_release_marks_what_every_window_paints_before_it_gives_halos_
     let body = &MACOS_RS[from..];
     let body = &body[..body.find("\n    }\n").expect("the end of the function")];
     let at = |what: &str| body.find(what).unwrap_or_else(|| panic!("`{what}` is missing"));
-    let every_window = at("for window in registry::get_all_window_ptrs()");
-    let marked = at("azul_layout::cpurender::text_halos_in_use(");
-    let own = at("painted_by(&*self);");
-    let released = at("azul_layout::cpurender::release_text_halos(not_shown)");
-    assert!(marked < every_window, "the closure that marks is what the loop calls");
-    assert!(every_window < own && own < released, "marked first, released last");
+    let marked = at("layout_window.text_halo_store.text_halos_in_use(");
+    let released = at("layout_window.text_halo_store.release_text_halos(not_shown)");
+    assert!(marked < released, "marked first, released last");
     assert!(body.contains("if !keep_caches() {"), "the user's switch keeps the halos too");
+    assert!(
+        !body.contains("registry::get_all_window_ptrs()"),
+        "the pictures are the window's own: no other window is marked or released for"
+    );
 }
 
 /// A5-19. A pan in a cache that the view fills (a map whose labels' pictures
-/// are more than the thread keeps: here eight pictures, and room for eight).
+/// are more than the window keeps: here eight pictures, and room for eight).
 /// Frame by frame:
 ///
 /// 1. the view shows labels 0..8, each with its own picture: the cache is full;
@@ -907,8 +911,8 @@ fn a5_18_the_macos_release_marks_what_every_window_paints_before_it_gives_halos_
 fn a5_19_a_pan_in_a_full_cache_gets_its_new_labels_their_halos_in_the_next_frame() {
     const SHOWN: usize = 8;
     draw_every_halo_in_this_thread();
-    text_halo_bounds_in_this_thread(SHOWN, usize::MAX);
     let mut view = Recorder::new(2.0);
+    view.window.text_halo_store.text_halo_bounds(SHOWN, usize::MAX);
     view.lay_out(labels_from(0, SHOWN, 1.0));
     let first = view.frame();
     assert_eq!(first.own().len(), SHOWN, "premise: the view's pictures fill the cache");
@@ -970,43 +974,31 @@ fn own_keys(halos: &[Halo]) -> HashSet<ImageKey> {
 /// (`MacOSWindow::release_regenerable_memory`, the Dock or a hidden app): the
 /// renderer's keys of the window's halo pictures are deleted in a transaction
 /// and its lists go without them (`release_text_halo_images`); then the
-/// thread's kept pictures forget the window, the windows still `shown` mark
-/// what their lists paint, and the rest is given back. Returns the pass, the
-/// keys the release says it deleted, and what the thread gave back.
-fn hide(
-    view: &mut Recorder,
-    shown: &[&Recorder],
-) -> (Pass, usize, azul_layout::cpurender::TextHalosReleased) {
-    use azul_layout::cpurender::{release_text_halos, text_halos_forget_use, text_halos_in_use};
-
+/// window's store forgets what its lists painted and gives back all it keeps
+/// (nothing is marked: no list of a hidden window paints from a picture).
+/// Other windows are not involved: their stores are theirs. Returns the pass,
+/// the keys the release says it deleted, and what the store gave back.
+fn hide(view: &mut Recorder) -> (Pass, usize, TextHalosReleased) {
     use crate::desktop::wr_translate2::release_text_halo_images;
 
     let mut txn = Transaction::new();
     let keys = release_text_halo_images(&mut view.window, &mut txn);
-    text_halos_forget_use();
-    for other in shown {
-        if other.window.gpu_state_manager.halo_release == HaloRelease::Kept {
-            text_halos_in_use(
-                other.window.layout_results.values().map(|result| &result.display_list),
-                other.dpi,
-            );
-        }
-    }
-    let released = release_text_halos(shown.is_empty());
+    view.window.text_halo_store.text_halos_forget_use();
+    let released = view.window.text_halo_store.release_text_halos(true);
     (view.sent(&txn, false), keys, released)
 }
 
 /// A5-20, test 1. A window at rest paints twelve labels from twelve pictures:
-/// the thread keeps their bytes and the renderer holds the same bytes under
+/// its store keeps their bytes and the renderer holds the same bytes under
 /// twelve keys. The window goes to the Dock. Its release deletes every one of
 /// those keys in one transaction, which also carries the list translated
-/// without the pictures; the thread keeps no halo and no byte; the window is
+/// without the pictures; the store keeps no halo and no byte; the window is
 /// marked, and owes no frame. (The shell sends that transaction whenever the
 /// release says it deleted a key: `a5_20_the_macos_shell_...`.)
 ///
 /// Mutation: the loop over `keys` that calls `txn.delete_image` removed from
 /// `release_text_halo_images` (the renderer keeps the bytes): `view.live` is not
-/// empty. `text_halos_forget_use()` removed from the release: the thread keeps
+/// empty. `text_halos_forget_use()` removed from the release: the store keeps
 /// the twelve pictures.
 #[test]
 fn a5_20_a_hidden_window_gives_back_the_pictures_its_lists_paint() {
@@ -1018,10 +1010,10 @@ fn a5_20_a_hidden_window_gives_back_the_pictures_its_lists_paint() {
     let held = view.painted();
     let named = own_keys(&held);
     assert_eq!(named.len(), LABELS, "premise: every label on its own picture: {held:?}");
-    let kept = text_halo_stats();
+    let kept = view.window.text_halo_store.text_halo_stats();
     assert!(kept.kept as usize >= LABELS && kept.kept_bytes > 0, "premise: {kept:?}");
 
-    let (pass, keys, released) = hide(&mut view, &[]);
+    let (pass, keys, released) = hide(&mut view);
     assert!(keys >= LABELS, "the release names the keys it deleted: {keys}");
     assert_eq!(pass.deleted.len(), keys, "each in the transaction it filled");
     assert!(
@@ -1037,7 +1029,7 @@ fn a5_20_a_hidden_window_gives_back_the_pictures_its_lists_paint() {
         "a halo slot kept its key"
     );
     assert!(rr.currently_registered_images.is_empty() && rr.image_key_map.is_empty());
-    let left = text_halo_stats();
+    let left = view.window.text_halo_store.text_halo_stats();
     assert_eq!((left.kept, left.kept_bytes), (0, 0), "the halo bytes kept for the window");
     assert_eq!(
         (released.halos as u64, released.bytes as u64),
@@ -1053,14 +1045,14 @@ fn a5_20_a_hidden_window_gives_back_the_pictures_its_lists_paint() {
     );
 
     // Hidden once more (the app is hidden while the window is in the Dock).
-    let (again, keys, _) = hide(&mut view, &[]);
+    let (again, keys, _) = hide(&mut view);
     assert_eq!((keys, again.deleted.len(), again.list), (0, 0, false));
 
     // Shown, and hidden again before any pass brought the pictures back: the
     // frame that was owed for them is owed no more, and nothing is sent.
     assert!(view.window.gpu_state_manager.halos_return());
     assert!(view.window.gpu_state_manager.halos_owed);
-    let (again, keys, _) = hide(&mut view, &[]);
+    let (again, keys, _) = hide(&mut view);
     assert_eq!((keys, again.deleted.len(), again.list), (0, 0, false));
     let state = &view.window.gpu_state_manager;
     assert_eq!((state.halo_release, state.halos_owed), (HaloRelease::Hidden, false));
@@ -1089,12 +1081,12 @@ fn a_window_that_is_shown_again_has_every_halo_in_its_first_frame(zoom: f32) {
     draw_this_many_halos_a_frame_in_this_thread(4);
     let mut view = a_view_at_rest(2.0, labels(LABELS, zoom));
     assert_eq!(own_keys(&view.painted()).len(), LABELS, "premise: every label has a picture");
-    let _ = hide(&mut view, &[]);
+    let _ = hide(&mut view);
 
     // A hidden window at rest: a pass has nothing to send, and draws nothing.
     let idle = view.light_pass();
     assert!(!idle.frame && !idle.list && idle.added.is_empty(), "{idle:?}");
-    assert_eq!(text_halo_stats().kept, 0);
+    assert_eq!(view.window.text_halo_store.text_halo_stats().kept, 0);
 
     assert!(view.window.gpu_state_manager.halos_return(), "the window is shown again");
     assert!(!view.window.gpu_state_manager.halos_return(), "once");
@@ -1146,13 +1138,13 @@ fn a5_20_a_window_of_small_type_that_is_shown_again_has_every_halo_in_its_first_
 ///
 /// Mutation: `halos_held_back` forced to `false` in
 /// `collect_image_resource_updates_and_halos` (a hidden window's scan draws
-/// halos): the full pass adds images and the thread keeps pictures again.
+/// halos): the full pass adds images and the store keeps pictures again.
 #[test]
 fn a5_20_a_list_sent_while_the_window_is_hidden_names_no_deleted_key() {
     const LABELS: usize = 12;
     draw_this_many_halos_a_frame_in_this_thread(4);
     let mut view = a_view_at_rest(2.0, labels(LABELS, 1.0));
-    let _ = hide(&mut view, &[]);
+    let _ = hide(&mut view);
     let hidden = |view: &Recorder, pass: &Pass, what: &str| {
         assert!(pass.list, "{what}: premise: the list is sent");
         assert!(
@@ -1163,7 +1155,11 @@ fn a5_20_a_list_sent_while_the_window_is_hidden_names_no_deleted_key() {
             view.painted().iter().all(|halo| *halo == Halo::None),
             "{what}: the list names a picture"
         );
-        assert_eq!(text_halo_stats().kept, 0, "{what}: a picture was drawn");
+        assert_eq!(
+            view.window.text_halo_store.text_halo_stats().kept,
+            0,
+            "{what}: a picture was drawn"
+        );
         let state = &view.window.gpu_state_manager;
         assert_eq!(state.halo_release, HaloRelease::Hidden, "{what}");
         assert!(!state.halos_owed, "{what}: a frame is owed for a window nobody sees");
@@ -1196,17 +1192,17 @@ fn a5_20_a_list_sent_while_the_window_is_hidden_names_no_deleted_key() {
     assert!(view.painted().iter().all(|halo| *halo != Halo::None));
 }
 
-/// A5-20, test 4. Two windows on one thread share the kept pictures. A shows
-/// labels 0..12, B labels 6..18: six pictures are both windows'. B goes to the
-/// Dock: B's keys are deleted, the thread gives back B's own six pictures (and
-/// what nothing paints) and keeps A's twelve, the shared ones among them. A
-/// loses nothing: an idle pass sends nothing, and a pass that scans A's lists
-/// again draws nothing and paints each label from the key it had. B comes
-/// back: the shared pictures are found kept, its own are drawn again.
+/// A5-20, test 4. Two windows on one thread, each with the kept pictures of its
+/// own. A shows labels 0..12, B labels 6..18: six labels are both windows'
+/// (each store keeps a picture of its own for them). B goes to the Dock: B's keys
+/// are deleted and B's store gives back every picture it keeps; A's store is not
+/// touched, the pictures of the shared labels among them. A loses nothing: an
+/// idle pass sends nothing, and a pass that scans A's lists again draws nothing
+/// and paints each label from the key it had. B comes back: its pictures are
+/// drawn again, the six it shares with A too (what A keeps is A's).
 ///
-/// Mutation: the loop over `shown` removed from the release (the shown
-/// window's lists do not mark what they paint): the thread keeps nothing, and
-/// A's next scan draws its pictures again.
+/// Mutation: the release of B's store done through A's (the stores made once and
+/// shared): A's store is not as it was, and A's next scan draws its pictures again.
 #[test]
 fn a5_20_a_hidden_window_takes_nothing_from_a_window_that_is_shown() {
     const LABELS: usize = 12;
@@ -1216,13 +1212,27 @@ fn a5_20_a_hidden_window_takes_nothing_from_a_window_that_is_shown() {
     let held = a.painted();
     assert_eq!(own_keys(&held).len(), LABELS, "premise: A's labels have their pictures");
     assert_eq!(own_keys(&b.painted()).len(), LABELS, "premise: B's too");
+    let a_kept = a.window.text_halo_store.text_halo_stats();
+    let b_kept = b.window.text_halo_store.text_halo_stats();
+    assert!(
+        a_kept.kept as usize >= LABELS && b_kept.kept as usize >= LABELS,
+        "premise: each window keeps its own pictures, for the labels both show too: {a_kept:?} {b_kept:?}"
+    );
 
-    let (pass, keys, released) = hide(&mut b, &[&a]);
+    let (pass, keys, released) = hide(&mut b);
     assert!(keys >= LABELS && pass.deleted.len() == keys);
     assert!(b.live.is_empty(), "B's renderer still holds {:?}", b.live);
-    assert!(released.halos >= 6, "B's own six pictures at least: {released:?}");
-    let kept = text_halo_stats();
-    assert_eq!(kept.kept as usize, LABELS, "A's twelve pictures and no other: {kept:?}");
+    assert_eq!(
+        (released.halos as u64, released.bytes as u64),
+        (b_kept.kept, b_kept.kept_bytes),
+        "everything B kept: its own pictures, the six of the shared labels among them"
+    );
+    assert_eq!(b.window.text_halo_store.text_halo_stats().kept, 0);
+    assert_eq!(
+        a.window.text_halo_store.text_halo_stats(),
+        a_kept,
+        "A's store is as it was: B's release gave back nothing of it"
+    );
 
     let idle = a.light_pass();
     assert!(
@@ -1233,7 +1243,11 @@ fn a5_20_a_hidden_window_takes_nothing_from_a_window_that_is_shown() {
     a.lay_out(labels(LABELS, 1.0));
     let scanned = a.full_pass();
     assert!(scanned.added.is_empty() && scanned.updated.is_empty(), "{scanned:?}");
-    assert_eq!(text_halo_stats().created, 0, "A's scan draws nothing again");
+    assert_eq!(
+        a.window.text_halo_store.text_halo_stats().created,
+        0,
+        "A's scan draws nothing again"
+    );
     assert_eq!(a.painted(), held, "each label from the picture and the key it had");
 
     assert!(b.window.gpu_state_manager.halos_return());
@@ -1244,7 +1258,7 @@ fn a5_20_a_hidden_window_takes_nothing_from_a_window_that_is_shown() {
 }
 
 /// A5-20, test 5. Hide and show ten times. After every hide the renderer holds
-/// no key of the window and the thread no picture; after every return, at rest,
+/// no key of the window and its store no picture; after every return, at rest,
 /// the renderer holds the same number of keys (as many as after the first
 /// return: nothing piles up), every key it holds is a slot's (none left
 /// behind), and the twelve labels are painted from twelve of them. No frame on
@@ -1272,10 +1286,10 @@ fn a5_20_hiding_and_showing_a_window_ten_times_leaves_no_key_behind() {
             "round {round}: a key that is no slot's, or a slot without its key"
         );
 
-        let (pass, keys, _) = hide(&mut view, &[]);
+        let (pass, keys, _) = hide(&mut view);
         assert_eq!(pass.deleted.len(), keys, "round {round}");
         assert!(view.live.is_empty(), "round {round}: left after the hide: {:?}", view.live);
-        assert_eq!(text_halo_stats().kept, 0, "round {round}");
+        assert_eq!(view.window.text_halo_store.text_halo_stats().kept, 0, "round {round}");
 
         assert!(view.window.gpu_state_manager.halos_return());
         let first = view.light_pass();
@@ -1300,8 +1314,8 @@ fn a5_20_hiding_and_showing_a_window_ten_times_leaves_no_key_behind() {
 /// above make by hand):
 ///
 /// - a window that is released because nobody sees it has its halo keys
-///   deleted in a transaction that is SENT and waited for, BEFORE the thread's
-///   kept pictures forget it, and before the other windows mark theirs;
+///   deleted in a transaction that is SENT and waited for, BEFORE its store
+///   forgets what its lists painted, and before it marks what they paint;
 /// - `AZ_HALO_RELEASE=lists` leaves the pictures a list paints (A5-18);
 /// - every render pass of a window that is shown brings the halos back
 ///   (`halos_return`), and that pass waits for its frame;
@@ -1337,9 +1351,9 @@ fn a5_20_the_macos_shell_gives_a_hidden_windows_halos_back_and_brings_them_back(
     );
     let order = [
         "self.release_halo_images_of_a_hidden_window();",
-        "azul_layout::cpurender::text_halos_forget_use();",
-        "for window in registry::get_all_window_ptrs()",
-        "azul_layout::cpurender::release_text_halos(not_shown)",
+        "layout_window.text_halo_store.text_halos_forget_use();",
+        "layout_window.text_halo_store.text_halos_in_use(",
+        "layout_window.text_halo_store.release_text_halos(not_shown)",
     ];
     for pair in order.windows(2) {
         assert!(at(pair[0]) < at(pair[1]), "`{}` comes before `{}`", pair[0], pair[1]);
