@@ -119,8 +119,14 @@ jobs:
           echo "runner: $RUNNER_NAME"
           echo "command: $COMMAND"
           echo
+          # The markers let scripts/remote.sh log print the command's output and not the runner's.
+          echo "=== remote: begins ==="
+          set +e
           set -o pipefail
           bash -c "$COMMAND" 2>&1 | tee remote.log
+          status="${PIPESTATUS[0]}"
+          echo "=== remote: finished with exit $status ==="
+          exit "$status"
 
       - name: Upload the log and the files asked for
         if: always()

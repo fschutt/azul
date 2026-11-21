@@ -62,8 +62,14 @@ case "$cmd" in
     ;;
   log)
     n="${2:-150}"
-    gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$(job_id "$1")/logs" 2>/dev/null \
-      | perl -pe 's/\e\[[0-9;]*[A-Za-z]//g; s/^\S+Z //' | tail -n "$n"
+    text="$(gh api --allow-escape-sequences "repos/$REPO/actions/jobs/$(job_id "$1")/logs" 2>/dev/null \
+      | perl -pe 's/\e\[[0-9;]*[A-Za-z]//g; s/^\S+Z //')"
+    # the command's own output (between the markers of remote.yml) when it has begun, else the runner's log so far
+    if printf '%s\n' "$text" | grep -q '^=== remote: begins ==='; then
+      printf '%s\n' "$text" | awk '/^=== remote: begins ===/ { p = 1 } p { print } /^=== remote: finished/ { exit }' | tail -n "$n"
+    else
+      printf '%s\n' "$text" | awk '/^Post job cleanup\./ { exit } { print }' | tail -n "$n"
+    fi
     ;;
   download)
     [ $# -ge 2 ] || { echo "usage: remote.sh download <id> <dir>" >&2; exit 2; }
