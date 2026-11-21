@@ -3326,6 +3326,39 @@ fn get_rect(
     ))
 }
 
+/// What a step of a node drag writes on the box of a connection of the
+/// dragged node, `rect` being where [`get_rect`] puts it now: its `transform`
+/// (the graph's offset and scale included) and nothing else. A write of
+/// nothing but `transform` moves the box by the value its reference frame
+/// binds: no restyle, no layout, no display list.
+///
+/// Not the box's `width` and `height`: two layout properties per connection
+/// per mouse move, each a relayout of the window. The box keeps the size it
+/// was built with until the graph is built again, and nothing reads that size
+/// as long as [`draw_connection`] draws nothing: a connection's nodes carry
+/// no callback (nothing is hit-tested on them), and [`get_rect`], the cull
+/// test and the builder read the graph, not the DOM. Once connections are
+/// drawn their size has to follow a drag - when the drag ends, not per move.
+#[allow(clippy::float_cmp)] // intentional exact compare: at scale 1 the transform carries no scale
+fn connection_drag_writes(graph: &NodeGraph, rect: &LogicalRect) -> Vec<CssProperty> {
+    let translate = StyleTransformTranslate2D {
+        x: PixelValue::px(graph.offset.x + rect.origin.x),
+        y: PixelValue::px(graph.offset.y + rect.origin.y),
+    };
+    vec![CssProperty::transform(
+        if graph.scale_factor == 1.0 {
+            vec![StyleTransform::Translate(translate)]
+        } else {
+            vec![
+                StyleTransform::Translate(translate),
+                StyleTransform::ScaleX(PercentageValue::new(graph.scale_factor * 100.0)),
+                StyleTransform::ScaleY(PercentageValue::new(graph.scale_factor * 100.0)),
+            ]
+        }
+        .into(),
+    )]
+}
+
 extern "C" fn nodegraph_set_active_node(mut refany: RefAny, _info: CallbackInfo) -> Update {
     if let Some(mut refany) = refany.downcast_mut::<NodeLocalDataset>() {
         let node_id = refany.node_id;
@@ -3487,43 +3520,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 cld.swap_vert = swap_vert;
                 cld.swap_horz = swap_horz;
 
-                let node_transform = StyleTransformTranslate2D {
-                    x: PixelValue::px(refany.node_graph.offset.x + new_rect.origin.x),
-                    y: PixelValue::px(refany.node_graph.offset.y + new_rect.origin.y),
-                };
-
-                info.set_css_property(
-                    first_child,
-                    CssProperty::transform(
-                        if refany.node_graph.scale_factor == 1.0 {
-                            vec![StyleTransform::Translate(node_transform)]
-                        } else {
-                            vec![
-                                StyleTransform::Translate(node_transform),
-                                StyleTransform::ScaleX(PercentageValue::new(
-                                    refany.node_graph.scale_factor * 100.0,
-                                )),
-                                StyleTransform::ScaleY(PercentageValue::new(
-                                    refany.node_graph.scale_factor * 100.0,
-                                )),
-                            ]
-                        }
-                        .into(),
-                    ),
-                );
-
-                info.set_css_property(
-                    first_child,
-                    CssProperty::Width(LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px(
-                        new_rect.size.width,
-                    )))),
-                );
-                info.set_css_property(
-                    first_child,
-                    CssProperty::Height(LayoutHeightValue::Exact(LayoutHeight::Px(
-                        PixelValue::px(new_rect.size.height),
-                    ))),
-                );
+                for property in connection_drag_writes(&refany.node_graph, &new_rect) {
+                    info.set_css_property(first_child, property);
+                }
             }
 
             result
@@ -7416,5 +7415,51 @@ mod audit_a3_solver_tests {
             .downcast_ref::<NodeGraphLocalDataset>()
             .expect("the graph's dataset");
         assert!(local.culled.is_none(), "a graph rendered whole culled nothing");
+    }
+
+    /// A3-solver-35c. A step of a node drag wrote three properties on every
+    /// connection of the dragged node, `width` and `height` among them: two
+    /// relayouts of the window per connection per mouse move, for a box
+    /// nothing is drawn in. It writes the `transform` alone.
+    ///
+    /// Mutation: the `width` / `height` of the box pushed onto the list again
+    /// makes it 3 writes, 2 of them layout properties.
+    #[test]
+    fn a_step_of_a_node_drag_writes_no_layout_property_on_a_connection() {
+        let mut g = graph_of(&[(0.0, 0.0), (600.0, 300.0)]);
+        wire(&mut g, 1, 2);
+        g.offset = LogicalPosition { x: 7.0, y: 9.0 };
+        for scale in [1.0_f32, 2.0] {
+            g.scale_factor = scale;
+            let drawn = drawn_connections(&g);
+            assert_eq!(drawn.len(), 1, "harness: the wire is drawn");
+            let writes = connection_drag_writes(&g, &drawn[0].1);
+            assert_eq!(writes.len(), 1, "scale {scale}: one write a connection a step");
+            let batch: CssPropertyVec = writes.clone().into();
+            assert!(
+                !crate::callbacks::css_properties_need_relayout(&batch),
+                "scale {scale}: a drag step wrote a layout property: {writes:?}"
+            );
+            assert!(
+                writes
+                    .iter()
+                    .all(|p| p.get_type().is_gpu_only_property()),
+                "scale {scale}: a write that leaves the value path: {writes:?}"
+            );
+        }
+        // The box goes where the builder would put it: the output port of node 1
+        // (250, 71) under the offset (7, 9).
+        g.scale_factor = 1.0;
+        let rect = drawn_connections(&g)[0].1;
+        assert_eq!(
+            connection_drag_writes(&g, &rect),
+            vec![CssProperty::transform(
+                vec![StyleTransform::Translate(StyleTransformTranslate2D {
+                    x: PixelValue::px(257.0),
+                    y: PixelValue::px(80.0),
+                })]
+                .into()
+            )]
+        );
     }
 }
