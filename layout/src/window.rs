@@ -2663,6 +2663,42 @@ fn callback_image_scan(steps: usize) {
 #[inline(always)]
 const fn callback_image_scan(_steps: usize) {}
 
+/// The work of the CSS diff of two cascades on this thread ([`css_diff_between`], the
+/// restyle diff of `begin_reconciliation`), as `(steps, property types)`: a step is a node
+/// looked at or an inherited value read from a store, a property type is one resolved on
+/// both sides for a matched pair. What a test reads to say the diff of a view that rendered
+/// again grows with its nodes, not with nodes times values, and compares for a label that
+/// moved the declarations that moved.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CSS_DIFF_WORK: core::cell::Cell<(usize, usize)> =
+        const { core::cell::Cell::new((0, 0)) };
+}
+
+#[cfg(test)]
+fn css_diff_work(steps: usize) {
+    CSS_DIFF_WORK.with(|work| {
+        let (so_far, types) = work.get();
+        work.set((so_far + steps, types));
+    });
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn css_diff_work(_steps: usize) {}
+
+#[cfg(test)]
+fn css_diff_types(compared: usize) {
+    CSS_DIFF_WORK.with(|work| {
+        let (steps, so_far) = work.get();
+        work.set((steps, so_far + compared));
+    });
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn css_diff_types(_compared: usize) {}
+
 /// One DOM's part of a focus move (`LayoutWindow::focus_change_per_dom`):
 /// the nodes `:focus` moves between, and the nodes `:focus-within` follows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -17471,12 +17507,19 @@ impl LayoutWindow {
             let new_cache = &styled_dom.css_property_cache.ptr;
             let old_states = old_result.styled_dom.styled_nodes.as_ref();
             let new_states = styled_dom.styled_nodes.as_ref();
+            let inherited = InheritedIds::between(
+                old_cache,
+                new_cache,
+                old_node_data.len(),
+                styled_dom.node_data.as_ref().len(),
+            );
             let unchanged = unchanged_cascades(
                 old_cache,
                 new_cache,
                 (&old_node_data, &old_hierarchy, old_states),
                 (styled_dom.node_data.as_ref(), &new_hierarchy, new_states),
                 &diff.node_moves,
+                &inherited,
             );
             for m in &diff.node_moves {
                 let (Some(old_nd), Some(new_nd)) = (
@@ -17539,6 +17582,7 @@ impl LayoutWindow {
                     new_cache,
                     (old_nd, m.old_node_id, &old_state.styled_node_state),
                     (new_nd, m.new_node_id, &new_node_state),
+                    &inherited,
                 );
                 compared_properties += compared_here;
                 let changed_any = !changed.is_empty();
@@ -30312,7 +30356,7 @@ impl LayoutWindow {
             // The CSS diff of the nodes the two builds share, when the styles of the DOM moved
             // and the cascade of the DOM before is still there to compare with.
             let restyled = if rematerialized && styles_moved {
-                live.map(|old_result| {
+                live.and_then(|old_result| {
                     css_diff_between(&old_result.styled_dom, new_styled_dom, &diff.node_moves)
                 })
             } else {
@@ -35123,6 +35167,7 @@ fn unchanged_cascades(
         &[azul_core::styled_dom::StyledNode],
     ),
     node_moves: &[azul_core::diff::NodeMove],
+    inherited: &InheritedIds<'_>,
 ) -> Vec<bool> {
     let (old_data, old_hierarchy, old_states) = old;
     let (new_data, new_hierarchy, new_states) = new;
@@ -35145,6 +35190,7 @@ fn unchanged_cascades(
     // its computed inherited values. A container whose background changed
     // does, so its subtree is not compared for it. Asked once per parent.
     let mut hands_down_the_same: Vec<Option<bool>> = vec![None; new_data.len()];
+    css_diff_work(new_data.len());
     for ni in 0..new_data.len() {
         let Some(old_id) = old_of_new[ni] else {
             continue;
@@ -35154,10 +35200,8 @@ fn unchanged_cascades(
             (None, None) => true,
             (Some(np), Some(op)) if old_of_new[np.index()] == Some(op) => {
                 unchanged[np.index()]
-                    || *hands_down_the_same[np.index()].get_or_insert_with(|| {
-                        old_cache.computed_values.values_for(op.index())
-                            == new_cache.computed_values.values_for(np.index())
-                    })
+                    || *hands_down_the_same[np.index()]
+                        .get_or_insert_with(|| inherited.same(op.index(), np.index()))
             }
             _ => false,
         };
@@ -35210,6 +35254,211 @@ fn overrides_of(
         .map_or(&[][..], Vec::as_slice)
 }
 
+/// The inherited values of the nodes of an old and a new cascade as ids both sides share:
+/// two nodes resolved the same inherited values exactly when their id lists are equal.
+///
+/// `InheritedValues::values_for` answers ONE node by reading every distinct value of its
+/// DOM (a bucket per (type, value): 150-200 in a map view of 26 text styles) and cloning
+/// its own, and the CSS diff asked it two to four times per restyled node - every label of
+/// a view that rendered again after a pan: nodes times distinct values. Here the two
+/// stores are read once, a step per (node, inherited value), and only when a comparison
+/// asks for them.
+struct InheritedIds<'c> {
+    old: &'c azul_core::prop_cache::InheritedValues,
+    new: &'c azul_core::prop_cache::InheritedValues,
+    old_nodes: usize,
+    new_nodes: usize,
+    tables: core::cell::OnceCell<InheritedIdTables>,
+}
+
+/// What [`InheritedIds`] builds on first use.
+struct InheritedIdTables {
+    /// The property type of each id.
+    types: Vec<azul_css::props::property::CssPropertyType>,
+    old: NodeIdLists,
+    new: NodeIdLists,
+}
+
+/// Per node the ids of the values it resolved, ascending: `ids[start[n]..start[n + 1]]`.
+struct NodeIdLists {
+    start: Vec<u32>,
+    ids: Vec<u32>,
+}
+
+impl NodeIdLists {
+    fn of(&self, node: usize) -> &[u32] {
+        match (self.start.get(node), self.start.get(node + 1)) {
+            (Some(from), Some(to)) => self
+                .ids
+                .get(*from as usize..*to as usize)
+                .unwrap_or(&[]),
+            _ => &[],
+        }
+    }
+
+    /// The lists of `store`, whose b-th bucket has the id `bucket_ids[b]`: a counting sort
+    /// by node, two passes over the buckets.
+    fn build(
+        store: &azul_core::prop_cache::InheritedValues,
+        bucket_ids: &[u32],
+        node_count: usize,
+    ) -> Self {
+        let mut start = vec![0_u32; node_count + 1];
+        let mut steps = 0_usize;
+        for (_, _, nodes) in store.buckets() {
+            steps += nodes.len();
+            for n in nodes {
+                // A node outside the DOM is left out here and below.
+                if (*n as usize) < node_count {
+                    start[*n as usize + 1] += 1;
+                }
+            }
+        }
+        css_diff_work(steps);
+        for i in 1..start.len() {
+            start[i] += start[i - 1];
+        }
+        let mut next = start.clone();
+        let mut ids = vec![0_u32; start[node_count] as usize];
+        for ((_, _, nodes), id) in store.buckets().zip(bucket_ids) {
+            for n in nodes {
+                if (*n as usize) < node_count {
+                    let at = next[*n as usize] as usize;
+                    if let Some(slot) = ids.get_mut(at) {
+                        *slot = *id;
+                    }
+                    next[*n as usize] += 1;
+                }
+            }
+        }
+        for n in 0..node_count {
+            if let Some(own) = ids.get_mut(start[n] as usize..start[n + 1] as usize) {
+                own.sort_unstable();
+            }
+        }
+        Self { start, ids }
+    }
+}
+
+impl InheritedIdTables {
+    fn between(
+        old: &azul_core::prop_cache::InheritedValues,
+        new: &azul_core::prop_cache::InheritedValues,
+        old_nodes: usize,
+        new_nodes: usize,
+    ) -> Self {
+        use core::hash::{Hash, Hasher};
+
+        let mut types: Vec<azul_css::props::property::CssPropertyType> = Vec::new();
+        // The ids handed out so far, by the hash of their (type, value): a value both
+        // stores hold gets one id, found without comparing it with every other value.
+        let mut seen: HashMap<u64, Vec<(u32, &azul_core::prop_cache::CssPropertyWithOrigin)>> =
+            HashMap::new();
+        let mut ids_of_buckets: [Vec<u32>; 2] = [Vec::new(), Vec::new()];
+        for (side, store) in [old, new].into_iter().enumerate() {
+            for (ty, value, _) in store.buckets() {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                ty.hash(&mut hasher);
+                value.property.hash(&mut hasher);
+                let known = seen.entry(hasher.finish()).or_default();
+                let found = known
+                    .iter()
+                    .find(|(id, v)| types.get(*id as usize) == Some(&ty) && **v == *value)
+                    .map(|(id, _)| *id);
+                let id = match found {
+                    Some(id) => id,
+                    None => {
+                        let id = u32::try_from(types.len()).unwrap_or(u32::MAX);
+                        types.push(ty);
+                        known.push((id, value));
+                        id
+                    }
+                };
+                ids_of_buckets[side].push(id);
+            }
+        }
+        let [old_ids, new_ids] = ids_of_buckets;
+        Self {
+            types,
+            old: NodeIdLists::build(old, &old_ids, old_nodes),
+            new: NodeIdLists::build(new, &new_ids, new_nodes),
+        }
+    }
+}
+
+impl<'c> InheritedIds<'c> {
+    /// For the cascade of `old_nodes` nodes and the one of `new_nodes`; nothing is read yet.
+    fn between(
+        old_cache: &'c azul_core::prop_cache::CssPropertyCache,
+        new_cache: &'c azul_core::prop_cache::CssPropertyCache,
+        old_nodes: usize,
+        new_nodes: usize,
+    ) -> Self {
+        Self {
+            old: &old_cache.computed_values,
+            new: &new_cache.computed_values,
+            old_nodes,
+            new_nodes,
+            tables: core::cell::OnceCell::new(),
+        }
+    }
+
+    fn tables(&self) -> &InheritedIdTables {
+        self.tables.get_or_init(|| {
+            InheritedIdTables::between(self.old, self.new, self.old_nodes, self.new_nodes)
+        })
+    }
+
+    /// Whether old node `old` and new node `new` resolved the same inherited values: what
+    /// `values_for(old) == values_for(new)` answers.
+    fn same(&self, old: usize, new: usize) -> bool {
+        let tables = self.tables();
+        let (before, after) = (tables.old.of(old), tables.new.of(new));
+        css_diff_work(before.len() + after.len());
+        before == after
+    }
+
+    /// The types of the inherited values one of the two nodes resolved and the other did
+    /// not, pushed to `out`: a type whose value differs (each side has a value the other
+    /// lacks) and a type only one side resolved. A type may be pushed twice.
+    fn differing_types(
+        &self,
+        old: usize,
+        new: usize,
+        out: &mut Vec<azul_css::props::property::CssPropertyType>,
+    ) {
+        let tables = self.tables();
+        let (before, after) = (tables.old.of(old), tables.new.of(new));
+        css_diff_work(before.len() + after.len());
+        let (mut i, mut j) = (0_usize, 0_usize);
+        loop {
+            let only = match (before.get(i), after.get(j)) {
+                (Some(a), Some(b)) if a == b => {
+                    i += 1;
+                    j += 1;
+                    continue;
+                }
+                (Some(a), Some(b)) if a < b => {
+                    i += 1;
+                    *a
+                }
+                (Some(_), Some(b)) | (None, Some(b)) => {
+                    j += 1;
+                    *b
+                }
+                (Some(a), None) => {
+                    i += 1;
+                    *a
+                }
+                (None, None) => break,
+            };
+            if let Some(ty) = tables.types.get(only as usize) {
+                out.push(*ty);
+            }
+        }
+    }
+}
+
 /// The property types whose resolved value can differ between the matched
 /// nodes `old` (in `old_cache`) and `new` (in `new_cache`): every type either
 /// side declares in a layer of its cascade - its own style, a rule, what it
@@ -35217,11 +35466,22 @@ fn overrides_of(
 /// whose computed value differs. Any other type answers the UA default of the
 /// node's type on both sides, the same under one selector context; so with
 /// another context, or another node type, every type is compared.
+///
+/// A LAYER that reads the same on both sides is left out when the two nodes are in the same
+/// state (`same_state`): a type's answer is found by asking each layer for that type, so a
+/// type only equal layers declare is answered the same, and a type a differing layer
+/// declares is named by that layer. A label that moved differs in its inline `left` / `top`
+/// and nothing else: three types are compared for it, not every type its class declares
+/// (and, twice, every `*` rule's). Not with a CSS-wide keyword in either DOM
+/// (`css_wide_values`): `width: inherit` answers the PARENT's value, which no layer of the
+/// node shows.
 fn types_to_compare(
     old_cache: &azul_core::prop_cache::CssPropertyCache,
     new_cache: &azul_core::prop_cache::CssPropertyCache,
     (old_nd, oi): (&azul_core::dom::NodeData, usize),
     (new_nd, ni): (&azul_core::dom::NodeData, usize),
+    same_state: bool,
+    inherited: &InheritedIds<'_>,
 ) -> Vec<azul_css::props::property::CssPropertyType> {
     use azul_css::props::property::{CssProperty, CssPropertyType};
     if old_cache.dynamic_context != new_cache.dynamic_context
@@ -35231,25 +35491,36 @@ fn types_to_compare(
         return CssPropertyType::ALL.to_vec();
     }
     let mut types: Vec<CssPropertyType> = Vec::new();
+    // Every layer, as before, unless each can be compared on its own.
+    let every_layer = !same_state
+        || !old_cache.css_wide_values.is_empty()
+        || !new_cache.css_wide_values.is_empty();
+    let rules = every_layer || old_cache.css_props.get_slice(oi) != new_cache.css_props.get_slice(ni);
+    let cascaded = every_layer
+        || old_cache.cascaded_props.get_slice(oi) != new_cache.cascaded_props.get_slice(ni);
+    let inline = every_layer
+        || old_nd.style != new_nd.style
+        || old_cache.resolved_inline.get(&oi) != new_cache.resolved_inline.get(&ni);
+    let overrides = every_layer || overrides_of(old_cache, oi) != overrides_of(new_cache, ni);
+    let global = every_layer || old_cache.global_css_props != new_cache.global_css_props;
     for (cache, nd, i) in [(old_cache, old_nd, oi), (new_cache, new_nd, ni)] {
-        types.extend(cache.css_props.get_slice(i).iter().map(|p| p.prop_type));
-        types.extend(cache.cascaded_props.get_slice(i).iter().map(|p| p.prop_type));
-        types.extend(cache.inline_properties(nd, i).map(|(p, _)| p.get_type()));
-        types.extend(overrides_of(cache, i).iter().map(|(ty, _)| *ty));
-        types.extend(cache.global_css_props.iter().map(CssProperty::get_type));
-    }
-    let old_computed = old_cache.computed_values.values_for(oi);
-    let new_computed = new_cache.computed_values.values_for(ni);
-    for (ty, value) in &old_computed {
-        if new_computed.iter().find(|(t, _)| t == ty).map(|(_, v)| v) != Some(value) {
-            types.push(*ty);
+        if rules {
+            types.extend(cache.css_props.get_slice(i).iter().map(|p| p.prop_type));
+        }
+        if cascaded {
+            types.extend(cache.cascaded_props.get_slice(i).iter().map(|p| p.prop_type));
+        }
+        if inline {
+            types.extend(cache.inline_properties(nd, i).map(|(p, _)| p.get_type()));
+        }
+        if overrides {
+            types.extend(overrides_of(cache, i).iter().map(|(ty, _)| *ty));
+        }
+        if global {
+            types.extend(cache.global_css_props.iter().map(CssProperty::get_type));
         }
     }
-    for (ty, _) in &new_computed {
-        if !old_computed.iter().any(|(t, _)| t == ty) {
-            types.push(*ty);
-        }
-    }
+    inherited.differing_types(oi, ni, &mut types);
     types.sort_unstable();
     types.dedup();
     types
@@ -35273,6 +35544,7 @@ fn changed_styles<'c>(
         NodeId,
         &azul_core::styled_dom::StyledNodeState,
     ),
+    inherited: &InheritedIds<'_>,
 ) -> (
     usize,
     Vec<(
@@ -35286,8 +35558,11 @@ fn changed_styles<'c>(
         new_cache,
         (old_nd, old_id.index()),
         (new_nd, new_id.index()),
+        old_state == new_state,
+        inherited,
     );
     let compared = types.len();
+    css_diff_types(compared);
     let changed = types
         .into_iter()
         .filter_map(|ty| {
@@ -35307,21 +35582,32 @@ fn changed_styles<'c>(
 /// nodes run. A `Dom::with_css` sheet is selector-matched by the cascade and no field of the
 /// node's own data shows it: the retained layout tree, which finds its dirty nodes by those
 /// fields, calls such a node clean and serves its old geometry and list - unless it is told.
-fn css_diff_between(
+///
+/// `None` when the two DOMs were cascaded under different selector contexts (a window that
+/// was resized or lost the focus since the old DOM's last pass): every property type of
+/// every node would have to be resolved on both sides - 204 types, 5 million lookups for a
+/// map view - to save a part of one layout. The caller lays the view out cold, as it does
+/// with no old cascade to compare with.
+pub(crate) fn css_diff_between(
     old: &StyledDom,
     new: &StyledDom,
     node_moves: &[azul_core::diff::NodeMove],
-) -> Vec<(NodeId, azul_css::props::property::RelayoutScope)> {
+) -> Option<Vec<(NodeId, azul_css::props::property::RelayoutScope)>> {
     let old_cache = &old.css_property_cache.ptr;
     let new_cache = &new.css_property_cache.ptr;
+    if old_cache.dynamic_context != new_cache.dynamic_context {
+        return None;
+    }
     let (old_data, new_data) = (old.node_data.as_ref(), new.node_data.as_ref());
     let (old_states, new_states) = (old.styled_nodes.as_ref(), new.styled_nodes.as_ref());
+    let inherited = InheritedIds::between(old_cache, new_cache, old_data.len(), new_data.len());
     let unchanged = unchanged_cascades(
         old_cache,
         new_cache,
         (old_data, old.node_hierarchy.as_ref(), old_states),
         (new_data, new.node_hierarchy.as_ref(), new_states),
         node_moves,
+        &inherited,
     );
     let mut out = Vec::new();
     for m in node_moves {
@@ -35344,6 +35630,7 @@ fn css_diff_between(
             new_cache,
             (old_nd, m.old_node_id, &old_state.styled_node_state),
             (new_nd, m.new_node_id, &new_node_state),
+            &inherited,
         );
         if changed.is_empty() {
             continue;
@@ -35354,7 +35641,7 @@ fn css_diff_between(
         );
         out.push((m.new_node_id, worst));
     }
-    out
+    Some(out)
 }
 
 /// The motion `animation: move <duration> [timing]` asks a node's moves for

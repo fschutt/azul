@@ -938,3 +938,186 @@ fn an_image_replaced_in_place_leaves_the_list_the_renderer_holds() {
     arrive(&mut lw, picture(4));
     assert!(!held(&lw), "a change still owed to the renderer is not marked as sent");
 }
+
+// -- A3-window-31: the CSS diff of a view that rendered again ---------------------------------
+
+/// The data of the view of [`moved_label_page`]: how many labels it draws and how far to the
+/// right of their places.
+struct MovedLabels {
+    count: usize,
+    shift: Arc<AtomicUsize>,
+}
+
+/// A map's label layer as the editor builds it: every label a span of one class (the sheet on
+/// the layer: eight declarations) with its place and its colour as its OWN declarations. A
+/// colour per label is an inherited value per label (the text resolves it): the store of
+/// inherited values has as many distinct values as the view has labels.
+extern "C" fn moved_label_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    use azul_css::{
+        dynamic_selector::{CssPropertyWithConditions, CssPropertyWithConditionsVec},
+        props::{
+            basic::{color::ColorU, PixelValue},
+            layout::position::{LayoutLeft, LayoutTop},
+            property::CssProperty,
+            style::text::StyleTextColor,
+        },
+    };
+
+    let (count, shift) = data
+        .downcast_ref::<MovedLabels>()
+        .map(|labels| (labels.count, labels.shift.load(Ordering::SeqCst)))
+        .expect("the view's data");
+    let mut layer = Dom::create_div().with_css(
+        ".t { position: absolute; width: 60px; height: 12px; font-size: 12px; line-height: 1; \
+         white-space: pre; cursor: pointer; background: #ffee99; }",
+    );
+    for i in 0..count {
+        let left = (10 + shift + (i % 8) * 70) as f32;
+        let top = (10 + (i / 8) * 16) as f32;
+        let colour = ColorU::rgb((i % 256) as u8, ((i / 256) % 256) as u8, 0);
+        layer = layer.with_child(
+            Dom::create_span_with_text(format!("Label {i}"))
+                .with_class("t".into())
+                .with_css_props(CssPropertyWithConditionsVec::from_vec(vec![
+                    CssPropertyWithConditions::simple(CssProperty::left(LayoutLeft {
+                        inner: PixelValue::px(left),
+                    })),
+                    CssPropertyWithConditions::simple(CssProperty::top(LayoutTop {
+                        inner: PixelValue::px(top),
+                    })),
+                    CssPropertyWithConditions::simple(CssProperty::text_color(StyleTextColor {
+                        inner: colour,
+                    })),
+                ])),
+        );
+    }
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 400.0));
+    VirtualViewReturn::with_dom(layer, window, window)
+}
+
+/// A window whose view holds `count` labels of [`moved_label_page`], laid out; the view's
+/// document.
+fn moved_label_window(count: usize, shift: &Arc<AtomicUsize>) -> (LayoutWindow, DomId) {
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(
+            RefAny::new(MovedLabels {
+                count,
+                shift: shift.clone(),
+            }),
+            VirtualViewCallback::create(moved_label_page),
+        )
+        .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    (lw, child)
+}
+
+/// The one view of the window renders again, as `update_virtual_view` has it render.
+fn render_the_view_again(lw: &mut LayoutWindow, ws: &FullWindowState) {
+    let (host, node) = *lw
+        .virtual_view_manager
+        .all_view_keys()
+        .first()
+        .expect("the page holds a view");
+    let mut updates = BTreeMap::new();
+    let mut views = FastBTreeSet::new();
+    views.insert(node);
+    updates.insert(host, views);
+    lw.queue_virtual_view_updates(updates);
+    let _ = lw.process_pending_virtual_view_updates(
+        ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+    );
+}
+
+/// `(steps, property types)` of the CSS diff of a view of `count` labels that renders again
+/// with every label five pixels further right.
+fn css_diff_of_a_move(count: usize) -> (usize, usize) {
+    let shift = Arc::new(AtomicUsize::new(0));
+    let (mut lw, _child) = moved_label_window(count, &shift);
+    shift.store(5, Ordering::SeqCst);
+    crate::window::CSS_DIFF_WORK.with(|work| work.set((0, 0)));
+    let ws = lw.current_window_state.clone();
+    render_the_view_again(&mut lw, &ws);
+    crate::window::CSS_DIFF_WORK.with(core::cell::Cell::get)
+}
+
+/// The size sweep of A3-window-31: the diff of a view whose labels all moved takes a step per
+/// label. Each label has an inherited value of its own here, so the old diff - which read
+/// every distinct inherited value of the DOM for every label, four times - was labels
+/// squared.
+#[test]
+fn the_css_diff_of_a_view_whose_labels_moved_takes_a_step_per_label() {
+    let (small, _) = css_diff_of_a_move(40);
+    let (large, _) = css_diff_of_a_move(160);
+    assert!(small > 0, "the labels' own styles moved: the two cascades were compared");
+    assert!(
+        large < 6 * small,
+        "4 x the labels took {large} steps after {small}: not 4 x the work"
+    );
+}
+
+/// The budget of A3-window-31: a label whose place moved resolves the declarations of the
+/// layer that moved - its own `left`, `top` and `color` - and not the eight of its class
+/// (and every `*` rule twice) as well.
+#[test]
+fn a_label_that_moved_compares_its_own_declarations_only() {
+    let labels = 40;
+    let (_, types) = css_diff_of_a_move(labels);
+    assert!(types >= labels, "every label's `left` was compared ({types} types)");
+    assert!(
+        types <= 4 * labels,
+        "{types} property types compared for {labels} labels whose `left` moved: more than \
+         their own three declarations each"
+    );
+}
+
+/// Two cascades under different selector contexts are not compared type by type (204 types
+/// for every node): the view lays out cold, and shows the labels where they are now.
+#[test]
+fn a_view_rendered_again_under_another_window_context_is_laid_out_without_a_diff() {
+    let shift = Arc::new(AtomicUsize::new(0));
+    let (mut lw, child) = moved_label_window(12, &shift);
+    // Child DOM: the layer 0, then span `1 + 2 i` and its text for label `i`.
+    let first_left = |lw: &LayoutWindow| {
+        lw.get_node_bounds(child, NodeId::new(1))
+            .map(|bounds| bounds.origin.x)
+            .expect("the first label's box")
+    };
+    let before = first_left(&lw);
+
+    // The window gets wider and the view renders again before any pass told its old
+    // document about the new context.
+    shift.store(5, Ordering::SeqCst);
+    let mut ws = lw.current_window_state.clone();
+    ws.size.dimensions = LogicalSize::new(700.0, 400.0);
+    lw.current_window_state = ws.clone();
+    crate::window::CSS_DIFF_WORK.with(|work| work.set((0, 0)));
+    render_the_view_again(&mut lw, &ws);
+
+    let (_, types) = crate::window::CSS_DIFF_WORK.with(core::cell::Cell::get);
+    assert_eq!(types, 0, "no property was resolved on both sides");
+    assert_eq!(
+        first_left(&lw),
+        before + 5,
+        "the labels are laid out where the new render puts them"
+    );
+}
