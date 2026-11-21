@@ -801,6 +801,11 @@ pub struct FrameClock {
     interval_ns: core::sync::atomic::AtomicU64,
     work_ns: core::sync::atomic::AtomicU64,
     layout_ns: core::sync::atomic::AtomicU64,
+    /// The stamp of the frame that was noted as presented and has not been
+    /// recorded as rendered yet ([`Self::note_rendered`]); `0`: none.
+    open: core::sync::atomic::AtomicU64,
+    /// When the work of that frame started; `0`: it needed no layout pass.
+    open_work_started: core::sync::atomic::AtomicU64,
 }
 
 impl FrameClock {
@@ -838,6 +843,36 @@ impl FrameClock {
             },
             Ordering::Relaxed,
         );
+        self.open.store(stamp, Ordering::Relaxed);
+        self.open_work_started.store(started, Ordering::Relaxed);
+    }
+
+    /// The frame last noted as presented ([`Self::note_present`]) has left its
+    /// renderer at `now` (nanoseconds): it is the SAME frame, so it is not
+    /// counted again and the interval stays the one between two frames; its
+    /// work now reaches to here (the paint of a CPU frame, the renderer's
+    /// threads and the draw of a GPU frame). A frame nobody noted is noted
+    /// here.
+    ///
+    /// The backends that record a frame's damage note the frame when they hand
+    /// it to the renderer and record it when it is drawn. Both went through
+    /// `note_present`: every frame was counted twice, the "interval" an app
+    /// read was the time between those two calls of ONE frame (the renderer's
+    /// time, not the frame rate), and the work of every frame was 0 (the
+    /// second call found no work started). Audit A4-04.
+    pub fn note_rendered(&self, now: u64) {
+        if self.open.swap(0, Ordering::Relaxed) == 0 {
+            self.note_present(now);
+            self.open.store(0, Ordering::Relaxed);
+            return;
+        }
+        let started = self.open_work_started.swap(0, Ordering::Relaxed);
+        if started != 0 {
+            self.work_ns.store(
+                now.saturating_add(1).saturating_sub(started),
+                Ordering::Relaxed,
+            );
+        }
     }
 
     /// What the clock measured so far.
@@ -2994,7 +3029,7 @@ impl LayoutWindow {
         self.frame_report
             .record_frame_at_generation(generation, paint, present);
         self.frame_clock
-            .note_present(crate::probe::monotonic_now_nanos());
+            .note_rendered(crate::probe::monotonic_now_nanos());
     }
 
     /// Create a new layout window with empty caches.
