@@ -16,8 +16,8 @@ helpers there: `env.sh` (`run <log> <cargo args>`, `summ <log>`), `errs.py` (err
 |---|---|---|---|
 | azul-css | yes | yes | `cargo test -p azul-css --no-fail-fast`: lib 2942 passed, 0 failed; 14 integration targets passed |
 | azul-core | yes | yes | `cargo test -p azul-core`: lib 3119 passed, 0 failed; 30 integration targets + doc tests passed |
-| azul-layout | yes (default features and `--features e2e-server`) | yes (`--lib --tests`) | run 1 (before round 2's merges): lib 10795 passed / 19 failed / 1 ignored; `tests/all` 3051 passed / 9 failed / 5 ignored. 22 of the 28 settled, 6 open (below). Run 2 (after round 2's merges): see the log |
-| azul-dll | not yet (needs `target/codegen`: `azul-doc codegen all`) | | |
+| azul-layout | yes (default features and `--features e2e-server`) | yes (`--lib --tests`) | run 3 (head `57a46db75`): lib 10867 passed / 2 failed / 1 ignored; `tests/all` 3059 passed / 1 failed / 5 ignored (names in the log) |
+| azul-dll | yes: default features, the editor's set (`--no-default-features --features link-static,serde-json,png`) and that + `e2e-scripting`: 0 errors each, no fix needed | yes (`--lib --tests`) | `cargo test -p azul-dll --lib` (head `57a46db75`): 3834 passed / 16 failed / 9 ignored (table "dll lib failures"); `headless_lifecycle`, Linux / Windows checks, fork tests: NOT RUN yet |
 
 Compile errors fixed so far: 17 (16 in the layout lib, 1 in a layout test), all classes listed in the log.
 
@@ -35,13 +35,32 @@ Merged into `audit/integration` by the verifier (all without conflict unless sai
   @dcccedd33 (conflict in `cpurender/retained.rs` `put_back`: both sides kept: A1-26's bound is the condition,
   A10-06's stamp of a repaired surface is in the body), `audit/A10` @21a441eee, `audit/A3-solver` @9bdd811f2,
   `audit/A4` @921340f35, `audit/A5` @8a9e74233.
+- round 3: `audit/A3-solver` at `7f6081e84`, `audit/A5` at `844d40676`.
+- round 4: `audit/A1` at `6ec61ce06` then `b23bfc358` (A1-62 .. A1-65), `audit/A3-solver` at `fc4ffd21d`,
+  `audit/A10` at `e45d1da96`, `audit/A4` at `65e8bfa2e`, `audit/A3-window` at `022638f7e` then `d68713628`.
 - NOT merged (the coordinator's word is needed): `audit/diff-first` beyond `cfc4d6d72`, `audit/A3-window` beyond
-  `257052358`, `audit/dom-builder`.
+  `257052358`, `audit/dom-builder`, `audit/A8`'s successor work.
 
-Generated code: `css/src/codegen/lower_types.rs` is current (`python3 css/tools/gen_codegen_lowering.py`: no change
-after round 2). `target/codegen` (the dll's bindings) is NOT made yet: `cargo build -p azul-doc` then
-`<target>/debug/azul-doc codegen all` from the worktree root (it writes `<worktree>/target/codegen`; `dll/build.rs`
-finds it there; of its about 940 MB only `*.rs`, `api.json.br` and `material_icons.ttf.br` are needed).
+Generated code:
+- `css/src/codegen/lower_types.rs` (tracked): current (`python3 css/tools/gen_codegen_lowering.py`: no change after
+  any merge round since `5db5f406d`).
+- `<worktree>/target/codegen` (untracked; what `dll/build.rs` checks and `dll/src/lib.rs` includes), made from
+  the `api.json` of head `f55c9cd9f` (unchanged by every merge since): CURRENT are the Rust outputs
+  `dll_api_internal.rs`, `dll_api_external.rs`, `reexports.rs`, `python_api.rs`, `php_api.rs`, `memtest.rs`,
+  `azul.rs`, and `api.json.br` (made here with the `brotli` CLI, quality 11, from the minified `api.json`: the
+  generator writes it last) and `material_icons.ttf.br` (copied from the editor's codegen directory: the same font).
+  How: `cargo build -p azul-doc` (dev profile; 0 errors), `<target>/debug/azul-doc codegen all` from the worktree
+  root, STOPPED after step 13 of 35 (memtest): the unoptimised generator needs minutes per language binding and
+  its 0.9 GB of output would have taken the disk under the floor.
+- STALE / not made in this pass: every other language binding of `codegen all` (C and C++ headers `azul.h`,
+  `azul*.hpp`, `azul.cppm`; C#, Lua, Pascal, PHP source, Nim, Odin, D, Crystal, Julia, Lisp, Ada, ... : steps
+  14-35). The pin pass / a release must run the whole generator:
+  `cargo build -r -p azul-doc -j 2 && <target>/release/azul-doc codegen all` from the repository root (as
+  `mapedit3/scripts/azul-codegen.sh` does): about 0.9 GB of output in `target/codegen` plus the release build of
+  `azul-doc` (a few GB of target). The api.json changes it has to pick up: `TextHaloStats` +
+  `CallbackInfo.get_text_halo_stats` (A5), `FrameTimings` + 24 `gpu_*` fields (A4, the last is `gpu_tiles_drawn`),
+  `Dom::with_virtual_view_version` / `set_virtual_view_version` (A3-window), `SharedBytes` +
+  `CallbackInfo.register_font_shared` (A8), `StyledDom::focusable_nodes` / `nodes_with_markers` (A6).
 
 ## Reverted commits
 
@@ -77,6 +96,12 @@ Pre-existing tests whose expectation an area changed on purpose (the area's note
   reflowed by it), A3-core-24 (`border-spacing` in em: `separated-border-model-007/-008`), A3-core-14
   (`mail_corpus/exploration/03_outlook_reply.html`: 1/64 px).
 
+- (after merge round 4) `cpurender/compositor.rs` autotests
+  `a_change_inside_a_view_inside_a_scaled_frame_is_damaged_through_the_live_matrix` (40x20 @ (120,100) ->
+  50x30 @ (115,95)) and `the_damage_inside_a_view_goes_through_the_frames_around_the_view` (80x60 @ (100,80) ->
+  90x70 @ (95,75)): A1-64 `6ec61ce06` grows a rect mapped through a composited frame by 2 px x its scale + 1 px
+  where it lands: 2 x 2 + 1 = 5 px a side, exactly; the arithmetic is in the tests' comments.
+
 Audit tests with a wrong premise (blind):
 - `34fc04d1f` `unified_layout.rs` test helper: E0597 (compile).
 - `4f2c8fb32` `raster.rs` `a_repaint_in_bands_is_the_repaint_of_one_pass`: asked `items_walked == 3 x` the one pass;
@@ -109,6 +134,34 @@ Each fails alone and deterministically; none of `AZ_CPU_THREADS=1`, `AZ_CPU_RETA
 | 5 | `audit_tests::a3_solver::sizing::a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed` | its harness line: 1 turn where it expects a second | A3-solver |
 | 6 | `the_layout_of_a_broad_corpus_matches_its_golden_dumps::the_web_platform_css_fixtures_lay_out_as_their_golden_dump` | four documents not updated (coordinator's decision): (a) "failing, pending fix: font-size in absolute units": `CSS2/linebox/vertical-align-sub-001(.xht, -ref.xht)`, `vertical-align-super-001.xht`: `div { font-size: 1in }`, line box 96 px -> 1 px (the glyphs were 1 px before and after: `fs=1`); after the fix the dumps should read `fs=96` and a 96 px line box: update the goldens THEN. (b) "failing, pending fix: float fit tolerance": `css-backgrounds/background-gradient-subpixel-fills-area.html`: the tenth float of 39.6875 px wraps in a 396.875 px box since `FloatValue` rounds | (a) text owner (A8), (b) A3-solver |
 
+| 7 | `audit_tests::a3_window::a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it` (round 2) | PANIC in the solver's check, `positioning.rs:1354`: "the absolutely positioned box 5 was placed from its last solve at (175, 31) with the size 60x12, and solving it now gives (181.5, 36.25) ...: an input of the solve is missing in `cache::AbsPlacement`". Passes with `AZ_NO_ABS_INTERIOR_REUSE=1`: the move in place (`50dda7e4e`) leaves the moved box's placement memo | A3-window x A3-solver-14b |
+| 8 | `audit_tests::a3_window::a_decoration_written_from_a_callback_is_painted_into_the_list` (round 2) | `a3_window.rs:2620` "a decoration is a repaint": `RebuildDisplayList`, expected `Paint` | A3-window (`3b50c52b0`) |
+| 9 | `audit_tests::a3_window::a_patched_frame_of_a_colour_fade_copies_no_list` (round 2) | `a3_window.rs:2582` "harness: the fade's frames are patches (0)" | A3-window |
+| 10 | `cpurender::raster::audit_a1_tests::a_walk_through_the_grids_paints_the_items_of_the_walk_that_tests_every_item` (round 2) | seed 11, view, dpi 1, damage 44.5x106.5 @ (495.5, 254.5): the grid walk paints 25 items, the every-item walk 26 (item 754 of the view's list is missing) | A1 (A1-07b `525d647fc`) |
+
+Rows 4, 5 and 6 are fixed since merge round 3, rows 3 and 10 since round 4 (see the log). Rows 1, 2 (A1-62, A1-64
+merged; not confirmed yet) and 7, 8, 9 (A3-window `4856559a5`, `91ca03104`, `022638f7e` merged; not confirmed yet)
+are decided by run 3.
+
+### dll lib failures (first run of `cargo test -p azul-dll --lib`, head `57a46db75`): 16, none triaged to the end
+
+Messages verbatim: `<scratchpad>/verify/31-failures.txt`. Switch runs were made with the built test binary.
+
+| test (under `desktop::`) | message (short) | what the switches say / likely owner |
+|---|---|---|
+| `shell2::headless::tests::dragging_the_slider_leaves_no_thumb_behind` (pre-existing) | the thumb did not follow the drag: at (126, 44), expected x~192 | PASSES with `AZ_DIFF_FIRST=0`; fails with `AZ_DIFF_FIRST=text` and `text,nodes`: a defect of diff-first step `text` (`dd25f38e7`) or of what it meets: diff-first owner. A REAL behaviour defect on the default path |
+| `shell2::headless::tests::a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_nodes_leaves_...`, `a_rebuild_that_styled_its_changed_nodes_leaves_...`, and the two `..._under_the_pointer_...` (5, diff-first's equality walks) | one line differs by the last bit of an f32: "hit area 14x14 @ (2, 59.8)" vs "(2, 59.800003)" | the first PASSES with `AZ_NO_DL_PATCH=1`: the move in place / patch path adds a delta where the full path solves anew: diff-first x A3-window |
+| `shell2::headless::tests::a_changed_text_takes_the_full_path_where_the_reconciliation_has_work` | "a handler: the full path" | diff-first owner |
+| `shell2::headless::tests::idle_cpu::a_visible_spinners_frame_damages_only_its_own_rect` (pre-existing) | a spinner frame damaged 66.07x66.07 @ (-9.03, -1.03), outside the spinner's own 32x32 @ (8, 16) | no switch changes it; 66.07 = 46.7 x sqrt 2: the bounding box of a turned box turned again: A1 (A1-60 / A1-64 damage through a turned frame) |
+| `shell2::headless::tests::every_holder_of_a_nodes_data_is_repointed::every_holder_of_a_nodes_data_is_reached_by_the_repointing_walk` (pre-existing source guard) | two test fixtures hold a `LayoutWindow` outside the walk: `dll/src/desktop/audit_tests/a5.rs Recorder: window`, `layout/src/audit_tests/a10/layer.rs Window: lw` | mechanical: list both in the guard's `NOT_WALKED` with the reason "test fixture" (A5, A10) |
+| `shell2::macos::headless_gpu::retained_list_tests::a_pan_inside_the_margin_is_a_scroll_offset_and_nothing_the_host_pays_for` (pre-existing) | "ten pan frames translated no list": 10, expected 0 | no switch changes it (`AZ_WR_VIEW_SLICE=0`, `AZ_WR_ZOOM_TILES=0`, `AZ_WALK_GPU_VALUES=1` tried): a GPU-path pan sends a list per frame: A4. A REAL cost regression if the test's premise still holds |
+| `...retained_list_tests::leaving_the_margin_translates_the_map_alone_and_holds_the_host` (pre-existing) | "the map's new list, and only it": 2, expected 1 | no switch changes it: A4 |
+| `...retained_list_tests::a_view_the_frame_does_not_send_again_is_still_drawn` (pre-existing) | "a colour is a rebuild": `Paint`, expected `RebuildDisplayList` | A3-window `3b50c52b0` / `91ca03104` make a decoration write `Paint` on purpose: the expectation is the owner's to restate (does the rest of the test still hold?) |
+| `...retained_list_tests::the_hover_of_a_label_in_the_map_sends_the_maps_list_alone_and_the_host_stays_held` (pre-existing) | "one list rebuilt: the map's": 0, expected 1 | A3-window `727d2ba8b` (a hover that comes again is a value) changed guards on purpose; this one was not restated: owner |
+| `audit_tests::a2_gpu::a_panned_views_content_reaches_webrender_where_the_cpu_paints_it` | the stripe's spatial node is `SpatialId(2, ..)`, expected `SpatialId(1, ..)` | PASSES with `AZ_WR_VIEW_SLICE=0`: A4-08 `9e3279ed8` puts a view's content under a scroll frame of its own on purpose: A2-gpu / A4 restate |
+| `audit_tests::a4::a4_the_frames_after_a_settle_send_pictures_and_no_list_at_1x` | "2 follow-up frames after the settle translated 63 items": (1, 63), expected (0, 0) | A4's notes call this count fragile (glyph raster); the 2x twin passes: A4 |
+| `audit_tests::a4::a_settle_sent_without_the_wait::a4_31_a_settle_sent_without_the_wait_hands_over_the_same_things_in_the_same_order` | "a display list waits only when the pass must be in step": (true, true), expected (false, false) | A4 (A4-31) |
+
 Other things found, routed by the coordinator:
 - A node placed by a per-node `Dom::with_css` string (the editor's tiles and symbols, `map.rs` 673-808) does not
   get A3-solver-41's inset path; only `with_css_props` nodes do.
@@ -121,14 +174,48 @@ Not decided yet (each needs its fix reverted in a scratch build to see the test 
 `6f402e476`). All seven pass WITH their fixes (run 1). A3-solver-32's fix moved exactly the golden lines its
 commit predicted, so that bug was real.
 
-## Not done yet / next
+Checkpoint results so far (head `e19bed682`): rows 1 and 2 PASS (`audit_tests::a2_cpu` + `audit_tests::a8`: 20
+passed, 0 failed, with `91ca03104`, A1-62 / A1-64 and the harness fix `8193ae482`); A8 `1b3cd3449` merged
+(`b419ea882`), 0 compile errors; goldens: exactly the three `vertical-align` documents changed as described and
+were taken (`e19bed682`), golden suite 6 of 6. OPEN on this tree: the pre-existing
+`a_measured_label_flows_its_text_only_at_a_new_width::a_hovered_label_flows_its_text_once_however_often_it_is_measured`
+(3 flows for 1; passes with `AZ_NO_TAFFY_MEASURE_JOURNAL=1`: A3-solver 17c `083fe5ada`) and the 16 dll lib failures.
+The gate runs as one background chain writing `<scratchpad>/verify/gate.txt` (one block per step: totals and
+failing names; logs `40-gate-layout` .. `46-gate-check-windows`): if this file's log below does not hold its
+results, read that file, or run the steps of point 3 again.
 
-1. Run 2 of the layout suites (after round 2's merges): running. Then write its totals and failing names here.
-2. `azul-doc` build + `codegen all`; `cargo check -p azul-dll` (default features; then
-   `--no-default-features --features link-static,serde-json,png`, the editor's set; then with `e2e-scripting`).
-3. `cargo test -p azul-dll --lib`, `--test headless_lifecycle`.
-4. `cargo check -p azul-dll --target x86_64-unknown-linux-gnu`, `--target x86_64-pc-windows-gnu` (both installed).
-5. The webrender fork's own tests (A4 changed the fork; "the fork's tests run with the fork's own test command").
+## State for a successor (the CHECKPOINT; written when the verifier's context ran short)
+
+Tree: `audit/integration`, clean; head = `b419ea882` (merge of `audit/A8` at `1b3cd3449`) + log commits. Everything
+the coordinator named for the checkpoint is merged; the second round's queue is listed in the log and must NOT be
+merged before the checkpoint. Target directory `<scratchpad>/azul-target` (about 2-4 GB; test binaries and
+workspace rlibs are deleted after each suite: `find <target>/debug/deps -maxdepth 1 -type f -perm +111 ! -name
+'*.dylib' -delete; rm <target>/debug/deps/libazul*.rlib`). `source <scratchpad>/verify/env.sh` gives `run` (refuses
+under 9 GB free) and `summ`. `target/codegen` in the worktree is current for Rust (see "Generated code"); the
+`api.json` did not change since.
+
+What is left for the checkpoint, in order:
+1. (DONE, see "Checkpoint results so far" above.) Result of log `32-build-layout-tests` + the targeted runs after it (rows 1 and 2 with the corrected harness;
+   `audit_tests::a8`; the golden suite: with A8's fix EXACTLY three documents may differ:
+   `CSS2/linebox/vertical-align-sub-001.xht`, `-sub-001-ref.xht`, `vertical-align-super-001.xht`: fs=96 on their
+   text items, a 96 px line box, baseline 77, the text's width at 96 px: check each, then take them with
+   `python3 -I <scratchpad>/verify/gsplice.py <dir with the actual dumps>` after putting those three names into its
+   ACCEPT table (the actual dumps are written to `$TMPDIR/az_golden_<group>.actual.txt` by the failing test); any
+   OTHER document: do not update, send it to the coordinator. The measured-label test with and without
+   `AZ_NO_TAFFY_MEASURE_JOURNAL=1`.) Tell the coordinator rows 1 and 2 at once.
+2. `cargo test -p azul-css --no-fail-fast`, `cargo test -p azul-core` (A8 changed the css parser and core's prop
+   cache; `cargo test -p azul-core --lib compact::audit_a8_tests`).
+3. The gate on that tree: `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast`;
+   delete its binaries; `cargo test -p azul-dll --lib --no-fail-fast`; `cargo test -p azul-dll --test
+   headless_lifecycle`; `cargo check -p azul-dll --target x86_64-unknown-linux-gnu`, then
+   `--target x86_64-pc-windows-gnu` (check only; delete `<target>/<triple>` after each). Fork tests only with the
+   audit's filters (`render_api::audit_a4_tests`, `spatial_tree`), only if the disk allows, else "not run: disk".
+4. The 16 dll failures: none is fixed. The coordinator routes them (table above); the two cheap ones a verifier can
+   do itself: the `NOT_WALKED` entries of the repointing guard; restating expectations ONLY where an owner's note
+   names the change.
+5. Milestone 4 to the coordinator with the verified commit; no push. Then, on its word, the pin pass
+   (`audit/PIN_PASS.md` in `<scratchpad>/wt/m4p-integration`), building into the editor's target directory, after
+   telling the coordinator (it frees space first); the full `azul-doc codegen all` belongs to it.
 
 ## Log
 
@@ -152,4 +239,52 @@ commit predicted, so that bug was real.
   sections above. After the fixes the 28 were run one by one: 22 pass, 6 fail (the open table).
 - merge round 2 (see "Merged"). `cargo check -p azul-core --tests`: 0 errors;
   `cargo check -p azul-layout --features e2e-server --lib --tests`: 0 errors.
-- run 2 of the layout suites: started (head `0fcd30a97`).
+- run 2, the same command (head `0fcd30a97`): lib 10847 passed, 9 failed, 1 ignored (51 s); `all` 3059 passed,
+  1 failed, 5 ignored (285 s). Failing: the 6 open ones and 4 new from round 2 (open table, rows 7-10):
+  `audit_tests::a2_cpu::a2_cpu_the_damaged_render_is_the_full_render_with_an_overlay_and_without_a_ground`,
+  `audit_tests::a2_cpu::a2_cpu_the_damaged_render_is_the_full_render_over_random_pans_zooms_fades_and_edits`,
+  `audit_tests::a3_solver::sizing::a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed`,
+  `audit_tests::a3_solver::the_layout_of_a_label_takes_what_its_measure_shaped`,
+  `audit_tests::a3_window::a_decoration_written_from_a_callback_is_painted_into_the_list`,
+  `audit_tests::a3_window::a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it`,
+  `audit_tests::a3_window::a_patched_frame_of_a_colour_fade_copies_no_list`,
+  `cpurender::raster::audit_a1_tests::a_turned_label_of_a_view_is_drawn_without_a_surface`,
+  `cpurender::raster::audit_a1_tests::a_walk_through_the_grids_paints_the_items_of_the_walk_that_tests_every_item`,
+  `the_layout_of_a_broad_corpus_matches_its_golden_dumps::the_web_platform_css_fixtures_lay_out_as_their_golden_dump`.
+- merge round 3: `audit/A3-solver` at `7f6081e84` (fixes of rows 4, 5, 6(b); 17c `083fe5ada`), `audit/A5` at
+  `844d40676`: no conflicts, 0 compile errors (`cargo test ... --no-run`). Targeted run of the rebuilt binaries:
+  lib filter `a3_solver floats::audit_a3_solver_tests text_halo image_memo audit_tests::a5`: 150 passed, 0 failed
+  (rows 4 and 5 are FIXED: `7e46a8945`, `64b2e4fc9`); `all` filter `the_layout_of_a_broad_corpus`: 6 passed, 0
+  failed: `the_web_platform_css_fixtures_lay_out_as_their_golden_dump` passes against the goldens as they are, so
+  row 6(b) is FIXED by `7f6081e84` (the ten floats are on one line again) and the three `vertical-align` documents
+  read as their old golden again (96 px line box, `fs=1`): row 6(a) is no longer red, the defect it showed
+  (`font-size: 1in` reaches the glyphs as 1 px) is still there and with the text owner.
+- `cargo build -p azul-doc` (dev profile): 0 errors (1 min 38 s). Codegen: see "Generated code".
+- merge round 4 (see "Merged"): no conflicts. `cargo test -p azul-layout ... --no-run`: 0 errors.
+  Groups run from the rebuilt lib binary (before A3-window `022638f7e`): `cpurender audit_tests::a2_cpu
+  audit_tests::a10 audit_tests::a1 widgets::node_graph cpu_backend e2e::cpu_view`: 1061 passed, 4 failed:
+  two compositor expectations moved by A1-64 (corrected, `Tests changed`), and the two random a2_cpu tests,
+  which stopped in the harness line of `Stage::write` (a veil write answered `Unchanged` for a value that was
+  not the last written; `022638f7e`'s `91ca03104` fixes a "before" read after the inline write: run again with it).
+  Rows 3 and 10 passed in that run (FIXED by A1-63 `978eccb67` and A1-65).
+- **azul-dll compiles**: `cargo check -p azul-dll` 0 errors (webrender fork and macOS shell included);
+  `cargo check -p azul-dll --lib --tests` 0 errors; `--no-default-features --features link-static,serde-json,png`
+  0 errors; the same + `e2e-scripting` 0 errors. No fix was needed in the dll.
+- run 3, `cargo test -p azul-layout --features e2e-server --lib --test all --no-fail-fast` (head `57a46db75` =
+  merge round 4 + `audit/A3-window` `d68713628`): lib 10867 passed, 2 failed, 1 ignored (49 s); `all` 3059 passed,
+  1 failed, 5 ignored (282 s). Failing:
+  `audit_tests::a2_cpu::a2_cpu_the_damaged_render_is_the_full_render_over_random_pans_zooms_fades_and_edits`,
+  `audit_tests::a2_cpu::a2_cpu_the_damaged_render_is_the_full_render_with_an_overlay_and_without_a_ground` (both in
+  my harness line: a first write "veil at 80 %" is `Unchanged`, the veil rests at 0.8: harness corrected in
+  `8193ae482`, to be run again), and NEW, pre-existing test
+  `a_measured_label_flows_its_text_only_at_a_new_width::a_hovered_label_flows_its_text_once_however_often_it_is_measured`
+  ("the hover flowed text 3 times for one label laid out at a new width after 2 measures: a measure took the place
+  of the label's final layout"; passed in run 2; candidates: A3-solver 17c `083fe5ada`, `7e46a8945`).
+  Rows 7, 8, 9 pass (FIXED by `4856559a5`, `91ca03104`, `022638f7e`); rows 3 and 10 pass.
+- `cargo test -p azul-dll --lib --no-fail-fast` (same head, default features): **3834 passed, 16 failed, 9
+  ignored** (69 s). The 16 with their messages: `<scratchpad>/verify/31-failures.txt`; table "dll lib failures"
+  above. Disk fell to 8.2 GB during this build (under the floor); test binaries and rlibs deleted after.
+- (the session was stopped by the usage limit here and resumed.) CHECKPOINT plan of the coordinator: merge only
+  `audit/A8` at `1b3cd3449` (done: `b419ea882`, no conflict), rows 1 and 2, then the gate on that tree; the rest
+  of the queue is a second round: `audit/A1` at `e1494255d` (text ink table), `audit/A3-solver` at `33a88a9ed`,
+  `audit/A5` at `dbde1ccf5`, newer `audit/A3-window`, `audit/diff-first` beyond `cfc4d6d72`, `audit/dom-builder`.

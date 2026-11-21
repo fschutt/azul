@@ -35,13 +35,27 @@ pub(crate) fn scale_translate_of(m: &TransAffine) -> Option<(f64, f64, f64, f64)
 
 /// One source axis for a run of destination pixels: for each, the lower source texel and the 8-bit
 /// weight of the upper one, or `None` for a pixel that maps outside the source (and its skirt).
+///
+/// The shift is split into its whole pixels and the rest, and the whole pixels are taken off
+/// the destination pixel as an integer: `s = ((d - whole) + (0.5 - rest)) / scale - 0.5`. A
+/// composite whose shift differs by whole pixels then computes, for the same pixel of the
+/// picture, the same `s` to the bit, and so the same texel and weight: a pan of a scaled view
+/// moves the pixels of the frame before next to a strip composited now, and the two have to
+/// agree. As `(d + 0.5) / scale - shift / scale - 0.5` the two products rounded apart in their
+/// last bits, and where `s` is a whole number or the weight a whole level - every third pixel
+/// at a scale of 3 - one frame took the texel below with a weight of 255 and the other the
+/// texel itself: a row of a box's edge a level off the fresh render. The division is rounded
+/// once, so a position that is a whole number is one.
+///
+/// Example (scale 3): shift 50, pixel 54: `((54 - 50) + 0.5) / 3 - 0.5 = 1.0`; shift 208,
+/// pixel 212: `((212 - 208) + 0.5) / 3 - 0.5 = 1.0`, the same bits.
 fn axis(from: i32, to: i32, scale: f64, shift: f64, extent: i32) -> Vec<Option<(i32, u32)>> {
-    let inv = 1.0 / scale;
-    let inv_shift = -shift * inv;
+    let whole = shift.floor();
+    let rest = 0.5 - (shift - whole);
     (from..to)
         .map(|d| {
             // The pixel's centre, mapped back to source texel space (centres at n + 0.5).
-            let s = (f64::from(d) + 0.5) * inv + inv_shift - 0.5;
+            let s = ((f64::from(d) - whole) + rest) / scale - 0.5;
             if s <= -1.0 || s >= f64::from(extent) {
                 return None;
             }
@@ -258,6 +272,61 @@ mod tests {
         blit_scale_translate(&src, &mut one, (1.4, 1.25, 3.0, 2.0), 255, top);
         blit_scale_translate(&src, &mut one, (1.4, 1.25, 3.0, 2.0), 255, bottom);
         assert!(one.data == many.data, "the bands of one composite are the composite");
+    }
+
+    /// A1-62: a composite moved by whole pixels is the same picture, moved. A pan of a scaled
+    /// view moves the pixels of the frame before and composites a strip next to them: the
+    /// two agree only if the composite at a translation that differs by whole pixels gives,
+    /// pixel for pixel, the same levels. A 40 x 30 source of noise at six scales and
+    /// translations, composited at `t` and at `t + (158, 95)`, by the separable blit and by
+    /// the general composite: every pixel of the first is the pixel 158 to the right and 95
+    /// below in the second.
+    /// Mutation: `(d + 0.5) / scale - shift / scale - 0.5` (the two terms rounded apart, as
+    /// it was) differs at a scale of 3, where every third position is a whole texel: the
+    /// row of a box's edge a level off (`a2_cpu_the_damaged_render_is_the_full_render_with_
+    /// an_overlay_and_without_a_ground`, seed 11, step 2: 59 px of one row).
+    #[test]
+    fn a_composite_moved_by_whole_pixels_is_the_same_picture_moved() {
+        let src = noise(40, 30, 0x0bad_cafe);
+        let (move_x, move_y) = (158_usize, 95_usize);
+        for (scale, tx, ty) in [
+            (3.0_f64, 12.0_f64, 7.0_f64),
+            (3.0, 12.25, 7.5),
+            (2.0, 5.0, 3.0),
+            (1.5, 0.75, 9.0),
+            (0.75, 4.0, 2.5),
+            (1.414, 3.3, 1.7),
+        ] {
+            for general in [false, true] {
+                let paint = |tx: f64, ty: f64| {
+                    let mut dst = AzulPixmap::new(320, 220).expect("a pixmap");
+                    let m = matrix(scale, scale, tx, ty);
+                    let b = bbox(&src, &dst, &m);
+                    if general {
+                        blit_pixmap_affine_general(&src, &mut dst, &m, 255, b);
+                    } else {
+                        blit_scale_translate(&src, &mut dst, (scale, scale, tx, ty), 255, b);
+                    }
+                    dst
+                };
+                let here = paint(tx, ty);
+                let there = paint(tx + move_x as f64, ty + move_y as f64);
+                let (mut differing, mut painted) = (0usize, 0usize);
+                for y in 0..220 - move_y {
+                    for x in 0..320 - move_x {
+                        let a = (y * 320 + x) * 4;
+                        let b = ((y + move_y) * 320 + x + move_x) * 4;
+                        differing += usize::from(here.data[a..a + 4] != there.data[b..b + 4]);
+                        painted += usize::from(here.data[a..a + 4] != [255, 255, 255, 255]);
+                    }
+                }
+                assert!(painted > 300, "scale {scale} at ({tx}, {ty}): the picture is there ({painted} px)");
+                assert_eq!(
+                    differing, 0,
+                    "scale {scale} at ({tx}, {ty}), general composite {general}: moved by whole pixels, the same picture"
+                );
+            }
+        }
     }
 
     #[test]

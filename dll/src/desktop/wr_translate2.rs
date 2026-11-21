@@ -902,7 +902,8 @@ const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(
 /// before them left (a quarter of a minute at 60 frames a second, and every one
 /// draws at least [`HALOS_DRAWN_ANYWAY`]). A backstop: a scan drops no halo it
 /// uses (audit A5-01), so each follow-up leaves fewer than the one before and the
-/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame.
+/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame
+/// but the one whose scan may drop the frame before's pictures (audit A5-19).
 const HALO_FOLLOW_UPS_MAX: u32 = 900;
 
 #[cfg(test)]
@@ -2132,6 +2133,38 @@ where
             .is_some_and(|key| rr.image_key_map.get(key) == Some(&hash));
         if shown_here {
             continue;
+        }
+        // A text halo's picture that the key of ANOTHER halo slot shows, in a
+        // slot that has no key yet: the keeper of the pictures gave the picture
+        // a new slot (another window on this thread drew a picture into its
+        // place; the kept pictures are a thread's, the keys a window's). The key
+        // goes with the picture: the list that names it paints what it painted,
+        // nothing is uploaded, and the old slot's key is not left behind showing
+        // a picture that is registered elsewhere, which no GC reaches (audit
+        // A5-16). One window alone never comes here: there a slot that lost its
+        // picture was given another in the same scan.
+        if matches!(slot, azul_core::resources::ImageSlot::TextHalo(_))
+            && !rr.image_slots.contains_key(&slot)
+        {
+            let shows = rr
+                .currently_registered_images
+                .get(&hash)
+                .map(|resolved| resolved.key)
+                .filter(|key| rr.image_key_map.get(key) == Some(&hash));
+            let from = shows.and_then(|key| {
+                rr.image_slots
+                    .iter()
+                    .find(|(other, shown)| {
+                        **shown == key
+                            && matches!(other, azul_core::resources::ImageSlot::TextHalo(_))
+                    })
+                    .map(|(other, _)| *other)
+            });
+            if let (Some(key), Some(from)) = (shows, from) {
+                rr.image_slots.remove(&from);
+                rr.image_slots.insert(slot, key);
+                continue;
+            }
         }
         let (key, update) = match rr.image_slots.get(&slot) {
             Some(&key) if rr.image_key_map.contains_key(&key) => (key, true),

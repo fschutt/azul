@@ -12391,6 +12391,24 @@ impl LayoutWindow {
         // ---- 5. The boxes and the items, moved together. ----
         let moved = moves && (delta.x != 0.0 || delta.y != 0.0);
         if moved {
+            // The place the solver last SOLVED for the box (`cache::AbsPlacement`, kept with
+            // the box's interior) was made from the insets it had then. A pass drops it for
+            // a box whose insets its reconcile sees move (`layout_document`, the paint
+            // flag); this box it will find clean (step 4), and no solve stands behind where
+            // the box is now. So the entry goes here, and the next pass solves the box from
+            // its style. Left standing, a pass that laid the box's parent out again - the
+            // flow puts the box's slot back to its static position, which the entry takes
+            // for "nothing moved" - placed the label where its last solve had it: back
+            // where the drag began. (The boxes below it are solved from their containing
+            // block's rect, which moved: their entries do not hold.)
+            if let Some(run) = cache
+                .cache_map
+                .entries
+                .get_mut(index)
+                .and_then(|entry| entry.abs_interior.as_deref_mut())
+            {
+                run.placement = None;
+            }
             for layout_box in &subtree {
                 for positions in [
                     &mut result.calculated_positions,
@@ -12609,7 +12627,11 @@ impl LayoutWindow {
         // it back to `from` on its first tick and walks it to `to`, so the
         // worst case (no tick — see `needs_animation_frame`) is exactly the
         // snap this path did before, never a property that fails to change.
-        let (seeded, resolves_already): (Vec<CssTransition>, bool) = {
+        let (seeded, resolves_already, written): (
+            Vec<CssTransition>,
+            bool,
+            Vec<azul_core::styled_dom::ChangedCssProperty>,
+        ) = {
             use azul_css::dynamic_selector::ResolveSystemColors;
             let cache = &layout_result.styled_dom.css_property_cache.ptr;
             // The endpoints are what the frames SHOW, so a `system:` colour
@@ -12633,6 +12655,27 @@ impl LayoutWindow {
                         .get_property(nd, &node_id, &state.styled_node_state, &prop.get_type())
                         .is_some_and(|resolved| resolved == prop)
                 });
+            // What the write changes, property by property: read here for the same reason,
+            // while the node still resolves to its OLD values. The restyle below runs after
+            // the inline style took the new ones and reports nothing for a full write (its
+            // "before" is the value just written), so the decoration patch that reads its
+            // report was never taken (A3-window-15).
+            let written: Vec<azul_core::styled_dom::ChangedCssProperty> = props
+                .iter()
+                .filter_map(|prop| {
+                    let ty = prop.get_type();
+                    let before = cache
+                        .get_property(nd, &node_id, &state.styled_node_state, &ty)
+                        .cloned()
+                        .unwrap_or_else(|| azul_css::props::property::CssProperty::auto(ty));
+                    (before != *prop).then(|| azul_core::styled_dom::ChangedCssProperty {
+                        previous_state: state.styled_node_state,
+                        previous_prop: before,
+                        current_state: state.styled_node_state,
+                        current_prop: prop.clone(),
+                    })
+                })
+                .collect();
             // The box's laid-out size in the box `box-sizing` measures
             // lengths in: where a size tween from `auto` starts
             // (`size_transition_start`).
@@ -12724,7 +12767,7 @@ impl LayoutWindow {
                     })
                     .collect(),
             };
-            (seeded, resolves_already)
+            (seeded, resolves_already, written)
         };
 
         // AFTER the transitions are seeded: `from` must be read while the
@@ -12793,7 +12836,7 @@ impl LayoutWindow {
             .map(|prop| (node_id, prop.clone()))
             .chain(seeded.iter().map(|tr| (tr.node, tr.from.clone())))
             .collect();
-        let restyle_result = layout_result.styled_dom.restyle_user_properties(&writes);
+        drop(layout_result.styled_dom.restyle_user_properties(&writes));
         // A style the app wrote (not a value the list binds: that path returned above): the
         // DOM is another one (`DomGenerations`).
         self.dom_generations.bump(dom_id);
@@ -12841,7 +12884,8 @@ impl LayoutWindow {
                 // the node stayed where it was until the view rendered again.
                 self.relayout_child_dom_in_place(dom_id, node_id);
             } else if seeded.is_empty()
-                && self.patch_restyled_decorations(dom_id, &restyle_result)
+                && !written.is_empty()
+                && self.patch_restyled_decorations(dom_id, &BTreeMap::from([(node_id, written)]))
             {
                 // A3-window-15: a write of nothing but DECORATIONS (a background, a
                 // border colour, a shadow: a row marked from a callback) is painted

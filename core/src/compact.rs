@@ -1622,11 +1622,121 @@ fn resolve_font_size_to_px_against(
             };
             rem_base * pv.number.get()
         }
-        SizeMetric::Pt => pv.number.get() * 96.0 / 72.0,
-        _ => pv.number.get(),
+        // The absolute units, by the one conversion the cascade's computed
+        // values use too (`PixelValue::absolute_px`): 1in = 96px, 1cm =
+        // 96px / 2.54, 1mm = 96px / 25.4, 1pt = 96px / 72. A catch-all arm
+        // stood here and kept the bare number of every unit but em, %, rem
+        // and pt: `font-size: 1in` was 1 px in this slot - the size the text
+        // is shaped at and its style's font size (`get_style_properties`) -
+        // and 96 px in the cascade, which the layout's `em` lengths and the
+        // font collector read. No arm is a catch-all now: a new `SizeMetric`
+        // does not compile until it is given an answer here.
+        SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+            let Some(px) = pv.absolute_px() else {
+                return;
+            };
+            px
+        }
+        // The viewport units cannot be resolved here (the cache is built
+        // without a viewport): the slot keeps the number it always kept for
+        // them. That `font-size: 5vw` is laid out as 5 px text is the known
+        // gap `tests/resize_relayout_bug.rs` describes
+        // (`vw_font_size_sets_the_viewport_units_flag`), not a unit this
+        // match forgot.
+        SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => pv.number.get(),
     };
     tier2_dims[node_idx].font_size =
         encode_pixel_value_u32(&azul_css::props::basic::pixel::PixelValue::px(resolved_px));
+}
+
+/// Guards of the audit's text area (A8-39) for [`resolve_font_size_to_px_against`].
+#[cfg(test)]
+mod audit_a8_tests {
+    use azul_css::{
+        compact_cache::{decode_pixel_value_u32, encode_pixel_value_u32, CompactNodeProps},
+        props::basic::{
+            length::SizeMetric,
+            pixel::{parse_pixel_value, PixelValue},
+        },
+    };
+
+    use super::resolve_font_size_to_px_against;
+    use crate::dom::NodeId;
+
+    /// The compact slot of a child of a 20 px parent that declares `declared`.
+    fn resolved(declared: PixelValue) -> PixelValue {
+        let mut dims = vec![CompactNodeProps::default(); 2];
+        dims[0].font_size = encode_pixel_value_u32(&PixelValue::px(20.0));
+        dims[1].font_size = encode_pixel_value_u32(&declared);
+        resolve_font_size_to_px_against(&mut dims, 1, Some(NodeId::new(0)), 16.0);
+        decode_pixel_value_u32(dims[1].font_size).expect("a length, not a sentinel")
+    }
+
+    /// A8-39. A font size in an absolute unit is its px in the compact slot,
+    /// the same px the cascade computes (one conversion for both).
+    ///
+    /// Hand-computed (CSS Values 3, 5.2; 1in = 96px): 1in = 96; 72pt = 72 x
+    /// 96 / 72 = 96; 2.54cm = 2.54 x 96 / 2.54 = 96; 25.4mm = 25.4 x 96 / 25.4
+    /// = 96; 6pc = 72pt = 96; 101.6Q = 25.4mm = 96; 0.5in = 48. Before: the
+    /// slot kept the bare number - 1, 2.54, 25.4 px (pt alone was converted),
+    /// and `6pc` / `101.6Q` were no lengths at all.
+    ///
+    /// Mutation: the absolute arm of `resolve_font_size_to_px_against` as
+    /// `pv.number.get()` gives 1 px for `1in`; `SizeMetric::Cm` as
+    /// `number * IN_TO_PX` in `absolute_length_to_px` gives 243.84 px for
+    /// `2.54cm`.
+    #[test]
+    fn a_font_size_in_an_absolute_unit_is_its_px_in_the_compact_slot() {
+        for (css, px) in [
+            ("96px", 96.0_f32),
+            ("1in", 96.0),
+            ("72pt", 96.0),
+            ("2.54cm", 96.0),
+            ("25.4mm", 96.0),
+            ("6pc", 96.0),
+            ("101.6Q", 96.0),
+            ("101.6q", 96.0),
+            ("0.5in", 48.0),
+            ("12pt", 16.0),
+        ] {
+            let declared = parse_pixel_value(css).unwrap_or_else(|e| {
+                panic!("`{css}` is a length: {e:?}");
+            });
+            let slot = resolved(declared);
+            assert_eq!(slot.metric, SizeMetric::Px, "`{css}` is resolved to px");
+            assert_eq!(
+                slot.number.get(),
+                px,
+                "`font-size: {css}` is {px} px in the compact slot"
+            );
+            // The cascade's conversion is the same function: the same number.
+            assert_eq!(
+                declared.absolute_px().map(|v| PixelValue::px(v).number.get()),
+                Some(px),
+                "`{css}` is {px} px for the cascade"
+            );
+        }
+    }
+
+    /// A8-39: what the absolute units leave alone. A relative size still
+    /// resolves against the parent (2em of 20 px = 40 px), and no relative or
+    /// viewport unit has an absolute px.
+    #[test]
+    fn a_relative_font_size_has_no_absolute_px() {
+        assert_eq!(resolved(PixelValue::em(2.0)).number.get(), 40.0);
+        assert_eq!(resolved(PixelValue::percent(50.0)).number.get(), 10.0);
+        for metric in [
+            SizeMetric::Em,
+            SizeMetric::Rem,
+            SizeMetric::Percent,
+            SizeMetric::Vw,
+            SizeMetric::Vh,
+            SizeMetric::Vmin,
+            SizeMetric::Vmax,
+        ] {
+            assert_eq!(PixelValue::from_metric(metric, 3.0).absolute_px(), None, "{metric:?}");
+        }
+    }
 }
 
 /// The font size `rem` and an unknown font size fall back to: the CSS
@@ -1663,7 +1773,17 @@ fn encode_line_height(
             SizeMetric::Vw | SizeMetric::Vh | SizeMetric::Vmin | SizeMetric::Vmax => I16_AUTO,
             SizeMetric::Em => of_font_size(l.number.get()),
             SizeMetric::Percent => of_font_size(l.number.get() / 100.0),
-            _ => encode_line_height_px(l.to_pixels_internal(0.0, 0.0, root_font_size_px)),
+            // The absolute units and `rem` (no catch-all: a new unit is
+            // named here before this compiles). `to_pixels_internal` has the
+            // factors of `absolute_length_to_px`.
+            SizeMetric::Px
+            | SizeMetric::Pt
+            | SizeMetric::In
+            | SizeMetric::Cm
+            | SizeMetric::Mm
+            | SizeMetric::Rem => {
+                encode_line_height_px(l.to_pixels_internal(0.0, 0.0, root_font_size_px))
+            }
         },
     }
 }

@@ -216,6 +216,16 @@ pub(crate) fn device_box_to_logical(b: (i32, i32, i32, i32), dpi_factor: f32) ->
     }
 }
 
+/// How far around what lands a pass paints of the promoted frame's surface when the surface
+/// is already kept and only a part of it is missing (a strip that a pan brought into view),
+/// surface px (`raster::PromoteFrame::paint_margin`). A first paint keeps the walk's own
+/// 64 px: its bands each paint their rows and this much above and below.
+///
+/// Every part painted is a copy of the whole surface handed to the window system (46.6 MB
+/// on the user's display). With 64 px a pan at 24 px a frame paints a strip every third
+/// frame; with 256 every eleventh, of four times the width.
+pub const STRIP_PAINT_MARGIN_PX: i32 = 256;
+
 /// How far around a part of the surface that is not painted the damage reaches, surface px:
 /// the taps of a composite lie up to 2 px outside what shows, and a part that lies in that
 /// rim alone lands outside the clip, where no pass can paint. Widened by this, it reaches
@@ -274,6 +284,19 @@ pub(crate) fn damage_for_missing(
         boxes = vec![all];
     }
     boxes.into_iter().map(|b| device_box_to_logical(b, dpi_factor)).collect()
+}
+
+/// How far around what lands a pass paints of the promoted frame's surface this frame
+/// (`raster::PromoteFrame::paint_margin`): [`STRIP_PAINT_MARGIN_PX`] when the surface is kept
+/// and at most a quarter of what the layer needs of it is missing (a strip), the walk's own
+/// margin (`None`) for a first paint and for a frame that paints most of what shows again
+/// (a zoom out that shows far more: its bands each paint their rows and the margin above
+/// and below them). `missing` is `RetainedFrames::missing(key, needed)`.
+#[must_use]
+pub(crate) fn paint_margin_for(missing: Option<&[[i32; 4]]>, needed: [i32; 4]) -> Option<i32> {
+    let area = |b: &[i32; 4]| i64::from((b[2] - b[0]).max(0)) * i64::from((b[3] - b[1]).max(0));
+    let missing: i64 = missing?.iter().map(area).sum();
+    (missing * 4 <= area(&needed)).then_some(STRIP_PAINT_MARGIN_PX)
 }
 
 /// THE promotion rule, over the frames a scan found that could be layers: `(surface px,
@@ -923,7 +946,7 @@ mod tests {
     /// walk (a new cache, one pass over the whole frame): what the window has to show.
     fn reference(scene: &Scene, zoom: (f32, (f32, f32))) -> AzulPixmap {
         let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
-        let promote = Some(PromoteFrame { transform_key: PICTURE, composite: true });
+        let promote = Some(PromoteFrame { transform_key: PICTURE, composite: true, paint_margin: None });
         let st = state(scene, zoom, &retained, promote, 1);
         let mut pm = white();
         repaint(scene, &st, &mut pm, &[rect(WHOLE.0, WHOLE.1, WHOLE.2, WHOLE.3)], &mut deps());
@@ -958,8 +981,13 @@ mod tests {
         refresh_retained_surfaces(&probe, &d.rr, &d.fm, &mut d.gc, 1.0).unwrap();
         let found = plan(&probe, FRAME, 1.0, &d.gc, &d.fm).expect("the picture is promoted");
         let mut damage = extra.to_vec();
-        damage.extend(damage_of_plan(&found, retained.missing(&found.key, found.needed), 1.0));
-        let promote = Some(PromoteFrame { transform_key: found.transform_key, composite: false });
+        let missing = retained.missing(&found.key, found.needed);
+        let promote = Some(PromoteFrame {
+            transform_key: found.transform_key,
+            composite: false,
+            paint_margin: paint_margin_for(missing.as_deref(), found.needed),
+        });
+        damage.extend(damage_of_plan(&found, missing, 1.0));
         let st = state(scene, zoom, retained, promote, threads);
         repaint(scene, &st, pm, &damage, &mut d);
         assert_eq!(
@@ -1035,6 +1063,21 @@ mod tests {
         assert_eq!(damage_for_missing(&many, &m, clip, 2.0).len(), 1);
     }
 
+    /// A10-06: a strip of a kept surface is painted further ahead than a first paint. The
+    /// strip of the invariant test, [1024, 153, 1062, 757] (22,952 px) of the needed
+    /// [258, 153, 1062, 757] (485,616 px): 256 px. No surface kept, or more than a quarter
+    /// missing: the walk's own margin.
+    /// Mutation: 256 px always makes each band of a first frame paint 512 rows more than its
+    /// own.
+    #[test]
+    fn a_strip_of_a_kept_surface_is_painted_further_ahead() {
+        let needed = [258, 153, 1062, 757];
+        assert_eq!(paint_margin_for(Some(&[[1024, 153, 1062, 757]]), needed), Some(STRIP_PAINT_MARGIN_PX));
+        assert_eq!(paint_margin_for(Some(&[]), needed), Some(STRIP_PAINT_MARGIN_PX), "nothing is painted anyway");
+        assert_eq!(paint_margin_for(None, needed), None, "a first paint");
+        assert_eq!(paint_margin_for(Some(&[[258, 153, 662, 757]]), needed), None, "half of it: no strip");
+    }
+
     /// A10-06, what the plan finds in the scene: the picture's root, under the view's box,
     /// landing at the view's origin plus the content offset. The view is at (100, 50) and its
     /// content offset (-160, -160): the surface's pixel (0, 0) lands at (100 - 160, 50 - 160)
@@ -1088,11 +1131,11 @@ mod tests {
     /// step 1 paints [96, 96, 1024, 824]. Step 2 (the view pans by (12, -5)) needs
     /// [170, 153, 974, 757]: painted. Step 3 (pans to an offset of (-260, -155)) needs x up to
     /// 1062: [1024, 153, 1062, 757] is missing, lands at x 861 .. 905 of the frame (widened by
-    /// 3), is cut to the clip: the damage is (861, 50) 39 x 600, and its pass paints
-    /// [957, 91, 1120, 819]. Steps 4 and 5 (scale 1.25) need [158, 150, 802, 634] and
-    /// [177, 143, 822, 628]: painted.
-    /// Step 6 (scale 0.75, landing at (0, -60)) needs [131, 144, 1120, 920]: the rows from 824
-    /// are missing.
+    /// 3), is cut to the clip: the damage is (861, 50) 39 x 600, and its pass paints 256 px
+    /// around what lands (a strip of a kept surface, `paint_margin_for`): [765, 0, 1120, 920].
+    /// Steps 4 and 5 (scale 1.25) need [158, 150, 802, 634] and [177, 143, 822, 628]: painted.
+    /// Step 6 (scale 0.75, landing at (0, -60)) needs [131, 144, 1120, 920]:
+    /// [131, 824, 765, 920] is missing.
     ///
     /// Mutations: a hit that composites (`!candidate.layer` dropped) or a kept pop that does
     /// (`lands = false` dropped) paints the picture into the window's frame (assert 2); a
