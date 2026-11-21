@@ -707,13 +707,15 @@ fn a_release_keeps_what_the_lists_paint(not_shown: bool) {
         assert!(guard < 20, "the first view's halos come");
     }
     view.lay_out(labels(LABELS, 1.5));
-    let (mut before, mut resting) = (view.frame(), 0);
+    let mut before = view.frame();
+    let mut resting = 0;
     for _ in 0..40 {
-        before = view.frame();
-        resting = if before.at_rest() { resting + 1 } else { 0 };
         if resting == 5 {
             break;
         }
+        let now = view.frame();
+        resting = if now.at_rest() { resting + 1 } else { 0 };
+        before = now;
     }
     assert_eq!(resting, 5, "premise: the view came to rest: {:?}", before.stats);
     assert_eq!(before.own().len(), LABELS, "premise: every label has its own picture");
