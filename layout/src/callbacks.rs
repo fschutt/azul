@@ -2388,7 +2388,11 @@ impl CallbackInfo {
     /// serve several accelerators. `None` in every other callback.
     #[must_use]
     pub fn get_global_hotkey_event(&self) -> azul_core::global_hotkey::OptionGlobalHotkeyEvent {
-        crate::managers::global_hotkey::delivered_event().into()
+        self.get_layout_window()
+            .global_hotkeys
+            .shared()
+            .delivered_event()
+            .into()
     }
 
     /// Ask the OS for `hotkey` again although it failed (another app held
@@ -5963,7 +5967,11 @@ impl CallbackInfo {
     /// `BiometricResult::Unavailable`; the iOS/macOS/Android backends land
     /// in a later tick.)
     pub fn request_biometric_auth(&mut self, prompt: azul_core::biometric::BiometricPrompt) {
-        crate::managers::biometric::push_biometric_request(prompt);
+        self.get_layout_window()
+            .app_services
+            .biometric
+            .requests
+            .push(prompt);
     }
 
     /// Store `secret` under `key` in the OS keyring (Keychain / `KeyStore` /
@@ -5989,7 +5997,7 @@ impl CallbackInfo {
     ) {
         let mut secret = secret;
         secret.set_secret(true);
-        crate::managers::keyring::push_keyring_request_in(
+        self.get_layout_window().app_services.keyring.push_request_in(
             namespace,
             azul_core::keyring::KeyringRequest::Store {
                 key,
@@ -6008,7 +6016,7 @@ impl CallbackInfo {
 
     /// [`Self::keyring_get`] in `namespace`.
     pub fn keyring_get_in(&mut self, namespace: azul_core::keyring::KeyringNamespace, key: AzString) {
-        crate::managers::keyring::push_keyring_request_in(
+        self.get_layout_window().app_services.keyring.push_request_in(
             namespace,
             azul_core::keyring::KeyringRequest::Get { key },
         );
@@ -6026,7 +6034,7 @@ impl CallbackInfo {
         namespace: azul_core::keyring::KeyringNamespace,
         key: AzString,
     ) {
-        crate::managers::keyring::push_keyring_request_in(
+        self.get_layout_window().app_services.keyring.push_request_in(
             namespace,
             azul_core::keyring::KeyringRequest::Delete { key },
         );
@@ -6058,14 +6066,12 @@ impl CallbackInfo {
     /// A post that cannot even be queued (hundreds outstanding) is not
     /// dropped: it reports `Failed`, like any other failure.
     pub fn post_notification(&mut self, notification: azul_core::notification::Notification) {
-        use crate::managers::notification::{
-            reject_notification, try_push_notification_request, NotificationRequest,
-            MAX_QUEUED_REQUESTS,
-        };
+        use crate::managers::notification::{NotificationRequest, MAX_QUEUED_REQUESTS};
+        let channels = &self.get_layout_window().app_services.notifications;
         if let Err(NotificationRequest::Post(notification)) =
-            try_push_notification_request(NotificationRequest::Post(notification))
+            channels.try_push_notification_request(NotificationRequest::Post(notification))
         {
-            let _ = reject_notification(
+            let _ = channels.reject_notification(
                 notification,
                 AzString::from(format!(
                     "not shown: {MAX_QUEUED_REQUESTS} notification requests are already waiting \
@@ -6086,7 +6092,10 @@ impl CallbackInfo {
     /// answers from the app's notification setting); Windows and Linux have no
     /// prompt and answer whether notifications can be shown at all.
     pub fn request_notification_permission(&mut self) {
-        crate::managers::notification::request_notification_permission();
+        self.get_layout_window()
+            .app_services
+            .notifications
+            .request_notification_permission();
     }
 
     /// Take the notification posted under `id` off the screen. Its callback
@@ -6095,16 +6104,23 @@ impl CallbackInfo {
     /// they cannot take).
     pub fn withdraw_notification(&mut self, id: AzString) {
         // a withdraw always fits: the queue keeps room the posts cannot take
-        let _ = crate::managers::notification::push_notification_request(
-            crate::managers::notification::NotificationRequest::Withdraw(id),
-        );
+        let _ = self
+            .get_layout_window()
+            .app_services
+            .notifications
+            .push_notification_request(crate::managers::notification::NotificationRequest::Withdraw(
+                id,
+            ));
     }
 
     /// Inside a notification's callback: what happened to it (clicked, a
     /// button, dismissed, failed to show). `None` in any other callback.
     #[must_use]
     pub fn get_notification_event(&self) -> Option<azul_core::notification::NotificationEvent> {
-        crate::managers::notification::current_notification_event()
+        self.get_layout_window()
+            .app_services
+            .notifications
+            .current_notification_event()
     }
 
     /// Inside the tray's callback (`TrayIconData::with_callback`): which tray
@@ -6113,7 +6129,7 @@ impl CallbackInfo {
     /// its own (with its command id). `None` in any other callback.
     #[must_use]
     pub fn get_tray_event(&self) -> Option<azul_core::tray::TrayEvent> {
-        crate::managers::tray_event::current_tray_event()
+        self.get_layout_window().app_services.tray.current_tray_event()
     }
 
     /// Read the most recently observed permission state for `capability`
@@ -7536,7 +7552,7 @@ impl CallbackInfo {
     /// one. Inside a paste, [`Self::get_clipboard_content`] is what is pasted.
     #[must_use]
     pub fn get_system_clipboard(&self) -> crate::managers::selection::OptionClipboardContent {
-        crate::managers::clipboard::read_system_clipboard().into()
+        self.get_layout_window().app_services.clipboard.read().into()
     }
 
     /// Override clipboard content for copy/cut operations
@@ -9684,9 +9700,8 @@ mod autotest_generated {
         };
         with_info(node_none(), |info| {
             assert_eq!(info.get_global_hotkey_event(), OptionGlobalHotkeyEvent::None);
-            let inside = crate::managers::global_hotkey::with_delivered_event(event, || {
-                info.get_global_hotkey_event()
-            });
+            let hotkeys = info.get_layout_window().global_hotkeys.shared().clone();
+            let inside = hotkeys.with_delivered_event(event, || info.get_global_hotkey_event());
             assert_eq!(inside, OptionGlobalHotkeyEvent::Some(event));
             assert_eq!(
                 info.get_global_hotkey_event(),

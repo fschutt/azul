@@ -2012,6 +2012,9 @@ const fn memory_walk_coverage_is_exhaustive(w: &LayoutWindow) {
         // A handle (Arc) plus a u64: the manager it points at is the APP's,
         // bounded by the app's accelerators, not by this window's document.
         global_hotkeys: _,
+        // Handles (Arcs) on the APP's queues and slots, bounded by the
+        // app's own limits, not by this window's document.
+        app_services: _,
         // One small entry per node animating RIGHT NOW, not per node in the
         // document, and `tick` removes an entry as soon as it settles. A
         // document ten times larger does not make this bigger; only ten times
@@ -2510,6 +2513,11 @@ pub struct LayoutWindow {
     /// every `layout()` pass's declarations (`LayoutCallbackInfo::
     /// add_global_hotkey`) to it; dropping the window forgets them.
     pub global_hotkeys: crate::managers::global_hotkey::WindowHotkeys,
+    /// The queues and slots this window shares with the app it belongs to
+    /// (the platform's answers, the requests the callbacks make of it, the
+    /// app's global hotkeys): its own until [`Self::join_app`] hands it the
+    /// app's.
+    pub app_services: crate::managers::app_services::AppServices,
     /// The last `layout()` call read `LayoutCallbackInfo::get_locale`: its
     /// DOM depends on the locale, so a locale change rebuilds it.
     pub depends_on_locale: bool,
@@ -4113,7 +4121,7 @@ pub struct DomFocusChange {
 }
 
 /// A window that goes away stops the background workers it still has TOGETHER
-/// (`managers::thread_owner::stop_all`): every one is told `TerminateThread`
+/// (`managers::thread_owner::StoppingWorkers::stop_all`): every one is told `TerminateThread`
 /// first and they are waited for on one shared grace period. Dropping the
 /// `threads` map entry by entry made each worker's destructor wait for its
 /// worker before the next one even heard of it - a window closed in the SUM
@@ -4124,7 +4132,7 @@ pub struct DomFocusChange {
 impl Drop for LayoutWindow {
     fn drop(&mut self) {
         #[cfg(feature = "std")]
-        crate::managers::thread_owner::stop_all(&mut self.threads);
+        self.app_services.stopping_workers.stop_all(&mut self.threads);
     }
 }
 
@@ -4532,6 +4540,9 @@ impl LayoutWindow {
     /// last-resort "tofu" face for text and icons.
     #[must_use]
     pub fn from_font_manager(font_manager: FontManager<FontRef>) -> Self {
+        // Its own queues until `join_app` hands it its app's; the window is a member of
+        // its own hotkey manager (no backend: every declaration reads `Unsupported`).
+        let app_services = crate::managers::app_services::AppServices::new();
         Self {
             pending_css_dirty: None,
             css_dirty_waiting: BTreeMap::new(),
@@ -4545,10 +4556,10 @@ impl LayoutWindow {
             frame_report: FrameReport::default(),
             recorded_size_queries: (Vec::new(), false),
             recorded_style_dependencies: azul_core::callbacks::SystemStyleDependencies::empty(),
-            // Joins the App whose loop runs on this thread (`App::run` makes
-            // it current); a window built anywhere else gets a detached
-            // manager where every declaration reads `Unsupported`.
-            global_hotkeys: crate::managers::global_hotkey::WindowHotkeys::for_current_app(),
+            global_hotkeys: crate::managers::global_hotkey::WindowHotkeys::new(
+                app_services.hotkeys.clone(),
+            ),
+            app_services,
             depends_on_locale: false,
             depends_on_text_direction: false,
             locale_override: None,
@@ -34626,6 +34637,8 @@ impl LayoutWindow {
             // Keyed by ACCELERATOR (and the window's sequence number), never
             // by NodeId: a global hotkey belongs to the window, not a node.
             global_hotkeys: _,
+            // The app's queues and slots, keyed by nothing in this window.
+            app_services: _,
             // Flags and languages, keyed by nothing.
             depends_on_locale: _,
             depends_on_text_direction: _,

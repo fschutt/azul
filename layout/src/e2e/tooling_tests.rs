@@ -370,13 +370,10 @@ fn the_folder_scan_finds_the_scenarios_in_subfolders_in_sorted_order() {
 
 // ==== the notification op and `assert_notification`'s payload ====
 
-/// The notification tests share the process-wide mailbox and recorder.
-static NOTIFICATION_GLOBALS: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-fn notification_globals() -> std::sync::MutexGuard<'static, ()> {
-    NOTIFICATION_GLOBALS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+/// The scenario's own app: the window it runs in joins it, so the notification mailbox and
+/// recorder the scenario's ops reach are the test's (no test shares them with another).
+fn notification_app() -> crate::managers::app_services::AppServices {
+    crate::managers::app_services::AppServices::new()
 }
 
 /// A scenario that runs every step, so each step's own verdict is visible.
@@ -402,12 +399,9 @@ fn step_errors(result: &E2eTestResult) -> Vec<String> {
 #[test]
 fn the_notification_event_op_queues_a_click_an_action_and_a_dismissal_with_their_payload() {
     use azul_core::notification::NotificationEventType;
-    use crate::managers::notification::drain_notification_events;
 
-    let _globals = notification_globals();
-    drop(drain_notification_events());
-
-    let result = run_e2e_test(&every_step(
+    let app = notification_app();
+    let (result, _runner) = super::run_e2e_test_in_app(&every_step(
         "notification_events",
         serde_json::json!([
             { "op": "notification_event", "id": "e1-click", "kind": "click", "payload": "doc-1" },
@@ -420,8 +414,8 @@ fn the_notification_event_op_queues_a_click_an_action_and_a_dismissal_with_their
             { "op": "notification_event", "id": "e1-launch", "kind": "click",
               "launched_app": true }
         ]),
-    ));
-    let events = drain_notification_events();
+    ), &app);
+    let events = app.notifications.drain_notification_events();
 
     assert_eq!(result.status, "pass", "{:#?}", step_errors(&result));
     let event = |id: &str| {
@@ -453,20 +447,16 @@ fn the_notification_event_op_queues_a_click_an_action_and_a_dismissal_with_their
 /// refused by name, and nothing is queued for them.
 #[test]
 fn a_notification_event_needs_an_id_a_known_kind_and_an_action_for_a_button() {
-    use crate::managers::notification::drain_notification_events;
-
-    let _globals = notification_globals();
-    drop(drain_notification_events());
-
-    let result = run_e2e_test(&every_step(
+    let app = notification_app();
+    let (result, _runner) = super::run_e2e_test_in_app(&every_step(
         "notification_event_refusals",
         serde_json::json!([
             { "op": "notification_event", "id": "e1-typo", "kind": "clicked" },
             { "op": "notification_event", "id": "e1-no-button", "kind": "action" },
             { "op": "notification_event", "id": "", "kind": "click" }
         ]),
-    ));
-    let events = drain_notification_events();
+    ), &app);
+    let events = app.notifications.drain_notification_events();
 
     let errors = step_errors(&result);
     assert_eq!(errors.len(), 3, "every step is refused: {errors:#?}");
@@ -485,26 +475,25 @@ fn a_notification_event_needs_an_id_a_known_kind_and_an_action_for_a_button() {
 fn assert_notification_checks_the_payload_a_notification_was_posted_with() {
     use azul_core::notification::Notification;
     use azul_css::AzString;
-    use crate::managers::notification::record_posted_notification;
 
-    let _globals = notification_globals();
-    record_posted_notification(
+    let app = notification_app();
+    app.notifications.record_posted_notification(
         &Notification::create(AzString::from("e1-payload"), AzString::from("E1"))
             .with_payload(AzString::from("doc-42")),
     );
 
-    let same = run_e2e_test(&every_step(
+    let (same, _) = super::run_e2e_test_in_app(&every_step(
         "payload_matches",
         serde_json::json!([
             { "op": "assert_notification", "id": "e1-payload", "payload": "doc-42" }
         ]),
-    ));
-    let other = run_e2e_test(&every_step(
+    ), &app);
+    let (other, _) = super::run_e2e_test_in_app(&every_step(
         "payload_differs",
         serde_json::json!([
             { "op": "assert_notification", "id": "e1-payload", "payload": "doc-43" }
         ]),
-    ));
+    ), &app);
 
     assert_eq!(same.status, "pass", "{:#?}", step_errors(&same));
     assert_eq!(other.status, "fail", "a different payload fails");
@@ -749,38 +738,37 @@ fn a_click_by_text_finds_the_label_inside_an_inline_span() {
 fn assert_notification_checks_when_a_scheduled_notification_shows() {
     use azul_core::notification::Notification;
     use azul_css::AzString;
-    use crate::managers::notification::record_posted_notification;
 
-    let _globals = notification_globals();
-    record_posted_notification(
+    let app = notification_app();
+    app.notifications.record_posted_notification(
         &Notification::create(AzString::from("clock9-alarm"), AzString::from("Gym"))
             .with_deliver_at(1_790_985_600_000),
     );
-    record_posted_notification(&Notification::create(
+    app.notifications.record_posted_notification(&Notification::create(
         AzString::from("clock9-now"),
         AzString::from("Now"),
     ));
 
-    let passing = run_e2e_test(&every_step(
+    let (passing, _) = super::run_e2e_test_in_app(&every_step(
         "scheduled_matches",
         serde_json::json!([
             { "op": "assert_notification", "id": "clock9-alarm", "scheduled": true,
               "deliver_at": 1_790_985_600_000u64 },
             { "op": "assert_notification", "id": "clock9-now", "scheduled": false }
         ]),
-    ));
-    let wrong_time = run_e2e_test(&every_step(
+    ), &app);
+    let (wrong_time, _) = super::run_e2e_test_in_app(&every_step(
         "deliver_at_differs",
         serde_json::json!([
             { "op": "assert_notification", "id": "clock9-alarm", "deliver_at": 1_790_985_660_000u64 }
         ]),
-    ));
-    let not_scheduled = run_e2e_test(&every_step(
+    ), &app);
+    let (not_scheduled, _) = super::run_e2e_test_in_app(&every_step(
         "scheduled_differs",
         serde_json::json!([
             { "op": "assert_notification", "id": "clock9-now", "scheduled": true }
         ]),
-    ));
+    ), &app);
 
     assert_eq!(passing.status, "pass", "{:#?}", step_errors(&passing));
     assert_eq!(wrong_time.status, "fail", "another time fails");

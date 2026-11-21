@@ -7330,7 +7330,7 @@ pub fn evaluate_assertion(
         "assert_no_unmocked_requests" => eval_assert_no_unmocked_requests(params),
         "assert_unmocked_request" => eval_assert_unmocked_request(params),
         // Native notifications, as the headless backend recorded them
-        "assert_notification" => eval_assert_notification(params),
+        "assert_notification" => eval_assert_notification(params, callback_info),
         // Global hotkeys, as the window's App manager holds them
         "assert_global_hotkeys" => eval_assert_global_hotkeys(params, callback_info),
         other => AssertionResult::fail(format!("Unknown assertion: {}", other)),
@@ -9518,7 +9518,10 @@ fn eval_assert_global_hotkeys(
 /// { "op": "assert_notification", "id": "demo", "action": "open", "payload": "doc-42",
 ///   "withdrawn": false }
 /// ```
-fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
+fn eval_assert_notification(
+    params: &serde_json::Value,
+    callback_info: &azul_layout::callbacks::CallbackInfo,
+) -> AssertionResult {
     const CONSTRAINTS: &[&str] = &[
         "id", "title", "body", "action", "payload", "withdrawn", "count", "scheduled",
         "deliver_at",
@@ -9536,7 +9539,11 @@ fn eval_assert_notification(params: &serde_json::Value) -> AssertionResult {
     let scheduled = params.get("scheduled").and_then(serde_json::Value::as_bool);
     let deliver_at = params.get("deliver_at").and_then(serde_json::Value::as_u64);
 
-    let recorded = azul_layout::managers::notification::recorded_notifications();
+    let recorded = callback_info
+        .get_layout_window()
+        .app_services
+        .notifications
+        .recorded_notifications();
     let summary: Vec<String> = recorded
         .iter()
         .map(|r| {
@@ -11230,8 +11237,8 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     ),
     (
         "hid",
-        "this module is only the cross-thread channel — two process-global mutexes the platform \
-         backends park in and the dll capability pump drains. The state that survives a pass is \
+        "this module is only the cross-thread channel — two mutexes of the APP's `AppServices` the \
+         platform backends park in and the dll capability pump drains. The state that survives a pass is \
          `LayoutWindow::hid_manager` (an `azul_core::hid::HidManager`: a device snapshot plus \
          this pass's reports), and it is not node-keyed either — a HID report names a \
          vendor/product/instance, never a DOM node — so X10 has nothing to judge. It IS \
@@ -11239,15 +11246,16 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     ),
     (
         "media_keys",
-        "owns no window state at all: three PROCESS-GLOBAL mutex queues (media keys, \
-         `MediaControlRequest`s, `SystemAudioChange`s) that a D-Bus / SMTC / remote-command \
-         thread parks in and the event pass drains destructively. There is no LayoutWindow field, \
-         nothing node-keyed, and nothing per-window — the queues belong to the process, so no \
-         assertion made against ONE window could say anything true about them",
+        "owns no window state at all: three mutex queues of the APP (`AppServices::media_keys`: \
+         media keys, `MediaControlRequest`s, `SystemAudioChange`s) that a D-Bus / SMTC / \
+         remote-command thread parks in and the event pass drains destructively. There is no \
+         LayoutWindow field of its own, nothing node-keyed, and nothing per-window — the queues \
+         belong to the app, so no assertion made against ONE window could say anything true \
+         about them",
     ),
     (
         "window_activation",
-        "owns no window state: one PROCESS-GLOBAL mutex queue of `registry_window_id`s that an \
+        "owns no window state: one mutex queue of the APP (`AppServices::raise`) of `registry_window_id`s that an \
          off-loop thread (the MPRIS worker) parks a raise request in, which `take_raise_request` \
          removes as it reports it. Those ids are native window handles, not DOM nodes and not \
          LayoutWindow identities, so X10 has no key to judge; and in a headless run there is no \
@@ -11255,7 +11263,7 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     ),
     (
         "notification",
-        "owns no window state: two PROCESS-GLOBAL mutex queues (requests a callback parks for the \
+        "owns no window state: two mutex queues of the APP (`AppServices::notifications`: requests a callback parks for the \
          dll's backend, events a platform callback parks for the run loop) and the headless \
          recorder. The registry that routes an event to its callback belongs to the dll's \
          notification service, keyed by the APP's notification id - a string the app picked, \
@@ -11272,16 +11280,16 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
     ),
     (
         "app_target",
-        "owns no window state: a pure rule (`pick_app_target`) plus the process-wide activation \
-         clock `WindowActivationOrder` reads. The per-window stamps live on the dll shell's \
+        "owns no window state: a pure rule (`pick_app_target`) plus the app's activation \
+         clock (`AppServices::activation_clock`) `WindowActivationOrder` reads. The per-window stamps live on the dll shell's \
          `CommonWindowState`, not on the LayoutWindow, and they order WINDOWS, not DOM nodes - \
          X10 has no node to judge. The rule itself is pinned by layout/tests/app_target.rs",
     ),
     (
         "tray_event",
-        "owns no window state: one PROCESS-GLOBAL mutex mailbox that the tray's platform \
-         callbacks (an AppKit action, an SNI D-Bus call) park events in and the run loop drains \
-         destructively, plus a thread-local 'current event' set only for the duration of one \
+        "owns no window state: one mutex mailbox of the APP (`AppServices::tray`) that the tray's \
+         platform callbacks (an AppKit action, an SNI D-Bus call) park events in and the run loop \
+         drains destructively, plus a 'current event' slot set only for the duration of one \
          delivery. The tray belongs to the app, not to a window, and nothing is node-keyed, so \
          X10 has nothing to judge. Routing and delivery are pinned by layout/tests/tray_events.rs",
     ),
@@ -12403,23 +12411,23 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
         (
             "media_keys",
             "nothing on the WINDOW to hash. The three queues this module owns (media keys, media \
-             control requests, system audio changes) are process-globals, and their only readers \
+             control requests, system audio changes) are the app's (`AppServices`), and their only readers \
              — `drain_media_keys`, `drain_media_controls`, `drain_system_audio_changes` — consume \
              what they return. Fingerprinting them would have to drain them, so the act of \
              measuring would swallow the very key press the app was about to receive; and being \
-             per-PROCESS, a change in them could not be attributed to the window this snapshot is \
+             per-APP, a change in them could not be attributed to the window this snapshot is \
              of",
         ),
         (
             "window_activation",
             "nothing on the WINDOW to hash, for both of `media_keys`' reasons: the pending-raise \
-             queue is a process-global, and its only reader `take_raise_request` removes the \
+             queue is the app's, and its only reader `take_raise_request` removes the \
              entry it reports, so measuring it would swallow a sibling window's raise. \
              `manager_fingerprints` takes a `&LayoutWindow` and this module has no field on one",
         ),
         (
             "notification",
-            "nothing on the WINDOW to hash: its queues and recorder are process-globals, and the \
+            "nothing on the WINDOW to hash: its queues and recorder are the app's, and the \
              queues' only readers (`drain_notification_requests`, `drain_notification_events`) \
              consume what they return, so measuring them would swallow the post or the click the \
              app was about to see. The recording is read by `assert_notification` instead",
@@ -12435,15 +12443,15 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
         ),
         (
             "app_target",
-            "nothing on the LayoutWindow to hash: the module is a pure rule and a process-wide \
+            "nothing on the LayoutWindow to hash: the module is a pure rule and the app's \
              clock, and the activation stamps it orders are fields of the dll shell's \
              CommonWindowState. `manager_fingerprints` takes a `&LayoutWindow`, which never \
              holds one",
         ),
         (
             "tray_event",
-            "nothing on the WINDOW to hash, for `notification`'s reasons: the mailbox is a \
-             process-global whose only reader (`drain_tray_events`) consumes what it returns, so \
+            "nothing on the WINDOW to hash, for `notification`'s reasons: the mailbox is the \
+             app's, and its only reader (`drain_tray_events`) consumes what it returns, so \
              measuring it would swallow the click the app was about to receive, and the tray is \
              the app's, so a change could not be attributed to this window",
         ),
@@ -13015,7 +13023,7 @@ fn fp_device_events(
 /// fills from that channel — so `hid` names the manager on the window, which is
 /// the thing a leak could reach.
 ///
-/// The channel's own process-global queue is NOT covered and cannot be: its
+/// The channel's own queue (the app's) is NOT covered and cannot be: its
 /// only reader (`drain_hid_reports`) consumes what it returns, so a fingerprint
 /// that read it would eat the reports the next pass was about to deliver.
 #[cfg(feature = "std")]
@@ -18686,7 +18694,12 @@ pub fn process_debug_event(
         ) {
             Err(e) => send_err(request, format!("notification_event: {e}")),
             Ok(event) => {
-                if azul_layout::managers::notification::queue_notification_event(event) {
+                if callback_info
+                    .get_layout_window()
+                    .app_services
+                    .notifications
+                    .queue_notification_event(event)
+                {
                     // Wake the loop: the run loop's notification pump routes
                     // the event, not this op.
                     needs_update = true;
@@ -25191,15 +25204,14 @@ mod non_interference_can_fail {
             "eyedropper",
             azul_layout::managers::eyedropper::EyedropperManager::new(),
             |m: &mut azul_layout::managers::eyedropper::EyedropperManager| {
-                // begin_request() bumps the PROCESS-GLOBAL `IN_FLIGHT` counter
-                // and only fold_result() releases it — a bare begin here leaked
-                // one in-flight pick forever and raced
-                // `results_are_routed_to_the_window_that_asked`'s
-                // `assert!(!in_flight_anywhere())` in the parallel test run.
-                // Complete the pick: the fingerprint still moves, via
-                // `last_result` (None → Some(None)).
-                let id = m.begin_request();
-                let _ = m.fold_result(id, None);
+                // begin_request() counts the pick in flight on the APP's channel
+                // and only fold_result() releases it. The channel here is this
+                // test's own, so no other test sees the count; complete the
+                // pick anyway: the fingerprint moves via `last_result`
+                // (None → Some(None)).
+                let channel = azul_layout::managers::eyedropper::EyedropperChannel::new();
+                let id = m.begin_request(&channel);
+                let _ = m.fold_result(&channel, id, None);
             },
             super::fp_eyedropper
         );
