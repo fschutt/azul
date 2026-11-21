@@ -1242,13 +1242,22 @@ pub fn break_one_line<T: ParsedFontTrait>(
         white_space_mode,
         WhiteSpaceMode::Normal | WhiteSpaceMode::Nowrap | WhiteSpaceMode::PreLine
     );
+    // Every unit below is measured where it stands (`cursor.upcoming()`, its
+    // first `next_unit_len()` items) and cloned once, into the line: it was
+    // cloned into a `Vec` by `peek_next_unit` first, and the first unit of a
+    // line once more by this check.
     if strip_leading {
         while !cursor.is_done() {
-            let next_unit = cursor.peek_next_unit();
-            if next_unit.is_empty() {
+            let unit_len = cursor.next_unit_len();
+            if unit_len == 0 {
                 break;
             }
-            if next_unit.len() == 1 && is_collapsible_whitespace(&next_unit[0]) {
+            if unit_len == 1
+                && cursor
+                    .upcoming()
+                    .next()
+                    .is_some_and(|item| is_collapsible_whitespace(item))
+            {
                 cursor.consume(1);
             } else {
                 break;
@@ -1268,32 +1277,33 @@ pub fn break_one_line<T: ParsedFontTrait>(
         // No soft wrapping — consume everything onto one line.
         // Only explicit <br>/newline breaks are honored.
         loop {
-            let next_unit = cursor.peek_next_unit();
-            if next_unit.is_empty() {
+            let unit_len = cursor.next_unit_len();
+            let Some(first) = cursor.upcoming().next().filter(|_| unit_len > 0) else {
                 break;
-            }
-            if let Some(ShapedItem::Break { .. }) = next_unit.first() {
-                line_items.push(next_unit[0].clone());
+            };
+            if let ShapedItem::Break { .. } = first {
+                line_items.push(first.clone());
                 cursor.consume(1);
                 return (LogicalLine::new(line_items), false);
             }
-            line_items.extend_from_slice(&next_unit);
-            cursor.consume(next_unit.len());
+            line_items.extend(cursor.upcoming().take(unit_len).cloned());
+            cursor.consume(unit_len);
         }
     } else {
         loop {
             // typographic character unit as a soft wrap opportunity; hyphenation is not applied
-            let next_unit = if line_break == LineBreakStrictness::Anywhere {
-                cursor.peek_next_single_item()
+            // (`peek_next_single_item`: the next item alone)
+            let unit_len = if line_break == LineBreakStrictness::Anywhere {
+                usize::from(cursor.upcoming().next().is_some())
             } else {
-                cursor.peek_next_unit()
+                cursor.next_unit_len()
             };
-            if next_unit.is_empty() {
+            let Some(first) = cursor.upcoming().next().filter(|_| unit_len > 0) else {
                 break; // End of content
-            }
+            };
 
-            if let Some(ShapedItem::Break { .. }) = next_unit.first() {
-                line_items.push(next_unit[0].clone());
+            if let ShapedItem::Break { .. } = first {
+                line_items.push(first.clone());
                 cursor.consume(1);
                 return (LogicalLine::new(line_items), false);
             }
@@ -1310,9 +1320,9 @@ pub fn break_one_line<T: ParsedFontTrait>(
             // keeps (pre-wrap) stays with it.
             if line_constraints.is_min_content
                 && !line_items.is_empty()
-                && ((next_unit.len() == 1
+                && ((unit_len == 1
                     && is_break_opportunity_with_word_break(
-                        &next_unit[0],
+                        first,
                         cursor.word_break,
                         cursor.hyphens,
                     ))
@@ -1326,6 +1336,8 @@ pub fn break_one_line<T: ParsedFontTrait>(
             // keeps the unit's later breaks for the lines after it, as the
             // intrinsic scan measures the unit's fragments.
             if line_constraints.is_min_content {
+                let next_unit: Vec<ShapedItem> =
+                    cursor.upcoming().take(unit_len).cloned().collect();
                 let breaks =
                     unit_hyphenation_breaks(&next_unit, cursor, hyphenator, is_vertical, fonts);
                 if !breaks.is_empty() {
@@ -1341,16 +1353,21 @@ pub fn break_one_line<T: ParsedFontTrait>(
             // wrap a line that fits its own measured max-content by 1 ULP; this
             // form is bit-identical to the measurement, so a box sized to its
             // measurement never wraps. See fold_line_width.
-            let width_with_unit = next_unit.iter().fold(current_width, |w, item| {
-                fold_line_width(w, item, is_vertical)
-            });
+            let width_with_unit = cursor
+                .upcoming()
+                .take(unit_len)
+                .fold(current_width, |w, item| fold_line_width(w, item, is_vertical));
 
             // 2. Can the whole unit fit on the current line?
             if width_with_unit <= line_constraints.total_available {
-                line_items.extend_from_slice(&next_unit);
+                line_items.extend(cursor.upcoming().take(unit_len).cloned());
                 current_width = width_with_unit;
-                cursor.consume(next_unit.len());
+                cursor.consume(unit_len);
             } else {
+                // The unit as a list, for the hyphenation and the emergency
+                // break below (once per line).
+                let next_unit: Vec<ShapedItem> =
+                    cursor.upcoming().take(unit_len).cloned().collect();
                 let available_width = line_constraints.total_available - current_width;
                 // 3. The unit overflows. Can we hyphenate it? It breaks at
                 // its soft hyphens (hyphens: manual or auto) or, with none
