@@ -39,15 +39,36 @@ pub struct FontCacheSnapshot {
 
 impl FontCacheSnapshot {
     /// Snapshot for use inside a LAYOUT callback: builds family resolution +
-    /// fallback chains over the system font cache the callback exposes. No
-    /// per-window embedded fonts exist yet at layout time, so nothing is
-    /// lost versus `CallbackInfo::get_font_cache_clone` - this is the
-    /// off-thread-pagination input an app can hand to
-    /// `Pdf::compute_pagination` without ever seeing the internal manager.
+    /// fallback chains over the system font cache the callback exposes, and
+    /// the app's registered fonts the window draws with - the faces the app
+    /// ships (`AppConfig::add_font`) and the ones it registered while it
+    /// runs - which the callback's info carries: the snapshot measures with
+    /// the faces the screen does. No per-window embedded fonts exist yet at
+    /// layout time, so nothing is lost versus
+    /// `CallbackInfo::get_font_cache_clone` - this is the off-thread-pagination
+    /// input an app can hand to `Pdf::compute_pagination` without ever seeing
+    /// the internal manager. A host that has no registered fonts to hand over
+    /// (a web page) gets a snapshot with registered fonts of its own: only
+    /// the faces azul bundles.
     #[cfg(feature = "text_layout")]
     #[must_use]
     pub fn from_layout_info(info: &azul_core::callbacks::LayoutCallbackInfo) -> Self {
-        match crate::font_traits::FontManager::new(info.get_font_cache()) {
+        use std::sync::Arc;
+
+        use crate::text3::fontreg::RegisteredFonts;
+
+        // What the shell handed the layout pass is an `Arc<RegisteredFonts>`, opaque to azul-core.
+        let registered = info
+            .registered_fonts()
+            .and_then(|handle| handle.downcast_ref::<Arc<RegisteredFonts>>());
+        let manager = match registered {
+            Some(fonts) => crate::font_traits::FontManager::with_registered_fonts(
+                info.get_font_cache(),
+                Arc::clone(fonts),
+            ),
+            None => crate::font_traits::FontManager::new(info.get_font_cache()),
+        };
+        match manager {
             Ok(fm) => Self::from_font_manager(fm),
             Err(_) => Self::empty(),
         }
@@ -434,5 +455,144 @@ mod tests {
         assert!(i.as_image_cache().is_none());
         drop(f);
         drop(i);
+    }
+
+    /// `f` with the info of a layout callback as the shells make it: over the window's `fonts` and,
+    /// where the host has them to hand over, the app's `registered` fonts.
+    #[cfg(feature = "text_layout")]
+    fn in_a_layout_callback<R>(
+        fonts: &rust_fontconfig::FcFontCache,
+        registered: Option<&std::sync::Arc<crate::text3::fontreg::RegisteredFonts>>,
+        f: impl FnOnce(&azul_core::callbacks::LayoutCallbackInfo) -> R,
+    ) -> R {
+        use azul_core::callbacks::{LayoutCallbackInfo, LayoutCallbackInfoRefData, TextDirection};
+
+        let images = azul_core::resources::ImageCache::default();
+        let gl = azul_core::gl::OptionGlContextPtr::None;
+        let locale = azul_css::AzString::from("en-US");
+        let window_id = azul_css::AzString::from("");
+        let ref_data = LayoutCallbackInfoRefData {
+            locale: &locale,
+            accessed_locale: core::cell::Cell::new(false),
+            accessed_text_direction: core::cell::Cell::new(false),
+            text_direction: TextDirection::LeftToRight,
+            image_cache: &images,
+            gl_context: &gl,
+            system_fonts: fonts,
+            registered_fonts: registered
+                .map(|registry| registry as &(dyn core::any::Any + Send + Sync)),
+            system_style: std::sync::Arc::new(azul_css::system::SystemStyle::default()),
+            active_route: None,
+            monitors: azul_core::window::MonitorVec::from_const_slice(&[]),
+            safe_area: azul_css::system::SafeAreaInsets::default(),
+            global_hotkeys: azul_core::global_hotkey::GlobalHotkeyInfoVec::from_const_slice(&[]),
+            window_id: &window_id,
+        };
+        let info = LayoutCallbackInfo::new(
+            &ref_data,
+            azul_core::window::WindowSize::default(),
+            azul_core::window::DarkLightMode::Light,
+        );
+        f(&info)
+    }
+
+    /// A snapshot made in a layout callback measures with the faces the screen draws with: the
+    /// faces an app ships (`AppConfig::add_font`) are the registered fonts of its windows, the
+    /// callback's info carries them, and the family of a shipped face resolves in the snapshot to
+    /// the very face (under the id, in the tier, with the chains) it resolves to in the window.
+    /// Before, the snapshot was built over a font manager with registered fonts of its own and
+    /// the family was unknown to it.
+    /// Mutation: `from_layout_info` building its manager with `FontManager::new` fails it.
+    #[cfg(feature = "text_layout")]
+    #[test]
+    fn a_snapshot_made_in_a_layout_callback_resolves_the_family_of_an_apps_shipped_face() {
+        use std::{collections::BTreeSet, sync::Arc};
+
+        use azul_core::{dom::Dom, styled_dom::StyledDom};
+        use rust_fontconfig::{FcFontCache, FontId};
+
+        use crate::{
+            solver3::getters::collect_and_resolve_font_chains_with_registration,
+            text3::{cache::MemoryFontTier, fontreg::RegisteredFonts},
+        };
+
+        const FAMILY: &str = "Azul Snapshot Shipped Face";
+        let norm = rust_fontconfig::utils::normalize_family_name(FAMILY);
+        // The app: the face it ships is in the registry its windows' font managers are made on.
+        let app = Arc::new(RegisteredFonts::default());
+        let face = crate::text3::ui_fonts::bundled_ui_fonts()[0].bytes.clone();
+        app.set_app_fonts(&[azul_core::resources::NamedFont::new(FAMILY.into(), face.into())]);
+        let window =
+            InnerFontManager::with_registered_fonts(FcFontCache::default(), Arc::clone(&app))
+                .expect("the window's font manager");
+        let shipped = window
+            .memory_families
+            .get(&norm)
+            .and_then(|faces| faces.first())
+            .expect("the window has the shipped face")
+            .font_match
+            .id;
+
+        // The faces a DOM naming the family resolves to, in a font manager.
+        let styled = StyledDom::create_from_dom(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_css(&format!("font-family: \"{FAMILY}\";"))
+                    .with_child(Dom::create_text_do_not_use_without_block_level_wrapper(
+                        "Gardasee",
+                    )),
+            ),
+        );
+        let platform = azul_css::system::Platform::current();
+        let faces_of = |manager: &InnerFontManager| -> BTreeSet<FontId> {
+            collect_and_resolve_font_chains_with_registration(
+                &styled,
+                &manager.fc_cache,
+                manager,
+                &platform,
+            )
+            .chains
+            .values()
+            .flat_map(|chain| chain.fonts().map(|face| face.id))
+            .collect()
+        };
+        let on_screen = faces_of(&window);
+        assert!(
+            on_screen.contains(&shipped),
+            "premise: the window draws the family with the shipped face"
+        );
+
+        // In the layout callback of the window: its info carries the window's registered fonts.
+        in_a_layout_callback(&window.fc_cache, Some(&window.registered_fonts), |info| {
+            let snapshot = FontCacheSnapshot::from_layout_info(info);
+            let manager = snapshot.as_font_manager().expect("a font manager");
+            assert!(
+                Arc::ptr_eq(&manager.registered_fonts, &app),
+                "the snapshot draws with the registered fonts of the app"
+            );
+            let indexed = manager
+                .memory_families
+                .get(&norm)
+                .and_then(|faces| faces.first())
+                .expect("the snapshot indexes the family of the shipped face");
+            assert_eq!(indexed.font_match.id, shipped, "under the id the window has it under");
+            assert_eq!(indexed.tier, MemoryFontTier::Fallback, "in the tier the window has it in");
+            assert_eq!(
+                faces_of(manager),
+                on_screen,
+                "pagination measures with the faces the screen draws with"
+            );
+        });
+
+        // A host with no registered fonts to hand over: the snapshot has the faces azul bundles.
+        in_a_layout_callback(&window.fc_cache, None, |info| {
+            let snapshot = FontCacheSnapshot::from_layout_info(info);
+            let manager = snapshot.as_font_manager().expect("a font manager");
+            assert!(!Arc::ptr_eq(&manager.registered_fonts, &app));
+            assert!(
+                !manager.memory_families.contains_key(&norm),
+                "the family of the shipped face is unknown to it"
+            );
+        });
     }
 }
