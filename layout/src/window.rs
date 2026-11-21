@@ -34833,6 +34833,11 @@ impl LayoutWindow {
             resize_watch_dpi: _,
             // Keyed by the session's contenteditable key, not a node id (U3-b).
             caret_text_snapshot: _,
+            // Keyed by DomId, which a regenerated tree keeps; its node indices are those of the
+            // arena the last reconciliation made (`transfer_states_tracking`), which this remap
+            // follows: a lint's memory (said once per node) that is not moved with the nodes, as the
+            // process-wide map it replaces was not.
+            image_churn: _,
             // Keyed by DomId, which a regenerated tree keeps; no NodeIds.
             content_changed_doms: _,
         } = self;
