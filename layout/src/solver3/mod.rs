@@ -1933,6 +1933,40 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // absolute positioning (sticky elements establish containing blocks).
     {
         let _p = crate::probe::Probe::span("adjust_sticky_positions");
+        // A box this pass does not place is shifted from the static place
+        // its constraint of the pass before holds
+        // (`adjust_sticky_positions_of`). A tree the reconcile built holds
+        // none (`LayoutNode::split` makes every node without one), so
+        // the old tree's are handed over first - a sticky box's by its DOM
+        // node, as the per-node caches are (`LayoutCacheMap::remapped`).
+        // Only in a pass that leaves boxes where they were: one that lays
+        // the tree root out places every box.
+        if !laid_out_roots.contains(&new_tree.root) {
+            if let Some(old_tree) = cache.tree.as_deref() {
+                for (old_index, old_warm) in old_tree.warm.iter().enumerate() {
+                    let Some(kept) = old_warm.sticky.as_ref() else {
+                        continue;
+                    };
+                    let new_index = old_tree
+                        .nodes
+                        .get(old_index)
+                        .and_then(|n| n.dom_node_id)
+                        .and_then(|dom_id| {
+                            let ordinal = old_tree
+                                .dom_to_layout
+                                .get(&dom_id)?
+                                .iter()
+                                .position(|i| i.index() == old_index)?;
+                            new_tree.dom_to_layout.get(&dom_id)?.get(ordinal).copied()
+                        });
+                    if let Some(warm) = new_index.and_then(|i| new_tree.warm_mut(i)) {
+                        if warm.sticky.is_none() {
+                            warm.sticky = Some(kept.clone());
+                        }
+                    }
+                }
+            }
+        }
         let constraints = positioning::adjust_sticky_positions_of(
             &mut ctx,
             &new_tree,
