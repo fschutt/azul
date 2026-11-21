@@ -344,6 +344,22 @@ fn inline_list_item_inline(node: &NodeData) -> bool {
     })
 }
 
+/// Whether a rule of `css` can give a node generated content ([`insert_generated_nodes`]: a
+/// `content` rule, a `::marker` rule or an inline list item, a footnote): a DOM styled under
+/// such a sheet can gain nodes when a node of it starts to match the rule.
+#[must_use]
+pub fn css_generates_nodes(css: &Css) -> bool {
+    let (rules, marker_rules) = generating_hosts(css);
+    !rules.is_empty() || !marker_rules.is_empty() || !footnote_hosts(css).is_empty()
+}
+
+/// Whether `node`'s own style gives it generated content whatever the sheets say
+/// ([`insert_generated_nodes`]: an inline list item, a footnote).
+#[must_use]
+pub fn node_generates_nodes(node: &NodeData) -> bool {
+    inline_list_item_inline(node) || footnote_inline(node)
+}
+
 #[allow(clippy::too_many_lines)] // one pass over the DOM: each step feeds the next and reads its locals
 pub fn insert_generated_nodes(dom: &mut CompactDom, css: &mut Css) -> bool {
     let (rules, marker_rules) = generating_hosts(css);

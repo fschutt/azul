@@ -339,3 +339,61 @@ impl SceneStats {
         }
     }
 }
+
+#[cfg(test)]
+mod audit_a4_tests {
+    //! A4-01: what a host has to do so that the dynamic properties do not pile up.
+    use api::{DynamicProperties, PropertyBinding, PropertyBindingKey, PropertyValue};
+
+    use super::SceneProperties;
+
+    fn opacities(of: &[(u64, f32)]) -> DynamicProperties {
+        DynamicProperties {
+            transforms: Vec::new(),
+            floats: of
+                .iter()
+                .map(|(key, value)| PropertyValue {
+                    key: PropertyBindingKey::new(*key),
+                    value: *value,
+                })
+                .collect(),
+            colors: Vec::new(),
+        }
+    }
+
+    fn pending_floats(properties: &SceneProperties) -> usize {
+        properties
+            .pending_properties
+            .as_ref()
+            .map_or(0, |pending| pending.floats.len())
+    }
+
+    /// The semantics the fix relies on: an append without a reset is kept on top
+    /// of every earlier one (100 frames of 2 values = 200 pending values), a
+    /// reset before the append leaves the last set alone, and both resolve a key
+    /// to the value last sent.
+    #[test]
+    fn appended_properties_pile_up_unless_the_host_resets_them_first() {
+        let mut appended = SceneProperties::new();
+        let mut replaced = SceneProperties::new();
+        for frame in 0..100u32 {
+            let set = [(1u64, frame as f32), (2u64, 0.5)];
+            appended.add_properties(opacities(&set));
+            assert!(appended.flush_pending_updates(), "frame {frame}: a new value");
+
+            replaced.reset_properties();
+            replaced.add_properties(opacities(&set));
+            assert!(replaced.flush_pending_updates(), "frame {frame}: a new value");
+        }
+        assert_eq!(pending_floats(&appended), 200, "one whole set per frame is kept");
+        assert_eq!(pending_floats(&replaced), 2, "the set, once");
+        let key = PropertyBinding::Binding(PropertyBindingKey::new(1), -1.0);
+        assert_eq!(appended.resolve_float(&key), 99.0);
+        assert_eq!(replaced.resolve_float(&key), 99.0);
+
+        // The same set again is no change (no frame is built for it).
+        replaced.reset_properties();
+        replaced.add_properties(opacities(&[(1, 99.0), (2, 0.5)]));
+        assert!(!replaced.flush_pending_updates());
+    }
+}

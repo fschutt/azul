@@ -10422,6 +10422,78 @@
                                 },
                                 "layout_us": {
                                     "type": "u64"
+                                },
+                                "gpu_transactions": {
+                                    "type": "u64"
+                                },
+                                "gpu_lists_translated": {
+                                    "type": "u64"
+                                },
+                                "gpu_items_translated": {
+                                    "type": "u64"
+                                },
+                                "gpu_list_bytes": {
+                                    "type": "u64"
+                                },
+                                "gpu_resource_adds": {
+                                    "type": "u64"
+                                },
+                                "gpu_resource_updates": {
+                                    "type": "u64"
+                                },
+                                "gpu_resource_deletes": {
+                                    "type": "u64"
+                                },
+                                "gpu_resource_bytes": {
+                                    "type": "u64"
+                                },
+                                "gpu_dynamic_properties": {
+                                    "type": "u64"
+                                },
+                                "gpu_scene_builds": {
+                                    "type": "u64"
+                                },
+                                "gpu_frame_builds": {
+                                    "type": "u64"
+                                },
+                                "gpu_glyphs_rasterized": {
+                                    "type": "u64"
+                                },
+                                "gpu_texture_uploads": {
+                                    "type": "u64"
+                                },
+                                "gpu_texture_upload_px": {
+                                    "type": "u64"
+                                },
+                                "gpu_draw_calls": {
+                                    "type": "u64"
+                                },
+                                "gpu_translate_us": {
+                                    "type": "u64"
+                                },
+                                "gpu_resources_us": {
+                                    "type": "u64"
+                                },
+                                "gpu_values_us": {
+                                    "type": "u64"
+                                },
+                                "gpu_transaction_us": {
+                                    "type": "u64"
+                                },
+                                "gpu_blocked_us": {
+                                    "type": "u64"
+                                },
+                                "gpu_scene_build_us": {
+                                    "type": "u64"
+                                },
+                                "gpu_frame_build_us": {
+                                    "type": "u64"
+                                },
+                                "gpu_render_us": {
+                                    "type": "u64"
+                                },
+                                "gpu_tiles_drawn": {
+                                    "type": "u64"
                                 }
                             }
                         ],
@@ -36869,6 +36941,12 @@
                                     "type": "NodeHierarchyItemIdVec"
                                 },
                                 "nodes_with_datasets": {
+                                    "type": "NodeHierarchyItemIdVec"
+                                },
+                                "focusable_nodes": {
+                                    "type": "NodeHierarchyItemIdVec"
+                                },
+                                "nodes_with_markers": {
                                     "type": "NodeHierarchyItemIdVec"
                                 },
                                 "tag_ids_to_node_ids": {

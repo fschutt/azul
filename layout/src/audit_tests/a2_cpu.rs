@@ -464,6 +464,9 @@ struct Stage {
     child: DomId,
     edits: Arc<AtomicUsize>,
     dpi: f32,
+    /// The last value `write` wrote per (DOM, class): a write of the value a node has is a
+    /// no-op (`ContentDirtyTier::Unchanged`), not a repaint.
+    written: BTreeMap<(usize, String), CssProperty>,
 }
 
 fn node_with_class(lw: &LayoutWindow, dom: DomId, class: &str) -> NodeId {
@@ -514,6 +517,7 @@ fn stage(dpi: u32, ground: bool, badge: bool) -> Stage {
         child,
         edits,
         dpi: dpi as f32 / 96.0,
+        written: BTreeMap::new(),
     }
 }
 
@@ -568,6 +572,13 @@ impl Stage {
     /// `CallbackInfo::set_css_property` of a value the display list binds: no rebuild.
     fn write(&mut self, dom: DomId, class: &str, prop: CssProperty) {
         let node = node_with_class(&self.lw, dom, class);
+        // The value this node was last written (the random steps pick from a few values and
+        // pick the same one twice now and then: the write is `Unchanged` then, a no-op by
+        // the tier's definition; this harness asked `Paint` of every write).
+        let same_as_last = self
+            .written
+            .insert((dom.inner, class.to_string()), prop.clone())
+            .is_some_and(|last| last == prop);
         let tier = self
             .lw
             .apply_content_change(ContentChange::NodeCss {
@@ -577,10 +588,11 @@ impl Stage {
                 override_only: false,
             })
             .tier;
-        assert_eq!(
-            tier,
-            ContentDirtyTier::Paint,
-            "harness: a value under the key of `{class}`, not a rebuild"
+        assert!(
+            tier == ContentDirtyTier::Paint
+                || (same_as_last && tier == ContentDirtyTier::Unchanged),
+            "harness: a value under the key of `{class}`, not a rebuild (and a no-op only \
+             for the value it had): {tier:?}, same as the last write: {same_as_last}"
         );
     }
 
@@ -1315,7 +1327,6 @@ fn a2_cpu_17_a_border_thinner_than_a_device_pixel_is_one_pixel_inside_its_box() 
 /// the LAYOUT bounds of its items, x 0 .. 200, so the damage is x 0 .. 200 at both places and
 /// the left half of the card (x -100 .. 0) leaves a trail. Expected: a rect from x = -100.
 #[test]
-#[ignore = "A2-cpu-04: open, for A1 (the extent of a frame leaves out what its inner frames move)"]
 fn a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved() {
     use std::collections::HashMap;
 
@@ -1358,7 +1369,6 @@ fn a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved() {
 /// = 48` before and at `round(48 - 13.5004 + 10.3) = 45` after: it moved 3. Expected: the frame
 /// of a fresh render (the box whole repainted: such a pan has no whole-pixel move).
 #[test]
-#[ignore = "A2-cpu-07: open, for A1 (the view shift's gate is on the delta, its move on the offsets)"]
 fn a2_cpu_07_a_pan_between_offsets_off_the_pixel_grid_is_a_fresh_renders_frame() {
     let child = Arc::new(list(vec![
         rect(-256.0, -256.0, VIEW.2 + 512.0, VIEW.3 + 512.0, [47, 49, 54]),

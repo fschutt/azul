@@ -47,7 +47,7 @@ use crate::desktop::{
 
 /// How a frame paints one label's halo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Halo {
+pub(super) enum Halo {
     /// With the label's own picture.
     Own(ImageKey),
     /// With a picture that stands in for it: the same text at another size.
@@ -58,45 +58,49 @@ enum Halo {
 
 /// What one frame handed to the renderer.
 #[derive(Debug)]
-struct Frame {
+pub(super) struct Frame {
     /// The images its transaction added and deleted.
-    added: Vec<ImageKey>,
-    deleted: Vec<ImageKey>,
+    pub(super) added: Vec<ImageKey>,
+    pub(super) deleted: Vec<ImageKey>,
+    /// The images it gave new pixels under the key they have (audit A4: a
+    /// label's own picture, drawn into the place of the one that stood in).
+    pub(super) updated: Vec<ImageKey>,
     /// Each label's halo, in list order.
-    halos: Vec<Halo>,
+    pub(super) halos: Vec<Halo>,
     /// What the frame's scan did with the kept halos.
-    stats: TextHaloStats,
+    pub(super) stats: TextHaloStats,
     /// Whether the engine owes a frame for the halos it left.
-    owed: bool,
+    pub(super) owed: bool,
 }
 
 impl Frame {
     /// The labels painted with their own picture.
-    fn own(&self) -> Vec<usize> {
+    pub(super) fn own(&self) -> Vec<usize> {
         (0..self.halos.len())
             .filter(|i| matches!(self.halos[*i], Halo::Own(_)))
             .collect()
     }
 
     /// Whether the frame changed nothing the renderer holds and owes nothing.
-    fn at_rest(&self) -> bool {
+    pub(super) fn at_rest(&self) -> bool {
         self.added.is_empty()
             && self.deleted.is_empty()
+            && self.updated.is_empty()
             && !self.owed
             && self.stats.created + self.stats.previews + self.stats.evicted == 0
     }
 }
 
 /// A window whose frames are recorded.
-struct Recorder {
-    window: LayoutWindow,
-    dpi: f32,
+pub(super) struct Recorder {
+    pub(super) window: LayoutWindow,
+    pub(super) dpi: f32,
     /// The images the renderer holds: added and not deleted.
-    live: HashSet<ImageKey>,
+    pub(super) live: HashSet<ImageKey>,
 }
 
 impl Recorder {
-    fn new(dpi: f32) -> Self {
+    pub(super) fn new(dpi: f32) -> Self {
         Self {
             window: LayoutWindow::new(FcFontCache::build()).expect("a layout window"),
             dpi,
@@ -106,7 +110,7 @@ impl Recorder {
 
     /// The window shows `dom` from the next frame on.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 96 or 192
-    fn lay_out(&mut self, dom: Dom) {
+    pub(super) fn lay_out(&mut self, dom: Dom) {
         let mut state = FullWindowState::default();
         state.size.dimensions = LogicalSize::new(1000.0, 1000.0);
         state.size.dpi = (96.0 * self.dpi) as u32;
@@ -122,13 +126,14 @@ impl Recorder {
             .expect("the labels lay out");
     }
 
-    /// One frame of what the window shows. Fails when its list names an image
-    /// the renderer does not hold.
-    fn frame(&mut self) -> Frame {
-        let dpi = DpiScaleFactor::new(self.dpi);
-        let mut txn = Transaction::new();
-        let _ = register_frame_resources(&mut self.window, &mut txn, dpi);
-        let (mut added, mut deleted) = (Vec::new(), Vec::new());
+    /// The renderer takes a transaction's images: the ones it adds, deletes
+    /// and gives new pixels, in the transaction's order. Fails on an update of
+    /// an image the renderer does not hold (it panics on one).
+    pub(super) fn take(
+        &mut self,
+        txn: &Transaction,
+    ) -> (Vec<ImageKey>, Vec<ImageKey>, Vec<ImageKey>) {
+        let (mut added, mut deleted, mut updated) = (Vec::new(), Vec::new(), Vec::new());
         for update in &txn.resource_updates {
             match update {
                 ResourceUpdate::AddImage(add) => {
@@ -139,9 +144,27 @@ impl Recorder {
                     deleted.push(*key);
                     self.live.remove(key);
                 }
+                ResourceUpdate::UpdateImage(update) => {
+                    assert!(
+                        self.live.contains(&update.key),
+                        "an update of {:?}, which the renderer does not hold",
+                        update.key
+                    );
+                    updated.push(update.key);
+                }
                 _ => {}
             }
         }
+        (added, deleted, updated)
+    }
+
+    /// One frame of what the window shows. Fails when its list names an image
+    /// the renderer does not hold.
+    pub(super) fn frame(&mut self) -> Frame {
+        let dpi = DpiScaleFactor::new(self.dpi);
+        let mut txn = Transaction::new();
+        let _ = register_frame_resources(&mut self.window, &mut txn, dpi);
+        let (added, deleted, updated) = self.take(&txn);
         let list = self
             .window
             .get_layout_result(&DomId::ROOT_ID)
@@ -191,6 +214,7 @@ impl Recorder {
         let frame = Frame {
             added,
             deleted,
+            updated,
             halos,
             stats: text_halo_stats(),
             owed: self.window.gpu_state_manager.halos_owed,
@@ -204,7 +228,7 @@ impl Recorder {
 /// `count` labels of a map as the editor draws them: absolutely placed, each
 /// with a solid halo (a text shadow that is a spread and nothing else), at
 /// `zoom` times their size and place.
-fn labels(count: usize, zoom: f32) -> Dom {
+pub(super) fn labels(count: usize, zoom: f32) -> Dom {
     let mut page = Dom::create_div().with_css(
         format!(
             "position: relative; width: {}px; height: {}px; background: #4477aa;",
@@ -283,8 +307,10 @@ fn a_view_that_does_not_fit_keeps_its_halos_and_comes_to_rest(dpi: f32) {
             "frame {n}: a label is painted without its halo: {:?}",
             now.halos
         );
+        // (Not "a prefix of the list" any more: a picture that did not fit the
+        // place of its stand-in is shown when the drawing is over, audit A4.)
         assert!(
-            now.own().starts_with(&before.own()),
+            before.own().iter().all(|label| now.own().contains(label)),
             "frame {n}: a label that had its own halo lost it: {:?} after {:?}",
             now.own(),
             before.own()
@@ -362,16 +388,21 @@ fn a_zoom_that_settles_keeps_every_halo(dpi: f32) {
             "label {label} keeps its old halo until its own is drawn: {halo:?}"
         );
     }
+    let mut replaced: HashSet<ImageKey> = settle.updated.iter().copied().collect();
     let mut before = settle;
     let mut resting = 0;
     for n in 1..40 {
         let now = view.frame();
+        replaced.extend(now.updated.iter().copied());
         assert!(
             now.halos.iter().all(|halo| *halo != Halo::None),
             "frame {n} after the settle: a label without halo: {:?}",
             now.halos
         );
-        assert!(now.own().starts_with(&before.own()), "frame {n}: an own halo was lost");
+        assert!(
+            before.own().iter().all(|label| now.own().contains(label)),
+            "frame {n}: an own halo was lost"
+        );
         resting = if now.at_rest() { resting + 1 } else { 0 };
         before = now;
         if resting == 5 {
@@ -389,7 +420,13 @@ fn a_zoom_that_settles_keeps_every_halo(dpi: f32) {
         })
         .collect();
     assert_eq!(new.len(), LABELS);
-    assert!(new.is_disjoint(&old), "new pictures, not the old ones");
+    // New pictures, not the old ones. A key of the old view that a label is
+    // still painted from is the place its new picture was drawn into (audit
+    // A4: the picture took the stand-in's slot): the key was given the new
+    // pixels by an update after the settle. Every other old key is gone.
+    for key in new.intersection(&old) {
+        assert!(replaced.contains(key), "{key:?} still shows the old picture");
+    }
     assert_eq!(view.live, new, "the renderer holds the view's pictures and no picture of a frame gone");
 }
 
@@ -401,4 +438,256 @@ fn a5_a_zoom_that_settles_keeps_every_halo_at_1x() {
 #[test]
 fn a5_a_zoom_that_settles_keeps_every_halo_at_2x() {
     a_zoom_that_settles_keeps_every_halo(2.0);
+}
+
+/// A5-15 (review of A4-27, invariant I-g: the kept pictures are a thread's, the
+/// slot keys a window's). The sequence, with two windows A and B on one thread:
+///
+/// 1. A paints a label with the picture `old` from slot 1 (A's key K1 shows it).
+/// 2. B's scans draw the label's picture at another size into the place of
+///    `old`: slot 1 shows `new` now, and `old` has no slot.
+/// 3. A's next scan finds `old` as a label's own picture - it gets slot 2 - and,
+///    further down its list, a label painted with `new` from slot 1. The slots
+///    are registered in list order: slot 2 first (a new key K2 shows `old`,
+///    `old` resolves to K2), then slot 1 (K1 is given `new`).
+///
+/// Giving K1 its new picture removed the registration of the picture K1 had
+/// shown - `old`, which K2 shows since a moment ago. The label of slot 2 was
+/// then translated to WebRender's own shadow (no spread: no outline), and stayed
+/// so: slot 2 "shows `old` already", so no later scan registered it again.
+///
+/// Mutation: the `resolved.key == key` guard removed from the `TextHalo` arm of
+/// `plan_overlay_image_uploads` leaves `old` unregistered: this fails.
+#[test]
+fn a5_15_a_picture_given_a_new_slot_stays_registered_when_its_old_slot_shows_another() {
+    use azul_core::resources::{
+        IdNamespace, ImageDirtyRect, ImageRef, ImageSlot, RawImage, RawImageData, RawImageFormat,
+    };
+
+    use crate::desktop::wr_translate2::plan_overlay_image_uploads;
+
+    let picture = |fill: u8| {
+        ImageRef::new_rawimage(RawImage {
+            pixels: RawImageData::U8(vec![fill; 4 * 2 * 4].into()),
+            width: 4,
+            height: 2,
+            premultiplied_alpha: true,
+            data_format: RawImageFormat::RGBA8,
+            tag: Vec::new().into(),
+        })
+        .expect("a picture")
+    };
+    let namespace = IdNamespace(7);
+    let (old, new) = (picture(1), picture(2));
+    let registered = |rr: &RendererResources, image: &ImageRef| {
+        rr.currently_registered_images
+            .get(&image.get_hash())
+            .map(|resolved| resolved.key)
+    };
+
+    // 1. The window paints `old` from slot 1.
+    let mut rr = RendererResources::default();
+    let first = plan_overlay_image_uploads(
+        [(ImageSlot::TextHalo(1), &old, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert_eq!(first.len(), 1);
+    assert!(!first[0].update, "a slot's first picture adds its key");
+    let key_1 = first[0].key;
+
+    // 3. `old` from slot 2, then `new` from slot 1.
+    let second = plan_overlay_image_uploads(
+        [
+            (ImageSlot::TextHalo(2), &old, ImageDirtyRect::All),
+            (ImageSlot::TextHalo(1), &new, ImageDirtyRect::All),
+        ]
+        .into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert_eq!(second.len(), 2);
+    assert!(!second[0].update, "slot 2 is new: its key is added");
+    assert!(second[1].update, "slot 1 keeps its key: new pixels under it");
+    let key_2 = second[0].key;
+    assert_ne!(key_2, key_1);
+    assert_eq!(second[1].key, key_1);
+    assert_eq!(
+        registered(&rr, &old),
+        Some(key_2),
+        "the picture slot 2 paints resolves to slot 2's key"
+    );
+    assert_eq!(registered(&rr, &new), Some(key_1));
+    assert_eq!(rr.image_key_map.get(&key_1), Some(&new.get_hash()));
+    assert_eq!(rr.image_key_map.get(&key_2), Some(&old.get_hash()));
+
+    // The order one window alone produces (the slot that changed first): the
+    // old picture's registration under K1 is removed, as before.
+    let mut rr = RendererResources::default();
+    let _ = plan_overlay_image_uploads(
+        [(ImageSlot::TextHalo(1), &old, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    let replaced = plan_overlay_image_uploads(
+        [(ImageSlot::TextHalo(1), &new, ImageDirtyRect::All)].into_iter(),
+        &mut rr,
+        namespace,
+    );
+    assert!(replaced[0].update);
+    assert_eq!(registered(&rr, &old), None, "a replaced picture is forgotten");
+    assert!(!rr.image_last_seen_epoch.contains_key(&old.get_hash()));
+}
+
+/// How many labels a translation of the window's list made NOW, without a scan
+/// before it, paints without their halo (WebRender's own shadow, which has no
+/// spread). What a lightweight pass does with a list that was patched in place
+/// (a hover's colour): it is sent again, and nothing draws what it lacks.
+fn without_halo_in_a_translation_alone(view: &Recorder) -> usize {
+    let list = view
+        .window
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("the root DOM is laid out")
+        .display_list
+        .clone();
+    let (_, built) = translate_displaylist_to_wr(
+        &list,
+        PipelineId(0, 0),
+        DeviceIntSize::new(2000, 2000),
+        &view.window.renderer_resources,
+        DpiScaleFactor::new(view.dpi),
+        Vec::new(),
+        &BTreeMap::new(),
+        0,
+    )
+    .expect("the list translates");
+    let mut shadows = 0;
+    let mut items = built.iter();
+    while let Some(item) = items.next() {
+        if let DisplayItem::PushShadow(_) = item.item() {
+            shadows += 1;
+        }
+    }
+    shadows
+}
+
+/// A5-18, the memory release (`MacOSWindow::release_regenerable_memory`: the
+/// window goes to the Dock, the app is hidden, memory is short). Twelve labels,
+/// then a zoom that settles: when the view is at rest the thread keeps the
+/// labels' pictures at the new size, which the list paints, and the ones of the
+/// size before, which nothing paints. A release gives back the second kind and
+/// only that, with a window on screen and with none:
+///
+/// - the frame after it is the frame before it: every label painted with its
+///   own picture from the key it had, no image added, given new pixels or
+///   deleted, no halo drawn, no frame owed - and no list names an image the
+///   renderer does not hold (`Recorder::frame` fails on one);
+/// - a translation without a scan (a list patched in place) still finds every
+///   label's picture.
+///
+/// Mutation: `entry.used_in < scan` -> `true` in `HaloCache::release_unused` (a
+/// release of everything, which frees no byte of a picture the renderer holds):
+/// the translation alone paints twelve labels without halo, and the frame after
+/// draws pictures again and owes frames.
+fn a_release_keeps_what_the_lists_paint(not_shown: bool) {
+    use azul_layout::cpurender::{release_text_halos, text_halos_in_use};
+
+    const LABELS: usize = 12;
+    draw_this_many_halos_a_frame_in_this_thread(4);
+    let mut view = Recorder::new(2.0);
+    view.lay_out(labels(LABELS, 1.0));
+    let mut guard = 0;
+    while view.frame().owed {
+        guard += 1;
+        assert!(guard < 20, "the first view's halos come");
+    }
+    view.lay_out(labels(LABELS, 1.5));
+    let (mut before, mut resting) = (view.frame(), 0);
+    for _ in 0..40 {
+        before = view.frame();
+        resting = if before.at_rest() { resting + 1 } else { 0 };
+        if resting == 5 {
+            break;
+        }
+    }
+    assert_eq!(resting, 5, "premise: the view came to rest: {:?}", before.stats);
+    assert_eq!(before.own().len(), LABELS, "premise: every label has its own picture");
+    let kept = text_halo_stats();
+    assert!(
+        kept.kept as usize > LABELS,
+        "premise: pictures of the size before are kept: {}",
+        kept.kept
+    );
+
+    // The shell's release: what the window's lists paint is marked, then
+    // everything else goes.
+    let list = view
+        .window
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("the root DOM is laid out")
+        .display_list
+        .clone();
+    text_halos_in_use([&list], view.dpi);
+    let released = release_text_halos(not_shown);
+    let left = text_halo_stats();
+    assert_eq!(left.kept as usize, LABELS, "the pictures the list paints, and no other");
+    assert_eq!(released.halos, kept.kept as usize - LABELS);
+    assert!(released.bytes > 0);
+    assert_eq!(left.kept_bytes as usize, kept.kept_bytes as usize - released.bytes);
+
+    assert_eq!(
+        without_halo_in_a_translation_alone(&view),
+        0,
+        "a list sent again without a scan lost its halos"
+    );
+    let after = view.frame();
+    assert!(
+        after.at_rest(),
+        "the frame after the release changed something: +{:?} ~{:?} -{:?} {:?}",
+        after.added,
+        after.updated,
+        after.deleted,
+        after.stats
+    );
+    assert_eq!(after.halos, before.halos, "each label's own picture, from the key it had");
+    assert_eq!(after.stats.frame_halos as usize, LABELS);
+    assert_eq!(text_halo_stats().kept as usize, LABELS);
+}
+
+#[test]
+fn a5_18_a_release_keeps_what_the_lists_paint_with_a_window_on_screen() {
+    a_release_keeps_what_the_lists_paint(false);
+}
+
+#[test]
+fn a5_18_a_release_keeps_what_the_lists_paint_with_no_window_on_screen() {
+    a_release_keeps_what_the_lists_paint(true);
+}
+
+/// A5-18. The macOS shell's release (`MacOSWindow::release_regenerable_memory`:
+/// the Dock, Cmd-H, memory pressure) gives back the kept text halos through
+/// `release_text_halos`, AFTER every window's lists marked what they paint: the
+/// pictures are the thread's, and a window that made no scan lately would lose
+/// the pictures its list paints to the windows that did. (The delegate cannot
+/// run headless: the statements are read from the source, as A10's guard of the
+/// same function does.)
+///
+/// Mutation: the release moved above the loop over the windows, or the loop
+/// removed, fails this.
+#[test]
+fn a5_18_the_macos_release_marks_what_every_window_paints_before_it_gives_halos_back() {
+    const MACOS_RS: &str = include_str!("../shell2/macos/mod.rs");
+    let from = MACOS_RS
+        .find("pub(crate) fn release_regenerable_memory(")
+        .expect("the release");
+    let body = &MACOS_RS[from..];
+    let body = &body[..body.find("\n    }\n").expect("the end of the function")];
+    let at = |what: &str| body.find(what).unwrap_or_else(|| panic!("`{what}` is missing"));
+    let every_window = at("for window in registry::get_all_window_ptrs()");
+    let marked = at("azul_layout::cpurender::text_halos_in_use(");
+    let own = at("painted_by(&*self);");
+    let released = at("azul_layout::cpurender::release_text_halos(not_shown)");
+    assert!(marked < every_window, "the closure that marks is what the loop calls");
+    assert!(every_window < own && own < released, "marked first, released last");
+    assert!(body.contains("if !keep_caches() {"), "the user's switch keeps the halos too");
 }

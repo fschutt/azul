@@ -621,6 +621,7 @@ fn process_glyph(
     key: GlyphKey,
 ) -> GlyphRasterJob {
     let result = context.rasterize_glyph(&font, &key);
+    crate::count_rasterized_glyph();
     let mut job = GlyphRasterJob { font, key, result };
 
     if let Ok(ref mut glyph) = job.result {

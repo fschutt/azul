@@ -736,6 +736,11 @@ pub struct FrameReportResponse {
     pub terminal_result: u8,
     /// Injectable test-clock offset in ms (advanced by `tick_ms`).
     pub test_clock_offset_ms: u64,
+    /// What the GPU path did for the last frame it drew (transactions, lists and items
+    /// translated, resource updates, scene and frame builds, glyphs, uploads, and where the time
+    /// went), and the sum over every frame of the window. All zero on a CPU backend.
+    pub gpu_last: azul_layout::window::GpuFrameCounters,
+    pub gpu_total: azul_layout::window::GpuFrameCounters,
     /// What the GPU backend's scans did with the text halos it keeps as pictures: the last
     /// scan's numbers (drawn, dropped, left for a later frame, painted with a stand-in), the
     /// thread's sums and what is kept (`azul_layout::cpurender::TextHaloStats`; audit A5).
@@ -809,6 +814,14 @@ pub struct CpuCountersJson {
     pub group_px: u64,
     pub retained_hits: u64,
     pub scan_items: u64,
+    pub bands: u64,
+    pub band_threads: u64,
+    pub groups_empty: u64,
+    pub group_px_painted: u64,
+    pub retained_misses: u64,
+    pub retained_invalidations: u64,
+    pub retained_patched: u64,
+    pub cells_built: u64,
 }
 
 // A new counter of a CPU frame: its `Counter` variant, `COUNTERS`, its `CpuFrameCounters` field,
@@ -833,6 +846,14 @@ impl From<&azul_layout::cpu_counters::CpuFrameCounters> for CpuCountersJson {
             group_px: c.group_px,
             retained_hits: c.retained_hits,
             scan_items: c.scan_items,
+            bands: c.bands,
+            band_threads: c.band_threads,
+            groups_empty: c.groups_empty,
+            group_px_painted: c.group_px_painted,
+            retained_misses: c.retained_misses,
+            retained_invalidations: c.retained_invalidations,
+            retained_patched: c.retained_patched,
+            cells_built: c.cells_built,
         }
     }
 }
@@ -8820,6 +8841,8 @@ fn build_frame_report_response(
         hit_depth_cap: report.hit_depth_cap,
         terminal_result: report.terminal_result,
         test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
+        gpu_last: report.gpu_last,
+        gpu_total: report.gpu_total,
         text_halos: (&report.text_halos).into(),
         cpu_last: (&report.cpu_last).into(),
         cpu_since_reset: (&report.cpu_since_reset).into(),
@@ -19860,10 +19883,13 @@ pub fn process_debug_event(
             if let Some(layout_result) = layout_window.layout_results.get(&dom_id) {
                 // Check each node in the layout tree to see if it has scrollbar_info (warm tier)
                 for (node_idx, node) in layout_result.layout_tree.nodes.iter().enumerate() {
-                    let scrollbar_info = layout_result
-                        .layout_tree
-                        .warm(LayoutNodeId::new(node_idx))
-                        .and_then(|w| w.scrollbar_info.as_ref());
+                    // With what the registration raised beside the tree (a
+                    // view's published extent): the bars the window shows.
+                    let scrollbar_info = layout_window.scroll_manager.scrollbar_info(
+                        dom_id,
+                        node_idx,
+                        &layout_result.layout_tree,
+                    );
                     if let Some(scrollbar_info) = scrollbar_info {
                         if scrollbar_info.needs_vertical || scrollbar_info.needs_horizontal {
                             let container = node.used_size.unwrap_or_default();

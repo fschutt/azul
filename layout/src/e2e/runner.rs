@@ -2848,6 +2848,8 @@ impl Runner {
                     if idx < layout_result.styled_dom.node_data.as_ref().len() {
                         layout_result.styled_dom.node_data.as_container_mut()[*node_id]
                             .set_tab_index(*tab_index);
+                        // As the shells' pass does (A6-16b).
+                        layout_result.styled_dom.rebuild_derived_node_lists();
                     }
                 }
                 ProcessEventResult::DoNothing
@@ -8299,11 +8301,20 @@ mod audit_a11_tests {
         let (_result, mut runner) = run_e2e_test_keeping_runner(&test, Some(styled_dom));
 
         crate::solver3::cache::TREE_COPIES.with(|copies| copies.set(0));
+        // Through `service`, as a scenario's `resize` goes: the resize policy (a size change
+        // is `ShouldIncrementalRelayout`, i.e. `relayout_only`) is decided there, from the
+        // pending flag `ModifyWindowState` sets. `apply_user_change` + `run_frame` alone
+        // repaints at the old size and never reaches `relayout_only` (this test did that
+        // first and read a viewport of 400).
+        let changes = Arc::new(Mutex::new(Vec::new()));
         for width in [380.0_f32, 360.0, 420.0] {
             let mut state = runner.window_state.clone();
             state.size.dimensions = LogicalSize::new(width, 200.0);
-            let result = runner.apply_user_change(&CallbackChange::ModifyWindowState { state });
-            runner.run_frame(result);
+            changes
+                .lock()
+                .expect("the change queue")
+                .push(CallbackChange::ModifyWindowState { state });
+            runner.service(&changes, false);
         }
         assert_eq!(
             runner

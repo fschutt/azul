@@ -1322,7 +1322,22 @@ impl TextShapingCache {
             loaded_fonts,
             debug_messages,
         )?;
+        Ok(Self::intrinsic_widths_of_shaped(shaped_items, constraints, loaded_fonts))
+    }
 
+    /// [`Self::measure_intrinsic_widths`] of a paragraph that is shaped
+    /// already (`shape_content`'s items): stage 4 and the scan, the whole of
+    /// that function after its shaping. For a caller that keeps the shaped
+    /// items for the layout of the same paragraph later in its pass (the
+    /// solver's intrinsic measure, `solver3::sizing::MeasuredParagraphs`),
+    /// so that the paragraph is shaped once per pass and not twice.
+    #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+    #[must_use]
+    pub fn intrinsic_widths_of_shaped<T: ParsedFontTrait>(
+        shaped_items: Arc<Vec<ShapedItem>>,
+        constraints: &UnifiedConstraints,
+        loaded_fonts: &LoadedFonts<T>,
+    ) -> IntrinsicTextSizes {
         // Stage 4: the paragraph the line breaker sees, oriented as it is.
         let paragraph = ParagraphToBreak::new(shaped_items, constraints);
 
@@ -1498,11 +1513,11 @@ impl TextShapingCache {
         };
 
         // CEIL to the 1/64 px grid before reporting (`ceil_to_layout_unit`).
-        Ok(IntrinsicTextSizes {
+        IntrinsicTextSizes {
             min_content_width: ceil_to_layout_unit(min_content_width),
             max_content_width: ceil_to_layout_unit(max_line),
             max_content_height: max_line_height,
-        })
+        }
     }
 }
 
@@ -1654,13 +1669,29 @@ mod audit_a8_tests {
                 }
             }
         };
-        let mut cache = TextShapingCache::new();
-        let before = shaped();
-        pass(&mut cache);
-        assert_eq!(shaped() - before, 5_000, "each paragraph is shaped once in a pass");
-        let after_first = shaped();
-        pass(&mut cache);
-        assert_eq!(shaped(), after_first, "the next pass over the same text shapes nothing");
+        // The shaped store's key holds the font registry's generation, which is the
+        // PROCESS's: a face another test of this binary registers while a pass runs makes
+        // every later key a new one (2,275 paragraphs were shaped again in the first run of
+        // this test beside the `fontreg` tests). The two passes are counted only when no face
+        // was registered from the first call to the last.
+        let registry = crate::text3::fontreg::generation;
+        for attempt in 0.. {
+            assert!(attempt < 50, "premise: the font registry stands still for two passes");
+            let stood_at = registry();
+            let mut cache = TextShapingCache::new();
+            let before = shaped();
+            pass(&mut cache);
+            let first = shaped() - before;
+            let after_first = shaped();
+            pass(&mut cache);
+            let second = shaped() - after_first;
+            if registry() != stood_at {
+                continue;
+            }
+            assert_eq!(first, 5_000, "each paragraph is shaped once in a pass");
+            assert_eq!(second, 0, "the next pass over the same text shapes nothing");
+            break;
+        }
     }
 
     /// A8-16 (wrong output): the same text of the same node laid out at

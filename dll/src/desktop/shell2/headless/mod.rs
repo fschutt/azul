@@ -13820,6 +13820,860 @@ mod tests {
         );
         assert_eq!(caret.text_byte, 0, "at its start");
     }
+
+    // --- A3-window-46: an identical rebuild under the pointer runs no cascade ----------------
+    //
+    // The pre-cascade skip keeps the styled DOM of the last pass, which was cascaded under the
+    // states it holds. It wrote the same states again and ran the whole cascade whenever ANY
+    // state was raised and a rule names a state left of its subject (`.btn:hover .ink`): every
+    // `RefreshDom` with the pointer over a button, for the DOM it already had.
+
+    extern "C" fn a3w_hover_noop(
+        _data: RefAny,
+        _info: azul_layout::callbacks::CallbackInfo,
+    ) -> azul_core::callbacks::Update {
+        azul_core::callbacks::Update::DoNothing
+    }
+
+    /// A button at (0, 0), 120 x 60, whose hover shows in its child: the ink (20 x 20 at the
+    /// button's top left) is green at rest and red while the BUTTON is hovered.
+    extern "C" fn a3w_hover_left_of_subject_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        Dom::create_body()
+            .with_css("margin: 0px;")
+            .with_component_css(azul_css::css::Css::from_string(
+                ".a3w-btn { width: 120px; height: 60px; } .a3w-ink { width: 20px; height: 20px; \
+                 background: #00ff00; } .a3w-btn:hover .a3w-ink { background: #ff0000; }"
+                    .into(),
+            ))
+            .with_child(
+                Dom::create_div()
+                    .with_class("a3w-btn".into())
+                    .with_callback(
+                        EventFilter::Hover(HoverEventFilter::MouseEnter),
+                        RefAny::new(()),
+                        a3w_hover_noop as usize,
+                    )
+                    .with_child(Dom::create_div().with_class("a3w-ink".into())),
+            )
+    }
+
+    /// The solid background the ink of [`a3w_hover_left_of_subject_layout`] resolves to now.
+    fn a3w_ink_colour(window: &HeadlessWindow) -> Option<azul_css::props::basic::ColorU> {
+        let ink = node_with_class(window, "a3w-ink")?;
+        let lw = window.common.layout_window.as_ref()?;
+        let styled = &lw.layout_results.get(&azul_core::dom::DomId::ROOT_ID)?.styled_dom;
+        let state = styled.styled_nodes.as_container()[ink].styled_node_state;
+        azul_layout::solver3::getters::get_background_contents(styled, ink, &state)
+            .into_iter()
+            .find_map(|layer| match layer {
+                azul_css::props::style::StyleBackgroundContent::Color(c) => Some(c),
+                _ => None,
+            })
+    }
+
+    const A3W_RED: azul_css::props::basic::ColorU = azul_css::props::basic::ColorU {
+        r: 255,
+        g: 0,
+        b: 0,
+        a: 255,
+    };
+
+    #[test]
+    fn an_identical_rebuild_under_a_hovered_node_runs_no_cascade() {
+        use crate::desktop::shell2::common::{
+            event::PlatformWindow, layout::LayoutRegenerateResult,
+        };
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, a3w_hover_left_of_subject_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        // Over the button, beside the ink.
+        step(&mut window, HeadlessEvent::MouseMove { x: 80.0, y: 40.0 });
+        assert_eq!(
+            a3w_ink_colour(&window),
+            Some(A3W_RED),
+            "premise: the button is hovered and the rule left of the ink holds"
+        );
+
+        let cascades = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout().expect("the identical rebuild");
+        assert!(
+            matches!(result, LayoutRegenerateResult::LayoutUnchanged),
+            "premise: an identical rebuild takes the unchanged exit"
+        );
+        assert_eq!(
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - cascades,
+            0,
+            "no state moved: the DOM that is kept is styled for the states it holds"
+        );
+        assert_eq!(a3w_ink_colour(&window), Some(A3W_RED), "and still shows the hover");
+    }
+
+    /// The other direction: a hover the managers hold and the kept DOM does not (the pointer
+    /// came over the button and the rebuild runs before any restyle) is cascaded by the rebuild.
+    #[test]
+    fn a_hover_that_comes_with_an_identical_rebuild_is_cascaded() {
+        use azul_core::window::CursorPosition;
+
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        let state = Arc::new(RefCell::new(RefAny::new(())));
+        let mut window = make_window_sized(&state, a3w_hover_left_of_subject_layout, 400.0, 200.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        assert_ne!(a3w_ink_colour(&window), Some(A3W_RED), "premise: at rest the ink is green");
+
+        // The hit test alone: the hover manager knows the button, no event pass restyled it.
+        let pos = LogicalPosition { x: 80.0, y: 40.0 };
+        window.common.mouse_state_mut().cursor_position = CursorPosition::InWindow(pos);
+        window.update_hit_test_at(pos);
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        window.regenerate_layout().expect("the identical rebuild");
+        assert_eq!(
+            a3w_ink_colour(&window),
+            Some(A3W_RED),
+            "the state came with the rebuild: the rule left of the ink is matched for it"
+        );
+    }
+
+    // --- A3-window-47: diff first, step 1 - a rebuild that changed only texts -----------------
+    //
+    // The fingerprints of a rebuild name the nodes that differ before anything is styled. When
+    // they are texts whose characters changed, the styled DOM is kept, the texts are written
+    // onto it and the solver is told which nodes moved (`AZ_DIFF_FIRST`, on by default). The
+    // full path - cascade, reconciliation, equivalence walk - is what it must agree with.
+
+    /// The app state of [`a3w_texts_layout`]: one text per row, whether every third row is
+    /// wide, whether row 1 declares a move, whether the text of row 2 has a handler.
+    struct A3wTexts {
+        texts: Vec<String>,
+        wide: bool,
+        mover: bool,
+        handler: bool,
+    }
+
+    /// Rows of one cell each: `body > .a3w-row > span.a3w-cell > text`.
+    extern "C" fn a3w_texts_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        use azul_core::events::{EventFilter, HoverEventFilter};
+        let (texts, wide, mover, handler) = data
+            .downcast_ref::<A3wTexts>()
+            .map(|s| (s.texts.clone(), s.wide, s.mover, s.handler))
+            .expect("app state");
+        let mut body = Dom::create_body()
+            .with_css("margin: 0px; font-size: 14px;")
+            .with_component_css(azul_css::css::Css::from_string(
+                ".a3w-row { padding: 2px; background: #eeeeee; } .a3w-wide { padding: 6px; \
+                 background: #dddddd; } .a3w-cell { color: #222222; }"
+                    .into(),
+            ));
+        for (i, text) in texts.iter().enumerate() {
+            let mut row = Dom::create_div().with_class("a3w-row".into());
+            if wide && i % 3 == 0 {
+                row = row.with_class("a3w-wide".into());
+            }
+            if mover && i == 1 {
+                row = row.with_css("animation: move 200ms ease-out;");
+            }
+            let mut text_node =
+                Dom::create_text_do_not_use_without_block_level_wrapper(text.clone());
+            if handler && i == 2 {
+                text_node = text_node.with_callback(
+                    EventFilter::Hover(HoverEventFilter::MouseEnter),
+                    RefAny::new(()),
+                    a3w_hover_noop as usize,
+                );
+            }
+            body = body.with_child(row.with_child(
+                Dom::create_span().with_class("a3w-cell".into()).with_child(text_node),
+            ));
+        }
+        body
+    }
+
+    fn a3w_texts_state(rows: usize) -> Arc<RefCell<RefAny>> {
+        Arc::new(RefCell::new(RefAny::new(A3wTexts {
+            texts: (0..rows).map(|i| format!("row {i}")).collect(),
+            wide: false,
+            mover: false,
+            handler: false,
+        })))
+    }
+
+    fn a3w_texts_window(state: &Arc<RefCell<RefAny>>) -> HeadlessWindow {
+        let mut window = make_window_sized(state, a3w_texts_layout, 400.0, 600.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        window
+    }
+
+    fn a3w_change(state: &Arc<RefCell<RefAny>>, change: impl FnOnce(&mut A3wTexts)) {
+        let mut guard = state.borrow_mut();
+        let any: &mut RefAny = &mut guard;
+        let mut app = any.downcast_mut::<A3wTexts>().expect("app state");
+        change(&mut *app);
+    }
+
+    /// One `RefreshDom` of `window`, down the diff-first path or the full one.
+    fn a3w_rebuild(window: &mut HeadlessWindow, diff_first: bool) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        azul_layout::window::set_diff_first_on_this_thread(Some(diff_first));
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout();
+        azul_layout::window::set_diff_first_on_this_thread(None);
+        result.expect("the rebuild");
+        let _ = window.common.take_regeneration();
+    }
+
+    /// What a rebuild leaves, line by line, for two windows that were handed the same builds:
+    /// every node (what it is, its classes, its state, its box) and every item of the display
+    /// list. A hit area is written by its bounds: a DOM that was styled again has new tag ids.
+    /// A node's classes are read one by one (`IdOrClass`).
+    fn a3w_dump(window: &HeadlessWindow) -> Vec<String> {
+        use azul_core::{
+            dom::{DomId, DomNodeId},
+            styled_dom::NodeHierarchyItemId,
+        };
+
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let result = &lw.layout_results[&DomId::ROOT_ID];
+        let styled = &result.styled_dom;
+        let mut lines = Vec::new();
+        for (index, node) in styled.node_data.as_ref().iter().enumerate() {
+            let id = DomNodeId {
+                dom: DomId::ROOT_ID,
+                node: NodeHierarchyItemId::from_crate_internal(Some(azul_core::dom::NodeId::new(
+                    index,
+                ))),
+            };
+            lines.push(format!(
+                "node {index}: {:?} {:?} state {:?} at {:?} size {:?} in {:?}",
+                node.get_node_type(),
+                node.get_ids_and_classes()
+                    .iter()
+                    .map(|class| format!("{class:?}"))
+                    .collect::<Vec<_>>(),
+                styled.styled_nodes.as_ref()[index],
+                lw.get_node_position(id),
+                lw.get_node_size(id),
+                styled.node_hierarchy.as_ref()[index],
+            ));
+        }
+        for (index, item) in result.display_list.items.iter().enumerate() {
+            // A text by all but its font's hash: each window registers the harness font
+            // under an id of its own.
+            lines.push(match item {
+                DisplayListItem::HitTestArea { bounds, .. } => {
+                    format!("item {index}: hit area {bounds:?}")
+                }
+                DisplayListItem::Text {
+                    glyphs,
+                    font_size_px,
+                    color,
+                    clip_rect,
+                    line_box,
+                    source_node_index,
+                    ..
+                } => format!(
+                    "item {index}: text {glyphs:?} {font_size_px} {color:?} {clip_rect:?} \
+                     {line_box:?} {source_node_index:?}"
+                ),
+                DisplayListItem::TextLayout {
+                    bounds,
+                    font_size_px,
+                    color,
+                    ..
+                } => format!("item {index}: text layout {bounds:?} {font_size_px} {color:?}"),
+                other => format!("item {index}: {other:?}"),
+            });
+        }
+        lines
+    }
+
+    /// Random rebuilds of one page in two windows, one down the diff-first path and one down
+    /// the full path: after every rebuild both hold the same nodes, states, boxes and display
+    /// list. Six of eight steps change one to three texts (to a word, to nothing, to what it
+    /// was); the others flip a class or add or take a row, which both windows take in full.
+    #[test]
+    fn a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves() {
+        const WORDS: [&str; 8] = ["", "a", "41", "42", "Tuebingen", "one two", "x y z", "row"];
+        for seed in [1u64, 7, 20261121] {
+            let state_first = a3w_texts_state(12);
+            let state_full = a3w_texts_state(12);
+            let mut first = a3w_texts_window(&state_first);
+            let mut full = a3w_texts_window(&state_full);
+            let mut random = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            let mut next = |below: u64| {
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                ((random >> 33) % below) as usize
+            };
+            for step in 0..40 {
+                let kind = next(8);
+                let picks = [next(64), next(64), next(64), next(8), next(8), next(8)];
+                let count = 1 + next(3);
+                let change = |app: &mut A3wTexts| match kind {
+                    6 => app.wide = !app.wide,
+                    7 => {
+                        if app.texts.len() > 8 && picks[0] % 2 == 0 {
+                            let _ = app.texts.pop();
+                        } else {
+                            app.texts.push(format!("new {}", picks[0]));
+                        }
+                    }
+                    _ => {
+                        for i in 0..count {
+                            let row = picks[i] % app.texts.len();
+                            app.texts[row] = WORDS[picks[3 + i]].to_string();
+                        }
+                    }
+                };
+                a3w_change(&state_first, change);
+                a3w_change(&state_full, change);
+                a3w_rebuild(&mut first, true);
+                a3w_rebuild(&mut full, false);
+                let (left, right) = (a3w_dump(&first), a3w_dump(&full));
+                let differs = left
+                    .iter()
+                    .zip(right.iter())
+                    .position(|(a, b)| a != b)
+                    .or((left.len() != right.len()).then_some(left.len().min(right.len())));
+                assert!(
+                    differs.is_none(),
+                    "seed {seed}, step {step} (kind {kind}): line {differs:?} differs\n \
+                     diff-first: {:?}\n full:       {:?}",
+                    differs.and_then(|line| left.get(line)),
+                    differs.and_then(|line| right.get(line)),
+                );
+            }
+        }
+    }
+
+    /// What one changed text costs down the diff-first path: `(cascades, nodes the solver
+    /// built fresh, nodes it sized again)` for a page of `rows` rows.
+    fn a3w_cost_of_one_text(rows: usize) -> (usize, usize, usize) {
+        let state = a3w_texts_state(rows);
+        let mut window = a3w_texts_window(&state);
+        a3w_change(&state, |app| app.texts[rows / 2] = "another text".to_string());
+        let cascades = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        a3w_rebuild(&mut window, true);
+        let cascades = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - cascades;
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        (
+            cascades,
+            lw.layout_cache.last_reconcile_fresh,
+            lw.layout_cache.last_intrinsic_dirty,
+        )
+    }
+
+    /// One changed text styles nothing and lays out a number of boxes that does not grow with
+    /// the page: at 60 rows and at 240.
+    #[test]
+    fn one_changed_text_styles_no_node_and_lays_out_its_own_boxes() {
+        let (cascades_small, fresh_small, sized_small) = a3w_cost_of_one_text(60);
+        let (cascades_large, fresh_large, sized_large) = a3w_cost_of_one_text(240);
+        assert_eq!((cascades_small, cascades_large), (0, 0), "the cascade is kept");
+        assert!(fresh_small >= 1, "premise: the solver saw the text ({fresh_small} fresh)");
+        assert!(
+            fresh_large <= fresh_small && sized_large <= sized_small,
+            "four times the rows, the same boxes: fresh {fresh_small} -> {fresh_large}, sized \
+             {sized_small} -> {sized_large}"
+        );
+        assert!(fresh_small <= 8, "the text and what holds its line: {fresh_small} fresh");
+    }
+
+    /// What the path does not do keeps it off: a node that declares a move is slid by the
+    /// reconciliation, a text with a handler is told by it. Both rebuilds take the full path
+    /// (they cascade), and so does every rebuild while the switch is off.
+    #[test]
+    fn a_changed_text_takes_the_full_path_where_the_reconciliation_has_work() {
+        let cascades_of = |prepare: fn(&mut A3wTexts), diff_first: bool| {
+            let state = a3w_texts_state(12);
+            a3w_change(&state, prepare);
+            let mut window = a3w_texts_window(&state);
+            a3w_change(&state, |app| app.texts[2] = "another text".to_string());
+            let before = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+            a3w_rebuild(&mut window, diff_first);
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - before
+        };
+        assert_eq!(cascades_of(|_| {}, true), 0, "premise: a plain text change keeps the cascade");
+        assert!(cascades_of(|app| app.mover = true, true) >= 1, "a declared move: the full path");
+        assert!(cascades_of(|app| app.handler = true, true) >= 1, "a handler: the full path");
+        assert!(cascades_of(|_| {}, false) >= 1, "the switch off: the full path");
+    }
+
+    // --- diff first, step `nodes`: a rebuild that changed nodes where they stand -------------
+    //
+    // The fingerprints say the tree and the sheets are what they were and name the nodes whose
+    // own data moved (a class, an id, an inline style, a text). The styled DOM is kept, the
+    // nodes are written onto it and it is styled again where it stands; the full path - a new
+    // styled DOM, the reconciliation, the equivalence walk - is what it must agree with.
+
+    /// One row of [`df_layout`]: its text, which `df-k<kind>` class it wears, which of
+    /// [`DF_PLACES`] is its inline style, and its id (0: none).
+    #[derive(Clone)]
+    struct DfRow {
+        text: String,
+        kind: usize,
+        place: usize,
+        id: usize,
+    }
+
+    /// The app state of [`df_layout`]: the rows, whether the list is `df-dense`, and whether
+    /// the sheet has its sibling rule (with it a changed row reaches the rows after it).
+    struct DfPage {
+        rows: Vec<DfRow>,
+        dense: bool,
+        siblings: bool,
+    }
+
+    /// The inline styles a row can have.
+    const DF_PLACES: [&str; 4] = [
+        "",
+        "position: relative; left: 4px;",
+        "position: relative; left: 9px;",
+        "width: 150px;",
+    ];
+
+    /// `body > .df-list[.df-dense] > .df-row.df-k<n>[#df-id<n>] > span.df-cell > text`, under a
+    /// sheet with a rule per class, a descendant rule (`.df-dense .df-row`), an inherited
+    /// value (`.df-k2`), an id rule, a hover rule and - with `siblings` - a sibling rule
+    /// (`.df-k1 + .df-row`).
+    extern "C" fn df_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
+        let (rows, dense, siblings) = data
+            .downcast_ref::<DfPage>()
+            .map(|page| (page.rows.clone(), page.dense, page.siblings))
+            .expect("app state");
+        let mut list = Dom::create_div().with_class("df-list".into());
+        if dense {
+            list = list.with_class("df-dense".into());
+        }
+        for row in &rows {
+            let mut node = Dom::create_div()
+                .with_class("df-row".into())
+                .with_class(format!("df-k{}", row.kind).into());
+            if row.id != 0 {
+                node = node.with_id(format!("df-id{}", row.id).into());
+            }
+            if !DF_PLACES[row.place].is_empty() {
+                node = node.with_css(DF_PLACES[row.place]);
+            }
+            list = list.with_child(node.with_child(
+                Dom::create_span().with_class("df-cell".into()).with_child(
+                    Dom::create_text_do_not_use_without_block_level_wrapper(row.text.clone()),
+                ),
+            ));
+        }
+        let mut sheet = String::from(
+            ".df-list { padding: 2px; } .df-row { padding: 4px; background: #eeeeee; } \
+             .df-dense .df-row { padding: 1px; } .df-k1 { background: #ddddff; width: 200px; } \
+             .df-k2 { color: #aa0000; font-size: 18px; } .df-k3 { margin-top: 3px; } \
+             #df-id1 { background: #00ff00; } .df-row:hover { background: #ffff00; }",
+        );
+        if siblings {
+            sheet.push_str(" .df-k1 + .df-row { margin-left: 6px; }");
+        }
+        Dom::create_body()
+            .with_css("margin: 0px; font-size: 14px;")
+            .with_component_css(azul_css::css::Css::from_string(sheet.into()))
+            .with_child(list)
+    }
+
+    fn df_state(rows: usize) -> Arc<RefCell<RefAny>> {
+        df_state_with(rows, true)
+    }
+
+    fn df_state_with(rows: usize, siblings: bool) -> Arc<RefCell<RefAny>> {
+        Arc::new(RefCell::new(RefAny::new(DfPage {
+            rows: (0..rows)
+                .map(|i| DfRow {
+                    text: format!("row {i}"),
+                    kind: i % 4,
+                    place: 0,
+                    id: 0,
+                })
+                .collect(),
+            dense: false,
+            siblings,
+        })))
+    }
+
+    fn df_window(state: &Arc<RefCell<RefAny>>) -> HeadlessWindow {
+        let mut window = make_window_sized(state, df_layout, 400.0, 600.0);
+        window.regenerate_layout().expect("initial layout");
+        window.regenerate_layout().expect("settle");
+        let _ = window.common.take_regeneration();
+        window
+    }
+
+    fn df_change(state: &Arc<RefCell<RefAny>>, change: impl FnOnce(&mut DfPage)) {
+        let mut guard = state.borrow_mut();
+        let any: &mut RefAny = &mut guard;
+        let mut page = any.downcast_mut::<DfPage>().expect("app state");
+        change(&mut *page);
+    }
+
+    /// One `RefreshDom` of `window` with exactly `steps` of the diff-first pipeline on.
+    fn df_rebuild(window: &mut HeadlessWindow, steps: &[azul_layout::window::DiffFirstStep]) {
+        use crate::desktop::shell2::common::event::PlatformWindow;
+
+        azul_layout::window::set_diff_first_steps_on_this_thread(Some(steps));
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout();
+        azul_layout::window::set_diff_first_steps_on_this_thread(None);
+        result.expect("the rebuild");
+        let _ = window.common.take_regeneration();
+    }
+
+    /// [`a3w_dump`], and of every node what its cascade resolves: each property that has a
+    /// value in the state the node is in, its compact entries, and the hit-test tags.
+    fn df_dump(window: &HeadlessWindow) -> Vec<String> {
+        use azul_core::dom::{DomId, NodeId};
+
+        let mut lines = a3w_dump(window);
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        let styled = &lw.layout_results[&DomId::ROOT_ID].styled_dom;
+        let cache = styled.get_css_property_cache();
+        for (index, node) in styled.node_data.as_ref().iter().enumerate() {
+            let state = styled.styled_nodes.as_ref()[index].styled_node_state;
+            let id = NodeId::new(index);
+            let style: Vec<String> = azul_css::props::property::CssPropertyType::ALL
+                .iter()
+                .filter_map(|ty| cache.get_property(node, &id, &state, ty))
+                .map(|property| format!("{property:?}"))
+                .collect();
+            lines.push(format!("style {index}: {style:?}"));
+            if let Some(compact) = cache.compact_cache.as_ref() {
+                lines.push(format!(
+                    "compact {index}: {:?} {:?} {:?} {:?}",
+                    compact.tier1_enums[index],
+                    compact.tier2_dims[index],
+                    compact.tier2_cold[index],
+                    compact.tier2b_text[index],
+                ));
+            }
+        }
+        lines.push(format!("tags: {:?}", styled.tag_ids_to_node_ids));
+        lines
+    }
+
+    /// The step `kind` of the random walk of [`df_walk`] applied to `page`: texts (0, 1), the
+    /// class of a row (2, 3), its inline style (4), the list's class (5), a row's id (6),
+    /// several rows at once (7), a row added or taken (8: both paths in full), nothing (9).
+    fn df_mutate(page: &mut DfPage, kind: usize, picks: [usize; 6]) {
+        const WORDS: [&str; 8] = ["", "a", "41", "42", "Tuebingen", "one two", "x y z", "row"];
+        let rows = page.rows.len();
+        match kind {
+            0 | 1 => {
+                for i in 0..=(picks[5] % 3) {
+                    page.rows[picks[i] % rows].text = WORDS[picks[3 + i] % 8].to_string();
+                }
+            }
+            2 | 3 => page.rows[picks[0] % rows].kind = picks[3] % 4,
+            4 => page.rows[picks[0] % rows].place = picks[3] % 4,
+            5 => page.dense = !page.dense,
+            6 => page.rows[picks[0] % rows].id = picks[3] % 3,
+            7 => {
+                page.rows[picks[0] % rows].text = WORDS[picks[3] % 8].to_string();
+                page.rows[picks[1] % rows].kind = picks[4] % 4;
+                page.rows[picks[2] % rows].place = picks[5] % 4;
+            }
+            8 => {
+                if rows > 8 && picks[0] % 2 == 0 {
+                    let _ = page.rows.remove(picks[1] % rows);
+                } else {
+                    page.rows.insert(
+                        picks[1] % (rows + 1),
+                        DfRow {
+                            text: format!("new {}", picks[0]),
+                            kind: picks[3] % 4,
+                            place: picks[4] % 4,
+                            id: 0,
+                        },
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Random rebuilds of one page in two windows, one with `steps` of the diff-first pipeline
+    /// on and one down the full path: after every rebuild both hold the same nodes, states,
+    /// resolved styles, compact entries, tags, boxes and display list. With `pointer`, the
+    /// pointer is put over a row first and moved to another one every few steps, in both;
+    /// `siblings` is whether the page's sheet has its sibling rule.
+    fn df_walk(steps: &[azul_layout::window::DiffFirstStep], pointer: bool, siblings: bool) {
+        for seed in [1u64, 7, 20261121] {
+            let state_first = df_state_with(12, siblings);
+            let state_full = df_state_with(12, siblings);
+            let mut first = df_window(&state_first);
+            let mut full = df_window(&state_full);
+            let mut random = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            let mut next = |below: u64| {
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                ((random >> 33) % below) as usize
+            };
+            for step_index in 0..48 {
+                if pointer && step_index % 5 == 0 {
+                    let y = 10.0 + 30.0 * next(8) as f32;
+                    for window in [&mut first, &mut full] {
+                        let _ = step(window, HeadlessEvent::MouseMove { x: 40.0, y });
+                    }
+                }
+                let kind = next(10);
+                let picks = [next(64), next(64), next(64), next(64), next(64), next(64)];
+                df_change(&state_first, |page| df_mutate(page, kind, picks));
+                df_change(&state_full, |page| df_mutate(page, kind, picks));
+                df_rebuild(&mut first, steps);
+                df_rebuild(&mut full, &[]);
+                let (left, right) = (df_dump(&first), df_dump(&full));
+                let differs = left
+                    .iter()
+                    .zip(right.iter())
+                    .position(|(a, b)| a != b)
+                    .or((left.len() != right.len()).then_some(left.len().min(right.len())));
+                assert!(
+                    differs.is_none(),
+                    "seed {seed}, step {step_index} (kind {kind}, picks {picks:?}, steps \
+                     {steps:?}, siblings {siblings}): line {differs:?} differs\n diff-first: \
+                     {:?}\n full:       {:?}",
+                    differs.and_then(|line| left.get(line)),
+                    differs.and_then(|line| right.get(line)),
+                );
+            }
+        }
+    }
+
+    /// How to read a failure: the message names the seed, the step and its kind
+    /// ([`df_mutate`]) and the first differing line. A `node` / `item` line is the layout or
+    /// the list, a `style` / `compact` line the cascade, `tags` the hit-test tags. A
+    /// difference at a step of kind 8 is not this path (both windows take the full path).
+    #[test]
+    fn a_rebuild_that_changed_nodes_leaves_what_the_full_path_leaves() {
+        use azul_layout::window::DiffFirstStep;
+        df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], false, true);
+    }
+
+    /// The same walks with the step `style`: the cascade runs for the nodes a change reaches
+    /// (a row and what is below it; with the sibling rule, every row, which is the whole
+    /// cascade again), every other node keeps its rows.
+    #[test]
+    fn a_rebuild_that_styled_its_changed_nodes_leaves_what_the_full_path_leaves() {
+        use azul_layout::window::DiffFirstStep;
+        df_walk(&DiffFirstStep::ALL, false, false);
+        df_walk(&DiffFirstStep::ALL, false, true);
+    }
+
+    #[test]
+    fn a_rebuild_that_styled_its_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves()
+    {
+        use azul_layout::window::DiffFirstStep;
+        df_walk(&DiffFirstStep::ALL, true, false);
+    }
+
+    /// The same walk with the pointer over a row (a `:hover` rule holds for it), moved every
+    /// few steps: the kept DOM holds the states the full path derives again.
+    #[test]
+    fn a_rebuild_that_changed_nodes_under_the_pointer_leaves_what_the_full_path_leaves() {
+        use azul_layout::window::DiffFirstStep;
+        df_walk(&[DiffFirstStep::Text, DiffFirstStep::Nodes], true, true);
+    }
+
+    /// What one changed class costs with every step on, in a page of `rows` rows without the
+    /// sibling rule: `(whole cascades, nodes the cascade ran for, boxes built fresh)`.
+    fn df_cost_of_a_styled_class(rows: usize) -> (usize, usize, usize) {
+        let state = df_state_with(rows, false);
+        let mut window = df_window(&state);
+        df_change(&state, |page| {
+            let middle = page.rows.len() / 2;
+            page.rows[middle].kind = (page.rows[middle].kind + 2) % 4;
+        });
+        let whole = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        let nodes = azul_core::styled_dom::nodes_cascaded_on_this_thread();
+        df_rebuild(&mut window, &azul_layout::window::DiffFirstStep::ALL);
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        (
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - whole,
+            azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
+            lw.layout_cache.last_reconcile_fresh,
+        )
+    }
+
+    /// One changed class styles the subtree of its node - the row, its cell and its text: 3
+    /// nodes - in a page of 60 rows and in one of 244, with no pass over the whole DOM.
+    #[test]
+    fn one_changed_class_styles_its_row_and_no_other_node() {
+        let (whole_small, nodes_small, fresh_small) = df_cost_of_a_styled_class(60);
+        let (whole_large, nodes_large, fresh_large) = df_cost_of_a_styled_class(244);
+        assert_eq!((whole_small, whole_large), (0, 0), "no cascade over the whole DOM");
+        assert_eq!((nodes_small, nodes_large), (3, 3), "the row, its cell and its text");
+        assert!(
+            fresh_large <= fresh_small,
+            "four times the rows, the same boxes: fresh {fresh_small} -> {fresh_large}"
+        );
+    }
+
+    /// The two cheapest rebuilds, counted: an identical one styles no node, runs no layout
+    /// pass and keeps the display list where it lies (the renderers skip a list by its
+    /// identity); one changed text styles no node either.
+    #[test]
+    fn an_identical_rebuild_and_a_changed_text_style_no_node() {
+        use azul_core::dom::DomId;
+
+        use crate::desktop::shell2::common::{
+            event::PlatformWindow, layout::LayoutRegenerateResult,
+        };
+
+        let first_item = |window: &HeadlessWindow| {
+            let lw = window.common.layout_window.as_ref().expect("a layout window");
+            lw.layout_results[&DomId::ROOT_ID]
+                .display_list
+                .items
+                .iter()
+                .next()
+                .map(|item| core::ptr::from_ref(item) as usize)
+        };
+        let state = df_state_with(60, false);
+        let mut window = df_window(&state);
+
+        let (nodes, list) = (
+            azul_core::styled_dom::nodes_cascaded_on_this_thread(),
+            first_item(&window),
+        );
+        assert!(list.is_some(), "premise: the page has a display list");
+        let passes = window
+            .common
+            .layout_window
+            .as_ref()
+            .map(|lw| lw.frame_report.layout_passes);
+        window
+            .common
+            .request_regeneration(azul_core::callbacks::RelayoutReason::RefreshDom);
+        let result = window.regenerate_layout().expect("the identical rebuild");
+        let _ = window.common.take_regeneration();
+        assert!(matches!(result, LayoutRegenerateResult::LayoutUnchanged));
+        assert_eq!(
+            azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
+            0,
+            "an identical rebuild styles no node"
+        );
+        assert_eq!(
+            window.common.layout_window.as_ref().map(|lw| lw.frame_report.layout_passes),
+            passes,
+            "and lays nothing out"
+        );
+        assert_eq!(first_item(&window), list, "and its display list is the list it had");
+
+        df_change(&state, |page| page.rows[30].text = "another text".to_string());
+        let nodes = azul_core::styled_dom::nodes_cascaded_on_this_thread();
+        df_rebuild(&mut window, &azul_layout::window::DiffFirstStep::ALL);
+        assert_eq!(
+            azul_core::styled_dom::nodes_cascaded_on_this_thread() - nodes,
+            0,
+            "a changed text styles no node"
+        );
+    }
+
+    /// `(rebuilds that kept the styled DOM, cascades, boxes the solver built fresh)` for one
+    /// rebuild of a page of `rows` rows after `change`, with `steps` on.
+    fn df_cost(
+        rows: usize,
+        steps: &[azul_layout::window::DiffFirstStep],
+        change: impl FnOnce(&mut DfPage),
+    ) -> (usize, usize, usize) {
+        let state = df_state(rows);
+        let mut window = df_window(&state);
+        df_change(&state, change);
+        let kept = azul_layout::window::kept_dom_rebuilds_on_this_thread();
+        let cascades = azul_core::styled_dom::compact_cache_rebuilds_on_this_thread();
+        df_rebuild(&mut window, steps);
+        let lw = window.common.layout_window.as_ref().expect("a layout window");
+        (
+            azul_layout::window::kept_dom_rebuilds_on_this_thread() - kept,
+            azul_core::styled_dom::compact_cache_rebuilds_on_this_thread() - cascades,
+            lw.layout_cache.last_reconcile_fresh,
+        )
+    }
+
+    /// One changed class keeps the styled DOM (one restyle, no second cascade) and the boxes
+    /// the solver builds fresh do not grow with the page; with the step off, and for a row
+    /// that came, the rebuild takes the full path.
+    #[test]
+    fn one_changed_class_keeps_the_styled_dom_and_lays_out_its_own_boxes() {
+        use azul_layout::window::DiffFirstStep::{Nodes, Text};
+
+        let class = |page: &mut DfPage| {
+            let middle = page.rows.len() / 2;
+            page.rows[middle].kind = (page.rows[middle].kind + 2) % 4;
+        };
+        let (kept_small, cascades_small, fresh_small) = df_cost(60, &[Text, Nodes], class);
+        // 244 rows: its middle row wears the class the middle row of 60 wears.
+        let (kept_large, cascades_large, fresh_large) = df_cost(244, &[Text, Nodes], class);
+        assert_eq!((kept_small, kept_large), (1, 1), "the styled DOM is kept");
+        assert_eq!((cascades_small, cascades_large), (1, 1), "one restyle, nothing twice");
+        assert!(fresh_small >= 1, "premise: the solver saw the row ({fresh_small} fresh)");
+        assert!(
+            fresh_large <= fresh_small,
+            "four times the rows, the same boxes: fresh {fresh_small} -> {fresh_large}"
+        );
+
+        assert_eq!(df_cost(60, &[Text], class).0, 0, "the step off: the full path");
+        assert_eq!(df_cost(60, &[], class).0, 0, "every step off: the full path");
+        let came = |page: &mut DfPage| {
+            let row = page.rows[0].clone();
+            page.rows.push(row);
+        };
+        assert_eq!(df_cost(60, &[Text, Nodes], came).0, 0, "a row came: another tree");
+    }
+
+    /// The names of `AZ_DIFF_FIRST`: `0` is no step, a list exactly its steps, anything else
+    /// every step.
+    #[test]
+    fn the_steps_of_the_switch_are_named_one_by_one() {
+        use azul_layout::window::{diff_first_step, diff_first_steps_of, DiffFirstStep};
+
+        let on = |value: &str| -> Vec<&'static str> {
+            let bits = diff_first_steps_of(value);
+            DiffFirstStep::ALL
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| bits & (1 << index) != 0)
+                .map(|(_, step)| step.name())
+                .collect()
+        };
+        assert_eq!(on("0"), Vec::<&str>::new());
+        assert_eq!(on("1"), vec!["text", "nodes", "style"]);
+        assert_eq!(on(""), vec!["text", "nodes", "style"]);
+        assert_eq!(on("text"), vec!["text"]);
+        assert_eq!(on("nodes, style"), vec!["nodes", "style"]);
+        assert_eq!(on("text,bogus"), vec!["text"], "an unknown name beside a known one is skipped");
+
+        azul_layout::window::set_diff_first_steps_on_this_thread(Some(&[DiffFirstStep::Nodes]));
+        let chosen = (
+            diff_first_step(DiffFirstStep::Text),
+            diff_first_step(DiffFirstStep::Nodes),
+            azul_layout::window::diff_first_enabled(),
+        );
+        azul_layout::window::set_diff_first_steps_on_this_thread(None);
+        assert_eq!(chosen, (false, true, true));
+    }
 }
 
 #[cfg(test)]

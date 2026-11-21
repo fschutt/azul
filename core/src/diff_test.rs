@@ -5177,4 +5177,326 @@ mod audit_a3_window_tests {
             "four times the rows took {large} node visits for {small}: more than linear"
         );
     }
+
+    // -- A3-window-47: the fingerprints of two builds name the texts that changed --------------
+
+    /// `body > div.{class} > [span > text]*`, the text `i` having the handler-free text `texts[i]`.
+    fn texts_page(class: &'static str, texts: &[&'static str]) -> crate::dom::Dom {
+        use crate::dom::Dom;
+        let mut row = Dom::create_div().with_class(class.into());
+        for text in texts {
+            row = row.with_child(Dom::create_span_with_text(*text));
+        }
+        Dom::create_body().with_child(row)
+    }
+
+    fn changed_texts(old: &crate::dom::Dom, new: &crate::dom::Dom) -> Option<Vec<usize>> {
+        texts_alone_changed(&fingerprint_dom(old).0, &fingerprint_dom(new).0)
+    }
+
+    /// Pre-order: body 0, div 1, then per text a span (2, 4, 6) and its text (3, 5, 7).
+    #[test]
+    fn a_rebuild_that_changed_texts_names_those_texts() {
+        let old = texts_page("row", &["one", "two", "three"]);
+        assert_eq!(changed_texts(&old, &texts_page("row", &["one", "two", "three"])), None, "alike");
+        assert_eq!(
+            changed_texts(&old, &texts_page("row", &["one", "2", "three"])),
+            Some(vec![5]),
+            "the second text"
+        );
+        assert_eq!(
+            changed_texts(&old, &texts_page("row", &["1", "two", "3"])),
+            Some(vec![3, 7]),
+            "the first and the third, ascending"
+        );
+    }
+
+    /// Anything beside a text's characters is not this function's to answer: a class, a node
+    /// more, a text that became empty (a rule may ask `:empty`).
+    #[test]
+    fn a_rebuild_that_changed_more_than_texts_is_not_a_change_of_texts() {
+        let old = texts_page("row", &["one", "two", "three"]);
+        assert_eq!(changed_texts(&old, &texts_page("wide", &["one", "two", "three"])), None);
+        assert_eq!(changed_texts(&old, &texts_page("wide", &["one", "2", "three"])), None);
+        assert_eq!(changed_texts(&old, &texts_page("row", &["one", "two", "three", "4"])), None);
+        assert_eq!(changed_texts(&old, &texts_page("row", &["one", "", "three"])), None);
+        // An inline style on a node, with a text changed beside it.
+        let styled = {
+            use crate::dom::Dom;
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_class("row".into())
+                    .with_css("width: 10px;")
+                    .with_child(Dom::create_span_with_text("1"))
+                    .with_child(Dom::create_span_with_text("two"))
+                    .with_child(Dom::create_span_with_text("three")),
+            )
+        };
+        assert_eq!(changed_texts(&old, &styled), None, "a style moved too");
+    }
+
+    /// The texts are written onto the kept arena by the same numbering, and only where both
+    /// builds hold a text without a handler.
+    #[test]
+    fn the_changed_texts_are_written_onto_the_kept_arena() {
+        let text = |value: &'static str| {
+            NodeData::create_text_do_not_use_without_block_level_wrapper(value)
+        };
+        let fresh = texts_page("row", &["one", "2", "3"]);
+        let changed = [5usize, 7];
+        assert_eq!(nodes_at(&fresh, &changed).len(), 2);
+        assert_eq!(nodes_at(&fresh, &[5, 99]).len(), 1, "an index past the tree names no node");
+
+        // The kept arena in the fingerprint's order: body, div, (span, text) x 3.
+        let mut kept = vec![
+            NodeData::create_body(),
+            NodeData::create_div(),
+            NodeData::create_div(),
+            text("one"),
+            NodeData::create_div(),
+            text("two"),
+            NodeData::create_div(),
+            text("three"),
+        ];
+        assert!(fresh_texts_are_adoptable(&kept, &fresh, &changed));
+        adopt_fresh_texts(&mut kept, &fresh, &changed);
+        assert_eq!(kept[3], text("one"), "a text the rebuild did not name");
+        assert_eq!(kept[5], text("2"));
+        assert_eq!(kept[7], text("3"));
+
+        // Index 4 holds no text in either build: nothing is written for it.
+        assert!(!fresh_texts_are_adoptable(&kept, &fresh, &[4]));
+    }
+}
+
+// -- diff first: the nodes a rebuild changed where they stand -------------------------------------
+mod audit_diff_first_tests {
+    use super::*;
+    use crate::{
+        callbacks::CoreCallback,
+        dom::{DatasetMergeCallbackType, Dom, NodeData},
+        refany::OptionRefAny,
+    };
+
+    /// `body > div.{class} > [span.{cell} > text]*`, each span with the inline style `styles[i]`
+    /// (none for an empty string).
+    fn page(class: &'static str, cells: &[(&'static str, &'static str, &'static str)]) -> Dom {
+        let mut row = Dom::create_div().with_class(class.into());
+        for (cell, style, text) in cells {
+            let mut span = Dom::create_span().with_class((*cell).into());
+            if !style.is_empty() {
+                span = span.with_css(style);
+            }
+            row = row.with_child(span.with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper(*text),
+            ));
+        }
+        Dom::create_body().with_child(row)
+    }
+
+    /// The nodes of `dom` in the fingerprints' order: what the window's arena holds.
+    fn arena(dom: &Dom) -> Vec<NodeData> {
+        fn walk(dom: &Dom, out: &mut Vec<NodeData>) {
+            out.push(dom.root.clone());
+            for child in dom.children.as_ref() {
+                walk(child, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(dom, &mut out);
+        out
+    }
+
+    fn changes(old: &Dom, new: &Dom) -> Option<Vec<usize>> {
+        same_tree_changes(&fingerprint_dom(old).0, &fingerprint_dom(new).0)
+    }
+
+    const CELLS: [(&str, &str, &str); 3] =
+        [("a", "", "one"), ("b", "left: 4px;", "two"), ("c", "", "three")];
+
+    /// Pre-order: body 0, div 1, then per cell a span (2, 4, 6) and its text (3, 5, 7).
+    #[test]
+    fn the_subtree_sizes_are_the_tree() {
+        let fp = fingerprint_dom(&page("row", &CELLS)).0;
+        assert_eq!(fp.subtree_len, vec![8, 7, 2, 1, 2, 1, 2, 1]);
+        assert!(fp.sheets.is_empty(), "an inline style is no attached sheet");
+    }
+
+    /// A class, an inline style and a text changed where they stand are named, ascending; an
+    /// identical rebuild names nothing.
+    #[test]
+    fn a_rebuild_that_kept_the_tree_names_the_nodes_it_changed() {
+        let old = page("row", &CELLS);
+        assert_eq!(changes(&old, &page("row", &CELLS)), None, "alike");
+        assert_eq!(changes(&old, &page("wide", &CELLS)), Some(vec![1]), "the row's class");
+        let moved = [("a", "", "one"), ("b", "left: 9px;", "two"), ("c", "", "three")];
+        assert_eq!(changes(&old, &page("row", &moved)), Some(vec![4]), "the second span's style");
+        let several = [("x", "", "one"), ("b", "left: 4px;", "2"), ("c", "top: 1px;", "three")];
+        assert_eq!(
+            changes(&old, &page("row", &several)),
+            Some(vec![2, 5, 6]),
+            "a class, a text and a style that came"
+        );
+    }
+
+    /// A node more or less, a node moved to another parent and a sheet that changed are not
+    /// changes of nodes where they stand.
+    #[test]
+    fn a_rebuild_that_changed_the_tree_or_a_sheet_is_not_named() {
+        let old = page("row", &CELLS);
+        assert_eq!(changes(&old, &page("row", &CELLS[..2])), None, "a cell less");
+        // The same nodes in pre-order, another tree: the third span under the second.
+        let nested = Dom::create_body().with_child(
+            Dom::create_div()
+                .with_class("row".into())
+                .with_child(
+                    Dom::create_span()
+                        .with_class("a".into())
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("one")),
+                )
+                .with_child(
+                    Dom::create_span()
+                        .with_class("b".into())
+                        .with_css("left: 4px;")
+                        .with_child(Dom::create_text_do_not_use_without_block_level_wrapper("two"))
+                        .with_child(
+                            Dom::create_span().with_class("c".into()).with_child(
+                                Dom::create_text_do_not_use_without_block_level_wrapper("three"),
+                            ),
+                        ),
+                ),
+        );
+        assert_eq!(changes(&old, &nested), None, "another tree of as many nodes");
+
+        let sheet = |rule: &str| {
+            page("row", &CELLS).with_component_css(azul_css::css::Css::from_string(rule.into()))
+        };
+        let (red, blue) = (sheet(".a { color: red; }"), sheet(".a { color: blue; }"));
+        assert_eq!(fingerprint_dom(&red).0.sheets.len(), 1, "premise: the sheet is listed");
+        assert_eq!(changes(&red, &blue), None, "a sheet changed");
+        assert_eq!(changes(&old, &red), None, "a sheet came");
+        assert_eq!(changes(&red, &sheet(".a { color: red; }")), None, "the same sheet: alike");
+    }
+
+    /// The changed nodes are written onto the kept arena whole; every other node stays the
+    /// object it was.
+    #[test]
+    fn the_changed_nodes_are_written_onto_the_kept_arena() {
+        let old = page("row", &CELLS);
+        let fresh = page(
+            "wide",
+            &[("a", "", "one"), ("b", "left: 9px;", "two"), ("c", "", "3")],
+        );
+        let changed = changes(&old, &fresh).expect("three nodes changed");
+        assert_eq!(changed, vec![1, 4, 7]);
+        let mut kept = arena(&old);
+        let identity = NodeIdentityConfig::default();
+        assert!(changed_nodes_are_adoptable(&kept, &fresh, &changed, identity));
+        let before = adopt_changed_nodes(&mut kept, &fresh, &changed);
+        assert_eq!(before.iter().map(|(index, _)| *index).collect::<Vec<_>>(), vec![1, 4, 7]);
+        assert!(before[0].1.has_class("row"), "the node that stood there is handed back");
+        assert_eq!(kept, arena(&fresh), "the arena reads as the fresh build's");
+    }
+
+    extern "C" fn keep_old(_new: RefAny, old: RefAny) -> RefAny {
+        old
+    }
+
+    /// A changed node keeps what the payload pass merged onto the node before it: its dataset
+    /// (the state of the build before, through its merge callback) and the fresh handlers.
+    #[test]
+    fn a_changed_node_keeps_the_state_its_merge_callback_kept() {
+        let widget = |class: &'static str, state: u32| {
+            let mut node = NodeData::create_div()
+                .with_dataset(OptionRefAny::Some(RefAny::new(state)));
+            node.set_merge_callback(keep_old as DatasetMergeCallbackType);
+            node.add_callback(
+                EventFilter::Hover(crate::events::HoverEventFilter::MouseEnter),
+                RefAny::new(0u8),
+                CoreCallback {
+                    cb: 0,
+                    ctx: OptionRefAny::None,
+                },
+            );
+            Dom::create_body().with_child(Dom::create_from_data(node).with_class(class.into()))
+        };
+        let (old, fresh) = (widget("closed", 7), widget("open", 8));
+        let (fp_old, _) = fingerprint_dom(&old);
+        let (fp_new, transfers) = fingerprint_dom(&fresh);
+        let changed = same_tree_changes(&fp_old, &fp_new).expect("the class changed");
+        assert_eq!(changed, vec![1]);
+
+        let mut kept = arena(&old);
+        assert!(changed_nodes_are_adoptable(&kept, &fresh, &changed, NodeIdentityConfig::default()));
+        let _ = adopt_fresh_payloads(&mut kept, &transfers);
+        let _ = adopt_changed_nodes(&mut kept, &fresh, &changed);
+        assert!(kept[1].has_class("open"), "the fresh node's class");
+        let mut state = kept[1].get_dataset().cloned().expect("a dataset");
+        assert_eq!(
+            state.downcast_ref::<u32>().map(|value| *value),
+            Some(7),
+            "the state of the build before, as the merge callback kept it"
+        );
+        assert_eq!(kept[1].get_callbacks().as_ref().len(), 1, "the handler is the fresh build's");
+    }
+
+    /// What a full rebuild does for a pair beyond styling it keeps the write off.
+    #[test]
+    fn a_node_that_is_another_node_or_needs_the_reconciliation_is_not_adoptable() {
+        let identity = NodeIdentityConfig::default();
+        let adoptable = |old: &Dom, fresh: &Dom, identity: NodeIdentityConfig| {
+            let changed = changes(old, fresh).expect("premise: the same tree, a node changed");
+            changed_nodes_are_adoptable(&arena(old), fresh, &changed, identity)
+        };
+        let leaf = |node: NodeData| Dom::create_body().with_child(Dom::create_from_data(node));
+        let div = |class: &'static str| NodeData::create_div().with_ids_and_classes(
+            vec![IdOrClass::Class(class.into())].into(),
+        );
+
+        assert!(adoptable(&leaf(div("a")), &leaf(div("b")), identity), "premise: a class");
+        // Another type at the same place is another node.
+        assert!(!adoptable(
+            &leaf(div("a")),
+            &leaf(NodeData::create_node(NodeType::P).with_ids_and_classes(
+                vec![IdOrClass::Class("a".into())].into()
+            )),
+            identity
+        ));
+        // Another key is another node.
+        assert!(!adoptable(&leaf(div("a").with_key(1u32)), &leaf(div("a").with_key(2u32)), identity));
+        // A class change remounts where the app says so.
+        let remounting = NodeIdentityConfig {
+            class_change_remounts: true,
+            ..NodeIdentityConfig::default()
+        };
+        assert!(!adoptable(&leaf(div("a")), &leaf(div("b")), remounting));
+        // An `Updated` handler is told by the reconciliation.
+        let mut listening = div("b");
+        listening.add_callback(
+            EventFilter::Component(ComponentEventFilter::Updated),
+            RefAny::new(0u8),
+            CoreCallback {
+                cb: 0,
+                ctx: OptionRefAny::None,
+            },
+        );
+        let mut listened = div("a");
+        listened.add_callback(
+            EventFilter::Component(ComponentEventFilter::Updated),
+            RefAny::new(0u8),
+            CoreCallback {
+                cb: 0,
+                ctx: OptionRefAny::None,
+            },
+        );
+        assert!(!adoptable(&leaf(listened), &leaf(listening), identity));
+        // A presentational attribute becomes declarations where the styled DOM is made.
+        let hinted = Dom::create_body().with_child(Dom::create_from_data(div("b")).with_attribute(
+            AttributeType::Custom(crate::dom::AttributeNameValue {
+                attr_name: "width".into(),
+                value: "10".into(),
+            }),
+        ));
+        assert!(!adoptable(&leaf(div("a")), &hinted, identity));
+    }
 }

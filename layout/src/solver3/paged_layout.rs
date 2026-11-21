@@ -518,6 +518,7 @@ where
             style_cache: Default::default(),
             virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+            pass_memo: Default::default(),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,
@@ -623,6 +624,7 @@ where
             style_cache: Default::default(),
             virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+            pass_memo: Default::default(),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,
@@ -978,7 +980,7 @@ fn canvas_events(
     };
     let flows = &cache.cache_map.column_pages.flows;
     let mut events = Vec::new();
-    for (&dom_id, indices) in &tree.dom_to_layout {
+    for (dom_id, indices) in &tree.dom_to_layout {
         let (Some(&idx), true) = (indices.first(), dom_id.index() < styled_dom.node_data.len())
         else {
             continue;
@@ -1096,6 +1098,7 @@ fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
         style_cache: Default::default(),
         virtual_view_sizes: None,
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+        pass_memo: Default::default(),
         styled_dom: new_dom,
         font_manager,
         text_selections: &empty_text_selections,
@@ -1184,6 +1187,7 @@ fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
         style_cache: Default::default(),
         virtual_view_sizes: None,
         scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+        pass_memo: Default::default(),
         styled_dom: new_dom,
         font_manager,
         text_selections: &empty_text_selections,
@@ -1289,10 +1293,13 @@ fn compute_layout_pass<T: ParsedFontTrait + Sync + 'static>(
             }
         }
 
+        // No sizes from before the pass here: what follows a root is
+        // stacked from the root's end, as it always was on this path.
         cache::reposition_clean_subtrees(
             new_dom,
             &new_tree,
             &recon_result.layout_roots,
+            &BTreeMap::new(),
             &mut calculated_positions,
         );
 
@@ -3144,6 +3151,7 @@ where
             style_cache: Default::default(),
             virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(std::collections::HashMap::new()),
+            pass_memo: Default::default(),
             styled_dom: new_dom,
             font_manager: &*font_manager,
             text_selections: &empty_text_selections,

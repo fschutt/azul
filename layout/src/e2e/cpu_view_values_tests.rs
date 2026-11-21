@@ -482,3 +482,172 @@ fn a_zoom_step_is_counted_and_a_settled_frame_counts_nothing() {
         "an idle frame walks, paints, clears and blits nothing"
     );
 }
+
+/// A1-11 (`audit/A1.md`; A10-08): a frame painted at another scale factor than the frame
+/// before is painted in full, and keeps no group surface of the old factor. The backend is
+/// told that its last frame was at a factor of 2; the next frame, at 1, must not be a repaint
+/// of parts (the list did not change: the diff alone finds nothing and the frame would be
+/// skipped, showing the old scale's pixels).
+/// Mutation: `dpi_changed` left out of `frame_may_reuse_previous_pixels` skips the frame.
+#[test]
+fn a1_11_a_frame_at_another_scale_factor_is_painted_in_full() {
+    let z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let first = z.frame(&mut backend);
+    let _ = z.frame(&mut backend);
+    assert!(matches!(backend.last_frame_damage, crate::window::FrameDamage::None), "premise: an idle frame");
+    backend.last_dpi_factor = Some(2.0);
+    let again = z.frame(&mut backend);
+    assert!(
+        matches!(backend.last_frame_damage, crate::window::FrameDamage::Full),
+        "another factor: a full frame, got {:?}",
+        backend.last_frame_damage
+    );
+    assert_eq!(backend.last_dpi_factor, Some(1.0));
+    assert!(backend.retained_frames.is_empty(), "no surface of the old factor is kept");
+    assert!(first.data() == again.data(), "and it is the frame a first paint gives");
+}
+
+/// A1-16: the GPU values a frame paints with are moved into its render state and come back:
+/// after a zoom step the backend holds the picture's matrix again (the next frame diffs
+/// against it), and that next frame, with nothing written, is idle.
+/// Mutation: the values not moved back leaves `previous_gpu_values` empty, and the next frame
+/// sees every value as changed.
+#[test]
+fn a1_16_the_values_a_frame_painted_with_are_the_next_frames_previous_values() {
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let _ = z.frame(&mut backend);
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let _ = z.frame(&mut backend);
+    assert!(
+        !backend.previous_gpu_values.transforms.is_empty(),
+        "the frame's values are the backend's again"
+    );
+    let _ = z.frame(&mut backend);
+    assert!(matches!(backend.last_frame_damage, crate::window::FrameDamage::None), "nothing written: an idle frame");
+}
+
+/// A1 (merge follow-up 3): the frame `render_frame` paints is as large as
+/// `present_geometry::frame_size_px` says, the function every shell sizes its buffer with
+/// (A10): 400.2 x 300 logical px at a factor of 2 are 801 x 600 px (800.4 rounds up), not the
+/// 800 a truncation gives.
+/// Mutation: a size of its own in `render_frame` that truncates is 800 px wide.
+#[test]
+fn the_frame_is_as_large_as_the_shells_buffer_formula_says() {
+    let z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    backend.render_frame(&z.lw, &z.resources, 400.2, 300.0, 2.0);
+    let expected = crate::window::present_geometry::frame_size_px(400.2, 300.0, 2.0);
+    assert_eq!(expected, (801, 600), "premise: ceil(800.4) x 600");
+    let frame = backend.last_frame.as_ref().expect("the backend painted a frame");
+    assert_eq!((frame.width(), frame.height()), expected);
+    assert_eq!(backend.last_frame_px, Some(expected));
+}
+
+/// A1-29 (merge follow-up 4): what the macOS shell gives back for a window nobody sees and
+/// under memory pressure (`CpuBackend::release_caches`: the kept group surfaces, this thread's
+/// kept halos, the compositor) costs the next frames work, never a pixel: an unchanged frame
+/// after the release is idle (the frame on screen is kept), and a zoom step after it is the
+/// frame a backend that never kept anything paints.
+/// Mutation: a release that also drops `last_frame` or the previous display list turns the
+/// idle frame into a full one.
+#[test]
+fn a_backend_that_released_its_caches_paints_the_same_frames() {
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let _ = z.frame(&mut backend);
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let _ = z.frame(&mut backend);
+    backend.release_caches();
+    assert!(backend.retained_frames.is_empty() && backend.compositor.is_none());
+    let _ = z.frame(&mut backend);
+    assert!(
+        matches!(backend.last_frame_damage, crate::window::FrameDamage::None),
+        "nothing changed: an idle frame, got {:?}",
+        backend.last_frame_damage
+    );
+    z.write(z.picture, zoom(40.0, 20.0, 2.5));
+    let after = z.frame(&mut backend);
+    assert_the_frame_is_what_a_full_paint_gives(&z, &after, "a zoom step after a release");
+}
+
+/// A6-25: a frame that finds the write generation of the GPU values and the display lists of
+/// the frame before collects no value (it used to fill three maps with every bound value of
+/// every DOM, look each up in the maps of the frame before and free those: per pan frame, per
+/// tile, per idle frame). A write - through `set_css_property`'s channel or straight into a
+/// public map of a cache - is collected and painted by the next frame, once; a list built
+/// again with the same values is collected for; so is the first frame of a backend and the
+/// frame after the backend's lists were forgotten.
+///
+/// Counted: the values a frame collects for its own use (`GPU_VALUES_COLLECTED`; the
+/// collection a debug build makes to check a skip is not counted).
+/// Mutations: the generation left out of `values_unchanged` fails "a value was written" (and
+/// the debug assertion of the frame); `same_lists` left out fails "another list"; the skip
+/// taken out fails "nothing was written".
+#[test]
+fn a6_25_a_frame_with_nothing_written_collects_no_gpu_value() {
+    let collected = || crate::cpu_backend::GPU_VALUES_COLLECTED.with(core::cell::Cell::get);
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+
+    // The first frame of a backend collects: the picture's matrix and the veil's opacity.
+    let before = collected();
+    let _ = z.frame(&mut backend);
+    let per_frame = collected() - before;
+    assert!(per_frame >= 2, "the picture's transform and the veil's opacity: {per_frame}");
+
+    // Nothing written, the same lists: three frames collect nothing and paint nothing.
+    let before = collected();
+    for _ in 0..3 {
+        let _ = z.frame(&mut backend);
+        assert_eq!(backend.last_frame_damage, FrameDamage::None);
+    }
+    assert_eq!(collected() - before, 0, "nothing was written: no value is read again");
+
+    // A write of a value: collected once, painted, and then nothing again.
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let before = collected();
+    let zoomed = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "a value was written");
+    assert_eq!(red_box(&zoomed), Some(z.on_screen((60.0, 35.0, 80.0, 60.0))));
+    assert_the_frame_is_what_a_full_paint_gives(&z, &zoomed, "after the write");
+    // Counted from here: the check above paints with a backend of its own, whose first
+    // frame collects its values into the same (thread's) counter.
+    let before = collected();
+    let _ = z.frame(&mut backend);
+    assert_eq!(collected() - before, 0, "and not again");
+
+    // A value written straight into a public map of the view's cache: no method, no note.
+    z.lw
+        .gpu_state_manager
+        .get_or_create_cache(z.child)
+        .current_opacity_values
+        .insert(z.veil, 0.4);
+    let before = collected();
+    let faded = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "a map written directly");
+    assert!(
+        near(z.veil_centre(&faded), [153, 153, 255]),
+        "blue at 0.4 over white, got {:?}",
+        z.veil_centre(&faded)
+    );
+
+    // The view's list built again with the same items and the same values: another list.
+    let rebuilt = std::sync::Arc::new((*z.lw.layout_results[&z.child].display_list).clone());
+    z.lw.layout_results.get_mut(&z.child).expect("the view's DOM").display_list = rebuilt;
+    let before = collected();
+    let again = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "another list: its values are collected");
+    assert_the_frame_is_what_a_full_paint_gives(&z, &again, "after the list was built again");
+    // As above: the check's own backend collected too.
+    let before = collected();
+    let _ = z.frame(&mut backend);
+    assert_eq!(collected() - before, 0, "the same list again: nothing is collected");
+
+    // A shell that forgets the backend's list (its way to force a full frame) collects too.
+    backend.previous_display_list = None;
+    let before = collected();
+    let _ = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "no list of the frame before: the full path");
+}

@@ -87,6 +87,28 @@ pub enum SubmittedDigest {
     ScrollOffsets,
 }
 
+/// What a digest of the bound values was taken of
+/// ([`GpuStateManager::last_gpu_value_source`]): everything the digest is a
+/// function of, in a form that is compared without reading a value.
+#[derive(Debug, Clone)]
+pub struct GpuValueSource {
+    /// The digest that was taken.
+    digest: u64,
+    /// [`GpuStateManager::value_generation`] then: the content of every
+    /// DOM's value cache.
+    generation: u64,
+    /// The renderer's scale then, bitwise (the values go across in device px).
+    scale_bits: u32,
+    /// The display list each DOM showed then, in DOM order: which DOMs'
+    /// caches were read, and the lists whose keys the values are bound by.
+    /// Weak: it keeps the allocation, so a list built later never has the
+    /// address of one of these.
+    lists: alloc::vec::Vec<(
+        DomId,
+        alloc::sync::Weak<crate::solver3::display_list::DisplayList>,
+    )>,
+}
+
 #[derive(Debug, Clone)]
 pub struct GpuStateManager {
     /// GPU value caches indexed by DOM ID
@@ -137,6 +159,12 @@ pub struct GpuStateManager {
     /// last handed to the renderer, so an IDENTICAL set can be recognised and
     /// skipped. See [`GpuStateManager::gpu_values_changed`].
     pub last_gpu_value_digest: Option<u64>,
+    /// What [`Self::last_gpu_value_digest`] was taken of
+    /// ([`Self::note_gpu_value_digest`]). While it still describes the
+    /// window, a walk of the bound values would give that digest again, and
+    /// the renderer's host does not walk them
+    /// ([`Self::gpu_values_are_the_digested_ones`]).
+    pub last_gpu_value_source: Option<GpuValueSource>,
     /// Digest of the image registrations last handed to the renderer.
     /// See [`GpuStateManager::submitted_digest_changed`].
     pub last_image_digest: Option<u64>,
@@ -160,6 +188,19 @@ pub struct GpuStateManager {
     /// only while this still equals what a translation would be made against
     /// ([`Self::display_list_is_held`]).
     pub submitted_translation_env: u64,
+    /// What each DOM's display list paints of text halos, as the renderer
+    /// host's last scan found it: per DOM a digest over every shadow painted as
+    /// a kept picture (its image key, rect and colour); a DOM without one is
+    /// absent. Written by the host's scan only.
+    pub text_halo_digests: BTreeMap<DomId, u64>,
+    /// The DOMs whose list the renderer holds translated against other
+    /// pictures than the host's last scan found - the halos of its shadows
+    /// ([`Self::text_halo_digests`] changed since the list was sent), a place
+    /// kept for a node's picture to come: owed to the renderer like a list
+    /// that was built again. A scan that only replaced pictures under the keys
+    /// the lists name leaves it empty. Set by the host's scan, cleared by the
+    /// host for each DOM whose list it sends.
+    pub stale_display_lists: alloc::collections::BTreeSet<DomId>,
     /// GPU events produced during layout (CSS transform / opacity synchronization,
     /// scrollbar transform / opacity updates) that have not yet been pushed to
     /// the renderer. Drained by the platform render path when a transaction is
@@ -302,6 +343,72 @@ impl GpuStateManager {
         true
     }
 
+    /// `digest` is the digest of the bound values as a walk of them just found
+    /// them, for the DOMs of `layout_results` at the renderer's `scale`:
+    /// remembers what it was taken of. The renderer's host calls this where
+    /// it compares the digest with [`Self::last_gpu_value_digest`].
+    pub fn note_gpu_value_digest(
+        &mut self,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        scale: f32,
+        digest: u64,
+    ) {
+        self.last_gpu_value_source = Some(GpuValueSource {
+            digest,
+            generation: self.value_generation(),
+            scale_bits: scale.to_bits(),
+            lists: layout_results
+                .iter()
+                .map(|(dom, result)| (*dom, alloc::sync::Arc::downgrade(&result.display_list)))
+                .collect(),
+        });
+    }
+
+    /// Would a walk of the bound values give [`Self::last_gpu_value_digest`]
+    /// again? Then the values are the ones the renderer was last sent and
+    /// its host has nothing to walk, hash or send: the frame of a pan, of a
+    /// tile that arrived, of a hover, of a fade's hold.
+    ///
+    /// Yes exactly when everything the digest is a function of is what it
+    /// was when the digest was taken ([`Self::note_gpu_value_digest`]):
+    /// - the digest kept is still that one (a full frame forgets it,
+    ///   [`Self::invalidate_submitted_digests`], and so does anything else
+    ///   that makes the renderer need the values again: this answers `false`
+    ///   wherever the digest alone would say "send");
+    /// - no value and no key of any DOM was written since
+    ///   ([`Self::value_generation`]);
+    /// - the scale is the same;
+    /// - every DOM shows the very list it showed (the same allocation; the
+    ///   DOMs are the same ones). A list that was built again - also one
+    ///   with the same items and the same values - answers `false`: its keys
+    ///   are new bindings to the renderer, and which DOMs there are decides
+    ///   whose values are read.
+    #[must_use]
+    pub fn gpu_values_are_the_digested_ones(
+        &self,
+        layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
+        scale: f32,
+    ) -> bool {
+        let Some(source) = self.last_gpu_value_source.as_ref() else {
+            return false;
+        };
+        self.last_gpu_value_digest == Some(source.digest)
+            && source.scale_bits == scale.to_bits()
+            && source.generation == self.value_generation()
+            && source.lists.len() == layout_results.len()
+            && source
+                .lists
+                .iter()
+                .zip(layout_results)
+                .all(|((dom, list), (dom_now, now))| {
+                    dom == dom_now
+                        && core::ptr::eq(
+                            list.as_ptr(),
+                            alloc::sync::Arc::as_ptr(&now.display_list),
+                        )
+                })
+    }
+
     /// Forget what was last submitted, so the next submission pushes
     /// everything again.
     ///
@@ -368,10 +475,13 @@ impl GpuStateManager {
             scrollbar_fade_left_ms: BTreeMap::new(),
             scrollbar_fade_ends: BTreeMap::new(),
             last_gpu_value_digest: None,
+            last_gpu_value_source: None,
             last_image_digest: None,
             last_scroll_digest: None,
             submitted_display_lists: BTreeMap::new(),
             submitted_translation_env: 0,
+            text_halo_digests: BTreeMap::new(),
+            stale_display_lists: alloc::collections::BTreeSet::new(),
             pending_changes: GpuEventChanges::empty(),
             scroll_driven: BTreeMap::new(),
             scroll_boxes_looked_at: 0,
@@ -401,6 +511,31 @@ impl GpuStateManager {
     ) {
         self.submitted_display_lists
             .insert(dom, alloc::sync::Arc::downgrade(list));
+    }
+
+    /// The list of `dom` moved from the allocation `before` to `after` by a
+    /// patch that changes nothing of what the renderer's copy of it says: an
+    /// image the renderer shows through a key of the node's own was replaced
+    /// in place (`RendererResources::node_image_is_replaced_in_place`), so the
+    /// copy names the same key in the same rect, and the new pixels reach the
+    /// renderer as an update of the key. If the renderer held the list before
+    /// the patch it holds it after; a list it did not hold stays owed.
+    ///
+    /// `before`: the list's address taken before the patch
+    /// (`Arc::as_ptr`). Without this a tile that arrives in a map sent the
+    /// map's whole list again and had the scene built again - for new pixels
+    /// under a key the list already named (audit A4-09).
+    pub fn display_list_moved(
+        &mut self,
+        dom: DomId,
+        before: *const crate::solver3::display_list::DisplayList,
+        after: &alloc::sync::Arc<crate::solver3::display_list::DisplayList>,
+    ) {
+        if let Some(held) = self.submitted_display_lists.get_mut(&dom) {
+            if core::ptr::eq(held.as_ptr(), before) {
+                *held = alloc::sync::Arc::downgrade(after);
+            }
+        }
     }
 
     /// Does `WebRender` already hold exactly this list of `dom`, translated
@@ -482,9 +617,12 @@ impl GpuStateManager {
     /// no comparison with the previous ones, no walk for the compositor
     /// (`synchronize_gpu_values`).
     ///
-    /// NOT yet safe to skip work by: until the cache's maps are private,
-    /// every writer outside `GpuValueCache`'s own methods has to say so
-    /// (`audit/A2-gpu.md`, "Integration", lists them). Only equality is
+    /// Safe to skip work by (A6-22): every bound value of a cache stamps
+    /// itself, whoever writes it and however (`StampedMap`, `StampedValue`),
+    /// so no writer has to say anything. What it does NOT cover is the
+    /// display lists: a list that was rebuilt with the same values still
+    /// has its own keys to read, so a frame keys its skip on this number
+    /// AND on the identity of the lists it draws. Only equality is
     /// meaningful.
     #[must_use]
     pub fn value_generation(&self) -> u64 {
@@ -722,9 +860,11 @@ fn update_scroll_driven_box(
     // for a `VirtualView`, whose scrollable extent layout cannot see. This
     // path deliberately re-derives nothing: it reads the one stored answer,
     // so a bar that `paint_scrollbars` drew always gets its thumb moved.
-    let bars = warm
-        .scrollbar_info
-        .as_ref()
+    // The amended answer stands beside the tree, in the scroll manager
+    // (`ScrollManager::scrollbar_info`), and in the tree for a box nothing
+    // was raised for.
+    let bars = scroll_manager
+        .scrollbar_info(dom_id, node_idx, layout_tree)
         .map(|info| {
             (
                 info.presence(ScrollbarOrientation::Vertical),
@@ -1264,7 +1404,7 @@ mod autotest_generated {
             warm,
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena: Vec::new(),
             children_offsets: vec![(0, 0); n],
             subtree_needs_intrinsic: Vec::new(),

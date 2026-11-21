@@ -539,6 +539,13 @@ pub(super) fn is_in_flow_box(tree: &LayoutTree, styled_dom: &StyledDom, index: u
 /// scanning the parent's children for the first in-flow one, once for every box that wanted to
 /// know: a block of k absolutely positioned labels, none in flow, was scanned k times in full
 /// (k^2 style lookups: 155 million at the map editor's 12,470 labels).
+///
+/// The earlier siblings are looked at from `node` BACKWARDS, to the nearest one that is in
+/// flow: looked at from the parent's first child, every in-flow child of a block that starts
+/// with j out-of-flow ones (overlays written before the content) passed those j again, j * m
+/// lookups for m in-flow children. Backwards each sibling is passed by the next in-flow child
+/// after it alone. The answer is the same: `node` is the first in flow exactly when no child
+/// before it is (a box is listed once among its parent's children).
 pub(super) fn is_first_in_flow_child(
     tree: &LayoutTree,
     styled_dom: &StyledDom,
@@ -548,15 +555,21 @@ pub(super) fn is_first_in_flow_child(
     if !is_in_flow_box(tree, styled_dom, node) {
         return false;
     }
-    for &child in tree.children(parent) {
-        if child == node {
-            return true;
-        }
-        if is_in_flow_box(tree, styled_dom, child) {
-            return false;
-        }
-    }
-    false
+    let children = tree.children(parent);
+    // Where `node` is among them. The builders list a box's children in ascending order of
+    // their layout index, so a binary search finds it; a list in another order answers `Err`
+    // for a box it holds (never `Ok` for one it does not), and is scanned.
+    let position = match children.binary_search(&node) {
+        Ok(position) => Some(position),
+        Err(_) => children.iter().position(|&child| child == node),
+    };
+    let Some(position) = position else {
+        return false;
+    };
+    !children[..position]
+        .iter()
+        .rev()
+        .any(|&child| is_in_flow_box(tree, styled_dom, child))
 }
 
 /// The first in-flow child box of `index` ([`is_in_flow_box`]).

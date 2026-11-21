@@ -276,7 +276,11 @@ pub struct CachedInlineLayout {
     /// (y and size are per-run-uniform in the simple-run contract; deviants
     /// ride the exception table). Paint expands into the same offset Vec it
     /// always built; `AZ_DENSE_TEXT=verify` roundtrip-gates the encoding.
-    pub glyph_runs: Arc<Vec<crate::text3::glyphs::CompactGlyphRun>>,
+    ///
+    /// A layout stored by a MEASURE ([`Self::new_measure_with_constraints`])
+    /// makes them when they are first read ([`GlyphRunList`]): most measures
+    /// are never painted.
+    pub glyph_runs: Arc<GlyphRunList>,
     /// §3.2 step (d5): the ONE cache-stable Arc the display list carries
     /// as its `TextLayout` payload. `TextPayload{dense,sparse}` when the
     /// dense view is retained, else the `layout` Arc itself (identical
@@ -295,6 +299,123 @@ pub struct CachedInlineLayout {
     /// `RefreshDom` whose text CHANGED would reuse the stale shaped layout
     /// (#11 stale display list). 0 = unknown ⇒ never fast-path-reuse.
     pub inline_content_hash: u64,
+    /// What the lines measure, kept for a RETIRED layout (`layout` is the
+    /// empty sentinel) from the layout it was stored from: what the reuse
+    /// exit of `layout_ifc` reads off the lines, so that it need not expand
+    /// the dense view again on every reuse ([`Self::materialized`]). `None`
+    /// for a layout that is not retired, and for a retired one whose
+    /// expansion could measure differently (`Self::retired_metrics_of`).
+    pub retired_metrics: Option<RetiredLayoutMetrics>,
+}
+
+/// The paint runs of a stored inline layout
+/// ([`CachedInlineLayout::glyph_runs`]): a list made when the layout was
+/// stored, or one made from the layout's dense view when it is first read.
+/// It dereferences to the runs, which is where a deferred list is made: a
+/// reader paints from it as from a list made at store time, and a layout no
+/// one paints (a min- or max-content measure) never makes its runs.
+#[derive(Debug)]
+pub struct GlyphRunList {
+    /// The dense view a deferred list is made from. `None` for a list made
+    /// at store time.
+    deferred_from: Option<Arc<crate::text3::dense::DenseText>>,
+    runs: std::sync::OnceLock<Vec<crate::text3::glyphs::CompactGlyphRun>>,
+}
+
+impl GlyphRunList {
+    /// A list of runs made already.
+    #[must_use]
+    pub fn made(runs: Vec<crate::text3::glyphs::CompactGlyphRun>) -> Self {
+        let cell = std::sync::OnceLock::new();
+        // A new cell is empty: it takes the runs.
+        let _ = cell.set(runs);
+        Self {
+            deferred_from: None,
+            runs: cell,
+        }
+    }
+
+    /// A list made from `dense` when it is first read: the runs
+    /// `compute_glyph_runs` makes of a layout whose runs come from its
+    /// dense view alone (`AZ_DENSE_TEXT` on, no combined block).
+    fn deferred(dense: Arc<crate::text3::dense::DenseText>) -> Self {
+        Self {
+            deferred_from: Some(dense),
+            runs: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// The runs if they were made: what the list holds in memory.
+    #[must_use]
+    pub fn made_runs(&self) -> Option<&Vec<crate::text3::glyphs::CompactGlyphRun>> {
+        self.runs.get()
+    }
+}
+
+impl core::ops::Deref for GlyphRunList {
+    type Target = [crate::text3::glyphs::CompactGlyphRun];
+
+    fn deref(&self) -> &Self::Target {
+        self.runs.get_or_init(|| {
+            #[cfg(test)]
+            GLYPH_RUNS_BUILT_ON_READ.with(|n| n.set(n.get() + 1));
+            // `made` fills the cell, so only a deferred list gets here.
+            self.deferred_from.as_deref().map_or_else(Vec::new, |dense| {
+                compact_glyph_runs(crate::text3::dense::get_glyph_runs_simple_dense(dense))
+            })
+        })
+    }
+}
+
+/// How often the paint runs of an inline layout were built on this thread:
+/// when a layout was stored (`compute_glyph_runs`), and when a deferred list
+/// was first read (`audit_tests::a3_solver::ifc`: a measure builds none when
+/// it is stored).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static GLYPH_RUNS_BUILT_AT_STORE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static GLYPH_RUNS_BUILT_ON_READ: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The measures of a retired inline layout's lines
+/// ([`CachedInlineLayout::retired_metrics`]): what `UnifiedLayout::bounds`
+/// and `UnifiedLayout::last_baseline` say of the layout its dense view
+/// expands to.
+#[derive(Debug, Clone, Copy)]
+pub struct RetiredLayoutMetrics {
+    /// `UnifiedLayout::bounds()`.
+    pub bounds: crate::text3::cache::Rect,
+    /// `UnifiedLayout::last_baseline()`.
+    pub last_baseline: Option<f32>,
+}
+
+/// Whether two faces' metrics are the same to the bit. Not `==`: `0.0` and
+/// `-0.0` are equal and compute different line metrics.
+fn same_font_metrics_bits(
+    a: &crate::text3::cache::LayoutFontMetrics,
+    b: &crate::text3::cache::LayoutFontMetrics,
+) -> bool {
+    let bits = |m: &crate::text3::cache::LayoutFontMetrics| {
+        let crate::text3::cache::LayoutFontMetrics {
+            ascent,
+            descent,
+            line_gap,
+            units_per_em,
+            x_height,
+            cap_height,
+            browser_ascent_boost,
+        } = *m;
+        (
+            ascent.to_bits(),
+            descent.to_bits(),
+            line_gap.to_bits(),
+            units_per_em,
+            x_height.map(f32::to_bits),
+            cap_height.map(f32::to_bits),
+            browser_ascent_boost,
+        )
+    };
+    bits(a) == bits(b)
 }
 
 /// §3.2 step (d5): the display list's `TextLayout` payload when the dense
@@ -327,6 +448,8 @@ fn compute_glyph_runs(
     Vec<crate::text3::glyphs::SimpleGlyphRun>,
     Option<Arc<crate::text3::dense::DenseText>>,
 ) {
+    #[cfg(test)]
+    GLYPH_RUNS_BUILT_AT_STORE.with(|n| n.set(n.get() + 1));
     compute_glyph_runs_with_mode(layout, dense_text_mode())
 }
 
@@ -456,7 +579,8 @@ impl CachedInlineLayout {
         has_floats: bool,
     ) -> Self {
         let (runs, dense) = compute_glyph_runs(&layout);
-        let glyph_runs = Arc::new(compact_glyph_runs(runs));
+        let glyph_runs = Arc::new(GlyphRunList::made(compact_glyph_runs(runs)));
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
@@ -471,6 +595,7 @@ impl CachedInlineLayout {
             glyph_runs,
             dense,
             inline_content_hash: 0,
+            retired_metrics,
         }
     }
 
@@ -483,7 +608,8 @@ impl CachedInlineLayout {
         constraints: UnifiedConstraints,
     ) -> Self {
         let (runs, dense) = compute_glyph_runs(&layout);
-        let glyph_runs = Arc::new(compact_glyph_runs(runs));
+        let glyph_runs = Arc::new(GlyphRunList::made(compact_glyph_runs(runs)));
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
@@ -498,7 +624,123 @@ impl CachedInlineLayout {
             glyph_runs,
             dense,
             inline_content_hash: 0,
+            retired_metrics,
         }
+    }
+
+    /// [`Self::new_with_constraints`] for a layout stored by a MEASURE (a
+    /// visit of `layout_ifc` at a min- or max-content width): the same entry,
+    /// its paint runs made when they are first read and not now
+    /// ([`GlyphRunList`]).
+    ///
+    /// A measure answers how wide and how tall the content is. Its lines are
+    /// painted only where they are still the IFC's final layout when the
+    /// display list is made; a table cell's are dropped from that slot right
+    /// after the measure, a flex item's are replaced by its definite layout,
+    /// and the copy in the measure slot (`InlineMeasureLayouts`) is read by
+    /// `layout_ifc` alone. Every one of them had the run-grouping walk and
+    /// the compaction done for it.
+    ///
+    /// Deferred only where the runs come from the dense view alone
+    /// (`compute_glyph_runs_with_mode`: `AZ_DENSE_TEXT` on - not off, not
+    /// `verify` - and no combined block). There `new_with_constraints` builds
+    /// the dense view, makes the runs from it and keeps both; this builds the
+    /// same dense view and hands it to the list. Everything else of the
+    /// entry is made by the same code from the same values.
+    #[must_use]
+    pub fn new_measure_with_constraints(
+        layout: Arc<UnifiedLayout>,
+        available_width: AvailableSpace,
+        has_floats: bool,
+        constraints: UnifiedConstraints,
+    ) -> Self {
+        use crate::text3::cache::ShapedItem;
+        if dense_text_mode() != 1
+            || layout
+                .items
+                .iter()
+                .any(|it| matches!(it.item, ShapedItem::CombinedBlock { .. }))
+        {
+            return Self::new_with_constraints(layout, available_width, has_floats, constraints);
+        }
+        let dense = Arc::new(crate::text3::dense::DenseText::from_unified(&layout));
+        let glyph_runs = Arc::new(GlyphRunList::deferred(Arc::clone(&dense)));
+        let dense = Some(dense);
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
+        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
+        let payload = Self::build_payload(&layout, dense.as_ref());
+        Self {
+            layout,
+            overflow,
+            available_width,
+            has_floats,
+            constraints: Some(constraints),
+            payload,
+            glyph_runs,
+            dense,
+            inline_content_hash: 0,
+            retired_metrics,
+        }
+    }
+
+    /// The measures of `layout`'s lines ([`RetiredLayoutMetrics`]) when
+    /// `layout` is about to be retired into `dense` ([`Self::retire_sparse`],
+    /// under the same condition) AND the layout `dense` expands to
+    /// (`DenseText::to_unified_items`, what [`Self::materialized`] returns
+    /// for a retired layout) measures as `layout` does, to the bit.
+    ///
+    /// `UnifiedLayout::bounds` and `last_baseline` read, of every item: its
+    /// position, and for a cluster its advance, whether it has glyphs, its
+    /// glyphs' font metrics and its style's font size and line height. The
+    /// expansion gives item `i` the `i`-th cluster's `x` and advance (copies
+    /// of the item's), the style of its run (the item's own `Arc`: a run is
+    /// split where the `Arc` changes), as many glyphs as the item has, and
+    /// two things of its RUN: its `y` (the run is split only where it moves
+    /// by more than 0.001) and, for every glyph, the font metrics of the
+    /// run's first glyph. Those two are compared here; where they differ the
+    /// measures are not kept and a reuse expands as before.
+    fn retired_metrics_of(
+        layout: &UnifiedLayout,
+        dense: Option<&crate::text3::dense::DenseText>,
+    ) -> Option<RetiredLayoutMetrics> {
+        use crate::text3::cache::ShapedItem;
+        let dense = dense?;
+        if dense_text_mode() != 1
+            || layout.items.is_empty()
+            || dense.clusters.len() != layout.items.len()
+        {
+            return None;
+        }
+        // The runs list the clusters in order, and with as many clusters as
+        // items every item is a cluster: the `i`-th cluster is item `i`'s.
+        let mut next = 0usize;
+        for run in &dense.runs {
+            for ci in run.clusters.clone() {
+                if ci as usize != next {
+                    return None;
+                }
+                let item = layout.items.get(next)?;
+                let ShapedItem::Cluster(cluster) = &item.item else {
+                    return None;
+                };
+                if item.position.y.to_bits() != run.y.to_bits()
+                    || cluster
+                        .glyphs
+                        .iter()
+                        .any(|g| !same_font_metrics_bits(&g.font_metrics, &run.font_metrics))
+                {
+                    return None;
+                }
+                next += 1;
+            }
+        }
+        if next != layout.items.len() {
+            return None;
+        }
+        Some(RetiredLayoutMetrics {
+            bounds: layout.bounds(),
+            last_baseline: layout.last_baseline(),
+        })
     }
 
     /// (d6h) The stored layout, MATERIALIZED if it is the retirement
@@ -1271,6 +1513,270 @@ impl core::fmt::Display for LayoutNodeId {
     }
 }
 
+/// The boxes of every DOM node: [`LayoutTree::dom_to_layout`].
+///
+/// A table indexed by the DOM node's index (DOM node ids are dense, `0..` the
+/// DOM's node count). A node has no entry (`display: none`, a text run its
+/// parent's line holds), ONE box - nearly every node - which lies in the table
+/// itself, or a list of its own: several boxes (a list item and its
+/// `::marker`, the parts of a split preview) in the order they were made.
+///
+/// It was a `BTreeMap<NodeId, Vec<LayoutNodeId>>`: one heap list per DOM node
+/// and a tree node for every few of them, allocated by every reconciling pass
+/// and freed with the tree of the pass before (A3-solver-25b). The methods
+/// have the map's names and answer what the map answered - [`Self::get`] and
+/// `boxes[&node]` the node's boxes as a slice, the iterators in node order -
+/// with one difference: an iterator hands a key out by value (`NodeId`), the
+/// table holds none to lend.
+#[derive(Debug, Clone, Default)]
+pub struct DomBoxes {
+    /// Per DOM node index: the node's boxes.
+    slots: Vec<DomBoxSlot>,
+    /// The lists of the nodes that hold none or more than one box.
+    lists: Vec<Vec<LayoutNodeId>>,
+    /// How many nodes have an entry.
+    len: usize,
+}
+
+/// One DOM node's entry in [`DomBoxes`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum DomBoxSlot {
+    /// No entry for the node.
+    Vacant,
+    /// The node's one box.
+    One(LayoutNodeId),
+    /// The node's boxes are `DomBoxes::lists[n]`.
+    Listed(u32),
+}
+
+impl DomBoxes {
+    /// A table without an entry (and without an allocation).
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            slots: Vec::new(),
+            lists: Vec::new(),
+            len: 0,
+        }
+    }
+
+    /// Room for the entries of a DOM of `dom_nodes` nodes: the one allocation
+    /// of a table whose nodes have a box each.
+    pub fn reserve_nodes(&mut self, dom_nodes: usize) {
+        self.slots
+            .reserve(dom_nodes.saturating_sub(self.slots.len()));
+    }
+
+    /// The boxes of `node`, in the order they were made; `None` for a node
+    /// without an entry.
+    #[must_use]
+    pub fn get(&self, node: &NodeId) -> Option<&[LayoutNodeId]> {
+        match self.slots.get(node.index())? {
+            DomBoxSlot::Vacant => None,
+            DomBoxSlot::One(only) => Some(core::slice::from_ref(only)),
+            DomBoxSlot::Listed(list) => self.lists.get(*list as usize).map(Vec::as_slice),
+        }
+    }
+
+    /// Does `node` have an entry?
+    #[must_use]
+    pub fn contains_key(&self, node: &NodeId) -> bool {
+        self.slots
+            .get(node.index())
+            .is_some_and(|slot| *slot != DomBoxSlot::Vacant)
+    }
+
+    /// How many nodes have an entry.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Has no node an entry?
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Adds `layout` to the boxes of `node`, behind the ones it has: the
+    /// map's `entry(node).or_default().push(layout)`.
+    pub fn push(&mut self, node: NodeId, layout: LayoutNodeId) {
+        let index = node.index();
+        if index >= self.slots.len() {
+            self.slots.resize(index + 1, DomBoxSlot::Vacant);
+        }
+        let slot = self.slots[index];
+        match slot {
+            DomBoxSlot::Vacant => {
+                self.slots[index] = DomBoxSlot::One(layout);
+                self.len += 1;
+            }
+            DomBoxSlot::One(first) => {
+                let list = self.new_list(vec![first, layout]);
+                self.slots[index] = DomBoxSlot::Listed(list);
+            }
+            DomBoxSlot::Listed(list) => {
+                if let Some(boxes) = self.lists.get_mut(list as usize) {
+                    boxes.push(layout);
+                }
+            }
+        }
+    }
+
+    /// Makes `boxes` the boxes of `node`, in place of the ones it has: the
+    /// map's `insert`. An empty list is an entry too (`get` answers an empty
+    /// slice for it).
+    pub fn insert(&mut self, node: NodeId, boxes: Vec<LayoutNodeId>) {
+        let index = node.index();
+        if index >= self.slots.len() {
+            self.slots.resize(index + 1, DomBoxSlot::Vacant);
+        }
+        let before = self.slots[index];
+        let slot = if boxes.len() == 1 {
+            DomBoxSlot::One(boxes[0])
+        } else {
+            match before {
+                // The node's own list is written over. (A list no slot names
+                // any more stays where it is: the others' numbers must hold.)
+                DomBoxSlot::Listed(list) if (list as usize) < self.lists.len() => {
+                    self.lists[list as usize] = boxes;
+                    DomBoxSlot::Listed(list)
+                }
+                _ => DomBoxSlot::Listed(self.new_list(boxes)),
+            }
+        };
+        self.slots[index] = slot;
+        if before == DomBoxSlot::Vacant {
+            self.len += 1;
+        }
+    }
+
+    fn new_list(&mut self, boxes: Vec<LayoutNodeId>) -> u32 {
+        let list = u32::try_from(self.lists.len()).unwrap_or(u32::MAX);
+        self.lists.push(boxes);
+        list
+    }
+
+    /// Every node with an entry and its boxes, in node order.
+    #[must_use]
+    pub const fn iter(&self) -> DomBoxesIter<'_> {
+        DomBoxesIter {
+            boxes: self,
+            next: 0,
+        }
+    }
+
+    /// Every node with an entry, in node order.
+    pub fn keys(&self) -> impl Iterator<Item = NodeId> + '_ {
+        self.iter().map(|(node, _)| node)
+    }
+
+    /// The boxes of every node with an entry, in node order.
+    pub fn values(&self) -> impl Iterator<Item = &[LayoutNodeId]> + '_ {
+        self.iter().map(|(_, boxes)| boxes)
+    }
+
+    /// The entry of the highest node that has one.
+    #[must_use]
+    pub fn last_key_value(&self) -> Option<(NodeId, &[LayoutNodeId])> {
+        (0..self.slots.len()).rev().find_map(|index| {
+            let node = NodeId::new(index);
+            self.get(&node).map(|boxes| (node, boxes))
+        })
+    }
+
+    /// Approximate heap bytes of the table and its lists.
+    #[must_use]
+    pub fn heap_bytes(&self) -> usize {
+        self.slots.capacity() * core::mem::size_of::<DomBoxSlot>()
+            + self.lists.capacity() * core::mem::size_of::<Vec<LayoutNodeId>>()
+            + self
+                .lists
+                .iter()
+                .map(|list| list.capacity() * core::mem::size_of::<LayoutNodeId>())
+                .sum::<usize>()
+    }
+
+    /// How many lists the table allocated beside itself (one per node that
+    /// holds none or more than one box): what a test reads.
+    #[must_use]
+    pub fn list_count(&self) -> usize {
+        self.lists.len()
+    }
+
+    /// How many nodes the table has room for without growing: what a test
+    /// compares to see that building a tree did not regrow it.
+    #[cfg(test)]
+    pub(crate) fn slot_capacity(&self) -> usize {
+        self.slots.capacity()
+    }
+}
+
+/// [`DomBoxes::iter`].
+#[derive(Debug, Clone)]
+pub struct DomBoxesIter<'a> {
+    boxes: &'a DomBoxes,
+    next: usize,
+}
+
+impl<'a> Iterator for DomBoxesIter<'a> {
+    type Item = (NodeId, &'a [LayoutNodeId]);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let table: &'a DomBoxes = self.boxes;
+        while self.next < table.slots.len() {
+            let node = NodeId::new(self.next);
+            self.next += 1;
+            if let Some(boxes) = table.get(&node) {
+                return Some((node, boxes));
+            }
+        }
+        None
+    }
+}
+
+impl<'a> IntoIterator for &'a DomBoxes {
+    type IntoIter = DomBoxesIter<'a>;
+    type Item = (NodeId, &'a [LayoutNodeId]);
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl core::ops::Index<&NodeId> for DomBoxes {
+    type Output = [LayoutNodeId];
+
+    /// The boxes of `node`. Panics for a node without an entry, as the map did.
+    fn index(&self, node: &NodeId) -> &[LayoutNodeId] {
+        self.get(node).expect("the DOM node has no box")
+    }
+}
+
+/// Two tables are equal when the same nodes have the same boxes in the same
+/// order, however the lists are numbered.
+impl PartialEq for DomBoxes {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len && self.iter().eq(other.iter())
+    }
+}
+
+impl FromIterator<(NodeId, Vec<LayoutNodeId>)> for DomBoxes {
+    fn from_iter<I: IntoIterator<Item = (NodeId, Vec<LayoutNodeId>)>>(entries: I) -> Self {
+        let mut boxes = Self::new();
+        for (node, of_node) in entries {
+            boxes.insert(node, of_node);
+        }
+        boxes
+    }
+}
+
+impl From<BTreeMap<NodeId, Vec<LayoutNodeId>>> for DomBoxes {
+    fn from(map: BTreeMap<NodeId, Vec<LayoutNodeId>>) -> Self {
+        map.into_iter().collect()
+    }
+}
+
 /// The complete layout tree structure.
 ///
 /// Uses a struct-of-arrays (`SoA`) layout for cache performance:
@@ -1287,13 +1793,14 @@ pub struct LayoutTree {
     pub cold: Vec<LayoutNodeCold>,
     /// Root node index
     pub root: usize,
-    /// Mapping from DOM node IDs to layout node indices
-    // BTreeMap (not HashMap): std HashMap's RandomState hasher needs an RNG seed
-    // that isn't available in the remill-lifted wasm (no getrandom), so inserts
+    /// Mapping from DOM node IDs to layout node indices: a dense table
+    /// ([`DomBoxes`]) with the lookups of the map it was.
+    // No hash map: std HashMap's RandomState hasher needs an RNG seed that
+    // isn't available in the remill-lifted wasm (no getrandom), so inserts
     // silently no-op there — dom_to_layout came back empty (node mapping lost,
-    // get_node_size/position returned None → 0-rects). BTreeMap is deterministic,
-    // matches the rest of azul-core, and lifts reliably (M12.7).
-    pub dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>>,
+    // get_node_size/position returned None → 0-rects). The table is
+    // deterministic and needs no hasher (M12.7).
+    pub dom_to_layout: DomBoxes,
     /// Flat arena holding all children indices contiguously.
     pub children_arena: Vec<usize>,
     /// Per-node (start, len) into `children_arena`. Indexed by node index.
@@ -1408,11 +1915,12 @@ impl LayoutTree {
     pub(crate) fn mirroring_dom(styled_dom: &StyledDom) -> Self {
         let hierarchy = styled_dom.node_hierarchy.as_container();
         let count = styled_dom.node_data.as_container().len();
-        let mut dom_to_layout: BTreeMap<NodeId, Vec<LayoutNodeId>> = BTreeMap::new();
+        let mut dom_to_layout = DomBoxes::new();
+        dom_to_layout.reserve_nodes(count);
         let mut nodes: Vec<LayoutNodeHot> = Vec::with_capacity(count);
         for i in 0..count {
             let node = NodeId::new(i);
-            dom_to_layout.insert(node, vec![LayoutNodeId::new(i)]);
+            dom_to_layout.push(node, LayoutNodeId::new(i));
             nodes.push(LayoutNodeHot {
                 box_props: crate::solver3::geometry::PackedBoxProps::default(),
                 dom_node_id: Some(node),
@@ -1461,13 +1969,8 @@ impl LayoutTree {
             glyph_instance_count: 0,
             warm_taffy_cache_bytes: 0,
         };
-        // HashMap<NodeId, Vec<usize>> — approximate: (key + Vec-header) per entry
-        // plus heap for each inner Vec.
-        let entries = self.dom_to_layout.len();
-        report.dom_to_layout_bytes = entries * (size_of::<NodeId>() + size_of::<Vec<usize>>());
-        for v in self.dom_to_layout.values() {
-            report.dom_to_layout_bytes += v.capacity() * size_of::<usize>();
-        }
+        // The table's slots, and the lists of the nodes with several boxes.
+        report.dom_to_layout_bytes = self.dom_to_layout.heap_bytes();
         // Inline layout data lives behind Arc — count Arc heap-shares once
         // per node that has a cached layout. Counted conservatively.
         let mut text_arcs: alloc::collections::BTreeSet<usize> =
@@ -1505,10 +2008,12 @@ impl LayoutTree {
                 }
                 // Paint-run cache — its own report line (see the field doc).
                 // Distinct Arcs only: a reused layout clones the Arc.
+                // Runs not made yet (a measure's no one painted) hold nothing.
                 if run_arcs.insert(Arc::as_ptr(&cached.glyph_runs).cast::<u8>() as usize) {
-                    report.glyph_run_bytes += cached.glyph_runs.capacity()
+                    let made = cached.glyph_runs.made_runs();
+                    report.glyph_run_bytes += made.map_or(0, Vec::capacity)
                         * size_of::<crate::text3::glyphs::CompactGlyphRun>();
-                    for run in cached.glyph_runs.iter() {
+                    for run in made.into_iter().flatten() {
                         report.glyph_run_bytes += run.glyphs.retained_bytes()
                             + run.background_content.capacity()
                                 * size_of::<azul_css::props::style::StyleBackgroundContent>();
@@ -1688,10 +2193,28 @@ impl LayoutTree {
     /// Used when passing node data to `LayoutTreeBuilder::clone_node_from_old()`.
     #[must_use]
     pub fn get_full_node(&self, index: usize) -> Option<LayoutNode> {
+        self.full_node(index, true)
+    }
+
+    /// [`Self::get_full_node`] with no children listed: the node as
+    /// [`LayoutTreeBuilder::adopt_node_from_old`] takes it, which gives it
+    /// the children the new tree has and would drop the copied list.
+    #[must_use]
+    pub fn get_full_node_without_children(&self, index: usize) -> Option<LayoutNode> {
+        self.full_node(index, false)
+    }
+
+    /// The node at `index` put together from the hot / warm / cold arrays,
+    /// with its children listed (`with_children`) or with none.
+    fn full_node(&self, index: usize, with_children: bool) -> Option<LayoutNode> {
         let hot = self.nodes.get(index)?;
         let warm = self.warm.get(index).cloned().unwrap_or_default();
         let cold = self.cold.get(index).cloned().unwrap_or_default();
-        let children = self.children(index).to_vec();
+        let children = if with_children {
+            self.children(index).to_vec()
+        } else {
+            Vec::new()
+        };
         Some(LayoutNode {
             box_props: hot.box_props.unpack(),
             dom_node_id: hot.dom_node_id,
@@ -2375,6 +2898,22 @@ fn compute_subtree_needs_intrinsic(styled_dom: &StyledDom, tree: &LayoutTree) ->
     out
 }
 
+/// How many node fingerprints [`LayoutTreeBuilder::create_node_from_dom`]
+/// computed itself on this thread (`audit_tests::a3_solver`: none for the nodes
+/// the reconcile creates, which hands over the one it computed).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BUILDER_FINGERPRINTS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many old nodes [`LayoutTreeBuilder::clone_node_from_old`] cloned on this
+/// thread (`audit_tests::a3_solver::ifc`: none once the reconcile hands its
+/// copy of a clean node over with [`LayoutTreeBuilder::adopt_node_from_old`]).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BUILDER_NODE_CLONES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Incrementally builds a [`LayoutTree`] from a [`StyledDom`].
 ///
 /// Usage: create via [`LayoutTreeBuilder::new`], call [`process_node`](Self::process_node)
@@ -2384,7 +2923,10 @@ fn compute_subtree_needs_intrinsic(styled_dom: &StyledDom, tree: &LayoutTree) ->
 #[derive(Debug)]
 pub struct LayoutTreeBuilder {
     nodes: Vec<LayoutNode>,
-    dom_to_layout: BTreeMap<NodeId, Vec<usize>>,
+    /// As [`LayoutTree::dom_to_layout`] has it, so that `build` hands the
+    /// table over as it is (it made a second map from this one, entry by
+    /// entry: A3-solver-25).
+    dom_to_layout: DomBoxes,
     viewport_size: LogicalSize,
 }
 
@@ -2393,7 +2935,7 @@ impl LayoutTreeBuilder {
     pub const fn new(viewport_size: LogicalSize) -> Self {
         Self {
             nodes: Vec::new(),
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: DomBoxes::new(),
             viewport_size,
         }
     }
@@ -3254,9 +3796,7 @@ impl LayoutTreeBuilder {
 
         // Register with DOM mapping for counter resolution
         self.dom_to_layout
-            .entry(list_item_dom_id)
-            .or_default()
-            .push(index);
+            .push(list_item_dom_id, LayoutNodeId::new(index));
 
         Some(index)
     }
@@ -3326,13 +3866,38 @@ impl LayoutTreeBuilder {
         }
     }
 
-    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    /// Room for `additional` more nodes, so that building a tree of a known
+    /// size does not regrow (and copy) the node buffer on the way.
+    pub fn reserve_nodes(&mut self, additional: usize) {
+        self.nodes.reserve(additional);
+        // The reconcile asks for the DOM's node count and a margin for
+        // anonymous boxes: room for every DOM node's entry in one allocation.
+        self.dom_to_layout.reserve_nodes(additional);
+    }
+
     pub fn create_node_from_dom(
         &mut self,
         styled_dom: &StyledDom,
         dom_id: NodeId,
         parent: Option<usize>,
         debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+    ) -> usize {
+        self.create_node_from_dom_fingerprinted(styled_dom, dom_id, parent, debug_messages, None)
+    }
+
+    /// [`Self::create_node_from_dom`] for a caller that has the node's
+    /// fingerprint already: `fingerprint` must be
+    /// `NodeDataFingerprint::compute` of this DOM node and its state in
+    /// `styled_dom` (the reconcile computes it to compare the node with its
+    /// old box, just before it creates the new one). `None` computes it here.
+    #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
+    pub fn create_node_from_dom_fingerprinted(
+        &mut self,
+        styled_dom: &StyledDom,
+        dom_id: NodeId,
+        parent: Option<usize>,
+        debug_messages: &mut Option<Vec<LayoutDebugMessage>>,
+        fingerprint: Option<NodeDataFingerprint>,
     ) -> usize {
         let index = self.nodes.len();
         // as IT sees it). If this is 0 but build() sees 0 nodes, the push is lost
@@ -3399,14 +3964,18 @@ impl LayoutTreeBuilder {
             // ── COLD ──
             anonymous_type: None,
             preview_byte_range: None,
-            node_data_fingerprint: NodeDataFingerprint::compute(
-                &styled_dom.node_data.as_container()[dom_id],
-                styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(dom_id)
-                    .map(|n| &n.styled_node_state),
-            ),
+            node_data_fingerprint: fingerprint.unwrap_or_else(|| {
+                #[cfg(test)]
+                BUILDER_FINGERPRINTS.with(|n| n.set(n.get() + 1));
+                NodeDataFingerprint::compute(
+                    &styled_dom.node_data.as_container()[dom_id],
+                    styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(dom_id)
+                        .map(|n| &n.styled_node_state),
+                )
+            }),
             subtree_hash: SubtreeHash(0),
             dirty_flag: DirtyFlag::Layout,
             unresolved_box_props: collected.unresolved,
@@ -3420,7 +3989,8 @@ impl LayoutTreeBuilder {
         if let Some(p) = parent {
             self.nodes[p].children.push(index);
         }
-        self.dom_to_layout.entry(dom_id).or_default().push(index);
+        self.dom_to_layout
+            .push(dom_id, LayoutNodeId::new(index));
         // DEBUG (2026-06-02 children-None tree-build): count create_node_from_dom
         // calls @0x40500 + record each dom_id into a 14-slot ring @0x40504. REVERT
         // before commit. Runs only in lifted wasm (server lifts, never runs natively).
@@ -3505,7 +4075,7 @@ impl LayoutTreeBuilder {
             if indices.len() != 1 {
                 continue; // already split (or exotic mapping)
             }
-            let idx = indices[0];
+            let idx = indices[0].index();
 
             // Child-boundary split (no text byte): a container splits BETWEEN
             // its children — a `<ul>` between `<li>`s, a section between
@@ -3585,7 +4155,8 @@ impl LayoutTreeBuilder {
                 self.nodes[p].children.insert(pos, part2_idx);
                 self.nodes[p].dirty_flag = DirtyFlag::Layout;
             }
-            self.dom_to_layout.entry(*node).or_default().push(part2_idx);
+            self.dom_to_layout
+                .push(*node, LayoutNodeId::new(part2_idx));
         }
     }
 
@@ -3673,9 +4244,7 @@ impl LayoutTreeBuilder {
             self.nodes[p].dirty_flag = DirtyFlag::Layout;
         }
         self.dom_to_layout
-            .entry(dom_node)
-            .or_default()
-            .push(part2_idx);
+            .push(dom_node, LayoutNodeId::new(part2_idx));
     }
 
     /// The min/max DOM ordinal among an anonymous wrapper's DIRECT layout
@@ -3770,7 +4339,7 @@ impl LayoutTreeBuilder {
         if indices.len() != 1 {
             return; // exotic mapping (already part-split); one preview at a time
         }
-        let idx = indices[0];
+        let idx = indices[0].index();
         let children = self.nodes[idx].children.clone();
         let mut kept: Vec<usize> = Vec::new();
         let mut changed = false;
@@ -3828,11 +4397,12 @@ impl LayoutTreeBuilder {
     fn apply_merge_preview(&mut self, first_dom: NodeId, second_dom: NodeId) {
         // Unmapped or exotic multi-part mappings are staged.
         let ((Some(&[first_idx]), Some(&[second_idx]))) = (
-            self.dom_to_layout.get(&first_dom).map(Vec::as_slice),
-            self.dom_to_layout.get(&second_dom).map(Vec::as_slice),
+            self.dom_to_layout.get(&first_dom),
+            self.dom_to_layout.get(&second_dom),
         ) else {
             return;
         };
+        let (first_idx, second_idx) = (first_idx.index(), second_idx.index());
 
         let moved = core::mem::take(&mut self.nodes[second_idx].children);
         for &m in &moved {
@@ -3873,8 +4443,25 @@ impl LayoutTreeBuilder {
         parent: Option<usize>,
         new_dom_id: Option<NodeId>,
     ) -> usize {
+        #[cfg(test)]
+        BUILDER_NODE_CLONES.with(|n| n.set(n.get() + 1));
+        self.adopt_node_from_old(old_node.clone(), parent, new_dom_id)
+    }
+
+    /// [`Self::clone_node_from_old`] for an old node the caller owns and
+    /// needs no more: the node is moved into the new tree, not cloned into
+    /// it. A node read out of the old tree for this
+    /// ([`LayoutTree::get_full_node_without_children`]) is a copy already;
+    /// cloning that copy again copied every box, map and list it holds a
+    /// second time, for every clean node of every reconcile.
+    pub fn adopt_node_from_old(
+        &mut self,
+        old_node: LayoutNode,
+        parent: Option<usize>,
+        new_dom_id: Option<NodeId>,
+    ) -> usize {
         let index = self.nodes.len();
-        let mut new_node = old_node.clone();
+        let mut new_node = old_node;
         new_node.parent = parent;
         new_node.parent_formatting_context =
             parent.and_then(|p| self.nodes.get(p).map(|n| n.formatting_context));
@@ -3914,7 +4501,8 @@ impl LayoutTreeBuilder {
             self.nodes[p].children.push(index);
         }
         if let Some(dom_id) = new_dom_id {
-            self.dom_to_layout.entry(dom_id).or_default().push(index);
+            self.dom_to_layout
+                .push(dom_id, LayoutNodeId::new(index));
         }
         index
     }
@@ -3959,11 +4547,7 @@ impl LayoutTreeBuilder {
             warm: warm_nodes,
             cold: cold_nodes,
             root: root_idx,
-            dom_to_layout: self
-                .dom_to_layout
-                .into_iter()
-                .map(|(k, v)| (k, v.into_iter().map(LayoutNodeId::new).collect()))
-                .collect(),
+            dom_to_layout: self.dom_to_layout,
             children_arena: arena,
             children_offsets: offsets,
             // Populated by `generate_layout_tree` after the tree is built,
@@ -5733,7 +6317,7 @@ mod autotest_generated {
             warm: vec![LayoutNodeWarm::default(); n],
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: DomBoxes::new(),
             children_arena,
             children_offsets,
             subtree_needs_intrinsic: Vec::new(),
@@ -7171,7 +7755,9 @@ mod autotest_generated {
         assert!(n.ifc_id.is_none());
         assert_eq!(b.get(root).unwrap().children, vec![anon]);
         assert!(
-            b.dom_to_layout.values().all(|v| !v.contains(&anon)),
+            b.dom_to_layout
+                .values()
+                .all(|v| !v.contains(&LayoutNodeId::new(anon))),
             "anon boxes are never registered in dom_to_layout"
         );
     }
@@ -7207,7 +7793,7 @@ mod autotest_generated {
         assert_eq!(b.get(child).unwrap().dom_node_id, Some(NodeId::new(1)));
         assert_eq!(b.get(child).unwrap().parent, Some(root));
         assert_eq!(b.get(root).unwrap().children, vec![child]);
-        assert_eq!(b.dom_to_layout[&NodeId::new(1)], vec![child]);
+        assert_eq!(b.dom_to_layout[&NodeId::new(1)], vec![LayoutNodeId::new(child)]);
         assert_eq!(b.get(child).unwrap().dirty_flag, DirtyFlag::Layout);
     }
 
@@ -7329,8 +7915,8 @@ mod autotest_generated {
             "the clone must describe the node it was reconciled AGAINST"
         );
         assert_eq!(
-            b.dom_to_layout.get(&new_id).map(Vec::as_slice),
-            Some(&[idx][..]),
+            b.dom_to_layout.get(&new_id),
+            Some(&[LayoutNodeId::new(idx)][..]),
             "dom_to_layout must index the clone under its NEW id"
         );
         assert!(
@@ -8747,7 +9333,7 @@ mod autotest_generated {
                         i < LayoutNodeId::new(n),
                         "dom_to_layout[{dom_id:?}] points at {i}, out of range"
                     );
-                    assert_eq!(tree.get(i).unwrap().dom_node_id, Some(*dom_id));
+                    assert_eq!(tree.get(i).unwrap().dom_node_id, Some(dom_id));
                 }
             }
         }
@@ -8883,5 +9469,571 @@ mod autotest_generated {
             walked.len(),
             tree.nodes.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// A3-solver-11: the reconcile reserves the builder's node buffer for the DOM it is about
+    /// to walk (`cache::reconcile_and_invalidate_restyled`); reserving adds no node.
+    #[test]
+    fn reserve_nodes_makes_room_without_adding_a_node() {
+        let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
+        builder.reserve_nodes(1_000);
+        assert!(builder.nodes.capacity() >= 1_000);
+        assert!(builder.nodes.is_empty());
+        assert!(builder.dom_to_layout.is_empty());
+    }
+
+    /// A3-solver-25: `build` hands the builder's DOM-to-box map to the tree as it is. The
+    /// builder kept the box indices as `usize` and `build` made the tree's map from it entry
+    /// by entry - every list converted, the map's nodes allocated a second time - for every
+    /// reconcile of every pass (25,000 entries for a view of 12,500 labels).
+    ///
+    /// The entries are where they were (the address of an entry's list inside the map, not
+    /// only of the list's buffer, which a conversion in place keeps too), and say what the
+    /// builder said.
+    ///
+    /// Mutation: a map made anew in `build` (`.into_iter().map(..).collect()`) holds its
+    /// entries in other nodes - unless the allocator hands the very blocks back.
+    #[test]
+    fn build_hands_the_dom_map_over_as_it_is() {
+        let mut body = azul_core::dom::Dom::create_body();
+        for _ in 0..40 {
+            body = body.with_child(azul_core::dom::Dom::create_div());
+        }
+        let sd = StyledDom::create_from_dom(body);
+        let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
+        let mut msgs = None;
+        let root = builder.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let boxes: Vec<usize> = (1..=40)
+            .map(|i| builder.create_node_from_dom(&sd, NodeId::new(i), Some(root), &mut msgs))
+            .collect();
+        // Where the entry of a node lies: its one box is IN the table (25b), so this is an
+        // address inside the table's slots.
+        let entry_of =
+            |map: &DomBoxes, i: usize| map[&NodeId::new(i)].as_ptr() as usize;
+        let before: Vec<usize> = (0..=40).map(|i| entry_of(&builder.dom_to_layout, i)).collect();
+        let tree = builder.build(root);
+        let after: Vec<usize> = (0..=40).map(|i| entry_of(&tree.dom_to_layout, i)).collect();
+        assert_eq!(before, after, "the entries of the map moved: it was made a second time");
+        assert_eq!(tree.dom_to_layout.len(), 41);
+        assert_eq!(tree.dom_to_layout[&NodeId::ZERO], vec![LayoutNodeId::new(root)]);
+        for (i, index) in boxes.iter().enumerate() {
+            assert_eq!(
+                tree.dom_to_layout[&NodeId::new(i + 1)],
+                vec![LayoutNodeId::new(*index)],
+                "DOM node {} maps to its box",
+                i + 1
+            );
+        }
+    }
+
+    /// A3-solver-25b, the count: the boxes of a DOM whose nodes have a box each lie in ONE
+    /// table - no list per node, at n nodes and at 4 n - and the table the reconcile reserved
+    /// for the DOM is not regrown while the tree is built. It was a map of lists: n heap lists
+    /// and a tree node for every few of them, per reconciling pass.
+    ///
+    /// Mutations: `DomBoxes::push` opening a list for a node's first box -> 41 and 161 lists;
+    /// `LayoutTreeBuilder::reserve_nodes` not reserving the table -> its capacity grows.
+    #[test]
+    fn a_tree_of_one_box_per_node_keeps_no_list_per_node() {
+        for n in [40_usize, 160] {
+            let mut body = azul_core::dom::Dom::create_body();
+            for _ in 0..n {
+                body = body.with_child(azul_core::dom::Dom::create_div());
+            }
+            let sd = StyledDom::create_from_dom(body);
+            let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
+            builder.reserve_nodes(n + 1);
+            let reserved = builder.dom_to_layout.slot_capacity();
+            assert!(reserved >= n + 1, "the table has room for every DOM node");
+            let mut msgs = None;
+            let root = builder.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+            for i in 1..=n {
+                builder.create_node_from_dom(&sd, NodeId::new(i), Some(root), &mut msgs);
+            }
+            let tree = builder.build(root);
+            assert_eq!(tree.dom_to_layout.len(), n + 1, "harness: a box per DOM node");
+            assert_eq!(
+                tree.dom_to_layout.list_count(),
+                0,
+                "{n} nodes of one box each: no list beside the table"
+            );
+            assert_eq!(
+                tree.dom_to_layout.slot_capacity(),
+                reserved,
+                "{n} nodes: the table was not regrown"
+            );
+        }
+        // A second box of a node (a list item's marker, the second part of a split) costs
+        // that node a list, and no other node one.
+        let mut table = DomBoxes::new();
+        for i in 0..100 {
+            table.push(NodeId::new(i), LayoutNodeId::new(i));
+        }
+        table.push(NodeId::new(7), LayoutNodeId::new(100));
+        table.push(NodeId::new(7), LayoutNodeId::new(101));
+        assert_eq!(table.list_count(), 1);
+        assert_eq!(
+            table[&NodeId::new(7)],
+            vec![
+                LayoutNodeId::new(7),
+                LayoutNodeId::new(100),
+                LayoutNodeId::new(101)
+            ]
+        );
+    }
+
+    /// A3-solver-25b, the equality: the table answers every lookup as the map it replaces.
+    /// Both are filled by the same generated sequence of `push` (the builder's only write;
+    /// nodes end with no, one or several boxes, pushed in no node order) and of `insert`
+    /// (what fixtures use: an empty list, one box, several, a second insert for the same
+    /// node), and every reader the map had is asked of both.
+    ///
+    /// Mutations: `get` answering `None` for a node with an empty list; `push` to a node
+    /// with one box replacing it; the iterator starting at slot 1; `last_key_value`
+    /// answering the first entry -> each fails its assertion.
+    #[test]
+    fn the_table_answers_what_the_map_answered() {
+        fn slice_of(boxes: &Vec<LayoutNodeId>) -> &[LayoutNodeId] {
+            boxes.as_slice()
+        }
+
+        let mut map: BTreeMap<NodeId, Vec<LayoutNodeId>> = BTreeMap::new();
+        let mut table = DomBoxes::new();
+        assert!(table.is_empty());
+        assert_eq!(table.last_key_value(), None);
+        assert_eq!(table.get(&NodeId::ZERO), None);
+
+        // A linear congruential generator: the same sequence on every run.
+        let mut seed: u32 = 0x9E37_79B9;
+        for layout_index in 0..600_usize {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let node = NodeId::new((seed >> 8) as usize % 257);
+            map.entry(node)
+                .or_default()
+                .push(LayoutNodeId::new(layout_index));
+            table.push(node, LayoutNodeId::new(layout_index));
+        }
+        let fixtures: [(usize, Vec<usize>); 6] = [
+            (300, vec![]),
+            (5, vec![9000]),
+            (6, vec![1, 2, 3]),
+            (301, vec![7]),
+            (5, vec![]),
+            (6, vec![4, 5]),
+        ];
+        for (node, boxes) in fixtures {
+            let boxes: Vec<LayoutNodeId> = boxes.into_iter().map(LayoutNodeId::new).collect();
+            map.insert(NodeId::new(node), boxes.clone());
+            table.insert(NodeId::new(node), boxes);
+        }
+        assert!(map.values().any(|boxes| boxes.len() == 1), "harness: nodes with one box");
+        assert!(map.values().any(|boxes| boxes.len() > 2), "harness: nodes with several");
+        assert!(map.len() < 257, "harness: nodes without a box");
+
+        assert_eq!(table.len(), map.len());
+        assert_eq!(table.is_empty(), map.is_empty());
+        for index in 0..400 {
+            let node = NodeId::new(index);
+            assert_eq!(table.get(&node), map.get(&node).map(slice_of), "get({index})");
+            assert_eq!(
+                table.contains_key(&node),
+                map.contains_key(&node),
+                "contains_key({index})"
+            );
+        }
+        for (node, boxes) in &map {
+            assert_eq!(&table[node], boxes.as_slice(), "index {node:?}");
+        }
+        assert_eq!(
+            table.keys().collect::<Vec<_>>(),
+            map.keys().copied().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            table.values().collect::<Vec<_>>(),
+            map.values().map(slice_of).collect::<Vec<_>>()
+        );
+        let entries_of_map: Vec<(NodeId, &[LayoutNodeId])> = map
+            .iter()
+            .map(|(node, boxes)| (*node, boxes.as_slice()))
+            .collect();
+        assert_eq!(table.iter().collect::<Vec<_>>(), entries_of_map);
+        let mut walked = Vec::new();
+        for (node, boxes) in &table {
+            walked.push((node, boxes));
+        }
+        assert_eq!(walked, entries_of_map);
+        assert_eq!(
+            table.last_key_value(),
+            map.last_key_value()
+                .map(|(node, boxes)| (*node, boxes.as_slice()))
+        );
+
+        // Equal tables are equal however they were filled; one box more is another table.
+        let collected: DomBoxes = map.clone().into_iter().collect();
+        assert_eq!(collected, table);
+        assert_eq!(DomBoxes::from(map.clone()), table);
+        let mut other = table.clone();
+        other.push(NodeId::new(0), LayoutNodeId::new(77_777));
+        assert_ne!(other, table);
+    }
+
+    /// `body(0) > div(1)` as a tree of two boxes, the div's carrying what a layout leaves on
+    /// a node (a used size, a baseline, a position, a dirty flag).
+    fn laid_out_pair() -> LayoutTree {
+        let sd = StyledDom::create_from_dom(
+            azul_core::dom::Dom::create_body().with_child(azul_core::dom::Dom::create_div()),
+        );
+        let mut builder = LayoutTreeBuilder::new(LogicalSize::new(800.0, 600.0));
+        let mut msgs = None;
+        let root = builder.create_node_from_dom(&sd, NodeId::ZERO, None, &mut msgs);
+        let child = builder.create_node_from_dom(&sd, NodeId::new(1), Some(root), &mut msgs);
+        if let Some(node) = builder.get_mut(child) {
+            node.used_size = Some(LogicalSize::new(120.0, 30.0));
+            node.baseline = Some(11.0);
+            node.relative_position = Some(LogicalPosition::new(3.0, 4.0));
+            node.dirty_flag = DirtyFlag::Layout;
+        }
+        builder.build(root)
+    }
+
+    /// A3-solver-24: a node read out of a tree without its children is the node read with
+    /// them, less the list. (Compared as `Debug` text: every field of a node is in it, also
+    /// the ones without `PartialEq` - the inline layouts, the taffy cache.)
+    ///
+    /// Mutation: any field `full_node` fills differently for `with_children: false`.
+    #[test]
+    fn a_node_read_without_its_children_is_the_node_less_the_list() {
+        let old = laid_out_pair();
+        let mut with = old.get_full_node(0).expect("the root");
+        assert_eq!(with.children, vec![1], "harness: the root lists its child");
+        with.children.clear();
+        let without = old.get_full_node_without_children(0).expect("the root");
+        assert_eq!(format!("{with:?}"), format!("{without:?}"));
+        assert!(old.get_full_node_without_children(2).is_none());
+    }
+
+    /// A3-solver-24: moving an old node into a builder (`adopt_node_from_old`) makes the node
+    /// that cloning it into the builder makes (`clone_node_from_old`) - under the new parent
+    /// and the new DOM identity, clean, with the children the new tree gives it and the
+    /// measurements the old node had - and registers it under the same DOM node.
+    ///
+    /// Mutation: without `new_node.children = Vec::new()` the cloned root, read with its
+    /// children, lists its child twice and the adopted one once; an `adopt_node_from_old`
+    /// that keeps the old dirty flag or DOM node fails the last assertions.
+    #[test]
+    fn adopting_an_old_node_makes_the_node_that_cloning_it_makes() {
+        let old = laid_out_pair();
+        let viewport = LogicalSize::new(800.0, 600.0);
+        let (mut by_clone, mut by_adoption) =
+            (LayoutTreeBuilder::new(viewport), LayoutTreeBuilder::new(viewport));
+        // The child moves to another DOM node, as a positional match makes it.
+        let moved = Some(NodeId::new(5));
+
+        let root = old.get_full_node(0).expect("the root");
+        let child = old.get_full_node(1).expect("the child");
+        let cloned_root = by_clone.clone_node_from_old(&root, None, Some(NodeId::ZERO));
+        let cloned_child = by_clone.clone_node_from_old(&child, Some(cloned_root), moved);
+
+        let adopted_root = by_adoption.adopt_node_from_old(
+            old.get_full_node_without_children(0).expect("the root"),
+            None,
+            Some(NodeId::ZERO),
+        );
+        let adopted_child = by_adoption.adopt_node_from_old(
+            old.get_full_node_without_children(1).expect("the child"),
+            Some(adopted_root),
+            moved,
+        );
+
+        assert_eq!((cloned_root, cloned_child), (adopted_root, adopted_child));
+        for index in [cloned_root, cloned_child] {
+            assert_eq!(
+                format!("{:?}", by_clone.get(index)),
+                format!("{:?}", by_adoption.get(index)),
+                "node {index}"
+            );
+        }
+        assert_eq!(by_clone.dom_to_layout, by_adoption.dom_to_layout);
+
+        let adopted = by_adoption.get(adopted_child).expect("the adopted child");
+        assert_eq!(adopted.dom_node_id, moved);
+        assert_eq!(adopted.parent, Some(adopted_root));
+        assert_eq!(adopted.dirty_flag, DirtyFlag::None);
+        assert!(adopted.children.is_empty());
+        assert_eq!(adopted.used_size, Some(LogicalSize::new(120.0, 30.0)));
+        assert_eq!(adopted.baseline, Some(11.0));
+        assert_eq!(
+            by_adoption.get(adopted_root).map(|n| n.children.clone()),
+            Some(vec![adopted_child])
+        );
+    }
+
+    /// One positioned cluster: the ASCII letter at byte `start_byte` of `text`, one glyph 10px
+    /// wide of a face 800 up and 200 down in 1000 units, at `(x, y)` on line `line`. Clusters
+    /// that share `style` and `text` and stand at one `y` make ONE run of the dense view
+    /// (`DenseText::from_unified`).
+    fn letter_at(
+        style: &Arc<crate::text3::cache::StyleProperties>,
+        text: &Arc<str>,
+        start_byte: u32,
+        x: f32,
+        y: f32,
+        line: usize,
+    ) -> crate::text3::cache::PositionedItem {
+        use crate::text3::{
+            cache::{
+                BidiDirection, BidiLevel, ClusterFlags, ContentIndex, GlyphKind,
+                GraphemeClusterId, LayoutFontMetrics, Point, PositionedItem, ShapedCluster,
+                ShapedGlyph, ShapedItem,
+            },
+            script::Script,
+        };
+        let glyph = ShapedGlyph {
+            kind: GlyphKind::Character,
+            glyph_id: 7,
+            cluster_offset: 0,
+            advance: 10.0,
+            kerning: 0.0,
+            offset: Point { x: 0.0, y: 0.0 },
+            vertical_advance: 0.0,
+            vertical_offset: Point { x: 0.0, y: 0.0 },
+            script: Script::Latin,
+            font_hash: 0xF0F0,
+            font_metrics: LayoutFontMetrics {
+                ascent: 800.0,
+                descent: -200.0,
+                line_gap: 0.0,
+                units_per_em: 1000,
+                x_height: None,
+                cap_height: None,
+                browser_ascent_boost: false,
+            },
+        };
+        PositionedItem {
+            item: ShapedItem::Cluster(ShapedCluster {
+                flags: ClusterFlags::classify("a"),
+                source_text: Arc::clone(text),
+                source_byte_len: 1,
+                source_cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: start_byte,
+                },
+                source_content_index: ContentIndex {
+                    run_index: 0,
+                    item_index: start_byte,
+                },
+                source_node_id: None,
+                glyphs: core::iter::once(glyph).collect(),
+                advance: 10.0,
+                direction: BidiDirection::Ltr,
+                bidi_level: BidiLevel::paragraph(BidiDirection::Ltr),
+                style: Arc::clone(style),
+                marker_position_outside: None,
+                is_first_fragment: true,
+                is_last_fragment: true,
+            }),
+            position: Point { x, y },
+            line_index: line,
+        }
+    }
+
+    fn style_20px() -> Arc<crate::text3::cache::StyleProperties> {
+        Arc::new(crate::text3::cache::StyleProperties {
+            font_size_px: 20.0,
+            ..crate::text3::cache::StyleProperties::default()
+        })
+    }
+
+    fn stored(items: Vec<crate::text3::cache::PositionedItem>) -> CachedInlineLayout {
+        CachedInlineLayout::new(
+            Arc::new(UnifiedLayout {
+                items,
+                overflow: crate::text3::cache::OverflowInfo::default(),
+            }),
+            AvailableSpace::Definite(100.0),
+            false,
+        )
+    }
+
+    /// A3-solver-21: a layout stored as its dense view alone keeps the `bounds()` and the
+    /// `last_baseline()` of the layout it was stored from, and they are, to the bit, those of
+    /// the layout the dense view expands to - what the reuse exit of `layout_ifc` used to
+    /// expand it for on every reuse.
+    ///
+    /// Mutation: `last_baseline: layout.first_baseline()` in
+    /// `CachedInlineLayout::retired_metrics_of` keeps the first line's baseline, 24px above the
+    /// expansion's last.
+    #[test]
+    fn a_retired_layout_keeps_the_measures_its_expansion_has() {
+        if dense_text_mode() != 1 {
+            // `AZ_DENSE_TEXT=0` and `verify` keep the sparse layout: nothing is retired.
+            return;
+        }
+        let (style, text) = (style_20px(), Arc::<str>::from("abcd"));
+        // Two lines of two letters, the second line 24px below the first.
+        let cached = stored(vec![
+            letter_at(&style, &text, 0, 3.0, 4.0, 0),
+            letter_at(&style, &text, 1, 13.0, 4.0, 0),
+            letter_at(&style, &text, 2, 3.0, 28.0, 1),
+            letter_at(&style, &text, 3, 13.0, 28.0, 1),
+        ]);
+        assert!(
+            cached.layout.items.is_empty(),
+            "harness: four clusters retire into the dense view"
+        );
+        let expanded = cached.materialized();
+        assert_eq!(expanded.items.len(), 4, "harness: the dense view expands to four clusters");
+        let kept = cached
+            .retired_metrics
+            .expect("a retired layout whose runs stand at one y each keeps its measures");
+        let (b, e) = (kept.bounds, expanded.bounds());
+        assert_eq!(
+            [b.x.to_bits(), b.y.to_bits(), b.width.to_bits(), b.height.to_bits()],
+            [e.x.to_bits(), e.y.to_bits(), e.width.to_bits(), e.height.to_bits()],
+            "the kept bounds {b:?} are not the expansion's {e:?}"
+        );
+        assert_eq!(
+            kept.last_baseline.map(f32::to_bits),
+            expanded.last_baseline().map(f32::to_bits),
+            "the kept last baseline is not the expansion's"
+        );
+        assert!(
+            b.width > 0.0 && kept.last_baseline.is_some(),
+            "harness: the lines measure something ({b:?}, {:?})",
+            kept.last_baseline
+        );
+    }
+
+    /// A3-solver-21: the expansion gives every cluster of a run the run's `y` and every glyph
+    /// the font metrics of the run's first glyph. A layout in which either differs within a run
+    /// expands to one that measures differently, so it keeps no measures and a reuse expands
+    /// it as before.
+    ///
+    /// Mutation: dropping the `y` comparison (or the font metrics comparison) in
+    /// `CachedInlineLayout::retired_metrics_of` keeps measures for the first (the second) layout.
+    #[test]
+    fn a_retired_layout_whose_expansion_could_measure_differently_keeps_no_measures() {
+        if dense_text_mode() != 1 {
+            return;
+        }
+        let (style, text) = (style_20px(), Arc::<str>::from("ab"));
+        // The second letter half a thousandth of a pixel lower: the dense view splits a run
+        // only where `y` moves by more than a thousandth.
+        let drifting = stored(vec![
+            letter_at(&style, &text, 0, 0.0, 4.0, 0),
+            letter_at(&style, &text, 1, 10.0, 4.0005, 0),
+        ]);
+        // The second letter's glyph from a face of another ascent under the same font hash.
+        let mut taller = letter_at(&style, &text, 1, 10.0, 4.0, 0);
+        if let crate::text3::cache::ShapedItem::Cluster(c) = &mut taller.item {
+            c.glyphs[0].font_metrics.ascent = 900.0;
+        }
+        let mixed = stored(vec![letter_at(&style, &text, 0, 0.0, 4.0, 0), taller]);
+        for (what, cached) in [("y", &drifting), ("font metrics", &mixed)] {
+            assert!(
+                cached.layout.items.is_empty(),
+                "harness ({what}): two clusters retire into the dense view"
+            );
+            assert_eq!(
+                cached.dense.as_deref().map(|d| d.runs.len()),
+                Some(1),
+                "harness ({what}): the two letters share a run"
+            );
+            assert!(
+                cached.retired_metrics.is_none(),
+                "the {what} of a run's second letter is not the run's, and the measures were kept"
+            );
+        }
+    }
+
+    /// A3-solver-22: a layout stored by a measure is the entry `new_with_constraints` makes of
+    /// the same lines - the same dense view, retired alike, the same kept measures - whose
+    /// paint runs are built when they are first read, once for the entry and its clones, and
+    /// are then the runs the stored layout has.
+    ///
+    /// Mutation: `new_measure_with_constraints` going through `compute_glyph_runs` builds at
+    /// store time; a deferred list made of anything but the entry's dense view (an empty list,
+    /// say) reads other runs than the stored layout's.
+    #[test]
+    fn a_measures_paint_runs_are_built_when_first_read_and_are_the_stored_layouts() {
+        use crate::text3::glyphs::CompactGlyphRun;
+        if dense_text_mode() != 1 {
+            // `AZ_DENSE_TEXT=0` and `verify` build the runs when the layout is stored.
+            return;
+        }
+        let (style, text) = (style_20px(), Arc::<str>::from("abcd"));
+        let lines = || {
+            Arc::new(UnifiedLayout {
+                items: vec![
+                    letter_at(&style, &text, 0, 3.0, 4.0, 0),
+                    letter_at(&style, &text, 1, 13.0, 4.0, 0),
+                    letter_at(&style, &text, 2, 3.0, 28.0, 1),
+                    letter_at(&style, &text, 3, 13.0, 28.0, 1),
+                ],
+                overflow: crate::text3::cache::OverflowInfo::default(),
+            })
+        };
+        // (built when a layout was stored, built when a list was first read)
+        let built = || {
+            (
+                GLYPH_RUNS_BUILT_AT_STORE.with(Cell::get),
+                GLYPH_RUNS_BUILT_ON_READ.with(Cell::get),
+            )
+        };
+        let start = built();
+        let eager = CachedInlineLayout::new_with_constraints(
+            lines(),
+            AvailableSpace::MaxContent,
+            false,
+            UnifiedConstraints::default(),
+        );
+        assert_eq!(
+            built(),
+            (start.0 + 1, start.1),
+            "harness: a layout stored for painting builds its runs"
+        );
+        let measure = CachedInlineLayout::new_measure_with_constraints(
+            lines(),
+            AvailableSpace::MaxContent,
+            false,
+            UnifiedConstraints::default(),
+        );
+        assert_eq!(
+            built(),
+            (start.0 + 1, start.1),
+            "a measure built its paint runs when it was stored"
+        );
+        assert!(measure.glyph_runs.made_runs().is_none());
+
+        // What `layout_ifc` reads of a stored measure.
+        assert!(measure.layout.items.is_empty() && eager.layout.items.is_empty());
+        assert_eq!(format!("{:?}", measure.dense), format!("{:?}", eager.dense));
+        assert_eq!(
+            format!("{:?}", measure.retired_metrics),
+            format!("{:?}", eager.retired_metrics)
+        );
+        assert_eq!(format!("{:?}", measure.overflow), format!("{:?}", eager.overflow));
+        assert!(measure.constraints.is_some());
+
+        let eager_runs: &[CompactGlyphRun] = &eager.glyph_runs;
+        assert!(!eager_runs.is_empty(), "harness: four letters make a paint run");
+        // The copy the measure slot holds beside the final slot's.
+        let copy = measure.clone();
+        let read: &[CompactGlyphRun] = &measure.glyph_runs;
+        assert_eq!(format!("{read:?}"), format!("{eager_runs:?}"));
+        assert_eq!(built(), (start.0 + 1, start.1 + 1));
+        let read_again: &[CompactGlyphRun] = &copy.glyph_runs;
+        assert_eq!(read_again.len(), read.len());
+        assert_eq!(
+            built(),
+            (start.0 + 1, start.1 + 1),
+            "the runs of one stored measure were built a second time"
+        );
+        assert!(measure.glyph_runs.made_runs().is_some());
     }
 }
