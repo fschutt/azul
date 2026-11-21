@@ -1439,6 +1439,70 @@ pub fn set_dl_patching_enabled(on: bool) {
     DL_PATCHING.store(if on { 1 } else { 2 }, Ordering::Relaxed);
 }
 
+/// Whether a patched build copies the run of a box that MOVED, every
+/// coordinate shifted by the box's move, as it did before the audit
+/// (`AZ_DL_TRANSLATE_MOVED_RUNS=1`, for measuring what painting the moved
+/// boxes anew costs). 0 = unresolved (read from the environment on first
+/// use), 1 = translate and copy, 2 = paint anew (the default).
+/// `DisplayListGenerator::try_copy_cached_run` says why a translated copy is
+/// not the item a paint makes.
+static DL_TRANSLATE_MOVED_RUNS: core::sync::atomic::AtomicU8 =
+    core::sync::atomic::AtomicU8::new(0);
+
+thread_local! {
+    /// A test's answer for its own thread, asked before the process's
+    /// ([`set_dl_translate_moved_runs_on_this_thread`]).
+    static DL_TRANSLATE_MOVED_RUNS_HERE: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+    /// See [`moved_runs_painted_anew_on_this_thread`].
+    static MOVED_RUNS_PAINTED_ANEW: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// See [`cached_runs_copied_on_this_thread`].
+    static CACHED_RUNS_COPIED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Whether the patched builds of the calling thread translate and copy the
+/// run of a box that moved (`AZ_DL_TRANSLATE_MOVED_RUNS=1`, or the thread's
+/// own answer) instead of painting the box anew.
+#[must_use]
+pub fn dl_translates_moved_runs() -> bool {
+    use core::sync::atomic::Ordering;
+    if let Some(on) = DL_TRANSLATE_MOVED_RUNS_HERE.with(core::cell::Cell::get) {
+        return on;
+    }
+    match DL_TRANSLATE_MOVED_RUNS.load(Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => {
+            let on = std::env::var("AZ_DL_TRANSLATE_MOVED_RUNS").as_deref() == Ok("1");
+            DL_TRANSLATE_MOVED_RUNS.store(if on { 1 } else { 2 }, Ordering::Relaxed);
+            on
+        }
+    }
+}
+
+/// The switch of [`dl_translates_moved_runs`] for the calling thread alone
+/// (`None`: the environment's answer again), so that a test can run both
+/// behaviours beside the tests of other threads.
+pub fn set_dl_translate_moved_runs_on_this_thread(on: Option<bool>) {
+    DL_TRANSLATE_MOVED_RUNS_HERE.with(|here| here.set(on));
+}
+
+/// How many cached runs the patched builds of the calling thread did not copy
+/// because their box MOVED: each is one paint call made anew
+/// (`DisplayListGenerator::try_copy_cached_run`). What a pass that shifts
+/// boxes costs over a pass that copies them, counted.
+#[must_use]
+pub fn moved_runs_painted_anew_on_this_thread() -> usize {
+    MOVED_RUNS_PAINTED_ANEW.with(core::cell::Cell::get)
+}
+
+/// How many cached runs the patched builds of the calling thread copied from
+/// the list before in place of a paint call.
+#[must_use]
+pub fn cached_runs_copied_on_this_thread() -> usize {
+    CACHED_RUNS_COPIED.with(core::cell::Cell::get)
+}
+
 /// Which emission site produced a display-list item. See
 /// [`DisplayList::layout_node_mapping`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -5720,7 +5784,8 @@ struct ChainDetour {
 /// on a resize-skip pass — the tree object and its indices are unchanged,
 /// so per-(layout node, phase) item runs from the PREVIOUS list can replace
 /// the paint calls of every node that neither re-flowed its inline content
-/// nor changed size; their geometry moves by the node's position delta.
+/// nor changed size nor MOVED (`try_copy_cached_run`: a moved node is
+/// painted anew; `deltas` says which did).
 pub(crate) struct PatchState<'a> {
     prev: &'a DisplayList,
     /// Per (layout idx, phase): queue of item ranges in `prev`, walk order.
@@ -6493,10 +6558,12 @@ where
     }
 
     /// DL-PATCHING substitution: if a patch source is armed and this node's
-    /// (phase) run can be reused, copy it translated by the node's position
-    /// delta and report `true` (the caller skips painting). `false` = paint
-    /// normally (no patch, node in the re-emit set, or no cached run left —
-    /// the last one falls back to a fresh paint, which is always correct).
+    /// (phase) run can be reused, copy it where it lies and report `true`
+    /// (the caller skips painting). `false` = paint normally (no patch, node
+    /// in the re-emit set, a node that MOVED, or no cached run left — the
+    /// last one falls back to a fresh paint, which is always correct). Only
+    /// with `AZ_DL_TRANSLATE_MOVED_RUNS=1` is a moved node's run copied,
+    /// translated by the node's position delta.
     fn try_copy_cached_run(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -6527,6 +6594,24 @@ where
             .get(node_index)
             .copied()
             .unwrap_or_else(LogicalPosition::zero);
+        // A run is copied only where it lies: a box whose move is not exactly
+        // zero is painted anew (its run above is spent). A float translation
+        // of a cached item is not what a fresh paint computes - an item lies
+        // at `position + k`, a paint makes `fl(new + k)`, the copy held
+        // `fl(fl(old + k) + fl(new - old))`: one rounding apart per
+        // translation - and it ACCUMULATES: a run translated n times without
+        // being painted anew drifts by up to n/2 ulp from its node's laid-out
+        // position. The damage diff and the kept surfaces assume that an
+        // unchanged item is bit for bit the item a fresh pass makes. Movement
+        // that should be cheap is expressed by frames (the move in place, a
+        // view's offset), not by translating items. A delta that is no number
+        // is a move. `AZ_DL_TRANSLATE_MOVED_RUNS=1`: the translation again.
+        if (delta.x != 0.0 || delta.y != 0.0) && !dl_translates_moved_runs() {
+            MOVED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
+            drop(crate::probe::Probe::span("dl_patch_moved"));
+            return false;
+        }
+        CACHED_RUNS_COPIED.with(|n| n.set(n.get() + 1));
         // The previous list outlives the patch borrow, which ends here: the
         // copy below reads the generator again.
         let prev = patch.prev;
