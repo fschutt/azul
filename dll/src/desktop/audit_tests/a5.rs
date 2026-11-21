@@ -538,3 +538,156 @@ fn a5_15_a_picture_given_a_new_slot_stays_registered_when_its_old_slot_shows_ano
     assert_eq!(registered(&rr, &old), None, "a replaced picture is forgotten");
     assert!(!rr.image_last_seen_epoch.contains_key(&old.get_hash()));
 }
+
+/// How many labels a translation of the window's list made NOW, without a scan
+/// before it, paints without their halo (WebRender's own shadow, which has no
+/// spread). What a lightweight pass does with a list that was patched in place
+/// (a hover's colour): it is sent again, and nothing draws what it lacks.
+fn without_halo_in_a_translation_alone(view: &Recorder) -> usize {
+    let list = view
+        .window
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("the root DOM is laid out")
+        .display_list
+        .clone();
+    let (_, built) = translate_displaylist_to_wr(
+        &list,
+        PipelineId(0, 0),
+        DeviceIntSize::new(2000, 2000),
+        &view.window.renderer_resources,
+        DpiScaleFactor::new(view.dpi),
+        Vec::new(),
+        &BTreeMap::new(),
+        0,
+    )
+    .expect("the list translates");
+    let mut shadows = 0;
+    let mut items = built.iter();
+    while let Some(item) = items.next() {
+        if let DisplayItem::PushShadow(_) = item.item() {
+            shadows += 1;
+        }
+    }
+    shadows
+}
+
+/// A5-18, the memory release (`MacOSWindow::release_regenerable_memory`: the
+/// window goes to the Dock, the app is hidden, memory is short). Twelve labels,
+/// then a zoom that settles: when the view is at rest the thread keeps the
+/// labels' pictures at the new size, which the list paints, and the ones of the
+/// size before, which nothing paints. A release gives back the second kind and
+/// only that, with a window on screen and with none:
+///
+/// - the frame after it is the frame before it: every label painted with its
+///   own picture from the key it had, no image added, given new pixels or
+///   deleted, no halo drawn, no frame owed - and no list names an image the
+///   renderer does not hold (`Recorder::frame` fails on one);
+/// - a translation without a scan (a list patched in place) still finds every
+///   label's picture.
+///
+/// Mutation: `entry.used_in < scan` -> `true` in `HaloCache::release_unused` (a
+/// release of everything, which frees no byte of a picture the renderer holds):
+/// the translation alone paints twelve labels without halo, and the frame after
+/// draws pictures again and owes frames.
+fn a_release_keeps_what_the_lists_paint(not_shown: bool) {
+    use azul_layout::cpurender::{release_text_halos, text_halos_in_use};
+
+    const LABELS: usize = 12;
+    draw_this_many_halos_a_frame_in_this_thread(4);
+    let mut view = Recorder::new(2.0);
+    view.lay_out(labels(LABELS, 1.0));
+    let mut guard = 0;
+    while view.frame().owed {
+        guard += 1;
+        assert!(guard < 20, "the first view's halos come");
+    }
+    view.lay_out(labels(LABELS, 1.5));
+    let (mut before, mut resting) = (view.frame(), 0);
+    for _ in 0..40 {
+        before = view.frame();
+        resting = if before.at_rest() { resting + 1 } else { 0 };
+        if resting == 5 {
+            break;
+        }
+    }
+    assert_eq!(resting, 5, "premise: the view came to rest: {:?}", before.stats);
+    assert_eq!(before.own().len(), LABELS, "premise: every label has its own picture");
+    let kept = text_halo_stats();
+    assert!(
+        kept.kept as usize > LABELS,
+        "premise: pictures of the size before are kept: {}",
+        kept.kept
+    );
+
+    // The shell's release: what the window's lists paint is marked, then
+    // everything else goes.
+    let list = view
+        .window
+        .get_layout_result(&DomId::ROOT_ID)
+        .expect("the root DOM is laid out")
+        .display_list
+        .clone();
+    text_halos_in_use([&list], view.dpi);
+    let released = release_text_halos(not_shown);
+    let left = text_halo_stats();
+    assert_eq!(left.kept as usize, LABELS, "the pictures the list paints, and no other");
+    assert_eq!(released.halos, kept.kept as usize - LABELS);
+    assert!(released.bytes > 0);
+    assert_eq!(left.kept_bytes as usize, kept.kept_bytes as usize - released.bytes);
+
+    assert_eq!(
+        without_halo_in_a_translation_alone(&view),
+        0,
+        "a list sent again without a scan lost its halos"
+    );
+    let after = view.frame();
+    assert!(
+        after.at_rest(),
+        "the frame after the release changed something: +{:?} ~{:?} -{:?} {:?}",
+        after.added,
+        after.updated,
+        after.deleted,
+        after.stats
+    );
+    assert_eq!(after.halos, before.halos, "each label's own picture, from the key it had");
+    assert_eq!(after.stats.frame_halos as usize, LABELS);
+    assert_eq!(text_halo_stats().kept as usize, LABELS);
+}
+
+#[test]
+fn a5_18_a_release_keeps_what_the_lists_paint_with_a_window_on_screen() {
+    a_release_keeps_what_the_lists_paint(false);
+}
+
+#[test]
+fn a5_18_a_release_keeps_what_the_lists_paint_with_no_window_on_screen() {
+    a_release_keeps_what_the_lists_paint(true);
+}
+
+/// A5-18. The macOS shell's release (`MacOSWindow::release_regenerable_memory`:
+/// the Dock, Cmd-H, memory pressure) gives back the kept text halos through
+/// `release_text_halos`, AFTER every window's lists marked what they paint: the
+/// pictures are the thread's, and a window that made no scan lately would lose
+/// the pictures its list paints to the windows that did. (The delegate cannot
+/// run headless: the statements are read from the source, as A10's guard of the
+/// same function does.)
+///
+/// Mutation: the release moved above the loop over the windows, or the loop
+/// removed, fails this.
+#[test]
+fn a5_18_the_macos_release_marks_what_every_window_paints_before_it_gives_halos_back() {
+    const MACOS_RS: &str = include_str!("../shell2/macos/mod.rs");
+    let from = MACOS_RS
+        .find("pub(crate) fn release_regenerable_memory(")
+        .expect("the release");
+    let body = &MACOS_RS[from..];
+    let body = &body[..body.find("\n    }\n").expect("the end of the function")];
+    let at = |what: &str| body.find(what).unwrap_or_else(|| panic!("`{what}` is missing"));
+    let every_window = at("for window in registry::get_all_window_ptrs()");
+    let marked = at("azul_layout::cpurender::text_halos_in_use(");
+    let own = at("painted_by(&*self);");
+    let released = at("azul_layout::cpurender::release_text_halos(not_shown)");
+    assert!(marked < every_window, "the closure that marks is what the loop calls");
+    assert!(every_window < own && own < released, "marked first, released last");
+    assert!(body.contains("if !keep_caches() {"), "the user's switch keeps the halos too");
+}

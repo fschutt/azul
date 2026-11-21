@@ -508,6 +508,77 @@ pub fn text_halo_bounds_in_this_thread(max_halos: usize, max_bytes: usize) {
     });
 }
 
+/// What [`release_text_halos`] gave back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TextHalosReleased {
+    /// The kept halos it dropped (pictures, and notes that a shadow has none) ...
+    pub halos: usize,
+    /// ... and the bytes of their pixels.
+    pub bytes: usize,
+}
+
+/// Marks as in use every kept halo picture the display lists `lists` paint at
+/// `dpi`, the way a translation of them made now finds it (the picture itself, or
+/// the one standing in). For [`release_text_halos`]: the kept pictures are a
+/// thread's, and the windows of a thread each hold lists that paint from them; a
+/// window that made no scan lately has its pictures marked as used by this.
+pub fn text_halos_in_use<'a>(lists: impl IntoIterator<Item = &'a Arc<DisplayList>>, dpi: f32) {
+    for list in lists {
+        let _ = text_halos_of_list(list, dpi, None);
+    }
+}
+
+/// Gives back what this thread keeps of text halos and no display list paints:
+/// for memory pressure, and for windows nobody sees (audit A5-18).
+///
+/// Dropped is every kept halo the last scan ([`within_halo_budget`]) did not use
+/// and no look at a list has used since ([`text_halos_in_use`], a translation):
+/// the pictures of labels that left the view, of the sizes before the last zoom,
+/// the small ones that stood in until a label's own was drawn. Kept is every
+/// picture a list paints - the label's own, one standing in, one drawn and
+/// waiting to be shown - whether the window is shown or not (`not_shown`), for two
+/// reasons. Its bytes are not this cache's alone: the renderer was handed the same
+/// allocation (a shared `ImageData::Raw`) and holds it for as long as a list names
+/// its key, so dropping it here frees nothing. And a list that is translated
+/// without a scan (one patched in place: a hover's colour) finds its pictures
+/// here; without them every label of it is painted without its halo, and no frame
+/// is owed that would draw them. So the frame after a release costs nothing more
+/// than the one before: no halo is drawn again, no image changes, no list goes.
+/// What the release costs comes later: a label that returns to the view, or a zoom
+/// back to a size that was kept, draws its picture again.
+///
+/// `not_shown` (no window of the thread is on screen: the app is hidden, the
+/// window is in the Dock) also gives back what only makes the next halo cheaper:
+/// the halos' whole glyph cache (the glyphs of a halo drawn later are rasterised
+/// again) and the shadows kept per display list (walked again at the next scan);
+/// with a window on screen the glyph cache gives up its older generation only,
+/// since frames may be drawing halos right now.
+///
+/// Nothing is released while a scan is under way (it returns zeros).
+pub fn release_text_halos(not_shown: bool) -> TextHalosReleased {
+    if BUDGET.with(|budget| budget.get().is_some()) {
+        return TextHalosReleased::default();
+    }
+    let released = HALOS.with(|halos| {
+        let mut halos = halos.borrow_mut();
+        let released = halos.release_unused();
+        if not_shown {
+            halos.entries.shrink_to_fit();
+            halos.by_text.shrink_to_fit();
+            halos.by_shape.shrink_to_fit();
+        }
+        released
+    });
+    if not_shown {
+        GLYPHS.with(|glyph_cache| *glyph_cache.borrow_mut() = GlyphCache::new());
+        GLYPHS_USED.with(|used| used.set(false));
+        LIST_SHADOWS.with(|kept| *kept.borrow_mut() = Vec::new());
+    } else {
+        GLYPHS.with(|glyph_cache| glyph_cache.borrow_mut().gc());
+    }
+    released
+}
+
 /// Whether the last scan of this thread ([`within_halo_budget`]) changed what
 /// shadows are painted with after it had looked at some of them: it drew or
 /// dropped a picture, or showed one that waited. What [`text_halos`] returned to
@@ -1595,6 +1666,35 @@ impl HaloCache {
         if self.by_shape.get(&entry.shape) == Some(&id) {
             self.by_shape.remove(&entry.shape);
         }
+    }
+
+    /// Drops every entry the last scan did not use and nothing has used since
+    /// ([`release_text_halos`]). Between two scans every entry a display list
+    /// paints from has the last scan's number: the scan looked at every list, and
+    /// a look without fonts stamps what it finds with it too. What has an older
+    /// number is painted by no list - [`Self::make_room`] would drop it two scans
+    /// after its last use, when room is needed; here it goes at once, all of it.
+    /// What a list paints keeps its entry, its picture and its slot.
+    fn release_unused(&mut self) -> TextHalosReleased {
+        let scan = self.scan;
+        let unused: Vec<u64> = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| entry.used_in < scan)
+            .map(|(id, _)| *id)
+            .collect();
+        // (Not a change a scan made: `changed` is the last scan's answer.)
+        let changed = self.changed;
+        let mut released = TextHalosReleased::default();
+        for id in unused {
+            released.halos += 1;
+            released.bytes += self.entries.get(&id).map_or(0, |entry| entry.bytes);
+            self.remove(id);
+        }
+        self.changed = changed;
+        self.victims = None;
+        self.stats.evicted_total += released.halos as u64;
+        released
     }
 }
 
@@ -2715,6 +2815,130 @@ mod audit_a5_tests {
         let blank = shadowed("   ", 12.0, 40.0, 60.0, 0.0, 1.5);
         assert!(draw(&blank, 2.0, true, None).is_none());
         assert!(draw(&blank, 2.0, false, None).is_none());
+    }
+
+    /// A5-18. A release gives back the kept halos no display list paints and
+    /// keeps the ones a list paints, with their pictures and the slots the
+    /// renderer's keys stand for. A view of labels 0..6, then - a pan - of labels
+    /// 3..9: 0, 1 and 2 left it, and label 1 is still painted by another window's
+    /// list (a look without fonts, `text_halos_in_use`). The release drops 0 and
+    /// 2: two pictures of 64 bytes. The frame after it finds every label of the
+    /// view kept: it draws nothing and drops nothing.
+    ///
+    /// Mutation: `entry.used_in < scan` -> `true` in `release_unused` (the cache
+    /// is emptied) drops the view's pictures: the frame after draws six. `<` ->
+    /// `<=` is the same mutant. `entry.used_in + 1 < scan` (what `make_room` may
+    /// drop) leaves labels 0 and 2 kept: the first count fails.
+    #[test]
+    fn a_release_drops_what_no_list_paints_and_keeps_what_one_does() {
+        let scan = |cache: &mut HaloCache, labels: core::ops::Range<u64>| {
+            cache.begin_scan();
+            for n in labels {
+                let sought = label(n);
+                if let Some(id) = cache.find(sought.text, &GEOMETRY) {
+                    let _ = cache.use_own(id, true);
+                } else {
+                    assert!(cache.make_room(BYTES, None));
+                    cache.insert(&sought, &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
+                }
+            }
+        };
+        // The picture label `n` is painted with: its slot and which image it is.
+        let painted = |cache: &HaloCache, n: u64| {
+            let id = cache.find(label(n).text, &GEOMETRY)?;
+            let kept = cache.entries.get(&id)?.kept.as_ref()?;
+            Some((kept.slot, kept.image.get_hash()))
+        };
+        let mut cache = HaloCache::new(64, usize::MAX);
+        scan(&mut cache, 0..6);
+        scan(&mut cache, 3..9);
+        assert_eq!((cache.entries.len(), cache.bytes), (9, 9 * BYTES));
+        let before: Vec<_> = (3..9).map(|n| painted(&cache, n)).collect();
+        assert!(before.iter().all(|kept| matches!(kept, Some((slot, _)) if *slot != 0)));
+        // Another window's list paints label 1.
+        let other = cache.find(label(1).text, &GEOMETRY).expect("kept");
+        assert!(cache.use_own(other, false).is_some());
+
+        let (created, evicted) = (cache.stats.created_total, cache.stats.evicted_total);
+        let released = cache.release_unused();
+        assert_eq!(
+            released,
+            TextHalosReleased {
+                halos: 2,
+                bytes: 2 * BYTES
+            },
+            "labels 0 and 2"
+        );
+        assert_eq!((cache.entries.len(), cache.bytes), (7, 7 * BYTES));
+        assert!(painted(&cache, 0).is_none() && painted(&cache, 2).is_none());
+        assert!(painted(&cache, 1).is_some(), "what a list paints stays");
+        let after: Vec<_> = (3..9).map(|n| painted(&cache, n)).collect();
+        assert_eq!(after, before, "the view's pictures, and the slots they are painted from");
+        assert_eq!((cache.by_text.len(), cache.by_shape.len()), (7, 7));
+        assert_eq!(
+            (cache.stats.created_total, cache.stats.evicted_total, cache.stats.evicted),
+            (created, evicted + 2, 0),
+            "counted as dropped, and not as a scan's doing"
+        );
+
+        // The frame after the release: the view is as it was.
+        scan(&mut cache, 3..9);
+        assert_eq!((cache.stats.created, cache.stats.evicted), (0, 0));
+        assert_eq!(cache.stats.frame_halos, 6);
+        // The other window's list was not looked at again: its picture goes now.
+        assert_eq!(cache.release_unused().halos, 1);
+        assert!(painted(&cache, 1).is_none());
+        assert_eq!(cache.release_unused(), TextHalosReleased::default(), "nothing left to give");
+        assert_eq!((cache.entries.len(), cache.bytes), (6, 6 * BYTES));
+    }
+
+    /// A5-18. The two states of a release. With a window on screen the shadows
+    /// kept per display list stay (the next scan asks for them); with none they
+    /// go too, with the halos' glyph cache. Under a scan nothing is released: the
+    /// scan is using what it has looked at.
+    ///
+    /// Mutation: the `BUDGET` guard removed from `release_text_halos` drops the
+    /// picture inside the scan (the first count is 1).
+    #[test]
+    fn a_release_under_a_scan_does_nothing_and_one_for_no_window_also_drops_what_is_kept_per_list() {
+        let list = Arc::new(DisplayList {
+            items: label_items(20.0, 100.0, 5.0),
+            ..DisplayList::default()
+        });
+        let kept_lists = || LIST_SHADOWS.with(|kept| kept.borrow().len());
+        let _ = list_shadows(&list, Some(&list), 2.0);
+        assert_eq!(kept_lists(), 1);
+        // A picture of a frame gone: used by the scan before the last one.
+        HALOS.with(|halos| {
+            let mut cache = halos.borrow_mut();
+            cache.begin_scan();
+            cache.insert(&label(0), &GEOMETRY, Some(picture(4, 4, 24.0)), BYTES, false);
+            cache.begin_scan();
+        });
+        assert_eq!(text_halo_stats().kept, 1);
+
+        let (released, _) = within_halo_budget(0, Duration::ZERO, || release_text_halos(true));
+        assert_eq!(released, TextHalosReleased::default(), "a scan is under way");
+        assert_eq!((text_halo_stats().kept, kept_lists()), (1, 1));
+
+        let released = release_text_halos(false);
+        assert_eq!(
+            released,
+            TextHalosReleased {
+                halos: 1,
+                bytes: BYTES
+            }
+        );
+        let stats = text_halo_stats();
+        assert_eq!((stats.kept, stats.kept_bytes, stats.evicted_total), (0, 0, 1));
+        assert_eq!(kept_lists(), 1, "a window is on screen: its lists' shadows stay");
+
+        assert_eq!(release_text_halos(true), TextHalosReleased::default());
+        assert_eq!(kept_lists(), 0, "no window is on screen: they go too");
+        assert_eq!(
+            GLYPHS.with(|glyphs| glyphs.borrow().cells_len() + glyphs.borrow().paths_len()),
+            0
+        );
     }
 }
 
