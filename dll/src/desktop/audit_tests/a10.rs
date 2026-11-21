@@ -446,3 +446,63 @@ fn the_macos_state_follows_the_view_when_their_frames_differ() {
     assert_eq!(frame_size_px(800.2, 600.0, 2.0), (1601, 1200));
     assert_eq!(frame_size_px(800.0, 600.0, 2.0), (1600, 1200));
 }
+
+/// A10-10. On the fractional path a Wayland window sizes its shm buffers and
+/// renders its frame with the compositor's own scale (`preferred_scale /
+/// 120`), not with `size.dpi / 96`, its rounding to a whole DPI: 110 % is DPI
+/// 106 = 1.104, and 1000 surface units became a 1104 px buffer for an 1100 px
+/// surface (the arithmetic: `a_wayland_frame_is_sized_with_the_compositors_scale_not_with_the_rounded_dpi`
+/// in azul-layout). The layout side is told the factor
+/// (`LayoutWindow::set_frame_scale`), and a scale that changes without
+/// changing the whole DPI still remakes the buffers.
+///
+/// Mutations: `size.dpi as f32 / 96.0` back in `cpu_buffer_spec`, the
+/// `set_frame_scale` line dropped from the arm, or the early `return` of the
+/// handler without `apply_frame_scale_change`, each fail here.
+#[test]
+fn wayland_sizes_and_renders_with_the_compositors_preferred_scale() {
+    let factor = body(WAYLAND_RS, "fn frame_factor(&self) -> f32");
+    assert!(
+        factor.contains("present_geometry::wayland_frame_scale(")
+            && factor.contains("self.preferred_scale_120")
+            && factor.contains("self.viewport.is_some()"),
+        "frame_factor must be the preferred scale on the fractional path"
+    );
+    let spec = body(WAYLAND_RS, "fn cpu_buffer_spec(&self, logical_w: i32, logical_h: i32)");
+    assert!(
+        spec.contains("let d = self.frame_factor().max(0.01);") && !spec.contains("size.dpi as f32"),
+        "the shm buffers must be sized with frame_factor()"
+    );
+    let arm_start = WAYLAND_RS
+        .find("RenderMode::Cpu(Some(cpu_state)) => {")
+        .expect("the CPU arm of the Wayland present");
+    let arm = &WAYLAND_RS[arm_start..];
+    let set = arm
+        .find("layout_window.set_frame_scale(fractional.then_some(frame_factor));")
+        .expect("the arm must tell the layout window the frame's factor");
+    let read = arm
+        .find("let dpi = layout_window.frame_scale();")
+        .expect("the arm renders at the window's frame factor");
+    assert!(set < read, "the factor is said before it is read");
+
+    let handler = body(
+        WAYLAND_EVENTS_RS,
+        "pub(super) extern \"C\" fn wp_fractional_scale_preferred_scale_handler(",
+    );
+    let same_dpi = handler
+        .find("if new_dpi == old_dpi {")
+        .expect("the handler's same-DPI branch");
+    assert!(
+        handler[same_dpi..].contains("if window.frame_factor() != factor_before {")
+            && handler[same_dpi..].contains("apply_frame_scale_change(window);"),
+        "a scale that changes within one whole DPI must still remake the buffers"
+    );
+    let apply = body(WAYLAND_EVENTS_RS, "fn apply_frame_scale_change(window: &mut WaylandWindow)");
+    assert!(
+        apply.contains("window.cpu_backend.force_full_repaint = true;")
+            && apply.contains("window.publish_frame_factor();")
+            && apply.contains("window.resize_surface(w, h);")
+            && apply.contains("window.request_redraw();"),
+        "a scale change remakes the buffers and repaints the frame in full"
+    );
+}

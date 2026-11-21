@@ -5992,6 +5992,28 @@ impl WaylandWindow {
         self.viewport.is_some() && self.preferred_scale_120.is_some()
     }
 
+    /// The factor of this window's frames and shm buffers (A10-10): on the
+    /// fractional path the compositor's own `preferred_scale / 120`, not
+    /// `size.dpi / 96`, which is that scale rounded to a whole DPI (110 % is
+    /// DPI 106 = 1.104: a 1104 px buffer for an 1100 px surface, resampled
+    /// as a whole). `size.dpi / 96` on the integer path.
+    fn frame_factor(&self) -> f32 {
+        azul_layout::window::present_geometry::wayland_frame_scale(
+            self.common.current_window_state().size.dpi,
+            self.preferred_scale_120,
+            self.viewport.is_some(),
+        )
+    }
+
+    /// Tell the layout side the frame's factor where `size.dpi` cannot hold
+    /// it (`LayoutWindow::frame_scale`): what is snapped to whole device
+    /// pixels there is snapped on the grid the frame is rendered on.
+    fn publish_frame_factor(&self) {
+        if let Some(lw) = self.common.layout_window.as_ref() {
+            lw.set_frame_scale(self.fractional_scale_active().then(|| self.frame_factor()));
+        }
+    }
+
     /// (physical_width, physical_height, buffer_scale) for the CPU shm
     /// buffers at the given LOGICAL size.
     ///
@@ -6004,7 +6026,7 @@ impl WaylandWindow {
     ///   via set_buffer_scale at attach).
     fn cpu_buffer_spec(&self, logical_w: i32, logical_h: i32) -> (i32, i32, i32) {
         if self.fractional_scale_active() {
-            let d = (self.common.current_window_state().size.dpi as f32 / 96.0).max(0.01);
+            let d = self.frame_factor().max(0.01);
             (
                 azul_layout::window::present_geometry::surface_len_px(logical_w.max(1) as f32, d)
                     as i32,
@@ -7677,6 +7699,9 @@ impl WaylandWindow {
         // scale stays 1 and set_destination maps the physical buffer to the
         // LOGICAL surface size.
         let fractional = self.fractional_scale_active();
+        // The factor of the frame and of the shm buffers (A10-10), read
+        // before the borrows below.
+        let frame_factor = self.frame_factor();
         let (logical_w, logical_h) = {
             let d = &self.common.current_window_state().size.dimensions;
             (d.width as i32, d.height as i32)
@@ -7931,7 +7956,12 @@ impl WaylandWindow {
                         // need to know one exists before computing window dims.
                         if layout_window.layout_results.contains_key(&dom_id) {
                             let ws = &layout_window.current_window_state;
-                            // THE factor of the window's frame (A10-17).
+                            // THE factor of the window's frame (A10-17). On
+                            // the fractional path the shell knows it more
+                            // exactly than `size.dpi` does, and says so
+                            // (A10-10): `frame_scale()` then IS that factor,
+                            // the one `cpu_buffer_spec` sized the buffers with.
+                            layout_window.set_frame_scale(fractional.then_some(frame_factor));
                             let dpi = layout_window.frame_scale();
                             // A10-09: at a fractional scale the surface is
                             // round(logical * scale) device pixels, and the
@@ -10252,14 +10282,13 @@ impl WaylandPopup {
             .dimensions
             .height
             .max(1.0);
-        let dpi_factor = {
-            let d = self.common.current_window_state().size.dpi as f32 / 96.0;
-            if d <= 0.0 {
-                1.0
-            } else {
-                d
-            }
-        };
+        // The parent's factor (A10-10): its preferred scale / 120 where the
+        // popup is presented through a viewport, `size.dpi / 96` otherwise.
+        let dpi_factor = azul_layout::window::present_geometry::wayland_frame_scale(
+            self.common.current_window_state().size.dpi,
+            self.preferred_scale_120,
+            self.viewporter.is_some(),
+        );
         let buf_w = (logical_w * dpi_factor).ceil() as i32;
         let buf_h = (logical_h * dpi_factor).ceil() as i32;
         crate::plog_info!(
@@ -10337,6 +10366,7 @@ impl WaylandPopup {
                     if let Some(ref layout_window) = self.common.layout_window {
                         self.cpu_backend
                             .sync_window_flags(&layout_window.current_window_state);
+                        layout_window.set_frame_scale(fractional.then_some(dpi_factor));
                         self.cpu_backend.render_frame(
                             layout_window,
                             &layout_window.renderer_resources,
