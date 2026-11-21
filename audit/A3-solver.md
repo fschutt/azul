@@ -88,45 +88,75 @@ After this branch: yes by reading, for both shapes, with the one open item below
 
 ## Findings
 
-Status: `fixed <hash>` | `open` | `checked`. Severity = estimated ms x frequency for the editor's loads.
+Status vocabulary of RULES.md section 8: `fixed <hash>` | `open: <what is missing>` | `blocked (a): <what>` |
+`blocked (b): <patch file>` | `noted (other platform)` | `checked: fine`. Severity: high | medium | low (ms x
+frequency for the editor's loads). One row per finding id; the text blocks below give the evidence.
 
 | id | class | where | severity | status | test |
 |---|---|---|---|---|---|
-| 01 | quadratic | `cache.rs:4602` `process_out_of_flow_children` | high (div labels, flat) | fixed 31304760a | `a_block_of_absolute_blocks_finds_each_of_them_among_its_children_by_bisection`, `absolute_blocks_of_a_block_stand_at_their_insets` |
-| 02 | quadratic | `cache.rs:2363` `try_reuse_anon_wrapper` | medium (mixed content relayout) | fixed f3362d04e | `a_block_of_many_inline_runs_lists_the_wrappers_of_its_old_box_once` |
-| 03 | quadratic | `fc/block_rules.rs:542` `is_first_in_flow_child` | low (overlays before content) | fixed 8bdbb5237 | `blocks_behind_out_of_flow_siblings_look_back_to_the_nearest_in_flow_one`, `..._are_stacked_from_the_top` |
-| 04 | waste | `getters.rs:7383` `get_scrollbar_style` | medium (every box, every pass) | fixed 79fc2d177 | `the_scrollbar_style_every_node_starts_from_is_made_once_per_context` |
-| 05 | quadratic | `taffy_bridge.rs:722` `TaffyBridge::new` | very high (node graph, every flex UI) | fixed 353d346a0 | `a_taffy_bridge_keeps_a_pointer_per_node_not_a_style`, `flex_rows_in_absolute_boxes_place_their_items_side_by_side` |
-| 06 | waste | `taffy_bridge.rs:1868` `child_count` / `get_child_id` | low-medium | fixed 6879e26e9 | `taffy_counts_and_indexes_a_containers_children_without_listing_them` |
-| 07 | quadratic | `fc/inline_content.rs:636` | very high (span labels, flat) | fixed 7167314df | `an_inline_root_of_absolute_spans_finds_each_of_them_among_its_children_by_bisection`, `absolute_spans_of_an_inline_root_stand_at_their_insets` |
-| 08 | quadratic | `fc/inline_content.rs:1129`, `:1217` | low (many in-flow spans in one paragraph) | open | - |
-| 09 | quadratic | `sizing.rs:1147`, `:1285` | high (div labels, flat; flex items) | fixed fcc148499 | `a_block_folds_its_childrens_intrinsic_sizes_in_one_walk` |
-| 10 | waste | `layout_tree.rs:3402` + `cache.rs:3000` | medium (every fresh node) | fixed e64bdae3a | `the_reconcile_hands_the_builder_the_fingerprint_it_computed` |
-| 11 | waste | `layout_tree.rs:2393` `LayoutTreeBuilder::new` | low-medium | fixed e64bdae3a | `layout_tree::audit_a3_solver_tests::reserve_nodes_makes_room_without_adding_a_node` |
-| 12 | waste | `getters.rs:124` `memoised_font_size` | medium-high (pointer over the map, anything focused) | fixed 31f19e937 | `the_font_sizes_of_a_focused_page_are_answered_by_the_memo`, `em_and_rem_insets_resolve_alike_at_rest_and_under_a_focused_root` |
-| 13 | guard | `positioning.rs:51` counter | - | fixed 6cc8bf1ac | `a_flat_layer_of_absolute_labels_takes_position_lookups_in_proportion_to_its_labels` |
-| 14 | waste | `positioning.rs:186-930`, `cache.rs:4668` | high | open | - |
-| 15 | quadratic | `fc/bfc.rs:252`, `mod.rs:175` `pos_set` | low-medium (block-heavy documents) | open | - |
-| 16 | quadratic | `fc/ifc.rs:413` `inline_static_place` | low | open | - |
-| 17 | waste | `taffy_bridge.rs:2049-2391`, `:3353-3394` | high (node graph, cold) | open | - |
-| 18 | quadratic (small constant) | `taffy_bridge.rs:722-743`, `:765` | low after 05 | open | - |
-| 19 | waste | `sizing.rs:837-880`, `mod.rs:1429` | medium-high | open | - |
-| 20 | waste | `getters.rs:4080-4132`, `mod.rs:702`/`1255` | medium | open | - |
-| 21 | waste | `fc/ifc.rs:1143`, `layout_tree.rs:510` | medium | open | - |
-| 22 | waste | `fc/ifc.rs:1377`, `layout_tree.rs:479` | medium (flex text items) | open | - |
-| 23 | waste | `fc/white_space.rs:345-564` | low-medium | open | - |
-| 24 | waste | `layout_tree.rs:1690`, `:3877` | medium (clean nodes of every reconcile) | open | - |
-| 25 | waste | `layout_tree.rs:3423`, `:3962` | low | open | - |
-| 26 | waste | `sizing.rs:240` | low | open | - |
-| 27 | quadratic (depth) | `positioning.rs:1505` | low | open | - |
-| 28 | n x depth | several, see below | low | checked | - |
-| 29 | wrong-output? | `cache.rs:1446` `reposition_block_flow_siblings` | unknown | open (needs a run) | - |
-| 30 | waste | `cache.rs:1277` `lift_to_slot_container` | medium (one label edited) | open | - |
-| 31 | waste | `fc/bfc.rs:142` | low | checked | - |
-| 32 | wrong-output? | `sizing.rs:1156-1189` | unknown | open | - |
-| 33 | wrong-output risk | `getters.rs:5076` | low | open | - |
-| 34 | waste | `widgets/color_input.rs:353` | high (node graph: half its DOM) | open | - |
-| 35 | waste / hazard | `widgets/node_graph.rs` | high (node graph) | open | - |
+| A3-solver-01 | quadratic | `cache.rs` `process_out_of_flow_children` | high | fixed 31304760a | `a_block_of_absolute_blocks_finds_each_of_them_among_its_children_by_bisection` |
+| A3-solver-02 | quadratic | `cache.rs` `try_reuse_anon_wrapper` | medium | fixed f3362d04e | `a_block_of_many_inline_runs_lists_the_wrappers_of_its_old_box_once` |
+| A3-solver-03 | quadratic | `fc/block_rules.rs` `is_first_in_flow_child` | low | fixed 8bdbb5237 | `blocks_behind_out_of_flow_siblings_look_back_to_the_nearest_in_flow_one` |
+| A3-solver-04 | waste | `getters.rs` `get_scrollbar_style` | medium | fixed 79fc2d177 | `the_scrollbar_style_every_node_starts_from_is_made_once_per_context` |
+| A3-solver-05 | quadratic | `taffy_bridge.rs` `TaffyBridge::new` | high | fixed 353d346a0 | `a_taffy_bridge_keeps_a_pointer_per_node_not_a_style` |
+| A3-solver-06 | waste | `taffy_bridge.rs` `child_count` / `get_child_id` | low | fixed 6879e26e9 | `taffy_counts_and_indexes_a_containers_children_without_listing_them` |
+| A3-solver-07 | quadratic | `fc/inline_content.rs` (element children of an IFC) | high | fixed 7167314df | `an_inline_root_of_absolute_spans_finds_each_of_them_among_its_children_by_bisection` |
+| A3-solver-08 | quadratic | `fc/inline_content.rs` `collect_inline_span_recursive` | low | fixed 37d850480 | `ifc.rs` tests of the helper (see the commit) |
+| A3-solver-09 | quadratic | `sizing.rs` intrinsic folds | high | fixed fcc148499 | `a_block_folds_its_childrens_intrinsic_sizes_in_one_walk` |
+| A3-solver-10 | waste | `layout_tree.rs` + `cache.rs` fingerprint twice | medium | fixed e64bdae3a | `the_reconcile_hands_the_builder_the_fingerprint_it_computed` |
+| A3-solver-11 | waste | `layout_tree.rs` `LayoutTreeBuilder::new` | low | fixed e64bdae3a | `reserve_nodes_makes_room_without_adding_a_node` |
+| A3-solver-12 | waste | `getters.rs` `memoised_font_size` | medium | fixed 31f19e937 | `the_font_sizes_of_a_focused_page_are_answered_by_the_memo` |
+| A3-solver-13 | guard | `positioning.rs` `get_position_type` counter | low | fixed 6cc8bf1ac | `a_flat_layer_of_absolute_labels_takes_position_lookups_in_proportion_to_its_labels` |
+| A3-solver-14 | waste | `positioning.rs` `position_out_of_flow_elements`, `cache.rs` `calculate_layout_for_subtree_fragment` | high | fixed 93cf4a98a | `a_pass_for_a_paragraph_lays_out_no_interior_of_the_labels_beside_it` and three more |
+| A3-solver-14b | waste | `positioning.rs` the solve of every absolute box in every pass | medium | open: the solve (containing block, used size, insets) still runs per absolute box per pass; a memo of it keyed by every input is the next commit | - |
+| A3-solver-15 | quadratic | `fc/bfc.rs` Pass 1 position vector | low | fixed 4eabd302a | `the_first_pass_of_a_block_borrows_its_position_vector_from_the_pass` |
+| A3-solver-15b | quadratic | `fc/table_rows.rs`, `fc/table_columns.rs`, `fc/table.rs` temp position vectors | low | open: the table passes still make a vector per call; same pool as 15 | - |
+| A3-solver-16 | quadratic | `fc/ifc.rs` `static_positions_of` | low | fixed 640fefd1b | `the_static_places_of_many_boxes_in_one_paragraph_are_read_off_one_listing_of_its_items` |
+| A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | open: one expansion and scan per footnote / column anchor; paged media only | - |
+| A3-solver-17 | waste | `taffy_bridge.rs` width-only answers | high | fixed b27f65a88 | `a_nested_flex_row_answers_each_width_question_of_a_first_layout_once` |
+| A3-solver-17b | waste | `taffy_bridge.rs` measure spill | medium | fixed 9d4637c90 | `the_measurement_a_second_store_evicts_is_found_in_the_second_way` |
+| A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | open: a measure rewrites the subtree, so the final after it is recomputed; needs the measure to restore or not to write | - |
+| A3-solver-18 | quadratic | `taffy_bridge.rs` style conversion per bridge | medium | fixed 134b2fb7f | `the_cells_of_the_taffy_style_memo_grow_with_the_document_not_with_its_bridges` |
+| A3-solver-19 | waste | `sizing.rs` a text measured for itself and for the box around it | medium | fixed dfe923716 | `sizing.rs` tests of the helper (see the commit) |
+| A3-solver-19b | waste | `mod.rs` intrinsic pass per turn of the layout loop | medium | fixed a74109c49 | `a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed` |
+| A3-solver-20 | waste | `mod.rs` two style memos per pass | medium | fixed 75df5be39 | `the_layout_takes_over_the_styles_the_reconcile_resolved` |
+| A3-solver-20b | waste | `getters.rs` one style build per label | medium | fixed f56165e9d | `equal_labels_take_their_style_by_its_inputs_instead_of_building_it` |
+| A3-solver-21 | waste | `fc/ifc.rs` reuse exit expands the layout | medium | fixed 7eac1cf10 | `ifc.rs` tests of the helper (see the commit) |
+| A3-solver-22 | waste | `layout_tree.rs` paint runs of measures | medium | fixed 318d1a97d | `a_measure_of_a_table_cell_builds_no_paint_runs` |
+| A3-solver-23 | waste | `fc/white_space.rs` plain text | low | fixed 16395bc3e | `white_space.rs` tests of the helper (see the commit) |
+| A3-solver-24 | waste | `layout_tree.rs` / `cache.rs` a kept node cloned twice | medium | fixed 7b39826e2 | `ifc.rs` count test (with 1ee264920: revert both) |
+| A3-solver-25 | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>` | low | open: one heap `Vec` per DOM node and a map rebuild per `build`; the public type is read by window.rs and display_list.rs | - |
+| A3-solver-26 | waste | `sizing.rs` dirty closure as a hash set | low | fixed 4909c9d07 | `sizing.rs` tests of the helper (see the commit) |
+| A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | open: one subtree walk per shifted ancestor; a single walk adds the offsets in another order | - |
+| A3-solver-28 | n x depth | several (list below) | low | checked: fine | - |
+| A3-solver-29 | wrong-output | `cache.rs` `reposition_block_flow_siblings` | medium | fixed b66f75aca | `a_clean_sibling_keeps_its_place_in_a_bordered_box_when_its_neighbour_is_laid_out_again` and two more |
+| A3-solver-30 | waste | `cache.rs` `lift_to_slot_container` | medium | open: a dirty label lifts its layout root to the layer; see the block below | - |
+| A3-solver-31 | waste | `fc/bfc.rs` `centers_blocks_the_legacy_way` | low | checked: fine | - |
+| A3-solver-32 | wrong-output | `sizing.rs` out-of-flow child in its parent's intrinsic sizes | medium | fixed 1e8fd3a32 | `[reveals]` d9e4f6da1 + two more in `a3_solver/sizing.rs` |
+| A3-solver-33 | wrong-output | `getters.rs` font-stack memo by hash alone | low | fixed dc3e29f49 | `getters::audit_a3_solver_tests` |
+| A3-solver-34 | waste | `widgets/color_input.rs` the panel of a closed picker | medium | blocked (a): the panel built when the popup opens needs a content callback on `TransientWindowConfig` (core API, shell, reconcile); design below | - |
+| A3-solver-34a | waste | `widgets/color_input.rs` checkerboards | medium | fixed 0b94f3fdd | `a_checkerboard_is_one_node_where_it_was_a_div_per_cell` |
+| A3-solver-34b | wrong-output | `widgets/color_input.rs` swatch click | medium | fixed a250251a5 | `clicking_toggles_the_picker_through_the_engine_and_never_touches_the_color` |
+| A3-solver-35a | waste | `widgets/node_graph.rs` rebuild on every pan release | high | fixed 350ce0f23 | `the_end_of_a_pan_rebuilds_a_culled_graph_once` |
+| A3-solver-35b | waste | `widgets/node_graph.rs` pan as one transform per container | medium | blocked (a): needs nested reference frames to count at their transformed place (`reference_frame_extent`, A1's code); design below | - |
+| A3-solver-35c | waste | `widgets/node_graph.rs` drag writes width / height | high | fixed 429f0d444 | `a_step_of_a_node_drag_writes_no_layout_property_on_a_connection` |
+| A3-solver-35d | wrong-output | `widgets/node_graph.rs` pan loop that does not advance | medium | fixed 516fce10f | `a_pan_passes_over_the_boxes_it_cannot_place_and_writes_the_rest` |
+| A3-solver-35e | waste | `widgets/node_graph.rs` graph cloned per render | medium | fixed 2607ce45e | `a_render_moves_the_graph_into_its_dataset_and_copies_none_of_it` |
+| A3-solver-35f | quadratic | `widgets/node_graph.rs` searches per connection, node, port | medium | fixed c721f24a3 | `the_wires_of_a_render_find_their_nodes_by_bisection` |
+| A3-solver-35g | wrong-output | `widgets/node_graph.rs` no keys | medium | fixed 46667ed3c | `a_node_and_a_wire_keep_their_key_from_render_to_render` |
+| A3-solver-35h | waste | `widgets/node_graph.rs` per-node property lists | low | fixed fe18a2172 | `the_box_of_a_node_declares_its_constants_from_one_slice_and_boxes_no_shadow` |
+| A3-solver-41 | waste | `cache.rs` `reconcile_node` (inset-only moves; solver half of A3-window-08) | high | fixed 36b4c0248 | `labels_that_only_moved_and_turned_keep_their_boxes_and_stand_as_in_a_fresh_layout` |
+| A3-solver-42 | waste | `mod.rs` / `fc/ifc.rs` / `sizing.rs` fonts asked per IFC (A8-13) | medium | fixed 58f61dce6 | `a_pass_asks_the_font_manager_for_its_fonts_once` (sizing half: f83fec4f7) |
+| A3-solver-42b | waste | `regions.rs`, `display_list.rs` font asks | low | open: `regions.rs:1617` still asks the font manager per region chain; display_list.rs is A3-core's | - |
+| A3-solver-43 | wrong-output | `positioning.rs` relative offset added again per incremental pass | medium | fixed 283a32482 | `a_relatively_positioned_box_beside_a_re_laid_one_is_not_shifted_again` and two more |
+| A3-solver-44 | wrong-output | `positioning.rs` `adjust_sticky_positions` outside re-laid subtrees | medium | open: same mistake as 43 for sticky boxes; needs the kept constraint | - |
+| A3-solver-45 | wrong-output | `positioning.rs` relative offset inside an absolute box | medium | open: `position_bfc_child_descendants` in the positioning pass re-derives descendants from the flow and drops their relative shift | - |
+| A3-solver-46 | wrong-output | `positioning.rs` static position read back from the final one | low | open: an RTL box with all insets auto and a right margin moves by that margin on each pass that does not re-derive its static position | - |
+| A3-solver-47 | wrong-output | `sizing.rs` marker of an absolutely positioned list item | low | open: the `::marker` box carries its item's DOM node and counts as out of flow in three places | - |
+| A3-solver-48 | wrong-output | `sizing.rs` inside markers not in intrinsic widths | low | open: a shrink-to-fit list item with `list-style-position: inside` is sized without its marker | - |
+| A3-solver-49 | wrong-output | `getters.rs` spacing fallback `Px(0)` vs `PxF(0.0)` | low | open: a hovered node's text style differs from its resting one with no rule involved | - |
+| A3-solver-50 | waste | `sizing.rs` / `fc/ifc.rs` / `text3/cache/shaping_cache.rs` an IFC shaped twice per pass (A8-06 hand-over) | medium | fixed 011b0043c | `the_layout_of_a_label_takes_what_its_measure_shaped` |
+| A3-solver-51 | wrong-output | `fc/table_rows.rs` overflow of a shifted cell | low | open: reads the retired sentinel's default overflow instead of the kept one | - |
 
 ### Fixed (details in the commit messages)
 
@@ -149,7 +179,7 @@ Status: `fixed <hash>` | `open` | `checked`. Severity = estimated ms x frequency
 - **12** the memo answers when the asked state equals the node's stored state. The proof and its one assumption
   (memo == walk for normal nodes, which the code already relied on) are in the commit message.
 
-### Open, in my files (what is missing for each)
+### First round: what was open then (history - the table has each status)
 
 - **08** `collect_inline_span_recursive` finds its own box with `parent_children.iter().find(dom == span)`
   (`inline_content.rs:1129`) and each element child with `span_layout_children.iter().find(..)` (`:1217`): a
@@ -379,7 +409,7 @@ finding ids below.
   getters; a missed one serves a wrong font, and no test would show which).
 - **33** fixed `dc3e29f49`: a font-stack memo entry carries its inputs and answers only for them.
 
-### Open after the second round, with the reason
+### Second round: what was open then (history - the table has each status)
 
 - **14** (every absolute box's interior is laid out by its parent's Phase 7 and again by the positioning pass).
   Not fixable as "the same result" by reading, in either direction:
@@ -526,3 +556,154 @@ Open, with the reason:
   (`tree.resolve_box_props`), and the intrinsic folds read `box_props`: the second turn measures dirty nodes
   with other values than the first. A run must show the goldens unchanged plus a page that reflows for a
   scrollbar with a percentage padding inside a shrink-to-fit box.
+
+## Third round (after RULES.md section 8: nothing stays open that can be done)
+
+### A3-solver-14, the interior of an absolutely positioned box (fixed 93cf4a98a)
+
+- What the second-round note called not provable was decided the other way round: instead of proving that a
+  second interior run changes nothing, the run is skipped only while a per-box entry stands
+  (`NodeCache::abs_interior`), the entry is dropped by everything that can write into the box's subtree, and the
+  remaining assumption (the positioning pass's run is a fixed point of itself) is CHECKED in every test of the
+  crate: a kept interior is laid out anyway under `cfg!(test)` and compared bit for bit, and panics if it differs.
+- Writers and how each is seen: a dirty node at or below the box clears the box's `NodeCache`
+  (`mark_dirty_all` clears every ancestor); a visit of the box from its parent's flow goes through the new wrapper
+  `calculate_layout_for_subtree_fragment`, which drops the entry when `LayoutCacheMap::tree_writes` moved during
+  the visit (one count per computed layout, one per cache hit that changed a size, scroll geometry, escaped
+  margin, baseline or a child's offset; the hit paths compare before they write); passes with paged layout,
+  named flows or overlay content neither read nor write entries; boxes under a flex / grid / table parent and
+  pseudo boxes are never tracked.
+- The scrollbar-gutter objection of the second round: a box whose second run converges differently is one whose
+  run is no fixed point; the check panics on it in tests, and such a box's `scrollbar_info` is written by the
+  flow's visit (a counted write), not by the positioning pass.
+- Switches: `AZ_NO_ABS_INTERIOR_REUSE` (any value) lays every interior out in every pass as before;
+  `AZ_CHECK_ABS_INTERIOR_REUSE` (any value) makes a normal build lay kept interiors out and compare (panics on
+  a difference). Default: reuse on, check off outside this crate's tests.
+- Memory: `NodeCache` + 40 bytes (the commit message says 36: the `Option` tag pads it), `LayoutCacheMap` + 24.
+- Still per absolute box per pass: the solve (A3-solver-14b) and one `position_bfc_child_descendants` walk.
+- Corrected: the helper's observation that an absolutely positioned SPAN is laid out at the containing block's
+  width by the flow and at its own width by the positioning pass is not so - `computed_style.display` is the
+  blockified display (`layout_tree.rs` `blockify`, the two `node.computed_style.display = display_type` sites),
+  so `prepare_layout_context` takes the `inner_size.width` arm for it. checked: fine.
+
+### A3-solver-50, one shaping per inline formatting context per pass (fixed 011b0043c; A8's hand-over)
+
+- `sizing::MeasuredParagraphs` in the pass's memo; the layout takes the measure's `(logical, shaped)` when its
+  content compares equal. In A8's file one function was split (`measure_intrinsic_widths` =
+  `shape_content` + new `intrinsic_widths_of_shaped`), nothing else; A8's branch does not touch that function
+  (its hunks are the struct, the constructors, the sweep at the head of `shape_content` and a test module at the
+  end of the file), so the merge is clean by lines.
+- Depends on the two collectors producing equal content for a text label
+  (`sizing::collect_inline_content_for_sizing`, `fc::collect_and_measure_inline_content`); the test says so if
+  they do not.
+- Bound: 65,536 shaped items kept at a time (`MEASURED_ITEMS_KEPT_AT_MOST`).
+
+### The helpers' second assignments (each commit carries its argument, tests and mutations)
+
+- 32 fix `1e8fd3a32` (next commit after the `[reveals]`): `adds_nothing_to_its_parent`; four golden dumps move in
+  their `ic=` columns only (listed in the commit). 19b `a74109c49` relies on it: revert 19b before 32.
+- 19b `a74109c49`: `BfcPassMemo::box_props_changed` (noted by `bfc_prepare` around `resolve_box_props`), later
+  turns measure `sizing::dirty_nodes_to_measure_again`.
+- 20b `f56165e9d` (+ `7c1f96414`, `9623b4f78`, `d06b35bd1`): `StyleCache::by_inputs`; every hit is built and
+  compared under `cfg(any(test, debug_assertions))`. Not served: non-normal states, documents with viewport units
+  or zoom or the font-variant flags (any document with a list marker), inline boxes with paint or edges.
+- 22 `318d1a97d`, 16 `640fefd1b`, 17b `9d4637c90`: see the table.
+- 35c-35h, 34a, 34b: see the table. 35d also changes an empty nodes container (connections still pan).
+  35g: keys are DOM-wide - two graphs in one DOM with overlapping node ids share keys (needs a per-graph salt on
+  `NodeGraph`, a public API field: for the widget's owner).
+
+### New findings of this round (open rows of the table)
+
+- **46** `positioning.rs`: the positioning pass reads a box's static position from `calculated_positions` and
+  writes the final position into the same slot. A pass that does not re-derive the slot from the flow (the box is
+  outside every re-laid subtree, or is a direct child of the layout root: `process_out_of_flow_children` skips a
+  child that already has a position) solves from last pass's FINAL position. With all insets auto in LTR that is
+  the same point; in RTL the solve is `x = static.x - margin_right`, so the box moves by its right margin on each
+  such pass. Fix: re-derive the static position from the parent's content box and `warm.relative_position` when
+  the flow did not place the box in this pass (as `position_bfc_child_descendants` does for boxes below a child).
+- **47** `sizing.rs` (`adds_nothing_to_its_parent`, `process_layout_children`, `sole_inline_content_child`): the
+  position is asked by the box's DOM node, and a `::marker` box carries its item's node, so the marker of an
+  absolutely positioned list item counts as out of flow. Fix: `!is_marker_box(tree, idx) &&` in front, at all
+  three sites.
+- **48** `sizing.rs`: a marker's intrinsic sizes are 0/0 (its text is generated in the layout collection only),
+  so a shrink-to-fit list item with `list-style-position: inside` is sized without its marker.
+- **49** `getters.rs` `get_style_properties_for_state`: the cascade fallbacks for letter- and word-spacing end in
+  `.unwrap_or_default()` = `Spacing::Px(0)`, the compact path gives `Spacing::PxF(0.0)`: a hovered node's style
+  is unequal to its resting one with no rule involved.
+- **51** `fc/table_rows.rs` (about line 1070): `overflow: cached_layout.layout.overflow.clone()` reads the
+  retired sentinel's default overflow; a vertically shifted cell loses `unclipped_bounds` and `line_clamped`.
+- **17c**, **14b**, **15b**, **16b**, **42b**: remainders of fixed items, see the table.
+
+### A3-solver-34, the lazy picker panel: blocked (a), design
+
+`build` cannot know `open`: `merge_picker_data` runs in the DOM diff, after the app's DOM is built, and opening
+must not rebuild (`Update::DoNothing` is asserted). Done short of it: 34a (142 -> about 48 nodes closed), 34b.
+1. core: `TransientWindowConfig::with_content(RefAny, fn(RefAny, LayoutCallbackInfo) -> Dom)`; the field goes
+   into api.json.
+2. shell: where a popup's DOM is taken from the transient subtree, call the content callback when it is set, and
+   measure the popup by laying that Dom out before queuing it.
+3. reconcile: `transfer_states` must also repoint the config's `RefAny` to the merged dataset.
+4. widget: `ColorPickerData` gains `theme`; `build` makes the popup without children and
+   `with_content(data.clone(), picker_content)`; `picker_content` calls `picker_panel` (through
+   `follow_app_theme` when the theme is `None`). The panel's callbacks already work inside the popup's own DOM.
+5. tests: the 21 tests that take the panel from a closed input (list in the second-round section) get a helper
+   that builds the panel through `picker_content`; `dom_is_a_div_...` asserts a childless popup;
+   `dll/tests/transient_window_layout.rs` keeps its intent.
+
+### A3-solver-35b, the graph's offset on the two containers: blocked (a), design
+
+Done short of it: 35a (no rebuild per pan release), 35c (a drag writes transforms only), 35d-35h.
+1. engine first (A1's code): `reference_frame_extent` / `GroupBounds::step` must union a nested frame's extent
+   moved by its matrix (today nested items count at their untransformed place). Pixel test: a child frame
+   translated outside its parent frame's box is painted, on the CPU and the GPU path.
+2. builder: both containers get `transform: translate(offset)` always (so the frame binding exists);
+   `render_node` is called with offset (0, 0); a connection's transform is `translate(rect.origin)` plus scale.
+3. pan: two `set_css_property` calls, one per container (`pan_writes(graph)` replaces `pan_node_writes`); a node
+   drag writes `translate(position)` and `translate(rect.origin)` without the offset.
+4. tests to change: the expected values in the 35c and 35d tests; the transform in the 35h test stays.
+5. switch `AZ_NODEGRAPH_PAN=nodes` keeps per-node writes, and stays the default until step 1 is seen on screen.
+
+## What to look at on the real window
+
+- Absolutely positioned content after an unrelated change: map labels (text, rotation, selection boxes), popups,
+  dropdowns, tooltips, the node graph's nodes while typing in a side panel. Run once with
+  `AZ_CHECK_ABS_INTERIOR_REUSE=1` (a panic names the box) and compare with `AZ_NO_ABS_INTERIOR_REUSE=1`.
+- The colour picker's alpha bar and preview, open, in light and dark mode (34a: one node per checkerboard;
+  `AZ_COLOR_PICKER_CHECKER=cells` is the old build). A translucent colour's swatch opens its popup (34b).
+- The node graph: drag a node (wires follow, 35c: their boxes keep the build-time size until the next rebuild,
+  which matters once connections are drawn), pan across the culling edge (35a, 35d), undo a move after a pan
+  (see "For area A3-window (3)").
+- A hovered or focused label / inline box: the same font and colour as at rest (20b; debug builds assert it).
+
+## For area A3-window (3) / A3-core
+
+- wrong output (found by the widgets helper): `migrate_user_overrides_from` (`core/src/styled_dom.rs:3480`,
+  called at `window.rs:17380`) carries every `set_css_property` override to the matched node, and an override
+  outranks the rebuilt style. A node that was panned or dragged keeps that transform against an undo, a
+  programmatic move or a zoom of the model. Keys (35g) make it the right node, not the right value. Proposal:
+  carry an override of property P only when the new node's inline declarations of P equal the old node's; or
+  batch all override writes of one callback into one `restyle_user_properties`.
+- css owner: `From<CssPropertyWithConditionsVec> for Css` (`css/src/css.rs:351`) copies a const slice into an
+  owned Vec, then allocates a rule block and a one-element declarations Vec per property. Proposal: one rule per
+  run of equal conditions.
+
+## For area A2-cpu
+
+- `render_conic_gradient` uses agg's `GradientConic` (`|atan2|`, a mirrored half circle): a CSS conic gradient
+  is drawn mirrored on the CPU renderer (found by the widgets helper while reading for 34a; not verified by me).
+
+## For area A8 (2)
+
+- `text3/cache/shaping_cache.rs`: `measure_intrinsic_widths` is split into its `shape_content` call and the new
+  public `TextShapingCache::intrinsic_widths_of_shaped` (A3-solver-50, commit 011b0043c). No behaviour change.
+
+## For the integration
+
+- `LayoutContext` has the field `pass_memo` (`509295796`); every struct literal needs
+  `pass_memo: Default::default(),` - A3-window's second literal in `window.rs` (its commit `25cf3821f`) too.
+- `PassMemo` got `measured` (50); `BfcPassMemo` got `box_props_changed` (19b); `NodeCache` got `abs_interior`,
+  `LayoutCacheMap` got `tree_writes` and `own_size_write` (14): all have defaults, no literal changes.
+- `cache::calculate_layout_for_subtree_fragment` is now a wrapper; the former body is
+  `calculate_layout_for_subtree_visit_counted`. A merge that brings another area's hunk into the old body lands
+  in that function.
+
