@@ -183,6 +183,8 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     if dirty_nodes.is_empty() {
         return Ok(());
     }
+    #[cfg(test)]
+    IFC_MEASURES_PER_PASS.with(|passes| passes.borrow_mut().push(0));
 
     debug_log!(ctx, "Starting intrinsic size calculation");
     // Pre-compute the "ancestor closure" of dirty_nodes: every dirty
@@ -280,6 +282,39 @@ fn intrinsic_of_child<'a>(
     Some(&child_intrinsics[found].1)
 }
 
+/// How many inline formatting contexts each intrinsic pass on this thread
+/// collected and measured, one entry per [`calculate_intrinsic_sizes`] that
+/// had something dirty (`audit_tests::a3_solver`: one per label of a layer
+/// of labels, not one for the label's text and one more for the label).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_MEASURES_PER_PASS: core::cell::RefCell<Vec<usize>> = const { core::cell::RefCell::new(Vec::new()) };
+}
+
+/// What the ROOT of an inline formatting context puts into the measure of
+/// its intrinsic sizes beside the content: the fields
+/// [`ifc_measure_constraints`] sets from the root's style, compared bit for
+/// bit (`UnifiedConstraints`' own `==` rounds its lengths). Two roots with
+/// the same content and the same key are measured alike.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct IfcMeasureKey {
+    white_space_mode: crate::text3::cache::WhiteSpaceMode,
+    text_indent_bits: u32,
+    text_indent_each_line: bool,
+    text_indent_hanging: bool,
+}
+
+impl IfcMeasureKey {
+    fn of(constraints: &UnifiedConstraints) -> Self {
+        Self {
+            white_space_mode: constraints.white_space_mode,
+            text_indent_bits: constraints.text_indent.to_bits(),
+            text_indent_each_line: constraints.text_indent_each_line,
+            text_indent_hanging: constraints.text_indent_hanging,
+        }
+    }
+}
+
 pub(crate) fn compute_dirty_ancestor_closure(
     tree: &LayoutTree,
     dirty_nodes: &BTreeSet<usize>,
@@ -312,6 +347,19 @@ struct IntrinsicSizeCalculator<'a, 'b, 'c, T: ParsedFontTrait> {
     /// `warm.intrinsic_sizes` is already populated reuses the
     /// cached value and skips its entire subtree descent.
     dirty_closure: Option<std::collections::HashSet<usize>>,
+    /// The inline formatting context measured last
+    /// (`calculate_ifc_root_intrinsic_sizes`): its root, what the root's
+    /// style put into the measure, the loaded faces it was shaped with, and
+    /// the sizes the measure gave, before the root's own `width` /
+    /// `min-width` / `max-width` were applied. Forgotten when the walk
+    /// enters another node, so it is there only for the box right around
+    /// that root (`reuse_last_ifc_measure`).
+    last_ifc_measure: Option<(
+        usize,
+        IfcMeasureKey,
+        Arc<crate::text3::cache::LoadedFonts<T>>,
+        IntrinsicSizes,
+    )>,
 }
 
 impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
@@ -320,6 +368,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             ctx,
             text_cache,
             dirty_closure: None,
+            last_ifc_measure: None,
         }
     }
 
@@ -336,6 +385,9 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
         unsafe {
             crate::az_mark(0x60720_u32, (node_index as u32));
         }
+        // A measure kept for the box around its root is of use to the box
+        // this walk comes back to right after it, and to no other.
+        self.last_ifc_measure = None;
         // Fast path: if this subtree has no dirty nodes AND we
         // already have a cached intrinsic, return the cached value
         // and skip the whole descent. Caller is the ancestor-closure
@@ -1030,6 +1082,19 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             crate::az_mark(0x6075C_u32, (node_index as u32));
         }
         let _p_ifc = crate::probe::Probe::span("intrinsic_ifc_root");
+        // The content of a box around ONE inline box (a label around its
+        // text, a block around one span) is that box's content, which was
+        // measured a moment ago: under the same constraints the measure is
+        // the same, so it is not made again.
+        if let Some(sizes) = self.reuse_last_ifc_measure(tree, node_index) {
+            return Ok(sizes);
+        }
+        #[cfg(test)]
+        IFC_MEASURES_PER_PASS.with(|passes| {
+            if let Some(measured) = passes.borrow_mut().last_mut() {
+                *measured += 1;
+            }
+        });
         // Collect all inline content from this IFC root and its inline descendants
         // [g76] EXPLICIT match (was `?`): the g75 markers showed collect_inline_content reaching
         // its completion marker B8 (Ok at the source level) yet the IFC sizer never
@@ -1135,7 +1200,7 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             // contained EMPTY_GROUP → systemic fix found.
             let _ = (cl, loaded_fonts.len());
         }
-        Ok(measure_ifc_intrinsic_sizes(
+        let sizes = measure_ifc_intrinsic_sizes(
             self.text_cache,
             &inline_content,
             &shape_min_widths,
@@ -1144,7 +1209,62 @@ impl<'a, 'b, 'c, T: ParsedFontTrait> IntrinsicSizeCalculator<'a, 'b, 'c, T> {
             &self.ctx.font_manager.fc_cache,
             &loaded_fonts,
             self.ctx.debug_messages,
-        ))
+        );
+        self.last_ifc_measure = Some((
+            node_index,
+            IfcMeasureKey::of(&constraints),
+            loaded_fonts,
+            sizes,
+        ));
+        Ok(sizes)
+    }
+
+    /// The intrinsic sizes of the inline formatting context rooted at
+    /// `node_index`, when they are the ones measured last: the root's inline
+    /// content is that of its one layout child and nothing else
+    /// ([`sole_inline_content_child`]), that child's context was the last one
+    /// measured (`last_ifc_measure`, so nothing the collection reads has
+    /// changed since), this root's style puts the same constraints into the
+    /// measure ([`IfcMeasureKey`]) and the loaded faces are the ones it was
+    /// shaped with. `measure_ifc_intrinsic_sizes` takes the content, the
+    /// constraints and the fonts and nothing of the root, so it would return
+    /// these sizes again.
+    ///
+    /// A text has a layout node of its own and so has the box around it; in
+    /// a shrink-to-fit subtree both were collected, split into runs and
+    /// measured - every label of a layer of absolutely positioned labels
+    /// twice per pass, a `<div><span>text</span></div>` three times.
+    ///
+    /// Not with debug messages on: collecting writes one per node.
+    fn reuse_last_ifc_measure(
+        &mut self,
+        tree: &LayoutTree,
+        node_index: usize,
+    ) -> Option<IntrinsicSizes> {
+        // Taken: a measure that does not serve this root serves no later one
+        // (the root measures itself, and the box around it asks for ITS).
+        let (measured_root, key, fonts, sizes) = self.last_ifc_measure.take()?;
+        if self.ctx.debug_messages.is_some() {
+            return None;
+        }
+        if sole_inline_content_child(&*self.ctx, tree, node_index) != Some(measured_root) {
+            return None;
+        }
+        let constraints = ifc_measure_constraints(
+            self.ctx.styled_dom,
+            tree,
+            node_index,
+            self.ctx.viewport_size,
+        );
+        if IfcMeasureKey::of(&constraints) != key {
+            return None;
+        }
+        if !Arc::ptr_eq(&fonts, &self.ctx.font_manager.get_loaded_fonts()) {
+            return None;
+        }
+        // The box around this one may hold nothing else either.
+        self.last_ifc_measure = Some((node_index, key, fonts, sizes));
+        Some(sizes)
     }
 
     // +spec:containing-block:bb0658 - percentage block-sizes behave as auto during intrinsic
@@ -2076,6 +2196,54 @@ fn process_layout_children<T: ParsedFontTrait>(
     }
 
     Ok(())
+}
+
+/// The layout child of `node_index` whose inline content is ALL the inline
+/// content [`collect_inline_content_recursive`] collects for `node_index` -
+/// the same items in the same order, the same `min_widths` - or `None` when
+/// that cannot be told without collecting.
+///
+/// It can be told when the node adds nothing of its own (it is no text node,
+/// and none of its DOM children without a layout node is one: the two things
+/// that function adds before it walks the layout children) and
+/// [`process_layout_children`] does one thing with the node's one layout
+/// child: recurse into it (the box of a DOM node, no `<br>`, in flow, an
+/// inline box by its `display`). Each test here is a test made there.
+fn sole_inline_content_child<T: ParsedFontTrait>(
+    ctx: &LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    node_index: usize,
+) -> Option<usize> {
+    let node = tree.get(LayoutNodeId::new(node_index))?;
+    let &[child_index] = tree.children(node_index) else {
+        return None;
+    };
+    let node_data = ctx.styled_dom.node_data.as_container();
+    if let Some(dom_id) = node.dom_node_id {
+        if matches!(node_data[dom_id].get_node_type(), NodeType::Text(_)) {
+            return None;
+        }
+        let node_hierarchy = ctx.styled_dom.node_hierarchy.as_container();
+        for child_id in dom_id.az_children(&node_hierarchy) {
+            if !tree.dom_to_layout.contains_key(&child_id)
+                && matches!(node_data[child_id].get_node_type(), NodeType::Text(_))
+            {
+                return None;
+            }
+        }
+    }
+    let child_dom_id = tree.get(LayoutNodeId::new(child_index))?.dom_node_id?;
+    if matches!(node_data[child_dom_id].get_node_type(), NodeType::Br) {
+        return None;
+    }
+    if matches!(
+        get_position_type(ctx.styled_dom, Some(child_dom_id)),
+        LayoutPosition::Absolute | LayoutPosition::Fixed
+    ) {
+        return None;
+    }
+    let display = get_display_property(ctx.styled_dom, Some(child_dom_id));
+    super::getters::is_inline_box_display(display.unwrap_or_default()).then_some(child_index)
 }
 
 // Keep old name as an alias for backward compatibility
