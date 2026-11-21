@@ -443,6 +443,29 @@ impl<'a> Iterator for CssGroupIterator<'a> {
     }
 }
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many sibling links [`construct_html_cascade_tree`] followed on
+    /// this thread: what the size sweep of the tests reads to say a parent of
+    /// many children is walked once, not once per child that has children.
+    pub(crate) static SIBLING_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// One sibling link followed by [`construct_html_cascade_tree`].
+#[inline]
+fn count_sibling_step() {
+    #[cfg(all(test, feature = "std"))]
+    SIBLING_STEPS.with(|c| c.set(c.get() + 1));
+}
+
+/// Every node's place among its parent's ELEMENT children
+/// ([`CascadeInfo`]), for the structural pseudo-classes.
+///
+/// `node_depths_sorted` lists the nodes that have children, a parent before
+/// its children (`NodeHierarchyRef::get_parents_sorted_by_depth`), and the
+/// sibling links of `node_hierarchy` must agree in both directions (a
+/// child's `previous_sibling` is the child before it), as every tree built
+/// from a `Dom` or a parser has them.
 #[must_use]
 pub fn construct_html_cascade_tree(
     node_hierarchy: &NodeHierarchyRef<'_>,
@@ -455,17 +478,33 @@ pub fn construct_html_cascade_tree(
             is_last_child: false,
         })
         .collect::<Vec<_>>();
+    // How many element siblings stand before each node, as the walk over
+    // its parent's children below counted them; `None` until that walk has
+    // run (the root, a list that names a node before its parent).
+    let mut elements_before: Vec<Option<u32>> = alloc::vec![None; node_hierarchy.len()];
 
     for (_depth, parent_id) in node_depths_sorted {
         // Per CSS Selectors Level 4 §13: "Standalone text and other non-element
         // nodes are not counted when calculating the position of an element in
         // the list of children of its parent."
         //
-        // We count only element siblings when computing index_in_parent.
-        let element_index_in_parent = parent_id
-            .preceding_siblings(node_hierarchy)
-            .filter(|sib_id| is_element_sibling(&node_data[*sib_id]))
-            .count();
+        // We count only element siblings when computing index_in_parent: the
+        // node itself and the element siblings before it. The walk over its
+        // parent's children has counted the ones before it already; walking
+        // back from every node that has children made a parent of k such
+        // children cost k^2 / 2 steps (18 million for the 6,000 labels of a
+        // map view under one node).
+        let counted_before = elements_before.get(parent_id.index()).copied().flatten();
+        let element_index_in_parent = match counted_before {
+            Some(before) => {
+                before as usize + usize::from(is_element_sibling(&node_data[*parent_id]))
+            }
+            None => parent_id
+                .preceding_siblings(node_hierarchy)
+                .inspect(|_| count_sibling_step())
+                .filter(|sib_id| is_element_sibling(&node_data[*sib_id]))
+                .count(),
+        };
 
         let parent_html_matcher = CascadeInfo {
             index_in_parent: u32::try_from(element_index_in_parent.saturating_sub(1))
@@ -475,6 +514,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last_element = true;
                 let mut next = node_hierarchy[*parent_id].next_sibling;
                 while let Some(sib_id) = next {
+                    count_sibling_step();
                     if is_element_sibling(&node_data[sib_id]) {
                         is_last_element = false;
                         break;
@@ -490,6 +530,7 @@ pub fn construct_html_cascade_tree(
         // Count only element children for index_in_parent
         let mut element_idx: u32 = 0;
         for child_id in parent_id.children(node_hierarchy) {
+            count_sibling_step();
             let is_text = !is_element_sibling(&node_data[child_id]);
 
             // Find whether this is the last element child (skip trailing text nodes)
@@ -499,6 +540,7 @@ pub fn construct_html_cascade_tree(
                 let mut is_last = true;
                 let mut next = node_hierarchy[child_id].next_sibling;
                 while let Some(sib_id) = next {
+                    count_sibling_step();
                     if is_element_sibling(&node_data[sib_id]) {
                         is_last = false;
                         break;
@@ -514,6 +556,9 @@ pub fn construct_html_cascade_tree(
             };
 
             nodes[child_id.index()] = child_html_matcher;
+            if let Some(before) = elements_before.get_mut(child_id.index()) {
+                *before = Some(element_idx);
+            }
 
             if !is_text {
                 element_idx += 1;
