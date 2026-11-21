@@ -5101,6 +5101,14 @@ pub fn compute_display_list_damage(
     .map(|(damage, _moved)| damage)
 }
 
+/// What the damage of a run under a CHANGED text shadow is widened by on top of the shadow's
+/// reach, logical px. The blur radius and the spread are each rounded up to whole device
+/// pixels when the shadow is drawn (`shadow_blur_radius`, the `spread.ceil()` of
+/// `render_text_shadow`, the rim of `dilate_disk`: 2.5 device px in all), and the edge of a
+/// run hangs a fraction of a pixel past its ink (the text fringe of the item diff). Enough
+/// from a scale of 1 up.
+const TEXT_SHADOW_DAMAGE_SLACK: f32 = 3.0;
+
 #[allow(clippy::too_many_lines)]
 fn compute_display_list_damage_impl(
     old: &DisplayList,
@@ -5137,6 +5145,10 @@ fn compute_display_list_damage_impl(
     let mut frames_old = FrameStack::default();
     let mut frames_new = FrameStack::default();
     let mut mapped = 0usize;
+    // The text shadows open at the current item: for one that differs between the two
+    // lists, how far the old and the new shadow paint past a run (`text_shadow_reach`);
+    // `None` for one that is the same in both.
+    let mut shadows: Vec<Option<(f32, f32)>> = Vec::new();
 
     for (idx, (old_item, new_item)) in old.items.iter().zip(new.items.iter()).enumerate() {
         // Compare discriminant first (cheap)
@@ -5217,6 +5229,53 @@ fn compute_display_list_damage_impl(
             _ => {}
         }
 
+        // A text shadow that changed (a halo's colour, its width) repaints every run down
+        // to its pop: where the old shadow painted and where the new one paints, the run's
+        // ink widened by the shadow's reach. The push itself has no bounds and the runs
+        // under it are equal, so nothing below damages them: the frame was idle, or - in
+        // a view whose diff found anything else - kept the old halo.
+        match (old_item, new_item) {
+            (
+                DisplayListItem::PushTextShadow { shadow: old_shadow },
+                DisplayListItem::PushTextShadow { shadow: new_shadow },
+            ) => {
+                shadows.push((old_shadow != new_shadow).then(|| {
+                    (
+                        super::raster::text_shadow_reach(core::slice::from_ref(old_shadow)),
+                        super::raster::text_shadow_reach(core::slice::from_ref(new_shadow)),
+                    )
+                }));
+                continue;
+            }
+            (DisplayListItem::PopTextShadow, _) => {
+                shadows.pop();
+                continue;
+            }
+            (DisplayListItem::Text { .. }, DisplayListItem::Text { .. }) => {
+                let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
+                for &(old_reach, new_reach) in shadows.iter().flatten() {
+                    for (run, acc, reach) in
+                        [(old_item, acc_old, old_reach), (new_item, acc_new, new_reach)]
+                    {
+                        if let Some(ink) = run.visual_bounds() {
+                            let grow = reach + TEXT_SHADOW_DAMAGE_SLACK;
+                            damage.push(LogicalRect {
+                                origin: LogicalPosition {
+                                    x: ink.origin.x - acc.0 - grow,
+                                    y: ink.origin.y - acc.1 - grow,
+                                },
+                                size: LogicalSize {
+                                    width: 2.0f32.mul_add(grow, ink.size.width),
+                                    height: 2.0f32.mul_add(grow, ink.size.height),
+                                },
+                            });
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+
         // Compare full visual content, not just bounds — a color or text
         // change within the same bounds must still produce a damage rect.
         // Use visual_bounds() to include effects like box-shadow extent.
@@ -5233,14 +5292,6 @@ fn compute_display_list_damage_impl(
                 !frames_new.frames.is_empty(),
             ) {
                 continue;
-            }
-            // A text shadow that changed (its colour, its width) repaints every run
-            // down to its pop, the push itself has no bounds, and the runs under it
-            // are equal: nothing below would damage them. Its extent is not
-            // representable per item (the windowed path gives up on a shadow in its
-            // window for the same reason): the caller repaints whole.
-            if matches!(new_item, DisplayListItem::PushTextShadow { .. }) {
-                return None;
             }
             let refine = dl_diff_refinements_enabled();
             // Items that never RASTERIZE must never produce PAINT damage.

@@ -968,53 +968,135 @@ fn a2_cpu_01_a_changed_frame_without_a_live_value_is_damaged_where_its_initial_t
 }
 
 // ---------------------------------------------------------------------------------------------
-// Hand-built lists: the item diff (A2-cpu-05)
+// Hand-built lists: the item diff under a text shadow that changed (A2-cpu-05)
 // ---------------------------------------------------------------------------------------------
 
-/// A2-cpu-05. Two lists that differ only in a text shadow (the halo's colour) are not "nothing
-/// to repaint": the push has no bounds and the runs under it are equal, so the paired diff
-/// answered `Some(vec![])` - an idle frame for the window's list, and no damage for the halo in a
-/// view whose diff found anything else. Now the diff gives up (`None`: the caller repaints the
-/// window, or the view's box).
-///
-/// mutation: removing the `PushTextShadow` arm of `compute_display_list_damage_impl` fails here
-/// (the answer is `Some([])` again).
-#[test]
-fn a2_cpu_05_a_changed_text_shadow_is_not_an_idle_frame() {
-    use azul_css::props::style::box_shadow::StyleBoxShadow;
+/// A label of three glyphs at 24 px, its pens at x 20, 32 and 44 on the baseline `y`, under a
+/// halo in `halo` (a text shadow with a spread of 2 px, no blur, no offset: the map editor's).
+/// Its clip and its line box are its own box, `(16, y - 28) 150 x 40`.
+fn label(y: f32, halo: [u8; 3]) -> Vec<DisplayListItem> {
+    use azul_core::ui_solver::GlyphInstance;
+    use azul_css::props::{basic::pixel::PixelValueNoPercent, style::box_shadow::StyleBoxShadow};
 
-    use crate::cpurender::compute_display_list_damage;
+    use crate::text3::cache::FontHash;
 
-    let halo = |colour: [u8; 3]| {
-        list(vec![
-            rect(0.0, 0.0, 200.0, 100.0, [255, 255, 255]),
-            DisplayListItem::PushTextShadow {
-                shadow: StyleBoxShadow {
-                    color: ColorU {
-                        r: colour[0],
-                        g: colour[1],
-                        b: colour[2],
-                        a: 255,
-                    },
-                    ..StyleBoxShadow::default()
+    let length = |v: f32| PixelValueNoPercent {
+        inner: PixelValue::px(v),
+    };
+    let glyphs: Vec<GlyphInstance> = [20.0_f32, 32.0, 44.0]
+        .iter()
+        .map(|x| GlyphInstance {
+            index: 1,
+            point: LogicalPosition::new(*x, y),
+            size: LogicalSize::new(12.0, 24.0),
+        })
+        .collect();
+    let own_box = wlr(16.0, y - 28.0, 150.0, 40.0);
+    vec![
+        DisplayListItem::PushTextShadow {
+            shadow: StyleBoxShadow {
+                offset_x: length(0.0),
+                offset_y: length(0.0),
+                blur_radius: length(0.0),
+                spread_radius: length(2.0),
+                color: ColorU {
+                    r: halo[0],
+                    g: halo[1],
+                    b: halo[2],
+                    a: 255,
                 },
+                clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
             },
-            rect(20.0, 20.0, 60.0, 14.0, [0, 0, 0]),
-            DisplayListItem::PopTextShadow,
-        ])
+        },
+        DisplayListItem::Text {
+            glyphs,
+            font_hash: FontHash {
+                font_hash: 1,
+                synthetic_bold: false,
+            },
+            font_size_px: 24.0,
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 255,
+            },
+            clip_rect: own_box,
+            line_box: own_box,
+            source_node_index: None,
+        },
+        DisplayListItem::PopTextShadow,
+    ]
+}
+
+/// A2-cpu-05. One label of several changes the colour of its halo: the damage is that label's
+/// ink widened by the halo's reach, and no other label.
+///
+/// The push of a text shadow has no bounds and the runs under it are equal, so the paired diff
+/// answered `Some(vec![])`: an idle frame for the window's list, and - in a view whose diff found
+/// anything else - a halo that kept its old colour.
+///
+/// Hand-computed: three labels on the baselines 30, 90 and 150, each with its pens at x 20, 32,
+/// 44, 24 px, a halo of 2 px spread. The middle label's ink box (`visual_bounds`) is x
+/// `20 - 24 .. 44 + 24` = -4 .. 68, y `90 - 36 .. 90 + 18` = 54 .. 108, cut to its clip
+/// (16, 62) 150 x 40: (16, 62) 52 x 40. Widened by the reach 2 and the slack 3: **(11, 57) 62 x
+/// 50**. In a view at (10, 10) whose content is at (-6, 4) that is `(11 + 10 - 6, 57 + 10 + 4)`:
+/// **(15, 71) 62 x 50**. The first label's box ends at y 42 (56 on screen), the third one's
+/// starts at y 122 (136 on screen): neither is touched.
+///
+/// mutation: `shadows.push(None)` for a changed pair (or the `Text` arm of the shadow match
+/// removed) in `compute_display_list_damage_impl` fails here: the answer is `Some([])` again.
+/// `grow = reach` without the slack fails the exact rect.
+#[test]
+fn a2_cpu_05_a_changed_text_shadow_damages_the_runs_under_it_by_its_reach_and_no_other_run() {
+    use crate::cpurender::{compute_display_list_damage, compute_virtual_view_damage};
+
+    const WHITE: [u8; 3] = [255, 255, 255];
+    const YELLOW: [u8; 3] = [255, 230, 0];
+    let labels = |middle: [u8; 3]| {
+        let mut items = Vec::new();
+        items.extend(label(30.0, WHITE));
+        items.extend(label(90.0, middle));
+        items.extend(label(150.0, WHITE));
+        list(items)
     };
     let none = ScrollOffsetMap::new();
-    let white = halo([255, 255, 255]);
+
+    // The list's own diff.
     assert_eq!(
-        compute_display_list_damage(&white, &halo([255, 255, 255]), &none, &none),
+        compute_display_list_damage(&labels(WHITE), &labels(WHITE), &none, &none),
         Some(Vec::new()),
-        "harness: the same halo is no damage"
+        "harness: the same halos are no damage"
     );
-    let changed = compute_display_list_damage(&white, &halo([255, 230, 0]), &none, &none);
+    let damage = compute_display_list_damage(&labels(WHITE), &labels(YELLOW), &none, &none)
+        .expect("the lists pair item by item");
     assert!(
-        changed.is_none(),
-        "a halo that changed colour repaints its runs: the diff cannot say where and gives up, \
-         it does not answer 'nothing': {changed:?}"
+        same_rects(&damage, &[lr(11.0, 57.0, 62.0, 50.0)]),
+        "the middle label's ink (16, 62) 52 x 40, widened by 2 + 3: {damage:?}"
+    );
+
+    // In a view: where the view paints it.
+    let parent = list(vec![
+        rect(0.0, 0.0, 300.0, 220.0, [232, 232, 232]),
+        DisplayListItem::VirtualView {
+            child_dom_id: CHILD,
+            bounds: wlr(10.0, 10.0, 260.0, 200.0),
+            clip_rect: wlr(10.0, 10.0, 260.0, 200.0),
+            content_offset: LogicalPosition::new(-6.0, 4.0),
+        },
+    ]);
+    let (before, now) = (Arc::new(labels(WHITE)), Arc::new(labels(YELLOW)));
+    let on_screen = compute_virtual_view_damage(&parent, &views(&now), &views(&before), &none);
+    assert!(
+        same_rects(&on_screen, &[lr(15.0, 71.0, 62.0, 50.0)]),
+        "the same rect at the view's origin (10, 10) plus its content offset (-6, 4), and not \
+         the view's whole box: {on_screen:?}"
+    );
+    assert!(
+        on_screen
+            .iter()
+            .all(|r| r.origin.y >= 56.0 && r.origin.y + r.size.height <= 136.0),
+        "the first label ends at y 56 on screen and the third starts at 136: {on_screen:?}"
     );
 }
 

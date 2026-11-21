@@ -1505,8 +1505,9 @@ pub(crate) fn group_part_within(
 
 /// How far past a text item's box the text shadows in effect can paint, logical px: the largest
 /// of each shadow's offset plus its blur and its spread. What every cull of a text item under a
-/// shadow widens the item's box by.
-fn text_shadow_reach(text_shadow_stack: &[StyleBoxShadow]) -> f32 {
+/// shadow widens the item's box by, and what the item diff widens a run's damage by when its
+/// shadow changed (`compositor::compute_display_list_damage_impl`).
+pub(super) fn text_shadow_reach(text_shadow_stack: &[StyleBoxShadow]) -> f32 {
     let length = |v: &azul_css::props::basic::pixel::PixelValue| {
         v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
     };
@@ -8970,6 +8971,149 @@ mod text_shadow_tests {
             shadowed > 0,
             "the damage rect was cleared and the shadow in it not repainted: no red pixel in \
              rows 50 .. 70"
+        );
+    }
+
+    /// A2-cpu-05 (`audit/A2-cpu.md`). One label of a view changes the colour of its halo: the
+    /// damage is that label and no other, and the frame the damage repaints is the frame a
+    /// full paint gives.
+    ///
+    /// Three labels on the baselines 30, 90 and 150 of the view's content, each in its own box
+    /// `(16, y - 28) 150 x 40` under a halo of 2 px spread; the view at (10, 10) with its
+    /// content at (-6, 4). The middle label's rows on screen are `62 - 5 + 14 .. 102 + 5 + 14`
+    /// = 71 .. 121 (its clip cut ink, the reach 2, the slack 3, the view's offset); the first
+    /// label's box ends at row 56, the third one's starts at row 136.
+    ///
+    /// mutation: the `Text` arm of the shadow match in `compute_display_list_damage_impl`
+    /// removed: the view's whole box is damaged (the rows assertion fails); `grow` without
+    /// the reach: the halo's rim keeps its old colour (the pixel comparison fails).
+    #[test]
+    fn a2_cpu_05_one_labels_halo_changes_colour_in_a_view_and_only_that_label_is_repainted() {
+        let Some(font) = load_test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = renderer_resources_with(&font);
+        let child = azul_core::dom::DomId { inner: 1 };
+        let (w, h) = (300u32, 220u32);
+        let rect_of = |x: f32, y: f32, width: f32, height: f32| -> WindowLogicalRect {
+            LogicalRect {
+                origin: LogicalPosition { x, y },
+                size: LogicalSize { width, height },
+            }
+            .into()
+        };
+        let length = |v: f32| PixelValueNoPercent { inner: PixelValue::px(v) };
+        let white = ColorU { r: 255, g: 255, b: 255, a: 255 };
+        let yellow = ColorU { r: 255, g: 230, b: 0, a: 255 };
+        let labels = |middle: ColorU| {
+            let mut items = Vec::new();
+            for (i, halo) in [white, middle, white].into_iter().enumerate() {
+                #[allow(clippy::cast_precision_loss)]
+                let y = 30.0 + 60.0 * i as f32;
+                let own_box = rect_of(16.0, y - 28.0, 150.0, 40.0);
+                items.push(DisplayListItem::PushTextShadow {
+                    shadow: StyleBoxShadow {
+                        offset_x: length(0.0),
+                        offset_y: length(0.0),
+                        blur_radius: length(0.0),
+                        spread_radius: length(2.0),
+                        color: halo,
+                        clip_mode: azul_css::props::style::box_shadow::BoxShadowClipMode::Outset,
+                    },
+                });
+                items.push(DisplayListItem::Text {
+                    glyphs: shape(&font, "Label", 24.0, 20.0, y),
+                    font_hash,
+                    font_size_px: 24.0,
+                    color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                    clip_rect: own_box,
+                    line_box: own_box,
+                    source_node_index: None,
+                });
+                items.push(DisplayListItem::PopTextShadow);
+            }
+            std::sync::Arc::new(DisplayList {
+                items,
+                ..Default::default()
+            })
+        };
+        let parent = DisplayList {
+            items: vec![
+                DisplayListItem::Rect {
+                    bounds: rect_of(0.0, 0.0, 300.0, 220.0),
+                    color: ColorU { r: 232, g: 232, b: 232, a: 255 },
+                    border_radius: BorderRadius::default(),
+                },
+                DisplayListItem::VirtualView {
+                    child_dom_id: child,
+                    bounds: rect_of(10.0, 10.0, 260.0, 200.0),
+                    clip_rect: rect_of(10.0, 10.0, 260.0, 200.0),
+                    content_offset: LogicalPosition { x: -6.0, y: 4.0 },
+                },
+            ],
+            ..Default::default()
+        };
+        let views_of = |list: &std::sync::Arc<DisplayList>| {
+            let mut views = std::collections::BTreeMap::new();
+            views.insert(child, std::sync::Arc::clone(list));
+            views
+        };
+        let whole = vec![LogicalRect {
+            origin: LogicalPosition { x: 0.0, y: 0.0 },
+            size: LogicalSize {
+                width: 300.0,
+                height: 220.0,
+            },
+        }];
+        let paint = |pm: &mut AzulPixmap, list: &std::sync::Arc<DisplayList>, damage: &[LogicalRect]| {
+            let state = CpuRenderState::new(ScrollOffsetMap::new())
+                .with_virtual_view_display_lists(views_of(list));
+            let mut gc = GlyphCache::new();
+            render_display_list_damaged(&parent, pm, 1.0, &rr, &fm, &mut gc, &state, damage)
+                .unwrap();
+        };
+        let (before, now) = (labels(white), labels(yellow));
+
+        // The frame before, then the damage of the change repainted into it.
+        let mut frame = AzulPixmap::new(w, h).unwrap();
+        frame.fill(255, 255, 255, 255);
+        paint(&mut frame, &before, &whole);
+        let frame_before = frame.data().to_vec();
+        let damage = crate::cpurender::compute_virtual_view_damage(
+            &parent,
+            &views_of(&now),
+            &views_of(&before),
+            &ScrollOffsetMap::new(),
+        );
+        assert!(!damage.is_empty(), "a halo that changed colour is damage");
+        assert!(
+            damage
+                .iter()
+                .all(|r| r.origin.y >= 56.0 && r.origin.y + r.size.height <= 136.0),
+            "the damage is the middle label's (rows 71 .. 121), not the first label's (to row \
+             56), the third one's (from row 136) or the view's box: {damage:?}"
+        );
+        paint(&mut frame, &now, &damage);
+
+        // A full paint of the new lists.
+        let mut full = AzulPixmap::new(w, h).unwrap();
+        full.fill(255, 255, 255, 255);
+        paint(&mut full, &now, &whole);
+        assert!(
+            full.data() != frame_before.as_slice(),
+            "harness: the halo's new colour shows"
+        );
+        let differing = frame
+            .data()
+            .chunks_exact(4)
+            .zip(full.data().chunks_exact(4))
+            .filter(|(p, q)| p[..3] != q[..3])
+            .count();
+        assert_eq!(
+            differing, 0,
+            "the frame the damage repainted differs from a full paint in {differing} pixels \
+             (damage {damage:?})"
         );
     }
 
