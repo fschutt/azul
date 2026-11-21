@@ -283,13 +283,105 @@ values: skip the copy, the comparison (`window_value_damage` has no value damage
 that was replaced (remount) must be compared by `(DomId, generation)` plus the cache's presence. In debug builds
 assert the skipped path against the full comparison until the verification pass has run the e2e scenarios.
 
-## For area A10 (and the coordinator): a11y gate (A3-core-10)
+## For area A10: the accessibility update built on demand (A3-core-10), macOS
 
-Proposed `A11yManager::consumer_attached` (default `true`): `LayoutWindow::update_a11y_tree` returns at once while
-it is `false`; each shell sets it `false` after creating its adapter and `true` in the adapter's activation /
-initial-tree request (then `a11y_manager.resend_full_tree()` and one `update_a11y_tree()`), `false` again on
-deactivation. iOS / Android (`build_a11y_snapshot`) are pull-based already. The e2e runner's a11y commands and the
-debug server must set it `true` (or call `update_a11y_tree` themselves before reading).
+The layout side is in place and inert (`A11yManager::on_demand` is `false`): commits `a611ca2bd`, `43ff05b24`.
+- `lw.a11y_manager.on_demand = true`: `update_a11y_tree()` and `update_a11y_tree_incremental()` then only note that a
+  pass is due (`stale`); nothing is walked, nothing is parked, the retained tree does not move.
+- `lw.a11y_update_pending() -> bool`: a pass is due (or an update is parked).
+- `lw.a11y_update_on_demand(full: bool) -> accesskit::TreeUpdate`: runs the pass that is due and returns what the
+  adapter is to get. `full = true`: the whole tree (for an adapter that holds none). `full = false`: the patch, or a
+  patch without a node (same focus) when nothing changed. It always returns an update the adapter can take.
+
+Why macOS needs more than the closure: `init_accessibility` ACTIVATES the adapter itself (`macos/mod.rs` 10792-10802:
+it sends `accessibilityChildren` to the view, `request_initial_tree` answers `None`, the adapter is a placeholder;
+10809-10812 then hand it the whole tree). From then on `update_if_active` runs its closure on every call, VoiceOver or
+not: building inside the closure saves nothing while that forced activation stays. The saving comes from letting the
+adapter become active when a client really asks.
+
+Exact change, all behind a switch (RULES 8.5; it cannot be checked without VoiceOver): `AZ_A11Y_EAGER=1` keeps
+today's path (forced activation, eager pass, `update_tree`); the default is the lazy path below. Also keep today's
+path whenever an E2E script or the debug server is attached: they read `lw.a11y_manager` (`full_tree()`,
+`last_rejection`, `layout/src/e2e/full.rs` 12258, 12783, 12828) without an adapter and need the eager tree.
+
+1. `common/accessibility.rs`, `impl A11yTreeFeed`: add
+   ```rust
+   /// Built on demand: the adapter holds no tree (not active yet, just activated, or it missed an update).
+   pub fn wants_full_tree(&self) -> bool { self.phase() != ACTIVE }
+   /// Built on demand: the adapter was activated and waits for its first tree.
+   pub fn awaiting_tree(&self) -> bool { self.phase() == AWAITING_TREE }
+   /// Built on demand: the adapter took an update built inside its closure.
+   pub fn built_and_taken(&self) { self.set_phase(ACTIVE); }
+   ```
+   On the lazy path `next_update` / `initial_tree` are not called: the feed keeps no copy of the tree (it cannot,
+   nothing is built), only the phase.
+2. `macos/accessibility.rs`:
+   - `TreeActivationHandler` gets `window: usize` (the `MacOSWindow` address `schedule_a11y_delivery` uses as its
+     token) and `MacOSAccessibilityAdapter::new(view, window)` passes it. `request_initial_tree` as it is
+     (`placeholder_requested(); None`) plus, after it: `super::after_turn::a11y_delivery().request(self.window);`
+     so that the turn after an activation hands the tree over although no layout ran (the handler runs on the main
+     thread, inside the client's query).
+   - new, beside `update_tree` (which stays for the eager path):
+     ```rust
+     pub fn awaiting_tree(&self) -> bool { self.feed.awaiting_tree() }
+
+     /// `build(full)` runs INSIDE `update_if_active`, i.e. only while an assistive technology is active.
+     pub fn update_tree_on_demand(&mut self, build: impl FnOnce(bool) -> TreeUpdate) {
+         ax_language::install();
+         let full = self.feed.wants_full_tree();
+         let mut ran = false;
+         let result = crate::desktop::recoverable_panic::catch(|| {
+             self.adapter.update_if_active(|| {
+                 ran = true;
+                 let update = build(full);
+                 if let Some(language) = update.nodes.iter().find(|(id, _)| id.0 == 0)
+                     .map(|(_, root)| root.language().unwrap_or_default().to_string())
+                 {
+                     ax_language::set(&language);
+                 }
+                 update
+             })
+         });
+         match result {
+             Ok(events) => {
+                 if ran { self.feed.built_and_taken(); }
+                 if let Some(events) = events { events.raise(); }
+             }
+             // The closure may have run (the retained tree advanced) and the adapter did not take it.
+             Err(_) => self.feed.missed(),   // + the warning `update_tree` logs
+         }
+     }
+     ```
+     `missed()` only moves ACTIVE to AWAITING_TREE; a panic while AWAITING stays AWAITING: the next call asks for
+     the whole tree either way.
+3. `macos/mod.rs`:
+   - `init_accessibility` (10723): pass the window address to `new`; set `lw.a11y_manager.on_demand = true`; DROP the
+     forced activation (10792-10802) and the `resend_full_tree()` + `update_accessibility()` after it (10809-10812);
+     keep `update_view_focus_state(true)`. The placeholder -> active transition (the one that posts the focus
+     notification VoiceOver needs) then happens at the first delivery after a client's first query instead of at
+     window creation.
+   - `update_accessibility` (10830), body:
+     ```rust
+     let (Some(adapter), Some(lw)) = (self.accessibility_adapter.as_mut(), self.common.layout_window.as_mut())
+     else { return };
+     lw.update_a11y_tree();                      // on demand: notes that a pass is due
+     if lw.a11y_update_pending() || adapter.awaiting_tree() {
+         adapter.update_tree_on_demand(|full| lw.a11y_update_on_demand(full));
+     }
+     ```
+   - `deliver_a11y_now` (10872): the `a11y_dirty` branch and `rebuild_a11y_after_scroll_if_due()` as they are; the
+     drain (10880-10888) becomes the same `if pending || awaiting { update_tree_on_demand(..) }`.
+   While no client is active `a11y_update_pending()` stays `true` (the pass that is due never runs) and each delivery
+   costs one `update_if_active` that returns at once: no node is visited.
+   `refill_a11y_tree_unless_refreshed` (`common/event.rs` 5143) compares `a11y_tree_updates`, which does not move on
+   the lazy path, and calls `update_a11y_tree()` once more: that only sets the flag again.
+
+What to look at on the real window (also listed under that heading below): with the default (lazy) path, start
+VoiceOver AFTER the editor is up: the focused control is announced and the VoiceOver cursor walks the toolbar and
+the map's labels; start the editor with VoiceOver already running: same; Accessibility Inspector shows the tree and
+follows a hover. `AZ_A11Y_EAGER=1` must behave as before.
+
+Other platforms: noted, not to be changed now (RULES 8.4), see A3-core-10b.
 
 ## For area A3-window
 
