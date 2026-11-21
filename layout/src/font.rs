@@ -786,10 +786,18 @@ pub mod parsed {
         pub font_type: FontType,
         /// PostScript font name from the NAME table.
         pub font_name: Option<String>,
-        /// TrueType bytecode hinting instance (mutable interpreter state).
-        /// Wrapped in Mutex because hinting mutates internal state.
-        /// None for CFF fonts or fonts without hinting data.
-        pub hint_instance: Option<std::sync::Mutex<allsorts::hinting::HintInstance>>,
+        /// TrueType bytecode hinting instance (mutable interpreter state),
+        /// read through [`ParsedFont::hint_instance`]. Wrapped in Mutex
+        /// because hinting mutates internal state. Holds `None` for CFF
+        /// fonts or fonts without hinting data.
+        ///
+        /// Built on first use from the retained source bytes, not at load:
+        /// `HintInstance::new` copies `cvt`/`fpgm`/`prep`, allocates the
+        /// interpreter and executes `fpgm`, and a face is only ever hinted
+        /// when `text_hinting_enabled()` (off by default on macOS), so a load
+        /// paid that for every face of every chain for nothing.
+        pub(crate) hint_slot:
+            std::sync::OnceLock<Option<std::sync::Mutex<allsorts::hinting::HintInstance>>>,
     }
 
     impl Clone for ParsedFont {
@@ -837,8 +845,9 @@ pub mod parsed {
                 font_type: self.font_type.clone(),
                 font_name: self.font_name.clone(),
                 // HintInstance has mutable interpreter state and is not Clone.
-                // Clones are used for PDF/serialization where hinting isn't needed.
-                hint_instance: None,
+                // Clones are used for PDF/serialization where hinting isn't needed:
+                // the slot is filled with `None`, so a clone never builds one.
+                hint_slot: std::sync::OnceLock::from(None),
             }
         }
     }
@@ -1654,25 +1663,8 @@ pub mod parsed {
 
             let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
-            // Create TrueType hinting instance from font tables.
-            // [az-web-lift] Skip on the web build. The lifted layout never grid-fits glyphs to a
-            // pixel raster (it measures + ships a display list to JS), so hinting is never used.
-            // Building it (HintInstance::new) runs the allsorts bytecode Interpreter
-            // (Interpreter::new + ::dispatch — a large un-devirt'd opcode jump table the remill
-            // lift can't resolve, plus ~700 op_* fns of closure bloat). This is INDEPENDENT of the
-            // lift's jump-table devirt: even with a perfect lift, web has no use for hinting, and
-            // hinted advances are lower-quality output than the plain scaled advance. Native keeps
-            // real hinting unchanged.
-            #[cfg(feature = "web_lift")]
-            let hint_instance: Option<
-                std::sync::Mutex<allsorts::hinting::HintInstance>,
-            > = None;
-            #[cfg(not(feature = "web_lift"))]
-            let hint_instance =
-                allsorts::hinting::HintInstance::new(&font_data_impl.font_table_provider)
-                    .ok()
-                    .flatten()
-                    .map(std::sync::Mutex::new);
+            // The TrueType hinting instance is built on first use, from the
+            // source bytes the constructors attach (`ParsedFont::hint_instance`).
 
             // Stash raw GSUB/GPOS bytes for lazy parse. Typical fonts
             // have ~tens of KiB of GSUB + a few-to-tens of KiB of GPOS —
@@ -1765,7 +1757,7 @@ pub mod parsed {
                 index_to_cid: BTreeMap::new(), // Will be filled for CFF fonts
                 font_type: FontType::TrueType, // Default, will be updated if CFF
                 font_name,
-                hint_instance,
+                hint_slot: std::sync::OnceLock::new(),
             };
 
             // The space's advance is measured by the constructors once the source
@@ -2489,6 +2481,58 @@ pub mod parsed {
             }
         }
 
+        /// The face's TrueType hinting instance: `None` for CFF fonts, fonts
+        /// without hinting data, clones, and faces with no source bytes.
+        ///
+        /// Built on the first call from the source bytes (`original_bytes`),
+        /// through the same table provider the parse uses, so it is the
+        /// instance the eager build at load produced; later calls return it.
+        ///
+        /// [az-web-lift] Never built on the web build. The lifted layout never
+        /// grid-fits glyphs to a pixel raster (it measures + ships a display list
+        /// to JS), so hinting is never used. Building it (`HintInstance::new`)
+        /// runs the allsorts bytecode Interpreter (`Interpreter::new` +
+        /// `::dispatch` — a large un-devirt'd opcode jump table the remill lift
+        /// can't resolve, plus ~700 `op_*` fns of closure bloat). This is
+        /// INDEPENDENT of the lift's jump-table devirt: even with a perfect lift,
+        /// web has no use for hinting, and hinted advances are lower-quality
+        /// output than the plain scaled advance. Native keeps real hinting.
+        pub fn hint_instance(&self) -> Option<&std::sync::Mutex<allsorts::hinting::HintInstance>> {
+            #[cfg(feature = "web_lift")]
+            {
+                None
+            }
+            #[cfg(not(feature = "web_lift"))]
+            {
+                self.hint_slot
+                    .get_or_init(|| self.build_hint_instance())
+                    .as_ref()
+            }
+        }
+
+        /// Builds the hinting instance from `original_bytes`, choosing the table
+        /// provider as `from_bytes_internal` does (the hand-rolled provider for
+        /// OpenType, allsorts' otherwise).
+        #[cfg(not(feature = "web_lift"))]
+        fn build_hint_instance(&self) -> Option<std::sync::Mutex<allsorts::hinting::HintInstance>> {
+            use allsorts::{binary::read::ReadScope, font_data::FontData, hinting::HintInstance};
+            #[cfg(test)]
+            audit_a8_tests::HINT_BUILDS.with(|c| c.set(c.get() + 1));
+            let bytes = self.original_bytes.as_ref()?.as_slice();
+            let index = self.original_index;
+            let built = match ReadScope::new(bytes).read::<FontData<'_>>().ok()? {
+                FontData::OpenType(otf) => {
+                    if let Some(mp) = ManualTableProvider::new(bytes, index) {
+                        HintInstance::new(&mp)
+                    } else {
+                        HintInstance::new(&otf.table_provider(index).ok()?)
+                    }
+                }
+                other => HintInstance::new(&other.table_provider(index).ok()?),
+            };
+            built.ok().flatten().map(std::sync::Mutex::new)
+        }
+
         /// Get the hinted advance width in pixels for a glyph at the given ppem.
         ///
         /// For glyphs with outlines, runs TrueType bytecode hinting to get the
@@ -2522,7 +2566,7 @@ pub mod parsed {
                 }
 
                 // Check if we even have a hint instance
-                let hint_mutex = self.hint_instance.as_ref()?;
+                let hint_mutex = self.hint_instance()?;
 
                 let scale = compute_scale(ppem, upem);
                 // Round the LIVE hmtx advance, not the decoded glyph's cached
@@ -3124,7 +3168,7 @@ pub mod parsed {
                 index_to_cid: BTreeMap::new(),
                 font_type: FontType::TrueType,
                 font_name: None,
-                hint_instance: None,
+                hint_slot: std::sync::OnceLock::from(None),
             }
         }
 
@@ -4060,7 +4104,7 @@ pub mod parsed {
             let _ = clone.get_or_decode_glyph(1);
             assert!(font.glyph_cache_snapshot().contains_key(&1));
             // HintInstance is not Clone: it is deliberately dropped
-            assert!(clone.hint_instance.is_none());
+            assert!(clone.hint_instance().is_none());
         }
 
         #[test]
@@ -4772,6 +4816,122 @@ pub mod parsed {
                 let font =
                     ParsedFont::from_bytes(&helvetica, 0, &mut warnings).expect("Helvetica parses");
                 assert!(font.tracking.is_none(), "Helvetica is not tracked");
+            }
+        }
+    }
+
+    #[cfg(all(test, not(feature = "web_lift")))]
+    mod audit_a8_tests {
+        use std::cell::Cell;
+
+        use super::*;
+
+        thread_local! {
+            /// `ParsedFont::build_hint_instance` calls on this thread.
+            pub(super) static HINT_BUILDS: Cell<usize> = const { Cell::new(0) };
+        }
+
+        fn hint_builds() -> usize {
+            HINT_BUILDS.with(Cell::get)
+        }
+
+        const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
+
+        fn shared(bytes: &[u8]) -> Option<ParsedFont> {
+            let arc = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(bytes.to_vec())));
+            ParsedFont::from_bytes_shared(arc, 0, &mut Vec::new())
+        }
+
+        /// What the load built before A8-24: `HintInstance::new` over the
+        /// provider `from_bytes_internal` hands an OpenType face's `from_provider`.
+        fn eager_reference(bytes: &[u8]) -> Option<allsorts::hinting::HintInstance> {
+            let provider = ManualTableProvider::new(bytes, 0)?;
+            allsorts::hinting::HintInstance::new(&provider).ok().flatten()
+        }
+
+        /// Hints `ch` at `ppem` with `hint`, as `build_hinted_path` scales it.
+        fn hint_char(
+            font: &ParsedFont,
+            hint: &mut allsorts::hinting::HintInstance,
+            ch: char,
+            ppem: u16,
+        ) -> Option<Vec<(i32, i32)>> {
+            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
+            let glyph = font.get_or_decode_glyph(font.lookup_glyph_index(u32::from(ch))?)?;
+            let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+            let points: Vec<(i32, i32)> = glyph
+                .raw_points
+                .as_ref()?
+                .iter()
+                .map(|&(x, y)| {
+                    (
+                        F26Dot6::from_funits(i32::from(x), scale).to_bits(),
+                        F26Dot6::from_funits(i32::from(y), scale).to_bits(),
+                    )
+                })
+                .collect();
+            let advance = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale).to_bits();
+            hint.set_ppem(ppem, f64::from(ppem)).ok()?;
+            hint.hint_glyph(
+                &points,
+                glyph.raw_on_curve.as_ref()?,
+                glyph.raw_contour_ends.as_ref()?,
+                glyph.instructions.as_deref().unwrap_or(&[]),
+                advance,
+            )
+            .ok()
+        }
+
+        #[test]
+        fn a_load_builds_no_hint_instance_and_its_first_use_builds_one() {
+            let before = hint_builds();
+            let font = shared(MOCK_MONO).expect("Azul Mock Mono parses");
+            let eager = ParsedFont::from_bytes(MOCK_MONO, 0, &mut Vec::new()).expect("parses");
+            assert_eq!(hint_builds(), before, "a load runs no HintInstance::new");
+            assert!(font.hint_slot.get().is_none(), "the slot is still unbuilt");
+            // Mock Mono has a version-1 maxp and no fpgm: the eager build made one.
+            assert!(eager_reference(MOCK_MONO).is_some());
+            assert!(font.hint_instance().is_some());
+            assert!(font.hint_instance().is_some());
+            assert!(eager.hint_instance().is_some());
+            assert_eq!(hint_builds(), before + 2, "one build per face, on its first use");
+            // a clone dropped hinting before, and builds none now
+            let clone = font.clone();
+            assert!(clone.hint_instance().is_none());
+            assert_eq!(hint_builds(), before + 2);
+            // a face without source bytes has nothing to build from
+            let bare = ParsedFont::from_bytes_internal(MOCK_MONO, 0, &mut Vec::new(), true)
+                .expect("parses");
+            assert!(bare.hint_instance().is_none());
+        }
+
+        #[test]
+        fn the_instance_built_on_first_use_hints_as_the_eager_one_did() {
+            // Mock Mono (no fpgm) everywhere, plus one face with real fpgm/prep
+            // programs where the platform has it.
+            let candidates = [
+                "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+            ];
+            let mut faces = vec![MOCK_MONO.to_vec()];
+            faces.extend(candidates.iter().find_map(|p| std::fs::read(p).ok()));
+            for bytes in &faces {
+                let font = shared(bytes).expect("parses");
+                let Some(mut reference) = eager_reference(bytes) else {
+                    assert!(font.hint_instance().is_none(), "no instance before, none now");
+                    continue;
+                };
+                let mut lazy = font.hint_instance().expect("built on first use").lock().unwrap();
+                for ppem in [11, 16, 23] {
+                    for ch in ['a', 'g', 'H', '0'] {
+                        assert_eq!(
+                            hint_char(&font, &mut lazy, ch, ppem),
+                            hint_char(&font, &mut reference, ch, ppem),
+                            "{ch:?} at {ppem} ppem"
+                        );
+                    }
+                }
             }
         }
     }

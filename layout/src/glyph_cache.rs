@@ -843,7 +843,7 @@ fn build_hinted_path(
         return None;
     }
 
-    let hint_mutex = parsed_font.hint_instance.as_ref()?;
+    let hint_mutex = parsed_font.hint_instance()?;
     let mut hint = hint_mutex.lock().ok()?;
 
     let upem = parsed_font.font_metrics.units_per_em;
@@ -1874,7 +1874,7 @@ mod autotest_generated {
         if glyph.raw_points.is_none() || glyph.instructions.is_none() {
             return; // CFF / composite glyph: nothing to hint, test not applicable
         }
-        font.hint_instance = None;
+        font.hint_slot = std::sync::OnceLock::from(None);
         assert!(
             build_hinted_path(gid, &glyph, &font, 16).is_none(),
             "no interpreter => no hinted path"
@@ -1889,7 +1889,7 @@ mod autotest_generated {
         let Some((gid, glyph)) = glyph_a(&font) else {
             return;
         };
-        if font.hint_instance.is_none() || glyph.raw_points.is_none() {
+        if font.hint_instance().is_none() || glyph.raw_points.is_none() {
             return; // the upem guard sits behind the hint-instance guard
         }
         font.font_metrics.units_per_em = 0;
