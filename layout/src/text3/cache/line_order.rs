@@ -260,11 +260,15 @@ pub fn visual_order_of_pieces(
         return as_written;
     };
     let paragraph = BidiLevel::paragraph(base).level();
+    // The runs lie in logical order, one after the other: the run a piece
+    // starts in is found by a binary search on their ends (it was a walk
+    // over every run per piece, A8-31).
     let levels: Vec<u8> = starts
         .iter()
         .map(|&start| {
-            runs.iter()
-                .find(|run| {
+            let at = runs.partition_point(|run| run.run_byte_offset + run.text.len() <= start);
+            runs.get(at)
+                .filter(|run| {
                     start >= run.run_byte_offset && start < run.run_byte_offset + run.text.len()
                 })
                 .map_or(paragraph, |run| run.bidi_level.level())
@@ -485,5 +489,97 @@ mod audit_a8_tests {
             }
         }
         assert_eq!(LogicalLine::default().into_visual(BidiDirection::Ltr), VisualLine::default());
+    }
+
+    /// `visual_order_of_pieces` before A8-31 (a walk over every run per
+    /// piece), kept as the reference.
+    fn old_visual_order_of_pieces(
+        text: &str,
+        starts: &[usize],
+        direction: Option<BidiDirection>,
+    ) -> Vec<usize> {
+        use std::sync::Arc;
+
+        use azul_core::selection::ContentIndex;
+
+        use super::super::{
+            paragraph_bidi, split_into_bidi_runs, LogicalItem, StyleProperties, UnicodeBidi,
+            UnifiedConstraints,
+        };
+        let as_written: Vec<usize> = (0..starts.len()).collect();
+        if text.is_empty() || starts.len() < 2 {
+            return as_written;
+        }
+        let items = [LogicalItem::Text {
+            source: ContentIndex {
+                run_index: 0,
+                item_index: 0,
+            },
+            text: Arc::from(text),
+            style: Arc::new(StyleProperties::default()),
+            marker_position_outside: None,
+            source_node_id: None,
+        }];
+        let constraints = UnifiedConstraints {
+            direction,
+            unicode_bidi: if direction.is_some() {
+                UnicodeBidi::Normal
+            } else {
+                UnicodeBidi::Plaintext
+            },
+            ..UnifiedConstraints::default()
+        };
+        let (base, mode) = paragraph_bidi(&items, &constraints);
+        let Ok(runs) = split_into_bidi_runs(&items, base, mode, &mut None) else {
+            return as_written;
+        };
+        let paragraph = BidiLevel::paragraph(base).level();
+        let levels: Vec<u8> = starts
+            .iter()
+            .map(|&start| {
+                runs.iter()
+                    .find(|run| {
+                        start >= run.run_byte_offset && start < run.run_byte_offset + run.text.len()
+                    })
+                    .map_or(paragraph, |run| run.bidi_level.level())
+            })
+            .collect();
+        visual_order(&levels)
+    }
+
+    /// A8-31: the pieces of a text are put in the order the walk over every
+    /// run put them in: mixed Latin, Hebrew, Arabic, Arabic and European
+    /// digits and brackets, in all three directions, with pieces at word
+    /// starts, inside a word, at a byte inside a letter and at the end. (The
+    /// old body without the right-to-left shortcut is the reference; the
+    /// shortcut returns the written order, which both agree with on a text
+    /// that takes it.)
+    /// Mutation: `<=` -> `<` in the `partition_point` predicate fails it.
+    #[test]
+    fn pieces_are_ordered_as_the_walk_over_every_run_ordered_them() {
+        let words = [
+            "Neckar ", "שלום ", "עולם ", "123 ", "مرحبا ", "٣٤ ", "(", ")", "Ab", " ", "בית", "x",
+        ];
+        let mut state = 0x2545_f491_u64;
+        let mut next = |n: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % n
+        };
+        for _ in 0..400 {
+            let text: String = (0..1 + next(8)).map(|_| words[next(words.len() as u64) as usize]).collect();
+            let mut starts: Vec<usize> = (0..=text.len())
+                .filter(|_| next(3) == 0)
+                .collect();
+            starts.dedup();
+            for direction in [None, Some(BidiDirection::Ltr), Some(BidiDirection::Rtl)] {
+                assert_eq!(
+                    visual_order_of_pieces(&text, &starts, direction),
+                    old_visual_order_of_pieces(&text, &starts, direction),
+                    "{text:?} {starts:?} {direction:?}"
+                );
+            }
+        }
     }
 }
