@@ -115,7 +115,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | fixed bd29ecca4 | `a3_solver::ifc::the_anchor_lines_of_many_boxes_of_a_paragraph_list_its_items_once` |
 | A3-solver-17 | waste | `taffy_bridge.rs` width-only answers | high | fixed b27f65a88 | `a_nested_flex_row_answers_each_width_question_of_a_first_layout_once` |
 | A3-solver-17b | waste | `taffy_bridge.rs` measure spill | medium | fixed 9d4637c90 | `the_measurement_a_second_store_evicts_is_found_in_the_second_way` |
-| A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | blocked (a): a measure in the taffy bridge writes the tree's final state (sizes, offsets, inline layout, per-node caches); keeping the final layout current across a computed measure needs side-effect-free measures; design below | - |
+| A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | fixed 083fe5ada | `taffy_bridge::audit_a3_solver_tests::a_measure_of_a_block_item_leaves_its_subtree_as_the_final_layout_wrote_it`, `a_measure_of_a_flex_container_whose_items_leave_no_write_keeps_its_final_layout` |
 | A3-solver-18 | quadratic | `taffy_bridge.rs` style conversion per bridge | medium | fixed 134b2fb7f | `the_cells_of_the_taffy_style_memo_grow_with_the_document_not_with_its_bridges` |
 | A3-solver-19 | waste | `sizing.rs` a text measured for itself and for the box around it | medium | fixed dfe923716 | `sizing.rs` tests of the helper (see the commit) |
 | A3-solver-19b | waste | `mod.rs` intrinsic pass per turn of the layout loop | medium | fixed a74109c49 | `a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed` |
@@ -1041,3 +1041,21 @@ The branch contains `audit/integration` (aeb5d0dfe) since `ceb7587af`.
   `dom_to_layout: Default::default()`.
 - A copy of a tree (`LayoutTree::clone`: the text-edit writes, a display-list-only rebuild after A6-13) copies
   one buffer for the table instead of a list per node.
+
+### A3-solver-17c (fixed 083fe5ada)
+
+- Built as three rules in `TaffyBridge::compute_child_layout` (the commit message has them): a computed measure
+  of a block / inline box is journaled (`MeasureJournal`: the subtree's nodes and `NodeCache`s copied, moved
+  back, the answers of the nodes below stored again); a flex / grid container keeps its flag when its measure
+  left no write (`TaffyPassMemo::unrestored_writes`); the two bypass paths follow that rule.
+- Differences from the design above: the journal is ONE per pass (the outermost measure's; `TaffyPassMemo`
+  holds it because a pass nests bridges: flex item -> block -> flex container makes a second bridge), not a
+  stack of snapshots - what an inner measure writes is put back by the outer one; point (ii) is not built.
+- Switch: `AZ_NO_TAFFY_MEASURE_JOURNAL` (any value) = every computed measure marks the final layout stale, as
+  before. Default: on. Counters for a run: test thread-locals `MEASURES_JOURNALED`, `FINAL_LAYOUTS_COMPUTED`;
+  the probe span `taffy_final_layout_stale` counts the finals still computed again.
+- Cost model to check by a run: a journal copies its subtree (about 1.5 KB a box, at most 2,048 boxes) against
+  one layout of that subtree saved. It loses where the measure itself is served from the per-node caches of a
+  deep block subtree (the copy is deep, the layout it saves shallow).
+- Not covered by a count test: the replay of the three kinds of kept measurements (`KeptMeasure`) through a
+  nested bridge; a window-level scenario (the tests ask a bridge directly).
