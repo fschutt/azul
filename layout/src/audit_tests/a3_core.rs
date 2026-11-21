@@ -343,16 +343,96 @@ fn an_a11y_pass_on_demand_runs_when_the_update_is_asked_for() {
 
     let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
     lw.a11y_manager.on_demand = true;
+    assert!(!lw.a11y_update_pending(), "nothing is owed before a layout");
     lay_out_in(&mut lw, label_layer(50, 0));
     assert_eq!(lw.a11y_tree_updates, 0, "no pass ran with the layout");
     assert_eq!(lw.a11y_manager.last_pass.nodes, 0, "no node was visited");
     assert!(lw.a11y_manager.stale, "a pass is due");
+    assert!(lw.a11y_update_pending());
 
-    let update = lw.a11y_update_on_demand().expect("the first update");
+    let update = lw.a11y_update_on_demand(true);
     assert!(update.tree.is_some(), "the whole tree");
     assert!(update.nodes.len() > 50, "{} nodes", update.nodes.len());
     assert!(!lw.a11y_manager.stale);
+    assert!(!lw.a11y_update_pending());
     assert_eq!(lw.a11y_tree_updates, 1, "one pass");
-    assert!(lw.a11y_update_on_demand().is_none(), "nothing changed since");
+    let nothing = lw.a11y_update_on_demand(false);
+    assert!(nothing.tree.is_none() && nothing.nodes.is_empty(), "nothing changed since");
+    assert_eq!(nothing.focus, update.focus, "the focus the adapter holds");
     assert_eq!(lw.a11y_tree_updates, 1, "and no second pass");
+}
+
+/// The ids of an update's nodes, sorted.
+#[cfg(feature = "a11y")]
+fn a11y_ids(update: &accesskit::TreeUpdate) -> Vec<u64> {
+    let mut ids: Vec<u64> = update.nodes.iter().map(|(id, _)| id.0).collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// A3-core-10: while no assistive technology is active the adapter's closure never runs, so
+/// nothing is built however often the page is laid out, and what the layout side holds as "the
+/// tree it sent" does not advance. The first update after an activation is asked for whole and
+/// is the tree of the page as it is THEN, equal to the one an eager window publishes for that
+/// page: not a patch against a tree the adapter was never given.
+#[cfg(feature = "a11y")]
+#[test]
+fn nothing_is_built_while_no_reader_is_active_and_the_first_update_is_the_whole_tree() {
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    lw.a11y_manager.on_demand = true;
+    // Three layouts of three different pages, no closure run in between (no reader).
+    for k in [50, 20, 30] {
+        lay_out_in(&mut lw, label_layer(k, 0));
+        assert_eq!(lw.a11y_tree_updates, 0, "no pass while nobody reads");
+        assert!(lw.a11y_manager.retained.nodes.is_empty(), "the sent tree did not advance");
+        assert!(lw.a11y_manager.last_tree_update.is_none(), "and nothing is parked");
+        assert!(lw.a11y_update_pending());
+    }
+
+    // The reader arrives: the shell asks for the whole tree.
+    let first = lw.a11y_update_on_demand(true);
+    assert!(first.tree.is_some(), "the first update after an activation is a whole tree");
+    let eager = laid_out(label_layer(30, 0));
+    assert_eq!(
+        a11y_ids(&first),
+        a11y_ids(&eager.a11y_manager.full_tree()),
+        "the tree of the page as it is now"
+    );
+    assert_eq!(lw.a11y_tree_updates, 1, "built once, when it was asked for");
+
+    // From here on: patches.
+    lay_out_in(&mut lw, label_layer(31, 0));
+    assert_eq!(lw.a11y_tree_updates, 1, "a layout only notes that a pass is due");
+    let patch = lw.a11y_update_on_demand(false);
+    assert!(patch.tree.is_none(), "an active adapter gets what changed");
+    assert!(!patch.nodes.is_empty() && patch.nodes.len() < first.nodes.len());
+
+    // An adapter that missed an update (or a second activation) is handed the whole tree again,
+    // parked patch or not, and without building a node twice.
+    lay_out_in(&mut lw, label_layer(32, 0));
+    let again = lw.a11y_update_on_demand(true);
+    assert!(again.tree.is_some());
+    let eager = laid_out(label_layer(32, 0));
+    assert_eq!(a11y_ids(&again), a11y_ids(&eager.a11y_manager.full_tree()));
+    assert!(lw.a11y_manager.last_tree_update.is_none(), "the patch is part of the whole tree");
+}
+
+/// A3-core-10: the closure has to return an update whatever happened. With no tree to hand out
+/// (the pass was refused) an adapter that needs a whole tree gets the window alone, which is one;
+/// an active one keeps what it has (a patch without a node, the focus it already holds).
+#[cfg(feature = "a11y")]
+#[test]
+fn an_adapter_is_always_handed_an_update_it_can_take() {
+    use crate::managers::a11y::A11yManager;
+
+    let mut manager = A11yManager::new();
+    let whole = manager.hand_to_adapter(true);
+    assert!(whole.tree.is_some());
+    assert_eq!(whole.nodes.len(), 1, "the window alone");
+    assert_eq!(whole.nodes[0].0, manager.root_id);
+    assert_eq!(whole.focus, manager.root_id);
+
+    let patch = manager.hand_to_adapter(false);
+    assert!(patch.tree.is_none() && patch.nodes.is_empty());
+    assert_eq!(patch.focus, manager.root_id, "the focus handed out before");
 }

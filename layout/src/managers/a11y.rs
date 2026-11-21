@@ -913,9 +913,20 @@ pub struct A11yManager {
     /// runs only while an assistive technology reads the tree. `false`
     /// (the default): every pass asked for runs at once, as it always did.
     /// Only a shell whose adapter has such a closure sets it.
+    ///
+    /// While no assistive technology is active nothing is built, and the
+    /// retained tree ("what was sent last") does not advance either: it
+    /// changes only inside `a11y_update_on_demand`, that is, only when an
+    /// adapter takes the result. An adapter that becomes active holds no
+    /// tree; the shell asks for the whole one then (`full`), so the first
+    /// update after an activation is never a patch against a tree the
+    /// adapter was not given.
     pub on_demand: bool,
     /// A pass was asked for and not run yet ([`Self::on_demand`]).
     pub stale: bool,
+    /// The focus of the last update [`Self::hand_to_adapter`] handed out:
+    /// what an adapter that is fed on demand holds as its focus.
+    pub handed_focus: Option<A11yNodeId>,
 }
 
 #[cfg(feature = "a11y")]
@@ -948,6 +959,7 @@ impl A11yManager {
             last_pass: A11yPassStats::default(),
             on_demand: false,
             stale: false,
+            handed_focus: None,
         }
     }
 
@@ -1138,6 +1150,57 @@ impl A11yManager {
     /// adapter holds afterwards: [`Self::publish`] advanced it.)
     pub const fn take_pending(&mut self) -> Option<TreeUpdate> {
         self.last_tree_update.take()
+    }
+
+    /// An adapter is owed something: a pass was asked for and has not run
+    /// ([`Self::on_demand`]), or an update is parked.
+    #[must_use]
+    pub const fn update_pending(&self) -> bool {
+        self.stale || self.last_tree_update.is_some()
+    }
+
+    /// What a platform adapter is handed by a shell that builds on demand
+    /// ([`Self::on_demand`]), once the pass that was due has run
+    /// (`LayoutWindow::a11y_update_on_demand`). Always an update the adapter
+    /// can take, because the adapter's closure has to return one:
+    ///
+    /// - `full` (the adapter holds no tree: it was just activated, or it
+    ///   missed an update): the WHOLE tree as published so far, whatever was
+    ///   parked (the parked patch is part of it);
+    /// - otherwise the parked patch, or, when nothing a screen reader can
+    ///   see changed, a patch without a node that repeats the focus the
+    ///   adapter already holds.
+    ///
+    /// When no tree could be built (the pass was refused or panicked, the
+    /// retained tree is empty): `full` hands out the window alone, which is
+    /// a valid tree, otherwise the adapter keeps what it has; the next pass
+    /// publishes the whole tree either way (`Self::refresh`).
+    pub fn hand_to_adapter(&mut self, full: bool) -> TreeUpdate {
+        let parked = self.take_pending();
+        let patch_of = |focus: A11yNodeId| TreeUpdate {
+            nodes: Vec::new(),
+            tree: None,
+            focus,
+            tree_id: accesskit::TreeId::ROOT,
+        };
+        let update = if self.retained.nodes.is_empty() {
+            if full {
+                TreeUpdate {
+                    nodes: vec![(self.root_id, Node::new(Role::Window))],
+                    tree: Some(Tree::new(self.root_id)),
+                    focus: self.root_id,
+                    tree_id: accesskit::TreeId::ROOT,
+                }
+            } else {
+                parked.unwrap_or_else(|| patch_of(self.handed_focus.unwrap_or(self.root_id)))
+            }
+        } else if full {
+            self.full_tree()
+        } else {
+            parked.unwrap_or_else(|| patch_of(self.retained.focus.unwrap_or(self.root_id)))
+        };
+        self.handed_focus = Some(update.focus);
+        update
     }
 
     /// A scroll offset changed: bounds and `scroll_x/y` in the delivered tree

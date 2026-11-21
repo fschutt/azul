@@ -19643,20 +19643,42 @@ impl LayoutWindow {
         self.update_a11y_tree_now();
     }
 
-    /// The update a platform adapter is owed, for a shell that builds the
-    /// tree on demand ([`crate::managers::a11y::A11yManager::on_demand`]):
-    /// runs the pass a layout or a scroll asked for since the last call, if
-    /// any, and hands out the parked update (`None`: nothing a screen
-    /// reader can see changed). Meant to be called from inside the
-    /// adapter's `update_if_active` closure, which runs only while an
-    /// assistive technology is active.
+    /// "Is an update pending" for a shell that builds the tree on demand
+    /// ([`crate::managers::a11y::A11yManager::on_demand`]): a layout, a
+    /// scroll or an edit asked for a pass that has not run. The shell then
+    /// calls its adapter's `update_if_active` with a closure that calls
+    /// [`Self::a11y_update_on_demand`].
     #[cfg(feature = "a11y")]
-    pub fn a11y_update_on_demand(&mut self) -> Option<accesskit::TreeUpdate> {
-        if self.a11y_manager.stale {
+    #[must_use]
+    pub const fn a11y_update_pending(&self) -> bool {
+        self.a11y_manager.update_pending()
+    }
+
+    /// "Build it now": the update a platform adapter is owed, for a shell
+    /// that builds the tree on demand
+    /// ([`crate::managers::a11y::A11yManager::on_demand`]). To be called
+    /// from INSIDE the adapter's `update_if_active` closure, which the
+    /// adapter runs only while an assistive technology is active - so with
+    /// none active no node is visited and the retained tree does not
+    /// advance.
+    ///
+    /// Runs the pass that is due (a layout, a scroll or an edit asked for
+    /// one; also when no tree was built yet) and hands out
+    /// (`A11yManager::hand_to_adapter`):
+    ///
+    /// - `full == true`, for an adapter that holds no tree (it was just
+    ///   activated, or it did not take the previous update): the whole
+    ///   tree. The first update after an activation must be asked for this
+    ///   way;
+    /// - `full == false`: what changed since the last call, as a patch
+    ///   (without a node when nothing changed).
+    #[cfg(feature = "a11y")]
+    pub fn a11y_update_on_demand(&mut self, full: bool) -> accesskit::TreeUpdate {
+        if self.a11y_manager.stale || self.a11y_manager.retained.nodes.is_empty() {
             self.a11y_manager.stale = false;
             self.update_a11y_tree_now();
         }
-        self.a11y_manager.take_pending()
+        self.a11y_manager.hand_to_adapter(full)
     }
 
     /// The accessibility pass itself ([`Self::update_a11y_tree`]).
