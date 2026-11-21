@@ -1218,3 +1218,85 @@ fn a2_cpu_17_a_border_thinner_than_a_device_pixel_is_one_pixel_inside_its_box() 
     assert!(!red(19, 40), "nothing left of the box, column 19: {:?}", px(frame, 19, 40));
     assert!(!red(60, 30), "nothing inside the box: {:?}", px(frame, 60, 30));
 }
+
+// ---------------------------------------------------------------------------------------------
+// Open findings, for their owners: ignored until fixed (`audit/A2-cpu.md`, "For area A1")
+// ---------------------------------------------------------------------------------------------
+
+/// A2-cpu-04 (open, for A1: `FrameIndex` / `reference_frame_extent`). What a frame INSIDE a
+/// frame moves is part of what the outer frame paints.
+///
+/// Hand-computed: a column frame F, box (0, 0) 200 x 400, and in it a card frame G, box
+/// (0, 0) 200 x 80, built with `translate(-100, 0)`: the card is painted at x -100 .. 100. F's
+/// value goes from `translate(0, 0)` to `translate(0, 50)`. The extent of F is the union of
+/// the LAYOUT bounds of its items, x 0 .. 200, so the damage is x 0 .. 200 at both places and
+/// the left half of the card (x -100 .. 0) leaves a trail. Expected: a rect from x = -100.
+#[test]
+#[ignore = "A2-cpu-04: open, for A1 (the extent of a frame leaves out what its inner frames move)"]
+fn a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved() {
+    use std::collections::HashMap;
+
+    use crate::cpurender::gpu_value_damage;
+
+    let frames = list(vec![
+        DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 1 },
+            initial_transform: translation(0.0, 0.0),
+            bounds: wlr(0.0, 0.0, 200.0, 400.0),
+        },
+        DisplayListItem::PushReferenceFrame {
+            transform_key: azul_core::resources::TransformKey { id: 2 },
+            initial_transform: translation(-100.0, 0.0),
+            bounds: wlr(0.0, 0.0, 200.0, 80.0),
+        },
+        rect(0.0, 0.0, 200.0, 80.0, [200, 0, 0]),
+        DisplayListItem::PopReferenceFrame,
+        DisplayListItem::PopReferenceFrame,
+    ]);
+    let (mut before, mut now) = (HashMap::new(), HashMap::new());
+    before.insert(1_usize, translation(0.0, 0.0));
+    now.insert(1_usize, translation(0.0, 50.0));
+    let none = HashMap::new();
+    let damage = gpu_value_damage(&frames, &before, &none, &now, &none, &ScrollOffsetMap::new());
+    assert!(
+        damage.needs_full || damage.rects.iter().any(|r| r.origin.x <= -99.99),
+        "the card is painted at x -100 .. 100 inside the column that moved: {:?}",
+        damage.rects
+    );
+}
+
+/// A2-cpu-07 (open, for A1: `execute_virtual_view_shift`). A pan whose DELTA is a whole device
+/// pixel to a thousandth, between two offsets that are not whole device pixels, is not a move
+/// of pixels.
+///
+/// Hand-computed at dpi 1: the content offset goes from -10.4999 to -13.5004. The delta,
+/// 3.0005, passes the gate (`< 1e-3` from 3). The pixels move by `round(13.5004) - round(
+/// 10.4999) = 14 - 10 = 4`. A box edge at child x 10.3 is painted at `round(48 - 10.4999 + 10.3)
+/// = 48` before and at `round(48 - 13.5004 + 10.3) = 45` after: it moved 3. Expected: the frame
+/// of a fresh render (the box whole repainted: such a pan has no whole-pixel move).
+#[test]
+#[ignore = "A2-cpu-07: open, for A1 (the view shift's gate is on the delta, its move on the offsets)"]
+fn a2_cpu_07_a_pan_between_offsets_off_the_pixel_grid_is_a_fresh_renders_frame() {
+    let child = Arc::new(list(vec![
+        rect(-256.0, -256.0, VIEW.2 + 512.0, VIEW.3 + 512.0, [47, 49, 54]),
+        rect(10.3, 20.0, 40.0, 30.0, [220, 40, 40]),
+        rect(120.0, 60.0, 40.0, 30.0, [40, 220, 40]),
+    ]));
+    let (from, to) = ((-10.4999_f32, 0.0_f32), (-13.5004_f32, 0.0_f32));
+    let (old, new) = (parent_list(from), parent_list(to));
+    let mut frame = fresh_list_frame(&old, &child, 1.0);
+    let none = ScrollOffsetMap::new();
+    let shifts = collect_virtual_view_shifts(&old, &new, &none, &none);
+    assert_eq!(shifts.len(), 1, "harness: the view only scrolled");
+    let out = execute_virtual_view_shift(&mut frame, &new, &views(&child), &shifts[0], 1.0, &none);
+    if !out.damage.is_empty() {
+        repaint(&new, &child, &mut frame, 1.0, &out.damage);
+    }
+    let (n, first) = differing(&frame, &fresh_list_frame(&new, &child, 1.0));
+    assert_eq!(
+        n, 0,
+        "a pan from {from:?} to {to:?} (damage {:?}): {n} pixels are not a fresh render's, first \
+         at {first:?}",
+        out.damage
+    );
+}
