@@ -20938,9 +20938,11 @@ mod audit_a1_tests {
     /// - the inner group: ends at its own pop, depends on nothing;
     /// - a group whose pop comes after the pop of a clip that was opened inside it: none;
     /// - a group opened inside a frame and popped after the frame's pop: none.
-    /// Mutations: `pop_closed_its_own` not asked for gives the third group a scope (a walk
-    /// that steps over it leaves the clip stack one short); `frames_before` not compared gives
-    /// the fourth one (a walk that steps over it never pops the frame).
+    /// Each of the last two is refused by more than one rule (the pop did not close its own
+    /// push, the group was marked at the pop that went wrong, the scope stack is not as long
+    /// as before the push): the test pins the answer, not which rule gives it.
+    /// Mutation: a scope recorded for every popped group gives the third one (a walk that
+    /// steps over it leaves the clip stack one short) and the fourth (it never pops the frame).
     #[test]
     fn an_opacity_group_is_stepped_over_only_when_it_closes_what_it_opened() {
         let group = |key: usize| DisplayListItem::PushOpacity {
