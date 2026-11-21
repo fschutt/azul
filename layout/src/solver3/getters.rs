@@ -6408,7 +6408,7 @@ fn bake_instance_into(
         id,
         pattern,
         rust_fontconfig::FcFont {
-            bytes: baked,
+            bytes: baked.into(),
             font_index: 0,
             id: label,
         },
