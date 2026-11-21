@@ -643,7 +643,7 @@ impl agg_rust::span_gradient::GradientFunction for ConicTurn {
 /// unbounded memory.
 const SHADOW_CACHE_MAX_BYTES: usize = 16 * 1024 * 1024;
 
-struct ShadowCacheEntry {
+pub(crate) struct ShadowCacheEntry {
     data: std::sync::Arc<Vec<u8>>,
     w: u32,
     h: u32,
@@ -662,7 +662,7 @@ thread_local! {
 }
 
 /// The blurred box shadows a thread keeps: by key, their order of use, their bytes.
-type ShadowCache = (
+pub(crate) type ShadowCache = (
     HashMap<u64, ShadowCacheEntry>,
     std::collections::VecDeque<u64>,
     usize,

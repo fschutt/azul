@@ -14345,7 +14345,14 @@ impl LayoutWindow {
             if !shaped(live) {
                 return false;
             }
-            azul_core::diff::adopt_fresh_payloads(live.styled_dom.node_data.as_mut(), transfers)
+            let repointing = azul_core::diff::adopt_fresh_payloads(
+                live.styled_dom.node_data.as_mut(),
+                transfers,
+            );
+            // A carry can give a node a marker (carried, never compared): the lists the
+            // DOM derives from its node data are made again (A6-18b).
+            live.styled_dom.rebuild_derived_node_lists();
+            repointing
         } else {
             let Some(mut retired) = self.retired_child_results.remove(&child) else {
                 return false;
@@ -14356,6 +14363,7 @@ impl LayoutWindow {
             }
             let nodes = retired.styled_dom.node_data.as_mut();
             let repointing = azul_core::diff::adopt_fresh_payloads(nodes, transfers);
+            retired.styled_dom.rebuild_derived_node_lists();
             self.layout_results.insert(child, retired);
             repointing
         };
@@ -20584,7 +20592,11 @@ impl LayoutWindow {
                     // The slot is another DOM's: this frame's dirt waits beside it for
                     // the root's pass (it was dropped here, and the tween's node kept
                     // the box of the frame before).
-                    Some(_) => self.hold_css_dirt(DomId::ROOT_ID, dirty),
+                    Some(_) => Self::hold_css_dirt_in(
+                        &mut self.css_dirty_waiting,
+                        DomId::ROOT_ID,
+                        dirty,
+                    ),
                 }
             }
             // The rebuild-free frame is only sound when NOTHING ELSE needs
@@ -28563,7 +28575,17 @@ impl LayoutWindow {
         dom_id: DomId,
         dirt: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
     ) {
-        let held = self.css_dirty_waiting.entry(dom_id).or_default();
+        Self::hold_css_dirt_in(&mut self.css_dirty_waiting, dom_id, dirt);
+    }
+
+    /// [`Self::hold_css_dirt`] on the field alone, for a caller that holds another field of
+    /// the window borrowed (the animation tick holds the root's GPU value cache).
+    fn hold_css_dirt_in(
+        waiting: &mut BTreeMap<DomId, Vec<(NodeId, azul_css::props::property::RelayoutScope)>>,
+        dom_id: DomId,
+        dirt: Vec<(NodeId, azul_css::props::property::RelayoutScope)>,
+    ) {
+        let held = waiting.entry(dom_id).or_default();
         held.extend(dirt);
         // By node, the widest scope first: the first of each node stays.
         held.sort_unstable_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
