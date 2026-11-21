@@ -333,3 +333,101 @@ fn an_absolutely_positioned_child_of_a_flex_container_adds_nothing_to_its_intrin
         "the flex row is as high as its one item, 10px: {row:?}"
     );
 }
+
+/// How many labels [`growing_labels`] holds.
+const GROWING_LABELS: usize = 60;
+
+/// `body(0) > .g(1) > .a(2) > 60 x [.x > text]`: labels stacked in a box (`.a`) that is as high
+/// as they are, inside one of a definite height (`.g`).
+fn growing_labels() -> Dom {
+    let mut a = div_class("a");
+    for i in 0..GROWING_LABELS {
+        a = a.with_child(div_class("x").with_child(
+            Dom::create_text_do_not_use_without_block_level_wrapper(format!("label {i}")),
+        ));
+    }
+    Dom::create_body().with_child(div_class("g").with_child(a))
+}
+
+/// A3-solver-19, the loop. `layout_document` lays a page out in turns: when a box that was laid
+/// out again came out another size, the boxes sized by their content around it are laid out in
+/// one more turn (and so after a scrollbar appeared). Every turn ran the intrinsic pass over
+/// the whole dirty set of the pass: every dirty label was collected and measured once more per
+/// turn, to the sizes it had. A later turn measures the dirty nodes with a box below them
+/// whose margins, borders or paddings the turn before resolved anew - here none.
+///
+/// Every label gets another height (4px to 6px under a rule of its class): each is dirty and
+/// is laid out again, each came out another size, so `.a` - as high as its labels, in `.g` of
+/// a definite height - is laid out in a second turn.
+///
+/// Mutation: the whole dirty set for every turn (`&recon_result.intrinsic_dirty` at the call
+/// in `layout_document`) measures the 60 labels again in the second turn.
+#[test]
+fn a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed() {
+    use crate::solver3::sizing::{IFC_MEASURES_PER_PASS, INTRINSIC_PASS_CALLS};
+    let base = "body { margin: 0; } .g { width: 600px; height: 400px; }";
+    let first = format!("{base} .x {{ width: min-content; height: 4px; }}");
+    let second = format!("{base} .x {{ width: min-content; height: 6px; }}");
+    // As `restyled` does, with the counters set between the two layouts.
+    let mut lw = window();
+    lay_out_styled(&mut lw, styled_page(growing_labels(), &first));
+    let mut next = styled_page(growing_labels(), &second);
+    let _pending =
+        lw.begin_reconciliation(DomId::ROOT_ID, &mut next, azul_core::task::Instant::now());
+    IFC_MEASURES_PER_PASS.with(|passes| passes.borrow_mut().clear());
+    INTRINSIC_PASS_CALLS.with(|n| n.set(0));
+    lay_out_styled(&mut lw, next);
+    let turns = INTRINSIC_PASS_CALLS.with(std::cell::Cell::get);
+    let passes = IFC_MEASURES_PER_PASS.with(|passes| passes.borrow().clone());
+    assert!(
+        turns >= 2,
+        "harness: the labels grew, so the box around them was laid out in a second turn \
+         ({turns} turns)"
+    );
+    assert!(
+        passes.first().copied().unwrap_or(0) >= GROWING_LABELS,
+        "harness: the first turn measured each of the {GROWING_LABELS} restyled labels \
+         ({passes:?})"
+    );
+    let later: usize = passes.iter().skip(1).sum();
+    assert!(
+        later <= 4,
+        "the turns after the first measured {later} inline formatting contexts again \
+         (per pass: {passes:?}): nothing they read had changed"
+    );
+}
+
+/// A3-solver-19, the loop: what a later turn goes by. `fc::layout_bfc` notes a child whose
+/// box props it resolved to other values - a percentage padding, 10% of the viewport's 640px
+/// when the tree was built and 10% of its containing block's 400px in the layout - and none on
+/// a page of absolute lengths.
+///
+/// Mutation: no note in `bfc_prepare` (a later turn would measure nothing again) leaves the
+/// percentage unnoted; a note for every child measures every turn in full again.
+#[test]
+fn the_layout_notes_the_boxes_whose_box_props_it_resolved_anew() {
+    use crate::solver3::fc::BOX_PROPS_CHANGES_NOTED;
+    let noted = |page: Dom| {
+        let mut lw = window();
+        BOX_PROPS_CHANGES_NOTED.with(|n| n.set(0));
+        lay_out(&mut lw, page);
+        BOX_PROPS_CHANGES_NOTED.with(std::cell::Cell::get)
+    };
+    let with_a_percentage = noted(
+        Dom::create_body().with_css("margin: 0px;").with_child(
+            Dom::create_div()
+                .with_css("width: 400px;")
+                .with_child(Dom::create_div().with_css("padding-left: 10%; height: 10px;")),
+        ),
+    );
+    assert!(
+        with_a_percentage >= 1,
+        "a padding of 10% resolved against another containing block was not noted"
+    );
+    let absolute_lengths = noted(layer_of_absolute_blocks(50));
+    assert_eq!(
+        absolute_lengths, 0,
+        "a page without a percentage in its margins, borders and paddings had box props noted \
+         as changed"
+    );
+}

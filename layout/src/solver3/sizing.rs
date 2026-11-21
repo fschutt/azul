@@ -174,6 +174,8 @@ pub fn calculate_intrinsic_sizes<T: ParsedFontTrait>(
     unsafe {
         crate::az_mark(0x607B0_u32, (tree.nodes.len() as u32));
     }
+    #[cfg(test)]
+    INTRINSIC_PASS_CALLS.with(|n| n.set(n.get() + 1));
     // The borders tables and their boxes are laid out with (no border on
     // rows, row groups and columns; in the collapsing model half of each
     // collapsed grid edge and no table padding, CSS 2.2 17.6) - before
@@ -406,6 +408,79 @@ impl DirtyAncestors {
             None => self.beyond.contains(&idx),
         }
     }
+}
+
+/// How often [`calculate_intrinsic_sizes`] was called on this thread, the
+/// calls with nothing dirty included (`audit_tests::a3_solver`: the turns of
+/// `layout_document`'s loop).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INTRINSIC_PASS_CALLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The dirty set for the intrinsic pass of a LATER turn of
+/// `layout_document`'s loop: of the nodes the first turn measured
+/// (`dirty_nodes` and their ancestors), the ones whose sizes can differ now.
+///
+/// A node's intrinsic sizes are a function of the cascade and the DOM, the
+/// tree's structure, the pass's fonts, images and viewport - none of which a
+/// turn changes - and of the BOX PROPS of the node and of boxes below it:
+/// its children's in the folds, its atomic inline descendants' in an inline
+/// formatting context, its cells' in a table. The layout of a turn changes
+/// those (`fc::layout_bfc` resolves its children's percentages against the
+/// containing block it found) and notes each box it changed: `changed`.
+///
+/// So a node with no changed box in its subtree would be measured to the
+/// sizes it holds, and so would everything below it: the walk can take it
+/// from the node (`calculate_intrinsic_recursive`'s fast path). What is
+/// left: for every changed box the nearest node at or above it that the
+/// first turn measured, and that node's ancestors (which the pass adds). The
+/// loop measured the whole of `dirty_nodes` again in every turn.
+///
+/// The tables' border model, applied at the start of every pass
+/// (`fc::apply_table_border_model`), sets a box's border from the cascade
+/// alone: it changes a box only where the layout changed it first, and that
+/// box is in `changed`.
+pub(crate) fn dirty_nodes_to_measure_again(
+    tree: &LayoutTree,
+    dirty_nodes: &BTreeSet<usize>,
+    changed: &[usize],
+) -> BTreeSet<usize> {
+    measure_again_by(tree.nodes.len(), dirty_nodes, changed, |idx| {
+        tree.get(LayoutNodeId::new(idx)).and_then(|n| n.parent)
+    })
+}
+
+/// [`dirty_nodes_to_measure_again`] over a tree of `node_count` nodes given
+/// by its parent links.
+fn measure_again_by(
+    node_count: usize,
+    dirty_nodes: &BTreeSet<usize>,
+    changed: &[usize],
+    parent_of: impl Fn(usize) -> Option<usize>,
+) -> BTreeSet<usize> {
+    let mut again = BTreeSet::new();
+    if changed.is_empty() || dirty_nodes.is_empty() {
+        return again;
+    }
+    let measured = DirtyAncestors::walk(node_count, dirty_nodes, &parent_of);
+    for &node in changed {
+        // Up from the changed box to the nearest measured node. A chain of
+        // parents is at most as long as the tree: the bound keeps a cyclic
+        // one from hanging the pass.
+        let mut cur = Some(node);
+        for _ in 0..=node_count {
+            let Some(idx) = cur else {
+                break;
+            };
+            if measured.contains(idx) {
+                again.insert(idx);
+                break;
+            }
+            cur = parent_of(idx);
+        }
+    }
+    again
 }
 
 /// Whether the box `node_index` (of the DOM node `dom_node_id`, if it has
@@ -6144,5 +6219,45 @@ mod audit_a3_solver_tests {
             DirtyAncestors::walk(chain.len(), &dirty, |idx| chain.get(idx).copied().flatten());
         assert!(flags.contains(0) && flags.contains(1) && flags.contains(2));
         assert!(!flags.contains(3) && flags.contains(999) && !flags.contains(998));
+    }
+
+    /// A3-solver-19, the loop. A later turn of `layout_document`'s loop
+    /// measures again, of the nodes the first turn measured, the nearest one
+    /// at or above each box whose box props the layout changed (the pass
+    /// adds its ancestors) - and nothing where nothing changed.
+    ///
+    /// `0 <- {1, 4}`, `1 <- 2 <- 3`, `4 <- 5`; node 2 is dirty, so the first
+    /// turn measured 2, 1 and 0.
+    ///
+    /// Mutation: `measure_again_by` returning the empty set for every input
+    /// (a later turn measures nothing) fails the cases with a changed box.
+    #[test]
+    fn a_later_turn_measures_again_the_measured_nodes_above_a_changed_box() {
+        let parents: [Option<usize>; 6] = [None, Some(0), Some(1), Some(2), Some(0), Some(4)];
+        let dirty: BTreeSet<usize> = [2].into_iter().collect();
+        let again = |changed: &[usize]| -> Vec<usize> {
+            measure_again_by(parents.len(), &dirty, changed, |idx| {
+                parents.get(idx).copied().flatten()
+            })
+            .into_iter()
+            .collect()
+        };
+        assert!(again(&[]).is_empty(), "nothing changed: nothing is measured again");
+        assert_eq!(again(&[2]), vec![2], "the dirty node itself");
+        assert_eq!(again(&[1]), vec![1], "a measured ancestor of it");
+        assert_eq!(again(&[3]), vec![2], "a clean box below it: the node above is measured again");
+        assert_eq!(
+            again(&[5]),
+            vec![0],
+            "a clean box in another branch: the first measured node above it is the root"
+        );
+        assert_eq!(again(&[3, 5, 3]), vec![0, 2], "each once");
+        assert_eq!(again(&[999]), Vec::<usize>::new(), "an index that is no node");
+        // Nothing dirty: nothing was measured, nothing is measured again.
+        let nothing = BTreeSet::new();
+        let none = measure_again_by(parents.len(), &nothing, &[3], |idx| {
+            parents.get(idx).copied().flatten()
+        });
+        assert!(none.is_empty());
     }
 }

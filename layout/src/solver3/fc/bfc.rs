@@ -194,6 +194,40 @@ pub struct BfcPassMemo {
     /// in the tree - blocks x tree length / 2 positions per pass, about 300 MB
     /// of fills for a page of 5,000 rows of two nested blocks.
     scratch_positions: Vec<super::super::PositionVec>,
+    /// The boxes whose margins, borders or paddings `bfc_prepare` resolved to
+    /// other values than they had (a percentage against the containing
+    /// block the layout found), since the list was last taken
+    /// ([`Self::take_changed_box_props`]). A box may be listed more than
+    /// once. In a cell: `bfc_prepare` has the context shared.
+    ///
+    /// The intrinsic sizes read box props, and nothing else a turn of
+    /// `layout_document`'s loop changes: a later turn measures again the
+    /// dirty boxes above the ones listed here and no other
+    /// (`sizing::dirty_nodes_to_measure_again`).
+    box_props_changed: core::cell::RefCell<Vec<usize>>,
+}
+
+/// How many boxes [`bfc_prepare`] noted in `BfcPassMemo::box_props_changed`
+/// on this thread (`audit_tests::a3_solver`: one for a percentage padding
+/// that resolves to another length, none for a page of absolute lengths).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static BOX_PROPS_CHANGES_NOTED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Whether two packed box props hold the same margins, borders, paddings
+/// and auto margins (the packed type has no `==`).
+fn same_box_props(
+    a: &crate::solver3::geometry::PackedBoxProps,
+    b: &crate::solver3::geometry::PackedBoxProps,
+) -> bool {
+    a.margin == b.margin
+        && a.padding == b.padding
+        && a.border == b.border
+        && a.margin_auto.left == b.margin_auto.left
+        && a.margin_auto.right == b.margin_auto.right
+        && a.margin_auto.top == b.margin_auto.top
+        && a.margin_auto.bottom == b.margin_auto.bottom
 }
 
 /// How many scratch position vectors [`BfcPassMemo`] made on this thread, how
@@ -208,6 +242,12 @@ thread_local! {
 }
 
 impl BfcPassMemo {
+    /// The boxes whose box props `bfc_prepare` changed since the last call,
+    /// and an empty list from here on.
+    pub(crate) fn take_changed_box_props(&mut self) -> Vec<usize> {
+        core::mem::take(self.box_props_changed.get_mut())
+    }
+
     /// A position vector with no position set, at least `tree_len` long: one
     /// taken back earlier, or a new one.
     fn lend(&mut self, tree_len: usize) -> super::super::PositionVec {
@@ -604,6 +644,7 @@ fn bfc_prepare<T: ParsedFontTrait>(
             };
             let efs =
                 crate::solver3::layout_tree::get_element_font_size(ctx.styled_dom, child_dom_id);
+            let before = tree.get(LayoutNodeId::new(child_index)).map(|n| n.box_props);
             tree.resolve_box_props(
                 child_index,
                 children_containing_block_size,
@@ -611,6 +652,18 @@ fn bfc_prepare<T: ParsedFontTrait>(
                 efs,
                 root_fs,
             );
+            // Noted for the intrinsic sizes of a later turn of the layout
+            // loop, which read these (`BfcPassMemo::box_props_changed`).
+            let after = tree.get(LayoutNodeId::new(child_index)).map(|n| n.box_props);
+            let changed = match (before, after) {
+                (Some(before), Some(after)) => !same_box_props(&before, &after),
+                _ => false,
+            };
+            if changed {
+                #[cfg(test)]
+                BOX_PROPS_CHANGES_NOTED.with(|n| n.set(n.get() + 1));
+                ctx.pass_memo.bfc.box_props_changed.borrow_mut().push(child_index);
+            }
         }
     }
 

@@ -1511,11 +1511,30 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // calculate_intrinsic_sizes` anywhere. (The prior "string absent ⇒ web_lift off" check
             // was wrong — panic_immediate_abort strips the message string.)
             cache.last_intrinsic_dirty = recon_result.intrinsic_dirty.len();
+            // The first turn measures what the reconcile found dirty. A later
+            // turn measures again only the nodes of that set (and their
+            // ancestors) with a box below them whose margins, borders or
+            // paddings the layout of the turn before resolved anew - the one
+            // input of the intrinsic sizes a turn changes
+            // (`sizing::dirty_nodes_to_measure_again`). It measured the whole
+            // set again: every dirty label once more per turn.
+            let box_props_changed = ctx.pass_memo.bfc.take_changed_box_props();
+            let measured_again;
+            let intrinsic_dirty = if loop_count == 1 {
+                &recon_result.intrinsic_dirty
+            } else {
+                measured_again = sizing::dirty_nodes_to_measure_again(
+                    &new_tree,
+                    &recon_result.intrinsic_dirty,
+                    &box_props_changed,
+                );
+                &measured_again
+            };
             if let Err(e) = calculate_intrinsic_sizes(
                 &mut ctx,
                 &mut new_tree,
                 text_cache,
-                &recon_result.intrinsic_dirty,
+                intrinsic_dirty,
             ) {
                 // The pass never stored its tree: the cached one is stale.
                 cache.tree = None;
