@@ -9270,11 +9270,16 @@ mod autotest_generated {
         let new = WindowGpuValues { transforms: [(3, translate(20.0, 0.0)), (9, scale(2.0))].into_iter().collect(), ..WindowGpuValues::default() };
         let d = window_value_damage(&scaled, &views, &old, &new, &ScrollOffsetMap::new());
         assert!(!d.needs_full);
+        // The old place is 80 x 60 @ (100, 80). Through the scaled frame 9 the rect grows by
+        // what the resampling paints past the image (A1-64, `FrameStack::map`): 2 px in the
+        // frame's space, x 2 by its scale, + 1 px where it lands = 5 px a side:
+        // (100 - 5, 80 - 5) 80 + 10 x 60 + 10. Frame 3 only moves: a move grows nothing.
+        // (The test asked the bare image, 80 x 60 @ (100, 80).)
         assert!(
-            d.rects.iter().any(|r| (r.origin.x - 100.0).abs() < 0.01
-                && (r.origin.y - 80.0).abs() < 0.01
-                && (r.size.width - 80.0).abs() < 0.01
-                && (r.size.height - 60.0).abs() < 0.01),
+            d.rects.iter().any(|r| (r.origin.x - 95.0).abs() < 0.01
+                && (r.origin.y - 75.0).abs() < 0.01
+                && (r.size.width - 90.0).abs() < 0.01
+                && (r.size.height - 70.0).abs() < 0.01),
             "the old place, scaled: {:?}",
             d.rects
         );
@@ -9663,8 +9668,11 @@ mod autotest_generated {
             values,
         );
         // (10, 10) of the child is (60, 50) in the window's list, and twice that - (120, 100) - on
-        // screen; 20 x 10 is 40 x 20.
-        assert!(has_rect(&d, (120.0, 100.0, 40.0, 20.0)), "{d:?}");
+        // screen; 20 x 10 is 40 x 20. Through a composited (scaled) frame the rect grows by what
+        // the resampling paints past the image (A1-64, `FrameStack::map`): 2 px in the frame's
+        // space, x 2 by its scale, + 1 px where it lands = 5 px a side:
+        // (120 - 5, 100 - 5) 40 + 10 x 20 + 10. (The test asked the bare image, 40 x 20 @ (120, 100).)
+        assert!(has_rect(&d, (115.0, 95.0, 50.0, 30.0)), "{d:?}");
     }
 
     /// A change under a frame INSIDE the view: the frame is painted with its live matrix as
