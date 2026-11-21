@@ -9154,6 +9154,7 @@ impl LayoutWindow {
                 solver3::getters::collect_and_resolve_font_chains_covering,
                 text3::default::PathLoader,
             };
+            let _span_fonts = crate::probe::Probe::span("font_requirements");
 
             // Per-node font dirty tracking (P4):
             // Check font_dirty_nodes populated by build_compact_cache(),
@@ -9606,6 +9607,7 @@ impl LayoutWindow {
             // the previous pass's sizes stand in (exact in steady state); the
             // refresh after the solve below corrects the first frame and any
             // size change.
+            let _span_gpu_sync = crate::probe::Probe::span("sync_css_gpu_values");
             let previous = self.layout_results.get(&dom_id);
             let previous_size = |node: NodeId| -> Option<(f32, f32)> {
                 let lr = previous?;
@@ -18194,6 +18196,7 @@ impl LayoutWindow {
         // Clone the old tree out first: it releases the `layout_results` borrow
         // before the `&mut self` work below, and the old arena is about to be
         // discarded anyway.
+        let span_arena_copy = crate::probe::Probe::span("reconcile_arena_copy");
         let (mut old_node_data, old_hierarchy) = match self.layout_results.get(&dom_id) {
             Some(r) => (
                 r.styled_dom.node_data.as_ref().to_vec(),
@@ -18209,8 +18212,10 @@ impl LayoutWindow {
         // one copy of them after the states moved over.
         let new_hierarchy: Vec<azul_core::styled_dom::NodeHierarchyItem> =
             styled_dom.node_hierarchy.as_ref().to_vec();
+        drop(span_arena_copy);
 
         let empty_layout = azul_core::OrderedMap::default();
+        let span_reconcile_dom = crate::probe::Probe::span("reconcile_dom");
         let diff = azul_core::diff::reconcile_dom(
             &old_node_data,
             styled_dom.node_data.as_ref(),
@@ -18222,6 +18227,7 @@ impl LayoutWindow {
             now,
             self.node_identity,
         );
+        drop(span_reconcile_dom);
 
         // Geometry captured BEFORE the swap, because the old solved rects die
         // with the old tree.
@@ -18321,6 +18327,7 @@ impl LayoutWindow {
             BTreeMap::new();
         let mut compared = 0usize;
         let mut compared_properties = 0usize;
+        let span_css_diff = crate::probe::Probe::span("reconcile_css_diff");
         if let Some(old_result) = self.layout_results.get(&dom_id) {
             let old_cache = &old_result.styled_dom.css_property_cache.ptr;
             let new_cache = &styled_dom.css_property_cache.ptr;
@@ -18482,7 +18489,9 @@ impl LayoutWindow {
                 }
             }
         }
+        drop(span_css_diff);
 
+        let span_transfer = crate::probe::Probe::span("reconcile_transfer_states");
         if !diff.node_moves.is_empty() {
             // A merge callback consumes the old node's dataset, and the old
             // arena stays in the record: it keeps a clone of each dataset a
@@ -18531,12 +18540,16 @@ impl LayoutWindow {
             }
         }
 
+        drop(span_transfer);
+
         // ALWAYS, even with no match: an old id absent from the map was
         // unmounted and its focus / scroll / hover state must be DROPPED (and
         // a focused node that went reports its focus loss), not kept pointing
         // at whatever element inherited its arena index.
+        let span_remap = crate::probe::Probe::span("reconcile_remap_node_ids");
         let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
         self.remap_node_ids(dom_id, &map);
+        drop(span_remap);
 
         // A tween the rebuild left running (remapped to its new node just
         // now) finds its target in the new tree's cascade - that is what made

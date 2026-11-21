@@ -254,6 +254,9 @@ pub fn regenerate_layout(
     let _frame_pump = azul_layout::telemetry::FramePump::begin("layout");
     azul_layout::probe::emit_phase_heap("start");
     let mut phases = PhaseTimer::new();
+    // One span per stage of a rebuild (`audit/A3-window.md`, "Why a full DOM rebuild is
+    // slow"): what `AZ_PROFILE=cpu` prints between the app's callback and the solver.
+    let span_preamble = azul_layout::probe::Probe::span("regen_preamble");
 
     // ── The APP THEME (`CallbackInfo::set_theme`) ─────────────────────────
     // THE place a window adopts the app's theme: a window whose DOM was
@@ -561,6 +564,7 @@ pub fn regenerate_layout(
     let app_data_borrowed = app_data.borrow_mut();
     azul_layout::probe::emit_phase_heap("before_callback");
     phases.mark("before_callback");
+    drop(span_preamble);
 
     // Clear any stale recording from an earlier callback on this thread —
     // the drain below must see ONLY what this invocation queried.
@@ -659,7 +663,9 @@ pub fn regenerate_layout(
     // the widgets itself; `style_user_dom_for` below then finds nothing left
     // to replace.
     let mut user_dom = user_dom;
+    let span_form_controls = azul_layout::probe::Probe::span("regen_form_controls");
     let _ = layout_window.resolve_form_controls(&mut user_dom);
+    drop(span_form_controls);
 
     // 1.4. PRE-CASCADE DIFF (user directive 2026-08-08: "the start should just
     // scan over the NodeHierarchy to discover anything that changed, which is
@@ -680,12 +686,14 @@ pub fn regenerate_layout(
     // differs from the fingerprint walk (CSD titlebar injection shifts
     // NodeIds — the transfer indices would mis-target; those windows keep
     // the full path until the offset mapping exists).
+    let span_fingerprint = azul_layout::probe::Probe::span("regen_fingerprint_dom");
     let precascade = if layout_window.e2e_mount.xml().is_none() {
         Some(azul_core::diff::fingerprint_dom(&user_dom))
     } else {
         layout_window.last_dom_fingerprints = None;
         None
     };
+    drop(span_fingerprint);
     let window_size_changed_precheck = {
         let old_dims = layout_window.current_window_state.size.dimensions;
         let new_dims = current_window_state.size.dimensions;
@@ -743,6 +751,7 @@ pub fn regenerate_layout(
     };
 
     if precascade_skip {
+        let _span_exit = azul_layout::probe::Probe::span("regen_precascade_exit");
         let (_fp, transfers) = precascade.expect("precascade_skip implies fingerprints");
         log_debug!(
             LogCategory::Layout,
@@ -774,6 +783,7 @@ pub fn regenerate_layout(
         // delta concurrent with this RefreshDom must not be lost — but it
         // needs only a warm RELAYOUT of the retained DOM (states are
         // runtime overlays), never the cascade the full path would pay.
+        let span_states = azul_layout::probe::Probe::span("regen_runtime_states");
         let states_before: Vec<_> = retained
             .styled_nodes
             .as_ref()
@@ -802,6 +812,7 @@ pub fn regenerate_layout(
         if states_changed || drag_state_raised {
             let _ = retained.restyle_for_raised_states();
         }
+        drop(span_states);
 
         // An identical DOM whose inline docking changed (a panel dropped on
         // another zone, torn off, docked back) still has to re-graft: the
@@ -926,6 +937,7 @@ pub fn regenerate_layout(
     // Whether the tree comes out of ONE cascade over the app's `Dom` (not a mounted document,
     // not a tree kept from an earlier mount): see the recompute below.
     let mut styled_by_one_cascade = false;
+    let span_style = azul_layout::probe::Probe::span("regen_style_user_dom");
     let mut user_styled_dom = match e2e_mount_xml {
         Some(xml) => {
             let must_reparse = e2e_mount_dirty;
@@ -994,6 +1006,7 @@ pub fn regenerate_layout(
             crate::plog_warn!("[rice] {}", warning.as_str());
         }
     }
+    drop(span_style);
     azul_layout::probe::emit_phase_heap("after_create_from_dom");
     phases.mark("after_create_from_dom");
 
@@ -1016,6 +1029,7 @@ pub fn regenerate_layout(
     // `env(titlebar-area-*)`): nothing under a bar drawn above the content,
     // the room the overlaid controls take, and nothing to say where azul
     // draws none - the frame's own measure or the desktop's metrics apply.
+    let span_csd = azul_layout::probe::Probe::span("regen_csd");
     let injection = csd::csd_injection_for(
         current_window_state.flags.has_decorations,
         current_window_state.flags.decorations,
@@ -1109,6 +1123,7 @@ pub fn regenerate_layout(
     if !styled_by_one_cascade || decorations_appended {
         styled_dom.recompute_inheritance_and_compact_cache();
     }
+    drop(span_csd);
     azul_layout::probe::emit_phase_heap("after_recompute_cache");
     phases.mark("after_recompute_cache");
 
@@ -1138,11 +1153,13 @@ pub fn regenerate_layout(
     // animation (kept as a zombie). This shell used to hand-roll its own
     // reconcile with the FLIP moves only, so in the real app nothing entered,
     // left or tweened on a rebuild - that only ever ran in the E2E runner.
+    let span_reconcile = azul_layout::probe::Probe::span("regen_begin_reconciliation");
     let mut pending = layout_window.begin_reconciliation(
         azul_core::dom::DomId::ROOT_ID,
         &mut styled_dom,
         azul_core::task::Instant::now(),
     );
+    drop(span_reconcile);
     // A resize, a mode or an app-theme rebuild is no state change:
     // what it moves reflows in place (`RelayoutReason::animates_moves`).
     pending.animate_moves = relayout_reason.animates_moves();
@@ -1219,6 +1236,7 @@ pub fn regenerate_layout(
     // still in scope — and stash a `(CoreCallbackData, SyntheticEvent)`
     // pair on the layout window. The dispatcher drains this side queue
     // and invokes the callbacks directly, bypassing the DOM lookup.
+    let span_lifecycle = azul_layout::probe::Probe::span("regen_lifecycle_queue");
     for event in core::mem::take(&mut pending.events) {
         use azul_core::events::{ComponentEventFilter, EventFilter, EventType};
         if event.event_type == EventType::Unmount {
@@ -1334,6 +1352,7 @@ pub fn regenerate_layout(
             });
         }
     }
+    drop(span_lifecycle);
     azul_layout::probe::emit_phase_heap("after_state_migrate");
     phases.mark("after_state_migrate");
 
@@ -1357,8 +1376,10 @@ pub fn regenerate_layout(
     // The layout callback creates a fresh StyledDom with default states (focused=false, etc.)
     // We need to synchronize the StyledNodeState with the current runtime state
     // (FocusManager.focused_node, mouse hover position, etc.) BEFORE the display list is generated
+    let span_states = azul_layout::probe::Probe::span("regen_runtime_states");
     let mut styled_dom =
         apply_runtime_states_before_layout(styled_dom, layout_window, current_window_state);
+    drop(span_states);
     azul_layout::probe::emit_phase_heap("after_runtime_states");
     phases.mark("after_runtime_states");
 
@@ -1387,6 +1408,7 @@ pub fn regenerate_layout(
     // check and threw the fresh-but-identical DOM into a from-scratch layout.
     // The size decides what happens WITH the equivalence result (below), not
     // whether it is worth knowing.
+    let span_equivalent = azul_layout::probe::Probe::span("regen_layout_equivalent");
     if let Some(old_layout_result) = layout_window
         .layout_results
         .get(&azul_core::dom::DomId::ROOT_ID)
@@ -1469,6 +1491,7 @@ pub fn regenerate_layout(
             }
         }
     }
+    drop(span_equivalent);
     azul_layout::probe::emit_phase_heap("after_equivalence_check");
     phases.mark("after_equivalence_check");
 
@@ -1544,7 +1567,9 @@ pub fn regenerate_layout(
     // 5b. COMPLETE THE RECONCILIATION ("Last" is now solved): FLIP moves,
     // enter animations (every entering node that declares one, the first
     // frame included), and the zombies' rects.
+    let span_finish = azul_layout::probe::Probe::span("regen_finish_reconciliation");
     layout_window.finish_reconciliation(azul_core::dom::DomId::ROOT_ID, &pending);
+    drop(span_finish);
 
     // 5. + 6. Register scrollable nodes / scrollbar states, then sync the
     // scrollbar fade opacities that follow from them.
@@ -1562,6 +1587,7 @@ pub fn regenerate_layout(
     // turns it into the OS location prompt. Snapshot the (capability, node)
     // pairs first so we don't hold a borrow on `layout_results` while the
     // diff mutates `permission_manager`.
+    let span_capabilities = azul_layout::probe::Probe::span("regen_capability_walks");
     let mut wants_gamepad = false;
     let mut wants_sensors = false;
     let permission_bearing: Vec<(
@@ -1653,6 +1679,7 @@ pub fn regenerate_layout(
     if !geolocation_events.is_empty() {
         crate::desktop::extra::geolocation::apply_diff_events(&geolocation_events);
     }
+    drop(span_capabilities);
 
     // 7a / 7c–7f (async drains: permission results, geolocation fixes,
     // biometric availability + requests + results, keyring requests +
