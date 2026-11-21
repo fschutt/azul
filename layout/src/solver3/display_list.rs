@@ -5585,9 +5585,10 @@ pub fn generate_display_list<T: ParsedFontTrait + Sync + 'static>(
 }
 
 /// [`generate_display_list`] + the DL-PATCHING source. With `patch` armed
-/// (resize-skip passes), unchanged nodes' paint calls are substituted by
-/// their previous items translated by the node's position delta — only
-/// re-flowed IFCs and size-changed nodes actually re-emit.
+/// (resize-skip passes), the paint calls of the nodes that did not move, did
+/// not change size and did not re-flow are substituted by their previous
+/// items, as they are — every other node re-emits (a moved one too: a
+/// translated copy is not what a paint gives in the last bit).
 #[allow(clippy::too_many_arguments)]
 pub fn generate_display_list_impl<T: ParsedFontTrait + Sync + 'static>(
     ctx: &mut LayoutContext<'_, T>,
@@ -5826,11 +5827,21 @@ struct ChainDetour {
     opened: Vec<usize>,
 }
 
+/// How many paint calls of a patched build were painted again because their box MOVED
+/// (`try_copy_cached_run`) on this thread: what a test reads to say that a moved box is
+/// not copied.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static PATCH_RUNS_PAINTED_FOR_A_MOVE: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
 /// State for patched display-list generation. Built by `layout_document`
 /// on a resize-skip pass — the tree object and its indices are unchanged,
 /// so per-(layout node, phase) item runs from the PREVIOUS list can replace
 /// the paint calls of every node that neither re-flowed its inline content
-/// nor changed size; their geometry moves by the node's position delta.
+/// nor changed size nor MOVED (`try_copy_cached_run`: a moved node is painted
+/// again; `deltas` says which did).
 pub(crate) struct PatchState<'a> {
     prev: &'a DisplayList,
     /// Per (layout idx, phase): queue of item ranges in `prev`, walk order.
@@ -6603,10 +6614,10 @@ where
     }
 
     /// DL-PATCHING substitution: if a patch source is armed and this node's
-    /// (phase) run can be reused, copy it translated by the node's position
-    /// delta and report `true` (the caller skips painting). `false` = paint
-    /// normally (no patch, node in the re-emit set, or no cached run left —
-    /// the last one falls back to a fresh paint, which is always correct).
+    /// (phase) run can be reused, copy it as it is and report `true` (the
+    /// caller skips painting). `false` = paint normally (no patch, node in the
+    /// re-emit set, a node that moved, or no cached run left — a fresh paint
+    /// is always correct).
     fn try_copy_cached_run(
         &mut self,
         builder: &mut DisplayListBuilder,
@@ -6617,6 +6628,24 @@ where
             return false;
         };
         if patch.reemit.contains(&node_index) {
+            return false;
+        }
+        // A box that MOVED is painted again, not copied. Its run used to be copied with
+        // every coordinate shifted by `new position - old position`, and `(old + k) + delta`
+        // is not `new + k` in the last bit of an `f32` (two roundings against one): the
+        // list of a patched pass differed from the list a build gives by an ulp in such a
+        // box's items (a hit area at 59.8 against 59.800003), the next build then "moved"
+        // each of them, and two windows that took different paths to the same DOM did not
+        // hold the same list. A copy is exact only for a box that stands where it stood:
+        // its items are the bits the last paint of it produced, from the same position.
+        // (A delta that is no number - a position that was unset - is a move.)
+        if patch
+            .deltas
+            .get(node_index)
+            .is_some_and(|delta| !(delta.x == 0.0 && delta.y == 0.0))
+        {
+            #[cfg(test)]
+            PATCH_RUNS_PAINTED_FOR_A_MOVE.with(|n| n.set(n.get() + 1));
             return false;
         }
         let Some(run) = patch
@@ -6632,11 +6661,6 @@ where
             drop(crate::probe::Probe::span("dl_patch_empty"));
             return true;
         };
-        let delta = patch
-            .deltas
-            .get(node_index)
-            .copied()
-            .unwrap_or_else(LogicalPosition::zero);
         // The previous list outlives the patch borrow, which ends here: the
         // copy below reads the generator again.
         let prev = patch.prev;
@@ -6678,8 +6702,9 @@ where
             builder.next_text_selection_colors =
                 prev.text_selection_colors.get(i).copied().flatten();
             builder.next_color_binding = binding;
-            let item = translate_item(prev.items[i].clone(), delta);
-            builder.push_item(item);
+            // As it is: the box did not move (above), and adding a zero would still turn
+            // a `-0.0` into `0.0`.
+            builder.push_item(prev.items[i].clone());
         }
         builder.set_current_layout(None);
         // The builder is left attributing to the run's LAST item's node, as a
