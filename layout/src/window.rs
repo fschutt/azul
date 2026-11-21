@@ -3839,17 +3839,23 @@ pub enum DiffFirstStep {
     /// again, changed, moved or came is painted. Off: the cascade epoch moved, so the
     /// whole list of the view is emitted (`AZ_DIFF_FIRST=text,nodes,style,tree,view`).
     List,
+    /// `wlist`: the same for the WINDOW's own list after a rebuild that kept its styled DOM
+    /// and styled the changed nodes where they stand (`nodes` with `style`): the shell hands
+    /// the pass the nodes the changes reach, and the runs of every other box are copied.
+    /// Off: such a rebuild emits the window's whole list.
+    WindowList,
 }
 
 impl DiffFirstStep {
     /// Every step.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Text,
         Self::Nodes,
         Self::Style,
         Self::Tree,
         Self::View,
         Self::List,
+        Self::WindowList,
     ];
 
     /// The step's name in `AZ_DIFF_FIRST`.
@@ -3862,6 +3868,7 @@ impl DiffFirstStep {
             Self::Tree => "tree",
             Self::View => "view",
             Self::List => "list",
+            Self::WindowList => "wlist",
         }
     }
 
@@ -3874,10 +3881,11 @@ impl DiffFirstStep {
             Self::Tree => 8,
             Self::View => 16,
             Self::List => 32,
+            Self::WindowList => 64,
         }
     }
 
-    const EVERY_BIT: u16 = 1 | 2 | 4 | 8 | 16 | 32;
+    const EVERY_BIT: u16 = 1 | 2 | 4 | 8 | 16 | 32 | 64;
 }
 
 /// The steps a value of `AZ_DIFF_FIRST` switches on, one [`DiffFirstStep`] bit each: `0` none,
@@ -20146,7 +20154,9 @@ impl LayoutWindow {
     /// and stages the CSS diff of that for the layout pass that follows, as
     /// [`Self::begin_reconciliation`] stages the diff of a full rebuild. Answers the nodes the
     /// changes reach (`StyledDom::nodes_reached_by_changes`): every other node's cascade,
-    /// boxes and items are what they were.
+    /// boxes and items are what they were - and whether the cascade ran for those nodes
+    /// ALONE (`false`: the whole cascade ran over the kept DOM, and no row is the row it
+    /// was; the step `wlist` names the reached nodes to the layout only on `true`).
     ///
     /// `states_before` are the states the nodes were in before this rebuild raised any: the
     /// diff reads both cascades under them. `reuse_styles` (the step `style` of
@@ -20159,7 +20169,7 @@ impl LayoutWindow {
         replaced: &[(usize, azul_core::dom::NodeData)],
         states_before: &[azul_core::styled_dom::StyledNodeState],
         reuse_styles: bool,
-    ) -> Vec<bool> {
+    ) -> (Vec<bool>, bool) {
         KEPT_DOM_REBUILDS.with(|count| count.set(count.get() + 1));
         let changed: Vec<usize> = replaced.iter().map(|(index, _)| *index).collect();
         let reached = retained.nodes_reached_by_changes(&changed);
@@ -20170,7 +20180,8 @@ impl LayoutWindow {
         // rows; where that cannot be (`CssPropertyCache::recascade_nodes` says when), and
         // without the step, the whole cascade over the kept DOM, under the states its nodes
         // are in.
-        if !(reuse_styles && retained.restyle_changed_nodes(&reached)) {
+        let over_the_nodes = reuse_styles && retained.restyle_changed_nodes(&reached);
+        if !over_the_nodes {
             let css = old_cache.retained_author_css.clone();
             retained.restyle(css);
             // As a DOM that was just created reads: its inherited rows without the resting
@@ -20192,7 +20203,7 @@ impl LayoutWindow {
         let dirt = css_diff_of_kept_dom(&old_cache, retained, replaced, states_before, candidates);
         drop(span_diff);
         self.pending_css_dirty = Some((DomId::ROOT_ID, dirt));
-        reached
+        (reached, over_the_nodes)
     }
 
     /// Reconcile a NEW tree against the one this window currently holds, and

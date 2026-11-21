@@ -741,6 +741,10 @@ pub fn regenerate_layout(
     // The exits that keep the DOM hand the solver no "this node is what it was" then.
     let written_since_its_pass =
         layout_window.dom_written_since_its_pass(azul_core::dom::DomId::ROOT_ID);
+    // What an earlier rebuild named for its display list (`cascaded_since_list`, the step
+    // `wlist`) and no pass took describes a DOM this rebuild may replace: void. The one
+    // exit that names nodes sets it again right before its pass.
+    layout_window.layout_cache.cascaded_since_list = None;
     let precascade_skip = match (&precascade, layout_window.last_dom_fingerprints.as_ref()) {
         (Some((fp, _)), Some(prev)) => {
             !theme_rebuild
@@ -1138,6 +1142,10 @@ pub fn regenerate_layout(
         // The rest of the old result goes before the pass: its hold on the layout tree would
         // make the solver copy the tree to write it.
         drop(old_result);
+        // Step `wlist`: the cascade epoch the kept DOM stands at before anything below
+        // styles it - the state the window's display list has to be built from for the
+        // nodes named further down to be all that moved since.
+        let epoch_before_restyle = retained.get_css_property_cache().cascade_epoch;
 
         // The values every build makes anew, as the pre-cascade skip carries them, and then
         // the changed nodes themselves (each keeps what was just carried onto its place).
@@ -1173,7 +1181,7 @@ pub fn regenerate_layout(
             azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Style)
                 && !states_changed
                 && !drag_state_raised;
-        let reached = layout_window.restyle_rebuilt_nodes(
+        let (reached, over_the_nodes) = layout_window.restyle_rebuilt_nodes(
             &mut retained,
             &replaced,
             &states_before,
@@ -1188,6 +1196,27 @@ pub fn regenerate_layout(
             layout_window.layout_cache.dom_diff_clean =
                 Some(reached.iter().map(|reached| !*reached).collect());
         }
+        // Step `wlist`: ... and for the window's display list, the nodes the cascade ran
+        // for (`solver3::cache::CascadedSince`: the pass patches its list around them where
+        // the tree kept its shape, instead of emitting the whole list because the cascade
+        // epoch moved). Under the conditions of the flags above, and only where the cascade
+        // ran for the reached nodes alone; anything a pass that never ran left is void.
+        layout_window.layout_cache.cascaded_since_list = (over_the_nodes
+            && !states_changed
+            && !written_since_its_pass
+            && azul_layout::window::diff_first_step(
+                azul_layout::window::DiffFirstStep::WindowList,
+            ))
+        .then(|| azul_layout::solver3::cache::CascadedSince {
+            from_epoch: epoch_before_restyle,
+            to_epoch: retained.get_css_property_cache().cascade_epoch,
+            nodes: reached
+                .iter()
+                .enumerate()
+                .filter(|(_, reached)| **reached)
+                .map(|(index, _)| azul_core::id::NodeId::new(index))
+                .collect(),
+        });
         layout_window.last_dom_fingerprints = Some(fp);
 
         azul_layout::probe::emit_phase_heap("before_layout_dl");

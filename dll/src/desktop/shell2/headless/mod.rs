@@ -14303,7 +14303,8 @@ mod tests {
     /// `body > .df-list[.df-dense] > .df-row.df-k<n>[#df-id<n>] > span.df-cell > text`, under a
     /// sheet with a rule per class, a descendant rule (`.df-dense .df-row`), an inherited
     /// value (`.df-k2`), an id rule, a hover rule and - with `siblings` - a sibling rule
-    /// (`.df-k1 + .df-row`).
+    /// (`.df-k1 + .df-row`). A row's id 2 styles nothing of the row itself: it colours the
+    /// `div.df-extra` boxes inside the row (a descendant rule, paint only).
     extern "C" fn df_layout(mut data: RefAny, _info: LayoutCallbackInfo) -> Dom {
         let (rows, dense, siblings) = data
             .downcast_ref::<DfPage>()
@@ -14343,7 +14344,7 @@ mod tests {
              .df-k2 { color: #aa0000; font-size: 18px; } .df-k3 { margin-top: 3px; } \
              #df-id1 { background: #00ff00; } .df-row:hover { background: #ffff00; color: \
              #0000aa; } .df-extra { height: 6px; background: #cccccc; } .df-k2 .df-extra { \
-             height: 9px; }",
+             height: 9px; } #df-id2 .df-extra { background: #99cc99; }",
         );
         if siblings {
             sheet.push_str(" .df-k1 + .df-row { margin-left: 6px; }");
@@ -14744,6 +14745,148 @@ mod tests {
         );
     }
 
+    // --- diff first, step `wlist`: the window's display list after a rebuild that kept its DOM --
+    //
+    // Exit 1.46 styles the nodes a rebuild's changes reach and moves the cascade epoch, the
+    // solver's only proof that no cascade ran: the window's whole list was emitted. Under
+    // `wlist` the shell hands the pass the reached nodes (`solver3::cache::CascadedSince`,
+    // as a view's re-render does under `list`) and the pass copies every other box's run.
+
+    /// `(lists patched after a named cascade, runs copied, paint calls of patched builds)`
+    /// on this thread for one rebuild of `window` after `change`, with `steps` on.
+    fn df_list_cost(
+        window: &mut HeadlessWindow,
+        state: &Arc<RefCell<RefAny>>,
+        steps: &[azul_layout::window::DiffFirstStep],
+        change: impl FnOnce(&mut DfPage),
+    ) -> (usize, usize, usize) {
+        use azul_layout::solver3::display_list as list;
+        df_change(state, change);
+        let before = (
+            list::lists_patched_after_a_named_cascade_on_this_thread(),
+            list::cached_runs_copied_on_this_thread(),
+            list::runs_painted_by_patched_builds_on_this_thread(),
+        );
+        df_rebuild(window, steps);
+        (
+            list::lists_patched_after_a_named_cascade_on_this_thread() - before.0,
+            list::cached_runs_copied_on_this_thread() - before.1,
+            list::runs_painted_by_patched_builds_on_this_thread() - before.2,
+        )
+    }
+
+    /// Two windows of the page `page` makes, rebuilt after the same `change`: one with every
+    /// step, one with every step but `wlist` (the state before it: the window's list emitted
+    /// in full). Answers the costs of the first ([`df_list_cost`]) after asserting that both
+    /// windows hold the same nodes, styles, boxes and display list, line for line
+    /// ([`df_dump`]).
+    fn df_list_against_full(
+        page: impl Fn() -> Arc<RefCell<RefAny>>,
+        change: impl Fn(&mut DfPage),
+        what: &str,
+    ) -> (usize, usize, usize) {
+        use azul_layout::window::DiffFirstStep::{List, Nodes, Style, Text, Tree, View};
+        let (state_list, state_full) = (page(), page());
+        let mut with_list = df_window(&state_list);
+        let mut in_full = df_window(&state_full);
+        let cost = df_list_cost(
+            &mut with_list,
+            &state_list,
+            &azul_layout::window::DiffFirstStep::ALL,
+            &change,
+        );
+        let before = df_list_cost(
+            &mut in_full,
+            &state_full,
+            &[Text, Nodes, Style, Tree, View, List],
+            &change,
+        );
+        assert_eq!(
+            before.0, 0,
+            "{what}: premise: without `wlist` no list is patched after a named cascade"
+        );
+        let (left, right) = (df_dump(&with_list), df_dump(&in_full));
+        let differs = left
+            .iter()
+            .zip(right.iter())
+            .position(|(a, b)| a != b)
+            .or((left.len() != right.len()).then_some(left.len().min(right.len())));
+        assert!(
+            differs.is_none(),
+            "{what}: line {differs:?} of the window differs\n patched: {:?}\n in full: {:?}",
+            differs.and_then(|line| left.get(line)),
+            differs.and_then(|line| right.get(line)),
+        );
+        cost
+    }
+
+    /// One row of the window changes its class (a background and a width: no other row
+    /// moves) and the others stay: the window's list is PATCHED - the runs of that row are
+    /// painted, every other row's are copied - in a page of 60 rows and in one of 244, and
+    /// the list is the one a full emission makes.
+    ///
+    /// Mutation: the shell's hand-over dropped (`cascaded_since_list` not set on exit 1.46,
+    /// or its epochs not the list's and the DOM's): no list is patched, 0 runs are copied.
+    #[test]
+    fn one_changed_class_paints_its_row_and_copies_the_windows_list() {
+        // Row 40 wears `df-k0` (40 % 4) at both sizes and takes `df-k1`.
+        let restyle_one = |page: &mut DfPage| page.rows[40].kind = 1;
+        let mut painted_at = Vec::new();
+        for rows in [60_usize, 244] {
+            let (patched, copied, painted) = df_list_against_full(
+                || df_state_with(rows, false),
+                restyle_one,
+                "one row restyled",
+            );
+            assert_eq!(patched, 1, "{rows} rows: the window's list is patched");
+            // A row paints a background and a line of text.
+            assert!(
+                copied >= rows - 1,
+                "{rows} rows: the runs of the rows that stayed are copied ({copied})"
+            );
+            assert!(
+                (1..=12).contains(&painted),
+                "{rows} rows: the runs of one row are painted, {painted} were"
+            );
+            painted_at.push(painted);
+        }
+        assert_eq!(
+            painted_at[0], painted_at[1],
+            "what is painted does not grow with the page"
+        );
+    }
+
+    /// The mutant of the step: a node the cascade reached whose run is copied anyway. Every
+    /// row holds a `div.df-extra`; one row takes the id 2, which styles nothing of the row
+    /// and colours the box inside it through a descendant rule. The box's node data is what
+    /// it was and it stands where it stood, so the reconcile keeps it clean, and nothing but
+    /// the cascade - the CSS diff of the rebuild and the nodes it names - says it paints
+    /// another colour. The list is a full emission's.
+    ///
+    /// Mutation: the re-emit set of the named cascade left empty (`css_dirty_reemit` in
+    /// `layout_document`'s patch gate; in the early exit of a clean reconcile, `reemit`):
+    /// the box is copied with its old colour and the two windows differ at its item.
+    #[test]
+    fn a_box_the_windows_cascade_reached_is_painted_though_it_is_clean() {
+        let page = || {
+            let state = df_state_with(40, false);
+            df_change(&state, |page| {
+                for row in &mut page.rows {
+                    row.extra = 1;
+                }
+            });
+            state
+        };
+        let (patched, copied, painted) = df_list_against_full(
+            page,
+            |page: &mut DfPage| page.rows[20].id = 2,
+            "a box recoloured by its row's id",
+        );
+        assert_eq!(patched, 1, "premise: the window's list is patched");
+        assert!(copied >= 39, "premise: the other rows are copied ({copied} runs)");
+        assert!(painted >= 1, "the box is painted ({painted} paint calls)");
+    }
+
     /// The two cheapest rebuilds, counted: an identical one styles no node, runs no layout
     /// pass and keeps the display list where it lies (the renderers skip a list by its
     /// identity); one changed text styles no node either.
@@ -14882,8 +15025,9 @@ mod tests {
                 .collect()
         };
         assert_eq!(on("0"), Vec::<&str>::new());
-        assert_eq!(on("1"), vec!["text", "nodes", "style", "tree", "view", "list"]);
-        assert_eq!(on(""), vec!["text", "nodes", "style", "tree", "view", "list"]);
+        assert_eq!(on("1"), vec!["text", "nodes", "style", "tree", "view", "list", "wlist"]);
+        assert_eq!(on(""), vec!["text", "nodes", "style", "tree", "view", "list", "wlist"]);
+        assert_eq!(on("wlist,list"), vec!["list", "wlist"]);
         assert_eq!(
             on("text,nodes,style,tree,view"),
             vec!["text", "nodes", "style", "tree", "view"],
@@ -15653,9 +15797,7 @@ mod tests {
             .or((left.len() != right.len()).then_some(left.len().min(right.len())));
         assert!(
             differs.is_none(),
-            "{what}: line {differs:?} of the view differs
- patched: {:?}
- in full: {:?}",
+            "{what}: line {differs:?} of the view differs\n patched: {:?}\n in full: {:?}",
             differs.and_then(|line| left.get(line)),
             differs.and_then(|line| right.get(line)),
         );
