@@ -1315,7 +1315,6 @@ fn a2_cpu_17_a_border_thinner_than_a_device_pixel_is_one_pixel_inside_its_box() 
 /// the LAYOUT bounds of its items, x 0 .. 200, so the damage is x 0 .. 200 at both places and
 /// the left half of the card (x -100 .. 0) leaves a trail. Expected: a rect from x = -100.
 #[test]
-#[ignore = "A2-cpu-04: open, for A1 (the extent of a frame leaves out what its inner frames move)"]
 fn a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved() {
     use std::collections::HashMap;
 

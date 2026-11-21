@@ -2933,21 +2933,29 @@ pub fn gpu_value_damage(
                     .copied()
                     .unwrap_or(*initial_transform);
                 if changed_t.contains(&transform_key.id) {
-                    let content = moved_by(
-                        reference_frame_extent(display_list, idx).unwrap_or_else(|| *bounds.inner()),
-                        scrolled,
-                    );
+                    // What the frame paints WITH the frames inside it moved by their
+                    // matrices, as each frame painted them (A2-cpu-04): `None` is an inner
+                    // perspective, unbounded.
+                    let content_with = |values: &HashMap<usize, azul_core::transform::ComputedTransform3D>| {
+                        index.extent_with(items, idx, values).map(|e| moved_by(e, scrolled))
+                    };
+                    let (content_old, content_new) = (content_with(old_transforms), content_with(new_transforms));
                     // With the matrix each frame PAINTED it with: a key without a
                     // value is painted with the list's own matrix (`raster.rs`, the
                     // `PushReferenceFrame` arm), not with the identity.
                     // The content through its own matrix and the frames
                     // around it, in one go (`FrameStack::map`).
-                    let through = |frames: &FrameStack, m: &azul_core::transform::ComputedTransform3D| {
+                    let through = |frames: &FrameStack,
+                                   m: &azul_core::transform::ComputedTransform3D,
+                                   content: Option<LogicalRect>| {
                         let mut frames = frames.clone();
                         frames.push(origin, *m);
-                        frames.map(content)
+                        content.and_then(|content| frames.map(content))
                     };
-                    match (through(&frames_old, &old_m), through(&frames_new, &new_m)) {
+                    match (
+                        through(&frames_old, &old_m, content_old),
+                        through(&frames_new, &new_m, content_new),
+                    ) {
                         (Some(a), Some(b)) => {
                             out.rects.push(a);
                             out.rects.push(b);

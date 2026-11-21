@@ -2629,7 +2629,17 @@ pub(crate) fn walk_range(
         let in_group = inside_isolated_transform(mask_stack);
         let is_frame_push = matches!(item, DisplayListItem::PushReferenceFrame { .. });
         let frame = if is_frame_push {
-            frames.get_or_insert_with(|| list.frame_index()).frame_at(item_idx)
+            let index = frames.get_or_insert_with(|| list.frame_index());
+            index.frame_at(item_idx).map(|mut frame| {
+                // What it paints with the frames inside it where their live matrices put
+                // them (A2-cpu-04); an inner perspective keeps the laid-out extent.
+                if !frame.leaf {
+                    if let Some(extent) = index.extent_with(&list.items, item_idx, &render_state.transforms) {
+                        frame.extent = extent;
+                    }
+                }
+                frame
+            })
         } else {
             None
         };

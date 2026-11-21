@@ -3774,6 +3774,18 @@ pub(crate) struct FrameIndex {
     /// By the index of a frame's push: what its picture depends on besides its items, for the
     /// frames that bind anything inside ([`FrameInner`]).
     inner: std::collections::HashMap<usize, FrameInner>,
+    /// By the index of a frame's push, for the frames that hold frames: what the frame paints
+    /// itself and the frames directly inside it ([`FrameIndex::extent_with`]).
+    nesting: std::collections::HashMap<usize, FrameNest>,
+}
+
+/// A frame that holds frames: `own` is its box and what its own items paint (not what is
+/// inside a frame inside it), in its space; `children` are the pushes of the frames directly
+/// inside it, in list order.
+#[derive(Debug, Clone)]
+struct FrameNest {
+    own: LogicalRect,
+    children: Vec<usize>,
 }
 
 impl FrameIndex {
@@ -3798,10 +3810,14 @@ impl FrameIndex {
             text_only: bool,
             has_text: bool,
             inner: FrameInner,
+            /// As `bounds`, counting only the items that are in no frame inside this one.
+            own: GroupBounds,
+            children: Vec<usize>,
         }
         let mut open: Vec<Open> = Vec::new();
         let mut frames: Vec<FrameEntry> = Vec::new();
         let mut inner: std::collections::HashMap<usize, FrameInner> = std::collections::HashMap::new();
+        let mut nesting: std::collections::HashMap<usize, FrameNest> = std::collections::HashMap::new();
         // The scopes open at the item, outermost first: a frame is self-contained when the
         // scopes opened inside it are closed inside it, innermost first.
         let mut scopes: Vec<ScopeKind> = Vec::new();
@@ -3957,15 +3973,26 @@ impl FrameIndex {
                     if !done.inner.is_empty() {
                         inner.insert(done.push, done.inner);
                     }
+                    if !done.children.is_empty() {
+                        let own = done.own.finish().map_or(done.frame_box, |c| rect_union(done.frame_box, c));
+                        nesting.insert(done.push, FrameNest { own, children: done.children });
+                    }
                 }
             }
             if !open.is_empty() {
                 let visual = GroupBounds::visual_of(item);
-                for frame in &mut open {
+                let innermost = open.len() - 1;
+                for (depth, frame) in open.iter_mut().enumerate() {
                     frame.bounds.step(item, visual);
+                    // Its own items only: what a frame inside it paints is placed by that
+                    // frame's matrix (`extent_with`).
+                    frame.own.step(item, if depth == innermost { visual } else { None });
                 }
             }
             if let DisplayListItem::PushReferenceFrame { bounds, .. } = item {
+                if let Some(parent) = open.last_mut() {
+                    parent.children.push(i);
+                }
                 open.push(Open {
                     push: i,
                     frame_box: *bounds.inner(),
@@ -3977,6 +4004,8 @@ impl FrameIndex {
                     text_only: true,
                     has_text: false,
                     inner: FrameInner::default(),
+                    own: GroupBounds::default(),
+                    children: Vec::new(),
                 });
                 scopes.push(ScopeKind::Frame);
             }
@@ -4008,6 +4037,7 @@ impl FrameIndex {
             views,
             opaque_fills,
             inner,
+            nesting,
         }
     }
 
@@ -4056,6 +4086,70 @@ impl FrameIndex {
     /// The frame pushed at `push`: where it ends, what it paints, whether a walk may step over it.
     pub(crate) fn frame_at(&self, push: usize) -> Option<FrameEntry> {
         self.entry(push).copied()
+    }
+
+    /// What the frame pushed at `push` of `items` paints with the frames inside it moved by
+    /// their matrices (`transforms`: the live values by key; a key without one is painted
+    /// with its push's own matrix): its own items' bounds united with the box of each inner
+    /// frame's extent, turned about that frame's origin `o` by its matrix, `o + M (q - o)`
+    /// (A2-cpu-04: [`Self::extent_of`] takes the inner frames' items where they are laid out,
+    /// so a card moved by `translate(-100, 0)` inside a column was missing from the column's
+    /// extent by 100 px). `None` when an inner matrix has a perspective part: unbounded.
+    ///
+    /// Example: a column, box (0, 0) 200 x 400, holds a card, box (0, 0) 200 x 80 with
+    /// `translate(-100, 0)`: the card paints x -100 .. 100, the column's extent is
+    /// (-100, 0) 300 x 400, where `extent_of` says (0, 0) 200 x 400.
+    pub(crate) fn extent_with(
+        &self,
+        items: &[DisplayListItem],
+        push: usize,
+        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    ) -> Option<LogicalRect> {
+        let frame = self.entry(push)?;
+        let Some(nest) = self.nesting.get(&push) else {
+            return Some(frame.extent);
+        };
+        let mut extent = nest.own;
+        for child in &nest.children {
+            let Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, bounds }) =
+                items.get(*child)
+            else {
+                return Some(frame.extent);
+            };
+            let inside = self.extent_with(items, *child, transforms)?;
+            let m = transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m);
+            if m[0][3].abs() > 1e-6 || m[1][3].abs() > 1e-6 || (m[3][3] - 1.0).abs() > 1e-6 {
+                return None;
+            }
+            let o = bounds.inner().origin;
+            let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+            let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for (cx, cy) in [
+                (inside.origin.x, inside.origin.y),
+                (inside.origin.x + inside.size.width, inside.origin.y),
+                (inside.origin.x, inside.origin.y + inside.size.height),
+                (inside.origin.x + inside.size.width, inside.origin.y + inside.size.height),
+            ] {
+                let (qx, qy) = (cx - o.x, cy - o.y);
+                let x = o.x + qx * m[0][0] + qy * m[1][0] + m[3][0];
+                let y = o.y + qx * m[0][1] + qy * m[1][1] + m[3][1];
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+            if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+                return None;
+            }
+            extent = rect_union(
+                extent,
+                LogicalRect {
+                    origin: LogicalPosition { x: x0, y: y0 },
+                    size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+                },
+            );
+        }
+        Some(extent)
     }
 
     /// What the picture of the frame pushed at `push` depends on besides its items; `None`
