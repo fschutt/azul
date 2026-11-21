@@ -14,7 +14,7 @@ use agg_rust::{
     rendering_buffer::RowAccessor,
     rounded_rect::RoundedRect,
     scanline_u::ScanlineU8,
-    span_gradient::{GradientConic, GradientRadialD, GradientRepeatAdaptor, GradientX},
+    span_gradient::{GradientRadialD, GradientRepeatAdaptor, GradientX},
     trans_affine::TransAffine,
 };
 use azul_core::{
@@ -522,8 +522,6 @@ fn render_conic_gradient(
         return;
     }
 
-    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
-
     let w = f64::from(rect.width);
     let h = f64::from(rect.height);
 
@@ -543,8 +541,11 @@ fn render_conic_gradient(
     transform.translate(cx, cy);
     transform.invert();
 
-    // GradientConic maps atan2(y,x) * d / pi, covering [0, d] for the half-circle.
-    // We use d2 = 100 as the range; the LUT maps 0..1 over that.
+    // The stops run over the whole turn (CSS Images 4, 3.3: a stop at an angle `a` is at
+    // `a / 360` of it); gradient space is 100 units a turn and the LUT maps 0..1 over that.
+    // agg's `GradientConic` is `|atan2(y, x)| d / pi`: the ramp over HALF a turn, mirrored on
+    // the other half. `conic-gradient(red, blue)` was red at 12 o'clock, blue at 6 and the
+    // same purple at 3 and at 9 (A1-58, found by A3-solver).
     let d2 = 100.0;
 
     let mut path = if border_radius.is_zero() {
@@ -553,16 +554,67 @@ fn render_conic_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
+    // `repeating-conic-gradient`: the part of the turn between the first and the last stop
+    // repeats (A1-59; `extend_mode` was not read). The LUT is built over that part.
+    if gradient.extend_mode == azul_css::props::style::background::ExtendMode::Repeat {
+        let resolved: Vec<(f32, ColorU)> = stops
+            .iter()
+            .map(|stop| {
+                (
+                    (stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0),
+                    resolve_color(&stop.color, system_colors),
+                )
+            })
+            .filter(|(t, _)| t.is_finite())
+            .collect();
+        let first = resolved.iter().map(|(t, _)| *t).fold(f32::INFINITY, f32::min);
+        let last = resolved.iter().map(|(t, _)| *t).fold(f32::NEG_INFINITY, f32::max);
+        // A part under a thousandth of the turn cannot repeat: it paints clamped.
+        if (last - first).is_finite() && last - first >= 1.0e-3 {
+            let over_part: Vec<(f32, ColorU)> =
+                resolved.iter().map(|(t, c)| ((t - first) / (last - first), *c)).collect();
+            let lut = build_gradient_lut(&over_part, GRADIENT_LUT_MIN);
+            let turn = ConicTurn { repeat: Some((f64::from(first), f64::from(last - first))) };
+            agg_fill_gradient_clipped(pixmap, &mut path, &lut, turn, transform, 0.0, d2, clip);
+            return;
+        }
+    }
+
+    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
     agg_fill_gradient_clipped(
         pixmap,
         &mut path,
         &lut,
-        GradientConic,
+        ConicTurn { repeat: None },
         transform,
         0.0,
         d2,
         clip,
     );
+}
+
+/// The angle of a point about the gradient's centre as a part of the whole turn, from the
+/// local +x axis towards +y (after `render_conic_gradient`'s transform: from the gradient's
+/// start angle, clockwise on screen), scaled to the gradient's far end `d`. With `repeat`
+/// `(first, part)`: the angle counted from `first` and wrapped into `part` of a turn, as a
+/// fraction of that part.
+struct ConicTurn {
+    repeat: Option<(f64, f64)>,
+}
+
+impl agg_rust::span_gradient::GradientFunction for ConicTurn {
+    #[allow(clippy::cast_possible_truncation)] // 0 ..= d
+    fn calculate(&self, x: i32, y: i32, d: i32) -> i32 {
+        let mut turn = f64::from(y).atan2(f64::from(x)) / core::f64::consts::TAU;
+        if turn < 0.0 {
+            turn += 1.0;
+        }
+        let t = match self.repeat {
+            Some((first, part)) if part > 0.0 => (turn - first).rem_euclid(part) / part,
+            _ => turn,
+        };
+        (t * f64::from(d) + 0.5) as i32
+    }
 }
 
 // ============================================================================
@@ -20101,5 +20153,72 @@ mod audit_a1_tests {
         }
         let clamped = radial_gradient_picture(Shape::Circle, Size::ClosestSide, false, &[(0.0, 0), (20.0, 255)]);
         assert_eq!(grey(&clamped, 122), 255, "not repeating: white beyond the last stop");
+    }
+
+
+    /// A conic gradient about the centre of a 100 x 100 box from 12 o'clock, painted.
+    fn conic_gradient_picture(repeat: bool, stops_degrees: &[(f32, [u8; 3])]) -> AzulPixmap {
+        use azul_css::props::{
+            basic::angle::AngleValue,
+            style::background::{
+                BackgroundPositionHorizontal, BackgroundPositionVertical, ConicGradient, ExtendMode,
+                NormalizedRadialColorStop, StyleBackgroundPosition,
+            },
+        };
+        let stops: Vec<NormalizedRadialColorStop> = stops_degrees
+            .iter()
+            .map(|(degrees, rgb)| NormalizedRadialColorStop {
+                angle: AngleValue::deg(*degrees),
+                color: ColorOrSystem::Color(ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 }),
+            })
+            .collect();
+        let gradient = ConicGradient {
+            extend_mode: if repeat { ExtendMode::Repeat } else { ExtendMode::Clamp },
+            center: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            angle: AngleValue::deg(0.0),
+            stops: stops.into(),
+        };
+        let mut pm = AzulPixmap::new(100, 100).unwrap();
+        pm.fill(0, 255, 0, 255);
+        render_conic_gradient(&mut pm, &rect(0.0, 0.0, 100.0, 100.0), &gradient, &BorderRadius::default(), None, 1.0, None);
+        pm
+    }
+
+    /// A1-58 (found by A3-solver): a conic gradient runs over the whole turn. `conic-gradient(
+    /// red, blue)` on a 100 x 100 box, centre (50, 50): the pixel (90, 50), at 3 o'clock, is a
+    /// quarter of the turn: rgb(191, 0, 64); (50, 90), 6 o'clock, half: rgb(128, 0, 128);
+    /// (10, 50), 9 o'clock, three quarters: rgb(64, 0, 191). Over half a turn and mirrored
+    /// (agg's `GradientConic`) they were rgb(128, 0, 128), rgb(0, 0, 255), rgb(128, 0, 128).
+    /// Mutation: `atan2(..).abs() / PI` in `ConicTurn`.
+    #[test]
+    fn a_conic_gradient_runs_over_the_whole_turn() {
+        let pm = conic_gradient_picture(false, &[(0.0, [255, 0, 0]), (360.0, [0, 0, 255])]);
+        for ((x, y), want) in [((90, 50), [191, 0, 64]), ((50, 90), [128, 0, 128]), ((10, 50), [64, 0, 191])] {
+            let got = px(&pm, x, y);
+            assert!(
+                (0..3).all(|c| got[c].abs_diff(want[c]) <= 3) && got[3] == 255,
+                "({x}, {y}): wanted {want:?}, got {got:?}"
+            );
+        }
+    }
+
+    /// A1-59: a repeating conic gradient repeats the part of the turn between its first and
+    /// its last stop. Black at 0deg, white at 90deg: the pixels at 45, 135, 225 and 315
+    /// degrees ((80, 19), (80, 80), (19, 80), (19, 19): 45.5 .. 46 degrees into their quarter)
+    /// are all half way: grey 128. Clamped, everything past 3 o'clock was white.
+    /// Mutation: `repeat: None` for a repeating gradient.
+    #[test]
+    fn a_repeating_conic_gradient_repeats_its_part_of_the_turn() {
+        let pm = conic_gradient_picture(true, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
+        for (x, y) in [(80, 19), (80, 80), (19, 80), (19, 19)] {
+            let got = px(&pm, x, y);
+            assert!(got[0] == got[1] && got[1] == got[2], "a grey at ({x}, {y}): {got:?}");
+            assert!(got[0].abs_diff(128) <= 8, "half way into its quarter at ({x}, {y}): {got:?}");
+        }
+        let clamped = conic_gradient_picture(false, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
+        assert_eq!(px(&clamped, 80, 80), [255, 255, 255, 255], "not repeating: white past the last stop");
     }
 }
