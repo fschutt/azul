@@ -262,12 +262,36 @@ pub fn device_rects_to_present_rects(
 /// steady-state is far less). `AZ_WR_ATLAS_SIZE` overrides the large-atlas
 /// dimension: 2048 restores WR's default (for heavy scroll/zoom atlas churn),
 /// 512 gives a mobile profile. Clamped to [512, 4096] (WR requires ≥512).
+///
+/// The atlas size is also what WebRender derives its EVICTION threshold from:
+/// a third of one atlas (1.4 MB of images at 1024 px), two thirds for glyphs
+/// (0.7 MB). Above it, whatever the last frames did not draw is evicted, the
+/// harder the fuller - at 7 thresholds after two frames. A window that shows
+/// more than that (a map on a 2x display: 44 tiles of 1 MB, 1,567 halo
+/// pictures of 28 KB, 2 to 4 MB of glyphs) lost, with every frame that redrew
+/// only a part of it (a tile, a strip of a pan, a hover), the images and
+/// glyphs of the rest, and the next frame that drew all of it - the first step
+/// of a zoom - uploaded some 90 MB and rasterised every glyph again (audit
+/// A4-30). azul deletes the images its lists no longer name itself, so what is
+/// in the cache is what the window shows: it is kept up to a budget,
+/// `AZ_WR_IMAGE_BUDGET_MB` (256) and `AZ_WR_GLYPH_BUDGET_MB` (16); 0 gives
+/// WebRender's rule. A budget is a bound on what is KEPT, nothing is allocated
+/// for it.
 fn azul_texture_cache_config() -> webrender::TextureCacheConfig {
     let big = std::env::var("AZ_WR_ATLAS_SIZE")
         .ok()
         .and_then(|s| s.parse::<i32>().ok())
         .map(|v| v.clamp(512, 4096))
         .unwrap_or(1024);
+    let megabytes = |name: &str, default: usize| -> usize {
+        std::env::var(name)
+            .ok()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(default)
+            .min(1024)
+            * 1024
+            * 1024
+    };
     webrender::TextureCacheConfig {
         color8_linear_texture_size: big,
         color8_nearest_texture_size: 512,
@@ -275,6 +299,8 @@ fn azul_texture_cache_config() -> webrender::TextureCacheConfig {
         alpha8_texture_size: 512,
         alpha8_glyph_texture_size: big,
         alpha16_texture_size: 512,
+        image_budget_bytes: megabytes("AZ_WR_IMAGE_BUDGET_MB", 256),
+        glyph_budget_bytes: megabytes("AZ_WR_GLYPH_BUDGET_MB", 16),
     }
 }
 
