@@ -157,6 +157,9 @@ Audit tests with a wrong premise (blind):
   (`Unchanged`).
 
 Second round (fourth verifier; each on the coordinator's decision, the measurement in the commit and in the test):
+- `b57add4e7` dll `shell2/macos/headless_gpu.rs` (test harness, A4's): `RendererTurn`: the tests that draw with the
+  real renderer run one after the other (`webrender::azul_counters` counts for the process); the tile test that
+  was red in every parallel run of 2b's binary is green 3 of 3; no assertion changed.
 - `efa4bcf55` layout `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`
   (`55c008027`): its `NodeCss` pass of a view's document builds the list in FULL (0 runs copied, 0 translated,
   measured), so its two mutant premises (">= 40 runs translated", "the shifted list is not the built one") cannot
@@ -336,9 +339,11 @@ editor's pin moves once, after the last green merge of the round, on its word):
   and in the parallel schedule of this binary (3,884 tests, one more than before: the generated `memtest`) a
   neighbour draws during all five. Measured: whole suite in parallel 3 of 3 red (`533`, `536-1`, `536-2`); the
   test alone 5 of 5 green; with its module 3 of 3 green; the WHOLE suite with `--test-threads=1`: 3,875 / 0 / 9
-  (`537`, 217 s). It was green in the three parallel runs of the 2a tree. WITH THE COORDINATOR (proposal: every
-  test that draws with the real renderer holds one process-wide lock through `HeadlessGpu`, so the counts are
-  exact; the assertion stays).
+  (`537`, 217 s). It was green in the three parallel runs of the 2a tree. FIXED in the harness, on the
+  coordinator's decision: `b57add4e7` `RendererTurn` (one process-wide lock held by `OffscreenContext`, the context
+  every real-renderer test makes; once per thread; test code only; no assertion changed). After it the dll lib
+  in parallel three times: 3,875 / 0 / 9 ignored each (logs `541-1..3`; 72.5, 69.8, 69.6 s; before 70.0,
+  70.3 s). **2b IS GREEN at `b57add4e7`.**
 - 2c `audit/A5` at `dbde1ccf5`, 2d `audit/dom-builder` at `234ec3de2` (a second `api.json` addition: the Rust
   outputs once more): NOT merged yet.
 - At the end of the round: the Linux / Windows `cargo check`; then, on the coordinator's word, the editor's pin
