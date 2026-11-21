@@ -59,6 +59,12 @@ fn laid_out(dom: Dom) -> LayoutWindow {
 /// [`laid_out`] with the fonts of `fonts` (the system's, for a test that needs its text set).
 fn laid_out_with(dom: Dom, fonts: FcFontCache) -> LayoutWindow {
     let mut lw = LayoutWindow::new(fonts).expect("a layout window");
+    lay_out_in(&mut lw, dom);
+    lw
+}
+
+/// Lays `dom` out in `lw` and builds its display list.
+fn lay_out_in(lw: &mut LayoutWindow, dom: Dom) {
     let mut ws = FullWindowState::default();
     ws.size.dimensions = LogicalSize::new(640.0, 480.0);
     lw.current_window_state = ws.clone();
@@ -70,7 +76,6 @@ fn laid_out_with(dom: Dom, fonts: FcFontCache) -> LayoutWindow {
         &mut None,
     )
     .expect("the page lays out");
-    lw
 }
 
 /// How many entries of the DOM's tag list were read while the display list of `k` labels was
@@ -320,4 +325,34 @@ fn an_inset_is_one_number_at_rest_and_hovered_and_costs_no_lookup_beyond_the_slo
         Some(PixelValue::px(5000.25)),
         "the kept length was read: a length beyond the slot cost a cascade lookup"
     );
+}
+
+/// A3-core-10: the accessibility pass walks every exposed node of every DOM after every layout
+/// pass, read by nobody while no assistive technology is attached. A shell whose platform
+/// adapter builds its update in a closure it runs only while one is active asks for the tree on
+/// demand: a layout then only notes that a pass is due, and the pass runs when the update is
+/// asked for. Without that setting everything is as it was.
+#[cfg(feature = "a11y")]
+#[test]
+fn an_a11y_pass_on_demand_runs_when_the_update_is_asked_for() {
+    // The default: the pass runs with the layout.
+    let eager = laid_out(label_layer(50, 0));
+    assert!(eager.a11y_manager.last_pass.nodes > 50, "the default builds with the layout");
+    assert!(!eager.a11y_manager.stale);
+    assert!(eager.a11y_tree_updates >= 1);
+
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    lw.a11y_manager.on_demand = true;
+    lay_out_in(&mut lw, label_layer(50, 0));
+    assert_eq!(lw.a11y_tree_updates, 0, "no pass ran with the layout");
+    assert_eq!(lw.a11y_manager.last_pass.nodes, 0, "no node was visited");
+    assert!(lw.a11y_manager.stale, "a pass is due");
+
+    let update = lw.a11y_update_on_demand().expect("the first update");
+    assert!(update.tree.is_some(), "the whole tree");
+    assert!(update.nodes.len() > 50, "{} nodes", update.nodes.len());
+    assert!(!lw.a11y_manager.stale);
+    assert_eq!(lw.a11y_tree_updates, 1, "one pass");
+    assert!(lw.a11y_update_on_demand().is_none(), "nothing changed since");
+    assert_eq!(lw.a11y_tree_updates, 1, "and no second pass");
 }

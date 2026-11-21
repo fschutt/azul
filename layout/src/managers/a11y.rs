@@ -904,6 +904,18 @@ pub struct A11yManager {
     /// (`ScrollManager::offsets_fingerprint`). A tick that finds another
     /// fingerprint marks the tree scroll-dirty, whoever moved the offset.
     pub scroll_fingerprint: u64,
+    /// The tree is built ON DEMAND: a pass asked for
+    /// (`LayoutWindow::update_a11y_tree`, after every layout and at most
+    /// every 100 ms of scrolling) only marks the tree [`Self::stale`], and
+    /// the pass runs when the shell asks for the update
+    /// (`LayoutWindow::a11y_update_on_demand`) - which a shell does from
+    /// inside its platform adapter's `update_if_active` closure, so that it
+    /// runs only while an assistive technology reads the tree. `false`
+    /// (the default): every pass asked for runs at once, as it always did.
+    /// Only a shell whose adapter has such a closure sets it.
+    pub on_demand: bool,
+    /// A pass was asked for and not run yet ([`Self::on_demand`]).
+    pub stale: bool,
 }
 
 #[cfg(feature = "a11y")]
@@ -934,6 +946,8 @@ impl A11yManager {
             scroll_fingerprint: 0,
             retained: A11yRetainedTree::default(),
             last_pass: A11yPassStats::default(),
+            on_demand: false,
+            stale: false,
         }
     }
 

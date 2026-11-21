@@ -19628,8 +19628,40 @@ impl LayoutWindow {
     /// what changed since the last pass - a patch, or nothing at all
     /// (`A11yManager::refresh`). It used to rebuild and publish the whole
     /// tree each time: ~3 ms per frame of a tween on `AzWidgets`.
+    ///
+    /// With [`crate::managers::a11y::A11yManager::on_demand`] set it only
+    /// notes that a pass is due: the walk of every exposed node of every
+    /// DOM (12,000 labels of a map view: milliseconds per layout pass, read
+    /// by nobody while no screen reader is attached) waits for
+    /// [`Self::a11y_update_on_demand`].
     #[cfg(feature = "a11y")]
     pub fn update_a11y_tree(&mut self) {
+        if self.a11y_manager.on_demand {
+            self.a11y_manager.stale = true;
+            return;
+        }
+        self.update_a11y_tree_now();
+    }
+
+    /// The update a platform adapter is owed, for a shell that builds the
+    /// tree on demand ([`crate::managers::a11y::A11yManager::on_demand`]):
+    /// runs the pass a layout or a scroll asked for since the last call, if
+    /// any, and hands out the parked update (`None`: nothing a screen
+    /// reader can see changed). Meant to be called from inside the
+    /// adapter's `update_if_active` closure, which runs only while an
+    /// assistive technology is active.
+    #[cfg(feature = "a11y")]
+    pub fn a11y_update_on_demand(&mut self) -> Option<accesskit::TreeUpdate> {
+        if self.a11y_manager.stale {
+            self.a11y_manager.stale = false;
+            self.update_a11y_tree_now();
+        }
+        self.a11y_manager.take_pending()
+    }
+
+    /// The accessibility pass itself ([`Self::update_a11y_tree`]).
+    #[cfg(feature = "a11y")]
+    fn update_a11y_tree_now(&mut self) {
         let _p = crate::probe::Probe::span("a11y_update_tree");
         self.a11y_tree_updates = self.a11y_tree_updates.saturating_add(1);
         // This pass builds the bounds from the offsets as they are now.
@@ -19795,6 +19827,11 @@ impl LayoutWindow {
     #[cfg(feature = "a11y")]
     #[allow(clippy::cast_possible_truncation)] // bounded layout/render numeric cast
     pub fn update_a11y_tree_incremental(&mut self) {
+        if self.a11y_manager.on_demand {
+            // Built on demand: the next pass asked for finds the edit.
+            self.a11y_manager.stale = true;
+            return;
+        }
         if !self.a11y_manager.tree_initialized {
             // First time — need full tree
             return self.update_a11y_tree();
