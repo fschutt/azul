@@ -3464,6 +3464,84 @@ mod audit_diff_first_tests {
         assert_eq!(cost(8, true), (1 + 8 * 5, false, 2 + 8 * 5));
     }
 
+    /// diff-first-19: a state that hands its children a value costs no OTHER node an
+    /// inherited value. Section 1's box comes under the pointer (`.box:hover { color }`
+    /// reaches its texts): the list keeps its colour, and the link of section 0 keeps the
+    /// UA's link colour, which its text inherits - a colour that is not black and that no
+    /// rule of the page declares. First on a DOM cascaded at rest that is given the state
+    /// flag by flag (what a full rebuild under the pointer does: `let_raised_states_in`),
+    /// then as the pointer moves on to section 2 (`restyle_on_state_change`).
+    ///
+    /// Both ran the inheritance pass over the rows as they lay, after the cascade had pruned
+    /// the resting rows the compact cache holds - the UA's defaults among them - so every
+    /// node whose colour came from such a row lost it: the link read the list's colour.
+    /// Mutation: `recascade_subtrees` replaced by `compute_inherited_values` over the whole
+    /// DOM (the body `recompute_inheritance_for_states` had): the link and its text answer
+    /// the list's colour after the hover.
+    #[test]
+    fn a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits() {
+        use crate::styled_dom::HoverChange;
+
+        // Pre-order: body 0, the list 1; section 0 (with a link): box 2, heading 3 and its
+        // text 4, paragraph 5 and its text 6, the link 7 and its text 8; section 1: box 9,
+        // heading 10 and its text 11, paragraph 12 and its text 13; section 2: box 14,
+        // heading 15 and its text 16, paragraph 17 and its text 18. The texts watched are
+        // the paragraphs': a paragraph has no colour of its own (a heading wears its
+        // section's class), so its text shows what the box hands down.
+        let (list, link, link_text) = (NodeId::new(1), NodeId::new(7), NodeId::new(8));
+        let (first, first_text) = (NodeId::new(9), NodeId::new(13));
+        let (second, second_text) = (NodeId::new(14), NodeId::new(18));
+        let colour = |dom: &StyledDom, node: NodeId| {
+            let state = dom.styled_nodes.as_ref()[node.index()].styled_node_state;
+            dom.get_css_property_cache()
+                .get_property(
+                    &dom.node_data.as_ref()[node.index()],
+                    &node,
+                    &state,
+                    &CssPropertyType::TextColor,
+                )
+                .cloned()
+        };
+        let mut dom = StyledDom::create_from_dom(page(&sections(4), false, false));
+        let at_rest = [colour(&dom, list), colour(&dom, link), colour(&dom, link_text)];
+        assert!(at_rest[0].is_some(), "premise: the list has a colour of its own");
+        assert!(
+            at_rest[1].is_some() && at_rest[1] == at_rest[2],
+            "premise: the link's text inherits the link's colour ({at_rest:?})"
+        );
+        assert_ne!(at_rest[1], at_rest[0], "premise: the link's colour is the UA's, not the list's");
+        let (first_rest, second_rest) = (colour(&dom, first_text), colour(&dom, second_text));
+
+        // The state comes back after a cascade at rest, as in a full rebuild.
+        dom.styled_nodes.as_container_mut()[first].styled_node_state.hover = true;
+        dom.let_raised_states_in();
+        let hovered_text = colour(&dom, first_text);
+        assert_ne!(hovered_text, first_rest, "the hovered box hands its text its hover colour");
+        assert_eq!(
+            [colour(&dom, list), colour(&dom, link), colour(&dom, link_text)],
+            at_rest,
+            "after the state came: the list and the link (with its text) keep their colours"
+        );
+        assert_eq!(colour(&dom, second_text), second_rest, "a text beside it stays at rest");
+
+        // The pointer moves on to the next section.
+        let _ = dom.restyle_on_state_change(
+            None,
+            Some(HoverChange {
+                left_nodes: vec![first],
+                entered_nodes: vec![second],
+            }),
+            None,
+        );
+        assert_eq!(colour(&dom, first_text), first_rest, "the text the pointer left is at rest");
+        assert_eq!(colour(&dom, second_text), hovered_text, "the text it entered has the colour");
+        assert_eq!(
+            [colour(&dom, list), colour(&dom, link), colour(&dom, link_text)],
+            at_rest,
+            "after the pointer moved: the list and the link (with its text) keep their colours"
+        );
+    }
+
     /// Without a sibling rule in the sheet a changed node reaches itself and its descendants.
     #[test]
     fn a_change_reaches_the_node_and_what_is_below_it() {

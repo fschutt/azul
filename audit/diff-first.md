@@ -648,6 +648,52 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
 - severity: medium
 - status: blocked (a): the number type of the solver's output, of every display-list rect and of the rects callbacks read (`LogicalRect`): A3-solver's, A3-core's, both renderers' files, api.json and every golden
 
+### diff-first-19 a state that hands a value down cost every other node its inherited UA values
+- file:line: `core/src/styled_dom.rs` `recompute_inheritance_for_states` (f00b2a9f9, older than the audit), its
+  two callers `restyle_states` (every hover / focus / active change that moves an inheritable property) and
+  `let_raised_states_in` (diff-first-10, f589b3743: every full rebuild under such a state);
+  `core/src/prop_cache.rs` `compute_inherited_values`, `prune_compact_normal_props`
+- class: wrong-output (a value missing from `computed_values`); a real defect, and NOT the one the report read
+  into it. Found by the verifier's three "under the pointer" walks once the f32 bit no longer hid it: `style 1`
+  holds `TextColor(#000000ff)` in the diff-first window and not in the full-path window.
+- which window is right: the DIFF-FIRST one. Nothing writes an explicit black: `#000000` on the list (node 1) is
+  the root's UA text colour, INHERITED, read from `computed_values`; a DOM cascaded from scratch has it on every
+  node that declares no colour (the walks without a pointer show it in both windows). The full-path window
+  LOST it. Line 102 is the first difference because node 0, the root, answers the UA default itself.
+- cause: `recompute_inheritance_for_states` ran the inheritance pass alone over the rows as they lay. A cascade
+  prunes `cascaded_props` once the compact cache is built (the resting values with a compact encoding: the UA's
+  defaults among them), and the pass computes a node's inherited values FROM those rows. Run after the prune,
+  it rebuilt `computed_values` without every value whose declaration was a pruned row: the root's text colour
+  for the whole DOM, a link's UA colour for the link's text (the link then reads its parent's colour). The
+  compact cache, rebuilt beside it with the UA table, kept the right values.
+- seed 1, step 0 by hand (kind 2, steps [Text, Nodes]): the pointer moves over a row (`.df-row:hover { color }`
+  is inheritable, so both windows ran the pass and both lost the colour); row 1's class changes; the kept
+  window runs the whole cascade in place (no step `style`) and has every value again; the full-path window
+  cascades at rest (complete), prunes, lets the hover in and runs the pass: lost again. Steps of kind "text"
+  (exit 1.45, no cascade) left both windows equally wrong, which is why the walks with more steps fail later.
+- what it does in production: after any hover over a node whose `:hover` sets `color` (or any inheritable
+  property), and after any full rebuild under such a pointer, `get_property` answers no value (or an
+  ancestor's) for an inherited compact-encoded property on every node that takes it from the UA: under a dark
+  theme the root's light text colour is what goes missing. Text is painted from the compact cache and keeps its
+  colour; a reader that asks `get_property` for an inherited colour falls back to its own default. Which
+  readers do was not enumerated.
+- fix: the subtrees of the nodes that hand a value down are styled again by the cascade over named nodes
+  (`StyledDom::recascade_subtrees` -> `restyle_changed_nodes`, which rebuilds the ancestors' pruned rows
+  first), under the states the nodes are in; nothing else is touched. Both callers use it: the state-change
+  path names the nodes whose inheritable property moved (entered and left), `let_raised_states_in` the nodes in
+  a state that hand a value down. Where that cascade says no (a sheet with `var()`, more than half of the
+  DOM) the whole cascade runs, pruned. `recompute_inheritance_for_states` itself is that whole cascade now.
+- cost: a hover that hands a colour down cascaded nothing and rebuilt the inherited values and the compact
+  cache of EVERY node (est. n x 0.8-1.5 us: 3-5 ms at 3,500 nodes); now it cascades the two subtrees (est.
+  2-6 us per node below the hovered and the left node: 20-60 us for a row of ten nodes). With `var()` in the
+  sheet it is the whole cascade (n x 2-6 us): dearer than before, and right.
+- test: core `styled_dom_test::audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`
+  (the UA's link colour, which is not black: before the fix the link and its text answer the list's colour);
+  dll the three walks `a_rebuild_that_changed_nodes_under_the_pointer_*`,
+  `a_rebuild_that_changed_the_tree_under_the_pointer_*`, `a_rebuild_that_styled_its_changed_nodes_under_the_pointer_*`.
+- severity: medium
+- status: fixed (the commit after bf43a5e96; hash in the hand-over table)
+
 ### diff-first-18 a view that renders again has its whole list emitted, although the step `view` kept most of it
 - file:line: `layout/src/solver3/mod.rs` the patch gate (`cascade_ctx_unchanged`: `cache.last_cascade_epoch ==`
   the DOM's; `structure_ok`), `css_dirty_reemit_set`; `core/src/prop_cache.rs` `recascade_nodes` and `spliced`
@@ -1003,7 +1049,8 @@ ARENA after the flatten, never `nodes_at`.
 | diff-first-13 (a written DOM gets no clean flags; the slider) | 6c43652f1 | dll `dragging_the_slider_leaves_no_thumb_behind`, `a_style_a_callback_wrote_is_laid_out_by_the_rebuild_it_asked_for` |
 | diff-first-14 (the gate `animation`, per reached node) | 6e4391abc | dll `an_animated_node_elsewhere_does_not_send_a_rebuild_down_the_full_path`, `an_identical_rebuild_and_a_changed_text_style_no_node` |
 | diff-first-15 (a moved box is painted anew by a patched pass; `AZ_DL_TRANSLATE_MOVED_RUNS`) | 8447aa202 | layout `audit_tests::diff_first::*` (three), `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`; dll the five walks `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_the_tree_*`, `a_view_rendered_again_leaves_what_the_full_path_leaves` |
-| diff-first-15, second part (the frames of a layout tween translate and record; the last frame and every other pass paint) | `git log --grep "diff-first-15: the frames"` | layout `audit_tests::diff_first::*` (seven); `cargo test -p azul-layout --test all a_growing_ribbon` and `a_height_tween` (the two guards, not edited); layout `a_layout_tween_frame_reuses_the_tree_and_patches_the_list` |
+| diff-first-15, second part (the frames of a layout tween translate and record; the last frame and every other pass paint) | bf43a5e96 | layout `audit_tests::diff_first::*` (seven); `cargo test -p azul-layout --test all a_growing_ribbon` and `a_height_tween` (the two guards, not edited); layout `a_layout_tween_frame_reuses_the_tree_and_patches_the_list` |
+| diff-first-19 (a state that hands a value down no longer costs the DOM its inherited UA values) | `git log --grep diff-first-19` | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, the whole core suite (hover / focus restyles); dll the three `*_under_the_pointer_*` walks, `a_full_rebuild_keeps_the_hover_colour_the_hovered_row_hands_its_text` |
 | diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | 8420ec290 (`diff_test.rs`), 8e7a62d2c (`styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
 
 **The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
@@ -1033,8 +1080,15 @@ compile and wants `translated_since_painted: std::collections::BTreeSet::new()`;
 tests stand on `background-clip: content-box` painting a rect at `position + padding` and on a `NodeCss` write
 of `height` seeding a tween, as the tests of `layout/tests` do).
 
-**In flight:** nothing uncommitted beyond these notes. The checkpoint takes the tip that holds diff-first-15's
-second commit (the tween frames) and diff-first-17 (the seven core tests).
+**The verifier's run on `8e7a62d2c`** (told by the coordinator): compiled with one test-only fix
+(`styled_dom_test.rs`: `.style` moved out of a `NodeData`, which implements `Drop`: `.style.clone()`); core lib
+3,143 / 0 (all `audit_diff_first_tests` green: the cascade over a changed own style holds), layout lib 10,906 / 0,
+the slider and the plain walks green, the tests of the steps `tree` and `view` green. Red: the ribbon guard (as
+expected on `8447aa202`: fixed by bf43a5e96) and the three walks under the pointer (diff-first-19).
+
+**In flight:** diff-first-18 part 1 (the list of a view that renders again copies the runs of nodes the step
+`view` did not cascade; a step name `list` in `AZ_DIFF_FIRST`), by the coordinator's decision, for the verifier's
+second round. Not started in code. The checkpoint takes the tip that holds bf43a5e96 and diff-first-19.
 
 **Left, in the order of the coordinator's priorities, each with its design in the block named:**
 1. (done: eba4d13e4) Views, the kept exits.
