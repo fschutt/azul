@@ -17692,6 +17692,14 @@ impl LayoutWindow {
         // resolve a declared in-animation into a live track, and CATCH a
         // matching in-flight zombie so a remount reverses instead of
         // double-painting.
+        // The keys a mount is compared with the zombies' by: needed only while a zombie exists,
+        // and then for the whole tree in one pass. One `calculate_reconciliation_key` per mounted
+        // node walks its earlier siblings at each level of its chain: m mounted nodes among s
+        // siblings cost m x s steps (5,000 rows added to a list: 12 million).
+        let mount_keys: Option<Vec<u64>> = (!self.zombies.is_empty() && !pending.mounted.is_empty())
+            .then(|| {
+                azul_core::diff::precompute_reconciliation_keys(new_node_data, new_hierarchy, identity)
+            });
         for node_id in &pending.mounted {
             if node_id.index() >= new_node_data.len() {
                 continue;
@@ -17704,13 +17712,13 @@ impl LayoutWindow {
             // "structural hash is the same, another CSS diff comes in while
             // the animation is playing -> do NOT recreate the sidebar, but
             // in-flight change the zombie animation from -out to -in".
-            let mount_key =
-                azul_core::animation::AnimKey(azul_core::diff::calculate_reconciliation_key(
-                    new_node_data,
-                    new_hierarchy,
-                    *node_id,
-                    identity,
-                ));
+            // Without a zombie nothing below reads the key (the loop over them is empty).
+            let mount_key = azul_core::animation::AnimKey(
+                mount_keys
+                    .as_ref()
+                    .and_then(|keys| keys.get(node_id.index()).copied())
+                    .unwrap_or(0),
+            );
             let mut caught_track: Option<(TrackSample, AnimTrack)> = None;
             let mut caught_slide = false;
             for z in &mut self.zombies {
@@ -17789,8 +17797,11 @@ impl LayoutWindow {
         // and only the subtree's ROOT used to start one - never on the first
         // frame - so a spinner that was in the first DOM, or inside a card
         // that mounted, stood still.
+        // As a set: `pending.mounted.contains` per entered node is entered x mounted
+        // comparisons (10,000 x 5,000 for 5,000 rows added to a list).
+        let mounted: BTreeSet<NodeId> = pending.mounted.iter().copied().collect();
         for node_id in &pending.entered {
-            if self.live_tracks.contains_key(node_id) || pending.mounted.contains(node_id) {
+            if self.live_tracks.contains_key(node_id) || mounted.contains(node_id) {
                 continue;
             }
             if let Some(track) = self.declared_enter_track(dom_id, *node_id) {
