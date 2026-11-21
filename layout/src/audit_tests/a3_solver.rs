@@ -1310,6 +1310,86 @@ fn a_relatively_positioned_box_inside_an_absolute_one_is_shifted_once_per_pass()
     );
 }
 
+/// `body(0) > .a(1) > .s(2) > .k(3)`: an absolutely positioned box at (30, 100) whose child is
+/// sticky with `top: 150px` - the unscrolled window (the box's scrollport: nothing between
+/// scrolls) holds it 150 below its top edge, 50 below where the flow puts it - with a block
+/// inside.
+fn a_sticky_box_in_an_absolute_one() -> Dom {
+    Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_div()
+            .with_css("position: absolute; left: 30px; top: 100px; width: 200px; height: 300px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("position: sticky; top: 150px; height: 20px;")
+                    .with_child(Dom::create_div().with_css("width: 5px; height: 5px;")),
+            ),
+    )
+}
+
+/// A3-solver-53. The sticky shifts are applied to the positions the flow computed
+/// (`adjust_sticky_positions`), and after that the positioning pass places every absolutely
+/// positioned box and derives everything below it from the flow again
+/// (`cache::position_bfc_child_descendants`): a sticky box inside an absolutely positioned one
+/// lost its shift (as a relatively positioned one did, A3-solver-45), and the constraint kept
+/// for later scrolls was the one of the place the box had BEFORE its parent was placed.
+///
+/// Hand-computed: the box at (30, 100), no border, no padding; `.s` is its first child at the
+/// content origin (30, 100). The scrollport is the window at (0, 0), unscrolled: the edge
+/// `top: 150px` keeps is y = 150, the box's top is 100 < 150, shift 50 - inside the containing
+/// block (100 ..= 400: 150 ..= 170). `.s` stands at (30, 150), kept: flow y = 100, shift 50.
+/// Before: `.s` at (30, 100), kept: flow y = 0 and shift 150 (where the flow had the parent
+/// before its insets were solved).
+///
+/// Mutation: without the sticky step after the box is placed
+/// (`positioning::shift_sticky_descendants`), `.s` stands at (30, 100).
+#[test]
+fn a_sticky_box_inside_an_absolute_one_stands_at_its_shift_and_keeps_its_place() {
+    let mut lw = window();
+    lay_out(&mut lw, a_sticky_box_in_an_absolute_one());
+    let (a, s) = (position_of(&lw, 1), position_of(&lw, 2));
+    assert!(
+        (a.x - 30.0).abs() < 0.01 && (a.y - 100.0).abs() < 0.01,
+        "harness: the absolute box stands at its insets, ({}, {})",
+        a.x,
+        a.y
+    );
+    assert!(
+        (s.x - 30.0).abs() < 0.01 && (s.y - 150.0).abs() < 0.01,
+        "the sticky box stands at ({}, {}), not at (30, 150)",
+        s.x,
+        s.y
+    );
+    let (flow_y, shift_y) = sticky_of(&lw, 2);
+    assert!(
+        (flow_y - 100.0).abs() < 0.01 && (shift_y - 50.0).abs() < 0.01,
+        "the sticky box's kept place is {flow_y} and its baked shift {shift_y}: the flow puts \
+         it at 100 and the window holds it 50 lower"
+    );
+}
+
+/// A3-solver-53, a second pass over the same page: the shift is there once, and the kept
+/// place is still the flow's (the positions below the box are derived from the flow and
+/// shifted in every pass).
+#[test]
+fn a_sticky_box_inside_an_absolute_one_is_shifted_once_per_pass() {
+    let mut lw = window();
+    lay_out(&mut lw, with_a_paragraph(a_sticky_box_in_an_absolute_one(), "one"));
+    lay_out(&mut lw, with_a_paragraph(a_sticky_box_in_an_absolute_one(), "another"));
+    let s = position_of(&lw, 2);
+    assert!(
+        (s.x - 30.0).abs() < 0.01 && (s.y - 150.0).abs() < 0.01,
+        "after a second pass the sticky box stands at ({}, {}), not at (30, 150)",
+        s.x,
+        s.y
+    );
+    let (flow_y, shift_y) = sticky_of(&lw, 2);
+    assert!(
+        (flow_y - 100.0).abs() < 0.01 && (shift_y - 50.0).abs() < 0.01,
+        "after a second pass the sticky box's kept place is {flow_y} and its baked shift \
+         {shift_y}, not 100 and 50"
+    );
+}
+
 /// A3-solver-46. The positioning pass reads a box's static position from its slot of the
 /// position vector and writes the box's final position into the same slot. A pass that does not
 /// derive that slot from the flow again (an incremental pass that lays out another subtree)
