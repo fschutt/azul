@@ -579,6 +579,7 @@ impl Scan<'_> {
                             &moved(&frame.extent, now),
                             self.dpi_factor,
                             now_clip,
+                            self.frame_px,
                         );
                         let under = self.clip_box(now_clip);
                         let lands = match LayerMatrix::of(&g.matrix) {

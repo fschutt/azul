@@ -1476,12 +1476,14 @@ impl ReferenceFrameGroup {
             height,
             matrix,
             outer_clip,
+            windowed: _,
         } = GroupGeometry::of(
             m,
             bounds,
             extent,
             dpi_factor,
             clip_stack.last().copied().flatten(),
+            below,
         );
         // Of the group's box, only the part that can land in the pixels below is painted: the
         // clip around the push, mapped back through the matrix (and the walk culls the items
@@ -1636,12 +1638,19 @@ pub(crate) struct GroupGeometry {
     pub(crate) matrix: Mat3,
     /// The clip open around the push, device pixels of the surface below, half-open.
     pub(crate) outer_clip: Option<(i32, i32, i32, i32)>,
+    /// The frame paints more than a surface holds ([`MAX_TRANSFORM_GROUP_SIDE`] on a side) and
+    /// the box is the WINDOW of its extent that can land under the clip, not the extent from
+    /// its corner: where the box lies depends on the clip then, so its surface is not one to
+    /// keep for another frame (`retained_candidate`: a kept surface's key holds its size and
+    /// its phase, not its place in the extent).
+    pub(crate) windowed: bool,
 }
 
 impl GroupGeometry {
     /// The geometry of the group of the frame whose live matrix is `m`, around content laid
     /// out in `bounds` and painting `extent` (both device-logical: already moved by the scroll
-    /// frames around the push), under `clip` (the innermost clip of the walk, device px).
+    /// frames around the push), under `clip` (the innermost clip of the walk, device px) on a
+    /// surface of `below` pixels.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // bounded pixel box
     pub(crate) fn of(
         m: &[[f32; 4]; 4],
@@ -1649,15 +1658,14 @@ impl GroupGeometry {
         extent: &LogicalRect,
         dpi_factor: f32,
         clip: Option<AzRect>,
+        below: (u32, u32),
     ) -> Self {
         // The surface covers what the frame paints, not only its box: a
         // shadow or an overflowing child turns with the frame.
-        let x = (extent.origin.x * dpi_factor).floor() as i32;
-        let y = (extent.origin.y * dpi_factor).floor() as i32;
-        let x1 = ((extent.origin.x + extent.size.width) * dpi_factor).ceil() as i32;
-        let y1 = ((extent.origin.y + extent.size.height) * dpi_factor).ceil() as i32;
-        let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
-        let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+        let mut x = (extent.origin.x * dpi_factor).floor() as i32;
+        let mut y = (extent.origin.y * dpi_factor).floor() as i32;
+        let mut x1 = ((extent.origin.x + extent.size.width) * dpi_factor).ceil() as i32;
+        let mut y1 = ((extent.origin.y + extent.size.height) * dpi_factor).ceil() as i32;
 
         // The pixels the group may land on are the pixels a direct paint under the same
         // clip may write (`AzRect::pixel_box`): rounded to the nearest edge instead, a group
@@ -1673,6 +1681,35 @@ impl GroupGeometry {
             f64::from(bounds.origin.x) * dpi,
             f64::from(bounds.origin.y) * dpi,
         );
+
+        // AN EXTENT LARGER THAN A SURFACE: THE WINDOW OF IT THAT CAN LAND. A side is cut to
+        // `MAX_TRANSFORM_GROUP_SIDE`, and cut from the extent's CORNER the surface was the
+        // first 16,384 px of whatever the frame paints, wherever the view was: a scaled frame
+        // with one child parked 100,000 px away (a map's picture and its hover highlight) had
+        // its surface at -100,000 .. -83,616, nothing of it landed, and the frame - the whole
+        // map - was stepped over as "lands nowhere" at every zoom step; a frame over a long
+        // page painted the page's first 16,384 px only. On such an axis the box is the clip
+        // taken back through the frame's matrix (the bounding box of its four corners,
+        // outward, and the margin the walk paints past what lands), inside the extent. An
+        // axis that fits is as it was, and so is every frame that fits on both: nothing of
+        // their geometry depends on the clip.
+        let oversized = |lo: i32, hi: i32| hi.saturating_sub(lo) > MAX_TRANSFORM_GROUP_SIDE;
+        let mut windowed = false;
+        if oversized(x, x1) || oversized(y, y1) {
+            if let Some((bx0, by0, bx1, by1)) = clip_before_matrix(m, (ox, oy), dpi, outer_clip, below) {
+                windowed = true;
+                if oversized(x, x1) {
+                    x = bx0.clamp(x, x1);
+                    x1 = bx1.clamp(x, x1);
+                }
+                if oversized(y, y1) {
+                    y = by0.clamp(y, y1);
+                    y1 = by1.clamp(y, y1);
+                }
+            }
+        }
+        let width = x1.saturating_sub(x).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
+        let height = y1.saturating_sub(y).clamp(0, MAX_TRANSFORM_GROUP_SIDE) as u32;
         let layer_h: Mat3 = [
             f64::from(m[0][0]),
             f64::from(m[1][0]),
@@ -1698,8 +1735,68 @@ impl GroupGeometry {
             height,
             matrix,
             outer_clip,
+            windowed,
         }
     }
+}
+
+/// The pixels of the surface below that a paint under `outer` can write (`outer` cut to the
+/// `below` pixels of that surface; all of them without a clip), taken BACK through the device
+/// matrix of a frame - `p' = o + A (p - o) + t` with `A` the 2 x 2 part of `m` and `t` its
+/// translation in device pixels - as a box of the frame's own device pixels, half-open: the
+/// bounding box of the four corners, the near edges floored and the far edges ceiled, widened
+/// by [`GROUP_VISIBLE_MARGIN`] (what the walk paints past the part that lands) and two more
+/// pixels for the taps of the composite. `None` when the matrix has a perspective part or
+/// cannot be inverted, and for a clip that holds no pixel: there is no such box.
+#[allow(clippy::cast_possible_truncation, clippy::many_single_char_names)]
+fn clip_before_matrix(
+    m: &[[f32; 4]; 4],
+    (ox, oy): (f64, f64),
+    dpi: f64,
+    outer: Option<(i32, i32, i32, i32)>,
+    below: (u32, u32),
+) -> Option<(i32, i32, i32, i32)> {
+    if m[0][3] != 0.0 || m[1][3] != 0.0 || m[3][3] != 1.0 {
+        return None;
+    }
+    let (a, b, c, d) = (f64::from(m[0][0]), f64::from(m[1][0]), f64::from(m[0][1]), f64::from(m[1][1]));
+    let (tx, ty) = (f64::from(m[3][0]) * dpi, f64::from(m[3][1]) * dpi);
+    let det = a * d - b * c;
+    if !det.is_finite() || det.abs() < 1e-9 || ![tx, ty, ox, oy].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let (below_w, below_h) = (i32::try_from(below.0).unwrap_or(i32::MAX), i32::try_from(below.1).unwrap_or(i32::MAX));
+    let (cx0, cy0, cx1, cy1) = match outer {
+        Some((x0, y0, x1, y1)) => (x0.max(0), y0.max(0), x1.min(below_w), y1.min(below_h)),
+        None => (0, 0, below_w, below_h),
+    };
+    if cx1 <= cx0 || cy1 <= cy0 {
+        return None;
+    }
+    let back = |px: i32, py: i32| {
+        let (u, v) = (f64::from(px) - ox - tx, f64::from(py) - oy - ty);
+        (ox + (d * u - b * v) / det, oy + (-c * u + a * v) / det)
+    };
+    let corners = [back(cx0, cy0), back(cx1, cy0), back(cx1, cy1), back(cx0, cy1)];
+    let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
+    let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (px, py) in corners {
+        x0 = x0.min(px);
+        y0 = y0.min(py);
+        x1 = x1.max(px);
+        y1 = y1.max(py);
+    }
+    if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let margin = f64::from(GROUP_VISIBLE_MARGIN + 2);
+    let px = |v: f64| v.clamp(-1.0e9, 1.0e9) as i32;
+    Some((
+        px((x0 - margin).floor()),
+        px((y0 - margin).floor()),
+        px((x1 + margin).ceil()),
+        px((y1 + margin).ceil()),
+    ))
 }
 
 impl TransformGroup {
@@ -3624,7 +3721,13 @@ fn retained_candidate(
         &on_surface(&frame.extent),
         dpi_factor,
         clip,
+        below,
     );
+    // A window of an extent larger than a surface lies where the clip is: not a picture to
+    // meet again under another clip by a key that does not say where it lies.
+    if g.windowed {
+        return None;
+    }
     let px = u64::from(g.width) * u64::from(g.height);
     if px < super::retained::MIN_SURFACE_PX || !retained.can_keep((px as usize).saturating_mul(4)) {
         return None;
@@ -4816,6 +4919,7 @@ fn frame_paints_nothing(
             &on_surface(&frame.extent),
             dpi_factor,
             clip,
+            below,
         );
         let part = group_visible_part(&g.matrix, g.outer_clip, below, (g.width, g.height));
         let lands =
@@ -18850,7 +18954,8 @@ mod audit_a1_tests {
     fn the_geometry_of_a_group_is_its_device_box_and_the_matrix_about_its_origin() {
         let b = rect(10.0, 20.0, 40.0, 30.0);
         let clip = AzRect::from_xywh(4.0, 6.0, 300.0, 200.0);
-        let g = GroupGeometry::of(&scale_then_move(2.0, 5.0, 0.0), &b, &b, 2.0, clip);
+        let g = GroupGeometry::of(&scale_then_move(2.0, 5.0, 0.0), &b, &b, 2.0, clip, (400, 300));
+        assert!(!g.windowed, "an extent that fits a surface is taken whole");
         assert_eq!((g.x, g.y, g.width, g.height), (20, 40, 80, 60));
         assert_eq!(g.outer_clip, Some((4, 6, 304, 206)));
         let land = |sx: f64, sy: f64| {
@@ -22151,4 +22256,193 @@ mod audit_a1_tests {
         bare.text_ink.clear();
         assert!(wrong(&repaint(&bare)).0 > 0, "harness: the estimate does not reach the strip");
     }
+
+    // ---- an extent larger than a surface (verifier, 2026-11-21) -------------------------------
+
+    /// A frame that paints more than a surface holds (16,384 px on a side) gets the WINDOW of
+    /// its extent that can land under the clip, not the extent's first 16,384 px.
+    ///
+    /// Hand-computed, the case the map editor met: a view of 1230 x 762 px at DPI 1, its
+    /// picture scaled by 1.25 and moved by (-147.5, -90.5) (a zoom step around the pointer),
+    /// painting x in [-100,000, 1,486) and y in [-100,000, 1,018): its ground, and one child
+    /// parked 100,000 px up and left. Before: the box was x -100,000 .. -83,616, which lands at
+    /// 1.25 x - 147.5 = -125,147.5 .. -104,667.5: nowhere, and the whole picture was stepped
+    /// over. Now: the clip taken back, x = (x' + 147.5) / 1.25 = 118 .. 1,102 and
+    /// y = (y' + 90.5) / 1.25 = 72.4 .. 682, 66 px wider and outward: x 52 .. 1,168,
+    /// y 6 .. 748: the box (52, 6) 1,116 x 742. Group pixel (0, 0) lands at
+    /// (1.25 * 52 - 147.5, 1.25 * 6 - 90.5) = (-82.5, -83), and the part of the surface that
+    /// can land is the clip back in group pixels, (0 + 82.5) / 1.25 = 66 .. 1,050 and
+    /// (0 + 83) / 1.25 = 66.4 .. 676, with the walk's 64 px: (2, 2) .. (1,114, 740).
+    ///
+    /// An axis that fits is taken whole: a page of 300 x 40,000 px scaled by 2 under a
+    /// 400 x 300 clip keeps x 0 .. 300; at its top y is 0 .. (150 + 66) = 216, moved by
+    /// -79,400 (its end) y = (y' + 79,400) / 2 = 39,700 .. 39,850, with the margin
+    /// 39,634 .. 39,916: 282 rows.
+    /// Mutation: the clamp from the extent's corner gives (-100,000, -100,000) 16,384 x 16,384
+    /// and an empty visible part.
+    #[test]
+    fn an_extent_larger_than_a_surface_is_the_window_of_it_under_the_clip() {
+        let m = scale_then_move(1.25, -147.5, -90.5);
+        let bounds = rect(0.0, 0.0, 1230.0, 762.0);
+        let extent = rect(-100_000.0, -100_000.0, 101_486.0, 101_018.0);
+        let clip = AzRect::from_xywh(0.0, 0.0, 1230.0, 762.0);
+        let g = GroupGeometry::of(&m, &bounds, &extent, 1.0, clip, (1230, 762));
+        assert!(g.windowed);
+        assert_eq!((g.x, g.y, g.width, g.height), (52, 6, 1116, 742));
+        let land = |g: &GroupGeometry, sx: f64, sy: f64| {
+            (
+                g.matrix[0] * sx + g.matrix[1] * sy + g.matrix[2],
+                g.matrix[3] * sx + g.matrix[4] * sy + g.matrix[5],
+            )
+        };
+        assert_eq!(land(&g, 0.0, 0.0), (-82.5, -83.0));
+        assert_eq!(
+            group_visible_part(&g.matrix, g.outer_clip, (1230, 762), (g.width, g.height)),
+            Some((2, 2, 1114, 740))
+        );
+        // No clip is open: what can land is the surface below.
+        let unclipped = GroupGeometry::of(&m, &bounds, &extent, 1.0, None, (1230, 762));
+        assert_eq!((unclipped.x, unclipped.y, unclipped.width, unclipped.height), (52, 6, 1116, 742));
+        // A band of the frame (rows 381 .. 762): its own rows, (381 + 90.5) / 1.25 = 377.2 ..
+        // 682, with the margin 311 .. 748; the columns are the frame's.
+        let band = GroupGeometry::of(&m, &bounds, &extent, 1.0, AzRect::from_xywh(0.0, 381.0, 1230.0, 381.0), (1230, 762));
+        assert_eq!((band.x, band.y, band.width, band.height), (52, 311, 1116, 437));
+
+        // One axis: the long page.
+        let page = rect(0.0, 0.0, 300.0, 40_000.0);
+        let window = AzRect::from_xywh(0.0, 0.0, 400.0, 300.0);
+        let top = GroupGeometry::of(&scale_then_move(2.0, 0.0, 0.0), &page, &page, 1.0, window, (400, 300));
+        assert!(top.windowed);
+        assert_eq!((top.x, top.y, top.width, top.height), (0, 0, 300, 216));
+        let end = GroupGeometry::of(&scale_then_move(2.0, 0.0, -79_400.0), &page, &page, 1.0, window, (400, 300));
+        assert_eq!((end.x, end.y, end.width, end.height), (0, 39_634, 300, 282));
+        assert_eq!(land(&end, 0.0, 0.0), (0.0, -132.0), "2 * 39,634 - 79,400");
+
+        // Nothing of the extent is under the clip: an empty box, which lands nowhere.
+        let away = GroupGeometry::of(&scale_then_move(2.0, 0.0, 5_000.0), &page, &page, 1.0, window, (400, 300));
+        assert_eq!(away.height, 0, "y' = 2 y + 5,000 is below the clip for every row of the page");
+        // A matrix that cannot be taken back: the box is from the corner, as before.
+        let flat = GroupGeometry::of(&scale_then_move(0.0, 0.0, 0.0), &bounds, &extent, 1.0, clip, (1230, 762));
+        assert!(!flat.windowed);
+        assert_eq!((flat.x, flat.width), (-100_000, 16_384));
+    }
+
+    /// The picture of a frame with a child far away is the picture of the frame without it: a
+    /// scaled frame and a turned one, in one pass and in the bands of a full repaint.
+    /// Mutation: with the surface cut from the extent's corner the frame lands nowhere
+    /// (`groups_empty 1`, `groups_opened 0`) and the target stays white.
+    #[test]
+    fn a_frame_with_a_child_far_away_paints_what_the_frame_without_it_paints() {
+        let scene = |far: bool, m: [[f32; 4]; 4]| {
+            let mut inner = vec![
+                fill(-256.0, -256.0, 1742.0, 1274.0, [47, 49, 54]),
+                fill(100.0, 100.0, 200.0, 100.0, [255, 0, 0]),
+                fill(900.0, 500.0, 120.0, 80.0, [0, 0, 255]),
+            ];
+            if far {
+                inner.insert(1, fill(-100_000.0, -100_000.0, 1.0, 1.0, [0, 255, 0]));
+            }
+            list(frame(1, m, (1230.0, 762.0), inner))
+        };
+        for (what, m) in [
+            ("scaled", scale_then_move(1.25, -147.5, -90.5)),
+            ("turned", turn_scale_move(20.0, 1.25, 150.0, -90.5)),
+        ] {
+            let state = CpuRenderState::new(ScrollOffsetMap::new());
+            let (with_far, counted) = full(&scene(true, m), &state, (1230, 762));
+            let (without, counted_without) = full(&scene(false, m), &state, (1230, 762));
+            assert_eq!((counted_without.groups_opened, counted_without.groups_empty), (1, 0), "{what}: premise: {counted_without:?}");
+            assert_eq!((counted.groups_opened, counted.groups_empty), (1, 0), "{what}: the frame lands: {counted:?}");
+            assert!(with_far.data() == without.data(), "{what}: the far child changes no pixel");
+            // In the bands of a full repaint.
+            let (rr, fm) = (RendererResources::default(), empty_font_manager());
+            let mut banded = AzulPixmap::new(1230, 762).unwrap();
+            banded.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            let in_bands = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(4);
+            render_display_list_whole(&scene(true, m), &mut banded, 1.0, &rr, &fm, &mut gc, &in_bands).unwrap();
+            assert_eq!(differing_pixels(&banded, &without), 0, "{what}: in bands");
+        }
+        // The scaled picture itself: the red box (100, 100) 200 x 100 lands at
+        // x 1.25 * 100 - 147.5 = -22.5 .. 227.5, y 1.25 * 100 - 90.5 = 34.5 .. 159.5; the
+        // ground everywhere else.
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let (picture, _) = full(&scene(true, scale_then_move(1.25, -147.5, -90.5)), &state, (1230, 762));
+        assert_eq!(px(&picture, 100, 100), [255, 0, 0, 255]);
+        assert_eq!(px(&picture, 600, 300), [47, 49, 54, 255]);
+    }
+
+    /// A frame over a page longer than a surface paints the page at both its ends: a page of
+    /// 300 x 40,000 px scaled by 2 in a 400 x 300 frame. At the top the red box (10, 20)
+    /// 50 x 30 is at x 20 .. 120, y 40 .. 100; moved by -79,400 the blue box (10, 39,800)
+    /// 50 x 30 is at y 2 * 39,800 - 79,400 = 200 .. 260. The surface is the window: 300 x 216
+    /// and 300 x 282 px, not 300 x 16,384.
+    /// Mutation: cut from the corner, the surface of the moved page is rows 0 .. 16,384, which
+    /// land at -79,400 .. -46,632: the frame stays white.
+    #[test]
+    fn a_frame_over_a_page_longer_than_a_surface_paints_both_ends_of_the_page() {
+        let page = |ty: f32| {
+            list(frame(
+                1,
+                scale_then_move(2.0, 0.0, ty),
+                (300.0, 40_000.0),
+                vec![
+                    fill(0.0, 0.0, 300.0, 40_000.0, [240, 240, 240]),
+                    fill(10.0, 20.0, 50.0, 30.0, [255, 0, 0]),
+                    fill(10.0, 39_800.0, 50.0, 30.0, [0, 0, 255]),
+                ],
+            ))
+        };
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let (top, counted_top) = full(&page(0.0), &state, (400, 300));
+        assert_eq!(px(&top, 60, 70), [255, 0, 0, 255]);
+        assert_eq!(px(&top, 300, 200), [240, 240, 240, 255]);
+        assert_eq!((counted_top.groups_opened, counted_top.group_px), (1, 300 * 216), "{counted_top:?}");
+        let (end, counted_end) = full(&page(-79_400.0), &state, (400, 300));
+        assert_eq!(px(&end, 60, 230), [0, 0, 255, 255]);
+        assert_eq!(px(&end, 300, 100), [240, 240, 240, 255]);
+        assert_eq!((counted_end.groups_opened, counted_end.groups_empty, counted_end.group_px), (1, 0, 300 * 282), "{counted_end:?}");
+    }
+
+    /// The window of an oversized frame is not a surface to keep: where it lies in the extent
+    /// follows the clip, and a kept surface's key holds its size and its phase only. The same
+    /// frame without the far child fits a surface and is kept.
+    /// Mutation: without the `windowed` test in `retained_candidate` the window is kept (one
+    /// surface, a miss counted) under a key the next clip's window can match.
+    #[test]
+    fn the_window_of_an_oversized_frame_is_not_kept() {
+        let m = scale_then_move(1.25, -147.5, -90.5);
+        let paint = |far: bool| {
+            let mut inner = vec![
+                fill(-256.0, -256.0, 1742.0, 1274.0, [47, 49, 54]),
+                fill(100.0, 100.0, 200.0, 100.0, [255, 0, 0]),
+            ];
+            if far {
+                inner.push(fill(-100_000.0, -100_000.0, 1.0, 1.0, [0, 255, 0]));
+            }
+            let dl = Arc::new(list(frame(1, m, (1230.0, 762.0), inner)));
+            let retained = Arc::new(RetainedFrames::with_max_bytes(64 << 20));
+            let state = CpuRenderState::new(ScrollOffsetMap::new())
+                .with_root_display_list(Arc::clone(&dl))
+                .with_retained_frames(Arc::clone(&retained));
+            let (rr, fm) = (RendererResources::default(), empty_font_manager());
+            let mut pm = AzulPixmap::new(1230, 762).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            retained.begin_frame(&[Arc::as_ptr(&dl) as usize]);
+            crate::cpu_counters::reset();
+            render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &[rect(0.0, 0.0, 1230.0, 762.0)]).unwrap();
+            retained.commit();
+            (retained.len(), crate::cpu_counters::take(), pm)
+        };
+        let (kept, counted, plain) = paint(false);
+        assert_eq!(kept, 1, "premise: the frame that fits a surface is kept: {counted:?}");
+        assert!(counted.retained_misses >= 1, "premise: {counted:?}");
+        let (kept, counted, windowed) = paint(true);
+        assert_eq!(kept, 0, "the window is not kept: {counted:?}");
+        assert_eq!((counted.retained_hits, counted.retained_misses), (0, 0), "{counted:?}");
+        assert!(counted.groups_opened >= 1 && counted.groups_empty == 0, "and it is painted: {counted:?}");
+        assert!(windowed.data() == plain.data(), "the same picture");
+    }
+
 }
