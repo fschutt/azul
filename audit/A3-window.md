@@ -19,6 +19,16 @@ Functions this area rewrote or restructured (final state):
 - `dll/src/desktop/shell2/common/event.rs`: `repaint_restyled_nodes` (new), the paint branch of
   `apply_hover_restyle` and `apply_active_restyle`, the test module of the state restyles.
 
+Round 4 (as owner of A3-core's files for the diff-first task, by the coordinator's word):
+- `core/src/diff.rs`: `fingerprint_dom` (the text tier), `DomFingerprints::text_shapes`, new `texts_alone_changed`,
+  `nodes_at`, `fresh_texts_are_adoptable`, `adopt_fresh_texts`.
+- `dll/src/desktop/shell2/common/layout.rs`: `regenerate_layout` (the spans, step 1.45, the exit of the pre-cascade
+  skip), `apply_runtime_states_before_layout` split into `raise_runtime_states` + the cascade.
+- `layout/src/window.rs`: `begin_reconciliation` (the first rects, the matched flags, the spans),
+  `diff_first_enabled`, `set_diff_first_on_this_thread`, `styled_dom_declares_a_move`.
+- Tests added inside `dll/.../headless/mod.rs` `mod tests` (they need its private harness) and one struct literal
+  completed in `layout/src/audit_tests/a9.rs` (`DomFingerprints` gained a field).
+
 Minimal patches in files of other areas (a few lines each, none inside a claimed function):
 
 - A3-core: `core/src/animation.rs` `anim_keys_for_moves` (body), `layout/src/solver3/display_list.rs` (one line:
@@ -244,6 +254,129 @@ compares per node), the rest of 22 (it runs after the pass has drained its spans
 `create_from_dom_inheriting` (azul-core has no `Probe`: the cascade is one span, `regen_style_user_dom`).
 Read the print with this in mind: a pass drains the spans closed BEFORE its own end, so 23 and 24 show with the
 next pass, and exit A (no layout pass) shows with the next pass that lays out.
+
+## The diff-first pipeline
+
+The user's directive (2026-11-21): the diff runs as early as possible and every later stage works only for what it
+names; no copies. What is BUILT is step 1 (and A3-window-14, -46 on the way). Steps 2-7 are the design, complete
+enough to implement from; they are `blocked (a)` in the ledger's words (block A3-window-48) because the styling
+tables they touch (`core/src/prop_cache.rs`, 6.9k lines, and the compact cache in `css/`) were not read in full by
+this session and a remap of them cannot be proven by reading the half of it.
+Switch for everything built here: `AZ_DIFF_FIRST=0` turns the path off (default on); a test picks a path for its
+own thread with `azul_layout::window::set_diff_first_on_this_thread`.
+
+**What "unchanged" means.** The early diff is `fingerprint_dom` (`core/src/diff.rs`), one pre-order walk of the
+fresh `Dom` BEFORE anything is styled. Per node it gives `structure` (every compared field of the node table
+`layout_inputs::NodeField`: type and text, handlers' events, flags, attributes / ids / classes, SVG data, menus,
+key, and the child count), `style` (the inline style and the sheets attached to the node) and, for a text,
+`text_shapes` (its structure without the characters). A NODE is unchanged when its `structure` and `style` equal
+those of the node at the same pre-order index of the build before. A SUBTREE is unchanged when every node of it
+is (the child counts are in the hashes, so equal hashes in pre-order are the same tree). What a build KEEPS for
+the next one is these vectors: 16 bytes per node, 16 per text. No copy of the DOM: the retained `StyledDom` is the
+previous build.
+
+**Step 1, built (A3-window-47): texts.** Same tree, same nodes, same styles, texts differ: the cascade is kept,
+the texts are written onto the retained arena, the solver gets the diff. Proof and gates: the block and the commit.
+
+**Step 2: own styles.** Split the `style` tier into `inline` (the node's own `NodeData::style`) and `sheets` (what
+`Dom::with_css` / `with_component_css` attached). A rebuild with equal `structure` and equal `sheets` everywhere
+and `inline` differing at k nodes is k times `set_node_style`: write the k styles onto the retained arena, run the
+cascade's TAIL once (`StyledDom::recascade_ua_inheritance_and_compact`: no selector is matched, because no
+selector reads an inline style), stage css dirt for the k nodes from `LayoutWindow::changed_declaration_keys`
+(old style, new style), run the CSS diff of `begin_reconciliation` for the k nodes only (its inner loop is per
+pair; a node whose OLD cascade declares `animation` takes the full path, as in step 1). A change that only moves
+insets or a transform value is `INLINE_STYLE_INSETS` / `INLINE_STYLE_PAINT` for the solver already (A3-window-08,
+-40). This is the settle of a map view whose labels moved, in `reconcile_rematerialized_child` (the child's
+fingerprints are kept in `child_dom_fingerprints` and compared at `reclaim_unchanged_child`: the same three exits
+belong there). Sound for the reason step 1 is: the tree and every matching input are unchanged.
+
+**Step 3: the early pairing.** For a rebuild that adds, removes or moves nodes, `fingerprint_dom` also records per
+node `subtree_len: u32` and `subtree_hash: u64` (fold of the node's two hashes and its children's subtree hashes,
+computed on the way back up the same walk). `diff::pair_builds(prev, next) -> EarlyPairing { old_of_new:
+Vec<u32> (u32::MAX = new), clean: Vec<bool> }`: walk both trees top-down from the roots; two paired nodes pair
+their children by (1) the explicit key / id where the fingerprint carries one (add `key: Vec<u64>`, 0 = none), (2)
+equal `subtree_hash` in order (the queue per hash that `ShallowTiers` uses, A3-window-01), (3) position among the
+unpaired of equal `structure`; an unpaired child is new, an old child left over is gone. A pair with equal
+`subtree_hash` is paired through WITHOUT descending (`old_of_new[n + i] = o + i` for `i < subtree_len`): this is
+what makes the pairing O(changed + siblings of changed), and `clean[n + i]` is true for those. This replaces
+`reconcile_dom` on the rebuild path (its three `BTreeMap`s of n and its node hashes) and its result is the
+`NodeMove` list every later stage already takes.
+
+**Step 4: styling only what the pairing does not prove clean.** The unit of reuse is a CLEAN SUBTREE: its root R
+is paired with O, `subtree_hash(R) == subtree_hash(O)`, and
+- (a) every ancestor of R is paired with the corresponding ancestor of O and is itself an unchanged node (not its
+  subtree): the chain a descendant or child combinator reads, and the sheets in scope (an attached sheet is in its
+  node's `style`), are what they were;
+- (b) for R and for each of its ancestors A: the child list of A's parent has the same length as before and the
+  sibling at each index is an unchanged NODE paired with the sibling at that index (so `+`, `~`, `:nth-child`,
+  `:nth-last-child`, `:first-child`, `:last-child`, `:only-child` read the same; `:empty` is the child count,
+  which is in `structure`). When the sheets in scope use none of these (one flag per sheet set, computed where
+  the sheet is parsed: `style.rs` already walks every selector for `left_state_mask`), (b) is not asked: this is
+  the case that makes a panel appended to a container cost its own nodes only;
+- (c) the dynamic-selector context, the app theme, the rice generation and the window's sheets are the ones of the
+  build before (else: the full cascade, as today);
+- (d) the inherited inputs of R are equal: after R's parent P is styled (reused or cascaded), the ids of P's
+  inherited values and of its custom-property environment equal the old parent's (`InheritedIds`, A3-window-31,
+  compares exactly that);
+- (e) no rule with a state left of its subject can read a raised state on the chain or the siblings of (a) / (b)
+  that differs from the state the old rows were cascaded under (`left_state_mask` and the states of those nodes:
+  with the pairing the hover / focus node ids are mapped BEFORE the cascade, so the states are written first and
+  the cascade runs ONCE under them: stage 14's second cascade ends here).
+Proof that the rows are equal: matching a node X of the subtree reads X, its ancestors and the earlier siblings
+(and sibling counts) of X and of each ancestor. Inside the subtree these are equal by the subtree hash; from R
+upward by (a) and (b); the rules and their order by (a) and (c); the states by (e). So X matches the same rules in
+the same order. Inherited values flow from the parent: equal for R by (d), for the nodes below by induction. The
+UA row and the compact row are functions of the node's type and of its cascaded and inherited values. Hence
+every per-node row of X equals the row of its partner. The work: `CssPropertyCache::adopt_rows(&old, old_root,
+new_root, len)` copies, for `len` consecutive nodes, the row of every per-node table (`cascaded_props`,
+`css_props`, the node's entries of `computed_values`, the compact cache's tiers, `resolved_inline`,
+`custom_property_envs`, the resolved font size and font hash, the env-reader entry) and `StyledDom` copies
+`styled_nodes`, the tag id (KEPT, so the hit-test ids of unchanged nodes survive) and `cascade_info`; the cascade
+then runs with a skip mask over the reused nodes (`restyle` takes `skip: &[bool]`; inheritance starts at the
+parents of the unskipped). Counters for the count tests: `MATCH_ATTEMPTS` (`style.rs`) and
+`compact_cache_rebuilds_on_this_thread` exist; add `ROWS_ADOPTED`.
+
+**Step 5: state transfer and the managers from the pairing, without the arena copy.** With steps 1-4 the
+"layout equivalent" exit (stage 15) is decided by the early diff, so nothing needs the OLD arena whole after the
+pairing: `transfer_states` takes the retained arena in place and the fresh nodes as they are flattened;
+`PendingReconciliation::old_node_data` shrinks to the unmatched old nodes that have a handler (the unmount and
+lost-focus queues read nothing else: `layout.rs` 1217, 1258); `remap_node_ids` runs only when `old_of_new` is not
+the identity. The deep copy of A3-window-14 goes with it.
+
+**Step 6: layout.** The solver takes `dom_diff_clean` today only when the node count is unchanged. With the
+pairing: `clean` is indexed by NEW ids and `LayoutCache::dom_pairing` (it exists: `remap_node_ids` fills it) is
+the pairing itself, so `reconcile_and_invalidate_restyled` fingerprints only the nodes that are not clean
+whatever the count. One source of truth: the solver's `NodeDataFingerprint` stays for the DIRTY nodes (it
+classifies how far a change reaches); for clean nodes nothing is hashed a second time.
+
+**Step 7: the display list.** `PatchState` splices the kept list's runs for nodes whose layout index and box are
+unchanged, and is refused when the tree's node count changed (`last_reconcile_structure_preserved`). With the
+pairing the old layout index of a clean node is known (`dom_to_layout` of the old tree through `old_of_new`), so
+the builder copies the run of a clean SUBTREE whose boxes did not move (`translate_item` for one that moved as a
+whole) and emits only for the rest: 500 new nodes emit 500 nodes' items. The list is still a new allocation when
+anything changed; an identical rebuild keeps the allocation already (exit A). The renderers then skip by item
+identity inside the list, which is A1's and A4's (retained tiles; `SetDisplayList` per pipeline).
+
+**Order of work and tests.** 2, 3 (alone: an equality test against `reconcile_dom`'s `node_moves` for random
+mutations; it changes no behaviour until a stage reads it), 6, 5, 7, 4 last (the largest). The equality harness
+exists: `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves` (two windows, one per path, a
+seeded mutation loop, dumps compared after every rebuild); extend its mutation kinds (a class, a row added or
+taken are in it and take the full path today; add a moved node, a replaced subtree, a sheet, a hover) and its dump
+(resolved properties per node when step 4 lands). The count tests to add per step: an identical rebuild styles 0
+nodes (exists: A3-window-46's), one changed text styles 0 and lays out O(1) (exists), a 500-node subtree among
+3,500 matches selectors for 500 nodes (`MATCH_ATTEMPTS`), emits items for 500.
+
+**The `Dom` itself.** Building it is stage 2 of the table and the floor of every rebuild. The tree `Dom` costs,
+per node, the node (`NodeData`, about 100 bytes inline), a `Vec<Dom>` per parent that grows by doubling, a
+`Box<NodeDataExt>` for the first class / id / key / dataset, the attribute `Vec`, a `Vec` per inline style and
+per handler list. `FastDom` removes the per-parent `Vec` and the flatten pass, not the per-node boxes. What the
+public builder should produce (an api.json ADDITION, not a break; not built): a `DomBuilder` that appends
+`NodeData` to one arena (`open(node)`, `close()`, `leaf(node)`) and folds the three fingerprint tiers and the
+subtree hashes while it appends, so that stages 3, 4 and 9 disappear and stage 2 loses the per-parent `Vec`s;
+`Dom` stays as it is and converts into it. The larger win is not to rebuild what did not change at all: a
+component whose inputs are equal returns a HANDLE to its previous subtree (a subtree hash it kept) instead of
+nodes, and the pairing of step 3 takes the handle as "equal subtree" without a walk. That is the same contract as
+`set_virtual_view_version` (A3-window-20), one level down.
 
 ## Findings
 
@@ -808,8 +941,32 @@ next pass, and exit A (no layout pass) shows with the next pass that lays out.
 - file:line: `dll/.../common/layout.rs` `regenerate_layout` (the exit decision at 731); `core/src/diff.rs`
   `fingerprint_dom`
 - class: waste, per `RefreshDom` that changes a counter, a status line, a clock: stages 10-15, 23 for all n nodes
+- fix: "The diff-first pipeline", step 1. `DomFingerprints::text_shapes`, `diff::texts_alone_changed`,
+  `diff::nodes_at`, `diff::fresh_texts_are_adoptable`, `diff::adopt_fresh_texts`; `regenerate_layout` step 1.45;
+  `window::styled_dom_declares_a_move`; the switch `window::diff_first_enabled` (`AZ_DIFF_FIRST=0` = off).
+- test: core `diff_test.rs`: `a_rebuild_that_changed_texts_names_those_texts`,
+  `a_rebuild_that_changed_more_than_texts_is_not_a_change_of_texts`,
+  `the_changed_texts_are_written_onto_the_kept_arena`; dll `headless/mod.rs`:
+  `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves` (equality, seeds 1 / 7 / 20261121),
+  `one_changed_text_styles_no_node_and_lays_out_its_own_boxes` (count),
+  `a_changed_text_takes_the_full_path_where_the_reconciliation_has_work`.
+- **How to read a failure of the equality test**: it prints the seed, the step, the kind of the step (0-5 texts,
+  6 a class, 7 a row added or taken) and the first differing line of the two dumps. A difference at a step of kind
+  6 or 7, or at step 0, is NOT this path (both windows take the full path there): then the two windows differ for
+  a reason of the harness (an id in a `Debug` print) and the dump needs another normalisation. A difference at a
+  kind 0-5 step in a `node` line is the text write or a state; in an `item` line the layout or the list.
 - severity: high
-- status: open: not committed yet
+- status: fixed dd25f38e7
+
+### A3-window-48 the diff-first pipeline beyond texts (steps 2-7)
+- file:line: `core/src/diff.rs` (`fingerprint_dom`, `reconcile_dom`), `core/src/prop_cache.rs`, `core/src/styled_dom.rs`
+  (`create_from_dom_inheriting`, `restyle`), `window.rs` (`begin_reconciliation`, `reconcile_rematerialized_child`),
+  `solver3/mod.rs` (`dom_diff_clean`), `solver3/display_list.rs` (`PatchState`)
+- class: waste, per rebuild that changes more than texts: stages 10, 12, 14, 19, 21 of "Why a full DOM rebuild is
+  slow" for every node
+- fix: the design is "The diff-first pipeline", steps 2-7, with the unit of styling reuse and its proof.
+- severity: high
+- status: blocked (a): a re-architecture of the styling tables and of the reconciliation; the design is in "The diff-first pipeline"; step 1 (texts), A3-window-14 and -46 are what was built short of it
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
@@ -1035,6 +1192,11 @@ next pass, and exit A (no layout pass) shows with the next pass that lays out.
   window (it stood still until the next frame before).
 - Open a panel / select something that rebuilds the window's DOM (A3-window-20, once the editor states the
   view's version): the map must not flash or re-render.
+
+- A counter, a clock or a status line that changes with a `RefreshDom` (A3-window-47, `AZ_DIFF_FIRST`): the text
+  changes as before, a hovered button beside it keeps its hover face, an editable field keeps its caret. With
+  `AZ_DIFF_FIRST=0` the same rebuild takes the full path: the two must look the same. Default ON, because the
+  path is gated to the case in which only characters differ and falls back by itself everywhere else.
 
 ## Questions for the coordinator
 - none open.
