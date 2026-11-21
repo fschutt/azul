@@ -171,12 +171,6 @@ pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
         .unwrap_or_default()
 }
 
-// Unit conversion constants (CSS absolute units → pixels)
-const PT_TO_PX: f32 = 1.333_333;
-const IN_TO_PX: f32 = 96.0;
-const CM_TO_PX: f32 = 37.795_277;
-const MM_TO_PX: f32 = 3.779_527_7;
-
 /// Match on any `CssProperty` variant and access the inner `CssPropertyValue`<T>.
 #[allow(unused_macros)]
 macro_rules! match_property_value {
@@ -5995,30 +5989,18 @@ impl CssPropertyCache {
         let target_pixel_value = pixel_value_of(target_property)?;
         let reference_pixel_value = pixel_value_of(reference_property)?;
 
-        // Convert reference to absolute pixels first
-        let reference_px = match reference_pixel_value.metric {
-            SizeMetric::Px => reference_pixel_value.number.get(),
-            SizeMetric::Pt => reference_pixel_value.number.get() * PT_TO_PX,
-            SizeMetric::In => reference_pixel_value.number.get() * IN_TO_PX,
-            SizeMetric::Cm => reference_pixel_value.number.get() * CM_TO_PX,
-            SizeMetric::Mm => reference_pixel_value.number.get() * MM_TO_PX,
-            // Reference can't be relative (em/rem/%) or viewport-relative.
-            SizeMetric::Em
-            | SizeMetric::Rem
-            | SizeMetric::Percent
-            | SizeMetric::Vw
-            | SizeMetric::Vh
-            | SizeMetric::Vmin
-            | SizeMetric::Vmax => return None,
-        };
+        // Convert reference to absolute pixels first, by the one conversion
+        // of the absolute units (`PixelValue::absolute_px`, shared with the
+        // compact cache). The reference can't be relative (em/rem/%) or
+        // viewport-relative: `None` for those.
+        let reference_px = reference_pixel_value.absolute_px()?;
 
         // Resolve target based on reference
         let resolved_px = match target_pixel_value.metric {
-            SizeMetric::Px => target_pixel_value.number.get(),
-            SizeMetric::Pt => target_pixel_value.number.get() * PT_TO_PX,
-            SizeMetric::In => target_pixel_value.number.get() * IN_TO_PX,
-            SizeMetric::Cm => target_pixel_value.number.get() * CM_TO_PX,
-            SizeMetric::Mm => target_pixel_value.number.get() * MM_TO_PX,
+            // The absolute units: the same conversion.
+            SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+                target_pixel_value.absolute_px()?
+            }
             // em/rem both scale by reference (rem uses reference as root font-size).
             SizeMetric::Em | SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
@@ -7084,11 +7066,14 @@ impl CssPropertyCache {
         };
 
         let resolved_px = match font_size.inner.metric {
-            SizeMetric::Px => font_size.inner.number.get(),
-            SizeMetric::Pt => font_size.inner.number.get() * PT_TO_PX,
-            SizeMetric::In => font_size.inner.number.get() * IN_TO_PX,
-            SizeMetric::Cm => font_size.inner.number.get() * CM_TO_PX,
-            SizeMetric::Mm => font_size.inner.number.get() * MM_TO_PX,
+            // The absolute units, by the one conversion the compact cache
+            // uses too (`PixelValue::absolute_px`): `1in` is 96 px in both.
+            SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+                let Some(px) = font_size.inner.absolute_px() else {
+                    return prop.clone();
+                };
+                px
+            }
             SizeMetric::Em => font_size.inner.number.get() * reference_px,
             SizeMetric::Rem => {
                 font_size.inner.number.get() * azul_css::props::basic::pixel::DEFAULT_FONT_SIZE

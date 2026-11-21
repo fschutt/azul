@@ -2531,7 +2531,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 for (i, m) in dl.layout_node_mapping.iter().enumerate() {
                     if let Some((idx, _)) = m {
                         if changed.contains(idx) {
-                            if let Some(b) = dl.items[i].visual_bounds() {
+                            if let Some(b) = dl.visual_bounds_of(i) {
                                 rects.push(b);
                             }
                         }
@@ -2838,7 +2838,7 @@ mod autotest_generated {
             warm: vec![LayoutNodeWarm::default(); n],
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena: Vec::new(),
             children_offsets: vec![(0, 0); n],
             subtree_needs_intrinsic: vec![false; n],

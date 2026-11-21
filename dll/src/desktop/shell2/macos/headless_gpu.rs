@@ -933,8 +933,12 @@ mod retained_list_tests {
         assert_eq!(pixel(&first, 100, 47)[..3], [0, 0, 255], "its second row");
         assert_eq!(pixel(&first, 100, 10)[..3], [0x88, 0x88, 0x88], "the bar over it");
 
-        // The host restyles (the bar turns dark): the host's list is rebuilt, the
-        // view's is the one WebRender holds.
+        // The host restyles (the bar turns dark): the host's list is another one, the
+        // view's is the one WebRender holds. (A3-window-15: the bar's run is painted into
+        // the list the host has and the write is a repaint, where it was a build of the
+        // host's whole list and the tier `RebuildDisplayList`. The patched list is still
+        // another allocation than the one the renderer holds - a list only the renderer's
+        // weak reference shares moves when it is written - so the frame sends it.)
         let bar = node_with_class(&gpu.window, "bar");
         let tier = gpu
             .window
@@ -951,7 +955,7 @@ mod retained_list_tests {
                 override_only: false,
             })
             .tier;
-        assert_eq!(tier, ContentDirtyTier::RebuildDisplayList, "a colour is a rebuild");
+        assert_eq!(tier, ContentDirtyTier::Paint, "a colour is painted into the host's list");
         let child = *gpu
             .window
             .layout_results
@@ -1457,11 +1461,17 @@ mod retained_list_tests {
     }
 
     /// The hover of a label of the map - a paint-only restyle in the map's own DOM - with the
-    /// style sidebar open (ten thousand items in the window's list): the pass rebuilds the
-    /// MAP's list and asks for a repaint, and the frame the shells make for it - the lightweight
-    /// pass - sends that one list and draws the label on its background. The window's list is
-    /// neither rebuilt (macOS rebuilt it, and translated and sent every item of it, for each
-    /// label the pointer entered or left) nor sent again.
+    /// style sidebar open (ten thousand items in the window's list): the pass asks for a
+    /// repaint, and the frame the shells make for it - the lightweight pass - draws the label
+    /// on its background. The window's list is neither rebuilt (macOS rebuilt it, and
+    /// translated and sent every item of it, for each label the pointer entered or left) nor
+    /// sent again.
+    ///
+    /// Audit A4-23 (A3-window-55): NO list is sent at all. The label's background is bound to
+    /// a colour key by the build of the map's list (a see-through rect while it rests), and
+    /// the enter and the leave are that key's value: a lightweight transaction of values, no
+    /// translation, no scene build. (This test expected the map's list to be rebuilt and
+    /// translated once per enter and per leave: 1 rebuild, 1 and 2 translations.)
     #[test]
     fn the_hover_of_a_label_in_the_map_sends_the_maps_list_alone_and_draws_it() {
         let Some(mut gpu) = GpuSession::new(600.0, 320.0, 1.0) else {
@@ -1515,12 +1525,12 @@ mod retained_list_tests {
         assert_eq!(
             tier,
             ProcessEventResult::ShouldReRenderCurrentWindow,
-            "a repaint: the list is rebuilt in the pass"
+            "a repaint: the colour is the value of a key the map's list binds"
         );
         let frame = gpu
             .present_lightweight()
             .expect("the harness")
-            .expect("the rebuilt list of the map is a frame the lightweight pass owes");
+            .expect("the value of the label's colour key is a frame the lightweight pass owes");
         let (x0, y0, x1, y1) = red_box(&frame).expect("the hovered label is drawn on its background");
         assert!(
             (219..=222).contains(&x0) && (298..=301).contains(&x1) && (19..=22).contains(&y0)
@@ -1528,7 +1538,7 @@ mod retained_list_tests {
             "its box (200 + 20, 20, 80 x 24): {:?}",
             (x0, y0, x1, y1)
         );
-        assert_eq!(translated() - translated_before, 1, "the map's list alone was sent");
+        assert_eq!(translated() - translated_before, 0, "no list was sent: a value changed");
         assert_eq!(
             Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list),
             host_before,
@@ -1540,7 +1550,14 @@ mod retained_list_tests {
                 .display_lists_unsubmitted(&gpu.window.layout_results),
             "nothing is owed to the renderer after the frame"
         );
-        assert_eq!(gpu.window.frame_report.dl_rebuilds, 1, "one list rebuilt: the map's");
+        assert_eq!(
+            (
+                gpu.window.frame_report.dl_rebuilds,
+                gpu.window.frame_report.dl_node_patches
+            ),
+            (0, 0),
+            "no list was built and none was patched"
+        );
         assert_eq!(gpu.window.frame_report.layout_passes, 0, "no layout ran");
 
         // And the pointer leaves it.
@@ -1560,7 +1577,7 @@ mod retained_list_tests {
             .expect("the harness")
             .expect("a frame");
         assert!(red_box(&frame).is_none(), "the label is plain again");
-        assert_eq!(translated() - translated_before, 2, "the map's list again, and only it");
+        assert_eq!(translated() - translated_before, 0, "no list for the leave either");
         assert_eq!(
             Arc::as_ptr(&gpu.window.layout_results[&DomId::ROOT_ID].display_list),
             host_before,
@@ -1707,5 +1724,170 @@ mod retained_list_tests {
                 veil_of(&cpu_shown)
             );
         }
+    }
+
+    /// A map's picture as the editor makes it: the ROOT of the view's own DOM carries the zoom
+    /// (the identity at build time, about its top-left corner) and holds everything the view
+    /// shows - here a red box and a row of blue ones.
+    extern "C" fn picture_view(_data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+        let mut picture = Dom::create_div().with_class("picture".into()).with_css(
+            "width: 300px; height: 200px; transform: translate(0px, 0px);              transform-origin: 0px 0px;",
+        );
+        picture = picture.with_child(Dom::create_div().with_css(
+            "position: absolute; left: 40px; top: 30px; width: 40px; height: 30px;              background: #ff0000;",
+        ));
+        for i in 0..8 {
+            let style = format!(
+                "position: absolute; left: {}px; top: 150px; width: 20px; height: 20px;                  background: #0000ff;",
+                20 + 30 * i
+            );
+            picture = picture.with_child(Dom::create_div().with_css(style.as_str()));
+        }
+        let rect = LogicalRect::new(LogicalPosition::zero(), info.bounds.logical_size);
+        VirtualViewReturn::with_dom(picture, rect, rect)
+    }
+
+    /// A4-29, on the real renderer. A step of a view's zoom is served by the tiles WebRender
+    /// has: the view's root frame is its zoom frame (above a picture cache slice of its own),
+    /// the renderer is told that it is being zoomed, and a step draws NO tile again - the
+    /// compositor scales the ones it has - while the picture is where the transform puts it.
+    /// When the zoom has rested for the settle time the renderer is told so and draws the
+    /// tiles once at the scale reached; the picture stays where it is.
+    ///
+    /// The tiles are counted for the whole process (`webrender::azul_counters`), and other
+    /// tests draw at the same time, so a single step's count can only be too HIGH: it is the
+    /// smallest count of five steps that must be 0 (before A4-29 every step drew the view's
+    /// tiles: at least one each). With `AZ_WR_ZOOM_TILES=0` in the environment this checks
+    /// nothing.
+    /// Mutations: `is_2d_scale_translation: is_zoom_frame` -> `false` in the translation, the
+    /// `true` of `follow_zoom_gestures` not sent, or `low_quality_pinch_zoom` left off in
+    /// `default_renderer_options`: every step draws tiles.
+    #[test]
+    fn a_zoom_step_of_a_view_draws_no_tile_again_and_the_settle_draws_them_once() {
+        use azul_css::props::{
+            basic::FloatValue,
+            style::StyleTransformScale2D,
+        };
+
+        if !crate::desktop::compositor2::zoom_frames_enabled() {
+            return;
+        }
+        let Some(mut gpu) = GpuSession::new(400.0, 300.0, 1.0) else {
+            return;
+        };
+        gpu.lay_out(
+            Dom::create_body().with_css("margin: 0px;").with_child(
+                Dom::create_virtual_view(RefAny::new(()), VirtualViewCallback::create(picture_view))
+                    .with_css("position: absolute; left: 50px; top: 40px; width: 300px; height: 200px;"),
+            ),
+        )
+        .expect("the page lays out");
+        let child = *gpu
+            .window
+            .layout_results
+            .keys()
+            .find(|dom| **dom != DomId::ROOT_ID)
+            .expect("the view's DOM");
+        let picture = {
+            let nodes = gpu.window.layout_results[&child].styled_dom.node_data.as_container();
+            (0..nodes.len())
+                .map(NodeId::new)
+                .find(|n| nodes[*n].has_class("picture"))
+                .expect("the picture's root")
+        };
+        let zoom = |tx: f32, ty: f32, s: f32| {
+            CssProperty::transform(
+                vec![
+                    StyleTransform::Translate(StyleTransformTranslate2D {
+                        x: PixelValue::px(tx),
+                        y: PixelValue::px(ty),
+                    }),
+                    StyleTransform::Scale(StyleTransformScale2D {
+                        x: FloatValue::new(s),
+                        y: FloatValue::new(s),
+                    }),
+                ]
+                .into(),
+            )
+        };
+        let tiles = || webrender::azul_counters::snapshot().tiles_drawn;
+
+        let first = gpu.present(true).expect("the first frame");
+        // The view is at (50, 40), the red box at (40, 30) in it, 40 x 30.
+        assert_eq!(red_box(&first), Some((90, 70, 129, 99)), "premise: the picture at scale 1");
+        let declared = gpu.window.gpu_state_manager.zoom_frames.get(&child).copied();
+        assert!(
+            declared.is_some(),
+            "premise: the view's root frame is its zoom frame (the list of the view: {} items)",
+            gpu.window.layout_results[&child].display_list.items.len()
+        );
+
+        // Five steps of a zoom about the view's corner, each with a shift of 10 px.
+        let mut drawn_per_step = Vec::new();
+        let mut last = first;
+        for s in [1.1, 1.2, 1.3, 1.4, 1.5] {
+            let tier = gpu
+                .window
+                .apply_content_change(ContentChange::NodeCss {
+                    dom_id: child,
+                    node_id: picture,
+                    props: vec![zoom(10.0, 0.0, s)],
+                    override_only: false,
+                })
+                .tier;
+            assert_eq!(tier, ContentDirtyTier::Paint, "a value: no list");
+            let before = tiles();
+            last = gpu
+                .present_lightweight()
+                .expect("the harness")
+                .expect("a zoom step is a frame");
+            drawn_per_step.push(tiles() - before);
+        }
+        assert!(
+            gpu.window.gpu_state_manager.zoom_frames.get(&child).is_some_and(|z| z.zooming),
+            "the renderer was told that the frame is being zoomed"
+        );
+        assert_eq!(
+            drawn_per_step.iter().copied().min(),
+            Some(0),
+            "every step of the zoom drew tiles again: {drawn_per_step:?}"
+        );
+        // translate(10px, 0) scale(1.5) about the view's corner (50, 40): the box's corner is
+        // at 50 + 10 + 40 * 1.5 = 120, 40 + 30 * 1.5 = 85, and it is 60 x 45. Scaled by the
+        // compositor with a linear filter: an edge may be a pixel soft.
+        let near = |got: Option<(u32, u32, u32, u32)>, want: (u32, u32, u32, u32)| {
+            got.is_some_and(|g| {
+                g.0.abs_diff(want.0) <= 2
+                    && g.1.abs_diff(want.1) <= 2
+                    && g.2.abs_diff(want.2) <= 2
+                    && g.3.abs_diff(want.3) <= 2
+            })
+        };
+        assert!(
+            near(red_box(&last), (120, 85, 179, 129)),
+            "the picture during the zoom: {:?}",
+            red_box(&last)
+        );
+
+        // The zoom rests. After the settle time the next pass tells the renderer, and that
+        // frame draws the tiles at the new scale.
+        std::thread::sleep(Duration::from_millis(350));
+        let before = tiles();
+        let settled = gpu
+            .present_lightweight()
+            .expect("the harness")
+            .expect("the settle is a frame");
+        assert!(tiles() - before >= 1, "the settle draws the zoomed tiles at their new scale");
+        assert!(
+            gpu.window.gpu_state_manager.zoom_frames.get(&child).is_some_and(|z| !z.zooming),
+            "the zoom is over"
+        );
+        assert!(
+            near(red_box(&settled), (120, 85, 179, 129)),
+            "the picture after the settle: {:?}",
+            red_box(&settled)
+        );
+        // And then nothing: the window is at rest.
+        assert!(gpu.present_lightweight().expect("the harness").is_none());
     }
 }

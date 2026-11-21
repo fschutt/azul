@@ -713,7 +713,7 @@ impl LayoutCacheMap {
             }
         };
         for (dom_id, new_indices) in &new_tree.dom_to_layout {
-            let Some(old_indices) = old_tree.dom_to_layout.get(dom_id) else {
+            let Some(old_indices) = old_tree.dom_to_layout.get(&dom_id) else {
                 continue;
             };
             for (new_idx, old_idx) in new_indices.iter().zip(old_indices) {
@@ -849,6 +849,28 @@ pub fn unshare(tree: alloc::sync::Arc<LayoutTree>) -> LayoutTree {
 #[cfg(test)]
 thread_local! {
     pub(crate) static TREE_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// `tree` to write to after its pass (a text edit's reshape, the scrollbars a
+/// display-list build must find in it): the tree itself when nothing else
+/// holds it, a copy of every node of it while the solver's cache still shares
+/// it - the cache keeps the tree its next pass starts from.
+pub fn own_mut(tree: &mut alloc::sync::Arc<LayoutTree>) -> &mut LayoutTree {
+    #[cfg(test)]
+    {
+        if alloc::sync::Arc::strong_count(tree) > 1 {
+            TREE_WRITE_COPIES.with(|copies| copies.set(copies.get() + 1));
+        }
+    }
+    alloc::sync::Arc::make_mut(tree)
+}
+
+/// How many times a write to a result's tree on this thread copied the whole tree because
+/// the solver's cache still shared it ([`own_mut`]): what a test reads.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TREE_WRITE_COPIES: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
 }
 
 /// The persistent cache that holds the layout state between frames.
@@ -6432,7 +6454,7 @@ mod autotest_generated {
             warm,
             cold: vec![LayoutNodeCold::default(); n],
             root: 0,
-            dom_to_layout: BTreeMap::new(),
+            dom_to_layout: Default::default(),
             children_arena,
             children_offsets,
             subtree_needs_intrinsic: Vec::new(),

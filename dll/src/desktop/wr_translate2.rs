@@ -368,6 +368,14 @@ pub fn default_renderer_options(
         // Smaller shared-atlas slices than WR's browser-tuned default (−~27 MB
         // GPU memory on a hello-world window). See azul_texture_cache_config.
         texture_cache_config: azul_texture_cache_config(),
+        // A view's zoom is served by the tiles the renderer has: with this the
+        // renderer keeps the tiles below a frame that is being zoomed at the
+        // scale they were drawn at and scales them in the compositor (audit
+        // A4-29; `compositor2::zoom_frames_enabled`, `AZ_WR_ZOOM_TILES=0`).
+        // It also makes the compositor sample picture tiles linearly; a tile
+        // shown at its own scale at a whole-pixel offset - every tile that is
+        // not being zoomed - is sampled at its texel centres, i.e. unchanged.
+        low_quality_pinch_zoom: crate::desktop::compositor2::zoom_frames_enabled(),
         ..WrRendererOptions::default()
     }
 }
@@ -844,10 +852,21 @@ pub fn publish_gpu_frame(
     frame.texture_upload_px = wr.texture_upload_px;
     frame.scene_build_us = wr.scene_build_ns / 1_000;
     frame.frame_build_us = wr.frame_build_ns / 1_000;
+    frame.tiles_drawn = wr.tiles_drawn;
     frame.blocked_us = blocked_us;
     frame.render_us = render_us;
     frame.draw_calls = draw_calls;
     layout_window.frame_clock.note_gpu(&frame);
+}
+
+/// The transaction a pass just sent is not drawn by that pass: its frame is
+/// drawn when the renderer has built it, by a later pass (audit A4-31,
+/// `shell2::common::frame_schedule`). What this thread counted for it stays
+/// counted and is published with the frame that shows it
+/// ([`publish_gpu_frame`]); until then the builders of the passes in between
+/// do not publish it as a frame of its own ([`publish_stale_gpu_frame`]).
+pub fn gpu_frame_is_drawn_later() {
+    GPU_FRAME_OPEN.with(|open| open.set(false));
 }
 
 /// Publish the counters of a frame whose shell did not ([`publish_gpu_frame`])
@@ -883,7 +902,8 @@ const HALO_FRAME_BUDGET: std::time::Duration = std::time::Duration::from_millis(
 /// before them left (a quarter of a minute at 60 frames a second, and every one
 /// draws at least [`HALOS_DRAWN_ANYWAY`]). A backstop: a scan drops no halo it
 /// uses (audit A5-01), so each follow-up leaves fewer than the one before and the
-/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame.
+/// chain ends by itself; a halo that cannot be kept is not left, and owes no frame
+/// but the one whose scan may drop the frame before's pictures (audit A5-19).
 const HALO_FOLLOW_UPS_MAX: u32 = 900;
 
 #[cfg(test)]
@@ -922,6 +942,16 @@ pub(crate) fn draw_this_many_halos_a_frame_in_this_thread(free: usize) {
 ///
 /// Unlike fonts, ImageKeys are generated directly from ImageRefHash using
 /// image_ref_hash_to_image_key(), so no separate mapping table is needed.
+///
+/// FOR TESTS. No frame is made with this: a frame's images are registered by
+/// `register_image_resources`, which makes the ONE scan of the frame for text
+/// halos. This function begins a scan of its own (it is that scan without the
+/// registration), so a caller that used it next to `register_image_resources`
+/// in one frame would age the kept halos twice per frame and drop pictures a
+/// frame early. It is `pub` only because `dll/tests/image_lifecycle.rs` - a
+/// crate of its own - reads the image adds and the live set through it;
+/// nothing else outside this file calls it, and it is not in `api.json`.
+#[doc(hidden)]
 pub fn collect_image_resource_updates(
     layout_window: &LayoutWindow,
     renderer_resources: &azul_core::resources::RendererResources,
@@ -959,9 +989,13 @@ struct KeptNames {
 thread_local! {
     /// [`ListNames`] by the list's allocation. The `Weak` is what makes the
     /// address an identity: while it is held the allocation is not given to
-    /// another list, and a list that has a `Weak` is never changed in place
-    /// (`Arc::get_mut` refuses, `Arc::make_mut` moves it to a new allocation):
-    /// the same address with a living list is the same items.
+    /// another list, and a list that has a `Weak` is not changed in place by
+    /// `Arc::get_mut` (it refuses) or `Arc::make_mut` (it moves the list to a
+    /// new allocation). ONE writer writes under a `Weak`, on purpose: a pan
+    /// moves a `VirtualView` item's `content_offset`
+    /// (`LayoutWindow::patch_virtual_view_content_offset`), which is neither
+    /// a font nor an image nor an index: the same address with a living list
+    /// is the same names.
     static LIST_NAMES: RefCell<Vec<KeptNames>> = const { RefCell::new(Vec::new()) };
     /// Tests: how many lists [`list_names`] walked on this thread.
     #[cfg(test)]
@@ -1493,9 +1527,10 @@ fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFon
 
     // Convert Au to logical pixels (1 Au = 1/60 px), then multiply by DPI factor
     // to get the physical pixel size for rasterization.
-    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
-    // WebRender handles HiDPI scaling via device_pixel_scale. However, font instances
-    // need to be pre-scaled because they are rasterized at specific pixel sizes.
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels) and the
+    // translation scales them to device pixels itself; the fork draws with a global device
+    // pixel scale of 1.0 (`frame_builder.rs`). So a font instance is made at its device size
+    // here, like every other length: nothing downstream scales it.
     let glyph_size_px = (font_size_au.0 as f32) / 60.0 * dpi_factor;
 
     log_debug!(
@@ -2103,6 +2138,38 @@ where
         if shown_here {
             continue;
         }
+        // A text halo's picture that the key of ANOTHER halo slot shows, in a
+        // slot that has no key yet: the keeper of the pictures gave the picture
+        // a new slot (another window on this thread drew a picture into its
+        // place; the kept pictures are a thread's, the keys a window's). The key
+        // goes with the picture: the list that names it paints what it painted,
+        // nothing is uploaded, and the old slot's key is not left behind showing
+        // a picture that is registered elsewhere, which no GC reaches (audit
+        // A5-16). One window alone never comes here: there a slot that lost its
+        // picture was given another in the same scan.
+        if matches!(slot, azul_core::resources::ImageSlot::TextHalo(_))
+            && !rr.image_slots.contains_key(&slot)
+        {
+            let shows = rr
+                .currently_registered_images
+                .get(&hash)
+                .map(|resolved| resolved.key)
+                .filter(|key| rr.image_key_map.get(key) == Some(&hash));
+            let from = shows.and_then(|key| {
+                rr.image_slots
+                    .iter()
+                    .find(|(other, shown)| {
+                        **shown == key
+                            && matches!(other, azul_core::resources::ImageSlot::TextHalo(_))
+                    })
+                    .map(|(other, _)| *other)
+            });
+            if let (Some(key), Some(from)) = (shows, from) {
+                rr.image_slots.remove(&from);
+                rr.image_slots.insert(slot, key);
+                continue;
+            }
+        }
         let (key, update) = match rr.image_slots.get(&slot) {
             Some(&key) if rr.image_key_map.contains_key(&key) => (key, true),
             _ => {
@@ -2172,8 +2239,21 @@ where
                     // of the window to find that out - for each of the pictures
                     // a frame replaces (2,200 keys x 40 pictures a frame on a
                     // municipal map).
-                    rr.currently_registered_images.remove(&old);
-                    rr.image_last_seen_epoch.remove(&old);
+                    // Unless the picture is painted from another slot by now and
+                    // that slot was planned before this one (two windows on one
+                    // thread share the kept pictures: the other's scan put a new
+                    // picture into this slot and the old one got a new slot at
+                    // its next use): its registration is then that slot's, and
+                    // removing it left the label that paints it without a halo
+                    // for good (audit A5-15).
+                    if rr
+                        .currently_registered_images
+                        .get(&old)
+                        .is_some_and(|resolved| resolved.key == key)
+                    {
+                        rr.currently_registered_images.remove(&old);
+                        rr.image_last_seen_epoch.remove(&old);
+                    }
                 } else {
                     rr.release_frame(key, old);
                 }
@@ -2531,12 +2611,16 @@ pub fn generate_frame(
     // time is named by no list WebRender holds: the lists go again.
     let lists_rebuilt = prepare_frame_content_gl(layout_window, gl_context);
     let textures = register_overlay_textures(layout_window, txn);
+    // A view whose zoom frame is no longer a scale and a translation gets its
+    // list again in this transaction (audit A4-29): it is marked stale here.
+    keep_zoom_promises(layout_window);
     // Text halos a scan left for a later frame are drawn by the scan of this one
     // (`GpuStateManager::halos_owed`): its lists are translated again with them.
     let display_list_was_rebuilt = display_list_was_rebuilt
         || lists_rebuilt
         || textures.new_slot
-        || layout_window.gpu_state_manager.halos_owed;
+        || layout_window.gpu_state_manager.halos_owed
+        || !layout_window.gpu_state_manager.stale_display_lists.is_empty();
 
     // CRITICAL: Build display list FIRST, then set root pipeline (matching upstream WebRender
     // order)
@@ -2573,6 +2657,7 @@ pub fn generate_frame(
         );
         if submission.failed.is_empty() {
             note_display_lists_submitted(layout_window);
+            note_zoom_frames(txn, layout_window, &submission, zoom_clock_us());
         }
 
         // Increment epoch after using it
@@ -2603,8 +2688,14 @@ pub fn generate_frame(
         view_rect,
         hidpi_factor.inner.get()
     );
-    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels), like a HTML engine.
-    // WebRender's device_pixel_scale handles the conversion to device pixels.
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels), like a HTML
+    // engine, and the TRANSLATION makes device pixels of them: every coordinate of a list
+    // is multiplied by the factor (`compositor2`: `x * dpi`), every bound transform's shift
+    // and every scroll offset too. WebRender does not scale the content by the factor
+    // handed over here: the fork's frame builder draws with a global device pixel scale of
+    // 1.0 whatever the document's view says (`webrender/core/src/frame_builder.rs`,
+    // `global_device_pixel_scale`). The factor is passed so that the view is described
+    // truthfully, nothing is drawn through it.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     // Process VirtualView updates (if any callbacks requested re-rendering)
@@ -2615,6 +2706,8 @@ pub fn generate_frame(
 
     // Synchronize GPU values (transforms, opacities, etc.)
     let _ = synchronize_gpu_values(layout_window, txn);
+    // A view's zoom that began or came to rest (audit A4-29).
+    let _ = follow_zoom_gestures(txn, layout_window, zoom_clock_us());
 
     log_debug!(
         LogCategory::Rendering,
@@ -3505,7 +3598,9 @@ pub(crate) fn build_full_transaction(
 
     // Step 2: Build and add the display lists the renderer does not hold to the
     // transaction. A slot keyed for the first time names an image the held
-    // lists do not: they go again.
+    // lists do not: they go again. So does the list of a view whose zoom frame
+    // is no longer a scale and a translation (audit A4-29).
+    keep_zoom_promises(layout_window);
     set_display_lists(txn, layout_window, textures.new_slot || overlay_new_slot)?;
 
     // Step 3: Set root pipeline
@@ -3526,7 +3621,10 @@ pub(crate) fn build_full_transaction(
         view_rect,
         hidpi_factor.inner.get()
     );
-    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels); the translation
+    // multiplies them by the factor (`compositor2`). WebRender draws with a global device
+    // pixel scale of 1.0 whatever is handed over here (`frame_builder.rs`): the factor
+    // describes the view, it is not applied to the content a second time.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     build_webrender_transaction_tail(txn, layout_window)
@@ -3542,6 +3640,10 @@ pub(crate) struct DisplayListSubmission {
     pub(crate) held: Vec<DomId>,
     /// The DOMs whose list could not be translated.
     pub(crate) failed: Vec<DomId>,
+    /// For each translated DOM: the zoom frame its list was translated with
+    /// ([`zoom_frame_of`]), `None` when it has none. What the renderer holds of
+    /// zoom frames once the transaction is sent ([`note_zoom_frames`]).
+    pub(crate) zoom_frames: Vec<(DomId, Option<DeclaredZoomFrame>)>,
 }
 
 /// What every display list is translated against besides the list itself: the
@@ -3580,6 +3682,206 @@ fn note_display_lists_submitted(layout_window: &mut LayoutWindow) {
     // Every list the renderer holds is translated against the halos of the
     // last scan now.
     gpu_state_manager.stale_display_lists.clear();
+}
+
+// ==== A view's zoom frame (audit A4-29) ====
+
+/// The zoom frame a view's list was translated with: its transform key, the
+/// node it is of, and its scale then (bitwise, so that a submission compares).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DeclaredZoomFrame {
+    pub(crate) key: usize,
+    pub(crate) node: azul_core::dom::NodeId,
+    pub(crate) scale_bits: u32,
+}
+
+/// Microseconds on the clock the zoom frames are timed by (it starts with the
+/// first call).
+fn zoom_clock_us() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    elapsed_us(*START.get_or_init(std::time::Instant::now))
+}
+
+/// The scale of the frame of `node` in `dom_id` as its bound value is NOW, if
+/// the frame is still bound to `key` and its value is a uniform scale and a 2D
+/// translation (`compositor2::uniform_scale_translation`); `None` when the
+/// promise a zoom frame makes no longer holds.
+fn zoom_frame_now(
+    layout_window: &LayoutWindow,
+    dom_id: DomId,
+    key: usize,
+    node: azul_core::dom::NodeId,
+) -> Option<f32> {
+    zoom_scale_now(&layout_window.gpu_state_manager.caches, dom_id, key, node)
+}
+
+/// [`zoom_frame_now`] over the window's value caches.
+fn zoom_scale_now(
+    caches: &BTreeMap<DomId, azul_core::gpu::GpuValueCache>,
+    dom_id: DomId,
+    key: usize,
+    node: azul_core::dom::NodeId,
+) -> Option<f32> {
+    let (frame_key, matrix) = caches.get(&dom_id)?.reference_frame_of(node)?;
+    if frame_key.id != key {
+        return None;
+    }
+    crate::desktop::compositor2::uniform_scale_translation(&matrix)
+}
+
+/// How long the scale of a zoom frame has to stand still before the renderer
+/// is told that the zoom has come to rest and draws the tiles below it at the
+/// scale they are shown at. Longer than an app's own settle (the map editor
+/// renders its view again 140 ms after the last step): the new list then
+/// arrives first, and the tiles are drawn once, not twice.
+pub(crate) const ZOOM_SETTLE_US: u64 = 300_000;
+
+/// THE GESTURE of a zoom frame, followed after a transaction's values are in
+/// it. The renderer keeps the tiles below a frame at the scale they were
+/// drawn at - and scales them in the compositor - only while it has been told
+/// that the frame is being zoomed (`SetIsTransformAsyncZooming`; without it
+/// every new scale is a new raster scale: every tile and, since the glyphs of
+/// a slice are rasterised at its scale, every glyph drawn again per step).
+/// So: the first transaction that carries another SCALE of a view's zoom frame
+/// tells the renderer "zooming" (a shift alone needs nothing: the compositor
+/// moves the tiles); `GpuStateManager::zoom_gesture_running` then keeps the
+/// platform loop coming back (`frames_owed`; a pass that changed nothing sends
+/// nothing); and the pass that finds the scale unchanged for
+/// [`ZOOM_SETTLE_US`] tells it "not zooming" - returned as `true`, a reason
+/// for a frame: that frame draws the tiles once, sharp, at the scale reached.
+/// A new list for the view ends the gesture too ([`note_zoom_frames`]).
+pub(crate) fn follow_zoom_gestures(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    now_us: u64,
+) -> bool {
+    let azul_layout::managers::gpu_state::GpuStateManager {
+        ref caches,
+        ref mut zoom_frames,
+        ref mut zoom_gesture_running,
+        ..
+    } = layout_window.gpu_state_manager;
+    if zoom_frames.is_empty() {
+        return false;
+    }
+    let mut settled = false;
+    for (dom, zoom) in zoom_frames.iter_mut() {
+        // A frame whose promise is broken has no scale: `keep_zoom_promises`
+        // has its list sent again, and that takes the mark back.
+        let Some(scale) = zoom_scale_now(caches, *dom, zoom.key, zoom.node) else {
+            continue;
+        };
+        let id = webrender::api::PropertyBindingId::new(zoom.key as u64);
+        if scale.to_bits() != zoom.scale.to_bits() {
+            if !zoom.zooming {
+                txn.set_is_transform_async_zooming(true, id);
+                zoom.zooming = true;
+            }
+            zoom.scale = scale;
+            zoom.changed_at_us = now_us;
+        } else if zoom.zooming && now_us.saturating_sub(zoom.changed_at_us) >= ZOOM_SETTLE_US {
+            txn.set_is_transform_async_zooming(false, id);
+            zoom.zooming = false;
+            settled = true;
+        }
+    }
+    *zoom_gesture_running = zoom_frames.values().any(|zoom| zoom.zooming);
+    settled
+}
+
+/// The zoom frame the list of `dom_id` is translated with, as the index of its
+/// `PushReferenceFrame` and what is recorded of it: the list's one candidate
+/// (`compositor2::zoom_frame_candidate`: by the list alone) whose bound value
+/// is, right now, a uniform scale and a translation. `None` for the window's
+/// own list, with `AZ_WR_ZOOM_TILES=0`, for a list without a candidate (also
+/// one without a node mapping), and for a frame whose value is anything else:
+/// that frame is then translated like every other, undeclared.
+pub(crate) fn zoom_frame_of(
+    layout_window: &LayoutWindow,
+    dom_id: DomId,
+    list: &azul_layout::solver3::display_list::DisplayList,
+) -> Option<(usize, DeclaredZoomFrame)> {
+    if dom_id.inner == 0 || !crate::desktop::compositor2::zoom_frames_enabled() {
+        return None;
+    }
+    let candidate = crate::desktop::compositor2::zoom_frame_candidate(list)?;
+    let node = (*list.node_mapping.get(candidate.item)?)?;
+    let scale = zoom_frame_now(layout_window, dom_id, candidate.key, node)?;
+    Some((
+        candidate.item,
+        DeclaredZoomFrame {
+            key: candidate.key,
+            node,
+            scale_bits: scale.to_bits(),
+        },
+    ))
+}
+
+/// THE PROMISE of a zoom frame, kept before a transaction decides which lists
+/// it sends: the renderer was told that the frame is a 2D scale / translation
+/// (it hangs a picture cache below it), so it must never be handed another
+/// kind of value while it holds that list. A view whose zoom frame is now
+/// bound to a rotation, a skew, two different scales - or to no value, or
+/// whose node is gone - is marked stale: its list goes again in THIS
+/// transaction, translated without a zoom frame ([`zoom_frame_of`] finds
+/// none), together with the value. One lookup per view that has a zoom frame.
+pub(crate) fn keep_zoom_promises(layout_window: &mut LayoutWindow) {
+    let broken: Vec<DomId> = layout_window
+        .gpu_state_manager
+        .zoom_frames
+        .iter()
+        .filter(|(dom, zoom)| zoom_frame_now(layout_window, **dom, zoom.key, zoom.node).is_none())
+        .map(|(dom, _)| *dom)
+        .collect();
+    for dom in broken {
+        let _ = layout_window.gpu_state_manager.stale_display_lists.insert(dom);
+    }
+}
+
+/// The renderer is handed the lists of `submission`: what it holds of zoom
+/// frames from now on. A translated view has the zoom frame its new list
+/// declares, or none; the frame of the list before is not being zoomed any
+/// more (its spatial node lives on when the new list opens the same key, and
+/// with it the renderer's "zooming" mark: taken back in this transaction).
+/// A DOM that is gone has no frame.
+fn note_zoom_frames(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    submission: &DisplayListSubmission,
+    now_us: u64,
+) {
+    let LayoutWindow {
+        ref layout_results,
+        ref mut gpu_state_manager,
+        ..
+    } = *layout_window;
+    for (dom, declared) in &submission.zoom_frames {
+        if let Some(before) = gpu_state_manager.zoom_frames.remove(dom) {
+            if before.zooming {
+                txn.set_is_transform_async_zooming(
+                    false,
+                    webrender::api::PropertyBindingId::new(before.key as u64),
+                );
+            }
+        }
+        if let Some(zoom) = declared {
+            let _ = gpu_state_manager.zoom_frames.insert(
+                *dom,
+                azul_layout::managers::gpu_state::ZoomFrameState {
+                    key: zoom.key,
+                    node: zoom.node,
+                    scale: f32::from_bits(zoom.scale_bits),
+                    zooming: false,
+                    changed_at_us: now_us,
+                },
+            );
+        }
+    }
+    gpu_state_manager
+        .zoom_frames
+        .retain(|dom, _| layout_results.contains_key(dom));
+    gpu_state_manager.zoom_gesture_running =
+        gpu_state_manager.zoom_frames.values().any(|zoom| zoom.zooming);
 }
 
 /// Translate the DOMs' display lists and put them into `txn` at the current
@@ -3638,9 +3940,12 @@ fn submit_display_lists(
             dom_id.inner as u32,
             layout_window.document_id.id,
         ));
+        // A view's zoom, if its list has one and its value is one now, is
+        // opened above a slice of its own (audit A4-29).
+        let zoom_frame = zoom_frame_of(layout_window, *dom_id, &layout_result.display_list);
         let translation = {
             let _timed = gpu_time(GpuTime::Translate);
-            crate::desktop::compositor2::translate_displaylist_to_wr(
+            crate::desktop::compositor2::translate_displaylist_with_zoom_frame(
                 &layout_result.display_list,
                 pipeline_id,
                 viewport_size,
@@ -3649,6 +3954,7 @@ fn submit_display_lists(
                 Vec::new(), // Resources already added above
                 &layout_window.layout_results,
                 layout_window.document_id.id,
+                zoom_frame.map(|(item, _)| item),
             )
         };
         match translation {
@@ -3673,6 +3979,9 @@ fn submit_display_lists(
                 );
                 txn.set_display_list(epoch, (pipeline_id, built_display_list));
                 submission.translated.push(*dom_id);
+                submission
+                    .zoom_frames
+                    .push((*dom_id, zoom_frame.map(|(_, declared)| declared)));
             }
             Err(e) => {
                 log_debug!(
@@ -3702,6 +4011,7 @@ fn set_display_lists(
         return Err("Failed to build display list");
     }
     note_display_lists_submitted(layout_window);
+    note_zoom_frames(txn, layout_window, &submission, zoom_clock_us());
     Ok(submission)
 }
 
@@ -3745,6 +4055,8 @@ fn build_webrender_transaction_tail(
         "[build_atomic_txn] Step 6: Synchronizing GPU values"
     );
     let _ = synchronize_gpu_values(layout_window, txn);
+    // A view's zoom that began or came to rest (audit A4-29).
+    let _ = follow_zoom_gestures(txn, layout_window, zoom_clock_us());
 
     // Step 7: Generate frame
     log_debug!(
@@ -3850,6 +4162,9 @@ pub(crate) fn build_lightweight_transaction(
     // A list patched in place since the last submission (a colour or a
     // gradient fade, a content patch) goes too: nothing else tells the
     // renderer, which kept drawing the list as it was.
+    // (So does the list of a view whose zoom frame is no longer a scale and a
+    // translation, audit A4-29: marked stale here, sent with the value.)
+    keep_zoom_promises(layout_window);
     let env_changed = layout_window.gpu_state_manager.submitted_translation_env
         != translation_env(layout_window);
     let lists_unsubmitted = env_changed
@@ -3920,6 +4235,10 @@ pub(crate) fn build_lightweight_transaction(
 
     // Step 4: Synchronize GPU values (opacity/transform animations)
     let gpu_values_changed = synchronize_gpu_values(layout_window, txn);
+    // Step 4.5: a view's zoom that began with these values, or came to rest:
+    // the renderer is told (audit A4-29). Coming to rest is a reason for a
+    // frame - the tiles are drawn at the scale the zoom reached.
+    let zoom_settled = follow_zoom_gestures(txn, layout_window, zoom_clock_us());
 
     // Step 5: Generate a frame ONLY if this transaction actually changes what
     // is on screen.
@@ -3940,7 +4259,8 @@ pub(crate) fn build_lightweight_transaction(
         || scroll_changed
         || gpu_values_changed
         || lists_sent
-        || scan_registered_images;
+        || scan_registered_images
+        || zoom_settled;
     if changed {
         txn.generate_frame(0, webrender::api::RenderReasons::empty());
         gpu_frame_requested();
@@ -4323,7 +4643,23 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
             .gpu_state_manager
             .note_one_display_list_submitted(dom_id, &list);
         layout_window.gpu_state_manager.stale_display_lists.remove(&dom_id);
+        // A list sent from here is translated without a zoom frame (audit
+        // A4-29): the view has none any more, and the frame of its list before
+        // is not being zoomed.
+        if let Some(before) = layout_window.gpu_state_manager.zoom_frames.remove(&dom_id) {
+            if before.zooming {
+                txn.set_is_transform_async_zooming(
+                    false,
+                    webrender::api::PropertyBindingId::new(before.key as u64),
+                );
+            }
+        }
     }
+    layout_window.gpu_state_manager.zoom_gesture_running = layout_window
+        .gpu_state_manager
+        .zoom_frames
+        .values()
+        .any(|zoom| zoom.zooming);
 }
 
 /// A video tile's frames on the GPU path: one renderer image per tile for its

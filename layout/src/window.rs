@@ -1127,10 +1127,13 @@ pub struct FrameTimings {
     pub gpu_frame_build_us: u64,
     /// GPU path, last frame: Time drawing the frame: texture uploads and draw calls (UI thread).
     pub gpu_render_us: u64,
+    /// GPU path, last frame: Picture cache tiles whose content the renderer drew again (a tile
+    /// that is only moved or scaled by the compositor is not one; whole process, like the glyphs).
+    pub gpu_tiles_drawn: u64,
 }
 
 /// How many counters [`GpuFrameCounters`] has.
-pub const GPU_FRAME_COUNTERS: usize = 23;
+pub const GPU_FRAME_COUNTERS: usize = 24;
 
 /// What the GPU path (the translation to the renderer's display lists, the
 /// transactions, the renderer's threads and its draw) did for one frame:
@@ -1188,13 +1191,17 @@ pub struct GpuFrameCounters {
     pub frame_build_us: u64,
     /// Time drawing the frame: texture uploads and draw calls (UI thread).
     pub render_us: u64,
+    /// Picture cache tiles whose content the renderer drew again (whole
+    /// process). A zoom step or a pan that the tiles of a view serve draws
+    /// none: the compositor moves or scales the tiles it has (audit A4-29).
+    pub tiles_drawn: u64,
 }
 
 impl GpuFrameCounters {
     /// The counters in the order of the fields.
     #[must_use]
     pub const fn to_array(&self) -> [u64; GPU_FRAME_COUNTERS] {
-        [self.transactions, self.lists_translated, self.items_translated, self.list_bytes, self.resource_adds, self.resource_updates, self.resource_deletes, self.resource_bytes, self.dynamic_properties, self.scene_builds, self.frame_builds, self.glyphs_rasterized, self.texture_uploads, self.texture_upload_px, self.draw_calls, self.translate_us, self.resources_us, self.values_us, self.transaction_us, self.blocked_us, self.scene_build_us, self.frame_build_us, self.render_us]
+        [self.transactions, self.lists_translated, self.items_translated, self.list_bytes, self.resource_adds, self.resource_updates, self.resource_deletes, self.resource_bytes, self.dynamic_properties, self.scene_builds, self.frame_builds, self.glyphs_rasterized, self.texture_uploads, self.texture_upload_px, self.draw_calls, self.translate_us, self.resources_us, self.values_us, self.transaction_us, self.blocked_us, self.scene_build_us, self.frame_build_us, self.render_us, self.tiles_drawn]
     }
 
     /// [`Self::to_array`] back.
@@ -1224,6 +1231,7 @@ impl GpuFrameCounters {
             scene_build_us: a[20],
             frame_build_us: a[21],
             render_us: a[22],
+            tiles_drawn: a[23],
         }
     }
 
@@ -1417,6 +1425,7 @@ impl FrameClock {
             gpu_scene_build_us: gpu.scene_build_us,
             gpu_frame_build_us: gpu.frame_build_us,
             gpu_render_us: gpu.render_us,
+            gpu_tiles_drawn: gpu.tiles_drawn,
         }
     }
 }
@@ -1788,7 +1797,7 @@ impl DomLayoutResult {
     /// write goes to this result's own copy, so the cache keeps the tree its
     /// next pass starts from, as it did when every pass handed over a copy.
     pub fn layout_tree_mut(&mut self) -> &mut LayoutTree {
-        Arc::make_mut(&mut self.layout_tree)
+        solver3::cache::own_mut(&mut self.layout_tree)
     }
 
     /// Puts the atomic inline children of the inline formatting context at
@@ -3276,6 +3285,22 @@ pub struct DomGenerations {
     /// indices of the `Image` items found then
     /// (`LayoutWindow::invoke_background_image_callbacks_into_overlay`).
     image_items: BTreeMap<DomId, ((u64, u64), Vec<usize>)>,
+    /// Per DOM: the `(generation, list revision)` its list was last walked at for the
+    /// reference frames of its nodes, and the push of each by the node that owns it
+    /// (`node_patch::frame_owners`): where a node that is moved finds its items without a
+    /// walk of the list (`LayoutWindow::move_node_in_place`).
+    frame_owners: BTreeMap<DomId, ((u64, u64), BTreeMap<NodeId, usize>)>,
+    /// Boxes were moved where they lie since the shell last built its hit-test index from
+    /// the layout results (`LayoutWindow::take_boxes_moved_in_place`).
+    boxes_moved_in_place: bool,
+    /// Per DOM: the nodes whose solid background is bound to a colour key of its own for
+    /// the states that paint it (`:hover`, `:active`, `:focus`; audit A4-23): the nodes the
+    /// last build of the DOM's list bound from the start
+    /// (`LayoutWindow::bind_state_colors`), and those `LayoutWindow::patch_restyled_decorations`
+    /// bound since, when a state first painted them. While a node is in here and the list
+    /// binds its key, a change of its state is the key's VALUE. Written anew by every
+    /// build of the DOM's list.
+    state_colors: BTreeMap<DomId, BTreeSet<NodeId>>,
     /// Per DOM: the generation its last LAYOUT PASS gave it ([`Self::bump_for_pass`]). While
     /// it is the DOM's generation, nothing wrote the DOM since that pass
     /// ([`Self::written_since_pass`]): the fingerprints the pass left on the layout tree's
@@ -3322,8 +3347,40 @@ impl DomGenerations {
             .retain(|dom_id, _| live.contains_key(dom_id));
         self.image_items
             .retain(|dom_id, _| live.contains_key(dom_id));
+        self.frame_owners
+            .retain(|dom_id, _| live.contains_key(dom_id));
+        self.state_colors
+            .retain(|dom_id, _| live.contains_key(dom_id));
         self.laid_out_at
             .retain(|dom_id, _| live.contains_key(dom_id));
+    }
+
+    /// The boxes of `dom_id` MOVED where they lie and nothing else of it changed
+    /// (`LayoutWindow::move_node_in_place`). The DOM is another one, as after every write of
+    /// the app (its boxes are elsewhere); what was found for the generation before that a
+    /// move cannot change - which boxes draw a callback image, at which indices the `Image`
+    /// items and the reference frames of its list are - is kept under the new one, or
+    /// every move would have the next frame walk the DOM's boxes and items to find it again.
+    fn bump_for_a_move(&mut self, dom_id: DomId) {
+        let before = self.list_stamp(dom_id);
+        self.bump(dom_id);
+        let after = self.list_stamp(dom_id);
+        if let Some((found_at, _)) = self.callback_images.get_mut(&dom_id) {
+            if *found_at == before.0 {
+                *found_at = after.0;
+            }
+        }
+        if let Some((found_at, _)) = self.image_items.get_mut(&dom_id) {
+            if *found_at == before {
+                *found_at = after;
+            }
+        }
+        if let Some((found_at, _)) = self.frame_owners.get_mut(&dom_id) {
+            if *found_at == before {
+                *found_at = after;
+            }
+        }
+        self.boxes_moved_in_place = true;
     }
 
     /// The items of `dom_id`'s display list were replaced or spliced (see `list_revisions`).
@@ -3341,6 +3398,173 @@ impl DomGenerations {
         )
     }
 }
+
+/// The colour `node`'s whole background is painted in, when it is one: `Some(colour)` for a
+/// single solid layer, `Some(transparent)` for no layer at all (nothing is painted), `None`
+/// for anything else (several layers, a gradient, an image).
+fn solid_background_of(
+    styled_dom: &StyledDom,
+    node: NodeId,
+) -> Option<azul_css::props::basic::color::ColorU> {
+    use azul_css::props::{basic::color::ColorU, style::StyleBackgroundContent};
+
+    let states = styled_dom.styled_nodes.as_container();
+    let state = &states.get(node)?.styled_node_state;
+    let layers = solver3::getters::get_background_contents(styled_dom, node, state);
+    match layers.as_slice() {
+        [] => Some(ColorU {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0,
+        }),
+        [StyleBackgroundContent::Color(color)] => Some(*color),
+        _ => None,
+    }
+}
+
+/// Audit A4-23, the eager binding: the nodes of `styled_dom` whose own style gives them a
+/// background under `:hover`, `:active` or `:focus`, each with the colour its background
+/// is NOW (see-through when it has none). These are the nodes a build binds to a colour key
+/// ([`LayoutWindow::bind_state_colors`]).
+///
+/// A node is in when (a) a rule of a stylesheet or a declaration of its own sets
+/// `background` / `background-color` under one of the three states, (b) every background it
+/// declares under ANY state is one colour or nothing (a gradient or an image under a state
+/// cannot be the value of a colour key: such a node keeps the patch), and (c) its background
+/// is one colour or nothing now ([`solid_background_of`]). Left out: the root and a `body`
+/// (the canvas paints their background).
+///
+/// Only nodes with a hit-test tag are asked: a node gets one for any declaration under
+/// `:hover` / `:active` / `:focus` (`CssPropertyCache::generate_tag_ids`), and one without
+/// a tag is never entered or pressed. So a map's 12,470 nodes cost a step for each of the
+/// nodes that take the pointer, and a walk of a node's own rules for those.
+fn state_colored_nodes(
+    styled_dom: &StyledDom,
+) -> Vec<(NodeId, azul_css::props::basic::color::ColorU)> {
+    use azul_css::{
+        dynamic_selector::{DynamicSelector, PseudoStateType},
+        props::{
+            property::{CssProperty, CssPropertyType},
+            style::StyleBackgroundContent,
+        },
+    };
+
+    // One colour, or nothing: what a rect bound to one colour key can show.
+    let one_colour = |property: &CssProperty| match property {
+        CssProperty::BackgroundContent(value) => value.get_property().is_none_or(|layers| {
+            let layers: &[StyleBackgroundContent] = layers.as_slice();
+            layers.len() <= 1
+                && layers.iter().all(|layer| {
+                    matches!(
+                        layer,
+                        StyleBackgroundContent::Color(_) | StyleBackgroundContent::SystemColor(_)
+                    )
+                })
+        }),
+        _ => true,
+    };
+    let is_background = |ty: CssPropertyType| {
+        matches!(
+            ty,
+            CssPropertyType::BackgroundContent | CssPropertyType::BackgroundColor
+        )
+    };
+    let raises = |state: PseudoStateType| {
+        matches!(
+            state,
+            PseudoStateType::Hover | PseudoStateType::Active | PseudoStateType::Focus
+        )
+    };
+
+    let cache = styled_dom.get_css_property_cache();
+    let node_data = styled_dom.node_data.as_container();
+    let mut colored = Vec::new();
+    for tagged in styled_dom.tag_ids_to_node_ids.as_slice() {
+        let Some(node) = tagged.node_id.into_crate_internal() else {
+            continue;
+        };
+        let Some(data) = node_data.get(node) else {
+            continue;
+        };
+        if node.index() == 0
+            || matches!(
+                data.get_node_type(),
+                azul_core::dom::NodeType::Body | azul_core::dom::NodeType::Html
+            )
+        {
+            continue;
+        }
+        let mut raised = false;
+        let mut solid = true;
+        for rule in cache.css_props.get_slice(node.index()) {
+            if rule.state == PseudoStateType::Normal || !is_background(rule.prop_type) {
+                continue;
+            }
+            raised |= raises(rule.state);
+            solid &= one_colour(&rule.property);
+        }
+        for (property, conditions) in cache.inline_properties(data, node.index()) {
+            if !is_background(property.get_type()) {
+                continue;
+            }
+            let mut under_a_state = false;
+            for condition in conditions.as_slice() {
+                if let DynamicSelector::PseudoState(state) = condition {
+                    if *state != PseudoStateType::Normal {
+                        under_a_state = true;
+                        raised |= raises(*state);
+                    }
+                }
+            }
+            if under_a_state {
+                solid &= one_colour(property);
+            }
+        }
+        if !raised || !solid {
+            continue;
+        }
+        if let Some(color) = solid_background_of(styled_dom, node) {
+            colored.push((node, color));
+        }
+    }
+    colored
+}
+
+/// How many state colours `LayoutWindow::patch_restyled_decorations` showed by writing the
+/// VALUE of a colour key on this thread (audit A4-23): what a test reads to say that a
+/// pointer swept over labels writes a value per enter and leave and changes no list.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STATE_COLOR_WRITES: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn state_color_writes(values: usize) {
+    STATE_COLOR_WRITES.with(|written| written.set(written.get() + values));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn state_color_writes(_values: usize) {}
+
+/// How many layout boxes a move of a node where it lies looked at on this thread
+/// (`LayoutWindow::move_node_in_place`): what a test reads to say that a move looks at the
+/// boxes of the moved node and not at those of its document.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static MOVED_BOXES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+fn moved_boxes(steps: usize) {
+    MOVED_BOXES.with(|visited| visited.set(visited.get() + steps));
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+const fn moved_boxes(_steps: usize) {}
 
 /// How many display-list items the search for callback backgrounds looked at on this thread
 /// to find the `Image` items of a list
@@ -3739,6 +3963,74 @@ pub fn set_diff_first_steps_on_this_thread(steps: Option<&[DiffFirstStep]>) {
     DIFF_FIRST_ON_THIS_THREAD.with(|choice| {
         choice.set(steps.map(|steps| steps.iter().fold(0_u8, |bits, step| bits | step.bit())));
     });
+}
+
+std::thread_local! {
+    /// The choice of [`set_state_colors_from_the_build_on_this_thread`] for the calling thread.
+    static STATE_COLORS_FROM_THE_BUILD_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether a build of a display list binds the background of every node that has a
+/// `:hover` / `:active` / `:focus` background to a colour key from the start (audit A4-23,
+/// the eager binding: [`LayoutWindow::bind_state_colors`]), so that the FIRST enter of such
+/// a node is a value already. On unless the environment says `AZ_EAGER_STATE_COLORS=0`:
+/// then a node is bound when a state first paints it (one patched list per node and list
+/// build), as before.
+#[must_use]
+pub fn state_colors_from_the_build() -> bool {
+    static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if let Some(on) = STATE_COLORS_FROM_THE_BUILD_ON_THIS_THREAD.with(core::cell::Cell::get) {
+        return on;
+    }
+    *FROM_ENVIRONMENT.get_or_init(|| {
+        std::env::var_os("AZ_EAGER_STATE_COLORS").is_none_or(|value| value != "0")
+    })
+}
+
+std::thread_local! {
+    /// The choice of [`set_move_in_place_on_this_thread`] for the calling thread.
+    static MOVE_IN_PLACE_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
+        const { core::cell::Cell::new(None) };
+}
+
+/// Whether a write of `left` / `top` alone moves the node's boxes and items WHERE THEY LIE
+/// (`LayoutWindow::move_node_in_place`, A3-window-49) instead of laying its document out.
+/// ON unless the environment says `AZ_MOVE_IN_PLACE=0`.
+///
+/// The move writes `old + delta`, which is not, in the last bit of an `f32`, the position
+/// a solve from the new insets gives nor the item a paint from that position gives. That
+/// is accepted for a drag, and only here: (1) the drift is bounded by the gesture - a few
+/// units in the last place per move, thousandths of a pixel after hundreds of moves;
+/// (2) it corrects itself - every move drops the box's `AbsPlacement` and the solver's
+/// kept list, so the first pass of the document solves the box from the insets as written
+/// and paints every item from the solved positions; (3) every kept structure is moved by
+/// the same delta, so positions, items and the hit tester's boxes agree with each other;
+/// (4) nothing is carried from one gesture to the next. (A run COPIED by a patched pass
+/// has none of that - it would drift pass after pass with nothing to reset it - which is
+/// why that copy is exact and this move need not be.) The exact move is designed in
+/// `audit/A3-window.md`, row 49.
+#[must_use]
+pub fn move_in_place_enabled() -> bool {
+    static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if let Some(on) = MOVE_IN_PLACE_ON_THIS_THREAD.with(core::cell::Cell::get) {
+        return on;
+    }
+    *FROM_ENVIRONMENT
+        .get_or_init(|| std::env::var_os("AZ_MOVE_IN_PLACE").is_none_or(|value| value != "0"))
+}
+
+/// Chooses the answer of [`move_in_place_enabled`] for the calling thread, whatever the
+/// environment says (`None`: the environment's again). For the tests of the move.
+pub fn set_move_in_place_on_this_thread(on: Option<bool>) {
+    MOVE_IN_PLACE_ON_THIS_THREAD.with(|choice| choice.set(on));
+}
+
+/// Chooses the answer of [`state_colors_from_the_build`] for the calling thread, whatever
+/// the environment says (`None`: the environment's again). For a test of one of the two
+/// bindings: the tests of a process share its environment and run side by side.
+pub fn set_state_colors_from_the_build_on_this_thread(on: Option<bool>) {
+    STATE_COLORS_FROM_THE_BUILD_ON_THIS_THREAD.with(|choice| choice.set(on));
 }
 
 /// How many steps `LayoutWindow::get_node_layout_rect` took on this thread to find a node's
@@ -5668,11 +5960,12 @@ impl LayoutWindow {
     /// when the offset is already correct.
     ///
     /// The list is LOOKED AT first and written only when an item really moves.
-    /// When it is written it is written IN PLACE if nothing else holds it
-    /// besides the two shares this window knows how to step aside for - the
-    /// layout cache's copy of the root's list and the renderer's record of
-    /// what it was sent (a `Weak`) - and the record is renewed for the same
-    /// list. A GPU frame translates no `content_offset` (`WebRender` scrolls
+    /// When it is written it is written IN PLACE if nothing else OWNS it
+    /// besides the share this window knows how to step aside for - the
+    /// layout cache's copy of the root's list. Weak references do not count
+    /// (the renderer's record of what it was sent, the names the GPU path
+    /// keeps of a list): they read nothing, and what they stand for does
+    /// not depend on this offset. The record is renewed for the same list. A GPU frame translates no `content_offset` (`WebRender` scrolls
     /// the child's pipeline by the LIVE offset, `scroll_all_nodes`), so an
     /// offset that moved is not a list the renderer is owed: the host's list
     /// stays the one it holds, and a pan costs the frame nothing that grows
@@ -5744,9 +6037,28 @@ impl LayoutWindow {
             self.gpu_state_manager.submitted_display_lists.remove(&dom_id);
         }
 
-        let in_place = Arc::get_mut(&mut lr.display_list)
-            .map(|list| repoint(list))
-            .is_some();
+        // IN PLACE whenever this window is the list's one OWNER - also while
+        // weak references to it live. `Arc::get_mut` refuses then, and the
+        // GPU path keeps weak references as the NAME of a list (the kept
+        // fonts and images of a list, `wr_translate2::list_names`; its kept
+        // text shadows, `text_halo::LIST_SHADOWS`; the digest of the bound
+        // values, `GpuValueSource`): with any of them alive every pan frame
+        // copied the host's list (ten thousand items), the copy was a list
+        // the renderer did not hold, and the frame translated and sent it
+        // and had the scene built - for an offset no GPU frame reads. None
+        // of those names is of a `content_offset`: what they keep of the
+        // list is as true after this write as before it.
+        let in_place = Arc::strong_count(&lr.display_list) == 1;
+        if in_place {
+            // SAFETY: the count says no other `Arc` of this list exists, and
+            // `&mut self` that no reference into this one is out; so nothing
+            // can read the list while it is written. A weak reference reads
+            // nothing unless it is upgraded: no holder of one upgrades it
+            // (they compare `Weak::as_ptr`), and all of them live on this
+            // thread, which is here. The pointer is the allocation's own
+            // (`Arc::as_ptr`), valid for writes for as long as the `Arc` is.
+            repoint(unsafe { &mut *Arc::as_ptr(&lr.display_list).cast_mut() });
+        }
         // The list the shares go back to: the one just written, or - when a
         // holder of ours forced a copy - the one they knew.
         let shares = Arc::clone(&lr.display_list);
@@ -10092,9 +10404,14 @@ impl LayoutWindow {
         if !self.skip_gpu_sync {
             let _ = self.gpu_state_manager.get_or_create_cache(dom_id);
         }
-        if dom_id == DomId::ROOT_ID {
-            self.retain_running_color_keys();
-        }
+        // The colour keys the list of this pass binds (audit A4-23). None where the build
+        // binds no value at all (`skip_gpu_sync`: it gets an empty cache).
+        let state_colored = if state_colors_from_the_build() && !self.skip_gpu_sync {
+            state_colored_nodes(&styled_dom)
+        } else {
+            Vec::new()
+        };
+        self.bind_state_colors(dom_id, &state_colored, true);
 
         // A tween in flight forces the caret solid: the framework suppresses
         // blinking while the caret / selection is animating (user directive).
@@ -10286,6 +10603,9 @@ impl LayoutWindow {
         // Desktop (skip_gpu_sync == false) is unchanged.
         if self.skip_gpu_sync {
             if let Some(tree) = self.layout_cache.tree.clone() {
+                // Another result: what the registration raised beside the tree of
+                // the one before is derived again (see the same call below).
+                self.scroll_manager.forget_raised_bars(dom_id);
                 self.layout_results.insert(
                     dom_id,
                     DomLayoutResult {
@@ -10855,6 +11175,13 @@ impl LayoutWindow {
             .tree
             .clone()
             .ok_or(solver3::LayoutError::InvalidTree)?;
+        // The pass made this DOM's result anew: the scrollbars the registration
+        // raised beside the tree of the result before it (a view's published
+        // extent, `ScrollManager::raise_bars`) are derived again by the
+        // registration that follows - also when the pass hands the SAME tree on
+        // (nothing changed), which their own check by tree cannot see. Before
+        // the thumbs' update below reads this tree.
+        self.scroll_manager.forget_raised_bars(dom_id);
 
         // Get scroll IDs from cache (they were computed during layout_document)
         let scroll_ids = self.layout_cache.scroll_ids.clone();
@@ -11799,11 +12126,43 @@ impl LayoutWindow {
             });
             (changed, variables)
         };
+        // A3-window-49: a write that moves nothing but the node's `left` / `top` and the
+        // value of its `transform` (a label dragged or turned: one such write per mouse
+        // move) may be shown by moving the node where it lies. What its insets resolve to
+        // BEFORE the write is read here, while the style still is the one it was placed
+        // with.
+        let insets_before = (!variables
+            && !changed.is_empty()
+            && changed.iter().all(|key| {
+                matches!(
+                    key,
+                    Some(CssPropertyType::Left | CssPropertyType::Top | CssPropertyType::Transform)
+                )
+            }))
+        .then(|| {
+            solver3::positioning::resolve_position_offsets(
+                &layout_result.styled_dom,
+                Some(node_id),
+                LogicalSize {
+                    width: 0.0,
+                    height: 0.0,
+                },
+                layout_result.viewport.size,
+            )
+        });
         layout_result.styled_dom.node_data.as_container_mut()[node_id].set_style(new_style);
         if changed.is_empty() {
             // Regrouped, not restyled: every property resolves as before.
             return unchanged;
         }
+        if let Some(before) = insets_before {
+            if let Some(moved) = self.move_node_in_place(dom_id, node_id, &changed, &before) {
+                return moved;
+            }
+        }
+        let Some(layout_result) = self.layout_results.get_mut(&dom_id) else {
+            return unchanged;
+        };
         // A style the app wrote: the DOM is another one (`DomGenerations`).
         self.dom_generations.bump(dom_id);
 
@@ -11882,6 +12241,550 @@ impl LayoutWindow {
         }
     }
 
+    /// Whether boxes were moved where they lie ([`Self::move_node_in_place`]) since this was
+    /// last asked; asking clears it. A hit-test index built from the layout results before
+    /// such a move has the moved boxes where they were: its owner builds it again before
+    /// the next query (the shell, in `perform_hit_test`).
+    pub fn take_boxes_moved_in_place(&mut self) -> bool {
+        core::mem::take(&mut self.dom_generations.boxes_moved_in_place)
+    }
+
+    /// The index of the `PushReferenceFrame` that `node` owns in the display list of
+    /// `dom_id`, from the per-list table of them (`DomGenerations::frame_owners`): one walk
+    /// of the list when the list is another one than at the last ask, a lookup afterwards.
+    fn frame_push_of(&mut self, dom_id: DomId, node: NodeId) -> Option<usize> {
+        let stamp = self.dom_generations.list_stamp(dom_id);
+        let fresh = self
+            .dom_generations
+            .frame_owners
+            .get(&dom_id)
+            .is_some_and(|(found_at, _)| *found_at == stamp);
+        if !fresh {
+            let list = &self.layout_results.get(&dom_id)?.display_list;
+            let owners = solver3::display_list::node_patch::frame_owners(list);
+            self.dom_generations
+                .frame_owners
+                .insert(dom_id, (stamp, owners));
+        }
+        self.dom_generations
+            .frame_owners
+            .get(&dom_id)?
+            .1
+            .get(&node)
+            .copied()
+    }
+
+    /// A3-window-49: THE O(1) MOVE. The app wrote the style of `node_id` (the write is
+    /// already in the node) and all that differs are the px values of its `left` / `top`
+    /// and / or the value of its `transform` (`changed`): a label dragged or turned, one
+    /// write per mouse move. `before` are the insets it was placed with.
+    ///
+    /// Such a write was a pass over the node's document: the cascade's tail over every node,
+    /// the font and value walks of a layout pass, a display list patched from the kept one,
+    /// then the window's own pass (`relayout_child_dom_in_place`: 12,470 nodes and 17,495
+    /// items of a map view looked at to move one label). What it changes is known without
+    /// any of that:
+    ///
+    /// - STYLE: `left` / `top` are read from the node's own style by every reader but the
+    ///   compact cache, whose two slots are written here; nothing inherits them and no
+    ///   other row of the cascade is made from them.
+    /// - BOXES: an absolutely positioned or fixed box whose `right` / `bottom` are `auto`
+    ///   stands at its containing block's edge plus `left` / `top`, so it moves by the
+    ///   difference, with every box below it (a box with a transform is the containing
+    ///   block of all of them): the positions of the window's result and of the solver's
+    ///   cache move together, and the box's fingerprint in the kept tree becomes the one
+    ///   of the style it now stands for (a later pass finds it clean, a rebuild whose DOM
+    ///   says otherwise finds the difference).
+    /// - ITEMS: the node opens a reference frame, and what it paints is that frame's range
+    ///   of the list (`node_patch::movable_frame`): the range is shifted in place.
+    /// - A `transform` value alone moves no box and changes no item: it is published under
+    ///   the key the list binds, as a `set_css_property(transform)` is
+    ///   ([`Self::write_bound_gpu_properties`]).
+    ///
+    /// Returns the result of the write (`Paint`), or `None` when the write cannot be shown
+    /// this way - then nothing but the two compact slots and the published transform value
+    /// were written, which the caller's general path computes again: a node without a
+    /// reference frame of its own or with several boxes, an inset in another unit or
+    /// against a `right` / `bottom`, a relatively positioned or sticky box, an override or
+    /// an `!important` rule on the property, a pass owed to the document, a tween of a
+    /// caret or selection in flight, a tree another holder keeps.
+    ///
+    /// What a move still costs that grows with the document is not in this function: the
+    /// renderer takes the list as a changed one (the CPU compositor's copy and diff, the
+    /// GPU translation), and the shell builds its hit-test index again before the next
+    /// query ([`Self::take_boxes_moved_in_place`]).
+    #[allow(clippy::too_many_lines)] // one check-then-write sequence, in the order it must run
+    fn move_node_in_place(
+        &mut self,
+        dom_id: DomId,
+        node_id: NodeId,
+        changed: &[Option<azul_css::props::property::CssPropertyType>],
+        before: &solver3::positioning::PositionOffsets,
+    ) -> Option<crate::overlay::ContentChangeResult> {
+        use azul_css::{
+            compact_cache::{encode_px_slot, PX_SLOT_INHERIT, PX_SLOT_THRESHOLD},
+            css::CssDeclaration,
+            props::{
+                layout::LayoutPosition,
+                property::{CssProperty, CssPropertyType as Ty},
+                style::StyleBackgroundContent,
+            },
+        };
+
+        use crate::{
+            overlay::{ContentChangeResult, ContentDirtyTier},
+            solver3::{
+                display_list::{dl_patching_enabled, node_patch},
+                positioning,
+            },
+        };
+
+        /// A node with more boxes below it than this is laid out by a pass.
+        const MAX_BOXES: usize = 1024;
+
+        let moves_x = changed.contains(&Some(Ty::Left));
+        let moves_y = changed.contains(&Some(Ty::Top));
+        let moves = moves_x || moves_y;
+        let turns = changed.contains(&Some(Ty::Transform));
+        if !dl_patching_enabled() || self.text_edit_manager.tween.is_active() {
+            return None;
+        }
+        // The switch of the move (`move_in_place_enabled`): off, the pass of the general
+        // path places the box.
+        if moves && !move_in_place_enabled() {
+            return None;
+        }
+        // No pass is owed to this DOM: its boxes are where its styles put them.
+        if self.content_changed_doms.contains(&dom_id)
+            || self.css_dirty_waiting.contains_key(&dom_id)
+            || self
+                .pending_css_dirty
+                .as_ref()
+                .is_some_and(|(dom, _)| *dom == dom_id)
+        {
+            return None;
+        }
+
+        // ---- 1. What the node is. Nothing is written before all of it holds. ----
+        let (index, size, left_slot, top_slot, fingerprint, subtree, proven_inside) = {
+            let result = self.layout_results.get(&dom_id)?;
+            let styled_dom = &result.styled_dom;
+            let tree = &result.layout_tree;
+            let boxes = tree.dom_to_layout.get(&node_id)?;
+            if boxes.len() != 1 {
+                return None;
+            }
+            let index = boxes[0].index();
+            let hot = tree.get(LayoutNodeId::new(index))?;
+            if hot.dom_node_id != Some(node_id) {
+                return None;
+            }
+            let size = hot.used_size?;
+            let property_cache = styled_dom.get_css_property_cache();
+            let is_changed = |ty: Ty| changed.contains(&Some(ty));
+            // An override or an `!important` rule outranks the style that was written.
+            if property_cache
+                .user_overridden_properties
+                .get(node_id.index())
+                .is_some_and(|pinned| pinned.iter().any(|(ty, _)| is_changed(*ty)))
+                || property_cache
+                    .inline_overruled
+                    .get(&node_id.index())
+                    .is_some_and(|rules| rules.iter().any(|(_, ty)| is_changed(*ty)))
+            {
+                return None;
+            }
+
+            // The style as written: each changed property declared once, as a value, under
+            // no condition.
+            let node_data = styled_dom.node_data.as_container();
+            let own = node_data.get(node_id)?;
+            let (mut left, mut top, mut transform) = (None, None, false);
+            let mut declared = [0_usize; 3];
+            for rule in own.get_style().rules.as_ref() {
+                for declaration in rule.declarations.as_ref() {
+                    let Some(ty) = declaration.get_type() else {
+                        continue;
+                    };
+                    if !is_changed(ty) {
+                        continue;
+                    }
+                    let CssDeclaration::Static(property) = declaration else {
+                        return None;
+                    };
+                    if !rule.conditions.as_ref().is_empty()
+                        || rule.priority < azul_css::css::rule_priority::INLINE
+                    {
+                        return None;
+                    }
+                    match property {
+                        CssProperty::Left(value) => {
+                            declared[0] += 1;
+                            left = value.get_property().map(|v| v.inner);
+                        }
+                        CssProperty::Top(value) => {
+                            declared[1] += 1;
+                            top = value.get_property().map(|v| v.inner);
+                        }
+                        CssProperty::Transform(value) => {
+                            declared[2] += 1;
+                            transform = value
+                                .get_property()
+                                .is_some_and(|functions| !functions.as_ref().is_empty());
+                        }
+                        _ => return None,
+                    }
+                }
+            }
+            let px_slot = |length: Option<azul_css::props::basic::pixel::PixelValue>| {
+                length
+                    .map(encode_px_slot)
+                    .filter(|slot| *slot < PX_SLOT_THRESHOLD)
+            };
+            let (left_slot, top_slot) = (px_slot(left), px_slot(top));
+            if (moves_x && (declared[0] != 1 || left_slot.is_none()))
+                || (moves_y && (declared[1] != 1 || top_slot.is_none()))
+                || (turns && (declared[2] != 1 || !transform))
+            {
+                return None;
+            }
+
+            // The fingerprint the kept tree holds for the box against the one of the style
+            // as it is now (the node's state as the tree knows it): nothing but the values
+            // of its insets and of its transform may differ.
+            let cold = tree.cold(LayoutNodeId::new(index))?;
+            let states = styled_dom.styled_nodes.as_container();
+            let state = states.get(node_id).map(|styled| &styled.styled_node_state);
+            let mut fingerprint = azul_core::diff::NodeDataFingerprint::compute(own, state);
+            fingerprint.state_hash = cold.node_data_fingerprint.state_hash;
+            let values_alone = azul_core::diff::NodeChangeSet::INLINE_STYLE_INSETS
+                | azul_core::diff::NodeChangeSet::INLINE_STYLE_PAINT;
+            if cold.node_data_fingerprint.diff(&fingerprint).bits & !values_alone != 0 {
+                return None;
+            }
+
+            let mut subtree: Vec<usize> = Vec::new();
+            let mut proven_inside: Vec<usize> = Vec::new();
+            if moves {
+                if !matches!(
+                    positioning::get_position_type(styled_dom, Some(node_id)),
+                    LayoutPosition::Absolute | LayoutPosition::Fixed
+                ) {
+                    return None;
+                }
+                // The insets it was placed with: px lengths (nothing of the containing
+                // block is in them) and none on the opposite side (the box is not
+                // stretched between two).
+                let compact = property_cache.compact_cache.as_ref()?;
+                let slots = compact.tier2_dims.get(node_id.index())?;
+                if (moves_x
+                    && (before.left.is_none()
+                        || before.right.is_some()
+                        || slots.left >= PX_SLOT_THRESHOLD))
+                    || (moves_y
+                        && (before.top.is_none()
+                            || before.bottom.is_some()
+                            || slots.top >= PX_SLOT_THRESHOLD))
+                {
+                    return None;
+                }
+                // No box around it in a named flow (a region paints its parts).
+                let mut at = hot.parent;
+                let mut steps = 0_usize;
+                while let Some(around) = at {
+                    steps += 1;
+                    if steps > tree.nodes.len() {
+                        return None;
+                    }
+                    let id = LayoutNodeId::new(around);
+                    if tree.warm(id).is_some_and(|w| w.flow.is_some()) {
+                        return None;
+                    }
+                    at = tree.get(id)?.parent;
+                }
+                // The boxes that move: the node's and every box below it. None of them in
+                // a named flow, none below it fixed or sticky (placed by something else
+                // than the box above it), none reading its insets from the box above it.
+                subtree.push(index);
+                let mut next = 0_usize;
+                while next < subtree.len() {
+                    if subtree.len() > MAX_BOXES {
+                        return None;
+                    }
+                    let below = subtree[next];
+                    moved_boxes(1);
+                    let id = LayoutNodeId::new(below);
+                    let warm = tree.warm(id)?;
+                    if warm.flow.is_some() {
+                        return None;
+                    }
+                    if below != index {
+                        if matches!(
+                            warm.computed_style.position,
+                            LayoutPosition::Fixed | LayoutPosition::Sticky
+                        ) {
+                            return None;
+                        }
+                        let inherits = tree
+                            .get(id)
+                            .and_then(|n| n.dom_node_id)
+                            .and_then(|n| compact.tier2_dims.get(n.index()))
+                            .is_some_and(|d| {
+                                [d.left, d.top, d.right, d.bottom].contains(&PX_SLOT_INHERIT)
+                            });
+                        if inherits {
+                            return None;
+                        }
+                    }
+                    subtree.extend_from_slice(tree.children(below));
+                    next += 1;
+                }
+                // The boxes whose text has its background proven by a box of the subtree
+                // (`compute_uniform_text_bg`: the first box upwards that paints any
+                // background decides): that proof's rect moves with them.
+                let paints = |layout_box: usize| {
+                    tree.get(LayoutNodeId::new(layout_box))
+                        .and_then(|n| n.dom_node_id)
+                        .is_some_and(|dom_node| {
+                            states.get(dom_node).is_some_and(|styled| {
+                                solver3::getters::get_background_contents(
+                                    styled_dom,
+                                    dom_node,
+                                    &styled.styled_node_state,
+                                )
+                                .iter()
+                                .any(|layer| {
+                                    !matches!(layer, StyleBackgroundContent::Color(c) if c.a == 0)
+                                })
+                            })
+                        })
+                };
+                for start in &subtree {
+                    let mut at = Some(*start);
+                    let mut steps = 0_usize;
+                    while let Some(layout_box) = at {
+                        steps += 1;
+                        if steps > subtree.len() {
+                            break;
+                        }
+                        if paints(layout_box) {
+                            proven_inside.push(*start);
+                            break;
+                        }
+                        if layout_box == index {
+                            break;
+                        }
+                        at = tree.get(LayoutNodeId::new(layout_box)).and_then(|n| n.parent);
+                    }
+                }
+                proven_inside.sort_unstable();
+            }
+
+            // The solver's cache of this DOM starts its next pass from this very tree and
+            // from positions of its own: they are moved with the result's.
+            let cache = if dom_id == DomId::ROOT_ID {
+                &self.layout_cache
+            } else {
+                self.child_layout_caches.get(&dom_id)?
+            };
+            if !cache
+                .tree
+                .as_ref()
+                .is_some_and(|kept| Arc::ptr_eq(kept, &result.layout_tree))
+                || cache.calculated_positions.len() != result.calculated_positions.len()
+            {
+                return None;
+            }
+            if turns
+                && !self
+                    .gpu_state_manager
+                    .caches
+                    .get(&dom_id)
+                    .is_some_and(|gpu| gpu.css_transform_keys.contains_key(&node_id))
+            {
+                return None;
+            }
+            (
+                index,
+                size,
+                left_slot,
+                top_slot,
+                fingerprint,
+                subtree,
+                proven_inside,
+            )
+        };
+
+        // ---- 2. The node's items: the range of its reference frame. ----
+        let frame = if moves {
+            let push = self.frame_push_of(dom_id, node_id)?;
+            let result = self.layout_results.get(&dom_id)?;
+            let position = solver3::pos_get(&result.calculated_positions, index)?;
+            let pop = node_patch::movable_frame(
+                &result.display_list,
+                push,
+                node_id,
+                LogicalRect::new(position, size),
+            )?;
+            Some((push, pop))
+        } else {
+            None
+        };
+        if moves {
+            // Where the box stood: page breaks from there on are no longer known.
+            self.mark_pagination_dirty_at_node(dom_id, node_id);
+        }
+
+        // ---- 3. The style rows, and what they now resolve to. ----
+        let result = self.layout_results.get_mut(&dom_id)?;
+        if let Some(slots) = result
+            .styled_dom
+            .get_css_property_cache_mut()
+            .compact_cache
+            .as_mut()
+            .and_then(|compact| compact.tier2_dims.get_mut(node_id.index()))
+        {
+            if let (true, Some(slot)) = (moves_x, left_slot) {
+                slots.left = slot;
+            }
+            if let (true, Some(slot)) = (moves_y, top_slot) {
+                slots.top = slot;
+            }
+        }
+        let after = positioning::resolve_position_offsets(
+            &result.styled_dom,
+            Some(node_id),
+            LogicalSize {
+                width: 0.0,
+                height: 0.0,
+            },
+            result.viewport.size,
+        );
+        let delta = LogicalPosition {
+            x: if moves_x {
+                after.left? - before.left?
+            } else {
+                0.0
+            },
+            y: if moves_y {
+                after.top? - before.top?
+            } else {
+                0.0
+            },
+        };
+        if !delta.x.is_finite() || !delta.y.is_finite() {
+            return None;
+        }
+        if turns {
+            let gpu = self.gpu_state_manager.caches.get_mut(&dom_id)?;
+            if !gpu.refresh_transform_value_of(
+                &result.styled_dom,
+                node_id,
+                (size.width, size.height),
+            ) {
+                return None;
+            }
+        }
+
+        // ---- 4. The kept tree: the box's fingerprint. The cache lets go of the tree for
+        // the write and takes it back (`Arc::get_mut`: no copy of the tree; a tree a third
+        // holder keeps is not written, and the pass of the general path lays out). ----
+        let cache = if dom_id == DomId::ROOT_ID {
+            &mut self.layout_cache
+        } else {
+            self.child_layout_caches.get_mut(&dom_id)?
+        };
+        drop(cache.tree.take());
+        let written = match Arc::get_mut(&mut result.layout_tree)
+            .and_then(|tree| tree.cold_mut(LayoutNodeId::new(index)))
+        {
+            Some(cold) => {
+                cold.node_data_fingerprint = fingerprint;
+                true
+            }
+            None => false,
+        };
+        cache.tree = Some(Arc::clone(&result.layout_tree));
+        if !written {
+            return None;
+        }
+
+        // ---- 5. The boxes and the items, moved together. ----
+        let moved = moves && (delta.x != 0.0 || delta.y != 0.0);
+        if moved {
+            // The place the solver last SOLVED for the box (`cache::AbsPlacement`, kept with
+            // the box's interior) was made from the insets it had then. A pass drops it for
+            // a box whose insets its reconcile sees move (`layout_document`, the paint
+            // flag); this box it will find clean (step 4), and no solve stands behind where
+            // the box is now. So the entry goes here, and the next pass solves the box from
+            // its style. Left standing, a pass that laid the box's parent out again - the
+            // flow puts the box's slot back to its static position, which the entry takes
+            // for "nothing moved" - placed the label where its last solve had it: back
+            // where the drag began. (The boxes below it are solved from their containing
+            // block's rect, which moved: their entries do not hold.)
+            if let Some(run) = cache
+                .cache_map
+                .entries
+                .get_mut(index)
+                .and_then(|entry| entry.abs_interior.as_deref_mut())
+            {
+                run.placement = None;
+            }
+            for layout_box in &subtree {
+                for positions in [
+                    &mut result.calculated_positions,
+                    &mut cache.calculated_positions,
+                ] {
+                    if let Some(position) = positions.get_mut(*layout_box) {
+                        if position.x != solver3::POSITION_UNSET.x {
+                            position.x += delta.x;
+                            position.y += delta.y;
+                        }
+                    }
+                }
+            }
+            if let Some((push, pop)) = frame {
+                // The solver's cache lets go of its list, and does not get the moved one:
+                // the items of the frame are now `old + delta`, an ulp away from what a
+                // paint from the solved position gives, and a pass that kept this list
+                // would copy the run of a box that it finds where the move left it. With
+                // no kept list the next pass of the document paints every item from its
+                // solved positions: the drift of a drag ends at the first pass. (It also
+                // leaves the list with one holder less: a list nobody else holds is
+                // written where it lies.)
+                cache.cached_display_list = None;
+                node_patch::move_frame(
+                    Arc::make_mut(&mut result.display_list),
+                    push,
+                    pop,
+                    delta,
+                    &proven_inside,
+                );
+            }
+            // The list changed outside a layout pass: what the last pass recorded about
+            // its own patch and move describes this list no longer.
+            cache.record_full_emission();
+            cache.last_patch_move = None;
+        }
+
+        // ---- 6. The books. ----
+        if moved {
+            if dom_id != DomId::ROOT_ID {
+                // As the other patches of a view's list do.
+                self.layout_cache.record_full_emission();
+            }
+            self.dom_generations.bump_for_a_move(dom_id);
+            self.mark_pagination_dirty_at_node(dom_id, node_id);
+        } else {
+            // A turn alone: the node is another one for whoever keeps a result by the
+            // DOM's generation; no box and no item moved.
+            self.dom_generations.bump(dom_id);
+        }
+        Some(ContentChangeResult {
+            tier: ContentDirtyTier::Paint,
+        })
+    }
+
     /// The declaration keys whose declarations - static values, `var()` /
     /// `env()` references, conditions and order among themselves - differ
     /// between two inline styles. A key is the property type a declaration
@@ -11951,6 +12854,74 @@ impl LayoutWindow {
                 tier: ContentDirtyTier::Unchanged,
             };
         }
+        // A3-solver-55 (the engine half): CLEARING the override of a `transform` /
+        // `opacity` whose value the node's own style declares too. `set_css_property`
+        // pins what it writes as an override AND keeps the node's inline style in sync
+        // with it; a widget that hands the value back to its model when a gesture ends
+        // (the node graph after a drag or a pan: one box and its wires, or every box)
+        // clears the override through this channel. With the inline style in sync nothing
+        // any reader resolves changes: the cascade answers the inline value, the compact
+        // cache holds it, the value published under the key stands. So the entry is taken
+        // out and that is all - it was a rebuild of the cascade's tables of the whole DOM
+        // per cleared box (`restyle_user_properties`).
+        if override_only
+            && !props.is_empty()
+            && props
+                .iter()
+                .all(|p| p.is_initial() && p.get_type().is_gpu_only_property())
+        {
+            let in_sync = {
+                use azul_css::css::CssDeclaration;
+                let cache = layout_result.styled_dom.get_css_property_cache();
+                let node_data = layout_result.styled_dom.node_data.as_container();
+                let own = node_data[node_id].get_style();
+                let pinned = cache.user_overridden_properties.get(node_id.index());
+                let overruled = cache.inline_overruled.get(&node_id.index());
+                props.iter().all(|p| {
+                    let ty = p.get_type();
+                    let Some(held) = pinned.and_then(|entries| {
+                        entries
+                            .binary_search_by_key(&ty, |(key, _)| *key)
+                            .ok()
+                            .map(|at| &entries[at].1)
+                    }) else {
+                        // No override of it: nothing to clear.
+                        return true;
+                    };
+                    if overruled.is_some_and(|rules| rules.iter().any(|(_, t)| *t == ty)) {
+                        return false;
+                    }
+                    // The node's own declarations of the property: all of them plain
+                    // values under no condition, the last one (it wins) the held value.
+                    let mut last = None;
+                    for rule in own.rules.as_ref() {
+                        for declaration in rule.declarations.as_ref() {
+                            if declaration.get_type() != Some(ty) {
+                                continue;
+                            }
+                            let CssDeclaration::Static(value) = declaration else {
+                                return false;
+                            };
+                            if !rule.conditions.as_ref().is_empty()
+                                || rule.priority < azul_css::css::rule_priority::INLINE
+                            {
+                                return false;
+                            }
+                            last = Some(value);
+                        }
+                    }
+                    last == Some(held)
+                })
+            };
+            if in_sync {
+                layout_result
+                    .styled_dom
+                    .set_user_property_override_fast(&node_id, &props);
+                return ContentChangeResult {
+                    tier: ContentDirtyTier::Unchanged,
+                };
+            }
+        }
         // An IMPERATIVE property change honours a declared `animation` exactly
         // like a change the reconciler discovers does. `set_css_property` used
         // to write the new value straight into the property cache, so a widget
@@ -11964,7 +12935,11 @@ impl LayoutWindow {
         // it back to `from` on its first tick and walks it to `to`, so the
         // worst case (no tick — see `needs_animation_frame`) is exactly the
         // snap this path did before, never a property that fails to change.
-        let (seeded, resolves_already): (Vec<CssTransition>, bool) = {
+        let (seeded, resolves_already, written): (
+            Vec<CssTransition>,
+            bool,
+            Vec<azul_core::styled_dom::ChangedCssProperty>,
+        ) = {
             use azul_css::dynamic_selector::ResolveSystemColors;
             let cache = &layout_result.styled_dom.css_property_cache.ptr;
             // The endpoints are what the frames SHOW, so a `system:` colour
@@ -11988,6 +12963,27 @@ impl LayoutWindow {
                         .get_property(nd, &node_id, &state.styled_node_state, &prop.get_type())
                         .is_some_and(|resolved| resolved == prop)
                 });
+            // What the write changes, property by property: read here for the same reason,
+            // while the node still resolves to its OLD values. The restyle below runs after
+            // the inline style took the new ones and reports nothing for a full write (its
+            // "before" is the value just written), so the decoration patch that reads its
+            // report was never taken (A3-window-15).
+            let written: Vec<azul_core::styled_dom::ChangedCssProperty> = props
+                .iter()
+                .filter_map(|prop| {
+                    let ty = prop.get_type();
+                    let before = cache
+                        .get_property(nd, &node_id, &state.styled_node_state, &ty)
+                        .cloned()
+                        .unwrap_or_else(|| azul_css::props::property::CssProperty::auto(ty));
+                    (before != *prop).then(|| azul_core::styled_dom::ChangedCssProperty {
+                        previous_state: state.styled_node_state,
+                        previous_prop: before,
+                        current_state: state.styled_node_state,
+                        current_prop: prop.clone(),
+                    })
+                })
+                .collect();
             // The box's laid-out size in the box `box-sizing` measures
             // lengths in: where a size tween from `auto` starts
             // (`size_transition_start`).
@@ -12079,7 +13075,7 @@ impl LayoutWindow {
                     })
                     .collect(),
             };
-            (seeded, resolves_already)
+            (seeded, resolves_already, written)
         };
 
         // AFTER the transitions are seeded: `from` must be read while the
@@ -12148,7 +13144,7 @@ impl LayoutWindow {
             .map(|prop| (node_id, prop.clone()))
             .chain(seeded.iter().map(|tr| (tr.node, tr.from.clone())))
             .collect();
-        let _restyle_result = layout_result.styled_dom.restyle_user_properties(&writes);
+        drop(layout_result.styled_dom.restyle_user_properties(&writes));
         // A style the app wrote (not a value the list binds: that path returned above): the
         // DOM is another one (`DomGenerations`).
         self.dom_generations.bump(dom_id);
@@ -12195,6 +13191,18 @@ impl LayoutWindow {
                 // built here, from the boxes of the layout before the write:
                 // the node stayed where it was until the view rendered again.
                 self.relayout_child_dom_in_place(dom_id, node_id);
+            } else if seeded.is_empty()
+                && !written.is_empty()
+                && self.patch_restyled_decorations(dom_id, &BTreeMap::from([(node_id, written)]))
+            {
+                // A3-window-15: a write of nothing but DECORATIONS (a background, a
+                // border colour, a shadow: a row marked from a callback) is painted
+                // into the list the DOM has, as a `:hover` that changes them is - no
+                // list is built, here or by the host on the tier, and the frame is a
+                // repaint. It built the DOM's whole list per written property set.
+                return ContentChangeResult {
+                    tier: ContentDirtyTier::Paint,
+                };
             } else if !self.host_lays_out || dom_id != DomId::ROOT_ID {
                 // The full-write path rebuilds the DL inline (its historical
                 // contract); a host rebuilds the root's list once, on the
@@ -12782,10 +13790,22 @@ impl LayoutWindow {
         // that is drawn again, a video's next frame): a renderer that keys the slot keeps
         // the key, and the list item it holds for it - same key, same rect - stays right.
         let slot_keeps_its_shape = !image.is_callback()
-            && self
+            && (self
                 .content_overlay
                 .image_for_node(dom_id, node_id)
-                .is_some_and(|shown| !shown.is_callback() && shown.get_size() == image.get_size());
+                .is_some_and(|shown| !shown.is_callback() && shown.get_size() == image.get_size())
+                // Or the node showed a null image of this size (a tile that is being
+                // drawn) and the renderer keyed its PLACE when it took the list
+                // (`RendererResources::node_image_is_replaced_in_place`, A4's `93aeb0a41`):
+                // the first picture that arrives is new pixels under that key too. Without
+                // this every tile of a map sent the view's whole list once when it arrived.
+                || old.as_ref().is_some_and(|shown| {
+                    shown.is_null_image()
+                        && shown.get_size() == image.get_size()
+                        && self
+                            .renderer_resources
+                            .node_image_is_replaced_in_place(dom_id, node_id, shown, image)
+                }));
         self.content_overlay
             .set_image_with_dirty(dom_id, node_id, image.clone(), dirty);
         self.content_journal.record(AppliedChange::Image {
@@ -12922,10 +13942,16 @@ impl LayoutWindow {
         let lr = self.layout_results.get_mut(&dom_id)?;
         // A patch by node may put an item of another kind where one was.
         self.dom_generations.bump_list(dom_id);
+        // The cache of THIS DOM: the window's, or the one a view's document is laid out in
+        // (`child_layout_caches`), which holds the document's list the same way. Without it
+        // a tile that arrived in a map copied the view's whole list the first time after
+        // every pass of the view, and the view's cache kept the list with the tile before.
         let cached = if dom_id == DomId::ROOT_ID {
             self.layout_cache.cached_display_list.as_mut()
         } else {
-            None
+            self.child_layout_caches
+                .get_mut(&dom_id)
+                .and_then(|cache| cache.cached_display_list.as_mut())
         };
         let Some(cached) = cached else {
             return Some(patch(Arc::make_mut(&mut lr.display_list)));
@@ -21216,6 +22242,9 @@ impl LayoutWindow {
             // (`patch_compact_node_property`): the cascade generation moves
             // as a rebuild would move it.
             let mut compact_patched = false;
+            // The nodes whose background is bound to a colour key for their states (audit
+            // A4-23): a fade of such a background walks the key's value and leaves the key.
+            let state_colored = self.dom_generations.state_colors.get(&DomId::ROOT_ID);
             if let Some(result) = self.layout_results.get_mut(&DomId::ROOT_ID) {
                 for (tr, rect) in self.css_transitions.iter_mut().zip(rects) {
                     if tr.delay_s > 0.0 {
@@ -21311,17 +22340,9 @@ impl LayoutWindow {
                     // (a fade starting at 1.0) changes the item list: it takes
                     // the rebuild path below once, and the next frame is here.
                     if tr.prop_type == azul_css::props::property::CssPropertyType::Opacity {
-                        let bound = cache.opacity_keys.get(&tr.node).is_some_and(|key| {
-                            result.display_list.items.iter().any(|item| {
-                                matches!(
-                                    item,
-                                    solver3::display_list::DisplayListItem::PushOpacity {
-                                        opacity_key: Some(k),
-                                        ..
-                                    } if k == key
-                                )
-                            })
-                        });
+                        // A3-window-16: asked of the list's index of bound keys, not of
+                        // every item of the list per fade per frame.
+                        let bound = opacity_layer_is_bound(&*result, &*cache, tr.node);
                         if bound {
                             result.styled_dom.set_user_property_override_fast(
                                 &tr.node,
@@ -21394,8 +22415,11 @@ impl LayoutWindow {
                     if let (true, Some((_, to_c, solver3::display_list::PaintColorSlot::Background))) =
                         (patchable, colors)
                     {
+                        // A3-window-16: the list's index of bound keys answers (one walk per
+                        // list, kept with it); `color_bindings.contains` read a slot per
+                        // item of the window's list per fade per frame.
                         let bound_key = cache.color_keys.get(&tr.node).copied().filter(|key| {
-                            result.display_list.color_bindings.contains(&Some(*key))
+                            result.display_list.frame_index().binds_a_color_key(key.id)
                         });
                         if let Some(key) = bound_key {
                             // No note: the map stamps itself, and only when the colour
@@ -21405,8 +22429,12 @@ impl LayoutWindow {
                             // The last frame releases the key once the list
                             // already shows the final colour (renderers fall
                             // back to the rect's own colour); else the next
-                            // list build drops it (`retain_running_color_keys`).
-                            if tr.t >= 1.0 {
+                            // list build drops it (`bind_state_colors`). Not the
+                            // key of a state colour: the node's next hover is
+                            // its value again.
+                            if tr.t >= 1.0
+                                && !state_colored.is_some_and(|nodes| nodes.contains(&tr.node))
+                            {
                                 let list_shows_target = result
                                     .display_list
                                     .items
@@ -21506,6 +22534,19 @@ impl LayoutWindow {
                         } else {
                             needs_relayout = true;
                             tree_shape_kept &= tween_keeps_layout_tree_shape(tr.prop_type);
+                        }
+                    }
+                }
+
+                // A3-window-16: the solver's structural-identity cache holds this very list
+                // (the frame before put the patched one back, below): it lets go of it for
+                // the patches, so that a list nobody else holds is patched where it lies.
+                // `Arc::make_mut` copied the window's whole list on every patched frame of
+                // a fade, to drop the old copy a few lines later.
+                if !patch_jobs.is_empty() || !bind_jobs.is_empty() || !layer_jobs.is_empty() {
+                    if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+                        if Arc::ptr_eq(&cached.5, &result.display_list) {
+                            drop(core::mem::take(&mut cached.5));
                         }
                     }
                 }
@@ -21720,20 +22761,33 @@ impl LayoutWindow {
     /// colour it does not have. The list built without it paints the
     /// cascade's colour, which is where a settled fade ends.
     pub fn retain_running_color_keys(&mut self) {
+        self.retain_color_keys_of(&BTreeSet::new());
+    }
+
+    /// The nodes of the window's DOM whose solid background a fade walks now: the fade
+    /// writes their colour key's value frame by frame (`tick_animations`).
+    fn fading_backgrounds_of(transitions: &[CssTransition]) -> BTreeSet<NodeId> {
+        transitions
+            .iter()
+            .filter(|tr| tr.t < 1.0 && transition_patch_color(&tr.to).is_some_and(|(_, slot)| {
+                slot == solver3::display_list::PaintColorSlot::Background
+            }))
+            .map(|tr| tr.node)
+            .collect()
+    }
+
+    /// [`Self::retain_running_color_keys`], keeping the keys of `also` too: the nodes whose
+    /// background a state bound (`DomGenerations::state_colors`), where the list that binds
+    /// them is kept (`patch_restyled_decorations`) and not built.
+    fn retain_color_keys_of(&mut self, also: &BTreeSet<NodeId>) {
         let Some(cache) = self.gpu_state_manager.caches.get_mut(&DomId::ROOT_ID) else {
             return;
         };
         if cache.color_keys.is_empty() && cache.current_color_values.is_empty() {
             return;
         }
-        let running: BTreeSet<NodeId> = self
-            .css_transitions
-            .iter()
-            .filter(|tr| tr.t < 1.0 && transition_patch_color(&tr.to).is_some_and(|(_, slot)| {
-                slot == solver3::display_list::PaintColorSlot::Background
-            }))
-            .map(|tr| tr.node)
-            .collect();
+        let mut running = Self::fading_backgrounds_of(&self.css_transitions);
+        running.extend(also.iter().copied());
         let held = cache.color_keys.len() + cache.current_color_values.len();
         cache.color_keys.retain(|node, _| running.contains(node));
         cache
@@ -21846,9 +22900,10 @@ impl LayoutWindow {
 
         // Iterate over all nodes with scrollbar info
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
-            // Check if node needs scrollbars
-            let warm = layout_tree.warm(LayoutNodeId::new(node_idx));
-            let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
+            // Check if node needs scrollbars: the layout's answer, or the one the
+            // registration raised beside the tree (a view's published extent).
+            let Some(scrollbar_info) = scroll_manager.scrollbar_info(dom_id, node_idx, layout_tree)
+            else {
                 continue;
             };
 
@@ -28939,6 +29994,12 @@ impl LayoutWindow {
         // Use the ifc_layout_index we found earlier (correct layout tree index)
         let mut reshape_extent: Option<LogicalSize> = None;
         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+            // The writes below make the tree this result's own. The scrollbars
+            // the registration raised beside it go into it first, so that it
+            // holds every flag, as it did when the registration wrote them
+            // there: the plan below and the list this edit builds read them.
+            self.scroll_manager
+                .settle_raised_bars(dom_id, &mut layout_result.layout_tree);
             let old_size = layout_result
                 .layout_tree
                 .get(LayoutNodeId::new(ifc_layout_index))
@@ -29678,6 +30739,98 @@ impl LayoutWindow {
         }
     }
 
+    /// Audit A4-23, both bindings. Run before every BUILD of the display list of `dom_id` (a
+    /// layout pass, [`Self::regenerate_display_list_for_dom`]): the colour keys of the DOM
+    /// become exactly those the list that is built binds, and each has the colour its node's
+    /// background is now.
+    ///
+    /// `colored` are the nodes whose background a pointer or focus state paints
+    /// ([`state_colored_nodes`]; empty with `AZ_EAGER_STATE_COLORS=0`). Each keeps the key
+    /// it has or gets one, with the cascade's colour as its value: the build binds the
+    /// node's background rect to it, a see-through rect where the node has no background
+    /// (`paint_node_background_and_border_inner`), so the first enter of the pointer is the
+    /// key's value and no list (`patch_restyled_decorations`). A key that stays keeps its id:
+    /// what the list binds is part of the key of the solver's list cache
+    /// (`GpuValueCache::dl_emission_fingerprint`), and a run copied from the list before
+    /// keeps its binding (`try_copy_cached_run`).
+    ///
+    /// Every other key goes, but that of a background a fade walks now (the window's DOM;
+    /// a view's document has no fades): a key left from a state of a node that has no
+    /// state rule any more, from a settled fade, or - after a rebuild that renumbered the
+    /// nodes - of another node, would bind a background to a colour the cascade does not
+    /// say. So the keys of a DOM never number more than its state-coloured nodes and its
+    /// running fades, whatever the pointer touched.
+    ///
+    /// `kept_list_too` (a layout pass, whose list may copy runs from the solver's kept list:
+    /// `self.layout_cache` IS this DOM's cache during its pass): a rect of the kept list that
+    /// is bound to a key that goes takes the key's VALUE as its own colour first. A copied
+    /// run loses the binding with the key, and would show the colour the rect had when the
+    /// list was built - a hover that went by value would come back with the pass.
+    fn bind_state_colors(
+        &mut self,
+        dom_id: DomId,
+        colored: &[(NodeId, azul_css::props::basic::color::ColorU)],
+        kept_list_too: bool,
+    ) {
+        use solver3::display_list::DisplayListItem;
+
+        let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) else {
+            drop(self.dom_generations.state_colors.remove(&dom_id));
+            return;
+        };
+        let state: BTreeSet<NodeId> = colored.iter().map(|(node, _)| *node).collect();
+        let fading = if dom_id == DomId::ROOT_ID {
+            Self::fading_backgrounds_of(&self.css_transitions)
+        } else {
+            BTreeSet::new()
+        };
+        let stays = |node: NodeId| state.contains(&node) || fading.contains(&node);
+
+        if !cache.color_keys.is_empty() || !cache.current_color_values.is_empty() {
+            // The keys that go, each with the colour it shows.
+            let released: BTreeMap<usize, azul_css::props::basic::color::ColorU> = cache
+                .color_keys_of()
+                .filter(|(node, _)| !stays(*node))
+                .filter_map(|(node, key)| Some((key.id, cache.color_value(node)?)))
+                .collect();
+            if kept_list_too && !released.is_empty() {
+                if let Some(kept) = self.layout_cache.cached_display_list.as_mut() {
+                    let stale: Vec<(usize, azul_css::props::basic::color::ColorU)> = kept
+                        .5
+                        .items
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(index, item)| {
+                            let value = *released.get(&kept.5.color_binding(index)?.id)?;
+                            matches!(item, DisplayListItem::Rect { color, .. } if *color != value)
+                                .then_some((index, value))
+                        })
+                        .collect();
+                    if !stale.is_empty() {
+                        let list = Arc::make_mut(&mut kept.5);
+                        for (index, value) in stale {
+                            if let Some(DisplayListItem::Rect { color, .. }) =
+                                list.items.get_mut(index)
+                            {
+                                *color = value;
+                            }
+                        }
+                        list.frame_index.clear();
+                    }
+                }
+            }
+            cache.retain_colors(|node| stays(node));
+        }
+        for (node, color) in colored {
+            let _key = cache.key_color(*node, *color);
+        }
+        if state.is_empty() {
+            drop(self.dom_generations.state_colors.remove(&dom_id));
+        } else {
+            drop(self.dom_generations.state_colors.insert(dom_id, state));
+        }
+    }
+
     /// A restyle that changed nothing but the DECORATIONS of a few nodes of `dom_id` - their
     /// background, border colours, shadows (a `:hover { background }` on one label of a map) -
     /// shown without building the DOM's display list again: each node's background-and-border
@@ -29702,10 +30855,11 @@ impl LayoutWindow {
             LayoutContext,
         };
 
-        /// A restyle of more nodes than this builds the list.
+        /// A restyle that paints the runs of more nodes than this builds the list. (Nodes
+        /// whose state colour is a VALUE are not counted: they touch no list.)
         const MAX_NODES: usize = 8;
 
-        if changed.is_empty() || changed.len() > MAX_NODES || !dl_patching_enabled() {
+        if changed.is_empty() || !dl_patching_enabled() {
             return false;
         }
         // What the background-and-border run of a node is painted from, and nothing else is.
@@ -29738,16 +30892,113 @@ impl LayoutWindow {
         if !only_decorations || self.text_edit_manager.tween.is_active() {
             return false;
         }
-        let nodes: Vec<NodeId> = changed.keys().copied().collect();
 
         // The light and the colour keys a build of this list runs under.
         let _light = azul_core::light::LightScope::enter(
             self.effective_light(),
             [self.window_desktop_origin().x, self.window_desktop_origin().y],
         );
-        if dom_id == DomId::ROOT_ID {
-            self.retain_running_color_keys();
+
+        // A4-23: BY VALUE. A node whose background the list binds to the node's colour key
+        // - from the build of the list on (`bind_state_colors`) or since a state first
+        // painted it (step 4 below) - and whose background is again one solid colour or
+        // nothing, changes by the key's value: no run is painted and no list is touched, so
+        // neither renderer takes a list for it (a patched list is a whole list to the GPU
+        // renderer: translated and scene-built again on every enter and leave). Whether
+        // the list binds the key is asked of the list itself (its index of bound keys: one
+        // walk per list, kept with it), not of a table beside it: a key no rect is bound
+        // to is read by nobody, and its node takes the patch.
+        // Every other node is painted by the patch as before; the key it had goes, its new
+        // run is painted unbound.
+        //
+        // A background a fade walks now (the window's DOM) is the fade's: its frames write
+        // the key's value (`tick_animations`). When the list binds that key the restyle
+        // owes nothing here - the fade starts from the colour on screen.
+        let fading = if dom_id == DomId::ROOT_ID {
+            Self::fading_backgrounds_of(&self.css_transitions)
+        } else {
+            BTreeSet::new()
+        };
+        let mut by_value: Vec<(NodeId, azul_css::props::basic::color::ColorU)> = Vec::new();
+        let mut nodes: Vec<NodeId> = Vec::new();
+        {
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return false;
+            };
+            let cache = self.gpu_state_manager.caches.get(&dom_id);
+            for (node, changes) in changed {
+                let background_alone = changes.iter().all(|change| {
+                    matches!(
+                        change.current_prop.get_type(),
+                        Ty::BackgroundContent | Ty::BackgroundColor
+                    ) && matches!(
+                        change.previous_prop.get_type(),
+                        Ty::BackgroundContent | Ty::BackgroundColor
+                    )
+                });
+                let bound = background_alone
+                    && cache
+                        .and_then(|cache| cache.color_key(*node))
+                        .is_some_and(|key| {
+                            layout_result
+                                .display_list
+                                .frame_index()
+                                .binds_a_color_key(key.id)
+                        });
+                let value = bound
+                    .then(|| solid_background_of(&layout_result.styled_dom, *node))
+                    .flatten();
+                match value {
+                    Some(_) if fading.contains(node) => {}
+                    Some(color) => by_value.push((*node, color)),
+                    None => nodes.push(*node),
+                }
+            }
         }
+        if nodes.len() > MAX_NODES {
+            return false;
+        }
+        // A node the patch paints: its run is painted from the cascade, unbound. The key
+        // it has - a state's, or one a settled fade left - would bind the run to a colour
+        // the cascade does not say. (Only these keys go here: the list is kept, and a
+        // rect of another node that is bound to a key shows that key's value.)
+        for node in &nodes {
+            if let Some(bound) = self.dom_generations.state_colors.get_mut(&dom_id) {
+                let _was_bound = bound.remove(node);
+            }
+            if !fading.contains(node) {
+                if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
+                    if cache.color_key(*node).is_some() || cache.color_value(*node).is_some() {
+                        drop(cache.remove_color(*node));
+                    }
+                }
+            }
+        }
+        if nodes.is_empty() {
+            // Values alone: the list is the list it was.
+            if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
+                for (node, color) in &by_value {
+                    drop(cache.set_color_value(*node, *color));
+                }
+            }
+            state_color_writes(by_value.len());
+            self.serve_paint_dirt(dom_id);
+            return true;
+        }
+        // The one solid colour each patched node's background is now (`None`: no single
+        // solid colour, or nothing to see): what step 4 binds.
+        let solid_now: Vec<Option<azul_css::props::basic::color::ColorU>> = {
+            let Some(layout_result) = self.layout_results.get(&dom_id) else {
+                return false;
+            };
+            nodes
+                .iter()
+                .map(|node| {
+                    solid_background_of(&layout_result.styled_dom, *node)
+                        .filter(|color| color.a > 0 && !fading.contains(node))
+                })
+                .collect()
+        };
 
         // 1. The runs, painted from the inputs `regenerate_display_list_for_dom` builds with.
         let patches = {
@@ -29831,32 +31082,74 @@ impl LayoutWindow {
         // the patched one back, so a list nobody else holds is patched in place (see
         // `patch_display_list`). A cache that holds a list of its own is emptied: the next
         // pass builds the list instead of serving the decorations from before.
-        let cache_holds_it = if dom_id == DomId::ROOT_ID {
-            self.layout_cache
-                .cached_display_list
-                .as_ref()
-                .map(|cached| Arc::ptr_eq(&cached.5, &layout_result.display_list))
+        // (A view's document has a solver cache of its own, `child_layout_caches`, which
+        // holds its list the same way: the patch of a label's hover copied the view's whole
+        // list - 17,495 items - the first time after every pass of the view, and left the
+        // cache with the list from before the patch.)
+        let mut solver_cache = if dom_id == DomId::ROOT_ID {
+            Some(&mut self.layout_cache)
         } else {
-            None
+            self.child_layout_caches.get_mut(&dom_id)
         };
-        match cache_holds_it {
-            Some(true) => {
-                if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
-                    drop(core::mem::take(&mut cached.5));
+        let cache_holds_it = solver_cache
+            .as_ref()
+            .and_then(|cache| cache.cached_display_list.as_ref())
+            .map(|cached| Arc::ptr_eq(&cached.5, &layout_result.display_list));
+        if let Some(cache) = solver_cache.as_mut() {
+            match cache_holds_it {
+                Some(true) => {
+                    if let Some(cached) = cache.cached_display_list.as_mut() {
+                        drop(core::mem::take(&mut cached.5));
+                    }
                 }
+                Some(false) => cache.cached_display_list = None,
+                None => {}
             }
-            Some(false) => self.layout_cache.cached_display_list = None,
-            None => {}
         }
         // The runs are spliced in: the items behind them move.
         self.dom_generations.bump_list(dom_id);
-        node_patch::commit(
-            Arc::make_mut(&mut layout_result.display_list),
-            &patches,
-            &placements,
-        );
+        let list = Arc::make_mut(&mut layout_result.display_list);
+        node_patch::commit(list, &patches, &placements);
+        // 4. (A4-23) A run that is the node's background in ONE solid colour is bound to a
+        // colour key of the node: from now on that background changes by value (above). A
+        // run the patch took out (the state went and nothing is painted) binds nothing.
+        if let Some(cache) = self.gpu_state_manager.caches.get_mut(&dom_id) {
+            let runs = node_patch::committed_runs(&patches, &placements);
+            for ((node, shown), (first, len)) in nodes.iter().zip(&solid_now).zip(runs) {
+                let Some(shown) = *shown else {
+                    continue;
+                };
+                let mut rects = (first..first + len).filter(|index| {
+                    matches!(
+                        list.items.get(*index),
+                        Some(solver3::display_list::DisplayListItem::Rect { color, .. })
+                            if *color == shown
+                    )
+                });
+                let (Some(index), None) = (rects.next(), rects.next()) else {
+                    continue;
+                };
+                let key = cache.key_color(*node, shown);
+                if list.color_bindings.len() < list.items.len() {
+                    list.color_bindings.resize(list.items.len(), None);
+                }
+                list.color_bindings[index] = Some(key);
+                self.dom_generations
+                    .state_colors
+                    .entry(dom_id)
+                    .or_default()
+                    .insert(*node);
+            }
+            for (node, color) in &by_value {
+                drop(cache.set_color_value(*node, *color));
+            }
+            state_color_writes(by_value.len());
+        }
         if cache_holds_it == Some(true) {
-            if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
+            if let Some(cached) = solver_cache
+                .as_mut()
+                .and_then(|cache| cache.cached_display_list.as_mut())
+            {
                 cached.5 = layout_result.display_list.clone();
             }
         }
@@ -29913,8 +31206,22 @@ impl LayoutWindow {
         // from, and a CPU frame takes it only while it shows the layout the
         // move starts from (`LayoutCache::last_patch_move_from_seq`) - a
         // keystroke's list after a presented reflow does not blit by it.
-        if dom_id == DomId::ROOT_ID {
-            self.retain_running_color_keys();
+        // The colour keys this list binds (audit A4-23).
+        let state_colored = match self.layout_results.get(&dom_id) {
+            Some(result) if state_colors_from_the_build() && !self.skip_gpu_sync => {
+                state_colored_nodes(&result.styled_dom)
+            }
+            _ => Vec::new(),
+        };
+        self.bind_state_colors(dom_id, &state_colored, false);
+
+        // The build reads the scrollbars from the tree (`paint_scrollbars`): the
+        // ones the registration raised beside it go into it first. One copy of
+        // the tree if the solver's cache still shares it, none for a DOM
+        // without raised bars (`ScrollManager::settle_raised_bars`).
+        if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+            self.scroll_manager
+                .settle_raised_bars(dom_id, &mut layout_result.layout_tree);
         }
 
         // Get all the data we need from the layout result
@@ -30107,7 +31414,8 @@ impl LayoutWindow {
                 // here after `finish_reconciliation` mints the keys, then the
                 // first tick's relayout resurrected the pre-key list).
                 //
-                // ROOT ONLY: `self.layout_cache` is the ROOT's cache (a nested
+                // Never into the root's slot for another DOM: `self.layout_cache`
+                // is the ROOT's cache (a nested
                 // DOM lays out with a scratch cache swapped in, see
                 // `layout_dom_recursive_with_viewport`). Refreshing it after
                 // regenerating a VirtualView's DOM put THAT DOM's list into the
@@ -30115,17 +31423,29 @@ impl LayoutWindow {
                 // patched from it: page items spliced into the window's list,
                 // chrome items missing (AzWriter: a flash after a keystroke in
                 // the page, and the corrupt window after a theme switch).
-                if let Some(layout_result) = self
-                    .layout_results
-                    .get(&dom_id)
-                    .filter(|_| dom_id == DomId::ROOT_ID)
+                //
+                // A VIEW'S DOCUMENT has a solver cache of its own
+                // (`child_layout_caches`), which holds that document's list the
+                // same way and is what its next pass copies runs from. It kept
+                // the list from BEFORE this build: a run copied from it showed
+                // what this build had painted over - a state colour whose key
+                // this build let go came back with the pass (audit A4-23). Each
+                // DOM's own cache takes the list built for that DOM; one that
+                // cannot be keyed is emptied.
+                let solver_cache = if dom_id == DomId::ROOT_ID {
+                    Some(&mut self.layout_cache)
+                } else {
+                    self.child_layout_caches.get_mut(&dom_id)
+                };
+                if let (Some(layout_result), Some(cache)) =
+                    (self.layout_results.get(&dom_id), solver_cache)
                 {
-                    if let Some(cached) = self.layout_cache.cached_display_list.as_mut() {
-                        let root_hash = layout_result
-                            .layout_tree
-                            .cold(LayoutNodeId::new(layout_result.layout_tree.root))
-                            .map(|c| c.subtree_hash);
-                        if let Some(h) = root_hash {
+                    let root_hash = layout_result
+                        .layout_tree
+                        .cold(LayoutNodeId::new(layout_result.layout_tree.root))
+                        .map(|c| c.subtree_hash);
+                    let refreshed = match (cache.cached_display_list.as_mut(), root_hash) {
+                        (Some(cached), Some(h)) => {
                             *cached = (
                                 h,
                                 cached.1,
@@ -30134,7 +31454,13 @@ impl LayoutWindow {
                                 dl_input_fp,
                                 display_list,
                             );
+                            true
                         }
+                        (None, _) => true,
+                        (Some(_), None) => false,
+                    };
+                    if !refreshed {
+                        cache.cached_display_list = None;
                     }
                 }
                 // The repaint `TextEditManager::mark_dirty` asked for has now
@@ -33873,7 +35199,7 @@ mod autotest_generated {
                 warm: Vec::new(),
                 cold: Vec::new(),
                 root: 0,
-                dom_to_layout: BTreeMap::new(),
+                dom_to_layout: Default::default(),
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
@@ -36179,15 +37505,8 @@ mod autotest_generated {
             .keys()
             .map(|k| k.optical_size)
             .collect();
-        // A stack drawn alike at every optical size is kept without one
-        // (A8-28) and cannot miss; one with an optical-size axis is at its size.
-        let size_free = win
-            .font_manager
-            .font_chain_cache
-            .keys()
-            .any(|k| k.optical_size == 0 && crate::text3::cache::is_size_free(k));
         assert!(
-            sizes.contains(&40) || size_free,
+            sizes.contains(&40),
             "5vw of an 800px window is 40px: the text's chain is collected at that optical size \
              (collected: {sizes:?})"
         );
@@ -36226,15 +37545,8 @@ mod autotest_generated {
             .keys()
             .map(|k| k.optical_size)
             .collect();
-        // A stack drawn alike at every optical size is kept without one
-        // (A8-28) and cannot miss; one with an optical-size axis is at its size.
-        let size_free = win
-            .font_manager
-            .font_chain_cache
-            .keys()
-            .any(|k| k.optical_size == 0 && crate::text3::cache::is_size_free(k));
         assert!(
-            sizes.contains(&20) || size_free,
+            sizes.contains(&20),
             "5vw of a 400px window is 20px: the resize collects the text's chain at that size \
              (collected: {sizes:?})"
         );
@@ -38857,17 +40169,16 @@ fn bound_node_size(result: &DomLayoutResult, node: NodeId) -> Option<(f32, f32)>
 /// Whether the display list of `result` opens an opacity layer for `node`
 /// bound to the key `cache` holds for it (`PushOpacity::opacity_key`): its
 /// opacity is then a value under that key.
+///
+/// Asked of the list's index of bound keys (`FrameIndex`: one walk per list, kept with the
+/// list): a node's CSS opacity key is bound by its `PushOpacity` and by nothing else. It
+/// was a walk of every item per ask - per opacity fade per frame, per `set_css_property`.
 fn opacity_layer_is_bound(result: &DomLayoutResult, cache: &GpuValueCache, node: NodeId) -> bool {
     cache.opacity_keys.get(&node).is_some_and(|key| {
-        result.display_list.items.iter().any(|item| {
-            matches!(
-                item,
-                solver3::display_list::DisplayListItem::PushOpacity {
-                    opacity_key: Some(k),
-                    ..
-                } if k == key
-            )
-        })
+        result
+            .display_list
+            .frame_index()
+            .binds_an_opacity_key(&std::collections::HashSet::from([key.id]))
     })
 }
 

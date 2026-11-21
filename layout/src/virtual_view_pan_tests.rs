@@ -299,6 +299,34 @@ fn a_list_somebody_else_holds_is_copied_and_not_written_under_them() {
     assert_eq!(pan.lw.frame_report.dl_rebuilds, 0, "no list was built for it");
 }
 
+/// The GPU path names a display list by its allocation and keeps a WEAK reference for that
+/// (the fonts and images of a list, its text shadows, the digest of the bound values): the
+/// reference holds the address, it does not own the list and reads nothing. While one lived
+/// the write was a copy (`Arc::get_mut` refuses a list with a weak reference), the copy was a
+/// list the renderer did not hold, and every pan frame of a GPU window translated the host's
+/// list again (the dll suite's `a_pan_inside_the_margin_is_a_scroll_offset_..`: 10 lists in
+/// ten frames). A list this window alone OWNS is written in place whatever names it.
+/// Mutation: `Arc::strong_count(..) == 1` back to `Arc::get_mut(..)` moves the list.
+#[test]
+fn a_list_that_is_only_named_by_weak_references_is_written_in_place() {
+    let mut pan = pan_window();
+    the_renderer_holds_the_lists(&mut pan);
+    let named = Arc::downgrade(&host_list(&pan));
+    let before = host_address(&pan);
+    pan.lw.frame_report.reset_counters();
+    pan_to(&mut pan, -10.0);
+    assert_eq!(host_address(&pan), before, "the window's list is where it was");
+    assert_eq!(named.as_ptr(), before, "and the name still names it");
+    assert_eq!(item_offset(&pan), live_offset(&pan), "the item moved");
+    assert!(
+        !pan.lw
+            .gpu_state_manager
+            .display_lists_unsubmitted(&pan.lw.layout_results),
+        "no list is owed to the renderer"
+    );
+    assert_eq!(pan.lw.frame_report.dl_rebuilds, 0, "no list was built for it");
+}
+
 #[test]
 fn a_write_that_finds_nothing_to_change_copies_nothing() {
     let mut pan = pan_window();

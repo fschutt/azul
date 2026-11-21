@@ -53,6 +53,23 @@
 //! and the first time that happens it is said on stderr (a bound under a view's surface would
 //! otherwise switch the feature off without a trace).
 //!
+//! # Opacity groups
+//!
+//! A fade is a write of one value, like a zoom step: the picture of an opacity group does not
+//! depend on the group's opacity, only the blend at its pop does. The picture of a group that
+//! is blended (an opacity under 1, or a blend mode) is kept the same way, under the same key
+//! with the index of its `PushOpacity` as `push`, and a later walk blends the kept pixels at
+//! the live opacity instead of painting the group (`raster::fade_candidate`). The surface is
+//! the group's whole device box; a pass keeps and reads the part of it inside its clip. The
+//! group's own opacity is not part of the key. A group at an opacity of exactly 1 with no
+//! blend mode is never kept: its text may be painted in LCD stripes over what the group
+//! painted under it, and at any other opacity it is grayscale - another picture.
+//!
+//! These pictures are bounded apart from the frames' surfaces, so that a fading toast does
+//! not make the picture of the map it lies over leave the cache: at most
+//! [`MAX_FADE_ENTRIES`] of them, [`FADE_MAX_BYTES`] together, the one used longest ago makes
+//! room. A list that is replaced drops them (they are not repaired box by box).
+//!
 //! # Threads
 //!
 //! The cache is read while a frame's passes run and changed only between frames: every band of
@@ -76,12 +93,23 @@ pub const DEFAULT_MAX_BYTES: usize = 192 * 1024 * 1024;
 /// panel).
 pub const PAIR_MAX_BYTES: usize = 48 * 1024 * 1024;
 
+/// The most pictures of opacity groups kept at once (see the module, "Opacity groups").
+pub const MAX_FADE_ENTRIES: usize = 8;
+
+/// The most bytes the kept pictures of opacity groups hold together: one group as large as a
+/// 2940 x 1912 px window is 22.5 MB.
+pub const FADE_MAX_BYTES: usize = 24 * 1024 * 1024;
+
 /// The fewest pixels a surface must have to be kept: a label's surface is painted faster than
 /// it is looked up, and there are a thousand of them.
 pub(crate) const MIN_SURFACE_PX: u64 = 256 * 256;
 
-/// The most painted boxes remembered for one surface.
-const MAX_VALID_BOXES: usize = 32;
+/// The most painted boxes remembered for one surface. (A10-06: 96, was 32. A surface shown as
+/// a layer is completed strip by strip while its view pans, one or two boxes a strip on top
+/// of one per band of its first frame; with 32 the oldest box - a band of the first frame,
+/// still shown - was forgotten in a long diagonal pan and painted again, forgetting the
+/// next.)
+const MAX_VALID_BOXES: usize = 96;
 
 /// What the picture in a kept surface depends on, besides the items of the list it holds: see
 /// the module (rules 1 to 6).
@@ -115,7 +143,14 @@ pub(crate) struct Entry {
     pub(crate) valid: Vec<[i32; 4]>,
     /// Where the picture was painted from ([`Placement`]).
     pub(crate) placement: Placement,
+    /// The picture of an opacity group, not of a reference frame: bounded apart, and dropped
+    /// (not repaired) when its list is replaced.
+    pub(crate) fade: bool,
     last_used: u64,
+    /// (A10-06) The clock when the surface's pixels last changed: a commit that made it or
+    /// merged a painted part into it, a repair ([`RetainedFrames::put_back`]). What a
+    /// presenter that shows the surface itself compares ([`RetainedFrames::kept`]).
+    painted_at: u64,
 }
 
 /// Where a kept picture was painted from, for a repaint of a part of it when its list is
@@ -143,6 +178,7 @@ struct Painted {
     surface: AzulPixmap,
     part: [i32; 4],
     placement: Placement,
+    fade: bool,
 }
 
 #[derive(Default)]
@@ -190,6 +226,70 @@ fn covers(boxes: &[[i32; 4]], needed: [i32; 4]) -> bool {
         }
     }
     left.iter().all(|p| p[2] <= p[0] || p[3] <= p[1])
+}
+
+/// (A10-06) What of `needed` no box of `boxes` covers, as boxes (none of them empty): empty
+/// exactly when [`covers`] is true.
+fn uncovered(boxes: &[[i32; 4]], needed: [i32; 4]) -> Vec<[i32; 4]> {
+    let mut left = vec![needed];
+    for b in boxes {
+        left = left
+            .into_iter()
+            .flat_map(|piece| super::raster::box_minus(piece, *b))
+            .collect();
+        if left.is_empty() {
+            break;
+        }
+    }
+    left.retain(|p| p[2] > p[0] && p[3] > p[1]);
+    left
+}
+
+/// Adds the painted box `part` to `boxes`, the painted boxes of one surface, as ONE box with
+/// every box it makes a rectangle with: two boxes with the same columns whose rows touch or
+/// overlap, or with the same rows whose columns touch or overlap, are exactly the box around
+/// them (not a pixel more is claimed). A box that lies inside another is not kept beside it.
+///
+/// The bands of a surface's first frame - the same columns, row after row - are one box
+/// then, and the strips a pan completes a surface by grow the box they touch: the list does
+/// not fill with what one box says (it holds [`MAX_VALID_BOXES`], and the oldest is forgotten
+/// past that - a part of the picture that is still shown, painted again).
+///
+/// Example: `[0, 0, 40, 10]` and `[0, 10, 40, 20]` are `[0, 0, 40, 20]`; with `[40, 0, 60,
+/// 20]` (the same rows, the columns touch) `[0, 0, 60, 20]`. `[0, 0, 40, 10]` and `[0, 10,
+/// 30, 20]` stay two boxes: the box around them would claim (30 .. 40, 10 .. 20).
+fn add_box(boxes: &mut Vec<[i32; 4]>, part: [i32; 4]) {
+    if part[2] <= part[0] || part[3] <= part[1] {
+        return;
+    }
+    let inside = |a: [i32; 4], b: [i32; 4]| a[0] >= b[0] && a[1] >= b[1] && a[2] <= b[2] && a[3] <= b[3];
+    let mut part = part;
+    // Until no box is taken in: a part that grew may reach a box it did not before.
+    loop {
+        let mut grew = false;
+        let mut at = 0;
+        while at < boxes.len() {
+            let b = boxes[at];
+            if inside(part, b) {
+                return;
+            }
+            let same_columns = b[0] == part[0] && b[2] == part[2] && b[1] <= part[3] && part[1] <= b[3];
+            let same_rows = b[1] == part[1] && b[3] == part[3] && b[0] <= part[2] && part[0] <= b[2];
+            if inside(b, part) {
+                boxes.remove(at);
+            } else if same_columns || same_rows {
+                part = [part[0].min(b[0]), part[1].min(b[1]), part[2].max(b[2]), part[3].max(b[3])];
+                boxes.remove(at);
+                grew = true;
+            } else {
+                at += 1;
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    boxes.push(part);
 }
 
 /// Copy the box `part` of `from` into `to`; both have the same size.
@@ -297,6 +397,28 @@ impl RetainedFrames {
         Some(Arc::clone(&entry.surface))
     }
 
+    /// (A10-06) The parts of the box `needed` (surface px) of the surface kept for `key` that
+    /// are NOT painted, as boxes: empty when [`Self::lookup`] of the same box would hit.
+    /// `None` when no surface is kept for `key`. Not a use: nothing is stamped.
+    pub(crate) fn missing(&self, key: &SurfaceKey, needed: [i32; 4]) -> Option<Vec<[i32; 4]>> {
+        let inner = self.inner.lock().ok()?;
+        let entry = inner.entries.iter().find(|entry| entry.key == *key)?;
+        Some(uncovered(&entry.valid, needed))
+    }
+
+    /// (A10-06) The surface kept for `key` and the stamp of its pixels (another value
+    /// whenever they changed), for a presenter that shows the surface itself. A use, stamped
+    /// with its frame like a lookup. The caller lets go of the surface before the next
+    /// [`Self::commit`]: a part painted then is merged into a surface nobody else holds, and
+    /// replaces one that somebody does.
+    pub(crate) fn kept(&self, key: &SurfaceKey) -> Option<(Arc<AzulPixmap>, u64)> {
+        let mut inner = self.inner.lock().ok()?;
+        let clock = inner.clock;
+        let entry = inner.entries.iter_mut().find(|entry| entry.key == *key)?;
+        entry.last_used = clock;
+        Some((Arc::clone(&entry.surface), entry.painted_at))
+    }
+
     /// Whether a surface of `bytes` bytes can be kept at all.
     pub(crate) fn can_keep(&self, bytes: usize) -> bool {
         let max_bytes = self.inner.lock().map_or(0, |inner| inner.max_bytes);
@@ -326,7 +448,29 @@ impl RetainedFrames {
         placement: Placement,
     ) {
         if let Ok(mut inner) = self.inner.lock() {
-            inner.outbox.push(Painted { key, list, surface, part, placement });
+            inner.outbox.push(Painted { key, list, surface, part, placement, fade: false });
+        }
+    }
+
+    /// Whether the picture of an opacity group of `bytes` bytes can be kept at all.
+    pub(crate) fn can_keep_fade(&self, bytes: usize) -> bool {
+        let max_bytes = self.inner.lock().map_or(0, |inner| inner.max_bytes);
+        bytes > 0 && bytes <= FADE_MAX_BYTES.min(max_bytes)
+    }
+
+    /// [`Self::offer`] for the picture of an opacity group: `surface` is the group's whole
+    /// device box, of which a pass painted the box `part` (the pixels the group painted on
+    /// transparent, before its pop blended them into what was under them).
+    pub(crate) fn offer_fade(
+        &self,
+        key: SurfaceKey,
+        list: Arc<DisplayList>,
+        surface: AzulPixmap,
+        part: [i32; 4],
+        placement: Placement,
+    ) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.outbox.push(Painted { key, list, surface, part, placement, fade: true });
         }
     }
 
@@ -345,13 +489,24 @@ impl RetainedFrames {
     }
 
     /// Keep `entry` again (after [`Self::take_stale`]), unless a surface of its frame is kept.
-    pub(crate) fn put_back(&self, entry: Entry) {
+    /// `repainted`: whether the repair painted a box of the surface. A surface that belongs
+    /// to a new list with the same pixels (a view rendered again with the same items) keeps
+    /// the stamp of its pixels ([`Self::kept`]): a presenter that shows the surface itself
+    /// has nothing to take again (46.6 MB for a view of the user's window).
+    pub(crate) fn put_back(&self, mut entry: Entry, repainted: bool) {
         if let Ok(mut inner) = self.inner.lock() {
             let taken = inner
                 .entries
                 .iter()
                 .any(|e| e.key.list == entry.key.list && e.key.push == entry.key.push);
-            if !taken && inner.entries.len() < MAX_ENTRIES {
+            // (Only a frame's surface is repaired and put back; the pictures of opacity
+            // groups are counted apart.)
+            if !taken && inner.entries.iter().filter(|e| !e.fade).count() < MAX_ENTRIES {
+                // (A10-06) A repaired surface holds other pixels than it did.
+                if repainted {
+                    inner.clock += 1;
+                    entry.painted_at = inner.clock;
+                }
                 inner.entries.push(entry);
             }
         }
@@ -375,11 +530,13 @@ impl RetainedFrames {
             if let Some(entry) = inner.entries.iter_mut().find(|e| e.key == painted.key) {
                 if let Some(kept) = Arc::get_mut(&mut entry.surface) {
                     copy_part(&painted.surface, kept, painted.part);
-                    entry.valid.push(painted.part);
+                    // (As one box with the boxes it completes: A10's `## For area A1`, 7 (d).)
+                    add_box(&mut entry.valid, painted.part);
                     if entry.valid.len() > MAX_VALID_BOXES {
                         entry.valid.remove(0);
                     }
                     entry.last_used = clock;
+                    entry.painted_at = clock;
                     continue;
                 }
             }
@@ -396,20 +553,33 @@ impl RetainedFrames {
             if bytes == 0 || bytes > inner.max_bytes {
                 continue;
             }
-            // Room: one surface is always kept; another stays beside it only while the two
-            // are cheap together. The surfaces used longest ago go.
-            let pair_max = PAIR_MAX_BYTES.min(inner.max_bytes);
+            // Room, among the surfaces of the same kind. Frames: one surface is always
+            // kept; another stays beside it only while the two are cheap together. Opacity
+            // groups: a few small ones, under a bound of their own. The surfaces used
+            // longest ago go.
+            let fade = painted.fade;
+            let (most_entries, most_together) = if fade {
+                (MAX_FADE_ENTRIES, FADE_MAX_BYTES.min(inner.max_bytes))
+            } else {
+                (MAX_ENTRIES, PAIR_MAX_BYTES.min(inner.max_bytes))
+            };
+            if fade && bytes > most_together {
+                continue;
+            }
             loop {
-                let held: usize = inner.entries.iter().map(Entry::bytes).sum();
-                if inner.entries.is_empty()
-                    || (inner.entries.len() < MAX_ENTRIES && held + bytes <= pair_max)
-                {
+                let (count, held) = inner
+                    .entries
+                    .iter()
+                    .filter(|e| e.fade == fade)
+                    .fold((0usize, 0usize), |(n, b), e| (n + 1, b + e.bytes()));
+                if (count == 0 && !fade) || (count < most_entries && held + bytes <= most_together) {
                     break;
                 }
                 let Some(oldest) = inner
                     .entries
                     .iter()
                     .enumerate()
+                    .filter(|(_, e)| e.fade == fade)
                     .min_by_key(|(_, e)| e.last_used)
                     .map(|(at, _)| at)
                 else {
@@ -423,7 +593,9 @@ impl RetainedFrames {
                 surface: Arc::new(painted.surface),
                 valid: vec![painted.part],
                 placement: painted.placement,
+                fade,
                 last_used: clock,
+                painted_at: clock,
             });
         }
     }
@@ -639,5 +811,173 @@ mod tests {
         };
         assert_eq!(kept_after([0, 1]), kept_after([1, 0]));
         assert_eq!(kept_after([1, 0]), [false, true, true], "the first entry makes room");
+    }
+
+    /// A1-26: the pictures of opacity groups are bounded apart from the frames' surfaces. A
+    /// frame's surface is kept (4,800 bytes); ten opacity groups are offered after it: the
+    /// frame's surface is still there, and of the groups the last [`MAX_FADE_ENTRIES`] (the
+    /// first two made room). Under a byte bound of 10,000 for the whole cache two groups'
+    /// pictures fit (9,600 bytes) and the third makes the first leave; a group's picture
+    /// larger than the bound is not kept; `AZ_CPU_RETAINED_MB=0` keeps none.
+    /// Mutation: one room loop over every entry lets the first group's picture make the
+    /// frame's surface leave (a fading toast drops the picture of the map under it).
+    #[test]
+    fn the_pictures_of_opacity_groups_are_bounded_apart_from_the_frames_surfaces() {
+        let whole = [0, 0, 40, 30];
+        let list = Arc::new(DisplayList::default());
+        let current = [Arc::as_ptr(&list) as usize];
+        let cache = RetainedFrames::with_max_bytes(1 << 20);
+        cache.begin_frame(&current);
+        let frame = key(&list, 0, 1);
+        cache.offer(frame, Arc::clone(&list), surface(whole, 9), whole, PLACED);
+        cache.commit();
+        let fades: Vec<SurfaceKey> = (1..=10).map(|push| key(&list, push, 1)).collect();
+        for k in &fades {
+            cache.begin_frame(&current);
+            assert!(cache.can_keep_fade(4800));
+            cache.offer_fade(*k, Arc::clone(&list), surface(whole, 5), whole, PLACED);
+            cache.commit();
+        }
+        assert_eq!(cache.len(), 1 + MAX_FADE_ENTRIES);
+        assert!(cache.lookup(&frame, whole).is_some(), "the frame's surface did not make room for a group");
+        let kept: Vec<bool> = fades.iter().map(|k| cache.lookup(k, whole).is_some()).collect();
+        assert_eq!(kept, [false, false, true, true, true, true, true, true, true, true]);
+        // The same key offered again with another part: into the kept picture.
+        cache.offer_fade(fades[9], Arc::clone(&list), surface(whole, 5), [0, 0, 1, 1], PLACED);
+        cache.commit();
+        assert_eq!(cache.len(), 1 + MAX_FADE_ENTRIES);
+        // Bytes: 10,000 for everything holds two pictures of 4,800.
+        let small = RetainedFrames::with_max_bytes(10_000);
+        for k in &fades[..3] {
+            small.offer_fade(*k, Arc::clone(&list), surface(whole, 5), whole, PLACED);
+            small.commit();
+        }
+        assert_eq!((small.len(), small.bytes()), (2, 9600));
+        assert!(small.lookup(&fades[0], whole).is_none() && small.lookup(&fades[2], whole).is_some());
+        assert!(!small.can_keep_fade(10_001) && !small.can_keep_fade(0));
+        assert!(!RetainedFrames::with_max_bytes(1 << 30).can_keep_fade(FADE_MAX_BYTES + 1));
+        let none = RetainedFrames::with_max_bytes(0);
+        assert!(!none.can_keep_fade(4800));
+        none.offer_fade(fades[0], Arc::clone(&list), surface(whole, 5), whole, PLACED);
+        none.commit();
+        assert!(none.is_empty());
+        // A frame's surface that is put back after a repair does not count the groups' pictures.
+        let stale = cache.take_stale(&[]);
+        assert_eq!(stale.len(), 1 + MAX_FADE_ENTRIES);
+        for entry in stale {
+            if !entry.fade {
+                cache.put_back(entry, true);
+            }
+        }
+        assert_eq!(cache.len(), 1);
+    }
+
+    /// A10's `## For area A1`, 7 (d): the painted boxes of a surface are kept as the fewest
+    /// boxes that say exactly the same.
+    /// - By hand: [0, 0, 40, 10] + [0, 10, 40, 20] = [0, 0, 40, 20]; + [40, 0, 60, 20] (the
+    ///   same rows, the columns touch) = [0, 0, 60, 20]; [0, 30, 30, 40] has other columns
+    ///   and does not touch: a second box; [0, 20, 60, 30] closes the gap in rows for the
+    ///   first only (the second's columns differ): [0, 0, 60, 30] and [0, 30, 30, 40]; a box
+    ///   inside one of them adds nothing; a box around the second replaces it.
+    /// - Through a commit: the eight bands of a first frame (rows 0 .. 30 of the 40 x 30
+    ///   surface, the same columns, two rows in common between neighbours as bands of a
+    ///   turned frame have) are ONE box, and a hundred strips of a pan after them - one
+    ///   column each, completing the picture to the right - still are: the first band's rows
+    ///   are served. With a box per part the list (96) would have forgotten the first bands.
+    /// - Never a pixel more: a box that makes no rectangle with another stays apart, and the
+    ///   corner between them is not served.
+    /// Mutations: `add_box` as a plain push fails the box count (and the lookup after the
+    /// strips); a union of boxes that only overlap (not the same columns or rows) serves the
+    /// corner nobody painted.
+    #[test]
+    fn the_painted_boxes_of_a_surface_are_kept_as_the_boxes_they_complete() {
+        let mut boxes: Vec<[i32; 4]> = Vec::new();
+        add_box(&mut boxes, [0, 0, 40, 10]);
+        add_box(&mut boxes, [0, 10, 40, 20]);
+        assert_eq!(boxes, vec![[0, 0, 40, 20]]);
+        add_box(&mut boxes, [40, 0, 60, 20]);
+        assert_eq!(boxes, vec![[0, 0, 60, 20]]);
+        add_box(&mut boxes, [0, 30, 30, 40]);
+        assert_eq!(boxes, vec![[0, 0, 60, 20], [0, 30, 30, 40]]);
+        add_box(&mut boxes, [0, 20, 60, 30]);
+        assert_eq!(boxes, vec![[0, 30, 30, 40], [0, 0, 60, 30]]);
+        add_box(&mut boxes, [5, 5, 10, 10]);
+        add_box(&mut boxes, [3, 3, 3, 9]);
+        assert_eq!(boxes.len(), 2, "a box inside another, and a box of no area, add nothing");
+        add_box(&mut boxes, [0, 30, 35, 45]);
+        assert_eq!(boxes, vec![[0, 0, 60, 30], [0, 30, 35, 45]]);
+        assert!(covers(&boxes, [0, 0, 35, 45]) && !covers(&boxes, [0, 0, 36, 31]));
+
+        // Through a commit.
+        let wide = |part: [i32; 4]| {
+            let mut s = AzulPixmap::new_transparent(200, 30).expect("a surface");
+            s.fill_rect(part[0], part[1], part[2] - part[0], part[3] - part[1], 100, 100, 100, 255);
+            s
+        };
+        let cache = RetainedFrames::with_max_bytes(1 << 20);
+        let list = Arc::new(DisplayList::default());
+        let k = SurfaceKey { size: (200, 30), ..key(&list, 3, 11) };
+        let current = [Arc::as_ptr(&list) as usize];
+        cache.begin_frame(&current);
+        for band in 0..8 {
+            let part = [0, (band * 4 - 2).max(0), 40, (band * 4 + 4).min(30)];
+            cache.offer(k, Arc::clone(&list), wide(part), part, PLACED);
+        }
+        cache.commit();
+        let valid_boxes = |cache: &RetainedFrames| {
+            cache.inner.lock().expect("the cache").entries.iter().find(|e| e.key == k).map(|e| e.valid.clone())
+        };
+        assert_eq!(valid_boxes(&cache), Some(vec![[0, 0, 40, 30]]), "eight bands, one box");
+        for strip in 0..100 {
+            cache.begin_frame(&current);
+            let part = [40 + strip, 0, 41 + strip, 30];
+            cache.offer(k, Arc::clone(&list), wide(part), part, PLACED);
+            cache.commit();
+        }
+        assert_eq!(valid_boxes(&cache), Some(vec![[0, 0, 140, 30]]), "and a hundred strips beside them");
+        assert!(cache.lookup(&k, [0, 0, 140, 30]).is_some(), "the first band's rows are still served");
+        assert!(cache.lookup(&k, [0, 0, 141, 30]).is_none());
+        // A part that makes no rectangle with what is there stays apart.
+        cache.begin_frame(&current);
+        cache.offer(k, Arc::clone(&list), wide([140, 0, 200, 10]), [140, 0, 200, 10], PLACED);
+        cache.commit();
+        assert_eq!(valid_boxes(&cache).map(|b| b.len()), Some(2));
+        assert!(cache.lookup(&k, [0, 0, 200, 10]).is_some(), "the top rows across both");
+        assert!(cache.lookup(&k, [139, 9, 141, 11]).is_none(), "the corner under the new part was not painted");
+    }
+
+    /// A10's `## For area A1`, 7 (d): the stamp of a surface's pixels (`kept`) changes when
+    /// they do and only then. A commit that makes a surface or merges a part into it stamps
+    /// it; a surface taken out for a repair and put back WITHOUT a repainted box (a view
+    /// rendered again with the same items) keeps its stamp; put back after a repaint it has
+    /// another.
+    /// Mutation: `put_back` stamping every time hands a presenter the same pixels as new
+    /// ones (the second assertion).
+    #[test]
+    fn the_stamp_of_a_kept_surface_changes_with_its_pixels_and_only_then() {
+        let whole = [0, 0, 40, 30];
+        let cache = RetainedFrames::with_max_bytes(1 << 20);
+        let list = Arc::new(DisplayList::default());
+        let k = key(&list, 3, 11);
+        cache.begin_frame(&[Arc::as_ptr(&list) as usize]);
+        cache.offer(k, Arc::clone(&list), surface([0, 0, 40, 16], 100), [0, 0, 40, 16], PLACED);
+        cache.commit();
+        let first = cache.kept(&k).map(|(_, stamp)| stamp).expect("kept");
+        cache.begin_frame(&[Arc::as_ptr(&list) as usize]);
+        assert_eq!(cache.kept(&k).map(|(_, stamp)| stamp), Some(first), "a frame that paints nothing of it");
+        cache.offer(k, Arc::clone(&list), surface([0, 16, 40, 30], 100), [0, 16, 40, 30], PLACED);
+        cache.commit();
+        let merged = cache.kept(&k).map(|(_, stamp)| stamp).expect("kept");
+        assert_ne!(merged, first, "a part merged into it: other pixels");
+        assert!(cache.lookup(&k, whole).is_some());
+        // Taken out and put back as it is, then after a repaint.
+        let mut stale = cache.take_stale(&[]);
+        assert_eq!(stale.len(), 1);
+        cache.put_back(stale.remove(0), false);
+        assert_eq!(cache.kept(&k).map(|(_, stamp)| stamp), Some(merged), "the same pixels: the same stamp");
+        let mut stale = cache.take_stale(&[]);
+        cache.put_back(stale.remove(0), true);
+        let repainted = cache.kept(&k).map(|(_, stamp)| stamp).expect("kept");
+        assert_ne!(repainted, merged, "a repaired box: other pixels");
     }
 }

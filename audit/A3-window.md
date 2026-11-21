@@ -42,6 +42,35 @@ Minimal patches in files of other areas (a few lines each, none inside a claimed
 A9's commit `f16fd2ab4` (the dropped-child loop of `remap_node_ids`, `window.rs:30405`) does not touch a line this
 branch changed: no conflict expected.
 
+Round 5:
+- `layout/src/window.rs`: `apply_node_style_change` (the try of the move), new `move_node_in_place`,
+  `frame_push_of`, `take_boxes_moved_in_place`; `DomGenerations` (`frame_owners`, `boxes_moved_in_place`,
+  `state_colors`, `bump_for_a_move`); `patch_restyled_decorations` (the value path and the bind), new
+  `release_state_colors`, `settle_state_colors_in_the_kept_list`, `retain_color_keys_of`, `solid_background_of`;
+  `apply_node_css_change` (the clear of an override in sync), `apply_image_change` (one alternative).
+- `layout/src/solver3/display_list/node_patch.rs`: new `frame_owners`, `movable_frame`, `move_frame`,
+  `committed_runs`.
+- Minimal patches in files of other areas: A1's `FrameIndex::of` (`display_list.rs`: one condition, a rect bound
+  to a colour key is no opaque fill; the builder itself needed no change for A4-23: a bound background is pushed
+  whatever its alpha); A6's `perform_hit_test` (`event.rs`: the tester is built again after a move in place);
+  A3-solver's `widgets/node_graph.rs` (`nodegraph_unset_active_node`, new `release_gesture_transforms`, as its
+  notes specify); the dll's state-restyle tests (`event.rs`: the leave and the release are values).
+
+Round 6 (the rows successor; as owner of A3-core's builder and of A6's hit tester and dispatch for these rows, by
+the coordinator's word):
+- `layout/src/window.rs`: new `bind_state_colors` (replaces `release_state_colors` and
+  `settle_state_colors_in_the_kept_list`), `state_colored_nodes`, `fading_backgrounds_of`,
+  `state_colors_from_the_build` / `set_state_colors_from_the_build_on_this_thread`; `patch_restyled_decorations`
+  (the value path asks the list; the node limit counts patched nodes), `tick_animations` (the end of a fade keeps
+  a state colour's key), `regenerate_display_list_for_dom` (each DOM's own solver cache takes the built list),
+  `move_node_in_place` (drops the box's `AbsPlacement`), `apply_node_css_change` (the changes of a write).
+- `layout/src/solver3/display_list.rs` (A3-core's): `DisplayListBuilder::bound_color_ids`, `bind_colors_of`,
+  `try_copy_cached_run` (the binding of a copied rect), `paint_node_background_and_border_inner` (the see-through
+  rect of a bound node); `display_list/node_patch.rs` `plan_one` (the node's own key).
+- Tests changed in other areas' files: dll `shell2/common/event.rs` (the state-restyle guards, both bindings),
+  `shell2/headless/mod.rs` (the hover sweep, both bindings), `shell2/macos/headless_gpu.rs` (A4's GPU hover
+  guard: 0 lists).
+
 ## The four answers
 
 ### 1. One hover enter or leave over a label
@@ -574,9 +603,16 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
 ### A3-window-15 apply_node_css_change, non-GPU path: cascade tables rebuilt, list rebuilt per written property set
 - file:line: `window.rs` `apply_node_css_change`
 - class: waste, per `set_css_property` of a non-GPU property
-- fix: a decoration write takes `patch_restyled_decorations`.
+- fix: a write that lays nothing out and seeds no transition hands its restyle result to
+  `patch_restyled_decorations`; on success the tier is `Paint` (no list build here, none by the host on the
+  tier). Left: `restyle_user_properties` rebuilds the cascade's derived tables per write (the styling code:
+  the diff-first builder's `recascade_nodes` is the per-node pass it needs).
+- test: `a_decoration_written_from_a_callback_is_painted_into_the_list`.
+- round 6 (`91ca03104`): the arm of `3b50c52b0` was dead for every full write: the restyle it read runs after
+  the inline style took the new value and reports no change. The changes of a write are now read before the
+  inline write. A4's `a_view_the_frame_does_not_send_again_is_still_drawn` restated to `Paint` (`80ddea192`).
 - severity: low
-- status: open: not started (a decoration write through `patch_restyled_decorations`; the cascade tables rebuilt per write)
+- status: fixed 91ca03104
 
 ### A3-window-16 tween patches scan all items per transition per frame; a patched tween copies the root list per tick
 - file:line: `window.rs` `tick_animations` (`items.iter().any(PushOpacity ..)`, `color_bindings.contains`,
@@ -584,8 +620,16 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   `Arc::make_mut(&mut result.display_list)` while `cached.5 = patched` keeps a second `Arc` after every patched tick.
 - class: waste, per tween frame: O(transitions x items) + one deep copy of the root's list per frame of a colour or
   layer fade (root DOM only: 60-70 items in the editor, thousands in a document window).
+- fix: before a frame's patches the solver's cache lets go of the list when it holds this very one (the hand-back
+  after the patches was there); `color_bindings.contains` and the `PushOpacity` walk (also
+  `opacity_layer_is_bound`, asked per `set_css_property(opacity)`) ask the list's `FrameIndex`. Left as it is:
+  `list_shows_target` (one walk on a fade's last frame), `patch_paint_colors` / `patch_background_layers` /
+  `bind_background_color` themselves (one walk of the list's node tags per patched frame: a text or border
+  colour fade patches every frame; a background fade once, then it is a value).
+- test: `a_patched_frame_of_a_colour_fade_copies_no_list` (round 6, `022638f7e`: its fixture fades a border
+  colour; a text colour in a window without a font had no item to patch and never reached the path).
 - severity: medium
-- status: open: not started (per transition per frame a scan of the root's items; one copy of the root's list per patched tick while `cached.5` holds a second Arc)
+- status: fixed 9d456543a
 
 ### A3-window-17 a mouse release scans every styled node of every DOM for `active`
 - file:line: `event.rs` `apply_active_restyle`
@@ -642,9 +686,12 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
 - file:line: `window.rs` `apply_image_change`
 - fix: after the in-place patch of a list the GPU renderer holds (same size, no callback image), the list is
   marked submitted again (`note_one_display_list_submitted`): the image update travels as a resource update.
+- A4-09's last clause (round 5, `0917f6860`): the FIRST picture of a node that showed a null image, whose place
+  the renderer keyed (`RendererResources::node_image_is_replaced_in_place`, A4's `93aeb0a41`), leaves the list
+  held too. Test: `the_first_picture_on_a_kept_place_leaves_the_list_the_renderer_holds`.
 - test: `an_image_replaced_in_place_leaves_the_list_the_renderer_holds`.
 - severity: medium
-- status: fixed 95cfcc78e
+- status: fixed 0917f6860
 
 ### A3-window-22 font resolution runs cold on every pass of a child DOM
 - file:line: `window.rs` `layout_dom_recursive_with_viewport` (the child branch empties `font_chain_cache` and
@@ -866,10 +913,13 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   is m^2 pointer compares per rebuild, `kept_for` m per `RefAny` of the old arena and of every outside holder,
   `LayoutWindow::for_each_refany`)
 - class: quadratic in the merging nodes (1,000 stateful rows: 1 M node visits on the fast path, 0.5 M compares)
-- fix proposed: `RefAnyHolders` fits `merge_fresh_datasets` as it is; `Repointing` needs a map by allocation
-  beside its `Vec` (the `Vec` is private to `refany.rs`, A3-core's file).
+- fix: `Repointing::by_address` (a map from the dropped allocation's address to its entry; `dropped_at` is one
+  lookup). `merge_fresh_datasets` is in `core/src/diff.rs`, the diff-first builder's file since round 5: For
+  area diff-first.
+- test: `a_dropped_dataset_leads_on_to_what_finally_replaced_it`,
+  `a_lookup_among_the_merges_of_a_rebuild_does_not_search_them` (`core/src/refany_test.rs`).
 - severity: low
-- status: open: not started
+- status: fixed 452229ecb
 
 ### A3-window-43 the display-list tier means the WINDOW's list (A4's hand-off: macOS regenerates the root for it)
 - file:line: `dll/.../macos/mod.rs` 9456-9479 (`display_list_dirty` -> `regenerate_display_list_for_dom(DomId 0)`,
@@ -1004,10 +1054,268 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
      `bump_list`, `record_full_emission`.
   5. RESULT: tier `Paint` (`ShouldReRenderCurrentWindow`); the CPU hit-test index takes the same delta for the
      subtree's entries (A6's index) or is rebuilt on the next press.
-- test: equality: the list and the positions after the patch == those after `relayout_child_dom_in_place`
-  for the same write; count: 0 passes, 0 list builds, items written == items of the label.
+- built (round 5), `LayoutWindow::move_node_in_place` (tried by `apply_node_style_change` when the changed keys are
+  within {`left`, `top`, `transform`}), as designed with these decisions:
+  - ITEMS are found by the node's REFERENCE FRAME (`PushReferenceFrame` carries its owner): the range push ..= pop
+    is exactly what the node and the boxes below it paint, so no tag has to be interpreted. The push is found in a
+    table of the list's frames by owner (`DomGenerations::frame_owners`: one walk per list, re-stamped by
+    `bump_for_a_move`, so a drag walks the list once). A node WITHOUT a frame of its own (no `transform`) takes
+    the pass of A3-window-44 as before: its items have no marker for where its context begins and ends (the
+    pushes of a positioned box cannot be told from its parent's by the list alone). The editor's labels have a
+    frame from the first move of a drag on (`item_css` always writes `transform: rotate(..)`); its street-index
+    blocks have none (For area A7-editor).
+  - the kept tree's fingerprint of the box IS written (through `Arc::get_mut`, the solver's cache letting go of
+    the tree for the write): a stale one would call a rebuilt DOM that states the OLD insets "clean" and keep the
+    box where the drag left it.
+  - no `cascade_epoch` bump, no list revision bump (no item changes kind or index); the generation moves
+    (`bump_for_a_move` keeps what a move cannot change: callback-image boxes, image items, the frame table).
+  - a `transform` value alone: `refresh_transform_value_of`, no list (the `write_bound_gpu_properties` channel).
+  - the result is `Paint`; the shell builds its hit-test index again before the next query
+    (`take_boxes_moved_in_place` in `perform_hit_test`): STILL LINEAR in the DOMs' boxes per move, in A6's index
+    (For area A6 has the O(1) change). Also still linear per move, outside this area: the CPU compositor's copy
+    of a list it holds and its diff, `FrameIndex` built again, the GPU translation of a changed list.
+- test: `a_move_of_a_label_drag_looks_at_that_label_alone` (count: boxes and items at 40 and 160 labels equal, 0
+  passes, 0 builds), `a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it` (positions of result and
+  solver cache, the list, and the label after a later pass == a fresh layout of the moved DOM),
+  `a_label_turned_where_it_lies_is_a_value_and_no_list`.
+- round 6, three corrections:
+  - `4856559a5`: the move left the solver's kept placement of the box (`cache::AbsPlacement`: the position of
+    its last SOLVE); a later pass that laid the parent out again placed the label from it, back where the drag
+    began (the solver's own check panicked in a test build). The move drops the entry. Checked beside it,
+    nothing to drop: the solver's positions (moved), `previous_positions` (memory report only), the patch-move
+    books (cleared), `MeasuredParagraphs` (one pass), `float_cache` (per formatting context, in its own
+    space; test `a_dragged_box_that_holds_a_float_stands_as_a_fresh_layout_puts_it`, `d68713628`).
+  - `5f48f8993`, then `b92f04fa9`: **the move is not bit for bit what a layout gives, and that is accepted
+    for a drag** (the coordinator's decision; `5f48f8993` had switched it off, `b92f04fa9` on again). It
+    writes `old + delta` into the positions (`move_node_in_place` step 5), the frame's bounds and every item
+    of the frame (`node_patch::move_frame`, `translate_item`), where the solver computes `containing block +
+    inset + margin` and the painter `position + k`: up to 4 units in the last place per move. Why it may:
+    the drift is bounded by the gesture; it ends at the first pass of the document (the move drops the box's
+    `AbsPlacement`, so the pass solves the box, AND the solver's kept list, so the pass paints every item
+    from solved positions: with the list kept the pass copied the run of a box it found where the move left
+    it); every kept structure is moved by the same delta; nothing is carried to the next gesture. Cost of
+    the second drop: the first pass after a drag builds the document's list in full, once.
+    Test: `a_label_written_to_places_that_do_not_add_exactly_stands_bit_for_bit` ((a) the bound and the
+    self-agreement after each move, (b) bit for bit after the next pass).
+  - **the EXACT move, design (complete; first among the open rows; it also ends A3-window-57 and -58; not
+    urgent, for the bound above):**
+    1. WHEN: as today, and: the node is `position: absolute` (not fixed), every box below it is `static`
+       (no relative / absolute / fixed / sticky box: the pass shifts or solves those separately), and the
+       solver's cache holds a placement for the box (`cache_map.entries[index].abs_interior.placement`:
+       it gives the containing block's rect the last solve used; none for an SVG text or a margin note).
+       NO reference frame of its own is needed and no size clause.
+    2. THE BOX, with the solver's operands in the solver's order (`solver3/positioning.rs`, the arms for an
+       inset with its opposite `auto`): `x = cb.origin.x + left + m_left` (`m_left` = 0 for an `auto` margin,
+       else `box_props.unpack().margin.left`), `y = cb.origin.y + top + used_margin_top` (the same for
+       `top`); `cb.origin` = `f32::from_bits(placement.containing_block[0 / 1])`, `left` / `top` from
+       `positioning::resolve_position_offsets` after the compact slots are written (as the move does today).
+       An axis that is not written keeps its bits.
+    3. THE BOXES BELOW: `solver3::cache::position_bfc_child_descendants(tree, index, (x + border.left +
+       padding.left, y + border.top + padding.top), &mut positions)` (make it `pub(crate)`): it is what the
+       positioning pass runs for every absolute box, from `warm.relative_position`. Then copy the subtree's
+       slots into the solver's positions; the placement becomes the kept one with `final_bits` of the new
+       position (it is then what a solve would write: the solver's check in test builds proves it at the
+       next pass).
+    4. THE ITEMS: painted, not shifted: keep the old list and the old positions, then build the DOM's list
+       through `display_list::generate_display_list_impl(.., patch)` with `PatchState::build(&old_list,
+       &old_positions, &new_positions, &sizes, &sizes, &empty)` (both `pub` / `pub(crate)` already): every
+       run of a box that did not move is copied as it is, the moved boxes are painted (with the diff-first
+       owner's fix of `try_copy_cached_run`). Wire it as `regenerate_display_list_for_dom` with an optional
+       kept list (the placeholder swap, the tweens, the cache refresh and the books of that function are
+       all needed). Cost: one walk of the DOM's stacking contexts and a copy of its items per move (est.
+       1-3 ms at 17.5k items), no cascade tail, no font walk, no reconcile, no solver pass, no window pass.
+       Not O(1) any more: an O(1) variant needs the frame's own items painted alone
+       (`generate_for_stacking_context` for one node into a scratch builder; it pushes
+       `OpenClip::Barrier`, so the clips open around it must be reproduced: not read).
+    5. THE HIT TESTER (the old row 2): entries are `position + view placement offset` computed at a rebuild;
+       a move must write `new position + offset` in that order for every entry of the moved boxes (found by
+       the chain trie: every chain under the node's `Transform` link, or by `top_entry_of_node`), the
+       `FrameOrigin` of the node's link the same way, the group's grid / bounds built again
+       (`DomIndex::build`'s closure as a function), and `dom_hits` must `dedup` its hits if the group is
+       also listed under its `ParentBounds::always`. Read in round 6, not built.
+    Tests to write with it: the label test above with the switch gone (`Paint`, 0 passes) and `same_bits`;
+    a box of 5,000 boxes moved (row B); the first move of a drag (row A).
 - severity: medium
-- status: open: designed in this block, not built (this session ran out of room after A3-window-44, which makes the move correct)
+- status: open: the exact move (the design in this block) is not built; the move in place as it is (`old + delta`, on by default, b92f04fa9) drifts by at most 4 ulps per move and ends at the next pass, so this is not urgent
+
+### A3-window-50 a state colour painted into the list is a whole list to the renderers on every enter and leave (A4-23, the restyle side)
+- file:line: `window.rs` `patch_restyled_decorations`, `release_state_colors`, `settle_state_colors_in_the_kept_list`;
+  `display_list.rs` `FrameIndex::of` (one condition)
+- class: waste, per enter / leave of a node with a `:hover` / `:active` background: the GPU renderer translates
+  the patched list whole and builds the scene again (A4-23: est. 15-40 ms at 17.5k items); the CPU compositor
+  copies the list it holds and diffs it.
+- fix (the LAZY binding of this area's design; A4's eager variant, a transparent bound rect for every node that
+  has a state rule, needs a per-node "has a state background" fact from the cascade and 1 item per such node,
+  and was not built): a run the patch paints as ONE solid rect is bound to a colour key of its node
+  (`DomGenerations::state_colors`); the node's next state changes are that key's value (`set_color_value`,
+  "nothing" = transparent) and touch no list; a node with other changes, with a fade in flight, or without a
+  key takes the patch; every build of the list lets the keys go, and a layout pass first writes each bound
+  rect's value into the kept list it may copy runs from. Both renderers paint a bound rect in its value: the
+  CPU's `render_rect` returns for alpha 0 (checked: fine, no patch), WebRender keeps the primitive (A4).
+  A bound rect is no opaque fill for `FrameIndex` (its value may be see-through).
+- what it does not do: the FIRST enter of a node after a build is still a patched list (a pointer swept across
+  labels it never touched changes the list per label); the eager variant is in A4-23's block.
+- test: `a_hover_that_comes_again_is_a_value_and_no_list`, `a_state_colour_without_a_key_still_takes_the_patch`;
+  changed: `a_hover_over_one_label_of_many_touches_that_labels_items_alone`, the dll's hover and press tests
+  (their leave / release: 0 patches, the list the same allocation, painted through the keys' values).
+- severity: medium
+- status: fixed 727d2ba8b
+
+### A3-window-51 clearing an override costs a rebuild of the cascade's tables; the node graph never cleared its gesture transforms (A3-solver-55)
+- file:line: `window.rs` `apply_node_css_change`; `widgets/node_graph.rs` `nodegraph_unset_active_node`
+- class: wrong-output (a dragged or panned node keeps the gesture's transform against an undo or a programmatic
+  move: `migrate_user_overrides_from` carries the override, which outranks the rebuilt style) + waste (the
+  clear that would end it: `restyle_user_properties` per box)
+- fix: engine: an `initial` override of a GPU-only property whose value the node's own style declares is taken
+  out with `set_user_property_override_fast`, tier `Unchanged`. Widget: the release after a gesture clears the
+  transform override of every node box and wire.
+- test: `clearing_an_override_the_own_style_states_too_rebuilds_no_cascade` (layout audit_tests),
+  `the_release_after_a_gesture_hands_every_transform_back` (widgets::node_graph).
+- severity: medium
+- status: fixed 4d00e3327
+
+### A3-window-52 the drag states are written without a cascade, so an unchanged rebuild cascades while one is raised (the shell's half)
+- file:line: `event.rs` `SystemChange::InitDragVisualState`, `SetDragOverState`, `DeactivateDrag`;
+  `common/layout.rs` `regenerate_layout` (`drag_state_raised`, twice)
+- class: waste, per `RefreshDom` with an unchanged DOM while a node is dragged or a drop target is entered: the
+  whole cascade (A3-window-46's exception); and wrong-output before: a rule with `:dragging` / `:drag-over` left
+  of its subject was not applied until some rebuild ran.
+- fix: `recascade_for_a_drag_state` at the three writes (a cascade only where the sheets read the state left of
+  a subject; the DOM's list is built then). The exit's clause can go now: For area diff-first.
+- test: `a_drag_state_is_cascaded_where_a_rule_reads_it_left_of_its_subject` (dll `event.rs`).
+- severity: low
+- status: fixed 23ba0306f
+
+### A3-window-53 the decoration patch of a view's list copied the list the view's own solver cache holds
+- file:line: `window.rs` `patch_restyled_decorations` (the cache was let go of "ROOT only")
+- class: waste (one deep copy of the view's list, 17,495 items, at the first hover patch after every pass of
+  the view) + wrong-output in waiting (the view's cache kept the list from before the patch)
+- fix: the cache of the patched DOM (`layout_cache` or `child_layout_caches[dom]`).
+- test: `a_hover_over_one_label_of_many_touches_that_labels_items_alone` (the allocation, the cache's list).
+- severity: medium
+- status: fixed 44c7836da
+
+### A3-window-54 a content patch of a view's list (a tile that arrives) copied the list the view's solver cache holds
+- file:line: `window.rs` `patch_display_list`
+- class: waste (as 53: the first tile patched after every pass of the view) + wrong-output in waiting (a cache
+  hit of the view would paint the tile from before)
+- fix: as 53. Not changed: `apply_caret_visibility_in_place` hands the patched list back to the window's cache
+  only (a caret inside a view: one copy at the first blink after a pass; the cache's key holds the caret's
+  phase, so the stale list is not served).
+- test: `a_tile_that_arrives_in_a_view_is_patched_into_the_list_where_it_lies`.
+- severity: medium
+- status: fixed a0b428212
+
+### A3-window-55 a state colour is a patched list at the first enter of every node (A4-23, the eager binding)
+- file:line: `window.rs` `bind_state_colors`, `state_colored_nodes`, `patch_restyled_decorations`,
+  `tick_animations`; `display_list.rs` `paint_node_background_and_border_inner`, `try_copy_cached_run`
+- class: waste, per first enter of a node after every list build: a patched list (the GPU renderer translates
+  the view's whole list and builds the scene again; the CPU compositor copies the list it holds and diffs it):
+  a pointer swept across n labels it had not touched changed the list n times
+- fix: every build of a DOM's list (a layout pass, `regenerate_display_list_for_dom`) binds the background of
+  every STATE-COLOURED node to a colour key: a node whose own style (a matched rule or an inline declaration)
+  sets `background` / `background-color` under `:hover`, `:active` or `:focus`, whose backgrounds under every
+  state are one colour or nothing, and whose background is one colour or nothing now. The builder pushes the
+  node's background rect bound to the key, a see-through rect (`Rect`, alpha 0) where the node has no background
+  of its own; both renderers draw nothing for a bound rect whose value has alpha 0. From then on EVERY enter and
+  leave is `set_color_value` and touches no list.
+  - who is asked: only nodes with a hit-test tag (`tag_ids_to_node_ids`: a node gets one for any `:hover` /
+    `:active` / `:focus` declaration), then the node's own rules; not every node of the DOM.
+  - the value path is gated by the LIST: `frame_index().binds_a_color_key(key)` (one walk per list, kept with
+    it). A node with a key whose rect the list does not hold takes the patch, which paints and binds it (the
+    lazy binding of row 50, still the path for a node that came by its rule without a re-emit of its run).
+  - keys do not accumulate: `bind_state_colors` keeps exactly the keys of the state-coloured nodes of the
+    build and (window's DOM) of the fades in flight; a key that stays keeps its id (the list cache's key and
+    copied runs hold it), one that goes has its VALUE written into the kept list's rect first (a copied run
+    loses the binding with the key) and a see-through rect that lost its key is not copied.
+  - fades (the window's DOM): a state colour with `animation: background` is the same key. The hover owes
+    nothing but the fade's start; the fade's frames write the key's value; the key stays when the fade ends.
+    It was a build of the window's list per enter and per leave (the patch refused a fading node's unchanged
+    run).
+  - found on the way, fixed here: (a) `try_copy_cached_run` asked every key of the DOM per copied bound rect
+    (keys x bound rects per patched pass): a set of ids. (b) `plan_one` copied every key of the DOM into its
+    scratch builder per patched node: the node's own. (c) `patch_restyled_decorations` for the window's DOM let
+    every key of a settled fade go before it painted ANOTHER node: the settled node's rect fell back to the
+    colour the list was built with. Only the patched nodes' keys go now. (d) a list built for a view's
+    document (`regenerate_display_list_for_dom`) left that document's solver cache with the list from before:
+    the next pass copied runs from it (a state colour let go by the build came back). Each DOM's cache takes
+    the list built for it. (e) the node limit of the patch (8) counted nodes that are values.
+- cost (what the predecessor avoided, now paid on purpose): one item and one key per state-coloured node that
+  has no background of its own, one key per state-coloured node. The editor's view on m4p `master`: every
+  label span has `.t<layer>:hover { background: rgba(66,134,244,0.35) }` (`map.rs:1140`): about 1,570 spans
+  among the 12,470 nodes (A4's count for the Tuebingen view), so up to +1,570 items (+9 %; fewer by the labels
+  that have a background of their own) and 1,570 keys. With A7-editor-37 (the hover as one node moved by a
+  transform) the labels have no state rule and the view gets 0 of either. Per frame that writes any value the
+  GPU transaction carries the colour values too (K + 1,570 values, about 30 KB), and the CPU's value compare
+  reads them. A bound rect is no opaque fill for `FrameIndex` (a button face with a hover rule is not an
+  occluder any more).
+- switch: `AZ_EAGER_STATE_COLORS=0` = the binding of row 50 (a node is bound when a state first paints it).
+  Default ON: the user's directive (row 1 of this round). A test picks one for its thread with
+  `window::set_state_colors_from_the_build_on_this_thread`.
+- not served by a value (they take the patch or the build as before): a state rule that changes more than the
+  background (border, shadow, text colour: row 38), a gradient or image under a state, an inline box painted
+  by its line, a table part, the root and `body` (the canvas), `:focus-within` / `:seat-focus` / drag states,
+  a rule that reaches the node through an ancestor's state (`.row:hover .cell`: the cell declares nothing
+  under a state of its own and is not bound; it takes the patch).
+- test (layout `audit_tests::a3_window`): `a_build_binds_one_rect_per_node_with_a_state_colour_and_none_else`,
+  `a_pointer_swept_over_labels_it_never_touched_writes_values_and_changes_no_list` (0 builds, 0 patches, 2n
+  values, the picture of a built list at every step, at 40 and 160 labels),
+  `a_node_whose_rect_the_list_does_not_bind_takes_the_patch`,
+  `a_state_colour_by_value_is_right_through_a_build_and_a_pass`,
+  `a_label_removed_while_hovered_leaves_no_colour_and_no_key`,
+  `a_hover_that_fades_changes_no_list_from_its_first_frame`; dll:
+  `a_hover_over_a_label_is_the_value_of_a_colour_key_from_its_first_enter`,
+  `a_press_on_a_label_is_the_value_of_a_colour_key_from_the_first_press`,
+  `a_mouse_move_over_the_text_of_labels_changes_no_list`; A4's
+  `the_hover_of_a_label_in_the_map_sends_the_maps_list_alone_and_draws_it` (GPU: 0 lists translated per enter
+  and leave, was 1 each) and `a4_23_a_bound_background_colour_changes_as_a_value_and_no_list` (unchanged).
+  The guards of the patch (rows 07, 50, 06) run with the switch off on their thread.
+- severity: medium
+- status: fixed 621a98aaa
+
+### A3-window-56 a patched pass copied a moved box's items shifted by its move: an ulp off a build's (the five equality walks)
+- file:line: `layout/src/solver3/display_list.rs` `PatchState::build` (`deltas`), `try_copy_cached_run`
+  (`translate_item(prev.items[i].clone(), delta)`)
+- class: wrong-output (the last bit of an `f32`): `fl(fl(old + k) + delta)` against `fl(new + k)` for an item at
+  `position + k`; a patched list was not the list a build gives, and two windows on two paths to one DOM held
+  different lists (dll `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`)
+- fix: the diff-first owner's, on its branch (a run is copied only where it lies, a moved node is painted;
+  `AZ_DL_TRANSLATE_MOVED_RUNS=1` is the old way). This branch made the same fix (`25347d2ca`) and reverted it
+  (`8eca913a0`) on the coordinator's word, so it is made once.
+- test (this branch): `a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it` (forty rows shifted by
+  a pass, bit for bit against a fresh layout): fails until that fix is merged under it.
+- severity: medium
+- status: open: fixed on `audit/diff-first`; this branch holds the layout-side test (0edcbc5b6)
+
+### A3-window-57 the first move of every drag takes the pass (the editor's row A)
+- file:line: `core/src/diff.rs` `hash_inline_style_by_reach` (it hashes each RULE's conditions: five typed rules
+  of one declaration each, as a render writes them with `with_css_props`, and one parsed rule of five
+  declarations, as `set_node_style(Css::parse_inline(..))` writes them, are different styles to it);
+  `window.rs` `move_node_in_place` (the fingerprint comparison of step 1)
+- class: waste, once per drag: the first write differs from the build-time style in more than the values of
+  `left` / `top`, so it is a pass (a hitch when the user grabs something)
+- fix (not built; two parts): (1) hash per (conditions, property) instead of per rule in
+  `hash_inline_style_by_reach` and in the comparison of `inline_style_moved_in_place`, so that the same
+  declarations under the same conditions are one style however they are split into rules (`core/src/diff.rs`
+  is the diff-first owner's file: For area diff-first); (2) an API addition
+  `CallbackInfo::set_node_css_props(node, CssPropertyWithConditionsVec)` beside `set_node_style` (follow its
+  entry in `api.json` and `ContentChange::NodeStyle`; the generators run in the verification pass), which
+  also saves formatting and parsing a string per move.
+- severity: medium
+- status: open: not built (part (1) is an exact change For area diff-first; part (2) an api.json addition)
+
+### A3-window-58 the size clause of the move in place (the editor's row B)
+- file:line: `window.rs` `move_node_in_place` (`MAX_BOXES` 1,024), `node_patch.rs` (`MAX_MOVED_ITEMS` 4,096)
+- class: waste: a street-index block of more than about 340 streets fails the clause and takes the pass
+- what the clause protects: nothing of correctness. The move's own work is linear in the frame's boxes and
+  items (positions x 2, items, the tester's boxes): est. 20-40 us per 1,000 boxes; the pass it falls back to is
+  linear in the DOCUMENT's nodes with a far larger constant (est. 0.3-0.6 ms per 1,000 nodes of the document,
+  then the window's pass). The bound was a guess at "small".
+- fix: with the exact move of A3-window-49 (step 4 paints through a patched build of the DOM's list) there is no
+  frame range and no clause; `MAX_BOXES` only bounds the walk that proves "every box below is static" and
+  can go to the document's size.
+- severity: medium
+- status: open: not built (raise `MAX_BOXES` / `MAX_MOVED_ITEMS` to the document's size now, or let it go with the exact move of A3-window-49)
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
@@ -1128,6 +1436,62 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   `nested_dom_hosts` (the Tab order) walks every item of every list although
   `VirtualViewManager::nested_dom_host_map()` now hands out the same map (A3-window-35).
 
+- **A move in place and the hit-test index** (A3-window-49). `LayoutWindow::move_node_in_place` moves the boxes of
+  one subtree by a delta without a layout pass and raises `take_boxes_moved_in_place()`; `perform_hit_test` then
+  calls `rebuild_cpu_hit_tester()` (a minimal patch in your function): one rebuild of the tester per mouse move
+  of a `left` / `top` drag, linear in the boxes of every DOM (as the relayout tier's rebuild was). The O(1)
+  change: `CpuHitTester::move_boxes(dom, nodes: &[NodeId], delta)`: for each entry of `node_rects[dom]` whose
+  node is in `nodes` (found through `DomIndex::top_entry_of_node`), `rect.origin += delta`; the clips those
+  nodes own; the `FrameOrigin` of the `HitChainLink::Transform(dom, node, origin)` links of those nodes; the
+  group grid cell of each moved entry (or the group's grid dropped) and `DomIndex::frame_bounds = None` for the
+  dom (it is worked out again by `sync_frame_bounds`). `move_node_in_place` has the subtree's layout boxes and
+  the delta in hand and would call it through a list it leaves for the shell instead of the flag.
+
+- `dispatch_events_propagated` (`event.rs`), the arm `EventFilter::External(_) | EventFilter::Application(_)`:
+  per event per filter a walk of EVERY node of EVERY DOM (`for node_idx in 0..ndc.len()`: the view's 12.5k
+  labels) to find the callbacks that listen; the `Window` arm beside it reads the listener list
+  `nodes_listening_to_window_events(&lr.styled_dom)`. Proposed: the same list for these two filter kinds (the
+  list is kept by `StyledDom`, `core/src/styled_dom.rs`: one more `match` arm where the window listeners are
+  collected). A media player that reports its state per frame pays the walk per frame today.
+
+## For area diff-first
+- A3-window-18's line (`dll/src/desktop/shell2/common/layout.rs`, `regenerate_layout`, step 3.4; the function
+  is in your Claims). As it is: `if !styled_by_one_cascade || decorations_appended {
+  styled_dom.recompute_inheritance_and_compact_cache(); }` (this area's `06bb22394`: the shell's own two facts).
+  As it should be: `if !styled_by_one_cascade || decorations_appended ||
+  styled_dom.needs_recompute_after_append() { .. }`: A3-core's flag (`5000f480c`, set by every `append_child`,
+  cleared by the recompute) covers an append the shell's two facts do not know, and costs a field read. The
+  flag ALONE (`if styled_dom.needs_recompute_after_append()`) would also skip the pass for a mounted document
+  that came out of one cascade of its own, but only once every producer of a mounted document is known to
+  leave the flag right: not read. Test: the dll's `an_identical_rebuild_under_a_hovered_node_runs_no_cascade`
+  counts compact-cache builds (`compact_cache_rebuilds_on_this_thread`): a rebuild of a plain window DOM must
+  stay at one build with the new line.
+
+- `regenerate_layout`, the two `drag_state_raised` clauses (`common/layout.rs` about 813 and 1005: `let
+  drag_state_raised = retained.styled_nodes.as_ref().iter().any(|n| n.styled_node_state.dragging ||
+  n.styled_node_state.drag_over); if states_changed || drag_state_raised { .. restyle_for_raised_states() }`):
+  since A3-window-52 (`23ba0306f`) the shell cascades a drag state where it writes it, so the kept DOM IS
+  cascaded under the drag states it holds. As it should be: `if states_changed { .. }` at both places (and the
+  walk for `drag_state_raised` gone). Test to extend: `an_identical_rebuild_under_a_hovered_node_runs_no_cascade`
+  with a node in the `dragging` state (0 compact-cache builds).
+
+- `core/src/diff.rs` `merge_fresh_datasets` (A3-window-42, the half in your file): per merge it walks the whole
+  arena to repoint the `RefAny`s of the dropped allocation, as `transfer_states` did before A3-window-12
+  (`fd02b5dd2`). The change: build `RefAnyHolders` (the index `transfer_states` uses, same file) once at the
+  second merge that drops an allocation and visit its listed nodes for every later merge; same writes in the
+  same order. Test: the sweep `the_merges_of_a_rebuild_take_a_step_per_node` run over the pre-cascade path
+  (an identical rebuild of 200 and 800 stateful rows).
+
+- A3-window-57, part (1) (`core/src/diff.rs`, `hash_inline_style_by_reach` and `inline_style_moved_in_place`):
+  the three hashes are fed per RULE (its conditions, then its declarations), so the same declarations under
+  the same conditions split into another number of rules hash differently: a node built with
+  `with_css_props` (one rule per property) and written with `set_node_style(Css::parse_inline(..))` (one rule
+  for all) differ in `inline_css_hash` although only the values of `left` / `top` moved. As it should be: feed
+  each declaration with its rule's conditions and priority (`(conditions, priority, declaration)` per
+  declaration, in order), so the partition into rules does not enter the hash. Test: a style of five typed
+  rules against the parsed rule of the same five declarations with another `left`: `diff` is
+  `INLINE_STYLE_INSETS` alone.
+
 ## For area A2-cpu
 - `virtual_view_frame_scroll_offsets` (`window.rs` about 4490, per GPU frame): `all_view_keys()` allocates a `Vec`
   per frame; O(views).
@@ -1155,6 +1519,10 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   let `reconcile_dom` follow the label, and with A3-window-08 a label that only moved keeps its text layout once
   the solver handles `INLINE_STYLE_INSETS`.
 - The groups of 64 are not needed by this area's code any more (answer 4).
+- A drag by `set_node_style` costs no pass when the node has a `transform` of its own and only `left` / `top`
+  / the transform value change (A3-window-49). `block_css` (the street-index blocks) writes no transform: add
+  `transform: translate(0px, 0px);` to it (and to anything else dragged by `left` / `top`) and the block drag
+  is a move in place too; without it the block takes the pass of A3-window-44 (correct, linear in the view).
 
 ## For area A9
 - With A3-window-23 the font collector (`garbage_collect_fonts`) runs only in a window without a child DOM: a
@@ -1197,6 +1565,107 @@ merge of `audit/integration` (`8331cc219`, clean). The working tree is clean.
   The cascade count is `azul_core::styled_dom::compact_cache_rebuilds_on_this_thread()` (not `cfg(test)`).
 - **What a compile error in round 4 most likely is:** see the risk ranking of the final message; the tests in
   `headless/mod.rs` use the harness's private helpers by name (`make_window_sized`, `step`, `node_with_class`).
+
+## Round 5 (the rows successor): what was done, what was read, the hand-over
+
+Commits of round 5, on top of two merges of `audit/integration` (`914e54179`, `ae4fdf832`):
+49 `50dda7e4e`, A4-09's clause `0917f6860`, 50 (A4-23, restyle side) `727d2ba8b`, 51 (A3-solver-55) `2c97331eb`
++ the widget half `4d00e3327`, 52 `23ba0306f`, 16 `9d456543a`, 53 `44c7836da`, 54 `a0b428212`, 42 `452229ecb`,
+15 `3b50c52b0`.
+
+**Read in round 5 (one line each):**
+- `AnimTrack::tick`, `sample`, `sample_channel` (`window.rs`, the "animation tick" of one track): read in full:
+  nothing: O(1) per track, O(stops) per channel.
+- `run_track_frames`: phase B (the samples applied) read in full, phase A by its loops: per frame O(tracks),
+  nothing walks a DOM for one animating node; `publish_live_sample` is a lookup and key / value writes. A
+  ZOMBIE's width / height track lays its retained tree out per changed sample (by design) and then finds the
+  node's box by a scan of the tree's nodes: one scan behind a pass of that same tree, not a finding.
+- `tick_animations`, the patch section (transitions): read in full: found 16 (fixed). What a frame of a
+  running transition costs after it: a value write (transform, opacity, a bound background); one walk of the
+  list's node tags for a text / border colour fade (`patch_paint_colors`); `recompute_inheritance_and_compact_cache`
+  over the window's DOM for a tween on the restyle path whose property has no compact slot, and on the last
+  frame of a text colour fade.
+- `layout_transient_content`: read in full: nothing (once per transient that opens; linear in its subtree).
+- `dispatch_events_propagated`: read by its loops and the three "fire on all nodes" arms: found the
+  `External` / `Application` walk (For area A6).
+- `apply_system_change`: the drag arms read in full (9328-9448): found 52 (fixed).
+- NOT read: the rest of `apply_user_change` / `apply_system_change` (6265-6722, 6898-7159, 7510-7999, 8156-8352,
+  8498-9261 at round 4's numbers), the head of `dispatch_events_propagated` (the propagation plan, 10084-10330).
+
+**Rows still open after round 5, nothing of them started in code:**
+- 11 (medium), the selection patch. Start: `node_patch.rs` needs a `plan`-like entry that paints, for an IFC
+  root, `paint_selections` and `paint_node_content` on a scratch builder (tags `Selection` / `Content`), then
+  `locate` the two old runs by tag and splice both (the `commit` loop does one run per node: give it two
+  placements per block). The catch found in round 5: the block's caret (`CursorRect`) lies in the content run
+  while a selection is dragged, and `locate` refuses a run that holds a caret: the splice must re-record
+  `list.carets` for the new run (the builder's `carets` table of the scratch run, shifted by the run's place).
+- 38 (medium): `color`: `DisplayList::patch_paint_colors(node.index()..end, from, to, PaintColorSlot::Text)` is
+  the fade's patch and fits a hover (`previous_prop` / `current_prop` are `from` / `to`); check first whether
+  `restyle_on_state_change` lists the descendants that inherit the colour (then patch each node's own range)
+  and whether `text_selection_colors` must follow. `outline` and `:focus` were not looked at. The first-enter
+  cost of a state colour is in 50's block.
+- 32 (medium): this area's walks are `dom_has_webview` and `fingerprint_dom` in `style_user_dom_inheriting`;
+  the repeated preparation walks are `core/src/styled_dom.rs` (the diff-first builder's file).
+- 27, 29, 36, 39 (low): as their blocks say. 29 needs a "scroll ids computed" fact in the solver's cache
+  (`solver3/mod.rs:1302` asks `cache.scroll_ids.is_empty()`, which is always true for a DOM without scrollers)
+  and a per-DOM "has a web view" fact for `reconcile_webviews`.
+
+**What a compile error of round 5 most likely is:** see the risk ranking of the final message. Known soft
+spots: `move_node_in_place` (a long function with three borrow phases; `Arc::get_mut` on the result's tree
+after the cache let go of it), the closures `state_colored` / `fading` in `patch_restyled_decorations` (called
+with `&*self` while a field of `self` is borrowed shared), `same_lists` / `painted_lines` in the tests.
+
+## Round 6 (the rows successor): what was done, the hand-over
+
+Stopped twice by the usage limit; the coordinator then asked for the verifier's failures only. Everything is
+committed; the working tree is clean. Tip: on a merge of `audit/integration` `1959a3fa0`.
+
+**Done in round 6** (each [unverified]):
+- the verifier's failures: `4856559a5` (49: the move drops the solver's placement), `91ca03104` (15: the
+  decoration patch of a write was dead), `022638f7e` (16: the fixture), `d68713628` (49: `float_cache` read,
+  a test), `5f48f8993` then `b92f04fa9` (49: the move in place off, then ON again by the coordinator's
+  decision, with the kept list dropped at a move and the test in two parts), `80ddea192` (A4's GPU guard
+  restated), `25347d2ca` + its revert `8eca913a0` + `0edcbc5b6` (56: the diff-first owner fixes the patched
+  pass; this branch keeps the test).
+- row 1 of the round, `621a98aaa` (A3-window-55): the eager hover binding, complete, with its tests and the
+  restated guards (layout, dll, A4's GPU hover test). Switch `AZ_EAGER_STATE_COLORS=0`. No uncommitted state.
+
+**Rows left, in this order** (nothing of them is in code):
+1. **A3-window-49, the exact move** (status `open`; with -57 = row A, -58 = row B, and the hit tester's part
+   = the old row 2): the design is in block 49 (steps 1-5), the solver lines are read. NOT urgent: the move
+   in place is on (`AZ_MOVE_IN_PLACE=0` = a pass per move), its drift is at most 4 units in the last place
+   per move and ends at the first pass. What is worth building first of it, independent of exactness: the
+   hit tester following a move (step 5; today the shell rebuilds its index before the next query), row A
+   part (1) (the first move of a drag) and row B (the size clause).
+2. **A3-window-11, the selection drag highlight**: `patch_selection_runs`; the catch of round 5 holds (the
+   block's caret lies in the content run: the splice must re-record `list.carets`).
+3. **A3-window-38**: `color` (`patch_paint_colors(.., PaintColorSlot::Text)` from the restyle's previous /
+   current values), `outline`, `:focus` (the focus restyle always builds: `apply_focus_restyle_in_dom`;
+   with row 55 a `:focus` background is bound at the build already, so the restyle could go through
+   `repaint_restyled_nodes` when no caret / ring is involved).
+4. **A3-window-32** (the part outside the styling code), then **27, 29, 36, 39**, as their blocks say.
+5. **The `External` / `Application` arm of `dispatch_events_propagated`** (For area A6: the listener list).
+6. **For area diff-first**: the four entries there were not re-checked in round 6; add -57 part (1).
+
+**Read in round 6, for the next reader:** `layout/src/headless.rs` 60-760 (the tester's tables), 1325-1552
+(chains), 2133-2700 (`sync_*`, `rebuild_from_layout_with_gpu`), 2952-3200 (`dom_hits`, `group_hits`,
+`hit_dom`), `compute_node_clips`; `solver3/positioning.rs` 480-560 and 640-1400 (the solve of an absolute
+box, the kept placement and its check); `cache.rs` `AbsInterior` / `AbsPlacement`,
+`position_bfc_child_descendants`; `fc/bfc.rs` around the float context; `display_list.rs` `PatchState`,
+`try_copy_cached_run`, `paint_box_decorations`, `paint_node_background_and_border_inner`, the head of
+`generate_for_stacking_context`; `core/src/prop_cache.rs` `get_declared_property_ranked`,
+`generate_tag_ids`, `inline_properties`.
+
+**What a compile error of round 6 most likely is:** `state_colored_nodes` (closures over `CssProperty` /
+`PseudoStateType`, `as_slice()` on the css vectors), `bind_state_colors` (three field borrows of `self` at
+once), the `match` of `regenerate_display_list_for_dom` that moves `display_list` in one arm, the tests'
+closures in `a3_window.rs` (`a_hover_that_fades_...`, `a_dragged_box_...`), `catch_unwind` in the headless
+sweep test.
+
+**What a test failure of round 6 most likely is:** a test elsewhere that reads the RAW colour of a rect
+after a hover through the shell, or counts the rects / items of a node that has a `:hover` / `:active` /
+`:focus` background (the eager binding adds a see-through rect and binds the rect): read through
+`for_each_bound_color`, or run that test with `set_state_colors_from_the_build_on_this_thread(Some(false))`.
 
 ## Integration
 - `9c486a5a3` on this branch is A3-core's `b37653684` cherry-picked (A3-core-08, `core/src/gpu.rs` +
@@ -1278,10 +1747,35 @@ merge of `audit/integration` (`8331cc219`, clean). The working tree is clean.
 - Open a panel / select something that rebuilds the window's DOM (A3-window-20, once the editor states the
   view's version): the map must not flash or re-render.
 
+- Drag a label with the move tool and turn one with the rotate tool (A3-window-49): the label follows the
+  pointer as before, its hover and press land where it is drawn, and after the release it stays. Switch:
+  `AZ_NO_DL_PATCH=1` takes the pass of A3-window-44 for every move (default: the move in place).
+- Move the pointer on and off a button or a label with a `:hover` background several times (A3-window-50): the
+  colour shows and goes each time, also after a layout change in between (resize the window while hovering).
+  A stale highlight that stays after the pointer left would be this change. Same switch (`AZ_NO_DL_PATCH=1`
+  builds the list for every restyle).
+- Node graph: drag a node, undo; pan, then move a node from the program (A3-window-51): the node ends where
+  the model puts it.
+
 - A counter, a clock or a status line that changes with a `RefreshDom` (A3-window-47, `AZ_DIFF_FIRST`): the text
   changes as before, a hovered button beside it keeps its hover face, an editable field keeps its caret. With
   `AZ_DIFF_FIRST=0` the same rebuild takes the full path: the two must look the same. Default ON, because the
   path is gated to the case in which only characters differ and falls back by itself everywhere else.
+
+- (round 6) Hover over labels or buttons it has not touched before (A3-window-55): the colour shows and goes as
+  before; on the GPU path no list is sent for it. `AZ_EAGER_STATE_COLORS=0` is the binding before. A button
+  whose hover FADES (the widgets' `animation: background`) fades as before and builds no list.
+- (round 6) Drag a label (A3-window-49): it follows the pointer by the move in place (default), and after the
+  release it stays where it was dropped, also after any later change of the document (the first pass after a
+  drag solves the box and builds the list). `AZ_MOVE_IN_PLACE=0`: a pass per move, the same picture.
+
+## Switches of this area
+| variable | default | what it does | why the default |
+|---|---|---|---|
+| `AZ_NO_DL_PATCH=1` | unset: patches on | every restyle and write builds the DOM's list; no move in place | the patches are the fix of Z3 |
+| `AZ_DIFF_FIRST=0` | on | a rebuild that changed only texts takes the full path | gated to that case, falls back by itself |
+| `AZ_EAGER_STATE_COLORS=0` | on | a state colour is bound when a state first paints it (row 50), not at the build (row 55) | the first enter is a value; costs one item and key per state-coloured node |
+| `AZ_MOVE_IN_PLACE=0` | on | a write of `left` / `top` alone is a pass of its document, not a move where the box lies | the move is `old + delta`, up to 4 ulps per move off a layout's value, and that is accepted for a drag: bounded by the gesture; ended by the first pass (the move drops the box's `AbsPlacement` and the solver's kept list); every kept structure moved by the same delta; nothing carried to the next gesture. A run copied by a patched pass has none of that, which is why that one is exact |
 
 ## Questions for the coordinator
 - none open.

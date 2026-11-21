@@ -2990,6 +2990,21 @@ pub mod parsed {
             })
         }
 
+        fn glyph_ink_box(&self, glyph_id: u16) -> Option<[i16; 4]> {
+            // As `FontRef` answers (`text3/default.rs`): the box of the decoded outline; a
+            // glyph without an outline paints nothing. A build that decodes no outlines
+            // (`web_lift`) does not know.
+            if cfg!(feature = "web_lift") {
+                return None;
+            }
+            let glyph = self.get_or_decode_glyph(glyph_id)?;
+            if glyph.outline.is_empty() {
+                return Some([0; 4]);
+            }
+            let b = &glyph.bounding_box;
+            Some([b.min_x, b.min_y, b.max_x, b.max_y])
+        }
+
         fn get_hyphen_glyph_and_advance(&self, font_size: f32) -> Option<(u16, f32)> {
             let glyph_id = self.lookup_glyph_index('-' as u32)?;
             let advance_units = self.get_horizontal_advance(glyph_id);

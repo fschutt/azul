@@ -337,8 +337,15 @@ fn an_absolutely_positioned_child_of_a_flex_container_adds_nothing_to_its_intrin
 /// How many labels [`growing_labels`] holds.
 const GROWING_LABELS: usize = 60;
 
-/// `body(0) > .g(1) > .a(2) > 60 x [.x > text]`: labels stacked in a box (`.a`) that is as high
-/// as they are, inside one of a definite height (`.g`).
+/// `body(0) > .g(1) > .b(2) > .a(3) > 60 x [.x > text]`: labels stacked in a box (`.a`) that is
+/// as high as they are, in another such box (`.b`), inside one of a definite height (`.g`).
+///
+/// The box between is what makes the second turn. A restyled label is laid out through its
+/// parent (`cache::lift_to_slot_container`: a block that holds only inline content), so the
+/// first turn's layout root is `.a`. `.a` comes out another height; the box to lay out again
+/// for that (`cache::root_for_resized`) is the outermost ancestor of indefinite height below a
+/// definite one: `.b`, which is no root of the first turn. Without `.b` it is `.a` itself,
+/// already laid out, and the pass ends after one turn.
 fn growing_labels() -> Dom {
     let mut a = div_class("a");
     for i in 0..GROWING_LABELS {
@@ -346,7 +353,7 @@ fn growing_labels() -> Dom {
             Dom::create_text_do_not_use_without_block_level_wrapper(format!("label {i}")),
         ));
     }
-    Dom::create_body().with_child(div_class("g").with_child(a))
+    Dom::create_body().with_child(div_class("g").with_child(div_class("b").with_child(a)))
 }
 
 /// A3-solver-19, the loop. `layout_document` lays a page out in turns: when a box that was laid
@@ -357,8 +364,8 @@ fn growing_labels() -> Dom {
 /// whose margins, borders or paddings the turn before resolved anew - here none.
 ///
 /// Every label gets another height (4px to 6px under a rule of its class): each is dirty and
-/// is laid out again, each came out another size, so `.a` - as high as its labels, in `.g` of
-/// a definite height - is laid out in a second turn.
+/// is laid out again through `.a`, which comes out another height, so `.b` - as high as `.a`,
+/// in `.g` of a definite height - is laid out in a second turn ([`growing_labels`]).
 ///
 /// Mutation: the whole dirty set for every turn (`&recon_result.intrinsic_dirty` at the call
 /// in `layout_document`) measures the 60 labels again in the second turn.
@@ -381,7 +388,7 @@ fn a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed() {
     let passes = IFC_MEASURES_PER_PASS.with(|passes| passes.borrow().clone());
     assert!(
         turns >= 2,
-        "harness: the labels grew, so the box around them was laid out in a second turn \
+        "harness: the labels grew, so the box around their box was laid out in a second turn \
          ({turns} turns)"
     );
     assert!(

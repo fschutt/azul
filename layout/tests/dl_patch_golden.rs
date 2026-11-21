@@ -115,6 +115,7 @@ fn patched_resize_display_list_is_item_identical_to_a_full_rebuild() {
         patched.node_mapping, full.node_mapping,
         "DOM attribution differs between the patched and full pass"
     );
+    assert_same_ink(&patched, &full, "a patched resize");
 
     // Restore the default for any test that runs after us in-process.
     set_dl_patching_enabled(true);
@@ -167,6 +168,61 @@ fn item_strings(dl: &azul_layout::solver3::display_list::DisplayList) -> Vec<Str
     dl.items.iter().map(|i| format!("{i:?}")).collect()
 }
 
+/// The ink the two lists know for their text runs (`DisplayList::text_ink`, A3-core-26):
+/// the same runs have an entry, the entries are the same box (to a hundredth of a pixel:
+/// an entry is relative to its run's first pen, and a copied run's was taken where the run
+/// stood before), and every run with a glyph has one - so that what the lists answer for a
+/// run (`visual_bounds_of`) is the same. A patched build copies the entries of the runs it
+/// copies (`try_copy_cached_run`) and takes those of the runs it paints again from the
+/// face (a paragraph that was edited has another glyph count).
+/// Mutation: `try_copy_cached_run` without its `next_text_ink` line leaves the copied
+/// runs without an entry: the first panic below.
+fn assert_same_ink(
+    patched: &azul_layout::solver3::display_list::DisplayList,
+    full: &azul_layout::solver3::display_list::DisplayList,
+    what: &str,
+) {
+    use azul_layout::solver3::display_list::DisplayListItem;
+
+    let near = |a: f32, b: f32| (a - b).abs() <= 0.01;
+    for (i, item) in full.items.iter().enumerate() {
+        let a = patched.text_ink.get(i).copied().flatten();
+        let b = full.text_ink.get(i).copied().flatten();
+        match (a, b) {
+            (Some(a), Some(b)) => assert!(
+                a.glyphs == b.glyphs
+                    && near(a.min.0, b.min.0)
+                    && near(a.min.1, b.min.1)
+                    && near(a.max.0, b.max.0)
+                    && near(a.max.1, b.max.1),
+                "{what}: item {i}: the patched list's ink {a:?}, the full build's {b:?}"
+            ),
+            (None, None) => {}
+            (a, b) => panic!("{what}: item {i}: the patched list's ink {a:?}, the full build's {b:?}"),
+        }
+        if let DisplayListItem::Text { glyphs, .. } = item {
+            if !glyphs.is_empty() {
+                assert!(b.is_some(), "{what}: item {i}: a run of a loaded face has ink");
+                assert!(
+                    full.text_ink_at(i).is_some() && patched.text_ink_at(i).is_some(),
+                    "{what}: item {i}: the entry is the run's own (its glyph count)"
+                );
+            }
+        }
+        match (patched.visual_bounds_of(i), full.visual_bounds_of(i)) {
+            (Some(a), Some(b)) => assert!(
+                near(a.origin.x, b.origin.x)
+                    && near(a.origin.y, b.origin.y)
+                    && near(a.size.width, b.size.width)
+                    && near(a.size.height, b.size.height),
+                "{what}: item {i}: the patched list answers {a:?}, the full build {b:?}"
+            ),
+            (None, None) => {}
+            (a, b) => panic!("{what}: item {i}: the patched list answers {a:?}, the full build {b:?}"),
+        }
+    }
+}
+
 /// A theme flip re-runs `layout()`, so the second pass sees a DIFFERENT
 /// StyledDom whose cascade epoch can equal the first one's: both started at
 /// 0 and were bumped equally often. The patch gate compared only that
@@ -198,6 +254,9 @@ fn a_theme_flip_rebuild_is_item_identical_to_a_full_rebuild() {
         "the display list after a theme flip differs from a full rebuild"
     );
     assert_eq!(patched_dark.node_mapping, full_dark.node_mapping);
+    // One paragraph was edited (another glyph count): its run is painted again, the others
+    // are copied.
+    assert_same_ink(&patched_dark, &full_dark, "a rebuild with an edited paragraph");
 }
 
 /// A nested DOM (AzWriter's pages are a VirtualView child) re-generated on
@@ -308,4 +367,5 @@ fn regenerating_a_nested_dom_never_feeds_the_roots_patch() {
         item_strings(&full),
         "the root list after a nested regeneration differs from a full rebuild"
     );
+    assert_same_ink(&patched, &full, "a root pass after a nested regeneration");
 }

@@ -114,8 +114,10 @@ fn a_drag_across_a_glyph_edge_leaves_a_caret_and_backspace_deletes() {
         (1, CursorAffinity::Trailing),
         "premise: the press is on the right half of the 'e'"
     );
-    lw.process_mouse_drag_for_selection(press, release)
-        .expect("the drag is handled");
+    // The answer says whether the selection CHANGED since A6-14 / `2bfe90fac` (a drag that
+    // sets the selection it had answers `None` and asks for no repaint); this test asked for
+    // `Some` ("the drag is handled"). What the drag left is asserted below.
+    let _ = lw.process_mouse_drag_for_selection(press, release);
 
     let selection = lw
         .text_edit_manager

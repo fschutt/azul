@@ -63,8 +63,10 @@ use azul_css::impl_option;
 use crate::{
     managers::hover::InputPointId,
     solver3::{
-        layout_tree::LayoutNodeId,
-        scrollbar::{compute_scrollbar_geometry_with_button_size, ScrollbarPresence},
+        layout_tree::{LayoutNodeId, LayoutTree},
+        scrollbar::{
+            compute_scrollbar_geometry_with_button_size, ScrollbarPresence, ScrollbarRequirements,
+        },
     },
 };
 
@@ -567,6 +569,35 @@ pub struct NestedDomPlacement {
     pub host_transform: Option<crate::headless::ScreenMapAffine>,
 }
 
+/// The scrollbars the registration raised for ONE layout tree after its pass
+/// (A6-13): a `VirtualView`'s published extent overflows its box, which no
+/// layout pass can see (`cache::apply_virtual_scroll_necessity`), or a box's
+/// content grew after the pass.
+///
+/// They used to be written into the tree, and the tree is the one the solver's
+/// cache starts its next pass from: the write copied every node of it
+/// (`Arc::make_mut`) after every layout pass of a DOM whose view raises a bar.
+/// They stand BESIDE the tree now, for as long as it is the tree of its DOM's
+/// layout result:
+/// - `tree` names it. A `Weak` keeps the allocation, so no later tree stands
+///   at its address, and a tree that is written to in place moves away from
+///   it (`Arc::make_mut` with a `Weak` outstanding): a set never answers for
+///   a tree it was not made for ([`ScrollManager::scrollbar_info`]);
+/// - a layout pass of the DOM drops the set
+///   ([`ScrollManager::forget_raised_bars`]), also when it hands the same
+///   tree on; a second registration of the same result keeps it
+///   ([`ScrollManager::keep_raised_bars_of`]);
+/// - whoever needs the flags IN the tree - a text edit's reshape, a
+///   display-list build from the result's tree - folds them into the
+///   result's own tree first ([`ScrollManager::settle_raised_bars`]).
+#[derive(Debug, Clone)]
+struct RaisedBars {
+    /// The tree the entries amend.
+    tree: alloc::sync::Weak<LayoutTree>,
+    /// Layout index of a box -> its requirements as amended.
+    bars: BTreeMap<usize, ScrollbarRequirements>,
+}
+
 // Core Scroll Manager
 
 /// Manages all scroll state and animations for a window
@@ -590,6 +621,10 @@ pub struct ScrollManager {
     /// Per nested dom: where it is composited ([`NestedDomPlacement`]),
     /// published by `register_scroll_nodes`. Empty with no `VirtualView`.
     nested_doms: BTreeMap<DomId, NestedDomPlacement>,
+    /// Per DOM: the scrollbars `register_scroll_nodes` raised after the
+    /// layout pass, kept beside the layout tree they amend ([`RaisedBars`]).
+    /// No entry for a DOM whose registration raised nothing.
+    raised_bars: BTreeMap<DomId, RaisedBars>,
     /// Thread-safe queue for scroll inputs (shared with timer callbacks)
     #[cfg(feature = "std")]
     pub scroll_input_queue: ScrollInputQueue,
@@ -1910,6 +1945,135 @@ impl ScrollManager {
         {
             self.thumb_drag = None;
         }
+    }
+
+    /// The scrollbar requirements of box `layout_index` of `tree`, the tree
+    /// of `dom_id`'s layout result: what the registration raised beside the
+    /// tree ([`RaisedBars`]), else the layout pass's own answer in it.
+    ///
+    /// THE read for whoever runs after `register_scroll_nodes` and asks
+    /// whether a box has a bar - the fade, the thumbs' transforms, the
+    /// registration's own next run on the same result. A set made for another
+    /// tree answers nothing: the tree's own value is returned.
+    #[must_use]
+    pub fn scrollbar_info(
+        &self,
+        dom_id: DomId,
+        layout_index: usize,
+        tree: &LayoutTree,
+    ) -> Option<ScrollbarRequirements> {
+        if let Some(raised) = self.raised_bars.get(&dom_id) {
+            if core::ptr::eq(raised.tree.as_ptr(), tree) {
+                if let Some(reqs) = raised.bars.get(&layout_index) {
+                    return Some(*reqs);
+                }
+            }
+        }
+        tree.warm(LayoutNodeId::new(layout_index))
+            .and_then(|warm| warm.scrollbar_info)
+    }
+
+    /// Records `reqs` as the amended requirements of box `layout_index` of
+    /// `tree`, the tree of `dom_id`'s layout result (`register_scroll_nodes`,
+    /// where a flag was raised).
+    ///
+    /// Beside the tree while anything else holds it - the solver's cache
+    /// does after a layout pass, and a write into it would copy every node of
+    /// it. Into the tree when the result holds it alone (a text edit made it
+    /// the result's own, a hand-built result): as always, and no copy.
+    pub fn raise_bars(
+        &mut self,
+        dom_id: DomId,
+        tree: &mut alloc::sync::Arc<LayoutTree>,
+        layout_index: usize,
+        reqs: ScrollbarRequirements,
+    ) {
+        if let Some(own) = alloc::sync::Arc::get_mut(tree) {
+            if let Some(warm) = own.warm_mut(LayoutNodeId::new(layout_index)) {
+                warm.scrollbar_info = Some(reqs);
+            }
+            return;
+        }
+        let stands_for_tree = self.raised_bars.get(&dom_id).is_some_and(|raised| {
+            core::ptr::eq(raised.tree.as_ptr(), alloc::sync::Arc::as_ptr(tree))
+        });
+        if !stands_for_tree {
+            self.raised_bars.insert(
+                dom_id,
+                RaisedBars {
+                    tree: alloc::sync::Arc::downgrade(tree),
+                    bars: BTreeMap::new(),
+                },
+            );
+        }
+        if let Some(raised) = self.raised_bars.get_mut(&dom_id) {
+            raised.bars.insert(layout_index, reqs);
+        }
+    }
+
+    /// Drops what was raised beside ANOTHER tree than `tree` for `dom_id`:
+    /// the top of a DOM's registration. What was raised beside `tree` itself
+    /// stays - `register_scroll_nodes` runs more than once on one layout
+    /// result (the layout funnel, then the shell), the display list built in
+    /// between paints the bar, and a flag is only ever raised.
+    pub fn keep_raised_bars_of(&mut self, dom_id: DomId, tree: &LayoutTree) {
+        let of_another_tree = self
+            .raised_bars
+            .get(&dom_id)
+            .is_some_and(|raised| !core::ptr::eq(raised.tree.as_ptr(), tree));
+        if of_another_tree {
+            self.raised_bars.remove(&dom_id);
+        }
+    }
+
+    /// Drops what was raised beside the tree of `dom_id`'s layout result: a
+    /// layout pass makes the result anew, and the registration that follows
+    /// it derives the bars again - also when the pass handed the same tree on
+    /// (nothing changed), which the set's own check by tree cannot see.
+    pub fn forget_raised_bars(&mut self, dom_id: DomId) {
+        self.raised_bars.remove(&dom_id);
+    }
+
+    /// Writes what was raised beside `tree` (the tree of `dom_id`'s layout
+    /// result) INTO it and forgets the set: for whoever reads or writes the
+    /// tree's own flags after the registration - a text edit's reshape, which
+    /// makes the tree the result's own anyway, and a display-list build from
+    /// the result's tree, whose `paint_scrollbars` reads `warm.scrollbar_info`.
+    ///
+    /// One copy of the tree while the solver's cache shares it
+    /// (`cache::own_mut`): the copy the registration made after every pass,
+    /// made now only when such a reader follows the pass. Nothing to do, and
+    /// no copy, for a DOM without raised bars.
+    pub fn settle_raised_bars(&mut self, dom_id: DomId, tree: &mut alloc::sync::Arc<LayoutTree>) {
+        let Some(raised) = self.raised_bars.remove(&dom_id) else {
+            return;
+        };
+        let RaisedBars {
+            tree: stood_for,
+            bars,
+        } = raised;
+        let same_tree = core::ptr::eq(stood_for.as_ptr(), alloc::sync::Arc::as_ptr(tree));
+        // The `Weak` goes before the write: a tree the result holds alone is
+        // then written in place.
+        drop(stood_for);
+        if !same_tree || bars.is_empty() {
+            return;
+        }
+        let own = crate::solver3::cache::own_mut(tree);
+        for (layout_index, reqs) in bars {
+            if let Some(warm) = own.warm_mut(LayoutNodeId::new(layout_index)) {
+                warm.scrollbar_info = Some(reqs);
+            }
+        }
+    }
+
+    /// How many boxes of `dom_id` have requirements raised beside their tree:
+    /// what a test reads.
+    #[cfg(test)]
+    pub(crate) fn raised_bar_count(&self, dom_id: DomId) -> usize {
+        self.raised_bars
+            .get(&dom_id)
+            .map_or(0, |raised| raised.bars.len())
     }
 
     /// Record the scroll containers above `node_id` in its own dom - the

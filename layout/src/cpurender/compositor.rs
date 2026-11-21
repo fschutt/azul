@@ -1764,7 +1764,8 @@ fn painted_over_later(
             }
             DisplayListItem::HitTestArea { .. } => {}
             other if !other.is_state_management() => {
-                if let Some(b) = other.visual_bounds().or_else(|| other.bounds()) {
+                // (A run's ink as the list knows it, A3-core-26.)
+                if let Some(b) = display_list.visual_bounds_of(i).or_else(|| other.bounds()) {
                     // Inside a later scroll frame it shows somewhere in the
                     // outermost one's window.
                     let seen = later.iter().flatten().next().copied().unwrap_or(b);
@@ -2459,10 +2460,35 @@ pub fn scroll_fast_path_eligible_in(
     scroll_offsets: &ScrollOffsetMap,
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> bool {
+    scroll_fast_path_eligible_with(
+        display_list,
+        &frame_pushes(display_list, scroll_id),
+        scroll_id,
+        clip_bounds,
+        scroll_offset,
+        prev_offset,
+        scroll_offsets,
+        transforms,
+    )
+}
+
+/// [`scroll_fast_path_eligible_in`] with the frame's pushes ([`frame_pushes`]) found by the
+/// caller: a scroll step asks this and then for the overlays, and each found them again - two
+/// more passes over the list, each with a walk from the push to its pop.
+#[allow(clippy::too_many_arguments, clippy::implicit_hasher)]
+fn scroll_fast_path_eligible_with(
+    display_list: &DisplayList,
+    pushes: &[(usize, usize)],
+    scroll_id: LocalScrollId,
+    clip_bounds: &LogicalRect,
+    scroll_offset: (f32, f32),
+    prev_offset: (f32, f32),
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> bool {
     let _p = crate::probe::Probe::span("scroll_fastpath_check");
 
     let items = &display_list.items;
-    let pushes = frame_pushes(display_list, scroll_id);
     let Some(&(start, _)) = pushes.first() else {
         return true; // no frame for this id → nothing to shift
     };
@@ -2472,11 +2498,13 @@ pub fn scroll_fast_path_eligible_in(
     // told from a flat fill: the clip is repainted.
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(start);
-    for it in &items[..start] {
+    for (index, it) in items[..start].iter().enumerate() {
         if let Some(at) = stack.placement() {
             backdrop.push((it, at));
         } else {
-            let turned = it.visual_bounds().map(|b| stack.on_screen(b));
+            // (A run's ink as the list knows it, A3-core-26: a turned run's wide last glyph
+            // over the clip is a turned item over the clip.)
+            let turned = display_list.visual_bounds_of(index).map(|b| stack.on_screen(b));
             if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, clip_bounds))) {
                 return false;
             }
@@ -2865,21 +2893,31 @@ fn gpu_value_damage_of(
                     // What the frame paints WITH the frames inside it moved by their
                     // matrices, as each frame painted them (A2-cpu-04): `None` is an inner
                     // perspective, unbounded.
+                    // As POINTS (`FrameIndex::hull_with`), not as the box around them: they go
+                    // through this frame's matrix and the frames around it next, and a box
+                    // around a turned box, turned again, is not the turned box turned again
+                    // (a spinner's arc: 66 px of damage for 32 px).
                     let content_with = |values: &HashMap<usize, azul_core::transform::ComputedTransform3D>| {
-                        index.extent_with(items, idx, values).map(|e| moved_by(e, scrolled))
+                        index.hull_with(items, idx, values, COMPOSITE_REACH).map(|mut hull| {
+                            for point in &mut hull {
+                                point.0 -= scrolled.0;
+                                point.1 -= scrolled.1;
+                            }
+                            hull
+                        })
                     };
                     let (content_old, content_new) = (content_with(old_transforms), content_with(new_transforms));
                     // With the matrix each frame PAINTED it with: a key without a
                     // value is painted with the list's own matrix (`raster.rs`, the
                     // `PushReferenceFrame` arm), not with the identity.
                     // The content through its own matrix and the frames
-                    // around it, in one go (`FrameStack::map`).
+                    // around it, in one go (`FrameStack::map_hull`).
                     let through = |frames: &FrameStack,
                                    m: &azul_core::transform::ComputedTransform3D,
-                                   content: Option<LogicalRect>| {
+                                   content: Option<Vec<crate::solver3::display_list::HullPoint>>| {
                         let mut frames = frames.clone();
                         frames.push(origin, *m);
-                        content.and_then(|content| frames.map(content))
+                        content.and_then(|content| frames.map_hull(&content))
                     };
                     match (
                         through(&frames_old, &old_m, content_old),
@@ -2922,6 +2960,24 @@ fn gpu_value_damage_of(
                     // All of what the group paints fades (A2-gpu-06), not only its box: where
                     // the frames inside it were painted and where they are (A1-60).
                     for values in [old_transforms, new_transforms] {
+                        // As points where the group holds frames (`opacity_hull_with`): the
+                        // box around them is taken once, after the frames around the group.
+                        if let Some(mut hull) = index.opacity_hull_with(items, idx, values, COMPOSITE_REACH) {
+                            for point in &mut hull {
+                                point.0 -= scrolled.0;
+                                point.1 -= scrolled.1;
+                            }
+                            match (frames_old.map_hull(&hull), frames_new.map_hull(&hull)) {
+                                (Some(a), Some(b)) => {
+                                    out.rects.push(a);
+                                    if a != b {
+                                        out.rects.push(b);
+                                    }
+                                }
+                                _ => out.needs_full = true,
+                            }
+                            continue;
+                        }
                         let faded = index
                             .opacity_extent_with(items, idx, values)
                             .unwrap_or_else(|| *bounds.inner());
@@ -3517,8 +3573,11 @@ pub fn execute_scroll_shift(
     let mut present_extra = Vec::new();
     let mut moves = Vec::new();
     let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
-    if scroll_fast_path_eligible_in(
+    // The frame's pushes, found once for the check and for the overlays.
+    let pushes = frame_pushes(display_list, scroll_id);
+    if scroll_fast_path_eligible_with(
         display_list,
+        &pushes,
         scroll_id,
         clip,
         offset,
@@ -3541,13 +3600,10 @@ pub fn execute_scroll_shift(
         let moved = !strips.is_empty();
         damage.extend(strips);
         if moved {
-            for g in overlay_rects_after_frame_in(
-                display_list,
-                scroll_id,
-                clip,
-                scroll_offsets,
-                transforms,
-            ) {
+            let overlays = pushes.first().map_or_else(Vec::new, |&(_, end)| {
+                overlay_rects_after(display_list, scroll_id, end, clip, scroll_offsets, transforms)
+            });
+            for g in overlays {
                 damage.push(g);
                 let mut ghost = g;
                 ghost.origin.x -= delta.0;
@@ -3840,11 +3896,12 @@ pub fn execute_virtual_view_shift_with(
         let mut behind = ScrollStack::with_transforms(scroll_offsets, transforms);
         let mut backdrop: Vec<(&DisplayListItem, (f32, f32))> = Vec::with_capacity(shift.index);
         let mut turned_over_the_clip = false;
-        for it in &items[..shift.index] {
+        for (index, it) in items[..shift.index].iter().enumerate() {
             if let Some(at) = behind.placement() {
                 backdrop.push((it, at));
             } else {
-                let turned = it.visual_bounds().map(|b| behind.on_screen(b));
+                // (A run's ink as the list knows it, A3-core-26.)
+                let turned = display_list.visual_bounds_of(index).map(|b| behind.on_screen(b));
                 if turned.is_some_and(|b| b.is_none_or(|b| rects_overlap(&b, &shift.clip))) {
                     turned_over_the_clip = true;
                     break;
@@ -3880,7 +3937,7 @@ pub fn execute_virtual_view_shift_with(
         shift.clip.origin.x + shift.clip.size.width,
         shift.clip.origin.y + shift.clip.size.height,
     );
-    for it in &items[shift.index + 1..] {
+    for (after, it) in items[shift.index + 1..].iter().enumerate() {
         // Where the item is PAINTED, read before stepping over it: through the scroll frames
         // AND the reference frames around it, with their live matrices (A1-36). A panel
         // placed by `transform` was repainted where it is laid out while the move dragged it
@@ -3889,7 +3946,10 @@ pub fn execute_virtual_view_shift_with(
         let painted = if it.is_state_management() || paints_nothing(it) {
             None
         } else {
-            it.visual_bounds()
+            // (A run's ink as the list knows it, A3-core-26: the end of a wide glyph over the
+            // view is dragged by the move like the rest of the run.)
+            display_list
+                .visual_bounds_of(shift.index + 1 + after)
                 .or_else(|| it.bounds())
                 .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
         };
@@ -3968,23 +4028,50 @@ pub fn overlay_rects_after_frame_in(
     scroll_offsets: &ScrollOffsetMap,
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> Vec<LogicalRect> {
-    let mut out = Vec::new();
     let Some(&(_, end)) = frame_pushes(display_list, scroll_id).first() else {
-        return out;
+        return Vec::new();
     };
+    overlay_rects_after(display_list, scroll_id, end, clip_bounds, scroll_offsets, transforms)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: how many items [`overlay_rects_after`] has read the bounds of on this thread.
+    static OVERLAY_BOUNDS_READ: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// [`overlay_rects_after_frame_in`] for a frame whose first pop is at `end` (the caller found
+/// its pushes).
+#[allow(clippy::implicit_hasher)]
+fn overlay_rects_after(
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    end: usize,
+    clip_bounds: &LogicalRect,
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> Vec<LogicalRect> {
+    let mut out = Vec::new();
     let cx1 = clip_bounds.origin.x + clip_bounds.size.width;
     let cy1 = clip_bounds.origin.y + clip_bounds.size.height;
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for (i, it) in display_list.items.iter().enumerate() {
-        // Where the item paints, shadow and all; read before stepping over it.
-        let on_screen = it
-            .visual_bounds()
-            .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED));
         let moved_with_the_frame = stack.is_open(scroll_id);
+        // Where the item paints, shadow and all, read before stepping over it - for an item
+        // that can be an overlay. The bounds of EVERY item were read first and the test came
+        // after: the pen bounds of every text run of the page, on every scroll step, for the
+        // few items painted after the frame.
+        let can_be_one =
+            i >= end && !moved_with_the_frame && !it.is_state_management() && !paints_nothing(it);
+        let on_screen = if can_be_one {
+            #[cfg(test)]
+            OVERLAY_BOUNDS_READ.with(|n| n.set(n.get() + 1));
+            // (A run's ink as the list knows it, A3-core-26.)
+            display_list.visual_bounds_of(i).map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
+        } else {
+            None
+        };
         stack.step(it);
-        if i < end || moved_with_the_frame || it.is_state_management() || paints_nothing(it) {
-            continue;
-        }
         let Some(b) = on_screen else { continue };
         // STRICT overlap: merely touching shares no pixels with the clip and
         // cannot be dragged.
@@ -4384,12 +4471,18 @@ fn render_display_list_range(
         render_single_item(
             item,
             display_list.uniform_text_bgs.get(i).copied().flatten(),
-            // A frame's extent with the frames inside it where their live matrices paint
-            // them, as the flat walk takes it (A1-60).
-            display_list
-                .frame_index()
-                .extent_with(&display_list.items, i, &render_state.transforms)
-                .or_else(|| reference_frame_extent(display_list, i)),
+            // A text run: its ink as the list knows it, as the flat walk hands it to the
+            // `Text` arm (A3-core-26; the item alone has an estimate). Else a frame's extent
+            // with the frames inside it where their live matrices paint them, as the flat
+            // walk takes it (A1-60).
+            if matches!(item, DisplayListItem::Text { .. }) {
+                display_list.text_ink_at(i).and(display_list.visual_bounds_of(i))
+            } else {
+                display_list
+                    .frame_index()
+                    .extent_with(&display_list.items, i, &render_state.transforms)
+                    .or_else(|| reference_frame_extent(display_list, i))
+            },
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -4888,7 +4981,8 @@ impl PaintedOverMovers {
                 if !paints_for_a_mover(it) {
                     return None;
                 }
-                let b = it.visual_bounds()?;
+                // (A run's ink as the list knows it, A3-core-26.)
+                let b = display_list.visual_bounds_of(i)?;
                 (!destinations.iter().any(|m| inside_within_half_a_pixel(m, &b))).then_some((i, b, false))
             })
             .collect();
@@ -4951,16 +5045,40 @@ impl FrameStack {
     /// around them: a box around a box around a turned rect grows with every
     /// frame (a spinner turned inside a turned frame damaged 58 px for its
     /// 32 px).
+    ///
+    /// A frame that is not the identity or a move is COMPOSITED: painted into a surface
+    /// and resampled where it lands (`pixmap::blit_pixmap_affine_clipped`). A destination
+    /// pixel takes a share of a surface pixel when its centre maps to within half a
+    /// surface pixel of it, and the surface pixels that hold `r` are those of its device
+    /// box (up to a pixel past `r`): what is painted reaches up to 1.5 device px past `r`
+    /// in the frame's own space, mapped out with it. So before `r`'s corners go through
+    /// such a frame they are moved out by [`COMPOSITE_REACH`] in the frame's space (every
+    /// corner in all four diagonal directions: the hull of those is `r` grown, also when
+    /// `r` came out of an inner frame as a slanted quad), and the box that comes out at
+    /// the end is grown by [`DIRECT_REACH`], for the turned frames a view draws without a
+    /// surface (an edge's anti-aliasing and a run's anchor, rounded to a whole pixel, are
+    /// device pixels whatever the matrix's scale).
+    ///
+    /// The geometric image alone left that ring out of the damage: a box turned by 30
+    /// degrees whose left tip is at x = 65.0 has a faint column 64; turned elsewhere by a
+    /// value, its old place was repainted from x = 65 and the pixel (64, 138) stayed
+    /// (`a2_cpu_the_damaged_render_is_the_full_render_over_random_pans_zooms_fades_and_
+    /// edits`, seed 1, step 19).
+    ///
+    /// Example: `r` = (10, 10) 20 x 10 through `scale(3)` about (0, 0): the corners
+    /// (10 - 2, 10 - 2) .. (30 + 2, 20 + 2) land at (24, 24) .. (96, 66), grown by 1:
+    /// (23, 23) 74 x 44, where the image alone is (30, 30) 60 x 30.
     fn map(&self, r: LogicalRect) -> Option<LogicalRect> {
         if self.frames.is_empty() {
             return Some(r);
         }
-        let mut corners = [
+        let mut corners = vec![
             (r.origin.x, r.origin.y),
             (r.origin.x + r.size.width, r.origin.y),
             (r.origin.x, r.origin.y + r.size.height),
             (r.origin.x + r.size.width, r.origin.y + r.size.height),
         ];
+        let mut composited = false;
         for (origin, m) in self.frames.iter().rev() {
             let mm = &m.m;
             let affine = mm[0][2] == 0.0
@@ -4970,6 +5088,27 @@ impl FrameStack {
                 && (mm[3][3] - 1.0).abs() < f32::EPSILON;
             if !affine {
                 return None;
+            }
+            if translation_2d(mm).is_none() {
+                composited = true;
+                // (At most a few such frames are nested; past 256 points the box of the
+                // points stands in for them.)
+                if corners.len() > 256 {
+                    let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
+                    let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+                    corners = vec![(x0, y0), (x1, y0), (x0, y1), (x1, y1)];
+                }
+                corners = corners
+                    .iter()
+                    .flat_map(|(x, y)| {
+                        [
+                            (x - COMPOSITE_REACH, y - COMPOSITE_REACH),
+                            (x + COMPOSITE_REACH, y - COMPOSITE_REACH),
+                            (x - COMPOSITE_REACH, y + COMPOSITE_REACH),
+                            (x + COMPOSITE_REACH, y + COMPOSITE_REACH),
+                        ]
+                    })
+                    .collect();
             }
             for c in &mut corners {
                 let (px, py) = (c.0 - origin.x, c.1 - origin.y);
@@ -4981,12 +5120,73 @@ impl FrameStack {
         }
         let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
         let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+        let out = if composited { DIRECT_REACH } else { 0.0 };
         Some(LogicalRect::new(
-            LogicalPosition::new(x0, y0),
-            LogicalSize::new(x1 - x0, y1 - y0),
+            LogicalPosition::new(x0 - out, y0 - out),
+            LogicalSize::new(x1 - x0 + 2.0 * out, y1 - y0 + 2.0 * out),
+        ))
+    }
+
+    /// [`Self::map`] for the HULL of what a frame paints (`FrameIndex::hull_with`): where
+    /// its points are painted through every open frame from the innermost out, and the box
+    /// around them at the end. `None` for a matrix with perspective, and for no points.
+    ///
+    /// The content of a frame whose own matrix changed goes through this, the frame's
+    /// matrix pushed last: a box is taken ONCE, at the end. Through [`Self::map`] with the
+    /// frame's extent - a box that already is a box around the turned frames inside it -
+    /// the box was taken at every level, and a spinner's arc (three turning frames in each
+    /// other, 32 px) was damaged 66 px wide per animation frame (`hull_with` has the
+    /// numbers).
+    ///
+    /// The rule is `map`'s, point for point: before a composited frame every point is moved
+    /// out by [`COMPOSITE_REACH`] in the four diagonal directions, the box at the end is
+    /// grown by [`DIRECT_REACH`], and past 256 points the corners of their box stand in. A
+    /// point's own reach (what the composited frames INSIDE the hull's frame paint around
+    /// it) is stretched by each matrix it goes through (`hull_through`) and counted when the
+    /// box is taken. For the four corners of a rect this is `map` of the rect, bit for bit.
+    fn map_hull(&self, hull: &[crate::solver3::display_list::HullPoint]) -> Option<LogicalRect> {
+        use crate::solver3::display_list::{hull_box, hull_of_rect, hull_through, HullPoint};
+
+        let mut points: Vec<HullPoint> = hull.to_vec();
+        let mut composited = false;
+        for (origin, m) in self.frames.iter().rev() {
+            if translation_2d(&m.m).is_none() {
+                if points.len() > 256 {
+                    points = hull_of_rect(hull_box(&points)?).to_vec();
+                }
+                points = points
+                    .iter()
+                    .flat_map(|(x, y, reach)| {
+                        [
+                            (x - COMPOSITE_REACH, y - COMPOSITE_REACH, *reach),
+                            (x + COMPOSITE_REACH, y - COMPOSITE_REACH, *reach),
+                            (x - COMPOSITE_REACH, y + COMPOSITE_REACH, *reach),
+                            (x + COMPOSITE_REACH, y + COMPOSITE_REACH, *reach),
+                        ]
+                    })
+                    .collect();
+            }
+            // (This frame's reach is the four points above: none is added to the radius.)
+            composited |= hull_through(&mut points, *origin, &m.m, 0.0)?;
+        }
+        let around = hull_box(&points)?;
+        let out = if composited { DIRECT_REACH } else { 0.0 };
+        Some(LogicalRect::new(
+            LogicalPosition::new(around.origin.x - out, around.origin.y - out),
+            LogicalSize::new(around.size.width + 2.0 * out, around.size.height + 2.0 * out),
         ))
     }
 }
+
+/// How far past a rect what is painted of it reaches when the frame it is in is composited
+/// (`FrameStack::map`), logical px in the frame's own space: 1.5 device px (a pixel of the
+/// surface's device box past the rect, and half a surface pixel of the resampling), which
+/// 2 logical px hold at every scale factor from 0.75 up.
+const COMPOSITE_REACH: f32 = 2.0;
+
+/// How far past the image of a rect a turned frame that is drawn without a surface can
+/// paint, logical px where it lands (`FrameStack::map`).
+const DIRECT_REACH: f32 = 1.0;
 
 /// The live matrices of the animated reference frames (`TransformKey.id ->
 /// matrix`, as `extract_gpu_values` reads them) in the frame before (`old`)
@@ -5242,7 +5442,8 @@ fn windowed_structural_damage(
                     }
                     extent
                 }
-                _ => item.visual_bounds().or_else(|| item.bounds()),
+                // (A run's ink as the list knows it, A3-core-26.)
+                _ => list.visual_bounds_of(at).or_else(|| item.bounds()),
             };
             let Some(b) = painted else {
                 continue;
@@ -5481,18 +5682,26 @@ fn compute_display_list_damage_impl(
                     // without a walk from the push to the pop). `None`: a matrix with
                     // perspective inside it, which no rect covers.
                     let built_only = HashMap::new();
+                    // (As points, `FrameIndex::hull_with`: the box is taken once, after the
+                    // frame's own matrix and the frames around it - `FrameStack::map_hull`.)
                     let content = |list: &DisplayList,
                                    live: Option<&HashMap<usize, azul_core::transform::ComputedTransform3D>>,
                                    acc: (f32, f32)| {
-                        let c = list.frame_index().extent_with(&list.items, idx, live.unwrap_or(&built_only))?;
-                        Some(LogicalRect {
-                            origin: at(c.origin, acc),
-                            size: c.size,
-                        })
+                        let mut hull = list.frame_index().hull_with(
+                            &list.items,
+                            idx,
+                            live.unwrap_or(&built_only),
+                            COMPOSITE_REACH,
+                        )?;
+                        for point in &mut hull {
+                            point.0 -= acc.0;
+                            point.1 -= acc.1;
+                        }
+                        Some(hull)
                     };
                     let (Some(a), Some(b)) = (
-                        content(old, values.old, acc_old).and_then(|c| frames_old.map(c)),
-                        content(new, values.new, acc_new).and_then(|c| frames_new.map(c)),
+                        content(old, values.old, acc_old).and_then(|c| frames_old.map_hull(&c)),
+                        content(new, values.new, acc_new).and_then(|c| frames_new.map_hull(&c)),
                     ) else {
                         return None;
                     };
@@ -5560,9 +5769,9 @@ fn compute_display_list_damage_impl(
                 let (acc_old, acc_new) = *offset_stack.last().unwrap_or(&((0.0, 0.0), (0.0, 0.0)));
                 for &(old_reach, new_reach, _) in shadows.iter().filter(|shadow| shadow.2) {
                     for (run, acc, reach) in
-                        [(old_item, acc_old, old_reach), (new_item, acc_new, new_reach)]
+                        [(old, acc_old, old_reach), (new, acc_new, new_reach)]
                     {
-                        if let Some(ink) = run.visual_bounds() {
+                        if let Some(ink) = run.visual_bounds_of(idx) {
                             let grow = reach + TEXT_SHADOW_DAMAGE_SLACK;
                             damage.push(LogicalRect {
                                 origin: LogicalPosition {
@@ -5940,7 +6149,7 @@ fn compute_display_list_damage_impl(
             // region, is a MOVE — the caller blits it; no damage here.
             // (With its halo inside the region: what the blit does not move is damaged.)
             if let Some(h) = hint {
-                if let Some(ob) = old_item.visual_bounds() {
+                if let Some(ob) = old.visual_bounds_of(idx) {
                     let inside = ob.origin.x - old_halo >= h.region_old.origin.x - 0.5
                         && ob.origin.y - old_halo >= h.region_old.origin.y - 0.5
                         && ob.origin.x + ob.size.width + old_halo
@@ -5995,7 +6204,7 @@ fn compute_display_list_damage_impl(
                     },
                 }
             };
-            if let Some(ob) = old_item.visual_bounds() {
+            if let Some(ob) = old.visual_bounds_of(idx) {
                 damage.push(inflate(
                     LogicalRect {
                         origin: LogicalPosition {
@@ -6007,7 +6216,7 @@ fn compute_display_list_damage_impl(
                     old_halo,
                 ));
             }
-            if let Some(nb) = new_item.visual_bounds() {
+            if let Some(nb) = new.visual_bounds_of(idx) {
                 damage.push(inflate(
                     LogicalRect {
                         origin: LogicalPosition {
@@ -7075,6 +7284,7 @@ mod scroll_shift_tests {
             fixed_position_item_ranges: Vec::new(),
             layout_node_mapping: Vec::new(),
             uniform_text_bgs: Vec::new(),
+            text_ink: Vec::new(),
             text_selection_colors: Vec::new(),
             color_bindings: Vec::new(),
             carets: Vec::new(),
@@ -8518,6 +8728,159 @@ mod autotest_generated {
         );
     }
 
+    /// `rotate(degrees)` about the point `(cx, cy)` of a frame, as a matrix about the
+    /// frame's origin (`x' = x m00 + y m10 + m30`, y down: a positive angle turns clockwise).
+    fn turn_about(degrees: f32, cx: f32, cy: f32) -> ComputedTransform3D {
+        let (sin, cos) = degrees.to_radians().sin_cos();
+        ComputedTransform3D {
+            m: [
+                [cos, sin, 0.0, 0.0],
+                [-sin, cos, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [cx - cx * cos + cy * sin, cy - cx * sin - cy * cos, 0.0, 1.0],
+            ],
+        }
+    }
+
+    /// A spinner's arc (`widgets/spinner.rs` `ring_arc`): three frames in each other - the
+    /// arc (key 1), the window (key 2), the body (key 3) - each the 32 x 32 box at (8, 16),
+    /// each turning about the box's centre (24, 32), and the body's ink, a fill of the box.
+    fn spinner_arc() -> DisplayList {
+        let frame = |key: usize| DisplayListItem::PushReferenceFrame {
+            transform_key: TransformKey { id: key },
+            initial_transform: ComputedTransform3D::IDENTITY,
+            bounds: wlr(8.0, 16.0, 32.0, 32.0),
+        };
+        dlist(vec![
+            frame(1),
+            frame(2),
+            frame(3),
+            opaque_rect(8.0, 16.0, 32.0, 32.0),
+            DisplayListItem::PopReferenceFrame,
+            DisplayListItem::PopReferenceFrame,
+            DisplayListItem::PopReferenceFrame,
+        ])
+    }
+
+    /// The matrices of [`spinner_arc`] turned by `(arc, window, body)` degrees.
+    fn spinner_turned(arc: f32, window: f32, body: f32) -> HashMap<usize, ComputedTransform3D> {
+        [(1, arc), (2, window), (3, body)]
+            .into_iter()
+            .map(|(key, degrees)| (key, if degrees == 0.0 { ComputedTransform3D::IDENTITY } else { turn_about(degrees, 16.0, 16.0) }))
+            .collect()
+    }
+
+    /// How far `r` reaches from the point (24, 32) on either axis.
+    fn reach_from_the_centre(r: &LogicalRect) -> f32 {
+        let (cx, cy) = (24.0_f32, 32.0_f32);
+        (cx - r.origin.x)
+            .max(r.origin.x + r.size.width - cx)
+            .max(cy - r.origin.y)
+            .max(r.origin.y + r.size.height - cy)
+    }
+
+    /// The damage of a turning frame that holds turning frames is the box of its content
+    /// turned ONCE through all of them, not a box around a box around a box.
+    ///
+    /// The body stands turned by 45 degrees in the unturned window, and the arc turns from 0
+    /// to 45 degrees (the body's box ends up turned by 90: it covers the 32 px box again).
+    /// By hand, as distances from the centre (24, 32):
+    /// - before (the arc is no frame the renderer composites): the arc's own box, 16; the
+    ///   body's corners, turned by 45 degrees onto the axes, 16 x 1.4142 = 22.63, with the
+    ///   2.83 the body's composite paints around them: 25.46. The rect: (-1.46, 6.54)
+    ///   50.91 x 50.91.
+    /// - after: the arc's own corners moved out by 2 on both axes, (18, 18), turned by 45
+    ///   degrees onto the axes: 25.46; the body's (0, 22.63) -> (2, 24.63) -> turned:
+    ///   (-16.0, 18.83), with its 2.83: 21.66. The box, grown by 1: 26.46. The rect:
+    ///   (-2.46, 5.54) 52.91 x 52.91.
+    /// Mutation: the frame's extent as a BOX (`extent_with`) through `FrameStack::map`, as
+    /// it was: the box around the body, 22.63, moved out by 2 and turned by 45 degrees:
+    /// 24.63 x 1.4142 + 1 = 35.83 from the centre, a rect of 71.66 px for a 32 px spinner.
+    #[test]
+    fn a_turning_frame_that_holds_turning_frames_is_damaged_as_its_content_turned_once() {
+        let list = spinner_arc();
+        let o: HashMap<usize, f32> = HashMap::new();
+        let d = gpu_value_damage(
+            &list,
+            &spinner_turned(0.0, 0.0, 45.0),
+            &o,
+            &spinner_turned(45.0, 0.0, 45.0),
+            &o,
+            &ScrollOffsetMap::new(),
+        );
+        assert!(!d.needs_full);
+        assert_eq!(d.rects.len(), 2, "the arc where it was and where it is: {:?}", d.rects);
+        let near = |a: f32, b: f32| (a - b).abs() < 0.02;
+        let (before, after) = (reach_from_the_centre(&d.rects[0]), reach_from_the_centre(&d.rects[1]));
+        assert!(near(before, 25.456), "before: {before} from the centre, {:?}", d.rects[0]);
+        assert!(near(after, 26.456), "after: {after} from the centre, {:?}", d.rects[1]);
+        for r in &d.rects {
+            assert!(near(r.size.width, r.size.height), "a turn about the centre: a square, {r:?}");
+            assert!(near(r.origin.x + r.size.width * 0.5, 24.0) && near(r.origin.y + r.size.height * 0.5, 32.0), "about the centre: {r:?}");
+        }
+    }
+
+    /// The same nest at the angles of a real animation frame (the spinner's third frame:
+    /// the arc at 21.9 degrees, the window unturned, the body at -134), every key changed
+    /// from the frame before: no rect reaches further from the centre than the circle the
+    /// box's corners sweep (16 x 1.4142 = 22.63) plus what three composited frames paint
+    /// past their content (3 x 2 x 1.4142 = 8.49) plus the pixel the box is grown by: 32.11;
+    /// the damage of a frame holds the damage of the frames inside it (the same content
+    /// through the same matrices); and the arc's rect at these angles reaches 27.27 (by
+    /// hand: the body's corner at -89 degrees, (0.39, -22.62), moved out to (-1.61,
+    /// -24.62), turned by 21.9 degrees: y = -23.45, with its 2.83: 26.27, grown by 1).
+    /// Mutation: the box around the box, as it was: (22.63 + 2) x (cos 21.9 + sin 21.9) + 1
+    /// = 24.63 x 1.3007 + 1 = 33.03 - the 66.07 px the spinner's frame damaged.
+    #[test]
+    fn the_damage_of_a_spinners_arc_stays_within_what_its_three_frames_can_paint() {
+        let list = spinner_arc();
+        let o: HashMap<usize, f32> = HashMap::new();
+        let bound = 16.0 * core::f32::consts::SQRT_2 + 3.0 * 2.0 * core::f32::consts::SQRT_2 + 1.0;
+        for (old, new) in [
+            ((14.7, 0.0, -134.6), (21.9, 0.0, -134.0)),
+            ((0.0, 0.0, 0.0), (45.0, 45.0, 45.0)),
+            ((30.0, 60.0, 15.0), (37.0, 75.0, 40.0)),
+            ((350.0, 100.0, 45.0), (10.0, 135.0, 80.0)),
+        ] {
+            let d = gpu_value_damage(
+                &list,
+                &spinner_turned(old.0, old.1, old.2),
+                &o,
+                &spinner_turned(new.0, new.1, new.2),
+                &o,
+                &ScrollOffsetMap::new(),
+            );
+            assert!(!d.needs_full);
+            assert!(d.rects.len() >= 4, "{new:?}: at least two frames turned: {:?}", d.rects);
+            for r in &d.rects {
+                let reach = reach_from_the_centre(r);
+                assert!(reach <= bound + 0.01, "{new:?}: {r:?} reaches {reach} from the centre, past {bound}");
+                assert!(reach >= 16.0, "{new:?}: {r:?} holds the box");
+            }
+            // In list order: the arc (old, new), then the frames inside it that turned.
+            let holds = |outer: &LogicalRect, inner: &LogicalRect| {
+                outer.origin.x <= inner.origin.x + 0.01
+                    && outer.origin.y <= inner.origin.y + 0.01
+                    && outer.origin.x + outer.size.width >= inner.origin.x + inner.size.width - 0.01
+                    && outer.origin.y + outer.size.height >= inner.origin.y + inner.size.height - 0.01
+            };
+            for pair in d.rects[2..].chunks(2) {
+                assert!(holds(&d.rects[0], &pair[0]), "{new:?}: before: {:?} holds {:?}", d.rects[0], pair[0]);
+                assert!(holds(&d.rects[1], &pair[1]), "{new:?}: after: {:?} holds {:?}", d.rects[1], pair[1]);
+            }
+        }
+        let d = gpu_value_damage(
+            &list,
+            &spinner_turned(14.7, 0.0, -134.6),
+            &o,
+            &spinner_turned(21.9, 0.0, -134.0),
+            &o,
+            &ScrollOffsetMap::new(),
+        );
+        let arc_now = reach_from_the_centre(&d.rects[1]);
+        assert!((arc_now - 27.27).abs() < 0.1, "the arc at 21.9 degrees: {arc_now} from the centre (33.03 as a box around a box)");
+    }
+
     #[test]
     fn gpu_value_damage_removed_key_counts_as_changed() {
         let list = dlist(vec![ref_frame(3), DisplayListItem::PopReferenceFrame]);
@@ -9164,11 +9527,16 @@ mod autotest_generated {
         let new = WindowGpuValues { transforms: [(3, translate(20.0, 0.0)), (9, scale(2.0))].into_iter().collect(), ..WindowGpuValues::default() };
         let d = window_value_damage(&scaled, &views, &old, &new, &ScrollOffsetMap::new());
         assert!(!d.needs_full);
+        // The old place is 80 x 60 @ (100, 80). Through the scaled frame 9 the rect grows by
+        // what the resampling paints past the image (A1-64, `FrameStack::map`): 2 px in the
+        // frame's space, x 2 by its scale, + 1 px where it lands = 5 px a side:
+        // (100 - 5, 80 - 5) 80 + 10 x 60 + 10. Frame 3 only moves: a move grows nothing.
+        // (The test asked the bare image, 80 x 60 @ (100, 80).)
         assert!(
-            d.rects.iter().any(|r| (r.origin.x - 100.0).abs() < 0.01
-                && (r.origin.y - 80.0).abs() < 0.01
-                && (r.size.width - 80.0).abs() < 0.01
-                && (r.size.height - 60.0).abs() < 0.01),
+            d.rects.iter().any(|r| (r.origin.x - 95.0).abs() < 0.01
+                && (r.origin.y - 75.0).abs() < 0.01
+                && (r.size.width - 90.0).abs() < 0.01
+                && (r.size.height - 70.0).abs() < 0.01),
             "the old place, scaled: {:?}",
             d.rects
         );
@@ -9557,8 +9925,11 @@ mod autotest_generated {
             values,
         );
         // (10, 10) of the child is (60, 50) in the window's list, and twice that - (120, 100) - on
-        // screen; 20 x 10 is 40 x 20.
-        assert!(has_rect(&d, (120.0, 100.0, 40.0, 20.0)), "{d:?}");
+        // screen; 20 x 10 is 40 x 20. Through a composited (scaled) frame the rect grows by what
+        // the resampling paints past the image (A1-64, `FrameStack::map`): 2 px in the frame's
+        // space, x 2 by its scale, + 1 px where it lands = 5 px a side:
+        // (120 - 5, 100 - 5) 40 + 10 x 20 + 10. (The test asked the bare image, 40 x 20 @ (120, 100).)
+        assert!(has_rect(&d, (115.0, 95.0, 50.0, 30.0)), "{d:?}");
     }
 
     /// A change under a frame INSIDE the view: the frame is painted with its live matrix as
@@ -12717,5 +13088,152 @@ mod audit_a1_tests {
         assert_eq!(at(&pm, 55, 15), (59, 15), "the last column that is the clip's");
         assert_eq!(at(&pm, 56, 15), (56, 15), "not the neighbour's column 60");
         assert_eq!(at(&pm, 60, 15), (60, 15));
+    }
+
+
+    /// A1-61: the overlay scan of a scroll step reads the bounds of the items that can be
+    /// overlays - those painted after the frame - and not of every item of the list. A page
+    /// of n rows inside the frame and two boxes after it (one over the frame's clip, one
+    /// beside it): two bounds are read whether n is 50 or 200, and the overlay found is the
+    /// part of the first box inside the clip. (Every item's bounds were read before the test
+    /// that skips it: n + 2 reads.)
+    /// Mutation: the bounds read before `can_be_one` counts 52 and 202.
+    #[test]
+    fn the_overlay_scan_reads_the_bounds_of_what_is_painted_after_the_frame() {
+        let clip = lr(0.0, 0.0, 100.0, 300.0);
+        let page = |rows: usize| {
+            let mut items = vec![DisplayListItem::PushScrollFrame {
+                clip_bounds: clip.into(),
+                content_size: LogicalSize { width: 100.0, height: 2000.0 },
+                scroll_id: 4,
+            }];
+            for row in 0..rows {
+                items.push(opaque(0.0, row as f32 * 10.0, 100.0, 10.0, [240, 240, 230]));
+            }
+            items.push(DisplayListItem::PopScrollFrame);
+            items.push(opaque(80.0, 20.0, 40.0, 30.0, [0, 0, 200]));
+            items.push(opaque(150.0, 20.0, 40.0, 30.0, [0, 200, 0]));
+            listed(items)
+        };
+        let scan = |rows: usize| {
+            OVERLAY_BOUNDS_READ.with(|n| n.set(0));
+            let found = overlay_rects_after_frame_in(&page(rows), 4, &clip, &ScrollOffsetMap::new(), &HashMap::new());
+            (found, OVERLAY_BOUNDS_READ.with(core::cell::Cell::get))
+        };
+        let (small, read_small) = scan(50);
+        let (large, read_large) = scan(200);
+        assert_eq!((read_small, read_large), (2, 2), "the two boxes after the frame, however long the page");
+        assert_eq!(small, vec![lr(80.0, 20.0, 20.0, 30.0)], "the box over the clip, cut to it");
+        assert_eq!(small, large);
+    }
+
+    /// A3-core-26 (b): the scans of the shifts ask the LIST where a run paints, not the item.
+    /// A run painted after a scroll frame, beside the frame's clip (x 0 .. 100): two glyphs
+    /// at 20 px, pens at x = 150 and 162. The item's estimate begins an em left of the first
+    /// pen, at x = 130: beside the clip. Its ink begins at x = 89 (a mark that reaches 2.9 em
+    /// LEFT of its pen: 150 - 58, less the pad of 3): over the clip. What a scroll step has
+    /// to repaint after its move is the part of the ink over the clip, (89, 33) 11 x 24 -
+    /// the move drags those pixels - and what is painted over a mover (`PaintedOverMovers`)
+    /// counts the run by its ink too: with a mover that lands on (120, 20) 70 x 50 the
+    /// estimate lies inside the landing box (the run is no candidate) and the ink does not.
+    /// Mutation: `it.visual_bounds()` at either site, as it was: nothing to repaint, no
+    /// candidate.
+    #[test]
+    fn the_scans_of_a_shift_take_a_run_by_the_ink_its_list_knows() {
+        let clip = lr(0.0, 0.0, 100.0, 300.0);
+        let everything = lr(0.0, 0.0, 1000.0, 1000.0);
+        let pen = |x: f32| azul_core::ui_solver::GlyphInstance {
+            index: 1,
+            point: LogicalPosition { x, y: 50.0 },
+            size: LogicalSize { width: 0.0, height: 20.0 },
+        };
+        let mut page = listed(vec![
+            DisplayListItem::PushScrollFrame {
+                clip_bounds: clip.into(),
+                content_size: LogicalSize { width: 100.0, height: 2000.0 },
+                scroll_id: 4,
+            },
+            opaque(0.0, 0.0, 100.0, 2000.0, [240, 240, 230]),
+            DisplayListItem::PopScrollFrame,
+            DisplayListItem::Text {
+                glyphs: vec![pen(150.0), pen(162.0)],
+                font_hash: crate::text3::cache::FontHash::from_hash(1),
+                font_size_px: 20.0,
+                color: ColorU { r: 0, g: 0, b: 0, a: 255 },
+                clip_rect: everything.into(),
+                line_box: everything.into(),
+                source_node_index: None,
+            },
+        ]);
+        let estimate = page.items[3].visual_bounds().expect("a run has bounds");
+        assert_eq!(estimate.origin.x, 130.0, "premise: an em left of the first pen, beside the clip");
+        let scan = |page: &DisplayList| overlay_rects_after_frame_in(page, 4, &clip, &ScrollOffsetMap::new(), &HashMap::new());
+        let landing = [lr(120.0, 20.0, 70.0, 50.0)];
+        let over_movers =
+            |page: &DisplayList| PaintedOverMovers::of(page, &landing).candidates.iter().any(|(index, _, _)| *index == 3);
+        assert!(scan(&page).is_empty(), "premise: by its estimate the run is beside the clip");
+        assert!(!over_movers(&page), "premise: by its estimate the run lies in the landing box");
+        // The ink: from 61 px left of the first pen to 26 px right of it, 17 px above to 7 below.
+        page.text_ink = vec![
+            None,
+            None,
+            None,
+            Some(crate::solver3::display_list::TextInk { min: (-61.0, -17.0), max: (26.0, 7.0), glyphs: 2 }),
+        ];
+        assert_eq!(page.visual_bounds_of(3), Some(lr(89.0, 33.0, 87.0, 24.0)));
+        assert_eq!(scan(&page), vec![lr(89.0, 33.0, 11.0, 24.0)], "the part of the ink over the clip");
+        assert!(over_movers(&page), "the ink reaches out of the landing box");
+    }
+}
+
+#[cfg(test)]
+mod audit_a1_composite_reach_tests {
+    use super::*;
+
+    fn matrix(m: [[f32; 4]; 4]) -> azul_core::transform::ComputedTransform3D {
+        azul_core::transform::ComputedTransform3D { m }
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    /// A1-64: where a rect inside a frame is painted. Through a move: its image. Through a
+    /// frame that is composited (a scale, a turn): its image grown by what the resampling
+    /// reaches, 2 px in the frame's own space on every side, and a pixel where it lands.
+    /// Hand-computed for (10, 10) 20 x 10 about the origin (0, 0):
+    /// - `translate(5, 7)`: (15, 17) 20 x 10;
+    /// - `scale(3)`: the corners (8, 8) .. (32, 22) land at (24, 24) .. (96, 66), a pixel
+    ///   more: (23, 23) 74 x 44 (the image alone: (30, 30) 60 x 30);
+    /// - `translate(5, 7)` inside `scale(3)`: (13, 15) .. (37, 29) land at (39, 45) ..
+    ///   (111, 87): (38, 44) 74 x 44;
+    /// - a quarter turn (x' = -y, y' = x): x 8 .. 32, y 8 .. 22 land at x -22 .. -8,
+    ///   y 8 .. 32: (-23, 7) 16 x 26.
+    /// Mutation: the image alone (as it was) leaves the ring a composite paints out of the
+    /// damage: a box turned by 30 degrees whose tip is at x = 65.0 keeps a faint column 64
+    /// when a value turns it elsewhere (`a2_cpu_the_damaged_render_is_the_full_render_over_
+    /// random_pans_zooms_fades_and_edits`, seed 1, step 19: the pixel (64, 138)).
+    #[test]
+    fn what_a_composited_frame_paints_reaches_past_the_image_of_its_content() {
+        let r = rect(10.0, 10.0, 20.0, 10.0);
+        let origin = LogicalPosition::new(0.0, 0.0);
+        let by = |tx: f32, ty: f32, k: f32| {
+            matrix([[k, 0.0, 0.0, 0.0], [0.0, k, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [tx, ty, 0.0, 1.0]])
+        };
+        assert_eq!(FrameStack::default().map(r), Some(r), "no frame: the rect");
+        let mut moved = FrameStack::default();
+        moved.push(origin, by(5.0, 7.0, 1.0));
+        assert_eq!(moved.map(r), Some(rect(15.0, 17.0, 20.0, 10.0)), "a move paints the image");
+        let mut scaled = FrameStack::default();
+        scaled.push(origin, by(0.0, 0.0, 3.0));
+        assert_eq!(scaled.map(r), Some(rect(23.0, 23.0, 74.0, 44.0)), "a scaled frame is composited");
+        scaled.push(origin, by(5.0, 7.0, 1.0));
+        assert_eq!(scaled.map(r), Some(rect(38.0, 44.0, 74.0, 44.0)), "a move inside it");
+        let mut turned = FrameStack::default();
+        turned.push(
+            origin,
+            matrix([[0.0, 1.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]),
+        );
+        assert_eq!(turned.map(r), Some(rect(-23.0, 7.0, 16.0, 26.0)), "a quarter turn");
     }
 }

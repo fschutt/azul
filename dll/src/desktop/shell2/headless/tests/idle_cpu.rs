@@ -273,8 +273,30 @@ fn a_visible_spinners_frame_damages_only_its_own_rect() {
 
     assert!(requested, "harness: a visible spinner asks for its frame");
     // Every part turns about the box centre: its corners sweep a circle of
-    // radius D/sqrt(2), a little past the box on every side.
-    let slack = rect.size.width.max(rect.size.height) * 0.25 + 1.0;
+    // radius D/sqrt(2). The ring's arc is three turning frames in each other
+    // (the arc, the window, the body: `widgets/spinner.rs`, `ring_arc`), and
+    // the CPU renderer paints each into a surface it resamples where the
+    // frame lands: that paints up to 2 px on both axes past the content, in
+    // the frame's own space, so per frame up to 2 sqrt(2) further from the
+    // centre (`cpurender::compositor::COMPOSITE_REACH`, audit finding A1-64:
+    // without it the faint rim of a turned frame was left behind), and the
+    // box of the damage is grown by 1 px (`DIRECT_REACH`). Whatever the
+    // angles, the damage lies within
+    //   D/sqrt(2) + 3 x 2 sqrt(2) + 1  =  22.63 + 8.49 + 1  =  32.11 px
+    // of the centre for D = 32: 16.11 px past the box.
+    //
+    // The bound here was D/4 + 1 (9 px past the box: the swept circle and
+    // 2.4 px), from before the resampling's rim was damaged; no damage that
+    // holds that rim fits it (the body alone needs up to 16.11). What this
+    // test is for is the box taken TWICE: the arc's content as the box around
+    // the turned body (22.63 from the centre), moved out and turned again by
+    // the arc's own 21.9 degrees, is (22.63 + 2) x 1.3007 + 1 = 33.03 from
+    // the centre - the 66.07 px rect this test caught, 17.03 past the box.
+    let d = rect.size.width.max(rect.size.height);
+    let turning_frames = 3.0;
+    let slack = d * (core::f32::consts::FRAC_1_SQRT_2 - 0.5)
+        + turning_frames * 2.0 * core::f32::consts::SQRT_2
+        + 1.0;
     let (x0, y0) = (rect.origin.x - slack, rect.origin.y - slack);
     let (x1, y1) = (
         rect.origin.x + rect.size.width + slack,
