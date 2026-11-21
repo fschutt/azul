@@ -427,3 +427,62 @@ finding ids below.
   surface would be one node big while its nodes paint thousands of px away. Whether nested frames are clipped to
   the parent surface is A1's code under edit. Plus: three hit-test / compositor implementations must agree on a
   scale about a node's centre under an outer translate, and one large layer may be slower than N small ones.
+
+### Second round, part 2 (after the coordinator's second message and the usage limit)
+
+Integration notes:
+- **`pass_memo` and A3-window's branch.** A3-window's branch adds a SECOND `LayoutContext` struct literal in
+  `window.rs` (its `node_patch` work, commit `25cf3821f`: `patch_restyled_decorations`, next to
+  `regenerate_display_list_for_dom`), which this branch cannot see. The integration must add
+  `pass_memo: Default::default(),` to that literal too (one line, as in the twelve here).
+- **`bdecb2813`** is A3-window's `f57838478` cherry-picked (`core/src/diff.rs` only). Its tests in
+  `core/src/diff_test.rs` conflicted with the other tests of that branch and were left out here; they arrive
+  with A3-window's branch. The merge of the two branches sees the same `diff.rs` change twice.
+- `PassMemo` is generic over the context's font type since `58f61dce6` (`PassMemo<T>`, hand-written `Default`
+  and `Debug`): the literals still write `pass_memo: Default::default()`.
+
+Fixed:
+- **24** `1ee264920` + `7b39826e2` (two commits that belong together: a failed edit left the call site out of
+  the first). A kept node is read without its child list and MOVED into the new tree
+  (`get_full_node_without_children`, `adopt_node_from_old`). The builder half was the dead helper's uncommitted
+  work, read in full and taken over.
+- **41** `36b4c0248`: the solver's half of A3-window-08. An absolutely positioned / fixed box whose inset
+  VALUES alone moved (`NodeChangeSet::INLINE_STYLE_INSETS`) is kept (clone path, `DirtyFlag::Paint`) and placed
+  again by `position_out_of_flow_elements`; `paint_dirty` boxes are in the display-list patch's re-emit set.
+  Count test: 200 labels moved and turned: 0 fresh boxes, at most 4 boxes sized anew, positions == fresh.
+  **Not effective on the shell's path yet** (the test for it is `#[ignore]`d with the reason): see "For area
+  A3-window (2)" below.
+- **42** `58f61dce6` + `f83fec4f7` (A8-13): `LayoutContext::loaded_fonts` asks the font manager once per pass;
+  used by `fc::layout_ifc`, `fc::flow_paragraph` and the intrinsic pass. Not switched: `regions.rs:1617` (named
+  flows), `display_list.rs` (two asks per build, A3-core's file: `self.ctx.loaded_fonts()` is a drop-in).
+  A8's 3-line patch in `load_fonts_from_disk` is on its branch and was not touched.
+- **43** `283a32482` (found while doing 41): `adjust_relative_positions` added every relative box's offset to
+  its position on EVERY pass, also to positions an incremental pass only cloned from the pass before (offset
+  already in): a relative box outside the re-laid subtrees crept by its offset per pass. Now only the boxes
+  below a laid-out root are shifted. Three window tests (incremental == fresh).
+
+For area A3-window (2): **the css diff defeats `INLINE_STYLE_INSETS`.** `LayoutWindow::begin_reconciliation`
+(`window.rs:17172-17260`) compares the computed styles of every paired node (`changed_styles`) and stages
+`(node, worst scope)` as css dirt; `CssPropertyType::relayout_scope` answers `Full` for `top` / `right` /
+`bottom` / `left` (the `_ =>` arm, `css/src/props/property.rs`). A node the css diff names with a scope above
+`None` is built fresh by the reconcile whatever its fingerprint says (`ReconciliationResult::css_relayout`,
+`cache.rs` `reconcile_node`: the solver cannot tell "only the insets moved" from a `(node, Full)` entry, and a
+stylesheet-driven change of another property may hide behind the same entry). So on the shell's path a moved
+label is still a fresh box. What is needed there: do not stage css dirt for a node whose changed properties
+are ALL insets, that is absolutely positioned or fixed before and after, and whose `inline_inset_hash`
+differs (then the reconcile's fingerprint reports it and 41 places it). An inset moved by a STYLESHEET (same
+inline style) must keep its css dirt: the fingerprint does not see it. The same holds for a transform /
+opacity value (`INLINE_STYLE_PAINT`): a css-dirt entry of scope `None` for it is harmless to the layout but
+turns the display-list patch off (`css_dirty.is_empty()` in `structure_ok`). Test waiting for it:
+`audit_tests::a3_solver::labels_that_only_moved_keep_their_boxes_when_the_shell_rebuilds_the_page`
+(`#[ignore]`: remove the attribute with the fix).
+
+Still open, found in this part (not fixed, reasons):
+- **44** `adjust_sticky_positions` takes the cloned position of a sticky box outside the re-laid subtrees as
+  its static position (the mistake of 43) and bakes a shift on top; skipping such a box is not enough, because
+  the pass drops every `warm.sticky` constraint and re-adds only what the function returns. Needs the
+  constraint of a skipped box to be kept; not done blind (the GPU sticky channel reads `baked`).
+- **45** `position_out_of_flow_elements` rewrites the positions of everything inside an absolutely positioned
+  box from `warm.relative_position` (`position_bfc_child_descendants`) AFTER the relative pass, which drops
+  the offset of a relatively positioned box inside an absolute one. By reading; needs a run (a `relative`
+  box with `top` inside an `absolute` box: is it drawn shifted today?).
