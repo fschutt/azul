@@ -306,6 +306,15 @@ thread_local! {
     pub(crate) static IFC_REUSE_EXPANSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// How many min- or max-content measures `layout_ifc` stored on this thread,
+/// and how many of those stores built the layout's paint runs
+/// (`audit_tests::a3_solver::ifc`: none).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_MEASURE_STORES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static IFC_MEASURE_STORE_RUN_BUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Lays an inline formatting context out from the paragraph its shaped
 /// items make in its constraints (`ParagraphToBreak`): its lines broken and
 /// positioned (`perform_fragment_layout`), and what its box reports from
@@ -1468,12 +1477,38 @@ pub(super) fn layout_ifc<T: ParsedFontTrait>(
         };
 
         if should_store || is_measure {
-            let mut cil = CachedInlineLayout::new_with_constraints(
-                main_frag.clone(),
-                current_width_type,
-                has_floats,
-                text3_constraints.clone(),
-            );
+            #[cfg(test)]
+            let runs_built_before =
+                crate::solver3::layout_tree::GLYPH_RUNS_BUILT_AT_STORE.with(core::cell::Cell::get);
+            // A measure's lines are painted only while they are still the
+            // final layout when the display list is made: their paint runs
+            // are made when they are first read, not for every measure
+            // (`CachedInlineLayout::new_measure_with_constraints`).
+            let mut cil = if is_measure {
+                CachedInlineLayout::new_measure_with_constraints(
+                    main_frag.clone(),
+                    current_width_type,
+                    has_floats,
+                    text3_constraints.clone(),
+                )
+            } else {
+                CachedInlineLayout::new_with_constraints(
+                    main_frag.clone(),
+                    current_width_type,
+                    has_floats,
+                    text3_constraints.clone(),
+                )
+            };
+            #[cfg(test)]
+            {
+                if is_measure {
+                    let built = crate::solver3::layout_tree::GLYPH_RUNS_BUILT_AT_STORE
+                        .with(core::cell::Cell::get)
+                        - runs_built_before;
+                    IFC_MEASURE_STORES.with(|n| n.set(n.get() + 1));
+                    IFC_MEASURE_STORE_RUN_BUILDS.with(|n| n.set(n.get() + built));
+                }
+            }
             // #11 fix: record the content hash so Phase 2d only fast-path-reuses
             // this layout when the inline content is genuinely unchanged, and so
             // the store decision above can detect content changes.

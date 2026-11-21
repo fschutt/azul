@@ -111,3 +111,66 @@ fn the_reconcile_moves_a_kept_node_into_the_new_tree_without_cloning_it_again() 
         "{kept} kept boxes were cloned a second time on their way into the new tree"
     );
 }
+
+/// A table of `rows` x `columns` cells with a text, built of blocks with `display: table`,
+/// `table-row` and `table-cell`, in the built-in mock font: every cell is an inline formatting
+/// context of one line of real glyphs.
+fn table_of_mock_font_cells(rows: usize, columns: usize) -> Dom {
+    let mut table = Dom::create_div().with_css("display: table;");
+    for r in 0..rows {
+        let mut row = Dom::create_div().with_css("display: table-row;");
+        for c in 0..columns {
+            row = row.with_child(
+                Dom::create_div_with_text(format!("cell {r} {c}")).with_css("display: table-cell;"),
+            );
+        }
+        table = table.with_child(row);
+    }
+    Dom::create_body()
+        .with_css("margin: 0px; font-family: \"Azul Mock Mono\"; font-size: 10px;")
+        .with_child(table)
+}
+
+/// A3-solver-22. The auto table layout measures every cell at its min- and at its max-content
+/// width (`fc::measure_cell_widths`): two layouts of the cell's lines, each stored
+/// (`fc::layout_ifc`, the measure slots) - and each store grouped the glyphs into paint runs
+/// and compacted them, for lines that are dropped from the cell's final slot right after the
+/// measure and never painted from the measure slot. A measure's paint runs are built when
+/// they are first read (`CachedInlineLayout::new_measure_with_constraints`): here never.
+///
+/// Mutation: `CachedInlineLayout::new_with_constraints` for a measure at the store of
+/// `layout_ifc` builds the runs of every stored measure.
+#[test]
+fn a_measure_of_a_table_cell_builds_no_paint_runs() {
+    use crate::solver3::{
+        fc::{IFC_MEASURE_STORES, IFC_MEASURE_STORE_RUN_BUILDS},
+        layout_tree::GLYPH_RUNS_BUILT_ON_READ,
+    };
+    if crate::solver3::layout_tree::dense_text_mode() != 1 {
+        // `AZ_DENSE_TEXT=0` and `verify` build the runs when a layout is stored.
+        return;
+    }
+    let (rows, columns) = (20, 4);
+    let mut lw = window();
+    IFC_MEASURE_STORES.with(|n| n.set(0));
+    IFC_MEASURE_STORE_RUN_BUILDS.with(|n| n.set(0));
+    GLYPH_RUNS_BUILT_ON_READ.with(|n| n.set(0));
+    lay_out(&mut lw, table_of_mock_font_cells(rows, columns));
+    let measures = IFC_MEASURE_STORES.with(std::cell::Cell::get);
+    let built_at_store = IFC_MEASURE_STORE_RUN_BUILDS.with(std::cell::Cell::get);
+    let built_on_read = GLYPH_RUNS_BUILT_ON_READ.with(std::cell::Cell::get);
+    assert!(
+        measures >= rows * columns,
+        "harness: each of the {} cells was measured and its lines stored ({measures} stores)",
+        rows * columns
+    );
+    assert!(
+        built_at_store <= 4,
+        "{built_at_store} of {measures} stored measures built paint runs when they were stored"
+    );
+    assert!(
+        built_on_read <= 4,
+        "{built_on_read} of {measures} stored measures were painted: the cells' final layouts \
+         were expected to be their definite ones"
+    );
+}

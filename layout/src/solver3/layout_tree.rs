@@ -276,7 +276,11 @@ pub struct CachedInlineLayout {
     /// (y and size are per-run-uniform in the simple-run contract; deviants
     /// ride the exception table). Paint expands into the same offset Vec it
     /// always built; `AZ_DENSE_TEXT=verify` roundtrip-gates the encoding.
-    pub glyph_runs: Arc<Vec<crate::text3::glyphs::CompactGlyphRun>>,
+    ///
+    /// A layout stored by a MEASURE ([`Self::new_measure_with_constraints`])
+    /// makes them when they are first read ([`GlyphRunList`]): most measures
+    /// are never painted.
+    pub glyph_runs: Arc<GlyphRunList>,
     /// §3.2 step (d5): the ONE cache-stable Arc the display list carries
     /// as its `TextLayout` payload. `TextPayload{dense,sparse}` when the
     /// dense view is retained, else the `layout` Arc itself (identical
@@ -302,6 +306,75 @@ pub struct CachedInlineLayout {
     /// for a layout that is not retired, and for a retired one whose
     /// expansion could measure differently (`Self::retired_metrics_of`).
     pub retired_metrics: Option<RetiredLayoutMetrics>,
+}
+
+/// The paint runs of a stored inline layout
+/// ([`CachedInlineLayout::glyph_runs`]): a list made when the layout was
+/// stored, or one made from the layout's dense view when it is first read.
+/// It dereferences to the runs, which is where a deferred list is made: a
+/// reader paints from it as from a list made at store time, and a layout no
+/// one paints (a min- or max-content measure) never makes its runs.
+#[derive(Debug)]
+pub struct GlyphRunList {
+    /// The dense view a deferred list is made from. `None` for a list made
+    /// at store time.
+    deferred_from: Option<Arc<crate::text3::dense::DenseText>>,
+    runs: std::sync::OnceLock<Vec<crate::text3::glyphs::CompactGlyphRun>>,
+}
+
+impl GlyphRunList {
+    /// A list of runs made already.
+    #[must_use]
+    pub fn made(runs: Vec<crate::text3::glyphs::CompactGlyphRun>) -> Self {
+        let cell = std::sync::OnceLock::new();
+        // A new cell is empty: it takes the runs.
+        let _ = cell.set(runs);
+        Self {
+            deferred_from: None,
+            runs: cell,
+        }
+    }
+
+    /// A list made from `dense` when it is first read: the runs
+    /// `compute_glyph_runs` makes of a layout whose runs come from its
+    /// dense view alone (`AZ_DENSE_TEXT` on, no combined block).
+    fn deferred(dense: Arc<crate::text3::dense::DenseText>) -> Self {
+        Self {
+            deferred_from: Some(dense),
+            runs: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// The runs if they were made: what the list holds in memory.
+    #[must_use]
+    pub fn made_runs(&self) -> Option<&Vec<crate::text3::glyphs::CompactGlyphRun>> {
+        self.runs.get()
+    }
+}
+
+impl core::ops::Deref for GlyphRunList {
+    type Target = [crate::text3::glyphs::CompactGlyphRun];
+
+    fn deref(&self) -> &Self::Target {
+        self.runs.get_or_init(|| {
+            #[cfg(test)]
+            GLYPH_RUNS_BUILT_ON_READ.with(|n| n.set(n.get() + 1));
+            // `made` fills the cell, so only a deferred list gets here.
+            self.deferred_from.as_deref().map_or_else(Vec::new, |dense| {
+                compact_glyph_runs(crate::text3::dense::get_glyph_runs_simple_dense(dense))
+            })
+        })
+    }
+}
+
+/// How often the paint runs of an inline layout were built on this thread:
+/// when a layout was stored (`compute_glyph_runs`), and when a deferred list
+/// was first read (`audit_tests::a3_solver::ifc`: a measure builds none when
+/// it is stored).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static GLYPH_RUNS_BUILT_AT_STORE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static GLYPH_RUNS_BUILT_ON_READ: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
 /// The measures of a retired inline layout's lines
@@ -375,6 +448,8 @@ fn compute_glyph_runs(
     Vec<crate::text3::glyphs::SimpleGlyphRun>,
     Option<Arc<crate::text3::dense::DenseText>>,
 ) {
+    #[cfg(test)]
+    GLYPH_RUNS_BUILT_AT_STORE.with(|n| n.set(n.get() + 1));
     compute_glyph_runs_with_mode(layout, dense_text_mode())
 }
 
@@ -504,7 +579,7 @@ impl CachedInlineLayout {
         has_floats: bool,
     ) -> Self {
         let (runs, dense) = compute_glyph_runs(&layout);
-        let glyph_runs = Arc::new(compact_glyph_runs(runs));
+        let glyph_runs = Arc::new(GlyphRunList::made(compact_glyph_runs(runs)));
         let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
@@ -533,11 +608,66 @@ impl CachedInlineLayout {
         constraints: UnifiedConstraints,
     ) -> Self {
         let (runs, dense) = compute_glyph_runs(&layout);
-        let glyph_runs = Arc::new(compact_glyph_runs(runs));
+        let glyph_runs = Arc::new(GlyphRunList::made(compact_glyph_runs(runs)));
         let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
         let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         // Payload built from the STORED form — under the retirement the
         // sparse half is the sentinel and consumers expand from dense.
+        let payload = Self::build_payload(&layout, dense.as_ref());
+        Self {
+            layout,
+            overflow,
+            available_width,
+            has_floats,
+            constraints: Some(constraints),
+            payload,
+            glyph_runs,
+            dense,
+            inline_content_hash: 0,
+            retired_metrics,
+        }
+    }
+
+    /// [`Self::new_with_constraints`] for a layout stored by a MEASURE (a
+    /// visit of `layout_ifc` at a min- or max-content width): the same entry,
+    /// its paint runs made when they are first read and not now
+    /// ([`GlyphRunList`]).
+    ///
+    /// A measure answers how wide and how tall the content is. Its lines are
+    /// painted only where they are still the IFC's final layout when the
+    /// display list is made; a table cell's are dropped from that slot right
+    /// after the measure, a flex item's are replaced by its definite layout,
+    /// and the copy in the measure slot (`InlineMeasureLayouts`) is read by
+    /// `layout_ifc` alone. Every one of them had the run-grouping walk and
+    /// the compaction done for it.
+    ///
+    /// Deferred only where the runs come from the dense view alone
+    /// (`compute_glyph_runs_with_mode`: `AZ_DENSE_TEXT` on - not off, not
+    /// `verify` - and no combined block). There `new_with_constraints` builds
+    /// the dense view, makes the runs from it and keeps both; this builds the
+    /// same dense view and hands it to the list. Everything else of the
+    /// entry is made by the same code from the same values.
+    #[must_use]
+    pub fn new_measure_with_constraints(
+        layout: Arc<UnifiedLayout>,
+        available_width: AvailableSpace,
+        has_floats: bool,
+        constraints: UnifiedConstraints,
+    ) -> Self {
+        use crate::text3::cache::ShapedItem;
+        if dense_text_mode() != 1
+            || layout
+                .items
+                .iter()
+                .any(|it| matches!(it.item, ShapedItem::CombinedBlock { .. }))
+        {
+            return Self::new_with_constraints(layout, available_width, has_floats, constraints);
+        }
+        let dense = Arc::new(crate::text3::dense::DenseText::from_unified(&layout));
+        let glyph_runs = Arc::new(GlyphRunList::deferred(Arc::clone(&dense)));
+        let dense = Some(dense);
+        let retired_metrics = Self::retired_metrics_of(&layout, dense.as_deref());
+        let (layout, overflow) = Self::retire_sparse(layout, dense.as_deref());
         let payload = Self::build_payload(&layout, dense.as_ref());
         Self {
             layout,
@@ -1617,10 +1747,12 @@ impl LayoutTree {
                 }
                 // Paint-run cache — its own report line (see the field doc).
                 // Distinct Arcs only: a reused layout clones the Arc.
+                // Runs not made yet (a measure's no one painted) hold nothing.
                 if run_arcs.insert(Arc::as_ptr(&cached.glyph_runs).cast::<u8>() as usize) {
-                    report.glyph_run_bytes += cached.glyph_runs.capacity()
+                    let made = cached.glyph_runs.made_runs();
+                    report.glyph_run_bytes += made.map_or(0, Vec::capacity)
                         * size_of::<crate::text3::glyphs::CompactGlyphRun>();
-                    for run in cached.glyph_runs.iter() {
+                    for run in made.into_iter().flatten() {
                         report.glyph_run_bytes += run.glyphs.retained_bytes()
                             + run.background_content.capacity()
                                 * size_of::<azul_css::props::style::StyleBackgroundContent>();
@@ -9357,5 +9489,91 @@ mod audit_a3_solver_tests {
                 "the {what} of a run's second letter is not the run's, and the measures were kept"
             );
         }
+    }
+
+    /// A3-solver-22: a layout stored by a measure is the entry `new_with_constraints` makes of
+    /// the same lines - the same dense view, retired alike, the same kept measures - whose
+    /// paint runs are built when they are first read, once for the entry and its clones, and
+    /// are then the runs the stored layout has.
+    ///
+    /// Mutation: `new_measure_with_constraints` going through `compute_glyph_runs` builds at
+    /// store time; a deferred list made of anything but the entry's dense view (an empty list,
+    /// say) reads other runs than the stored layout's.
+    #[test]
+    fn a_measures_paint_runs_are_built_when_first_read_and_are_the_stored_layouts() {
+        use crate::text3::glyphs::CompactGlyphRun;
+        if dense_text_mode() != 1 {
+            // `AZ_DENSE_TEXT=0` and `verify` build the runs when the layout is stored.
+            return;
+        }
+        let (style, text) = (style_20px(), Arc::<str>::from("abcd"));
+        let lines = || {
+            Arc::new(UnifiedLayout {
+                items: vec![
+                    letter_at(&style, &text, 0, 3.0, 4.0, 0),
+                    letter_at(&style, &text, 1, 13.0, 4.0, 0),
+                    letter_at(&style, &text, 2, 3.0, 28.0, 1),
+                    letter_at(&style, &text, 3, 13.0, 28.0, 1),
+                ],
+                overflow: crate::text3::cache::OverflowInfo::default(),
+            })
+        };
+        // (built when a layout was stored, built when a list was first read)
+        let built = || {
+            (
+                GLYPH_RUNS_BUILT_AT_STORE.with(Cell::get),
+                GLYPH_RUNS_BUILT_ON_READ.with(Cell::get),
+            )
+        };
+        let start = built();
+        let eager = CachedInlineLayout::new_with_constraints(
+            lines(),
+            AvailableSpace::MaxContent,
+            false,
+            UnifiedConstraints::default(),
+        );
+        assert_eq!(
+            built(),
+            (start.0 + 1, start.1),
+            "harness: a layout stored for painting builds its runs"
+        );
+        let measure = CachedInlineLayout::new_measure_with_constraints(
+            lines(),
+            AvailableSpace::MaxContent,
+            false,
+            UnifiedConstraints::default(),
+        );
+        assert_eq!(
+            built(),
+            (start.0 + 1, start.1),
+            "a measure built its paint runs when it was stored"
+        );
+        assert!(measure.glyph_runs.made_runs().is_none());
+
+        // What `layout_ifc` reads of a stored measure.
+        assert!(measure.layout.items.is_empty() && eager.layout.items.is_empty());
+        assert_eq!(format!("{:?}", measure.dense), format!("{:?}", eager.dense));
+        assert_eq!(
+            format!("{:?}", measure.retired_metrics),
+            format!("{:?}", eager.retired_metrics)
+        );
+        assert_eq!(format!("{:?}", measure.overflow), format!("{:?}", eager.overflow));
+        assert!(measure.constraints.is_some());
+
+        let eager_runs: &[CompactGlyphRun] = &eager.glyph_runs;
+        assert!(!eager_runs.is_empty(), "harness: four letters make a paint run");
+        // The copy the measure slot holds beside the final slot's.
+        let copy = measure.clone();
+        let read: &[CompactGlyphRun] = &measure.glyph_runs;
+        assert_eq!(format!("{read:?}"), format!("{eager_runs:?}"));
+        assert_eq!(built(), (start.0 + 1, start.1 + 1));
+        let read_again: &[CompactGlyphRun] = &copy.glyph_runs;
+        assert_eq!(read_again.len(), read.len());
+        assert_eq!(
+            built(),
+            (start.0 + 1, start.1 + 1),
+            "the runs of one stored measure were built a second time"
+        );
+        assert!(measure.glyph_runs.made_runs().is_some());
     }
 }
