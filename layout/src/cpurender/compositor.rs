@@ -3722,9 +3722,21 @@ pub fn execute_virtual_view_shift(
     // offset is its materialized window's origin minus the scroll, rarely a
     // whole pixel - requiring it whole sent every wheel step of AzDrive's
     // folder to a repaint of the view).
-    if !integral(shift.delta.0) || !integral(shift.delta.1) {
+    // A2-cpu-07: and both OFFSETS must be whole, not only their difference. The pixels move by
+    // `round(new dpi) - round(prev dpi)` (`scroll_shift_region`), which is the delta only then:
+    // from 10.4999 to 13.5004 the delta is 3.0005 (whole within 1e-3) and the move 14 - 10 = 4,
+    // one pixel more than the content moved. Views' offsets are snapped to the device grid by
+    // their producer (A2-cpu-13), so a pan still moves; an offset off the grid repaints.
+    let prev_offset = (shift.offset.0 - shift.delta.0, shift.offset.1 - shift.delta.1);
+    let on_the_grid = [shift.offset.0, shift.offset.1, prev_offset.0, prev_offset.1]
+        .iter()
+        .all(|v| integral(*v));
+    if !integral(shift.delta.0) || !integral(shift.delta.1) || !on_the_grid {
         if std::env::var_os("AZ_BLIT_DEBUG").is_some() {
-            eprintln!("[viewshift] delta {:?} is no whole device pixel", shift.delta);
+            eprintln!(
+                "[viewshift] delta {:?} or offset {:?} is no whole device pixel",
+                shift.delta, shift.offset
+            );
         }
         return whole;
     }

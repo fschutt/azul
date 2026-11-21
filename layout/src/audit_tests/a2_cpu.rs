@@ -1358,7 +1358,6 @@ fn a2_cpu_04_the_damage_of_a_moved_frame_covers_what_a_frame_inside_it_moved() {
 /// = 48` before and at `round(48 - 13.5004 + 10.3) = 45` after: it moved 3. Expected: the frame
 /// of a fresh render (the box whole repainted: such a pan has no whole-pixel move).
 #[test]
-#[ignore = "A2-cpu-07: open, for A1 (the view shift's gate is on the delta, its move on the offsets)"]
 fn a2_cpu_07_a_pan_between_offsets_off_the_pixel_grid_is_a_fresh_renders_frame() {
     let child = Arc::new(list(vec![
         rect(-256.0, -256.0, VIEW.2 + 512.0, VIEW.3 + 512.0, [47, 49, 54]),
