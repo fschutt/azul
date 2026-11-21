@@ -61,8 +61,7 @@ After this branch: yes by reading, for both shapes, with the one open item below
   style (-04, fixed), text measured twice in the intrinsic pass (-19), `StyleProperties` builds (-20).
 - Half of the 4,006 DOM nodes are CLOSED colour pickers: `widgets/color_input.rs:353 build` creates the whole
   142-node picker panel (96 of them checkerboard cells) per colour field, `display: none` for layout but built,
-  cascaded, reconciled (A3-solver-34, open: opening the popup does not rebuild the DOM, so a lazy panel is a
-  behaviour change).
+  cascaded, reconciled (A3-solver-34, fixed 34d0d1143: the popup node asks for its panel when the engine shows it).
 - A pan does NOT relayout per mouse move: each visible node gets `set_css_property(transform)`, which is the
   GPU-value path. The relayout is one `Update::RefreshDom` at mouse-up, unconditionally
   (`widgets/node_graph.rs:3244`), because the offset is baked into every node's transform and culling may have
@@ -116,6 +115,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-17 | waste | `taffy_bridge.rs` width-only answers | high | fixed b27f65a88 | `a_nested_flex_row_answers_each_width_question_of_a_first_layout_once` |
 | A3-solver-17b | waste | `taffy_bridge.rs` measure spill | medium | fixed 9d4637c90 | `the_measurement_a_second_store_evicts_is_found_in_the_second_way` |
 | A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | fixed 083fe5ada | `taffy_bridge::audit_a3_solver_tests::a_measure_of_a_block_item_leaves_its_subtree_as_the_final_layout_wrote_it`, `a_measure_of_a_flex_container_whose_items_leave_no_write_keeps_its_final_layout` |
+| A3-solver-17d | waste | `taffy_bridge.rs` `end_measure_journal` / `fc/ifc.rs` Phase 2d: a journaled measure (17c) put the node's text lines back with the rest, so the text a measure flowed at a definite width was flowed again by the next question at that width and by the final layout (3 flows for 1: a hovered label, every text item of a flex container on a resize) | high | fixed 79a700d1f | `layout/tests` `a_hovered_label_flows_its_text_once_however_often_it_is_measured` (was failing); `taffy_bridge::audit_a3_solver_tests::a_journaled_measure_leaves_the_lines_it_flowed_in_their_node`, `..::a_journaled_measure_at_a_definite_width_keeps_its_lines_beside_the_final_layout` |
 | A3-solver-18 | quadratic | `taffy_bridge.rs` style conversion per bridge | medium | fixed 134b2fb7f | `the_cells_of_the_taffy_style_memo_grow_with_the_document_not_with_its_bridges` |
 | A3-solver-19 | waste | `sizing.rs` a text measured for itself and for the box around it | medium | fixed dfe923716 | `sizing.rs` tests of the helper (see the commit) |
 | A3-solver-19b | waste | `mod.rs` intrinsic pass per turn of the layout loop | medium | fixed a74109c49 | `a_later_turn_of_the_layout_loop_measures_no_label_whose_inputs_stayed` |
@@ -135,11 +135,11 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-31 | waste | `fc/bfc.rs` `centers_blocks_the_legacy_way` | low | checked: fine | - |
 | A3-solver-32 | wrong-output | `sizing.rs` out-of-flow child in its parent's intrinsic sizes | medium | fixed 1e8fd3a32 | `[reveals]` d9e4f6da1 + two more in `a3_solver/sizing.rs` |
 | A3-solver-33 | wrong-output | `getters.rs` font-stack memo by hash alone | low | fixed dc3e29f49 | `getters::audit_a3_solver_tests` |
-| A3-solver-34 | waste | `widgets/color_input.rs` the panel of a closed picker | medium | open: not built - the third agent's context ended before this row; the engine mechanism is worked out and corrected in the third hand-over (the content callback goes on the node, not into `TransientWindowConfig`; one call site, `transient::extract_subtree_as_dom`) | - |
+| A3-solver-34 | waste | `widgets/color_input.rs` the panel of a closed picker | medium | fixed 34d0d1143 | core `transient::audit_a3_solver_tests::a_transient_node_is_asked_for_its_content_when_its_window_is_shown`, `..::the_data_of_a_transient_nodes_content_is_one_of_the_nodes_refanys`; `widgets::color_input::audit_a3_solver_tests::a_closed_colour_input_builds_no_panel`, `..::the_panel_is_built_from_the_state_the_swatch_keeps` |
 | A3-solver-34a | waste | `widgets/color_input.rs` checkerboards | medium | fixed 0b94f3fdd | `a_checkerboard_is_one_node_where_it_was_a_div_per_cell` |
 | A3-solver-34b | wrong-output | `widgets/color_input.rs` swatch click | medium | fixed a250251a5 | `clicking_toggles_the_picker_through_the_engine_and_never_touches_the_color` |
 | A3-solver-35a | waste | `widgets/node_graph.rs` rebuild on every pan release | high | fixed 350ce0f23 | `the_end_of_a_pan_rebuilds_a_culled_graph_once` |
-| A3-solver-35b | waste | `widgets/node_graph.rs` pan as one transform per container | medium | open: not built - the third agent's context ended before this row; what it waited for is in (A1-60 `bf57ffc9a`: a frame nested in a group counts where its matrix puts it); steps in the third hand-over | - |
+| A3-solver-35b | waste | `widgets/node_graph.rs` pan as one transform per container | medium | fixed 33a88a9ed | `a_step_of_a_pan_writes_the_two_containers_whatever_the_graph_holds`, `a_step_of_a_node_drag_writes_the_offset_only_where_the_boxes_carry_it`, `a_render_declares_the_offset_on_the_containers_and_the_model_on_the_boxes`, `a_graph_with_its_offset_on_the_containers_is_painted_and_hit_as_before`, `a_pan_written_on_the_two_containers_paints_the_graph_built_at_that_offset` |
 | A3-solver-35c | waste | `widgets/node_graph.rs` drag writes width / height | high | fixed 429f0d444 | `a_step_of_a_node_drag_writes_no_layout_property_on_a_connection` |
 | A3-solver-35d | wrong-output | `widgets/node_graph.rs` pan loop that does not advance | medium | fixed 516fce10f | `a_pan_passes_over_the_boxes_it_cannot_place_and_writes_the_rest` |
 | A3-solver-35e | waste | `widgets/node_graph.rs` graph cloned per render | medium | fixed 2607ce45e | `a_render_moves_the_graph_into_its_dataset_and_copies_none_of_it` |
@@ -162,7 +162,7 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | fixed 9019db74d | `a_sticky_box_inside_an_absolute_one_stands_at_its_shift_and_keeps_its_place` ([reveals] 6f54a959e) |
 | A3-solver-54 | wrong-output | `positioning.rs` the boxes inside a sticky box do not move with its baked shift | medium | fixed 6f402e476 | `the_boxes_inside_a_sticky_box_go_with_it` and two more ([reveals] in the commit before) |
 | A3-solver-55 | wrong-output | `widgets/node_graph.rs` the transforms a drag or pan writes outlive the gesture (`migrate_user_overrides_from`) | medium | fixed 4d00e3327 | `widgets::node_graph::..::the_release_after_a_gesture_hands_every_transform_back` (widget half, written by A3-window's agent in this area's file; engine half `2c97331eb` = A3-window-51) |
-| A3-solver-55b | wrong-output | `widgets/node_graph.rs` `nodegraph_drag_graph_or_nodes`: a gesture released OUTSIDE the graph's box keeps its transforms (the release is heard on the box only) | low | open: the patch is written out in the third hand-over; it has no test yet (the drag callback's fixtures set no mouse state with the button up) | - |
+| A3-solver-55b | wrong-output | `widgets/node_graph.rs` `nodegraph_drag_graph_or_nodes`: a gesture released OUTSIDE the graph's box keeps its transforms (the release is heard on the box only) | low | fixed fc4ffd21d | `a_move_with_the_button_up_ends_a_gesture_released_outside_the_box` |
 | A3-solver-56 | wrong-output | `fc/floats.rs` `position_float`: the last float of a row that fills its box wraps for a quantisation error | medium | fixed 7f6081e84 | `fc::floats::audit_a3_solver_tests` (3) |
 | A6-13 | waste | `managers/scroll_registration.rs` `register_scroll_nodes`: the layout tree of a DOM copied per pass when its view raises a scrollbar (A6's row, built here) | medium | fixed 5ce5eae2f | `audit_tests::a3_solver::raised_bars::a_layout_pass_of_a_view_that_raises_a_bar_copies_no_layout_tree` and seven more |
 
@@ -1170,10 +1170,19 @@ node, pan, pan across the culling edge, undo a move after a pan.
 
 ## api.json
 
-No change by this area so far (A6-13, 25b, 17c, 56 are internal to `azul-layout`: `ScrollManager`'s new
-methods, `layout_tree::DomBoxes` and the bridge's journal are not part of the public API). Row 34 will add: a
-transient-content callback type and `NodeData::set_transient_content` / `Dom::with_transient_content` (third
-hand-over, 34 point 1).
+One addition (row 34, `34d0d1143`), nothing changed or removed:
+- `callbacks.TransientContentCallbackType`: `extern "C" fn(RefAny) -> Dom`.
+- `dom.TransientContentCallback`: the wrapper (`cb`, `ctx`), declared like `VirtualViewCallback`; the Rust side
+  applies `impl_callback!` and `impl_managed_callback!` (form 4, no argument besides the data), so it is
+  host-invokable like every wrapper (`AzApp_setTransientContentCallbackInvoker`,
+  `AzTransientContentCallback_createFromHostHandle[Byref]`).
+- `Dom.with_transient_content(data, callback)`, `Dom.set_transient_content`, `NodeData.set_transient_content`.
+Generator: `cd doc && cargo run --release -- codegen all` (no css type is touched: `gen_codegen_lowering.py`
+is not needed). Not in api.json, as their neighbours are not: `azul_core::dom::TransientContentNode`
+(`NodeDataExt::transient_content`), `NodeData::get_transient_content` / `take_transient_content`,
+`NodeField::TransientContent`.
+
+Everything else of this area is internal to `azul-layout` (A6-13, 25b, 17c, 17d, 56, 35b, 55b).
 
 ## What to look at on the real window (third agent's rows)
 
@@ -1185,3 +1194,67 @@ hand-over, 34 point 1).
   split pane. A box that keeps a stale size or stale text lines after a neighbour changed is this row; compare
   with `AZ_NO_TAFFY_MEASURE_JOURNAL=1`.
 - 56: a row of floats that fills its box exactly keeps its last float on the line.
+- 35b (`33a88a9ed`; switch `AZ_NODEGRAPH_PAN=nodes` = the offset on every node box and wire, as before; default:
+  on the two containers, because the picture and the hits are compared with the old path by two CPU tests and
+  the renderer paints a translation-only frame in place): the editor's node graph - pan it (the nodes and the
+  wires' boxes move together, nothing lags or jumps when the pan starts or ends), pan across the culling edge
+  (nodes come in after the release), drag a node after a pan (it must not jump by the offset when grabbed),
+  release a pan outside the graph's box and move back over it (55b), undo a node move after a pan, a zoomed
+  graph (scale other than 1: the node boxes are scaled frames inside the moved container), the context menu's
+  "add node" after a pan (the new node under the cursor), and the same on the GPU path. Anything off: compare
+  with `AZ_NODEGRAPH_PAN=nodes`.
+- 34 (`34d0d1143`, no switch: it changes what a DOM holds, and the tests compare the shown panel with the old
+  one): a colour input - click the swatch (the picker opens with its panel, sized to it), flat and flora, app
+  theme light and dark, a pinned theme; drag plane / hue / alpha, pass through black and back (the hue stays),
+  type a hex, the eyedropper; tear the palette off by its grip and dock it; let the app rebuild while the
+  picker is open and while a drag is running (the editor's colour fields rebuild on every change: the drag
+  must go on, the panel must not flash or close); the colour field of a node-graph node.
+- 17d (`79a700d1f`): text in flex layouts after a resize and under hover (rows of labels, a navigation pane,
+  the node graph's fields): every label wraps at its box's width, none shows the lines of an earlier width.
+  A label with stale lines is this row; compare with `AZ_NO_TAFFY_MEASURE_JOURNAL=1`.
+
+## Hand-over (fourth; written after the coordinator's checkpoint order, nothing in flight)
+
+Built in this session, none of it compiled or run: 55b `fc4ffd21d`, 35b `33a88a9ed`, 17d `79a700d1f`, 34
+`34d0d1143`. The worktree is clean. No row of the table is open.
+
+By risk, most likely to need the compiler's or a test's word first:
+1. **34** `34d0d1143`: a new callback kind through `impl_managed_callback!` form 4 with an empty `args: []`
+   (no other kind has none: if the macro does not take it, give the callback a second argument or add an arm);
+   the 12-field `cmp_key` of `NodeDataExt` is kept at 11 by nesting the two callback payloads; `api.json` by
+   hand; 26 test call sites of `color_input.rs` renamed mechanically to `dom_with_panel`;
+   `dll/tests/transient_window_layout.rs` was read only in part - a test that looks for `color_picker_*` in the
+   PARENT window's DOM must read the popup's. Open design point, stated in the commit: an app stylesheet that
+   selected nodes of the picker PANEL no longer reaches them (the panel is not part of the app's DOM).
+2. **17d** `79a700d1f`: the cause was inferred from the code path (two definite-width questions and the final
+   layout, each flowing), not seen. If `a_hovered_label_flows_its_text_once_however_often_it_is_measured` still
+   counts more than 1 flow: the `ifc_reflow_*` probes in the drained events name the gate that rejected the
+   kept lines (`InlineMeasureLayouts::definite`, read in `layout_ifc` Phase 2d as `from_kept_definite`).
+   `every_label_is_laid_out_as_in_a_fresh_window_after_mixed_measures` is the test that shows a wrong reuse.
+   Seen while reading, not changed: a journaled measure whose content hash differs from the final layout's
+   (content changed while the flag says current) restores the old final layout and leaves it current; no path
+   to that state was found (a content change clears the node's cache, a restyle above clears its taffy cache).
+3. **35b** `33a88a9ed`: the two `cpurender` tests compare frames pixel for pixel between the two modes; a
+   count of differing pixels there decides between a fix and the default `nodes`. Seen, not changed: the
+   holder of a wire is `overflow: hidden` around a box its child is translated out of - nothing is drawn in a
+   wire today (`draw_connection` returns a null image), so nothing is cut; when wires are drawn the holder must
+   lose the clip.
+4. **55b** `fc4ffd21d`: one branch and a test harness function (`with_info_between`).
+
+Where the built rows differ from their designs:
+- 34: the callback is `extern "C" fn(RefAny) -> Dom` on the NODE (`NodeDataExt::transient_content`), not
+  `fn(RefAny, LayoutCallbackInfo)` in `TransientWindowConfig`; no shell change (one call site in core,
+  `extract_subtree_as_dom`); the reconcile change is a row of the node-field table
+  (`NodeField::TransientContent`), not a line in `transfer_states`; the data records the look, the pin and
+  the app theme of the build, because the panel is built outside the layout callback.
+- 35b: the default is the containers, not `nodes` (design step 5 waited for A1-60 on screen: two CPU tests
+  compare the frames and the hits with the old path instead); the mode is recorded in the render's dataset,
+  so a test builds either; the release clears by what the gesture wrote (2 after a pan, every box and wire
+  after a node drag).
+- 17d is new: not in any design; 17c's design said "a measure leaves the subtree as it found it" and missed
+  that the text a measure flows is kept in the node.
+
+Not read in this session: `layout/src/cpurender/raster.rs` beyond the frame placement in `compositor.rs`
+(35b relies on A1's `FramePlacement::Moved` and `extent_with`), `dll/tests/transient_window_layout.rs` in
+full, the managed bindings' generators.
+
