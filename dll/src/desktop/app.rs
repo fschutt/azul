@@ -675,7 +675,9 @@ pub struct AppInternal {
     /// Consumers take `clone_shared()` copies: those share the two pools while
     /// keeping a private `fc_cache` field, so each window can still swap in its
     /// own registry snapshot at layout time (`replace_fc_cache`) without
-    /// disturbing anyone else.
+    /// disturbing anyone else. They share the app's registered fonts the same way
+    /// (`FontManager::registered_fonts`: the faces the app ships and the ones it
+    /// registers while it runs, made in `AppInternal::create`).
     ///
     /// `Option` because building it can fail; the app still runs, callers fall
     /// back to constructing their own as before. `Arc` so this stays a thin

@@ -16774,6 +16774,45 @@ mod child_window_tests {
         assert_eq!(CHILD_CREATED.load(Ordering::SeqCst), 1, "created once, pumped many times");
     }
 
+    /// A window opened from a callback draws with the registered fonts of the window that opened
+    /// it, as the windows of the other shells draw with the app's through the app's font manager:
+    /// a face registered through the one is the other's too. A window built on its own has
+    /// registered fonts of its own, and so has one given the app's
+    /// (`HeadlessWindow::share_registered_fonts`).
+    #[test]
+    fn a_window_opened_from_a_callback_shares_the_registered_fonts_of_its_opener() {
+        let fonts = |window: &HeadlessWindow| {
+            Arc::clone(
+                &window
+                    .common
+                    .layout_window
+                    .as_ref()
+                    .expect("a layout window")
+                    .font_manager
+                    .registered_fonts,
+            )
+        };
+        let mut opener = root();
+        opener.queue_window_create(window(root_layout, "child"));
+        opener.pump_children();
+        assert_eq!(opener.children.len(), 1, "the child window exists");
+        assert!(
+            Arc::ptr_eq(&fonts(&opener), &fonts(&opener.children[0])),
+            "the child draws with the registered fonts of its opener"
+        );
+
+        let mut alone = root_with(root_layout);
+        assert!(
+            !Arc::ptr_eq(&fonts(&opener), &fonts(&alone)),
+            "a window built on its own has registered fonts of its own"
+        );
+        alone.share_registered_fonts(&fonts(&opener));
+        assert!(
+            Arc::ptr_eq(&fonts(&opener), &fonts(&alone)),
+            "and takes the ones it is given"
+        );
+    }
+
     static ROOT_LAYOUTS: AtomicUsize = AtomicUsize::new(0);
 
     extern "C" fn counting_root_layout(_data: RefAny, _info: LayoutCallbackInfo) -> Dom {
