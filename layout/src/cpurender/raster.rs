@@ -2437,11 +2437,30 @@ impl WindowGpuValues {
     ) -> Self {
         let mut values = Self::default();
         for dom in doms {
-            let cache = gpu_state.get_cache(dom);
-            let (transforms, opacities) = extract_gpu_values(cache, dom);
-            values.transforms.extend(transforms);
-            values.opacities.extend(opacities);
-            values.colors.extend(extract_gpu_colors(cache));
+            let Some(cache) = gpu_state.get_cache(dom) else {
+                continue;
+            };
+            // Straight into the window's maps, with room made first: a map per DOM that was
+            // then copied into these hashed every value twice and grew both maps from
+            // nothing, every frame (2,118 transforms for a map's labels).
+            let Self { transforms, opacities, colors } = &mut values;
+            transforms.reserve(
+                cache.css_transform_keys.len()
+                    + cache.transform_keys.len()
+                    + cache.anim_transform_keys.len(),
+            );
+            cache.for_each_bound_value(
+                dom,
+                |key, value| {
+                    transforms.insert(key, *value);
+                },
+                |key, value| {
+                    opacities.insert(key, value);
+                },
+            );
+            cache.for_each_bound_color(|key, color| {
+                colors.insert(key, color);
+            });
         }
         values
     }

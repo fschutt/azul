@@ -2845,31 +2845,72 @@ pub fn gpu_value_damage(
     new_opacities: &HashMap<usize, f32>,
     scroll_offsets: &ScrollOffsetMap,
 ) -> GpuValueDamage {
-    use std::collections::HashSet;
+    gpu_value_damage_of(
+        display_list,
+        &changed_keys(old_transforms, new_transforms),
+        &changed_keys(old_opacities, new_opacities),
+        old_transforms,
+        new_transforms,
+        scroll_offsets,
+    )
+}
 
-    let mut changed_t: HashSet<usize> = HashSet::new();
-    for (k, v) in new_transforms {
-        if old_transforms.get(k) != Some(v) {
-            changed_t.insert(*k);
+/// The keys whose value differs between two frames: changed, new or gone.
+fn changed_keys<V: PartialEq>(
+    old: &HashMap<usize, V>,
+    new: &HashMap<usize, V>,
+) -> std::collections::HashSet<usize> {
+    let mut changed = std::collections::HashSet::new();
+    for (k, v) in new {
+        if old.get(k) != Some(v) {
+            changed.insert(*k);
         }
     }
-    for k in old_transforms.keys() {
-        if !new_transforms.contains_key(k) {
-            changed_t.insert(*k);
+    // A key can only be gone if the old map holds one the new one does not: with every new
+    // key found in the old map and the same count, there is none.
+    if old.len() != new.len() || !changed.is_empty() {
+        for k in old.keys() {
+            if !new.contains_key(k) {
+                changed.insert(*k);
+            }
         }
     }
-    let mut changed_o: HashSet<usize> = HashSet::new();
-    for (k, v) in new_opacities {
-        if old_opacities.get(k) != Some(v) {
-            changed_o.insert(*k);
-        }
-    }
-    for k in old_opacities.keys() {
-        if !new_opacities.contains_key(k) {
-            changed_o.insert(*k);
+    changed
+}
+
+/// The keys of a window whose value differs between two frames ([`changed_keys`] of each
+/// kind), found ONCE per frame: every list of the window (its own and every view's) is asked
+/// what it owes for them, and each used to find them again from the full maps.
+#[derive(Debug, Default)]
+struct ChangedValues {
+    transforms: std::collections::HashSet<usize>,
+    opacities: std::collections::HashSet<usize>,
+    colors: std::collections::HashSet<usize>,
+}
+
+impl ChangedValues {
+    fn between(old: &WindowGpuValues, new: &WindowGpuValues) -> Self {
+        Self {
+            transforms: changed_keys(&old.transforms, &new.transforms),
+            opacities: changed_keys(&old.opacities, &new.opacities),
+            colors: changed_keys(&old.colors, &new.colors),
         }
     }
 
+    fn is_empty(&self) -> bool {
+        self.transforms.is_empty() && self.opacities.is_empty() && self.colors.is_empty()
+    }
+}
+
+/// [`gpu_value_damage`] for keys already known to have changed (`changed_t`, `changed_o`).
+fn gpu_value_damage_of(
+    display_list: &DisplayList,
+    changed_t: &std::collections::HashSet<usize>,
+    changed_o: &std::collections::HashSet<usize>,
+    old_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    new_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    scroll_offsets: &ScrollOffsetMap,
+) -> GpuValueDamage {
     let mut out = GpuValueDamage::default();
     if changed_t.is_empty() && changed_o.is_empty() {
         return out;
@@ -2878,7 +2919,7 @@ pub fn gpu_value_damage(
     // changes none of its pixels: no walk of the list (the keys it binds were found once, with
     // its index).
     let index = display_list.frame_index();
-    if !index.binds_a_transform_key(&changed_t) && !index.binds_an_opacity_key(&changed_o) {
+    if !index.binds_a_transform_key(changed_t) && !index.binds_an_opacity_key(changed_o) {
         return out;
     }
     crate::cpu_counters::count(
@@ -3019,18 +3060,29 @@ pub fn color_value_damage(
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
     scroll_offsets: &ScrollOffsetMap,
 ) -> GpuValueDamage {
-    let changed = |key: usize| old_colors.get(&key) != new_colors.get(&key);
+    color_value_damage_of(
+        display_list,
+        &changed_keys(old_colors, new_colors),
+        transforms,
+        scroll_offsets,
+    )
+}
+
+/// [`color_value_damage`] for colour keys already known to have changed.
+fn color_value_damage_of(
+    display_list: &DisplayList,
+    changed_colors: &std::collections::HashSet<usize>,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    scroll_offsets: &ScrollOffsetMap,
+) -> GpuValueDamage {
+    let changed = |key: usize| changed_colors.contains(&key);
     let mut out = GpuValueDamage::default();
-    if new_colors.iter().all(|(k, v)| old_colors.get(k) == Some(v))
-        && old_colors.keys().all(|k| new_colors.contains_key(k))
-    {
+    if changed_colors.is_empty() {
         return out;
     }
     // Only a colour bound to a background of THIS list changes its pixels.
     let index = display_list.frame_index();
-    let bound_change = new_colors.iter().any(|(k, v)| old_colors.get(k) != Some(v) && index.binds_a_color_key(*k))
-        || old_colors.keys().any(|k| !new_colors.contains_key(k) && index.binds_a_color_key(*k));
-    if !bound_change {
+    if !changed_colors.iter().any(|k| index.binds_a_color_key(*k)) {
         return out;
     }
     crate::cpu_counters::count(
@@ -3107,10 +3159,13 @@ pub fn window_value_damage(
     new: &WindowGpuValues,
     scroll_offsets: &ScrollOffsetMap,
 ) -> GpuValueDamage {
-    if old == new {
+    // The keys that changed, found once for every list of the window (and nothing to do
+    // without one: what `old == new` asked before).
+    let changed = ChangedValues::between(old, new);
+    if changed.is_empty() {
         return GpuValueDamage::default();
     }
-    list_value_damage(display_list, views, old, new, scroll_offsets, 0)
+    list_value_damage(display_list, views, old, new, &changed, scroll_offsets, 0)
 }
 
 /// [`window_value_damage`] of one list, its rects in the space the list is painted in.
@@ -3119,18 +3174,19 @@ fn list_value_damage(
     views: &std::collections::BTreeMap<azul_core::dom::DomId, std::sync::Arc<DisplayList>>,
     old: &WindowGpuValues,
     new: &WindowGpuValues,
+    changed: &ChangedValues,
     scroll_offsets: &ScrollOffsetMap,
     depth: usize,
 ) -> GpuValueDamage {
-    let mut out = gpu_value_damage(
+    let mut out = gpu_value_damage_of(
         list,
+        &changed.transforms,
+        &changed.opacities,
         &old.transforms,
-        &old.opacities,
         &new.transforms,
-        &new.opacities,
         scroll_offsets,
     );
-    let colors = color_value_damage(list, &old.colors, &new.colors, &new.transforms, scroll_offsets);
+    let colors = color_value_damage_of(list, &changed.colors, &new.transforms, scroll_offsets);
     out.rects.extend(colors.rects);
     out.needs_full |= colors.needs_full;
     if views.is_empty() {
@@ -3144,7 +3200,7 @@ fn list_value_damage(
         if let DisplayListItem::VirtualView { child_dom_id, .. } = &list.items[at] {
             if let Some(child) = views.get(child_dom_id) {
                 let inner = (depth < MAX_VIEW_DEPTH)
-                    .then(|| list_value_damage(child, views, old, new, scroll_offsets, depth + 1));
+                    .then(|| list_value_damage(child, views, old, new, changed, scroll_offsets, depth + 1));
                 inners.push((at, inner));
             }
         }
@@ -3159,7 +3215,9 @@ fn list_value_damage(
     // The frames around each view item, with the live matrices of this frame: a view
     // inside a turned or scaled frame is painted through it.
     let mut stack = ScrollStack::with_transforms(scroll_offsets, &new.transforms);
-    for (idx, item) in list.items.iter().enumerate() {
+    // Up to the list's last view: nothing after it is placed here.
+    let walked = index.views().last().map_or(0, |last| last + 1);
+    for (idx, item) in list.items.iter().enumerate().take(walked) {
         if let DisplayListItem::VirtualView {
             bounds,
             content_offset,
@@ -12292,5 +12350,29 @@ mod audit_a1_tests {
         let mut few = lattice(20, 10);
         coalesce_damage_rects(&mut few);
         assert_eq!(few, lattice(20, 10), "200 rects are under the bound: the pair rule alone");
+    }
+
+    /// A1-32: the keys whose value differs between two frames, found once per frame.
+    /// - equal maps: none;
+    /// - {1: 0.5, 2: 0.25} -> {1: 0.5, 2: 0.75}: key 2 (changed);
+    /// - {1: 0.5} -> {1: 0.5, 4: 1.0}: key 4 (new; the counts differ);
+    /// - {1: 0.5, 2: 0.25} -> {1: 0.5}: key 2 (gone; the counts differ);
+    /// - {1: 0.5, 2: 0.25} -> {1: 0.5, 3: 0.25}: keys 2 and 3 - the SAME count, one gone and
+    ///   one new: the old map is searched because a new key was not found in it.
+    /// Mutation: the search of the old map only when the counts differ loses key 2 of the
+    /// last case.
+    #[test]
+    fn the_keys_whose_value_changed_are_the_changed_the_new_and_the_gone() {
+        let map = |pairs: &[(usize, f32)]| -> HashMap<usize, f32> { pairs.iter().copied().collect() };
+        let changed = |old: &[(usize, f32)], new: &[(usize, f32)]| {
+            let mut keys: Vec<usize> = changed_keys(&map(old), &map(new)).into_iter().collect();
+            keys.sort_unstable();
+            keys
+        };
+        assert!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5), (2, 0.25)]).is_empty());
+        assert_eq!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5), (2, 0.75)]), vec![2]);
+        assert_eq!(changed(&[(1, 0.5)], &[(1, 0.5), (4, 1.0)]), vec![4]);
+        assert_eq!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5)]), vec![2]);
+        assert_eq!(changed(&[(1, 0.5), (2, 0.25)], &[(1, 0.5), (3, 0.25)]), vec![2, 3]);
     }
 }
