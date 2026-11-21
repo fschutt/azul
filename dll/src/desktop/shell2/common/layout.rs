@@ -2132,7 +2132,10 @@ pub fn regenerate_layout(
     });
     let permission_events = layout_window.permission_manager.take_pending_events();
     if !permission_events.is_empty() {
-        crate::desktop::extra::permission::apply_diff_events(&permission_events);
+        crate::desktop::extra::permission::apply_diff_events(
+            &permission_events,
+            &layout_window.app_services.permission,
+        );
     }
 
     // 7b. Geolocation diff — symmetric to the permission pass. Walks
@@ -2162,7 +2165,10 @@ pub fn regenerate_layout(
     }
     let geolocation_events = layout_window.geolocation_manager.take_pending_events();
     if !geolocation_events.is_empty() {
-        crate::desktop::extra::geolocation::apply_diff_events(&geolocation_events);
+        crate::desktop::extra::geolocation::apply_diff_events(
+            &geolocation_events,
+            &layout_window.app_services,
+        );
     }
     drop(span_capabilities);
 
