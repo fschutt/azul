@@ -16069,7 +16069,8 @@ pub(crate) trait RunningTextSetter {
     /// The display list items of `text` set in `band` (page coordinates) the
     /// way `style` asks for (font family, size, color), `alignment` along the
     /// band. Empty when nothing can be drawn: the setter says why where it
-    /// reports.
+    /// reports. Blank text and a size that is no size ([`is_drawable_size`])
+    /// are nothing to draw, and nothing to say.
     fn set_text(
         &mut self,
         text: &str,
@@ -16079,10 +16080,20 @@ pub(crate) trait RunningTextSetter {
     ) -> Vec<DisplayListItem>;
 }
 
+/// Whether text can be set at `font_size`: a positive, finite size in px.
+/// Zero and a negative size set nothing, and NaN or infinity would make every
+/// coordinate of the text NaN.
+pub(crate) const fn is_drawable_size(font_size: f32) -> bool {
+    font_size.is_finite() && font_size > 0.0
+}
+
 /// Report a finding of the page furniture once per process through
-/// `azul_core::diagnostics::emit_once`, keyed by `tag` (the finding, not the
-/// page that saw it: a document of a thousand pages has one finding). `message`
-/// is built only when it is printed. Returns whether it was.
+/// `azul_core::diagnostics::emit_once`, keyed by `tag`. The tag names the KIND
+/// of finding (not the page that saw it: a document of a thousand pages has
+/// one finding; and not the family, the face or the text it was about: the
+/// table of once-only keys is bounded, and a key made of what a caller passes
+/// in lets the callers fill it). `message` is built only when it is printed.
+/// Returns whether it was.
 pub(crate) fn report_once(tag: &str, message: impl FnOnce() -> String) -> bool {
     use std::hash::{Hash, Hasher};
 
@@ -16110,6 +16121,10 @@ impl RunningTextSetter for RegisteredFontText<'_> {
         style: &HeaderFooterConfig,
         alignment: TextAlignment,
     ) -> Vec<DisplayListItem> {
+        // Nothing to draw, and nothing to say: blank text, or a size that is no size.
+        if text.trim().is_empty() || !is_drawable_size(style.font_size) {
+            return Vec::new();
+        }
         let items = generate_text_display_items(
             text,
             band,
@@ -16118,7 +16133,7 @@ impl RunningTextSetter for RegisteredFontText<'_> {
             alignment,
             self.0,
         );
-        if items.is_empty() && !text.is_empty() && style.font_size > 0.0 {
+        if items.is_empty() {
             report_once("paginate: page text without a registered font", || {
                 "[azul][paginate] a page's header or footer text was not drawn: this slicing \
                  entry point draws it with a font registered in `RendererResources` and none \

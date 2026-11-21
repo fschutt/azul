@@ -98,7 +98,8 @@ fn page_text_with_a_registered_font_is_drawn_and_not_reported() {
     assert!(!azul_core::diagnostics::any_contains(REPORT));
 }
 
-/// A text of size zero, or none at all, is nothing to draw: not a finding.
+/// A text of size zero, or none at all, or blank, is nothing to draw: not a
+/// finding (the text of a blank header is not missing a font).
 #[test]
 fn no_text_and_no_size_are_not_reported() {
     let _lock = azul_core::diagnostics::test_lock()
@@ -116,8 +117,63 @@ fn no_text_and_no_size_are_not_reported() {
     assert!(setter
         .set_text("Header", band, &sized, TextAlignment::Center)
         .is_empty());
-    assert!(setter
-        .set_text("", band, &HeaderFooterConfig::default(), TextAlignment::Center)
-        .is_empty());
+    for blank in ["", " ", "\t \n"] {
+        assert!(
+            setter
+                .set_text(blank, band, &HeaderFooterConfig::default(), TextAlignment::Center)
+                .is_empty(),
+            "{blank:?}"
+        );
+    }
     assert!(!azul_core::diagnostics::any_contains(REPORT));
+}
+
+/// Blank text draws nothing where a font is registered, as it draws nothing
+/// where none is (a run of space glyphs is no header).
+#[test]
+fn blank_text_draws_nothing_where_a_font_is_registered() {
+    let resources = resources_with_a_font();
+    let band = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(100.0, 30.0));
+    let mut setter = RegisteredFontText(&resources);
+
+    for blank in [" ", "   ", "\t \n"] {
+        assert!(
+            setter
+                .set_text(blank, band, &HeaderFooterConfig::default(), TextAlignment::Center)
+                .is_empty(),
+            "{blank:?}"
+        );
+    }
+}
+
+/// A size that is not a number, or not finite, makes every coordinate of the
+/// text NaN: nothing is drawn at it, with a font registered or not.
+#[test]
+fn a_size_that_is_no_size_draws_nothing_where_a_font_is_registered() {
+    let resources = resources_with_a_font();
+    let band = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(100.0, 30.0));
+    let mut setter = RegisteredFontText(&resources);
+
+    for size in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -3.0] {
+        let sized = HeaderFooterConfig {
+            font_size: size,
+            ..HeaderFooterConfig::default()
+        };
+        assert!(
+            setter
+                .set_text("Header", band, &sized, TextAlignment::Center)
+                .is_empty(),
+            "size {size}"
+        );
+    }
+}
+
+/// What a size is: a positive, finite number of px.
+#[test]
+fn a_drawable_size_is_positive_and_finite() {
+    assert!(is_drawable_size(10.0));
+    assert!(is_drawable_size(f32::MIN_POSITIVE));
+    for size in [0.0, -1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(!is_drawable_size(size), "{size}");
+    }
 }

@@ -32,6 +32,7 @@ use azul_css::{
     props::basic::{font::parse_style_font_family, PhysicalSize},
     LayoutDebugMessage,
 };
+use rust_fontconfig::config::is_generic_family;
 
 use crate::{
     font_traits::{
@@ -41,7 +42,8 @@ use crate::{
     },
     solver3::{
         display_list::{
-            report_once, DisplayListItem, RunningTextSetter, SlicerConfig, TextAlignment,
+            is_drawable_size, report_once, DisplayListItem, RunningTextSetter, SlicerConfig,
+            TextAlignment,
         },
         getters,
         pagination::{CounterFormat, HeaderFooterConfig, MarginBoxContent, OptionPageSetup},
@@ -91,23 +93,64 @@ impl FaceKey {
     }
 }
 
+/// A kind of finding of the page furniture: what the process is told once,
+/// whatever family, face or text ran into it (see [`Reporter::warn`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Finding {
+    /// No face was prepared for the family and size a page setup asks for.
+    NoFacePrepared,
+    /// Shaping the text failed.
+    ShapingFailed,
+    /// No face of the family can draw any of the text.
+    NoGlyphs,
+    /// No face can draw some of the text, and the rest of it was drawn.
+    NoGlyphsForPartOfTheText,
+    /// No family of a font family list matches a font.
+    UnresolvedFamilies,
+    /// A face of the chain of a family could not be loaded.
+    FontLoadFailed,
+}
+
+impl Finding {
+    /// The key the process remembers the kind by (`report_once`).
+    const fn class(self) -> &'static str {
+        match self {
+            Self::NoFacePrepared => "paginate: no face prepared",
+            Self::ShapingFailed => "paginate: shaping failed",
+            Self::NoGlyphs => "paginate: no glyphs",
+            Self::NoGlyphsForPartOfTheText => "paginate: no glyphs for part of the text",
+            Self::UnresolvedFamilies => "paginate: unresolved families",
+            Self::FontLoadFailed => "paginate: font load failed",
+        }
+    }
+}
+
 /// Where the warnings of the page furniture go: the layout's debug messages
-/// when it collects them, and the process's diagnostics once per finding.
-/// A finding is said once per layout however many pages see it.
+/// when it collects them, and the process's diagnostics once per kind of
+/// finding.
 struct Reporter<'a> {
     sink: &'a mut Option<Vec<LayoutDebugMessage>>,
     said: BTreeSet<String>,
 }
 
 impl Reporter<'_> {
-    fn warn(&mut self, tag: &str, message: String) {
-        if !self.said.insert(tag.to_owned()) {
+    /// Says a finding of `kind` with `message`; `detail` (the family, the face)
+    /// is what tells it from the others of its kind in a layout.
+    ///
+    /// The layout's debug messages get each kind and detail once, however many
+    /// pages run into it. The process gets each KIND once: the diagnostics'
+    /// table of once-only keys holds 1024 and prints no new finding after
+    /// that, so a key made of a family a caller passes in would let a service
+    /// that lays out documents in arbitrary families silence every once-only
+    /// finding of the process.
+    fn warn(&mut self, kind: Finding, detail: &str, message: String) {
+        if !self.said.insert(format!("{}: {detail}", kind.class())) {
             return;
         }
         if let Some(messages) = self.sink.as_mut() {
             messages.push(LayoutDebugMessage::warning(message.clone()));
         }
-        report_once(tag, || message);
+        report_once(kind.class(), || message);
     }
 }
 
@@ -262,10 +305,11 @@ impl<T: ParsedFontTrait> RunningTextSetter for RunningText<'_, T> {
         style: &HeaderFooterConfig,
         alignment: TextAlignment,
     ) -> Vec<DisplayListItem> {
-        // Nothing to draw: no text, no size, or text nobody can see.
-        if text.is_empty()
-            || style.font_size.is_nan()
-            || style.font_size <= 0.0
+        // Nothing to draw, and nothing to say: no text or blank text (it would
+        // shape to an empty layout, and the empty layout be taken for a missing
+        // font), a size that is no size, or text nobody can see.
+        if text.trim().is_empty()
+            || !is_drawable_size(style.font_size)
             || style.text_color.a == 0
         {
             return Vec::new();
@@ -275,6 +319,10 @@ impl<T: ParsedFontTrait> RunningTextSetter for RunningText<'_, T> {
             .family
             .clone()
             .unwrap_or_else(|| "the document's default font".to_owned());
+        // `wanted_faces` mirrors the slicer's choice of the setup of every page,
+        // so a face is prepared for every style the slicer asks about. This is
+        // the guard for the day the two drift apart: a setup the slicer picks
+        // and `wanted_faces` does not see is said, not a header that vanishes.
         let Some(stack) = self
             .faces
             .iter()
@@ -282,7 +330,8 @@ impl<T: ParsedFontTrait> RunningTextSetter for RunningText<'_, T> {
             .map(|(_, stack)| stack.clone())
         else {
             self.reporter.warn(
-                &format!("no face prepared: {family}"),
+                Finding::NoFacePrepared,
+                &family,
                 format!(
                     "[azul][paginate] the page text {text:?} was not drawn: no font was resolved \
                      for {family} at {}px",
@@ -293,7 +342,8 @@ impl<T: ParsedFontTrait> RunningTextSetter for RunningText<'_, T> {
         };
         let Some(layout) = self.shape(text, &stack, style, band.size.width, alignment) else {
             self.reporter.warn(
-                &format!("shaping failed: {family}"),
+                Finding::ShapingFailed,
+                &family,
                 format!(
                     "[azul][paginate] the page text {text:?} was not drawn: shaping it in \
                      {family} failed"
@@ -301,25 +351,65 @@ impl<T: ParsedFontTrait> RunningTextSetter for RunningText<'_, T> {
             );
             return Vec::new();
         };
-        let items = self.paint(layout, &stack, style, band);
-        if items.is_empty() {
+        self.finish(layout, &stack, style, band, text, &family)
+    }
+}
+
+/// What [`RunningText::paint`] made of a shaped layout.
+#[derive(Default)]
+struct Painted {
+    /// The shaped layout and its glyph runs; empty when no run has a face to
+    /// be drawn with.
+    items: Vec<DisplayListItem>,
+    /// The runs of glyphs the layout has.
+    runs: usize,
+    /// The runs of them left out: a glyph whose face never resolved carries no
+    /// hash, and a renderer has nothing to draw it with.
+    dropped: usize,
+}
+
+impl<T: ParsedFontTrait> RunningText<'_, T> {
+    /// The display list items of the shaped `layout` of `text` in `band` (see
+    /// [`Self::paint`]), saying what of the text could not be drawn: all of it,
+    /// or part of it (a layout of two runs, one with a face and one without,
+    /// draws one).
+    fn finish(
+        &mut self,
+        layout: Arc<UnifiedLayout>,
+        stack: &FontStack,
+        style: &HeaderFooterConfig,
+        band: LogicalRect,
+        text: &str,
+        family: &str,
+    ) -> Vec<DisplayListItem> {
+        let painted = self.paint(layout, stack, style, band);
+        if painted.items.is_empty() {
             self.reporter.warn(
-                &format!("no glyphs: {family}"),
+                Finding::NoGlyphs,
+                family,
                 format!(
                     "[azul][paginate] the page text {text:?} was not drawn: no face of {family} \
                      could be loaded to set it in (the chain of the family has none, or its \
                      files could not be read)"
                 ),
             );
+        } else if painted.dropped > 0 {
+            self.reporter.warn(
+                Finding::NoGlyphsForPartOfTheText,
+                family,
+                format!(
+                    "[azul][paginate] part of the page text {text:?} was not drawn: {} of its {} \
+                     runs of glyphs have no face of {family} to be drawn with",
+                    painted.dropped, painted.runs
+                ),
+            );
         }
-        items
+        painted.items
     }
-}
 
-impl<T: ParsedFontTrait> RunningText<'_, T> {
     /// The display list items of a shaped `layout`, in `band`: its glyph runs
     /// and the layout itself. Empty when no glyph of it has a face to be drawn
-    /// with.
+    /// with; the runs that have none are left out and counted.
     ///
     /// The em box of the font is centred in the band, as the text of a header
     /// always was: the layout moves so that its first baseline lands where the
@@ -330,13 +420,13 @@ impl<T: ParsedFontTrait> RunningText<'_, T> {
         stack: &FontStack,
         style: &HeaderFooterConfig,
         band: LogicalRect,
-    ) -> Vec<DisplayListItem> {
+    ) -> Painted {
         let runs = get_glyph_runs_simple(&layout);
         let (Some(first_baseline), Some(primary)) = (
             layout.first_baseline(),
             runs.iter().map(|run| run.font_hash).find(|hash| *hash != 0),
         ) else {
-            return Vec::new();
+            return Painted::default();
         };
         let (ascent, descent) = line_box(
             self.font_manager
@@ -345,10 +435,12 @@ impl<T: ParsedFontTrait> RunningText<'_, T> {
                 .and_then(|m| m.line_metrics_px(style.font_size)),
             style.font_size,
         );
-        let baseline =
-            (band.size.height - (ascent + descent)).mul_add(0.5, band.origin.y + ascent);
+        // The plain `a + b * c`: layout output stays bit-reproducible (see the
+        // note on `clippy::suboptimal_flops` in lib.rs).
+        let baseline = band.origin.y + ascent + (band.size.height - (ascent + descent)) * 0.5;
         let origin = LogicalPosition::new(band.origin.x, baseline - first_baseline);
 
+        let with_glyphs = runs.iter().filter(|run| !run.glyphs.is_empty()).count();
         let texts: Vec<DisplayListItem> = runs
             .into_iter()
             // A glyph whose face never resolved carries no hash: the renderer
@@ -373,8 +465,9 @@ impl<T: ParsedFontTrait> RunningText<'_, T> {
             })
             .collect();
         if texts.is_empty() {
-            return Vec::new();
+            return Painted::default();
         }
+        let dropped = with_glyphs - texts.len();
         let extent = layout.bounds();
         let payload: Arc<dyn std::any::Any + Send + Sync> = layout;
         let mut items = Vec::with_capacity(texts.len() + 1);
@@ -387,7 +480,11 @@ impl<T: ParsedFontTrait> RunningText<'_, T> {
             color: style.text_color,
         });
         items.extend(texts);
-        items
+        Painted {
+            items,
+            runs: with_glyphs,
+            dropped,
+        }
     }
 }
 
@@ -419,10 +516,7 @@ fn wanted_faces(slicer: &SlicerConfig) -> BTreeMap<FaceKey, BTreeSet<char>> {
     }
     let mut wanted: BTreeMap<FaceKey, BTreeSet<char>> = BTreeMap::new();
     for config in configs {
-        if !(config.show_header || config.show_footer)
-            || config.font_size.is_nan()
-            || config.font_size <= 0.0
-        {
+        if !(config.show_header || config.show_footer) || !is_drawable_size(config.font_size) {
             continue;
         }
         let chars = wanted.entry(FaceKey::of(config)).or_default();
@@ -499,6 +593,31 @@ fn face_stack(key: &FaceKey, styled_dom: &StyledDom, viewport: LogicalSize) -> F
     }
 }
 
+/// The font families of a stack (`families`, the names of its chain's key) that
+/// nothing matched, when that is every family the stack names: the whole stack
+/// is then the fallback, and the CSS list the caller wrote set the text in none
+/// of what it asked for. Empty when some family matched, and for a stack of
+/// generic families only (`serif`, the ones the stack ends in: the system
+/// always has a face for them).
+///
+/// `"Georgia, Foo, serif"` is a good list where Georgia is installed, Foo
+/// missing or not; a missing first choice is what such a list is for. (The
+/// key leaves out an empty family name, so a trailing comma names nothing.)
+/// `unresolved` is what the resolver found no font for: on the registry's path
+/// the families ahead of the first match, on the legacy path every one.
+fn families_without_a_font(families: &[String], unresolved: &BTreeSet<String>) -> Vec<String> {
+    let named: Vec<String> = families
+        .iter()
+        .filter(|family| !is_generic_family(family))
+        .cloned()
+        .collect();
+    if named.iter().all(|family| unresolved.contains(family)) {
+        named
+    } else {
+        Vec::new()
+    }
+}
+
 /// Makes sure `font_manager` has the chain of `selectors` and the faces of it
 /// loaded, covering `chars`; says what could not be.
 fn ensure_fonts<T, F>(
@@ -541,19 +660,16 @@ fn ensure_fonts<T, F>(
             &font_manager.fc_cache,
             font_manager,
         );
-        if !resolved.unresolved_families.is_empty() {
-            let families: Vec<&str> = resolved
-                .unresolved_families
-                .iter()
-                .map(String::as_str)
-                .collect();
-            let families = families.join(", ");
+        let lost = families_without_a_font(&key.font_families, &resolved.unresolved_families);
+        if !lost.is_empty() {
+            let list = lost.join(", ");
             reporter.warn(
-                &format!("unresolved families: {families}"),
+                Finding::UnresolvedFamilies,
+                &list,
                 format!(
-                    "[azul][paginate] the font family \"{families}\" of the header and footer \
-                     matches no installed or registered font: the text is set in the fallback \
-                     of its stack"
+                    "[azul][paginate] none of the font families \"{list}\" of the header and \
+                     footer matches an installed or registered font: the text is set in the \
+                     fallback of its stack"
                 ),
             );
         }
@@ -567,7 +683,8 @@ fn ensure_fonts<T, F>(
             .and_then(|pattern| pattern.name.or(pattern.family))
             .unwrap_or_else(|| format!("{id:?}"));
         reporter.warn(
-            &format!("font load failed: {id:?}"),
+            Finding::FontLoadFailed,
+            &format!("{id:?}"),
             format!(
                 "[azul][paginate] failed to load the font {name} of the header and footer: \
                  {error}"
