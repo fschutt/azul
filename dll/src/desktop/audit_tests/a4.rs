@@ -1060,9 +1060,18 @@ mod a_settle_sent_without_the_wait {
         }
 
         /// Lightweight passes until no halo is owed and a pass changes nothing.
+        /// Between two passes the scene builder gets through what it was sent
+        /// and the renderer's wake brings the pass that takes the frame in: a
+        /// follow-up frame can carry a display list of its own (a halo picture
+        /// that did not fit its stand-in's place is shown with one, at 1x),
+        /// and without the wait that list is a scene in flight like a
+        /// settle's. Left in flight it made the NEXT list wait for both (rule
+        /// 4) - which is what the first run of this test met.
         fn come_to_rest(&mut self) {
             for _ in 0..60 {
-                if self.lightweight().is_none() && !self.view.window.gpu_state_manager.halos_owed {
+                let sent = self.lightweight();
+                self.the_scene_lands();
+                if sent.is_none() && !self.view.window.gpu_state_manager.halos_owed {
                     return;
                 }
             }
