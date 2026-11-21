@@ -3,7 +3,7 @@
 //! none.
 //!
 //! The file is a test binary of its own, so the variables are set before anything asks for the
-//! hooks. A build without the feature compiles this file empty.
+//! hooks. A build without the feature skips the target (`required-features` in core/Cargo.toml).
 
 #![cfg(all(feature = "std", feature = "test-hooks"))]
 

@@ -1963,6 +1963,13 @@ jobs:
             | tee e2e-json.txt
           ./scripts/zero_test_guard.sh --strict e2e-json.txt
 
+      - name: Run the test-hooks twin of the run-mode gate (required-features gate)
+        run: |
+          set -o pipefail
+          cargo test -p azul-core --features test-hooks --test run_mode_hooks 2>&1 \
+            | tee core-test-hooks.txt
+          ./scripts/zero_test_guard.sh --strict core-test-hooks.txt
+
   # Miri lives ALONE, with no cache and no secrets, on purpose.
   #
   # `cargo miri` writes the environment it was invoked with into target/ so it
