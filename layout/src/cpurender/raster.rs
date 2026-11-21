@@ -376,8 +376,6 @@ fn render_radial_gradient(
         return;
     }
 
-    let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
-
     let w = f64::from(rect.width);
     let h = f64::from(rect.height);
 
@@ -387,52 +385,92 @@ fn render_radial_gradient(
     let cx = f64::from(rect.x) + f64::from(cx_frac) * w;
     let cy = f64::from(rect.y) + f64::from(cy_frac) * h;
 
-    // Compute radius based on shape and size
-    let radius = match gradient.size {
-        RadialGradientSize::ClosestSide => {
-            let dx = (f64::from(cx_frac) * w).min((1.0 - f64::from(cx_frac)) * w);
-            let dy = (f64::from(cy_frac) * h).min((1.0 - f64::from(cy_frac)) * h);
-            match gradient.shape {
-                Shape::Circle => dx.min(dy),
-                Shape::Ellipse => dx.min(dy), // simplified
-            }
+    // The gradient's radii (CSS Images 3, 3.2.1). A circle has one. An ELLIPSE has one per
+    // axis: to a side, the centre's distance to that side on each axis; to a corner, the
+    // side's ellipse grown by sqrt(2) - the ellipse of the same proportions through the
+    // corner. It was painted as a circle of the smaller (or larger) distance: the default
+    // `radial-gradient(a, b)` - an ellipse to the farthest corner - on a box that is not
+    // square was a circle (A1-51).
+    let (near_x, far_x) = {
+        let (left, right) = (f64::from(cx_frac) * w, (1.0 - f64::from(cx_frac)) * w);
+        (left.min(right), left.max(right))
+    };
+    let (near_y, far_y) = {
+        let (top, bottom) = (f64::from(cy_frac) * h, (1.0 - f64::from(cy_frac)) * h);
+        (top.min(bottom), top.max(bottom))
+    };
+    let both = |r: f64| (r, r);
+    let (rx, ry) = match (&gradient.shape, &gradient.size) {
+        (Shape::Circle, RadialGradientSize::ClosestSide) => both(near_x.min(near_y)),
+        (Shape::Circle, RadialGradientSize::FarthestSide) => both(far_x.max(far_y)),
+        (Shape::Circle, RadialGradientSize::ClosestCorner) => both(near_x.hypot(near_y)),
+        (Shape::Circle, RadialGradientSize::FarthestCorner) => both(far_x.hypot(far_y)),
+        (Shape::Ellipse, RadialGradientSize::ClosestSide) => (near_x, near_y),
+        (Shape::Ellipse, RadialGradientSize::FarthestSide) => (far_x, far_y),
+        (Shape::Ellipse, RadialGradientSize::ClosestCorner) => {
+            (near_x * core::f64::consts::SQRT_2, near_y * core::f64::consts::SQRT_2)
         }
-        RadialGradientSize::FarthestSide => {
-            let dx = (f64::from(cx_frac) * w).max((1.0 - f64::from(cx_frac)) * w);
-            let dy = (f64::from(cy_frac) * h).max((1.0 - f64::from(cy_frac)) * h);
-            match gradient.shape {
-                Shape::Circle => dx.max(dy),
-                Shape::Ellipse => dx.max(dy),
-            }
-        }
-        RadialGradientSize::ClosestCorner => {
-            let dx = (f64::from(cx_frac) * w).min((1.0 - f64::from(cx_frac)) * w);
-            let dy = (f64::from(cy_frac) * h).min((1.0 - f64::from(cy_frac)) * h);
-            dx.hypot(dy)
-        }
-        RadialGradientSize::FarthestCorner => {
-            let dx = (f64::from(cx_frac) * w).max((1.0 - f64::from(cx_frac)) * w);
-            let dy = (f64::from(cy_frac) * h).max((1.0 - f64::from(cy_frac)) * h);
-            dx.hypot(dy)
+        (Shape::Ellipse, RadialGradientSize::FarthestCorner) => {
+            (far_x * core::f64::consts::SQRT_2, far_y * core::f64::consts::SQRT_2)
         }
     };
 
-    if radius < 0.001 {
+    if !(rx >= 0.001 && ry >= 0.001) {
         return;
     }
-
-    // Gradient-space (radius=100 at distance=100) → pixel-space around (cx, cy).
-    // Build as T * S (scale first, then translate) so S only affects the radius.
-    // scale() pre-multiplies so we must start from scaling matrix.
-    let mut transform = TransAffine::new_scaling_uniform(radius / 100.0);
-    transform.translate(cx, cy);
-    transform.invert();
 
     let mut path = if border_radius.is_zero() {
         build_pixel_snapped_rect_path(&rect)
     } else {
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
+
+    // `repeating-radial-gradient`: the span of the ray between the first and the last stop
+    // repeats outwards and inwards (it was painted once and clamped, A1-52). The stops are
+    // spread over that span, gradient space gets 100 units per period, and the distance is
+    // counted from where the span begins. A period under a pixel cannot repeat: it paints
+    // clamped, as a linear one does.
+    if gradient.extend_mode == azul_css::props::style::background::ExtendMode::Repeat {
+        let resolved: Vec<(f32, ColorU)> = stops
+            .iter()
+            .map(|stop| (stop.offset.normalized(), resolve_color(&stop.color, system_colors)))
+            .filter(|(t, _)| t.is_finite())
+            .collect();
+        let first = resolved.iter().map(|(t, _)| *t).fold(f32::INFINITY, f32::min);
+        let last = resolved.iter().map(|(t, _)| *t).fold(f32::NEG_INFINITY, f32::max);
+        let span = f64::from(last - first);
+        if span.is_finite() && span * rx.min(ry) >= 1.0 {
+            let over_span: Vec<(f32, ColorU)> =
+                resolved.iter().map(|(t, c)| ((t - first) / (last - first), *c)).collect();
+            let lut = build_gradient_lut(&over_span, GRADIENT_LUT_MIN);
+            let mut transform = TransAffine::new_scaling(rx * span / 100.0, ry * span / 100.0);
+            transform.translate(cx, cy);
+            transform.invert();
+            // agg's gradient distances are in sixteenths of a unit.
+            #[allow(clippy::cast_possible_truncation)] // a start beyond i32 saturates: far outside
+            let start = (f64::from(first) / span * 100.0 * 16.0).round() as i32;
+            agg_fill_gradient_clipped(
+                pixmap,
+                &mut path,
+                &lut,
+                RadialRepeatFrom { start },
+                transform,
+                0.0,
+                100.0,
+                clip,
+            );
+            return;
+        }
+    }
+
+    let lut = build_gradient_lut_linear(&gradient.stops, system_colors);
+
+    // Gradient-space (radius=100 at distance=100) → pixel-space around (cx, cy).
+    // Build as T * S (scale first, then translate) so S only affects the radii.
+    // scale() pre-multiplies so we must start from scaling matrix.
+    let mut transform = TransAffine::new_scaling(rx / 100.0, ry / 100.0);
+    transform.translate(cx, cy);
+    transform.invert();
 
     agg_fill_gradient_clipped(
         pixmap,
@@ -444,6 +482,24 @@ fn render_radial_gradient(
         100.0,
         clip,
     );
+}
+
+/// The distance from the centre counted from `start` and wrapped into one period (`d`, the
+/// gradient's far end): a `repeating-radial-gradient` whose stops begin `start` sixteenths of a
+/// unit out. `GradientRepeatAdaptor` wraps from the centre, which is right only for a first
+/// stop at 0.
+struct RadialRepeatFrom {
+    start: i32,
+}
+
+impl agg_rust::span_gradient::GradientFunction for RadialRepeatFrom {
+    fn calculate(&self, x: i32, y: i32, d: i32) -> i32 {
+        use agg_rust::span_gradient::GradientFunction;
+        if d <= 0 {
+            return 0;
+        }
+        GradientRadialD.calculate(x, y, d).saturating_sub(self.start).rem_euclid(d)
+    }
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
@@ -19949,5 +20005,101 @@ mod audit_a1_tests {
         assert_eq!(kept(), 3, "half a pixel further the box lies elsewhere in the buffer: another cut");
         clear();
         assert!(half.data() == draw(&outer, 20.5, 20.0).data(), "which is the cut a first draw makes there");
+    }
+
+
+    /// A black-to-white radial gradient about the centre of a 200 x 100 box, painted.
+    fn radial_gradient_picture(
+        shape: azul_css::props::style::background::Shape,
+        size: azul_css::props::style::background::RadialGradientSize,
+        repeat: bool,
+        stops_percent: &[(f32, u8)],
+    ) -> AzulPixmap {
+        use azul_css::props::{
+            basic::{length::PercentageValue, FloatValue},
+            style::background::{
+                BackgroundPositionHorizontal, BackgroundPositionVertical, ExtendMode, NormalizedLinearColorStop,
+                RadialGradient, StyleBackgroundPosition,
+            },
+        };
+        let stops: Vec<NormalizedLinearColorStop> = stops_percent
+            .iter()
+            .map(|(percent, grey)| NormalizedLinearColorStop {
+                offset: PercentageValue::new(*percent),
+                color: ColorOrSystem::Color(ColorU { r: *grey, g: *grey, b: *grey, a: 255 }),
+                offset_px: FloatValue::const_new(0),
+            })
+            .collect();
+        let gradient = RadialGradient {
+            shape,
+            size,
+            position: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            extend_mode: if repeat { ExtendMode::Repeat } else { ExtendMode::Clamp },
+            stops: stops.into(),
+        };
+        let mut pm = AzulPixmap::new(200, 100).unwrap();
+        pm.fill(255, 0, 0, 255);
+        render_radial_gradient(&mut pm, &rect(0.0, 0.0, 200.0, 100.0), &gradient, &BorderRadius::default(), None, 1.0, None);
+        pm
+    }
+
+    /// A1-51: an elliptical radial gradient is an ellipse. Black to white about the centre of a
+    /// 200 x 100 box, to the farthest corner (the CSS default): the radii are 100 sqrt(2) =
+    /// 141.4 and 50 sqrt(2) = 70.7 px. The pixel 90.5 px right of the centre is at
+    /// 90.5 / 141.4 = 0.640 of the ray, the pixel 45.5 px below it at 45.5 / 70.7 = 0.643:
+    /// the same grey (163 and 164). Painted as the circle of the corner's distance (111.8 px),
+    /// they were 0.81 and 0.41 of the ray: 206 and 104. A `circle` still is that circle. To
+    /// the closest side the radii are 100 and 50: 50.5 px right and 25.5 px below are both
+    /// half way (129, 130).
+    /// Mutation: one radius for both axes of the ellipse.
+    #[test]
+    fn an_elliptical_radial_gradient_is_an_ellipse() {
+        use azul_css::props::style::background::{RadialGradientSize as Size, Shape};
+        let grey = |pm: &AzulPixmap, x: u32, y: u32| {
+            let p = px(pm, x, y);
+            assert!(p[0] == p[1] && p[1] == p[2] && p[3] == 255, "a grey, got {p:?}");
+            i32::from(p[0])
+        };
+        let stops = [(0.0, 0), (100.0, 255)];
+        let ellipse = radial_gradient_picture(Shape::Ellipse, Size::FarthestCorner, false, &stops);
+        let (right, below) = (grey(&ellipse, 190, 50), grey(&ellipse, 100, 95));
+        assert!((right - 163).abs() <= 4 && (below - 164).abs() <= 4, "0.64 of the ray on both axes: {right}, {below}");
+        let circle = radial_gradient_picture(Shape::Circle, Size::FarthestCorner, false, &stops);
+        let (right, below) = (grey(&circle, 190, 50), grey(&circle, 100, 95));
+        assert!((right - 206).abs() <= 4 && (below - 104).abs() <= 4, "a circle of 111.8 px: {right}, {below}");
+        let side = radial_gradient_picture(Shape::Ellipse, Size::ClosestSide, false, &stops);
+        let (right, below) = (grey(&side, 150, 50), grey(&side, 100, 75));
+        assert!((right - 129).abs() <= 4 && (below - 130).abs() <= 4, "half way on both axes: {right}, {below}");
+    }
+
+    /// A1-52: a repeating radial gradient repeats. A circle to the closest side of a 200 x 100
+    /// box has a ray of 50 px; black at 0 % and white at 20 % is a period of 10 px. The pixels
+    /// 2.5, 12.5 and 22.5 px right of the centre are a quarter into a period (64), those 7.5
+    /// and 17.5 px out three quarters (191). Painted once and clamped, everything beyond
+    /// 10 px was white. With the stops at 10 % and 30 % the period begins 5 px out: 7.5 and
+    /// 17.5 px are a quarter in, 2.5 px is three quarters into the period before.
+    /// Mutation: `GradientRadialD` in place of `RadialRepeatFrom` clamps; a start of 0 shifts
+    /// the second picture by half a period.
+    #[test]
+    fn a_repeating_radial_gradient_repeats_from_its_first_stop() {
+        use azul_css::props::style::background::{RadialGradientSize as Size, Shape};
+        let grey = |pm: &AzulPixmap, x: u32| i32::from(px(pm, x, 50)[0]);
+        let near = |got: i32, want: i32| (got - want).abs() <= 10;
+        let from_centre = radial_gradient_picture(Shape::Circle, Size::ClosestSide, true, &[(0.0, 0), (20.0, 255)]);
+        for x in [102, 112, 122] {
+            assert!(near(grey(&from_centre, x), 64), "x {x}: a quarter into a period, got {}", grey(&from_centre, x));
+        }
+        for x in [107, 117] {
+            assert!(near(grey(&from_centre, x), 191), "x {x}: three quarters, got {}", grey(&from_centre, x));
+        }
+        let from_five = radial_gradient_picture(Shape::Circle, Size::ClosestSide, true, &[(10.0, 0), (30.0, 255)]);
+        for (x, want) in [(107, 64), (117, 64), (102, 191), (112, 191)] {
+            assert!(near(grey(&from_five, x), want), "x {x}: wanted {want}, got {}", grey(&from_five, x));
+        }
+        let clamped = radial_gradient_picture(Shape::Circle, Size::ClosestSide, false, &[(0.0, 0), (20.0, 255)]);
+        assert_eq!(grey(&clamped, 122), 255, "not repeating: white beyond the last stop");
     }
 }
