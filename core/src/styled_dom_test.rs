@@ -3479,4 +3479,328 @@ mod audit_diff_first_tests {
         assert!(!kept.restyle_changed_nodes(&reached));
         assert_eq!(kept.get_css_property_cache().cascade_epoch, epoch, "nothing was cascaded");
     }
+
+    // -- diff first, step `tree`: the first cascade of a DOM whose tree changed ---------------
+
+    /// [`page`], with a second sheet of structural rules (`:first-child`, `:nth-child`,
+    /// `:last-child`) when `structural`: a section that moves among its siblings can then
+    /// match another set of rules.
+    fn tree_page(spec: &[Section], dense: bool, siblings: bool, structural: bool) -> Dom {
+        let dom = page(spec, dense, siblings);
+        if structural {
+            dom.with_component_css(azul_css::css::Css::from_string(
+                ".box:first-child { border-top-width: 3px; } .box:nth-child(even) > p { color: \
+                 #005500; } .box:last-child { margin-bottom: 9px; }"
+                    .into(),
+            ))
+        } else {
+            dom
+        }
+    }
+
+    /// The step `kind` of the random walk of a page whose TREE changes: a section comes (7),
+    /// goes (8), moves (9), gains or loses its link (10: a subtree inside a paragraph), a
+    /// section comes while another one changes its class (11); the kinds below 7 are
+    /// [`mutate`]'s (nodes change where they stand).
+    fn mutate_tree(spec: &mut Vec<Section>, dense: &mut bool, kind: usize, picks: [usize; 6]) {
+        let n = spec.len();
+        let new_section = Section {
+            kind: picks[3] % 4,
+            place: picks[4] % 5,
+            text: picks[5] % 4,
+            link: picks[2] % 2 == 0,
+        };
+        match kind {
+            7 => spec.insert(picks[0] % (n + 1), new_section),
+            8 => {
+                if n > 3 {
+                    let _ = spec.remove(picks[0] % n);
+                }
+            }
+            9 => {
+                let section = spec.remove(picks[0] % n);
+                spec.insert(picks[1] % n, section);
+            }
+            10 => {
+                let at = picks[0] % n;
+                spec[at].link = !spec[at].link;
+            }
+            11 => {
+                spec[picks[1] % n].kind = picks[4] % 4;
+                spec.insert(picks[0] % (n + 1), new_section);
+            }
+            _ => mutate(spec, dense, kind, picks),
+        }
+    }
+
+    /// The first cascade of `fresh` as a rebuild that changed the tree runs it: the DOM is
+    /// flattened unstyled, the reconciliation pairs its nodes with those of `old`, the hover
+    /// follows the node it is on (`hovered`, a node of `old`), and the cascade keeps the rows
+    /// of the nodes that are what they were. Where it keeps none, the whole cascade at rest
+    /// and then the states, as a rebuild always ran. Answers the DOM, whether rows were kept,
+    /// and the hovered node in it.
+    fn rebuild_reusing(
+        old: &StyledDom,
+        old_dom: &Dom,
+        fresh: Dom,
+        hovered: Option<NodeId>,
+    ) -> (StyledDom, bool, Option<NodeId>) {
+        // The sheets that hang on the nodes, read off the two `Dom`s before they are flat.
+        let old_sheets = fingerprint_dom(old_dom).0.sheets;
+        let new_sheets = fingerprint_dom(&fresh).0.sheets;
+        let mut new = StyledDom::unstyled_from_dom_inheriting(fresh, None, &[], Vec::new());
+        let no_layout = crate::OrderedMap::default();
+        let moves = crate::diff::reconcile_dom(
+            old.node_data.as_ref(),
+            new.node_data.as_ref(),
+            old.node_hierarchy.as_ref(),
+            new.node_hierarchy.as_ref(),
+            &no_layout,
+            &no_layout,
+            crate::dom::DomId::ROOT_ID,
+            crate::task::Instant::now(),
+            crate::diff::NodeIdentityConfig::default(),
+        )
+        .node_moves;
+        let mut old_of_new: Vec<Option<NodeId>> = vec![None; new.node_data.as_ref().len()];
+        for m in &moves {
+            old_of_new[m.new_node_id.index()] = Some(m.old_node_id);
+        }
+        let hovered = hovered.and_then(|node| {
+            moves
+                .iter()
+                .find(|m| m.old_node_id == node)
+                .map(|m| m.new_node_id)
+        });
+        if let Some(node) = hovered {
+            new.styled_nodes.as_container_mut()[node]
+                .styled_node_state
+                .hover = true;
+        }
+        let kept = new
+            .cascade_reusing(old, &old_of_new, &old_sheets, &new_sheets)
+            .is_some();
+        if !kept {
+            new.cascade_at_rest();
+            if hovered.is_some() {
+                let css = new.get_css_property_cache().retained_author_css.clone();
+                new.restyle(css);
+                new.get_css_property_cache_mut().prune_compact_normal_props();
+            }
+        }
+        (new, kept, hovered)
+    }
+
+    /// A random walk of rebuilds that change the tree of one page: after each, the DOM whose
+    /// cascade kept the rows of the DOM before answers what a DOM styled from scratch
+    /// answers, row by row and property by property ([`differences`]). With `hover`, a box
+    /// is hovered and stays hovered while the reconciliation finds it again. Answers how
+    /// many of the rebuilds kept rows.
+    fn tree_walk(hover: bool, siblings: bool, structural: bool) -> usize {
+        let mut kept_rows = 0;
+        for seed in [1u64, 7, 20261121] {
+            let mut spec = sections(9);
+            let mut dense = false;
+            let mut old = StyledDom::create_from_dom(tree_page(&spec, dense, siblings, structural));
+            let mut old_dom = tree_page(&spec, dense, siblings, structural);
+            // Pre-order: body 0, the list 1, section 0 (7 nodes) 2..=8, section 1's box 9.
+            let mut hovered = hover.then(|| NodeId::new(9));
+            let raise = |dom: &mut StyledDom, node: Option<NodeId>| {
+                if let Some(node) = node {
+                    dom.styled_nodes.as_container_mut()[node]
+                        .styled_node_state
+                        .hover = true;
+                    let css = dom.get_css_property_cache().retained_author_css.clone();
+                    dom.restyle(css);
+                    dom.get_css_property_cache_mut().prune_compact_normal_props();
+                }
+            };
+            raise(&mut old, hovered);
+            let mut random = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+            let mut next = |below: u64| {
+                random = random
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                ((random >> 33) % below) as usize
+            };
+            for step in 0..40 {
+                let kind = next(12);
+                let picks = [next(64), next(64), next(64), next(64), next(64), next(64)];
+                mutate_tree(&mut spec, &mut dense, kind, picks);
+                let (new, kept, now_hovered) = rebuild_reusing(
+                    &old,
+                    &old_dom,
+                    tree_page(&spec, dense, siblings, structural),
+                    hovered,
+                );
+                if kept {
+                    kept_rows += 1;
+                }
+                let mut full =
+                    StyledDom::create_from_dom(tree_page(&spec, dense, siblings, structural));
+                raise(&mut full, now_hovered);
+                let found = differences(&new, &full);
+                assert!(
+                    found.is_empty(),
+                    "seed {seed}, step {step} (kind {kind}, picks {picks:?}, hover {hover}, \
+                     siblings {siblings}, structural {structural}, rows kept {kept}): {} \
+                     differences, the first: {:?}",
+                    found.len(),
+                    found.first()
+                );
+                old = new;
+                old_dom = tree_page(&spec, dense, siblings, structural);
+                hovered = now_hovered;
+            }
+        }
+        kept_rows
+    }
+
+    /// How to read a failure: the message names the seed, the step and its kind
+    /// ([`mutate_tree`]), whether the rebuild kept rows, and the first difference - which row
+    /// or which property of which node of the new DOM.
+    #[test]
+    fn a_cascade_that_keeps_rows_across_a_changed_tree_answers_what_a_new_cascade_answers() {
+        let kept = tree_walk(false, false, false);
+        assert!(kept >= 20, "premise: many of the 120 rebuilds keep rows ({kept} did)");
+    }
+
+    #[test]
+    fn a_cascade_that_keeps_rows_across_a_changed_tree_answers_the_same_under_a_hover() {
+        let kept = tree_walk(true, false, false);
+        assert!(kept >= 20, "premise: many of the 120 rebuilds keep rows ({kept} did)");
+    }
+
+    /// Under sibling rules a section that comes or goes changes what the sections after it
+    /// match: their rows are not kept, the ones before keep theirs.
+    #[test]
+    fn a_cascade_that_keeps_rows_across_a_changed_tree_answers_the_same_beside_sibling_rules() {
+        let _ = tree_walk(false, true, false);
+        let _ = tree_walk(true, true, false);
+    }
+
+    /// Under `:first-child` / `:nth-child` / `:last-child` rules a section that moves among
+    /// its siblings is cascaded again.
+    #[test]
+    fn a_cascade_that_keeps_rows_across_a_changed_tree_answers_the_same_under_structural_rules() {
+        let _ = tree_walk(false, false, true);
+        let _ = tree_walk(false, true, true);
+    }
+
+    /// `(nodes of the new DOM, nodes the cascade ran for)` when `added` sections come at the
+    /// end of a page of `count` sections without links (5 nodes a section, 2 above them).
+    fn cost_of_sections_that_come(count: usize, added: usize, structural: bool) -> (usize, usize) {
+        let mut spec = sections(count);
+        for section in &mut spec {
+            section.link = false;
+        }
+        let old = StyledDom::create_from_dom(tree_page(&spec, false, false, structural));
+        let old_dom = tree_page(&spec, false, false, structural);
+        for i in 0..added {
+            spec.push(Section {
+                kind: i % 4,
+                place: 0,
+                text: i % 4,
+                link: false,
+            });
+        }
+        let before = nodes_cascaded_on_this_thread();
+        let (new, kept, _) =
+            rebuild_reusing(&old, &old_dom, tree_page(&spec, false, false, structural), None);
+        assert!(kept, "premise: the rebuild keeps rows");
+        (
+            new.node_data.as_ref().len(),
+            nodes_cascaded_on_this_thread() - before,
+        )
+    }
+
+    /// Sections that come style their own nodes: 10 new sections are 50 nodes, in a page of
+    /// 30 sections and in one of 120. (The bound is exact: a section that comes at the end
+    /// leaves every other node its data, its ancestors and - without a structural rule - all
+    /// a rule can read of its place.)
+    #[test]
+    fn sections_that_come_are_cascaded_and_no_other_node() {
+        assert_eq!(cost_of_sections_that_come(30, 10, false), (2 + 40 * 5, 50));
+        assert_eq!(cost_of_sections_that_come(120, 10, false), (2 + 130 * 5, 50));
+        // With `:last-child` in the sheet the section that was last is no longer: it is
+        // cascaded with the ones that came (5 nodes more), whatever the size of the page.
+        assert_eq!(cost_of_sections_that_come(30, 10, true), (2 + 40 * 5, 55));
+        assert_eq!(cost_of_sections_that_come(120, 10, true), (2 + 130 * 5, 55));
+    }
+
+    /// The rows are compared on the arenas, not on what an earlier build said: a node of the
+    /// old DOM whose style a callback wrote since (here: by hand) does not hand its rows to
+    /// the node the next build makes at its place.
+    #[test]
+    fn a_node_written_since_its_build_does_not_hand_on_its_rows() {
+        let spec = sections(6);
+        let mut old = StyledDom::create_from_dom(tree_page(&spec, false, false, false));
+        // Section 0's box (node 2) gets a style of its own, as `set_node_style` writes it
+        // (the node's own style, not a sheet hung on it: no fingerprint of the build shows it).
+        let written = crate::dom::NodeData::create_div().with_css("width: 77px;").style;
+        old.node_data.as_container_mut()[NodeId::new(2)].style = written;
+        let mut grown = spec.clone();
+        grown.push(spec[0].clone());
+        let before = nodes_cascaded_on_this_thread();
+        let (new, kept, _) = rebuild_reusing(
+            &old,
+            &tree_page(&spec, false, false, false),
+            tree_page(&grown, false, false, false),
+            None,
+        );
+        assert!(kept, "premise: the rebuild keeps rows");
+        // The written box and its subtree (7 nodes: section 0 has a link) and the section
+        // that came (7 nodes). Had the box handed on its rows, only the 7 that came.
+        assert_eq!(nodes_cascaded_on_this_thread() - before, 14);
+        let found = differences(
+            &new,
+            &StyledDom::create_from_dom(tree_page(&grown, false, false, false)),
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    /// A sheet hung on a node (`Dom::with_css`, the usual inline style) is no field of the
+    /// node in the arena: the node whose sheet changed is cascaded again, with what is below
+    /// it, because the sheets are compared by what the two `Dom`s said hangs where.
+    #[test]
+    fn a_node_whose_own_sheet_changed_is_cascaded_again() {
+        let mut spec = sections(6);
+        for section in &mut spec {
+            section.link = false;
+        }
+        let old_dom = tree_page(&spec, false, false, false);
+        let old = StyledDom::create_from_dom(tree_page(&spec, false, false, false));
+        // Section 2's box gets `PLACES[1]` through `Dom::with_css`, and a section comes.
+        spec[2].place = 1;
+        spec.push(spec[0].clone());
+        let before = nodes_cascaded_on_this_thread();
+        let (new, kept, _) =
+            rebuild_reusing(&old, &old_dom, tree_page(&spec, false, false, false), None);
+        assert!(kept, "premise: the rebuild keeps rows");
+        assert_eq!(
+            nodes_cascaded_on_this_thread() - before,
+            10,
+            "the section whose sheet changed (5 nodes) and the one that came (5 nodes)"
+        );
+        let found = differences(
+            &new,
+            &StyledDom::create_from_dom(tree_page(&spec, false, false, false)),
+        );
+        assert!(found.is_empty(), "{found:?}");
+    }
+
+    /// The two halves of the creation are the creation: a DOM flattened unstyled and then
+    /// cascaded at rest is the DOM `create_from_dom` makes.
+    #[test]
+    fn an_unstyled_dom_cascaded_at_rest_is_the_dom_the_creation_makes() {
+        let spec = sections(7);
+        let mut halves =
+            StyledDom::unstyled_from_dom_inheriting(tree_page(&spec, true, true, true), None, &[], Vec::new());
+        assert!(halves.tag_ids_to_node_ids.as_ref().is_empty(), "premise: no cascade ran yet");
+        halves.cascade_at_rest();
+        let whole = StyledDom::create_from_dom(tree_page(&spec, true, true, true));
+        let found = differences(&halves, &whole);
+        assert!(found.is_empty(), "{found:?}");
+        assert!(halves == whole, "every field, the tables as they lie");
+    }
 }

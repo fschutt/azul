@@ -1224,6 +1224,40 @@ pub fn regenerate_layout(
     // window rather than two calls here so that the OTHER producer of a user
     // DOM, a VirtualView callback deep inside layout, resolves icons too.
 
+    // 1.47. DIFF FIRST, step "tree": A REBUILD THAT CHANGED THE TREE.
+    //
+    // A node came, went or moved, or a sheet hung on a node changed: the exits above do not
+    // answer for it. Such a rebuild is RECONCILED BEFORE IT IS STYLED: the fresh `Dom` is
+    // flattened without a cascade (`LayoutWindow::flatten_user_dom_for`), the engine's
+    // reconciliation pairs its nodes with the tree before and moves the states over
+    // (`begin_reconciliation_before_styling`), the runtime states are raised on the new
+    // tree, and the cascade runs ONCE, under them, for the nodes that are not what they were
+    // (`style_reconciled_dom`) - where the path below cascades every node at rest, reconciles
+    // against a copy of the old arena, raises the states and cascades a second time when a
+    // rule reads one.
+    //
+    // Decided here by what is known before anything is styled; the reconciliation itself
+    // says no where it needs both cascades (an `animation`, an exit, another selector
+    // context), and the tree is then styled in full and reconciled as below. Not for a
+    // theme or rice rebuild (another sheet over the same nodes), nor where decorations are
+    // injected into the styled tree. `AZ_DIFF_FIRST` without `tree` turns it off.
+    let reconciles_first = azul_layout::window::diff_first_step(
+        azul_layout::window::DiffFirstStep::Tree,
+    ) && precascade.is_some()
+        && prev_dom_fingerprints.is_some()
+        && !theme_rebuild
+        && !csd_changed_precheck
+        && matches!(
+            csd::csd_injection_for(
+                current_window_state.flags.has_decorations,
+                current_window_state.flags.decorations,
+            ),
+            csd::CsdInjection::None
+        )
+        && layout_window
+            .layout_results
+            .contains_key(&azul_core::dom::DomId::ROOT_ID);
+
     let e2e_mount_xml = layout_window.e2e_mount.xml().map(str::to_string);
     let e2e_mount_dirty = layout_window.e2e_mount.take_dirty();
     // Whether the tree comes out of ONE cascade over the app's `Dom` (not a mounted document,
@@ -1282,7 +1316,12 @@ pub fn regenerate_layout(
         // `style_user_dom` styles for the previous pass's state).
         None => {
             styled_by_one_cascade = true;
-            layout_window.style_user_dom_for(user_dom, current_window_state)
+            if reconciles_first {
+                // Unstyled: the cascade follows the reconciliation (step "tree").
+                layout_window.flatten_user_dom_for(user_dom, current_window_state)
+            } else {
+                layout_window.style_user_dom_for(user_dom, current_window_state)
+            }
         }
     };
     // The rice listing, once per (re)load of the rice (`azul_css::rice`): the
@@ -1412,7 +1451,12 @@ pub fn regenerate_layout(
     // nothing appended to it, has its inheritance and its compact cache from that cascade:
     // building both a second time was a whole pass over every node of the window's DOM on
     // every rebuild, to arrive at what was there.
-    if !styled_by_one_cascade || decorations_appended {
+    // And for a tree that says so itself (`needs_recompute_after_append`: set by every
+    // `append_child`, cleared by the recompute): an append the two facts above do not know.
+    if !styled_by_one_cascade
+        || decorations_appended
+        || styled_dom.needs_recompute_after_append()
+    {
         styled_dom.recompute_inheritance_and_compact_cache();
     }
     drop(span_csd);
@@ -1446,11 +1490,32 @@ pub fn regenerate_layout(
     // reconcile with the FLIP moves only, so in the real app nothing entered,
     // left or tweened on a rebuild - that only ever ran in the E2E runner.
     let span_reconcile = azul_layout::probe::Probe::span("regen_begin_reconciliation");
-    let mut pending = layout_window.begin_reconciliation(
-        azul_core::dom::DomId::ROOT_ID,
-        &mut styled_dom,
-        azul_core::task::Instant::now(),
-    );
+    // Step "tree": the half that reads no style, on the unstyled tree. `None` where the
+    // reconciliation needs both cascades: the tree is then styled in full, at rest, exactly
+    // as `style_user_dom_for` styles it, and reconciled as every rebuild was.
+    let reconciled_before_styling = if reconciles_first && styled_by_one_cascade {
+        layout_window.begin_reconciliation_before_styling(
+            azul_core::dom::DomId::ROOT_ID,
+            &mut styled_dom,
+            azul_core::task::Instant::now(),
+        )
+    } else {
+        None
+    };
+    let reconciled_first = reconciled_before_styling.is_some();
+    let mut pending = match reconciled_before_styling {
+        Some(pending) => pending,
+        None => {
+            if reconciles_first && styled_by_one_cascade {
+                styled_dom.cascade_at_rest();
+            }
+            layout_window.begin_reconciliation(
+                azul_core::dom::DomId::ROOT_ID,
+                &mut styled_dom,
+                azul_core::task::Instant::now(),
+            )
+        }
+    };
     drop(span_reconcile);
     // A resize, a mode or an app-theme rebuild is no state change:
     // what it moves reflows in place (`RelayoutReason::animates_moves`).
@@ -1669,8 +1734,38 @@ pub fn regenerate_layout(
     // We need to synchronize the StyledNodeState with the current runtime state
     // (FocusManager.focused_node, mouse hover position, etc.) BEFORE the display list is generated
     let span_states = azul_layout::probe::Probe::span("regen_runtime_states");
-    let mut styled_dom =
-        apply_runtime_states_before_layout(styled_dom, layout_window, current_window_state);
+    // Step "tree": the nodes of the new tree that are what they were, under the id they
+    // had, with every ancestor (`LayoutWindow::style_reconciled_dom`).
+    let mut kept_rows: Option<Vec<bool>> = None;
+    let mut styled_dom = if reconciled_first {
+        // Step "tree": the managers name the new tree's nodes since the reconciliation.
+        // The states go onto the unstyled tree and the cascade runs once, under them.
+        let mut styled_dom = raise_runtime_states(styled_dom, layout_window, current_window_state);
+        // The sheets hung on the nodes of both builds, where each build's fingerprints
+        // number the nodes as its arena does (no node generated, resolved or injected).
+        let old_nodes = layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .map(|lr| lr.styled_dom.node_data.as_ref().len());
+        let sheets = match (&prev_dom_fingerprints, &precascade) {
+            (Some(prev), Some((fp, _)))
+                if Some(prev.structure.len()) == old_nodes
+                    && fp.structure.len() == styled_dom.node_data.as_ref().len() =>
+            {
+                Some((prev.sheets.as_slice(), fp.sheets.as_slice()))
+            }
+            _ => None,
+        };
+        kept_rows = layout_window.style_reconciled_dom(
+            azul_core::dom::DomId::ROOT_ID,
+            &mut styled_dom,
+            &mut pending,
+            sheets,
+        );
+        styled_dom
+    } else {
+        apply_runtime_states_before_layout(styled_dom, layout_window, current_window_state)
+    };
     drop(span_states);
     azul_layout::probe::emit_phase_heap("after_runtime_states");
     phases.mark("after_runtime_states");
@@ -1782,6 +1877,8 @@ pub fn regenerate_layout(
                      StyledDom (warm caches) at the new size"
                 );
                 styled_dom = old_result.styled_dom;
+                // The flags of step "tree" describe the tree that was just dropped.
+                kept_rows = None;
             }
         }
     }
@@ -1796,7 +1893,17 @@ pub fn regenerate_layout(
     // node count matches the walk (CSD injection shifts NodeIds — those
     // windows skip the hint) — the diff then feeds solver3 instead of
     // being thrown away.
-    if let (Some((new_fp, _)), Some(prev_fp)) = (&precascade, &prev_dom_fingerprints) {
+    //
+    // A rebuild that was reconciled before it was styled (step "tree") knows the same of
+    // its nodes from the reconciliation itself, whatever the node count: the nodes that
+    // are what they were under the id they had. The layout takes the fingerprint each of
+    // them had; with the count changed it used to hash every node again.
+    if let Some(clean) = kept_rows
+        .take()
+        .filter(|clean| clean.len() == styled_dom.node_data.as_ref().len())
+    {
+        layout_window.layout_cache.dom_diff_clean = Some(clean);
+    } else if let (Some((new_fp, _)), Some(prev_fp)) = (&precascade, &prev_dom_fingerprints) {
         let n = styled_dom.node_data.as_ref().len();
         if new_fp.structure.len() == n
             && prev_fp.structure.len() == n
@@ -2199,8 +2306,13 @@ fn apply_runtime_states_before_layout(
 
     // Rules that name a state left of their subject (`.btn:hover .ink`,
     // `.frame:focus-within .hint`) were matched while every node was at rest;
-    // match them again now that the runtime states are back.
-    let _ = styled_dom.restyle_for_raised_states();
+    // match them again now that the runtime states are back. And a node in a state hands
+    // its children the inheritable values the state declares (`.row:hover { color: .. }`):
+    // in a DOM cascaded at rest the children hold the resting value - the hovered row
+    // showed its hover colour and the text in it the resting one, until the pointer left
+    // and came back - so where no whole cascade ran, the inheritance passes run for the
+    // states (`StyledDom::let_raised_states_in` is both).
+    styled_dom.let_raised_states_in();
 
     styled_dom
 }

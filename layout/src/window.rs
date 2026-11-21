@@ -3670,11 +3670,27 @@ pub enum DiffFirstStep {
     /// they reach, and every other node keeps its rows. Off: `nodes` runs the whole cascade
     /// over the kept DOM.
     Style,
+    /// `tree`: a rebuild of the window's DOM that changed the TREE (a node came, went or
+    /// moved, a sheet hung on a node changed) is reconciled BEFORE it is styled: the states
+    /// follow the nodes first, the cascade runs once under them and only for the nodes that
+    /// are not what they were, and the layout is told which those are whatever the node
+    /// count. Off: such a rebuild takes the full path (the whole cascade at rest, the
+    /// reconciliation, the states, a second cascade where a rule reads them).
+    Tree,
+    /// `view`: the same exits for the DOM a `VirtualView`'s callback returns when the view
+    /// renders again. Off: every re-render of a view is styled and reconciled in full.
+    View,
 }
 
 impl DiffFirstStep {
     /// Every step.
-    pub const ALL: [Self; 3] = [Self::Text, Self::Nodes, Self::Style];
+    pub const ALL: [Self; 5] = [
+        Self::Text,
+        Self::Nodes,
+        Self::Style,
+        Self::Tree,
+        Self::View,
+    ];
 
     /// The step's name in `AZ_DIFF_FIRST`.
     #[must_use]
@@ -3683,6 +3699,8 @@ impl DiffFirstStep {
             Self::Text => "text",
             Self::Nodes => "nodes",
             Self::Style => "style",
+            Self::Tree => "tree",
+            Self::View => "view",
         }
     }
 
@@ -3691,10 +3709,12 @@ impl DiffFirstStep {
             Self::Text => 1,
             Self::Nodes => 2,
             Self::Style => 4,
+            Self::Tree => 8,
+            Self::View => 16,
         }
     }
 
-    const EVERY_BIT: u8 = 1 | 2 | 4;
+    const EVERY_BIT: u8 = 1 | 2 | 4 | 8 | 16;
 }
 
 /// The steps a value of `AZ_DIFF_FIRST` switches on, one [`DiffFirstStep`] bit each: `0` none,
@@ -3767,6 +3787,22 @@ std::thread_local! {
 #[must_use]
 pub fn kept_dom_rebuilds_on_this_thread() -> usize {
     KEPT_DOM_REBUILDS.with(core::cell::Cell::get)
+}
+
+std::thread_local! {
+    /// Rebuilds on this thread that were reconciled before they were styled and kept rows
+    /// of the tree before ([`tree_rebuilds_that_kept_rows_on_this_thread`]).
+    static TREE_REBUILDS_THAT_KEPT_ROWS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
+/// How many rebuilds on the calling thread changed the tree of a DOM and still kept the rows
+/// of the nodes that were what they were (`LayoutWindow::style_reconciled_dom`, the step
+/// `tree`; a view's re-render under the step `view`): what a test reads to say which path a
+/// rebuild took.
+#[must_use]
+pub fn tree_rebuilds_that_kept_rows_on_this_thread() -> usize {
+    TREE_REBUILDS_THAT_KEPT_ROWS.with(core::cell::Cell::get)
 }
 
 /// [`set_diff_first_on_this_thread`] step by step: exactly `steps` are on for the calling
@@ -15023,6 +15059,11 @@ impl LayoutWindow {
 
         // Whether the styles of the DOM the callback built moved since its last build.
         let mut styles_moved = false;
+        // Step `view` of the diff-first pipeline: the DOM comes out of the match below
+        // UNSTYLED and is styled after its nodes are paired with the render before
+        // (`reconcile_rematerialized_child`), with the sheets hung on the nodes of both
+        // builds when the view rendered before.
+        let mut cascade = ChildCascade::Done;
         // Get the child Dom from the callback's return value, then convert to StyledDom
         let mut child_styled_dom = match callback_return.dom {
             azul_core::dom::OptionDom::Some(dom) => {
@@ -15076,6 +15117,16 @@ impl LayoutWindow {
                     .child_dom_fingerprints
                     .get(&child)
                     .is_some_and(|before| before.style_root != fingerprints.style_root);
+                if diff_first_step(DiffFirstStep::View) {
+                    cascade = ChildCascade::Owed(self.child_dom_fingerprints.get(&child).map(
+                        |before| {
+                            (
+                                (before.structure.len(), before.sheets.clone()),
+                                (fingerprints.structure.len(), fingerprints.sheets.clone()),
+                            )
+                        },
+                    ));
+                }
                 self.child_dom_fingerprints.insert(child, fingerprints);
                 // Dom → StyledDom through the window's own chokepoint, which
                 // resolves `<icon>` nodes first. Calling `create_from_dom`
@@ -15090,12 +15141,22 @@ impl LayoutWindow {
                 // Inheriting from the host: the view is part of the host's
                 // document, so its text takes the host's font, colour,
                 // `user-select`, ... unless it declares its own.
-                self.style_user_dom_inheriting(
-                    dom,
-                    &self.current_window_state,
-                    form_scope_of_virtual_view(parent_dom_id, node_id),
-                    inherited_from_host,
-                )
+                if matches!(cascade, ChildCascade::Owed(_)) {
+                    // The same steps without the cascade, which follows the pairing.
+                    self.flatten_user_dom_inheriting(
+                        dom,
+                        &self.current_window_state,
+                        form_scope_of_virtual_view(parent_dom_id, node_id),
+                        inherited_from_host,
+                    )
+                } else {
+                    self.style_user_dom_inheriting(
+                        dom,
+                        &self.current_window_state,
+                        form_scope_of_virtual_view(parent_dom_id, node_id),
+                        inherited_from_host,
+                    )
+                }
             }
             azul_core::dom::OptionDom::None => {
                 // If the callback returns None, it's an optimization hint.
@@ -15156,11 +15217,12 @@ impl LayoutWindow {
         // was purged). Diff old vs new and drive the same exhaustive
         // `remap_node_ids` driver root migration uses, so state follows
         // content and unmatched nodes are GC'd.
-        let (entered, restyled) = self.reconcile_rematerialized_child(
+        let (entered, restyled, layout_clean) = self.reconcile_rematerialized_child(
             child_dom_id,
-            &child_styled_dom,
+            &mut child_styled_dom,
             (system_callbacks.get_system_time_fn.cb)(),
             styles_moved,
+            cascade,
         );
         // The CSS diff of the re-render, staged for the layout pass below as the root's is
         // for its own: the retained tree stays warm and re-solves the nodes whose styles
@@ -15175,6 +15237,13 @@ impl LayoutWindow {
                 None
             }
         };
+        // Step `view`: the nodes that are what they were under the id they had, for the
+        // reconcile of the pass below (a layout cache that was just dropped lays out cold).
+        if let (Some(clean), Some(cache)) =
+            (layout_clean, self.child_layout_caches.get_mut(&child_dom_id))
+        {
+            cache.dom_diff_clean = Some(clean);
+        }
 
         // Update the VirtualViewManager with the new scroll sizes from the callback
         self.virtual_view_manager.update_virtual_view_info(
@@ -19757,6 +19826,7 @@ impl LayoutWindow {
                 (styled_dom.node_data.as_ref(), &new_hierarchy, new_states),
                 &diff.node_moves,
                 &inherited,
+                None,
             );
             let same_context = old_cache.dynamic_context == new_cache.dynamic_context;
             for m in &diff.node_moves {
@@ -20167,6 +20237,364 @@ impl LayoutWindow {
             compared,
             compared_properties,
         }
+    }
+
+    /// The half of [`Self::begin_reconciliation`] that reads no STYLE of the new tree, for a
+    /// rebuild that reconciles BEFORE it styles (the step `tree` of [`DiffFirstStep`]).
+    /// `styled_dom` is the new tree unstyled ([`Self::flatten_user_dom_inheriting`]).
+    ///
+    /// Does, in the order `begin_reconciliation` does them among themselves: `reconcile_dom`
+    /// on the two arenas (the node data and the hierarchy are all it reads: the pairing is
+    /// the one `begin_reconciliation` makes of the same two trees), mount / unmount and the
+    /// departing rects, `transfer_states`, `remap_node_ids`. After it the managers name the
+    /// NEW tree's nodes: the caller raises the runtime states on `styled_dom` and calls
+    /// [`Self::style_reconciled_dom`], which runs the cascade once under them and does the
+    /// rest (the CSS diff, the override migration, the dirt staged for the layout).
+    ///
+    /// Reads the old tree where it lies: no copy of its arena. The record's `old_node_data`
+    /// holds a node only where something reads it afterwards - an unmatched old node with
+    /// handlers (its `BeforeUnmount`, the `FocusLost` of a focused node that went), and the
+    /// old partner of a new node `transfer_states` reads (one with a merge callback, an
+    /// image that is a placeholder) - and an empty node everywhere else.
+    ///
+    /// `None`, having changed NOTHING, where a reconciliation has work this order cannot do,
+    /// and the caller styles the tree in full and takes [`Self::begin_reconciliation`]:
+    /// - there is no tree before this one;
+    /// - the new tree was flattened under another selector context than the old one was
+    ///   cascaded under (a window that was resized or changed its theme with the rebuild);
+    /// - a node of the old tree declares an `animation`: the property changes of such a node
+    ///   become transitions measured from the old cascade, and it slides from its old rect;
+    /// - a departing node declares `-azul-animation-out`: the old result is kept as a zombie.
+    pub fn begin_reconciliation_before_styling(
+        &mut self,
+        dom_id: DomId,
+        styled_dom: &mut StyledDom,
+        now: Instant,
+    ) -> Option<PendingReconciliation> {
+        let span_reconcile_dom = crate::probe::Probe::span("reconcile_dom");
+        let (diff, mounted, unmounted, unmatched_new, mut old_node_data, copied) = {
+            let old = &self.layout_results.get(&dom_id)?.styled_dom;
+            if old.css_property_cache.ptr.dynamic_context
+                != styled_dom.css_property_cache.ptr.dynamic_context
+                || styled_dom_declares_an_animation(old)
+            {
+                return None;
+            }
+            let old_data = old.node_data.as_ref();
+            let old_hierarchy = old.node_hierarchy.as_ref();
+            let new_hierarchy = styled_dom.node_hierarchy.as_ref();
+            let empty_layout = azul_core::OrderedMap::default();
+            let diff = azul_core::diff::reconcile_dom(
+                old_data,
+                styled_dom.node_data.as_ref(),
+                old_hierarchy,
+                new_hierarchy,
+                &empty_layout,
+                &empty_layout,
+                dom_id,
+                now,
+                self.node_identity,
+            );
+
+            // Mount / unmount from the correspondence, as `begin_reconciliation` derives
+            // them: a flag per node of each tree, the unmatched nodes in document order,
+            // and of those the roots of the subtrees that came or went.
+            let mut old_is_matched = vec![false; old_data.len()];
+            let mut new_is_matched = vec![false; styled_dom.node_data.len()];
+            for m in &diff.node_moves {
+                if let Some(flag) = old_is_matched.get_mut(m.old_node_id.index()) {
+                    *flag = true;
+                }
+                if let Some(flag) = new_is_matched.get_mut(m.new_node_id.index()) {
+                    *flag = true;
+                }
+            }
+            let is_root = |id: NodeId,
+                           hier: &[azul_core::styled_dom::NodeHierarchyItem],
+                           is_matched: &[bool]|
+             -> bool {
+                hier.get(id.index()).is_none_or(|item| {
+                    item.parent
+                        .checked_sub(1)
+                        .is_none_or(|p| is_matched.get(p).copied().unwrap_or(true))
+                })
+            };
+            let unmatched_new: Vec<NodeId> = new_is_matched
+                .iter()
+                .enumerate()
+                .filter(|(_, matched)| !**matched)
+                .map(|(index, _)| NodeId::new(index))
+                .collect();
+            let unmatched_old: Vec<NodeId> = old_is_matched
+                .iter()
+                .enumerate()
+                .filter(|(_, matched)| !**matched)
+                .map(|(index, _)| NodeId::new(index))
+                .collect();
+            let mounted: Vec<NodeId> = if old_data.is_empty() {
+                Vec::new()
+            } else {
+                unmatched_new
+                    .iter()
+                    .copied()
+                    .filter(|id| is_root(*id, new_hierarchy, &new_is_matched))
+                    .collect()
+            };
+            let unmounted: Vec<NodeId> = unmatched_old
+                .iter()
+                .copied()
+                .filter(|id| is_root(*id, old_hierarchy, &old_is_matched))
+                .collect();
+
+            // A departing node that declares an exit is kept with the whole old result
+            // (`begin_reconciliation`'s zombie): that path's.
+            let old_states = old.styled_nodes.as_ref();
+            let declares_an_exit = unmounted.iter().any(|node| {
+                let (Some(nd), Some(st)) =
+                    (old_data.get(node.index()), old_states.get(node.index()))
+                else {
+                    return false;
+                };
+                old.css_property_cache
+                    .ptr
+                    .get_property(
+                        nd,
+                        node,
+                        &st.styled_node_state,
+                        &azul_css::props::property::CssPropertyType::AnimationOut,
+                    )
+                    .is_some()
+            });
+            if declares_an_exit {
+                return None;
+            }
+
+            // The old nodes something reads after this call, copied; an empty node in the
+            // place of every other one.
+            let mut old_node_data: Vec<azul_core::dom::NodeData> = Vec::new();
+            old_node_data.resize_with(old_data.len(), azul_core::dom::NodeData::create_div);
+            let mut copied: Vec<usize> = Vec::new();
+            for node in &unmatched_old {
+                if let Some(nd) = old_data
+                    .get(node.index())
+                    .filter(|nd| !nd.get_callbacks().as_ref().is_empty())
+                {
+                    old_node_data[node.index()] = nd.clone();
+                    copied.push(node.index());
+                }
+            }
+            let new_data = styled_dom.node_data.as_ref();
+            for m in &diff.node_moves {
+                let read_by_the_transfer = new_data
+                    .get(m.new_node_id.index())
+                    .is_some_and(|nd| nd.get_merge_callback().is_some() || nd.image_is_placeholder());
+                if !read_by_the_transfer {
+                    continue;
+                }
+                if let Some(nd) = old_data.get(m.old_node_id.index()) {
+                    old_node_data[m.old_node_id.index()] = nd.clone();
+                    copied.push(m.old_node_id.index());
+                }
+            }
+            (diff, mounted, unmounted, unmatched_new, old_node_data, copied)
+        };
+        drop(span_reconcile_dom);
+
+        // Departing geometry, as `begin_reconciliation` captures it (nothing here animates
+        // out; the record carries it all the same).
+        let mut exit_rects = BTreeMap::new();
+        for node in &unmounted {
+            if let Some(r) = self.get_node_painted_bounds(dom_id, *node) {
+                exit_rects.insert(*node, r);
+            }
+        }
+
+        let span_transfer = crate::probe::Probe::span("reconcile_transfer_states");
+        if !diff.node_moves.is_empty() {
+            // As in `begin_reconciliation`: a merge consumes the old node's dataset, and the
+            // record keeps a clone of each one taken.
+            let taken: Vec<(usize, RefAny)> = diff
+                .node_moves
+                .iter()
+                .filter(|m| {
+                    styled_dom
+                        .node_data
+                        .as_ref()
+                        .get(m.new_node_id.index())
+                        .is_some_and(|nd| nd.get_merge_callback().is_some())
+                })
+                .filter_map(|m| {
+                    let ds = old_node_data.get(m.old_node_id.index())?.get_dataset()?;
+                    Some((m.old_node_id.index(), ds.clone()))
+                })
+                .collect();
+            let repointing = azul_core::diff::transfer_states(
+                &mut old_node_data,
+                styled_dom.node_data.as_mut(),
+                &diff.node_moves,
+            );
+            for (idx, ds) in taken {
+                if let Some(nd) = old_node_data
+                    .get_mut(idx)
+                    .filter(|nd| nd.get_dataset().is_none())
+                {
+                    nd.set_dataset(OptionRefAny::Some(ds));
+                }
+            }
+            // The old tree's handlers still run (an unmount's, a lost focus's): the copied
+            // nodes hold what the merge kept. (Every other entry is an empty node.)
+            if !repointing.is_empty() {
+                for idx in &copied {
+                    if let Some(node) = old_node_data.get_mut(*idx) {
+                        repointing.repoint(node);
+                    }
+                }
+            }
+            self.repoint_merged_datasets(&repointing);
+        }
+        drop(span_transfer);
+
+        // ALWAYS, even with no match (see `begin_reconciliation`).
+        let span_remap = crate::probe::Probe::span("reconcile_remap_node_ids");
+        let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+        self.remap_node_ids(dom_id, &map);
+        drop(span_remap);
+
+        let autofocus =
+            first_entered_autofocus(styled_dom.node_data.as_ref(), unmatched_new.iter().copied());
+        Some(PendingReconciliation {
+            autofocus,
+            node_moves: diff.node_moves,
+            // Filled by `style_reconciled_dom`: the cascade has not run.
+            restyled: Vec::new(),
+            mounted,
+            unmounted,
+            first_rects: BTreeMap::new(),
+            exit_rects,
+            new_node_count: styled_dom.node_data.len(),
+            entered: unmatched_new,
+            events: diff.events,
+            old_node_data,
+            animate_moves: true,
+            move_modes: BTreeMap::new(),
+            compared: 0,
+            compared_properties: 0,
+        })
+    }
+
+    /// The cascade of a tree [`Self::begin_reconciliation_before_styling`] reconciled, and
+    /// the rest of the reconciliation, which reads both cascades. `styled_dom` is still
+    /// unstyled and its nodes are in the runtime states the caller raised on it.
+    ///
+    /// The cascade keeps the rows of the old tree for every node that is what it was and
+    /// runs for the others, once, under the states (`StyledDom::cascade_reusing`, with its
+    /// proof). `sheets` are the sheets that hang on the nodes of the old and of the new tree
+    /// (`DomFingerprints::sheets` of the two builds), `None` where a build's fingerprints do
+    /// not number the nodes as its arena does. Where no row can be kept - no `sheets`, or
+    /// `cascade_reusing` says so - the tree is cascaded at rest and the states let in
+    /// afterwards, as the full path styles it (`StyledDom::cascade_at_rest`,
+    /// `StyledDom::let_raised_states_in`).
+    ///
+    /// Then, as `begin_reconciliation`: the CSS diff of the matched pairs (no node declares
+    /// an animation, so it starts no transition: [`css_diff_between`], which skips the nodes
+    /// that kept their rows), the runtime overrides migrated, the dirt staged for the layout
+    /// pass.
+    ///
+    /// Answers, for the layout (`LayoutCache::dom_diff_clean`, whatever the node count): per
+    /// node of the new tree, whether it is the node it was UNDER THE ID IT HAD, with every
+    /// ancestor - it kept its rows (so every ancestor did), the reconciliation paired it
+    /// with the old node of its own index, and every field a rebuild compares reads alike in
+    /// the two (`NodeField::reads_alike`, all rows of the table: the cascade's inputs and
+    /// the handlers' events, the menus, the accessibility data, the SVG data, the key). The
+    /// layout's reconcile takes the fingerprint such a node had instead of hashing it again;
+    /// a node the rebuild renumbered gains nothing from the flag (the reconcile lays it out
+    /// anew, `DomDiff::keeps`), so it is not flagged. `None` when no node kept its rows.
+    pub fn style_reconciled_dom(
+        &mut self,
+        dom_id: DomId,
+        styled_dom: &mut StyledDom,
+        pending: &mut PendingReconciliation,
+        sheets: Option<(&[(usize, u64)], &[(usize, u64)])>,
+    ) -> Option<Vec<bool>> {
+        let span_style = crate::probe::Probe::span("regen_style_reconciled");
+        let mut old_of_new: Vec<Option<NodeId>> = vec![None; styled_dom.node_data.len()];
+        for m in &pending.node_moves {
+            if let Some(slot) = old_of_new.get_mut(m.new_node_id.index()) {
+                *slot = Some(m.old_node_id);
+            }
+        }
+        let kept = match (self.layout_results.get(&dom_id), sheets) {
+            (Some(old), Some((old_sheets, new_sheets))) => {
+                styled_dom.cascade_reusing(&old.styled_dom, &old_of_new, old_sheets, new_sheets)
+            }
+            _ => None,
+        };
+        if kept.is_none() {
+            styled_dom.cascade_at_rest();
+            styled_dom.let_raised_states_in();
+        } else {
+            TREE_REBUILDS_THAT_KEPT_ROWS.with(|count| count.set(count.get() + 1));
+        }
+        drop(span_style);
+
+        // The tree answers for this window before its cascade is compared, as at the head
+        // of `begin_reconciliation`; it was flattened under the old tree's context, so this
+        // finds the context it has unless the window moved between two passes.
+        let context = self.dynamic_selector_context(&self.current_window_state);
+        let same_context =
+            styled_dom.get_css_property_cache().dynamic_context.as_deref() == Some(&context);
+        styled_dom.set_dynamic_selector_context(context);
+        // Under another context the offer above ran the cascade again: no node "kept" a row.
+        let kept = if same_context { kept } else { None };
+
+        let span_css_diff = crate::probe::Probe::span("reconcile_css_diff");
+        let restyled = self
+            .layout_results
+            .get(&dom_id)
+            .and_then(|old| {
+                css_diff_between_knowing(
+                    &old.styled_dom,
+                    styled_dom,
+                    &pending.node_moves,
+                    kept.as_deref(),
+                )
+            })
+            // No diff of two cascades under two contexts: every matched node is laid out.
+            .unwrap_or_else(|| {
+                pending
+                    .node_moves
+                    .iter()
+                    .map(|m| {
+                        (
+                            m.new_node_id,
+                            azul_css::props::property::RelayoutScope::Full,
+                        )
+                    })
+                    .collect()
+            });
+        drop(span_css_diff);
+
+        if !pending.node_moves.is_empty() {
+            if let Some(old) = self.layout_results.get(&dom_id) {
+                styled_dom.migrate_user_overrides_from(
+                    &old.styled_dom.css_property_cache.ptr,
+                    &pending.node_moves,
+                );
+            }
+        }
+
+        self.pending_css_dirty = Some((dom_id, restyled.clone()));
+        self.reconciled_dom = Some(dom_id);
+        pending.restyled = restyled;
+
+        let kept = kept?;
+        let old = &self.layout_results.get(&dom_id)?.styled_dom;
+        Some(nodes_clean_for_layout(
+            &kept,
+            &old_of_new,
+            old.node_data.as_ref(),
+            styled_dom.node_data.as_ref(),
+        ))
     }
 
     /// The track a node's declared `-azul-animation-in` resolves to, over its
@@ -25390,6 +25818,14 @@ impl LayoutWindow {
         self.style_user_dom_in_scope(dom, window_state, FORM_SCOPE_ROOT)
     }
 
+    /// [`Self::style_user_dom_for`] WITHOUT its cascade
+    /// ([`Self::flatten_user_dom_inheriting`]): what a rebuild that reconciles before it
+    /// styles starts from.
+    #[must_use]
+    pub fn flatten_user_dom_for(&self, dom: Dom, window_state: &FullWindowState) -> StyledDom {
+        self.flatten_user_dom_inheriting(dom, window_state, FORM_SCOPE_ROOT, Vec::new())
+    }
+
     /// [`Self::style_user_dom_for`] for a DOM whose form controls live in
     /// their own `form_scope` - a `VirtualView`'s DOM, whose control at tree
     /// path `[0, 1]` is not the layout callback's control at `[0, 1]`
@@ -25424,6 +25860,27 @@ impl LayoutWindow {
     /// document of its own, exactly [`Self::style_user_dom_in_scope`].
     #[must_use]
     pub fn style_user_dom_inheriting(
+        &self,
+        dom: Dom,
+        window_state: &FullWindowState,
+        form_scope: u64,
+        inherited_from_host: azul_core::prop_cache::InheritedFromHost,
+    ) -> StyledDom {
+        let mut styled_dom =
+            self.flatten_user_dom_inheriting(dom, window_state, form_scope, inherited_from_host);
+        styled_dom.cascade_at_rest();
+        styled_dom
+    }
+
+    /// [`Self::style_user_dom_inheriting`] WITHOUT its cascade: every step that works on the
+    /// `Dom` (form controls, the web view fallback, the translation, a theme spin, the
+    /// icons), then the flatten (`StyledDom::unstyled_from_dom_inheriting`, which says what
+    /// an unstyled DOM is). `style_user_dom_inheriting` is this and
+    /// `StyledDom::cascade_at_rest`; a rebuild that reconciles before it styles
+    /// ([`Self::begin_reconciliation_before_styling`]) runs
+    /// [`Self::style_reconciled_dom`] on the result instead.
+    #[must_use]
+    pub fn flatten_user_dom_inheriting(
         &self,
         mut dom: Dom,
         window_state: &FullWindowState,
@@ -25478,7 +25935,7 @@ impl LayoutWindow {
             .as_deref()
             .map_or(&[][..], |loaded| core::slice::from_ref(&loaded.css));
         let Some(provider) = self.icon_provider.as_ref() else {
-            return StyledDom::create_from_dom_inheriting(
+            return StyledDom::unstyled_from_dom_inheriting(
                 dom,
                 context,
                 user_sheets,
@@ -25497,27 +25954,18 @@ impl LayoutWindow {
             fallback = azul_css::system::SystemStyle::default();
             &fallback
         };
-        if inherited_from_host.is_empty() {
-            return azul_core::icon::styled_dom_resolving_icons_with_user_sheets(
-                dom,
-                provider,
-                system_style,
-                context,
-                user_sheets,
-            );
-        }
-        // A hosted DOM: the same two steps as
-        // `styled_dom_resolving_icons_with_user_sheets` (keep them in step),
-        // the cascade inheriting from the host from its first pass on - a
-        // view re-materializes on every edge scroll, a second cascade to
-        // re-seed it would double its styling cost.
+        // The two steps of `azul_core::icon::styled_dom_resolving_icons_with_user_sheets`
+        // (keep them in step), for a document of its own (nothing inherited from a host)
+        // and for a hosted one alike: the cascade that follows inherits from the host from
+        // its first pass on - a view re-materializes on every edge scroll, a second cascade
+        // to re-seed it would double its styling cost.
         azul_core::icon::resolve_icons_in_dom_with_context(
             &mut dom,
             provider,
             system_style,
             context.as_ref(),
         );
-        StyledDom::create_from_dom_inheriting(dom, context, user_sheets, inherited_from_host)
+        StyledDom::unstyled_from_dom_inheriting(dom, context, user_sheets, inherited_from_host)
     }
 
     /// What a DOM hosted at `host` - the content of the `VirtualView` at that
@@ -33052,12 +33500,14 @@ impl LayoutWindow {
     fn reconcile_rematerialized_child(
         &mut self,
         child_dom_id: DomId,
-        new_styled_dom: &StyledDom,
+        new_styled_dom: &mut StyledDom,
         now: Instant,
         styles_moved: bool,
+        cascade: ChildCascade,
     ) -> (
         Vec<NodeId>,
         Option<Vec<(NodeId, azul_css::props::property::RelayoutScope)>>,
+        Option<Vec<bool>>,
     ) {
         // The old arena, READ WHERE IT LIES: still live on the programmatic re-invoke
         // path, in the result the funnel retired for the pass that is running, or stashed
@@ -33078,7 +33528,7 @@ impl LayoutWindow {
         let no_hierarchy: &[azul_core::styled_dom::NodeHierarchyItem] = &[];
         // Everything that reads the two arenas, before `self` is written to below (the
         // old arena is borrowed from `self.layout_results` / `self.retired_child_results`).
-        let (rematerialized, map, restyled, entered, entered_autofocus, unmount_invocations, lifecycle_events) = {
+        let (rematerialized, map, restyled, entered, entered_autofocus, unmount_invocations, lifecycle_events, layout_clean) = {
             let live = self.layout_results.get(&child_dom_id);
             let old_result = live.or_else(|| self.retired_child_results.get(&child_dom_id));
             // First materialization: nothing to map from - diffed against an
@@ -33112,11 +33562,55 @@ impl LayoutWindow {
                 identity,
             );
             let map = crate::managers::NodeIdMap::from_node_moves(&diff.node_moves);
+            // Step `view`: the cascade of a DOM that came unstyled, now that its nodes are
+            // paired with the render before. It keeps the rows of every node that is what it
+            // was - a label that only moved keeps them too, and has its compact entries
+            // built again - and runs for the others (`StyledDom::cascade_reusing`); where
+            // no row can be kept, the whole cascade, as `style_user_dom_inheriting` runs it.
+            // A view's document is styled at rest (nothing raises a state on a new one).
+            let mut old_of_new: Vec<Option<NodeId>> = Vec::new();
+            let mut unchanged: Option<Vec<bool>> = None;
+            if let ChildCascade::Owed(sheets) = &cascade {
+                if let (Some(old), Some(((old_count, old_sheets), (new_count, new_sheets)))) =
+                    (old_result, sheets.as_ref())
+                {
+                    if *old_count == old_node_data.len() && *new_count == new_node_data.len() {
+                        old_of_new = vec![None; new_node_data.len()];
+                        for m in &diff.node_moves {
+                            if let Some(slot) = old_of_new.get_mut(m.new_node_id.index()) {
+                                *slot = Some(m.old_node_id);
+                            }
+                        }
+                        unchanged = new_styled_dom.cascade_reusing(
+                            &old.styled_dom,
+                            &old_of_new,
+                            old_sheets,
+                            new_sheets,
+                        );
+                    }
+                }
+                if unchanged.is_some() {
+                    TREE_REBUILDS_THAT_KEPT_ROWS.with(|count| count.set(count.get() + 1));
+                } else {
+                    new_styled_dom.cascade_at_rest();
+                }
+            }
+            // The new arena again: the cascade above held the DOM for writing.
+            let new_node_data: &[azul_core::dom::NodeData] = new_styled_dom.node_data.as_ref();
+            // The nodes the layout need not fingerprint again (`nodes_clean_for_layout`).
+            let layout_clean = unchanged.as_ref().map(|unchanged| {
+                nodes_clean_for_layout(unchanged, &old_of_new, old_node_data, new_node_data)
+            });
             // The CSS diff of the nodes the two builds share, when the styles of the DOM moved
             // and the cascade of the DOM before is still there to compare with.
             let restyled = if rematerialized && styles_moved {
                 live.and_then(|old_result| {
-                    css_diff_between(&old_result.styled_dom, new_styled_dom, &diff.node_moves)
+                    css_diff_between_knowing(
+                        &old_result.styled_dom,
+                        new_styled_dom,
+                        &diff.node_moves,
+                        unchanged.as_deref(),
+                    )
                 })
             } else {
                 None
@@ -33184,6 +33678,7 @@ impl LayoutWindow {
                 entered_autofocus,
                 unmount_invocations,
                 lifecycle_events,
+                layout_clean,
             )
         };
         if rematerialized {
@@ -33197,7 +33692,7 @@ impl LayoutWindow {
         }
         self.pending_unmount_invocations.extend(unmount_invocations);
         self.pending_lifecycle_events.extend(lifecycle_events);
-        (entered, restyled)
+        (entered, restyled, layout_clean)
     }
 
     /// Starts the declared `-azul-animation-in` track of every node of `dom` (a view's
@@ -37938,6 +38433,7 @@ fn unchanged_cascades(
     ),
     node_moves: &[azul_core::diff::NodeMove],
     inherited: &InheritedIds<'_>,
+    known_unchanged: Option<&[bool]>,
 ) -> Vec<bool> {
     let (old_data, old_hierarchy, old_states) = old;
     let (new_data, new_hierarchy, new_states) = new;
@@ -37965,6 +38461,13 @@ fn unchanged_cascades(
         let Some(old_id) = old_of_new[ni] else {
             continue;
         };
+        // A node the cascade of this rebuild gave the rows of its old node
+        // (`StyledDom::cascade_reusing`: the same own data, state and sheets, under a parent
+        // that kept its rows too) answers as that node did: nothing of it is compared.
+        if known_unchanged.is_some_and(|known| known.get(ni).copied().unwrap_or(false)) {
+            unchanged[ni] = true;
+            continue;
+        }
         let oi = old_id.index();
         let parent_same = match (parent(new_hierarchy, ni), parent(old_hierarchy, oi)) {
             (None, None) => true,
@@ -38002,6 +38505,52 @@ fn unchanged_cascades(
         unchanged[ni] = same;
     }
     unchanged
+}
+
+/// How the DOM handed to `LayoutWindow::reconcile_rematerialized_child` is styled.
+enum ChildCascade {
+    /// It is styled (`style_user_dom_inheriting`).
+    Done,
+    /// It is unstyled (`flatten_user_dom_inheriting`, the step `view`): the reconciliation
+    /// runs its cascade once the nodes are paired. With `(node count, sheets)` of the
+    /// fingerprints of the render before and of this one
+    /// (`DomFingerprints::sheets`), or `None` on the view's first render.
+    Owed(Option<((usize, Vec<(usize, u64)>), (usize, Vec<(usize, u64)>))>),
+}
+
+/// For the layout's reconcile (`LayoutCache::dom_diff_clean`), after a cascade that kept the
+/// rows of the DOM before (`StyledDom::cascade_reusing`, whose `unchanged` this takes): per
+/// node of the new DOM, whether it is the node it was UNDER THE ID IT HAD - unchanged for
+/// the cascade (so every ancestor kept its rows), paired with the old node of its own index,
+/// and alike in every field a rebuild compares (`NodeField::reads_alike`, all rows of the
+/// table: the cascade's inputs and the handlers' events, the menus, the accessibility data,
+/// the SVG data, the key). The reconcile takes the fingerprint such a node had instead of
+/// hashing it again. A node the rebuild renumbered is not flagged: the reconcile lays it out
+/// anew whatever it is told (`DomDiff::keeps`).
+fn nodes_clean_for_layout(
+    unchanged: &[bool],
+    old_of_new: &[Option<NodeId>],
+    old_data: &[azul_core::dom::NodeData],
+    new_data: &[azul_core::dom::NodeData],
+) -> Vec<bool> {
+    unchanged
+        .iter()
+        .enumerate()
+        .map(|(index, unchanged)| {
+            *unchanged
+                && old_of_new
+                    .get(index)
+                    .copied()
+                    .flatten()
+                    .is_some_and(|old_id| old_id.index() == index)
+                && match (old_data.get(index), new_data.get(index)) {
+                    (Some(old_node), Some(new_node)) => azul_core::layout_inputs::NodeField::ALL
+                        .into_iter()
+                        .all(|field| field.reads_alike(old_node, new_node)),
+                    _ => false,
+                }
+        })
+        .collect()
 }
 
 /// A node's runtime overrides (`set_css_property`, a transition's frame).
@@ -38406,6 +38955,18 @@ pub(crate) fn css_diff_between(
     new: &StyledDom,
     node_moves: &[azul_core::diff::NodeMove],
 ) -> Option<Vec<(NodeId, azul_css::props::property::RelayoutScope)>> {
+    css_diff_between_knowing(old, new, node_moves, None)
+}
+
+/// [`css_diff_between`] for a new DOM whose cascade kept the rows of the old one where it
+/// could (`StyledDom::cascade_reusing`): `known_unchanged[n]` says node `n` kept the rows of
+/// its old node, and such a node is not looked at.
+pub(crate) fn css_diff_between_knowing(
+    old: &StyledDom,
+    new: &StyledDom,
+    node_moves: &[azul_core::diff::NodeMove],
+    known_unchanged: Option<&[bool]>,
+) -> Option<Vec<(NodeId, azul_css::props::property::RelayoutScope)>> {
     let old_cache = &old.css_property_cache.ptr;
     let new_cache = &new.css_property_cache.ptr;
     if old_cache.dynamic_context != new_cache.dynamic_context {
@@ -38421,6 +38982,7 @@ pub(crate) fn css_diff_between(
         (new_data, new.node_hierarchy.as_ref(), new_states),
         node_moves,
         &inherited,
+        known_unchanged,
     );
     let mut out = Vec::new();
     for m in node_moves {

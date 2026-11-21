@@ -584,6 +584,51 @@ impl<T> FlatVecVec<T> {
         }
     }
 
+    /// The store of ANOTHER ARENA: node `n` of it has the run node `source[n]` has here, and
+    /// an empty run where `source[n]` is `None` or names no node of this store. What a
+    /// rebuild that changed the tree starts its cascade from
+    /// ([`CssPropertyCache::spliced`]): the nodes that are what they were keep their runs
+    /// under their new numbers.
+    ///
+    /// No run is copied node by node: the flat storage is cloned once (it holds each distinct
+    /// run once, `dedup_runs`) and the new nodes point into it, as the nodes of one rule set
+    /// share a run here. The runs no new node points at stay in the storage until they are
+    /// more than half of it, then it is compacted - the rule of [`Self::replace_rows`].
+    /// `None` in the build phase: there are no runs to point at.
+    #[must_use]
+    pub fn gathered(&self, source: &[Option<NodeId>]) -> Option<Self>
+    where
+        T: Clone + PartialEq + core::hash::Hash,
+    {
+        if self.offsets.is_empty() && !self.build.is_empty() {
+            return None;
+        }
+        let offsets: Vec<(u32, u32)> = source
+            .iter()
+            .map(|from| {
+                from.and_then(|old| self.offsets.get(old.index()).copied())
+                    .unwrap_or((0, 0))
+            })
+            .collect();
+        // What the new nodes point at, each distinct run once: runs are equal or disjoint.
+        let mut live_runs: Vec<(u32, u32)> =
+            offsets.iter().copied().filter(|(_, len)| *len != 0).collect();
+        live_runs.sort_unstable();
+        live_runs.dedup();
+        let live: usize = live_runs.iter().map(|(_, len)| *len as usize).sum();
+        let mut store = Self {
+            build: Vec::new(),
+            data: self.data.clone(),
+            offsets,
+            orphaned: 0,
+        };
+        store.orphaned = store.data.len().saturating_sub(live);
+        if store.orphaned > 256 && store.orphaned > store.data.len() / 2 {
+            store.dedup_runs();
+        }
+        Some(store)
+    }
+
     /// Push an item to the inner Vec at `node_index` (build phase).
     ///
     /// # Panics
@@ -1320,6 +1365,42 @@ impl InheritedValues {
             placed.push(u32::try_from(bucket).unwrap_or(u32::MAX));
         }
         placed
+    }
+
+    /// The store of ANOTHER ARENA of `node_count` nodes: old node `o` is new node
+    /// `new_of_old[o]` there, and an old node without a new one (`None`, or past the end of
+    /// `new_of_old`) holds no value in it ([`CssPropertyCache::spliced`]). Every value keeps
+    /// its bucket and the bucket its index, so the two indexes of the buckets stand as they
+    /// are; a bucket whose nodes all went is empty, which no lookup finds a node in. The
+    /// node lists are sorted again: the new numbers need not come in the order of the old.
+    #[must_use]
+    pub fn remapped(&self, new_of_old: &[Option<usize>], node_count: usize) -> Self {
+        let buckets = self
+            .buckets
+            .iter()
+            .map(|bucket| {
+                let mut nodes: Vec<u32> = bucket
+                    .nodes
+                    .iter()
+                    .filter_map(|old| new_of_old.get(*old as usize).copied().flatten())
+                    .filter(|new| *new < node_count)
+                    .filter_map(|new| u32::try_from(new).ok())
+                    .collect();
+                nodes.sort_unstable();
+                nodes.dedup();
+                InheritedBucket {
+                    prop_type: bucket.prop_type,
+                    value: bucket.value.clone(),
+                    nodes,
+                }
+            })
+            .collect();
+        Self {
+            buckets,
+            node_count,
+            by_hash: self.by_hash.clone(),
+            by_type: self.by_type.clone(),
+        }
     }
 
     /// Absorb another store whose nodes sit after this one's (subtree
@@ -7126,6 +7207,14 @@ impl CssPropertyCache {
     /// rows, and a child copies them from its parent's row). They are rebuilt from the root
     /// down along those chains, used, and dropped: the ancestors keep the rows they have.
     ///
+    /// `moved_in_place` (empty: none) names nodes that are NOT cascaded and whose own style
+    /// moved in a way no row but their compact entries holds - the values of their insets,
+    /// of an exact `transform` / `opacity` (`StyledDom::own_style_moved_in_place`): these
+    /// properties do not inherit, a node's own declarations are read from its node data and
+    /// not from the matched or inherited rows, and no selector reads a style. Their compact
+    /// entries are built again with the named nodes'; their children copy only inheritable
+    /// slots from them, which did not move, and keep their entries.
+    ///
     /// Answers `false`, having changed nothing, where the whole cascade has to run instead:
     /// a cache that is not complete (no compact cache, rows in their build phase, a composed
     /// DOM), a custom property or `var()` anywhere (the variable pass resolves them DOM-wide),
@@ -7141,6 +7230,7 @@ impl CssPropertyCache {
         html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
         node_states: &[StyledNodeState],
         dirty: &[bool],
+        moved_in_place: &[bool],
     ) -> bool {
         use azul_css::{
             css::{
@@ -7158,7 +7248,9 @@ impl CssPropertyCache {
         let hierarchy = node_hierarchy.as_container();
         let items = hierarchy.internal;
         let named = dirty.iter().filter(|d| **d).count();
+        let any_moved = moved_in_place.iter().any(|moved| *moved);
         if dirty.len() != node_count
+            || (!moved_in_place.is_empty() && moved_in_place.len() != node_count)
             || items.len() != node_count
             || self.node_count != node_count
             || self.css_props.len() != node_count
@@ -7184,9 +7276,6 @@ impl CssPropertyCache {
                 .any(|(node, named)| *named && node.is_generated_content())
         {
             return false;
-        }
-        if named == 0 {
-            return true;
         }
 
         let css_is_empty = css.is_empty();
@@ -7259,6 +7348,10 @@ impl CssPropertyCache {
         });
 
         let mut global_priorities: Vec<(CssPropertyType, u8)> = Vec::new();
+        // The states the sheet's live rules name left of their subject, as the whole cascade
+        // finds them (`left_state_mask`): the sheet of a spliced cache is another sheet than
+        // the one its mask came with (`Self::spliced`); for a kept DOM this is what it holds.
+        let mut new_left_mask: u32 = 0;
         if !css_is_empty {
             css.sort_by_specificity();
 
@@ -7350,6 +7443,13 @@ impl CssPropertyCache {
                     .collect();
                 any_backdrop |= ends_in.iter().any(|bits| bits & backdrop_pass != 0);
                 let live_passes = takes_part.iter().fold(0u16, |all, bits| all | bits);
+                new_left_mask = specific_rules
+                    .iter()
+                    .zip(&takes_part)
+                    .filter(|(_, bits)| **bits != 0)
+                    .fold(0, |mask, (rule, _)| {
+                        mask | crate::style::left_state_bits(&rule.path)
+                    });
 
                 let mut index = crate::style::SubjectRuleIndex::new(
                     specific_rules.iter().map(|rule| &rule.path),
@@ -7424,6 +7524,10 @@ impl CssPropertyCache {
         }
 
         // ---- Nothing below can fail: the rows are written ----
+        self.left_state_mask = new_left_mask;
+        if named == 0 && !any_moved {
+            return true;
+        }
         crate::styled_dom::count_nodes_cascaded(named);
 
         // A value a rule outranks never shows (`drop_outranked_values`); then each row as
@@ -7903,12 +8007,24 @@ impl CssPropertyCache {
             .as_ref()
             .map(|c| c.prev_font_hashes.clone())
             .unwrap_or_default();
+        // ... and of the nodes whose own style moved in place: their slots hold its values.
+        let with_the_moved: Vec<bool>;
+        let compact_rows: &[bool] = if any_moved {
+            with_the_moved = dirty
+                .iter()
+                .zip(moved_in_place)
+                .map(|(dirty, moved)| *dirty || *moved)
+                .collect();
+            &with_the_moved
+        } else {
+            dirty
+        };
         let compact = self.rebuild_compact_rows(
             node_data.internal,
             items,
             node_states,
             &prev_font_hashes,
-            dirty,
+            compact_rows,
         );
         self.compact_cache = Some(compact);
 
@@ -7923,6 +8039,137 @@ impl CssPropertyCache {
         self.ua_applied = true;
         self.cascade_epoch = self.cascade_epoch.wrapping_add(1);
         true
+    }
+
+    /// This cascade re-indexed for ANOTHER ARENA: node `n` of it holds every per-node row
+    /// node `source[n]` holds here - its matched rules, what it inherited, its computed
+    /// inherited values, its compact entries, the properties a rule above the inline
+    /// priority overrules, the values its CSS-wide keywords stand for, its entry among the
+    /// readers of the environment - and a node with `source[n] == None` holds none. What a
+    /// rebuild that changed the TREE starts from (`StyledDom::cascade_reusing`): the nodes
+    /// that are what they were, under ancestors that are what they were, keep their rows
+    /// under their new numbers, and [`Self::recascade_nodes`] makes the rows of the others.
+    ///
+    /// The tables as they lie: the two flat stores share their runs ([`FlatVecVec::gathered`]:
+    /// the new nodes point at the runs the old ones pointed at), the inherited values are
+    /// transposed ([`InheritedValues::remapped`]: each value's node list is renumbered), the
+    /// compact cache is four vectors of rows and two side tables keyed by node, the rest are
+    /// maps keyed by node.
+    ///
+    /// What is NOT per node is carried as it is and may say more than a new cascade would,
+    /// never less: the flags the compact builder gathers DOM-wide (declared rare properties,
+    /// viewport thresholds, the font-family table: a reader takes a set flag as "ask the
+    /// cascade"), the environment flags, the `*` bucket (`recascade_nodes` compares it with
+    /// the new sheet's and refuses a difference) and the left-state mask (`recascade_nodes`
+    /// sets it for the new sheet). The retained sheet is left empty for the caller's; runtime
+    /// overrides are not carried (they follow a node's identity:
+    /// `StyledDom::migrate_user_overrides_from`); the lazily resolved font sizes start empty.
+    ///
+    /// `None` where this cascade is not one a node's rows can be taken from: it is not
+    /// complete (no compact cache, rows in their build phase, a composed DOM), it resolves
+    /// custom properties, or two new nodes name one old node.
+    #[must_use]
+    pub fn spliced(&self, source: &[Option<NodeId>]) -> Option<Self> {
+        let old_count = self.node_count;
+        let old_compact = self.compact_cache.as_ref()?;
+        if self.css_props.len() != old_count
+            || self.cascaded_props.len() != old_count
+            || old_compact.node_count() != old_count
+            || !self.ua_applied
+            || self.composed_since_recompute
+            || !self.resolved_inline.is_empty()
+            || self.variables_depend_on_context
+            || self.custom_property_envs
+                != crate::custom_property_cascade::CustomPropertyEnvs::default()
+        {
+            return None;
+        }
+        let new_count = source.len();
+        let mut new_of_old: Vec<Option<usize>> = vec![None; old_count];
+        for (new_index, from) in source.iter().enumerate() {
+            let Some(old) = *from else {
+                continue;
+            };
+            let slot = new_of_old.get_mut(old.index())?;
+            if slot.is_some() {
+                return None;
+            }
+            *slot = Some(new_index);
+        }
+        let renumbered = |old: usize| new_of_old.get(old).copied().flatten();
+
+        let mut compact = azul_css::compact_cache::CompactLayoutCache::with_capacity(new_count);
+        compact.uses_viewport_units = old_compact.uses_viewport_units;
+        compact.font_hash_to_families = old_compact.font_hash_to_families.clone();
+        compact.has_dynamic_conditions = old_compact.has_dynamic_conditions;
+        compact.dom_declared_flags = old_compact.dom_declared_flags;
+        compact.inline_viewport_w = old_compact.inline_viewport_w.clone();
+        compact.inline_viewport_h = old_compact.inline_viewport_h.clone();
+        compact.inline_viewport_shape = old_compact.inline_viewport_shape;
+        for (new_index, from) in source.iter().enumerate() {
+            let Some(old) = from.map(|old| old.index()) else {
+                continue;
+            };
+            let (Some(tier1), Some(dims), Some(cold), Some(text)) = (
+                old_compact.tier1_enums.get(old),
+                old_compact.tier2_dims.get(old),
+                old_compact.tier2_cold.get(old),
+                old_compact.tier2b_text.get(old),
+            ) else {
+                continue;
+            };
+            compact.tier1_enums[new_index] = *tier1;
+            compact.tier2_dims[new_index] = dims.clone();
+            compact.tier2_cold[new_index] = cold.clone();
+            compact.tier2b_text[new_index] = text.clone();
+            if let Some(hash) = old_compact.prev_font_hashes.get(old) {
+                compact.prev_font_hashes[new_index] = *hash;
+            }
+        }
+        for ((old, ty), value) in &old_compact.px_overflow {
+            if let Some(new) = renumbered(*old as usize).and_then(|new| u32::try_from(new).ok()) {
+                compact.px_overflow.insert((new, *ty), *value);
+            }
+        }
+
+        let mut env_readers = EnvReaders {
+            nodes: alloc::collections::BTreeMap::new(),
+            beyond_nodes: self.env_readers.beyond_nodes,
+            follows_viewport: self.env_readers.follows_viewport,
+        };
+        for (old, scope) in &self.env_readers.nodes {
+            if let Some(new) = renumbered(*old) {
+                env_readers.nodes.insert(new, *scope);
+            }
+        }
+
+        Some(Self {
+            node_count: new_count,
+            dynamic_context: self.dynamic_context.clone(),
+            ua_applied: true,
+            cascade_epoch: self.cascade_epoch.wrapping_add(1),
+            cascaded_props: self.cascaded_props.gathered(source)?,
+            css_props: self.css_props.gathered(source)?,
+            computed_values: self.computed_values.remapped(&new_of_old, new_count),
+            compact_cache: Some(compact),
+            global_css_props: self.global_css_props.clone(),
+            inherited_from_host: self.inherited_from_host.clone(),
+            left_state_mask: self.left_state_mask,
+            inline_overruled: self
+                .inline_overruled
+                .iter()
+                .filter_map(|(old, overruled)| Some((renumbered(*old)?, overruled.clone())))
+                .collect(),
+            css_wide_values: self
+                .css_wide_values
+                .iter()
+                .filter_map(|((old, ty, keyword), value)| {
+                    Some(((renumbered(*old)?, *ty, *keyword), value.clone()))
+                })
+                .collect(),
+            env_readers,
+            ..Self::empty(0)
+        })
     }
 }
 
