@@ -2579,25 +2579,16 @@ pub mod parsed {
                 let hmtx_advance = self.get_horizontal_advance(glyph_index);
                 let adv_f26dot6 = F26Dot6::from_funits(i32::from(hmtx_advance), scale);
 
-                // For glyphs with outline data, run bytecode hinting
-                if let (Some(raw_points), Some(raw_on_curve), Some(raw_contour_ends)) = (
-                    glyph.raw_points.as_ref(),
-                    glyph.raw_on_curve.as_ref(),
-                    glyph.raw_contour_ends.as_ref(),
-                ) {
-                    let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
+                // A glyph with outline data prepares the interpreter for this ppem
+                // (scales the CVT, runs `prep`). The advance itself is not hinted
+                // (below), so its points are not scaled here: that Vec was built
+                // per glyph and dropped unread.
+                if glyph.raw_points.is_some()
+                    && glyph.raw_on_curve.is_some()
+                    && glyph.raw_contour_ends.is_some()
+                {
                     let mut hint = hint_mutex.lock().ok()?;
                     hint.set_ppem(ppem, f64::from(ppem)).ok()?;
-                    drop(hint);
-
-                    let points_f26dot6: Vec<(i32, i32)> = raw_points
-                        .iter()
-                        .map(|&(x, y)| {
-                            let sx = F26Dot6::from_funits(i32::from(x), scale);
-                            let sy = F26Dot6::from_funits(i32::from(y), scale);
-                            (sx.to_bits(), sy.to_bits())
-                        })
-                        .collect();
                 }
 
                 // Use the scaled advance rounded to pixel grid, NOT the hinted
@@ -4931,6 +4922,28 @@ pub mod parsed {
                             "{ch:?} at {ppem} ppem"
                         );
                     }
+                }
+            }
+        }
+
+        #[test]
+        fn a_hinted_advance_is_the_rounded_scaled_hmtx_advance_of_every_glyph() {
+            // A8-25 dropped the per-glyph points Vec the function built and never
+            // read; what it returns is unchanged: Some(round(scaled hmtx)) for every
+            // glyph that decodes, with the interpreter set to the ppem.
+            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
+            let font = shared(MOCK_MONO).expect("parses");
+            for ppem in [9u16, 16, 31] {
+                let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+                for gid in 0..font.num_glyphs() {
+                    let expected = font.get_or_decode_glyph(gid).map(|_| {
+                        let adv = F26Dot6::from_funits(
+                            i32::from(font.get_horizontal_advance(gid)),
+                            scale,
+                        );
+                        ((adv.to_bits() + 32) & !63) as f32 / 64.0
+                    });
+                    assert_eq!(font.get_hinted_advance_px(gid, ppem), expected, "gid {gid}");
                 }
             }
         }
