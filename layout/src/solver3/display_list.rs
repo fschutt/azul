@@ -4192,9 +4192,14 @@ impl FrameIndex {
             };
             let inside = self.extent_with(items, *child, transforms)?;
             let m = transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m);
-            if m[0][3].abs() > 1e-6 || m[1][3].abs() > 1e-6 || (m[3][3] - 1.0).abs() > 1e-6 {
-                return None;
-            }
+            // A matrix with a perspective part maps a point `q` about `o` to
+            // `o + (L q + t) / w`, `w = m03 qx + m13 qy + m33` (A2-cpu-R01): the corners are
+            // mapped that way, as the rasteriser composites the group. `w` is linear, so with
+            // four corners in front of the eye (`w > 0`) the box's image is the quad of the
+            // mapped corners; a corner at or behind the eye has no bound (`None`). For an
+            // affine matrix `w` is 1.0 exactly and nothing changes. (The test used to be
+            // `|m03| <= 1e-6`, another tolerance than the rasteriser's, with the laid-out
+            // extent as the answer above it: a tilted card's surface was cut.)
             let o = bounds.inner().origin;
             let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
             let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
@@ -4205,8 +4210,12 @@ impl FrameIndex {
                 (inside.origin.x + inside.size.width, inside.origin.y + inside.size.height),
             ] {
                 let (qx, qy) = (cx - o.x, cy - o.y);
-                let x = o.x + qx * m[0][0] + qy * m[1][0] + m[3][0];
-                let y = o.y + qx * m[0][1] + qy * m[1][1] + m[3][1];
+                let w = qx * m[0][3] + qy * m[1][3] + m[3][3];
+                if !(w > 1e-6) {
+                    return None;
+                }
+                let x = o.x + (qx * m[0][0] + qy * m[1][0] + m[3][0]) / w;
+                let y = o.y + (qx * m[0][1] + qy * m[1][1] + m[3][1]) / w;
                 x0 = x0.min(x);
                 y0 = y0.min(y);
                 x1 = x1.max(x);

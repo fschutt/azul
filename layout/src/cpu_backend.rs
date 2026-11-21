@@ -75,6 +75,40 @@ pub fn frame_may_reuse_previous_pixels(
         && !force_full_repaint
 }
 
+/// What a frame reports for presenting it by moves: the moves, and the rects to copy from the
+/// frame after them. The invariant: the previous frame, the moves in order, then those rects
+/// copied, is the new frame.
+///
+/// - A frame that is not incremental: no moves, everything.
+/// - A frame whose pixels were also moved by the layout-translation blit (`blit_boxes`: what
+///   `execute_translate_blit` moved, not empty then): NO moves, and every rect that was
+///   written or moved (`moved_or_painted`, the plain present damage). The blit runs before
+///   the reported moves and is not one of them, so a reported move carried blitted pixels,
+///   which the presenter's copy of the previous frame does not hold: a panel moved down 5 px
+///   by the blit under a page scrolled by 8 came out with 240 px of the old panel
+///   (A2-cpu-R02).
+/// - Otherwise: the moves, and the damage with the boxes that were moved by something else
+///   than a reported move (none, without a blit).
+#[must_use]
+pub fn present_by_moves(
+    is_incremental: bool,
+    damage: &[azul_core::geom::LogicalRect],
+    blit_boxes: Vec<azul_core::geom::LogicalRect>,
+    moved_or_painted: &[azul_core::geom::LogicalRect],
+    moves: Vec<cpurender::PresentMove>,
+) -> (Vec<cpurender::PresentMove>, FrameDamage) {
+    if !is_incremental {
+        return (Vec::new(), FrameDamage::Full);
+    }
+    let mut present = damage.to_vec();
+    if blit_boxes.is_empty() {
+        (moves, FrameDamage::Rects(present))
+    } else {
+        present.extend_from_slice(moved_or_painted);
+        (Vec::new(), FrameDamage::Rects(present))
+    }
+}
+
 pub struct CpuBackend {
     /// CPU-based hit tester rebuilt after each layout pass.
     pub hit_tester: crate::headless::CpuHitTester,
@@ -1512,14 +1546,15 @@ impl CpuBackend {
         };
         // Present damage = paint damage ∪ the full clips that were pixel-shifted
         // (their content moved on screen even though only a strip was repainted).
-        self.last_present_damage_after_moves = if is_incremental {
-            let mut present = all_damage.clone();
-            present.extend(present_unmoved);
-            FrameDamage::Rects(present)
-        } else {
-            FrameDamage::Full
-        };
-        self.last_present_moves = if is_incremental { present_moves } else { Vec::new() };
+        let (moves, after_moves) = present_by_moves(
+            is_incremental,
+            &all_damage,
+            present_unmoved,
+            &present_extra,
+            present_moves,
+        );
+        self.last_present_damage_after_moves = after_moves;
+        self.last_present_moves = moves;
         self.last_present_damage = if is_incremental {
             let mut present = all_damage.clone();
             present.extend(present_extra);
@@ -1576,5 +1611,46 @@ mod tests {
             .map(|p| p.strip_prefix(manifest).unwrap_or(p).display().to_string())
             .collect();
         assert_eq!(shown, ["src/cpu_backend.rs"], "one declaration of `CpuBackend`: {shown:?}");
+    }
+}
+
+#[cfg(test)]
+mod audit_a1_tests {
+    use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
+
+    use super::*;
+
+    fn lr(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect {
+            origin: LogicalPosition { x, y },
+            size: LogicalSize { width: w, height: h },
+        }
+    }
+
+    /// A2-cpu-R02: a frame whose pixels the layout-translation blit moved reports no moves.
+    /// A 100 x 80 frame: a panel (10, 10) 30 x 20 moved down 5 by the blit (its box, rows
+    /// 10 .. 35) and the page scrolled from 8 to 0 in the same frame (a move of rows 0 .. 72
+    /// down by 8). Reported as a move, the scroll carried the presenter's OLD panel (rows
+    /// 10 .. 30 to 18 .. 38) where the frame holds the blitted one. Reported as rects, the
+    /// presenter copies the scrolled clip and the blit's box from the frame.
+    /// Mutation: the moves reported whenever the frame is incremental shows 240 px of the
+    /// old panel.
+    #[test]
+    fn a_frame_that_blits_a_layout_move_reports_no_moves() {
+        let strip = lr(0.0, 0.0, 100.0, 8.0);
+        let blit_box = lr(10.0, 10.0, 30.0, 25.0);
+        let scrolled_clip = lr(0.0, 0.0, 100.0, 80.0);
+        let moves = vec![cpurender::PresentMove { dst: (0, 8, 100, 72), dx: 0, dy: 8 }];
+        let moved_or_painted = [blit_box, scrolled_clip];
+        // The blit ran: no moves, and everything that was written or moved is copied.
+        let (reported, after) = present_by_moves(true, &[strip], vec![blit_box], &moved_or_painted, moves.clone());
+        assert!(reported.is_empty());
+        assert_eq!(after, FrameDamage::Rects(vec![strip, blit_box, scrolled_clip]));
+        // No blit: the moves, and the damage alone after them.
+        let (reported, after) = present_by_moves(true, &[strip], Vec::new(), &[scrolled_clip], moves.clone());
+        assert_eq!(reported, moves);
+        assert_eq!(after, FrameDamage::Rects(vec![strip]));
+        // A full repaint: no moves, everything.
+        assert_eq!(present_by_moves(false, &[], Vec::new(), &[], moves), (Vec::new(), FrameDamage::Full));
     }
 }

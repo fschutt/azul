@@ -5579,7 +5579,20 @@ pub fn render_single_item(
         // closes its own push however filters nest.
         DisplayListItem::PushFilter { bounds, filters } => {
             let group = if filter_group_needs_isolation(filters) {
+                // The group's box INSIDE the clip, as an opacity group's region is: outside
+                // it the group paints nothing in this pass, and the box there holds the
+                // pixels of the frame before. Taking the whole box in every pass (every
+                // damage rect, every band) filtered nothing over them again: a bare
+                // translucent `flood()` got darker with every caret blink elsewhere in the
+                // window, and bands and one pass differed (A2-cpu-R10). No group when the
+                // box is outside the clip.
+                let clip = *clip_stack.last().unwrap();
                 logical_rect_to_az_rect(&scroll_rect(bounds.inner()), dpi_factor)
+                    .and_then(|r| match clip {
+                        Some(c) => intersect_clips(Some(c), Some(r)),
+                        None => Some(r),
+                    })
+                    .filter(|r| r.width > 0.0 && r.height > 0.0)
                     .map(|r| FilterGroup::begin(pixmap, &r, filters))
             } else {
                 None
@@ -18426,5 +18439,71 @@ mod audit_a1_tests {
         let counted = crate::cpu_counters::take();
         assert_eq!(counted.groups_opened, 0, "drawn directly: {counted:?}");
         assert!((4..=12).contains(&counted.halos_drawn), "halo pictures for the runs in the view alone: {counted:?}");
+    }
+
+    /// A2-cpu-R10: an isolated filter group takes its box INSIDE the pass's clip. A 24 x 24
+    /// box at (10, 10) with `filter: flood(rgba(0, 0, 0, 0.5))` on a white page: painted in
+    /// full it is half black over white. A repaint of a 10 x 10 rect at (60, 20), beside the
+    /// box, leaves the box's pixels as they are.
+    /// Mutation: the group begun on its whole box in every pass floods the box again with
+    /// nothing painted in it and writes half black over the pixels that already hold it:
+    /// darker with every repaint elsewhere.
+    #[test]
+    fn a_filter_group_outside_the_repainted_rect_is_left_alone() {
+        let (rr, fm) = (RendererResources::default(), empty_font_manager());
+        let dl = list(vec![
+            fill(0.0, 0.0, 100.0, 60.0, [255, 255, 255]),
+            DisplayListItem::PushFilter {
+                bounds: wrect(10.0, 10.0, 24.0, 24.0),
+                filters: vec![StyleFilter::Flood(ColorU { r: 0, g: 0, b: 0, a: 128 })],
+            },
+            fill(12.0, 12.0, 8.0, 8.0, [255, 0, 0]),
+            DisplayListItem::PopFilter,
+        ]);
+        let state = CpuRenderState::new(ScrollOffsetMap::new()).with_paint_threads(1);
+        let (mut pm, _) = full(&dl, &state, (100, 60));
+        let before = px(&pm, 20, 20);
+        assert!((120..=135).contains(&before[0]) && before[3] == 255, "half black over white: {before:?}");
+        let mut gc = GlyphCache::new();
+        for _ in 0..3 {
+            render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &[rect(60.0, 20.0, 10.0, 10.0)]).unwrap();
+        }
+        assert_eq!(px(&pm, 20, 20), before, "the box is outside the repainted rect");
+        assert_eq!(px(&pm, 64, 24), [255, 255, 255, 255], "the rect itself is the page");
+        // A repaint of a rect that cuts the box paints the flood there once.
+        render_display_list_damaged(&dl, &mut pm, 1.0, &rr, &fm, &mut gc, &state, &[rect(20.0, 0.0, 30.0, 60.0)]).unwrap();
+        assert_eq!(px(&pm, 25, 20), before, "inside the rect and the box");
+        assert_eq!(px(&pm, 15, 20), before, "inside the box, outside the rect");
+    }
+
+    /// A2-cpu-R01: a frame's extent takes a frame inside it through a matrix with perspective
+    /// as the rasteriser composites it. A column (0, 0) 400 x 100 holds a card of the same
+    /// box whose matrix is the identity but for `m03 = -0.001` (a tilt): a point `q` lands at
+    /// `q / w`, `w = 1 - 0.001 qx`. The corner (400, 100) has w = 0.6 and lands at
+    /// (666.7, 166.7): the column's extent is (0, 0) 666.7 x 166.7. With `m03 = -0.003` the
+    /// corner is behind the eye (w = -0.2): no bound.
+    /// Mutation: the affine sums give (0, 0) 400 x 100 for the first.
+    #[test]
+    fn a_frames_extent_takes_a_tilted_frame_inside_it_through_its_perspective() {
+        let column = |m03: f32| {
+            let mut m = IDENTITY;
+            m[0][3] = m03;
+            let mut inner = vec![DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: 2 },
+                initial_transform: azul_core::transform::ComputedTransform3D { m },
+                bounds: wrect(0.0, 0.0, 400.0, 100.0),
+            }];
+            inner.push(fill(0.0, 0.0, 400.0, 100.0, [200, 0, 0]));
+            inner.push(DisplayListItem::PopReferenceFrame);
+            list(frame(1, IDENTITY, (400.0, 100.0), inner))
+        };
+        let tilted = column(-0.001);
+        let extent = tilted.frame_index().extent_with(&tilted.items, 0, &HashMap::new()).expect("in front of the eye");
+        assert!((extent.origin.x, extent.origin.y) == (0.0, 0.0), "{extent:?}");
+        assert!((extent.size.width - 666.67).abs() < 0.1 && (extent.size.height - 166.67).abs() < 0.1, "{extent:?}");
+        let behind = column(-0.003);
+        assert_eq!(behind.frame_index().extent_with(&behind.items, 0, &HashMap::new()), None);
+        let flat = column(0.0);
+        assert_eq!(flat.frame_index().extent_with(&flat.items, 0, &HashMap::new()), Some(rect(0.0, 0.0, 400.0, 100.0)));
     }
 }
