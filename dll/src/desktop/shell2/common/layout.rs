@@ -936,7 +936,7 @@ pub fn regenerate_layout(
         layout_window.last_dom_fingerprints.as_ref(),
     ) {
         (Some((fp, _)), Some(prev))
-            if azul_layout::window::diff_first_enabled()
+            if azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Text)
                 && !theme_rebuild
                 && !csd_changed_precheck
                 && fp.style_root == prev.style_root =>
@@ -1053,6 +1053,154 @@ pub fn regenerate_layout(
             "[regenerate_layout] COMPLETE (texts only, the cascade kept)"
         );
         phases.mark("end_texts_only");
+        phases.report();
+        reconcile_transient_windows(layout_window, current_window_state);
+        return Ok(LayoutRegenerateResult::LayoutChanged);
+    }
+    // 1.46. DIFF FIRST, step "nodes": A REBUILD THAT CHANGED NODES WHERE THEY STAND.
+    //
+    // The fingerprints say the tree is the tree it was and every attached sheet is what it was
+    // (`azul_core::diff::same_tree_changes`), and name the nodes whose own data moved: a
+    // class, an id, an attribute, an inline style, a flag, a text. When each of them is still
+    // the node it was (`changed_nodes_are_adoptable`: the reconciliation of a full rebuild
+    // would pair it with the node at its place and owe it nothing but a restyle), the retained
+    // StyledDom is kept: the fresh payloads are carried as the pre-cascade skip carries them,
+    // the changed nodes are written onto it, and it is styled again where it stands
+    // (`LayoutWindow::restyle_rebuilt_nodes`), which stages the CSS diff the layout takes -
+    // instead of flattening and cascading a new DOM, reconciling it against a copy of the old
+    // one, cascading it a second time under its states and comparing the two node by node.
+    //
+    // Not when the window's context moved with the rebuild (its size, its theme): the fresh
+    // DOM would be cascaded under the new one. `AZ_DIFF_FIRST` without `nodes` turns the path
+    // off; without `style` the restyle is the whole cascade.
+    let changed_nodes: Option<Vec<usize>> = match (
+        &precascade,
+        layout_window.last_dom_fingerprints.as_ref(),
+    ) {
+        (Some((fp, _)), Some(prev))
+            if azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Nodes)
+                && !theme_rebuild
+                && !csd_changed_precheck
+                && !theme_changed_precheck
+                && !window_size_changed_precheck
+                // With the step `text` off, a rebuild of texts alone takes the full path.
+                && (azul_layout::window::diff_first_step(
+                    azul_layout::window::DiffFirstStep::Text,
+                ) || azul_core::diff::texts_alone_changed(prev, fp).is_none()) =>
+        {
+            azul_core::diff::same_tree_changes(prev, fp)
+        }
+        _ => None,
+    };
+    let nodes_adoptable = changed_nodes.as_ref().is_some_and(|changed| {
+        layout_window
+            .layout_results
+            .get(&azul_core::dom::DomId::ROOT_ID)
+            .is_some_and(|lr| {
+                let retained = lr.styled_dom.node_data.as_ref();
+                precascade
+                    .as_ref()
+                    .is_some_and(|(fp, _)| retained.len() == fp.structure.len())
+                    && azul_core::diff::changed_nodes_are_adoptable(
+                        retained,
+                        &user_dom,
+                        changed,
+                        layout_window.node_identity,
+                    )
+                    && layout_window.rebuild_can_keep_the_styled_dom(&lr.styled_dom)
+            })
+    });
+    if let (true, Some(changed)) = (nodes_adoptable, changed_nodes) {
+        let _span_nodes = azul_layout::probe::Probe::span("regen_nodes_changed");
+        let (fp, transfers) = precascade.expect("a diff of two builds has this build's");
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] {} nodes changed where they stand - keeping the styled DOM",
+            changed.len()
+        );
+        phases.mark("nodes_changed");
+
+        let mut old_result = layout_window
+            .layout_results
+            .remove(&azul_core::dom::DomId::ROOT_ID)
+            .expect("checked by nodes_adoptable");
+        let mut retained = core::mem::take(&mut old_result.styled_dom);
+        // The rest of the old result goes before the pass: its hold on the layout tree would
+        // make the solver copy the tree to write it.
+        drop(old_result);
+
+        // The values every build makes anew, as the pre-cascade skip carries them, and then
+        // the changed nodes themselves (each keeps what was just carried onto its place).
+        let repointing =
+            azul_core::diff::adopt_fresh_payloads(retained.node_data.as_mut(), &transfers);
+        layout_window.repoint_merged_datasets(&repointing);
+        let replaced =
+            azul_core::diff::adopt_changed_nodes(retained.node_data.as_mut(), &user_dom, &changed);
+        // The carry can give a node a marker, a written node another tab index: the lists the
+        // DOM derives from its node data are made again (A6-18b's rule for a kept DOM).
+        retained.rebuild_derived_node_lists();
+
+        // The runtime states, as the pre-cascade skip writes them. The restyle below runs
+        // under them; a state that came with this call needs the whole cascade (a rule may
+        // name it left of its subject), which is also what the restyle is without `style`.
+        let states_before: Vec<azul_core::styled_dom::StyledNodeState> = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| n.styled_node_state)
+            .collect();
+        let mut retained = raise_runtime_states(retained, layout_window, current_window_state);
+        let states_changed = retained
+            .styled_nodes
+            .as_ref()
+            .iter()
+            .map(|n| &n.styled_node_state)
+            .ne(states_before.iter());
+        let drag_state_raised = retained.styled_nodes.as_ref().iter().any(|n| {
+            n.styled_node_state.dragging || n.styled_node_state.drag_over
+        });
+        let reuse_styles =
+            azul_layout::window::diff_first_step(azul_layout::window::DiffFirstStep::Style)
+                && !states_changed
+                && !drag_state_raised;
+        let reached = layout_window.restyle_rebuilt_nodes(
+            &mut retained,
+            &replaced,
+            &states_before,
+            reuse_styles,
+        );
+
+        // The diff, handed to the solver: a node the changes do not reach is what it was.
+        // Not when a state came with the rebuild: the solver reads the states of the nodes it
+        // fingerprints, and this diff does not know them.
+        if !states_changed {
+            layout_window.layout_cache.dom_diff_clean =
+                Some(reached.iter().map(|reached| !*reached).collect());
+        }
+        layout_window.last_dom_fingerprints = Some(fp);
+
+        azul_layout::probe::emit_phase_heap("before_layout_dl");
+        phases.mark("before_layout_dl_nodes_changed");
+        // A new generation, as on every path the layout callback ran on.
+        layout_window
+            .layout_new_generation(
+                retained,
+                current_window_state,
+                renderer_resources,
+                &ExternalSystemCallbacks::rust_internal(),
+                debug_messages,
+            )
+            .map_err(|e| format!("Layout error: {:?}", e))?;
+        azul_layout::probe::emit_phase_heap("after_layout_and_dl");
+        phases.mark("after_layout_and_dl");
+        layout_window.current_window_state = current_window_state.clone();
+        publish_scroll_state(layout_window);
+
+        log_debug!(
+            LogCategory::Layout,
+            "[regenerate_layout] COMPLETE (nodes changed, the styled DOM kept)"
+        );
+        phases.mark("end_nodes_changed");
         phases.report();
         reconcile_transient_windows(layout_window, current_window_state);
         return Ok(LayoutRegenerateResult::LayoutChanged);
