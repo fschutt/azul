@@ -4372,6 +4372,16 @@ impl NodeData {
         let taken_style = mem::take(&mut self.style);
         let taken_extra = self.extra.take();
         let taken_node_type = mem::replace(&mut self.node_type, NodeType::Div);
+        // The handlers, the accessibility info and the translation arguments
+        // move as well, the same way: `copy_special` then clones an empty
+        // list and two `None`s. Cloned, every handler's data was shared once
+        // more (its count raised) and released again when the consumed `Dom`
+        // was dropped, and the two boxes were copied whole: three clone and
+        // drop pairs per label of a map, 19,000 per render.
+        let taken_callbacks =
+            mem::replace(&mut self.callbacks, CoreCallbackDataVec::from_const_slice(&[]));
+        let taken_accessibility = self.accessibility.take();
+        let taken_fluent_args = self.fluent_args.take();
         let mut copy = self.copy_special();
         // SAFETY: `&raw mut copy.node_type` is aligned and points at an initialized
         // `NodeType` (the placeholder `Div` that `copy_special` reconstructed from
@@ -4385,6 +4395,9 @@ impl NodeData {
         }
         copy.style = taken_style;
         copy.extra = taken_extra;
+        copy.callbacks = taken_callbacks;
+        copy.accessibility = taken_accessibility;
+        copy.fluent_args = taken_fluent_args;
         copy
     }
 
