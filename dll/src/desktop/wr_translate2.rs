@@ -685,6 +685,14 @@ use azul_layout::window::LayoutWindow;
 
 use azul_layout::window::GpuFrameCounters;
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: the bound values `synchronize_gpu_values` walked on this thread for its own
+    /// answer (the walk a debug build makes to check a skipped walk is not counted).
+    pub(crate) static BOUND_VALUES_WALKED: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(0) };
+}
+
 thread_local! {
     /// What the GPU path did on this thread since the last frame was published
     /// ([`publish_gpu_frame`]): the UI thread's part of a frame's
@@ -2728,6 +2736,17 @@ pub fn scroll_all_nodes(layout_window: &mut LayoutWindow, txn: &mut WrTransactio
         .submitted_digest_changed(SubmittedDigest::ScrollOffsets, digest.finish())
 }
 
+/// `AZ_WALK_GPU_VALUES=1`: [`synchronize_gpu_values`] walks and hashes the bound
+/// values on every frame, as it did before it could tell from the write
+/// generation that none was written (A6-26), and sends them when the walk finds
+/// another set than the one sent. The switch for the real window: a value that
+/// is shown late or not at all without it and at once with it was written
+/// around its stamp. Read once per process.
+fn walk_gpu_values_every_frame() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("AZ_WALK_GPU_VALUES").is_ok_and(|v| !v.is_empty() && v != "0"))
+}
+
 /// Synchronize GPU-animated values (transforms, opacities) to WebRender.
 ///
 /// Returns `true` if anything was actually written into `txn` — that is, if the
@@ -2752,6 +2771,20 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         .get_hidpi_factor()
         .inner
         .get();
+
+    // (A6-26) Nothing the digest is made of is another thing than when it was taken: no
+    // value or key of any DOM was written (every bound value stamps itself, whoever writes
+    // it: `GpuStateManager::value_generation`), the scale is the same, every DOM shows the
+    // very list it showed, and the digest kept is still that one (a full frame forgets it).
+    // The walk below would give that digest and answer "not news": a release build does not
+    // make it. A debug build makes it anyway and holds the answer against it (two asserts
+    // below): a wrong skip would leave WebRender painting the old values.
+    let values_as_digested = layout_window
+        .gpu_state_manager
+        .gpu_values_are_the_digested_ones(&layout_window.layout_results, dpi_scale);
+    if values_as_digested && !cfg!(debug_assertions) && !walk_gpu_values_every_frame() {
+        return false;
+    }
 
     // FIRST WALK: is the set the one last sent? Nothing is allocated for the
     // answer - a pan, a tile, a hover and every frame of a fade's hold ask it
@@ -2811,6 +2844,10 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
 
     // Nothing collected at all: nothing to send, nothing changed.
     if transform_count == 0 && float_count == 0 && color_count == 0 {
+        debug_assert!(
+            !values_as_digested,
+            "a digest was taken of bound values, none is left, and the write generation did not move"
+        );
         return false;
     }
 
@@ -2819,6 +2856,22 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
     digest = mix_value(mix_value(digest, color_sum), color_count as u64);
     // The values are sent in device px: another scale is another set.
     digest = mix_value(digest, u64::from(dpi_scale.to_bits()));
+    debug_assert!(
+        !values_as_digested
+            || layout_window.gpu_state_manager.last_gpu_value_digest == Some(digest),
+        "the bound values changed and their write generation did not"
+    );
+    if !values_as_digested {
+        #[cfg(test)]
+        BOUND_VALUES_WALKED.with(|n| n.set(n.get() + transform_count + float_count + color_count));
+        // What this digest was taken of, for the frames that follow.
+        let LayoutWindow {
+            ref layout_results,
+            ref mut gpu_state_manager,
+            ..
+        } = *layout_window;
+        gpu_state_manager.note_gpu_value_digest(layout_results, dpi_scale, digest);
+    }
 
     // The same values as last time are not news.
     if layout_window.gpu_state_manager.last_gpu_value_digest == Some(digest) {

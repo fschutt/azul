@@ -34,7 +34,7 @@ use crate::desktop::{
     wr_translate2::{
         build_full_transaction, build_lightweight_transaction, count_transaction,
         draw_this_many_halos_a_frame_in_this_thread, publish_gpu_frame, synchronize_gpu_values,
-        WrTransaction,
+        WrTransaction, BOUND_VALUES_WALKED,
     },
 };
 
@@ -826,4 +826,72 @@ fn a4_10g_a_list_the_window_holds_is_walked_for_its_fonts_and_images_once() {
     view.lay_out(labels(2, 1.0));
     let _ = full(&mut view);
     assert_eq!(list_name_walks() - before, 2);
+}
+
+/// A6-26. A frame that wrote no GPU value and shows the lists of the frame before walks no
+/// bound value (it used to hash every one of them to learn that the set is the one last
+/// sent). A value written straight into a public map of a cache is walked for and sent; the
+/// value it has, written again, is not; a list built again with the same values is walked for
+/// once (and found to be the same set); another scale and a full frame are walked for and sent.
+///
+/// Counted: the values the function walks for its own answer (`BOUND_VALUES_WALKED`; the walk
+/// a debug build makes to check a skip is not counted).
+/// Mutations: the skip taken out fails "nothing was written"; `values_as_digested` forced
+/// true fails "a value moved" (and the debug assertion); the lists left out of the manager's
+/// comparison fails "another list".
+#[test]
+fn a6_26_a_frame_with_nothing_written_walks_no_bound_value() {
+    let walked = || BOUND_VALUES_WALKED.with(std::cell::Cell::get);
+    let sync = |lw: &mut LayoutWindow| synchronize_gpu_values(lw, &mut WrTransaction::new());
+    let mut lw = window();
+    let (a, b) = (OpacityKey::unique(), OpacityKey::unique());
+    bind_opacity(&mut lw, 0, a, 0.25);
+    bind_opacity(&mut lw, 1, b, 0.75);
+
+    let before = walked();
+    assert!(sync(&mut lw), "the first set is sent");
+    let per_walk = walked() - before;
+    assert!(per_walk >= 2, "the two opacities at least: {per_walk}");
+
+    // Nothing written: three frames walk nothing and send nothing.
+    let before = walked();
+    for _ in 0..3 {
+        assert!(!sync(&mut lw));
+    }
+    assert_eq!(walked() - before, 0, "nothing was written: no value is walked");
+
+    // The value it has, written again (a thumb that stays, a fade in its hold).
+    bind_opacity(&mut lw, 0, a, 0.25);
+    assert!(!sync(&mut lw));
+    assert_eq!(walked() - before, 0, "the same value is no write");
+
+    // Another value, straight into the public maps: one walk, and the set is sent.
+    bind_opacity(&mut lw, 0, a, 0.5);
+    assert!(sync(&mut lw), "a value moved");
+    assert_eq!(walked() - before, per_walk);
+    assert!(!sync(&mut lw));
+    assert_eq!(walked() - before, per_walk, "and no walk after it");
+
+    // The root's list built again with the same items and the same values.
+    let rebuilt = Arc::new((*lw.layout_results[&DomId::ROOT_ID].display_list).clone());
+    lw.layout_results.get_mut(&DomId::ROOT_ID).expect("the root").display_list = rebuilt;
+    let before = walked();
+    assert!(!sync(&mut lw), "the same set: nothing to send");
+    assert_eq!(walked() - before, per_walk, "another list: its values are walked");
+    assert!(!sync(&mut lw));
+    assert_eq!(walked() - before, per_walk);
+
+    // Another scale: other device px, walked and sent.
+    lw.current_window_state.size.dpi = 192;
+    let before = walked();
+    assert!(sync(&mut lw), "another scale is another set");
+    assert_eq!(walked() - before, per_walk);
+
+    // A full frame forgets what was sent.
+    lw.gpu_state_manager.invalidate_submitted_digests();
+    let before = walked();
+    assert!(sync(&mut lw));
+    assert_eq!(walked() - before, per_walk);
+    assert!(!sync(&mut lw));
+    assert_eq!(walked() - before, per_walk);
 }
