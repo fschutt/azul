@@ -84,9 +84,7 @@ pub fn pump(lw: &mut LayoutWindow) -> bool {
     // Polling is skipped when nothing is open, which is the cost on a machine
     // with no accessible hidraw node.
     {
-        static ENUMERATED: core::sync::atomic::AtomicBool =
-            core::sync::atomic::AtomicBool::new(false);
-        if !ENUMERATED.swap(true, core::sync::atomic::Ordering::Relaxed) {
+        if lw.app_services.hid.claim_enumeration() {
             crate::desktop::extra::hid::enumerate(&lw.app_services.hid);
         }
         crate::desktop::extra::hid::poll(&lw.app_services.hid);

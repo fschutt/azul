@@ -29,6 +29,8 @@ use azul_core::hid::{HidDevice, HidReport};
 pub struct HidChannel {
     pending_reports: std::sync::Mutex<Vec<HidReport>>,
     devices: std::sync::Mutex<Option<Vec<HidDevice>>>,
+    /// Whether a backend already claimed the one enumeration ([`Self::claim_enumeration`]).
+    enumerated: core::sync::atomic::AtomicBool,
 }
 
 /// Cap on the parked queue.
@@ -47,7 +49,19 @@ impl HidChannel {
         Self {
             pending_reports: std::sync::Mutex::new(Vec::new()),
             devices: std::sync::Mutex::new(None),
+            enumerated: core::sync::atomic::AtomicBool::new(false),
         }
+    }
+
+    /// Claim the one enumeration of this channel's devices: `true` for the first caller only.
+    /// The pump enumerates once (hidraw has no hotplug signal without libudev, and scanning
+    /// `/dev` on every pass would stat dozens of nodes at frame rate), so the claim belongs to
+    /// the channel - to the app - and not to the process.
+    #[must_use]
+    pub fn claim_enumeration(&self) -> bool {
+        !self
+            .enumerated
+            .swap(true, core::sync::atomic::Ordering::Relaxed)
     }
 
     /// Park a report. Thread-safe; poison-recovering, so a panicking backend
@@ -179,5 +193,15 @@ mod tests {
             Some(0),
             "publishing zero devices must be observable"
         );
+    }
+
+    /// The enumeration is claimed once per channel: the app's, not the process's, so a second
+    /// channel (a second app, a test) enumerates for itself.
+    #[test]
+    fn the_enumeration_is_claimed_once_per_channel() {
+        let (ours, theirs) = (HidChannel::new(), HidChannel::new());
+        assert!(ours.claim_enumeration());
+        assert!(!ours.claim_enumeration(), "claimed already");
+        assert!(theirs.claim_enumeration(), "another channel claims for itself");
     }
 }
