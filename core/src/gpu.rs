@@ -120,6 +120,20 @@ pub struct GpuValueCache {
     pub scrollbar_v_opacity_values: HashMap<(DomId, NodeId), f32>,
     /// Current horizontal scrollbar opacity values
     pub scrollbar_h_opacity_values: HashMap<(DomId, NodeId), f32>,
+    /// WRITE GENERATION of the bound values: a counter that moves whenever
+    /// a value a renderer reads from this cache, or the set of keys that
+    /// bind one, changes ([`Self::note_value_write`]). A frame that finds
+    /// the generation it last read has nothing to read again - no copy of
+    /// the values, no comparison with the previous ones, no synchronization
+    /// with the compositor.
+    ///
+    /// The methods of this type that write values move it, and only when a
+    /// value or a key really changed (a `synchronize` that finds every value
+    /// as it was leaves it alone, however many events it reports). CODE THAT
+    /// WRITES ONE OF THE MAPS ABOVE DIRECTLY MUST CALL
+    /// [`Self::note_value_write`]: until every such writer does, a reader
+    /// must not skip work by it. Only equality is compared; it wraps.
+    pub value_generation: u64,
 }
 
 /// Represents a change to a GPU transform key.
@@ -146,6 +160,19 @@ impl GpuValueCache {
     #[must_use]
     pub fn empty() -> Self {
         Self::default()
+    }
+
+    /// The write generation of the bound values ([`Self::value_generation`]).
+    #[must_use]
+    pub const fn value_generation(&self) -> u64 {
+        self.value_generation
+    }
+
+    /// Notes that a bound value or the set of bound keys changed: moves
+    /// [`Self::value_generation`]. For every writer of this cache's maps
+    /// that is not one of its own methods.
+    pub const fn note_value_write(&mut self) {
+        self.value_generation = self.value_generation.wrapping_add(1);
     }
 
     /// The reference frame the display list opens for `node`, as its key
@@ -591,6 +618,9 @@ impl GpuValueCache {
                 changed += 1;
             }
         }
+        if changed > 0 {
+            self.note_value_write();
+        }
         changed
     }
 
@@ -620,7 +650,9 @@ impl GpuValueCache {
         let Some(fresh) = Self::css_transform_of(styled_dom, node_id, size) else {
             return false;
         };
-        self.css_current_transform_values.insert(node_id, fresh);
+        if self.css_current_transform_values.insert(node_id, fresh) != Some(fresh) {
+            self.note_value_write();
+        }
         true
     }
 
@@ -649,7 +681,9 @@ impl GpuValueCache {
             .get_property()?
             .inner
             .normalized();
-        self.current_opacity_values.insert(node_id, value);
+        if self.current_opacity_values.insert(node_id, value) != Some(value) {
+            self.note_value_write();
+        }
         Some(key)
     }
 
@@ -741,21 +775,30 @@ impl GpuValueCache {
     /// Applies transform key changes (additions/removals) to the cache.
     fn apply_transform_events(&mut self, events: &[GpuTransformKeyEvent]) {
         // remove / add the CSS transform keys accordingly
+        // Whether a key or a value is another one after an event (an event
+        // that writes the value the cache holds changes nothing).
+        let mut wrote = false;
         for event in events {
             match &event {
                 GpuTransformKeyEvent::Added(node_id, key, matrix) => {
-                    self.css_transform_keys.insert(*node_id, *key);
-                    self.css_current_transform_values.insert(*node_id, *matrix);
+                    wrote |= self.css_transform_keys.insert(*node_id, *key) != Some(*key);
+                    wrote |= self.css_current_transform_values.insert(*node_id, *matrix)
+                        != Some(*matrix);
                 }
                 GpuTransformKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
-                    self.css_current_transform_values
-                        .insert(*node_id, *new_state);
+                    wrote |= self
+                        .css_current_transform_values
+                        .insert(*node_id, *new_state)
+                        != Some(*new_state);
                 }
                 GpuTransformKeyEvent::Removed(node_id, _key) => {
-                    self.css_transform_keys.remove(node_id);
-                    self.css_current_transform_values.remove(node_id);
+                    wrote |= self.css_transform_keys.remove(node_id).is_some();
+                    wrote |= self.css_current_transform_values.remove(node_id).is_some();
                 }
             }
+        }
+        if wrote {
+            self.note_value_write();
         }
     }
 
@@ -844,20 +887,26 @@ impl GpuValueCache {
     /// Applies opacity key changes (additions/removals) to the cache.
     fn apply_opacity_events(&mut self, events: &[GpuOpacityKeyEvent]) {
         // remove / add the opacity keys accordingly
+        let mut wrote = false;
         for event in events {
             match &event {
                 GpuOpacityKeyEvent::Added(node_id, key, opacity) => {
-                    self.opacity_keys.insert(*node_id, *key);
-                    self.current_opacity_values.insert(*node_id, *opacity);
+                    wrote |= self.opacity_keys.insert(*node_id, *key) != Some(*key);
+                    wrote |=
+                        self.current_opacity_values.insert(*node_id, *opacity) != Some(*opacity);
                 }
                 GpuOpacityKeyEvent::Changed(node_id, _key, _old_state, new_state) => {
-                    self.current_opacity_values.insert(*node_id, *new_state);
+                    wrote |= self.current_opacity_values.insert(*node_id, *new_state)
+                        != Some(*new_state);
                 }
                 GpuOpacityKeyEvent::Removed(node_id, _key) => {
-                    self.opacity_keys.remove(node_id);
-                    self.current_opacity_values.remove(node_id);
+                    wrote |= self.opacity_keys.remove(node_id).is_some();
+                    wrote |= self.current_opacity_values.remove(node_id).is_some();
                 }
             }
+        }
+        if wrote {
+            self.note_value_write();
         }
     }
 }
