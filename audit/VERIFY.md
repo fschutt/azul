@@ -224,6 +224,37 @@ core, 7 failing (all new tests of diff-first, `cfc4d6d72`; messages verbatim in 
 
 ## State for a successor (CURRENT; kept by the second verifier, who took over at `a23a72fde`)
 
+<!-- STATE3-BEGIN -->
+**THIRD VERIFIER (took over at `f99429b52`, milestone 6, which the coordinator pushed to
+`origin/fix/input-bugs-2026-09-19`). This block is the current one; the second verifier's block below it is history.**
+
+On top of `f99429b52` (each built and run; nothing pushed by the verifier):
+- `fdbf5445b` a node hit twice keeps the depth of its front-most box (`layout/src/headless.rs`
+  `convert_cpu_hit_test_to_full`; the press on a hovered map label that selected nothing);
+- `552a1d909` the e2e runner lets go of what a test left pressed before the next test of the file
+  (`layout/src/e2e/full.rs` `e2e_input_released`, `runner.rs`, `input_release_tests.rs`);
+- `8d589ae37` an extent larger than a surface is the window of it under the clip
+  (`cpurender/raster.rs` `GroupGeometry::of`, `clip_before_matrix`; `present_layer.rs`): the zoomed map
+  picture that was not painted.
+Suites: layout lib 10916 / 1 (the known font TEST race, alone 3 of 3) / 1 ignored, `tests/all` 3060 / 0 / 5 (log `206`).
+Each new test was run against its mutant (logs `201`, `204`, `205`).
+
+NOT changed, on the coordinator's word after a measurement: the counter `px_cleared` (it is the clear of
+DAMAGE; a full paint counts none: `cpu_view_values_tests.rs:453` from the commit that introduced the counter,
+and A1's `a_full_repaint_in_bands_is_the_full_walk`). The 7 MP of seven repaints the editor's render_budget
+scenario saw before the audit were seven incremental frames with the view's rect as damage (7 x 937,260), and
+the same holds today.
+
+What is left on the azul side: the dll lib (`cargo test -p azul-dll --lib --no-fail-fast`, the hit and event
+tests in it) and `headless_lifecycle` on the tip with the three commits; then the tip's hash to the
+coordinator, who pushes. Then the editor (m4p worktree, `audit/PIN_PASS.md` section 9 has its state): the pin
+to the pushed tip, the rebuild, e2e, budgets, the performance matrix three ways, the final plain release
+build. Second-round rows found by the verifier: "an absolutely placed span with text has two hit entries (two
+boxes of one DOM node, the second ranking at its parent)"; "a drag's first move builds two lists (the node's
+first transform, and the `is_being_dragged` reorder at the drag's start)".
+Build notes as below (`env.sh`, `run`, `summ`); the layout lib's test binary is rebuilt in about 1 min 15 s.
+<!-- STATE3-END -->
+
 <!-- STATE-BEGIN -->
 **azul: MILESTONE 6 is GREEN** on the merge `5b7f319a3` (`audit/diff-first` at `3afb0f554` on the checkpoint
 commit); table at the end of the log. The coordinator decides the push (the verifier pushes NOTHING).
@@ -626,3 +657,35 @@ Open after milestone 6: the font-registry TEST race (`text3::fontreg::tests::a_f
 cache_under_one_id`; 1 failure in 9 whole runs of the lib); the fixture of `a_box_that_moved_in_a_pass_...`; on the
 EDITOR side: 6 failing e2e scenarios and 2 failing unit tests of the checkpoint build (above, with the
 coordinator).
+
+### Third verifier (took over at `f99429b52`; the e2e triage of the editor's checkpoint build led here)
+
+The editor's six failing scenarios (triage and probes: m4p `audit/PIN_PASS.md` section 9, logs in
+`<scratchpad>/verify3/`) came down to two engine defects, one runner defect and four scenario premises.
+The engine's part:
+
+- `fdbf5445b` (A6's area, no agent): `convert_cpu_hit_test_to_full` wrote the tester's list with `insert`, front to
+  back; a node hit twice kept its deepest entry's depth. Editor trace at the press on a hovered label:
+  `[(1, 26), (1, 13), (1, 26), (1, 1), ..]` (span, hover highlight, span, ground): depths 26 -> 2, 13 -> 1, the
+  press went to the highlight. Fix: the first entry of a node stays. Test
+  `headless::autotest_generated::a_node_hit_twice_keeps_the_depth_of_its_front_most_box`; mutant (`insert`) run:
+  "left: 2, right: 0". No WebRender twin exists (`fullhittest_new_webrender` was removed).
+- `552a1d909` (A11's area, no agent): the runner pushes a released state (buttons of every pointer seat, keys of
+  every keyboard seat, touch contacts) through `modify_window_state` before every test and yields. Tests
+  `e2e::runner::input_release_tests::*` (2); mutant (release off) run: "one press per test ... left: 1, right: 2".
+  `run_e2e_test_inner` split: `run_e2e_tests_in_one_window`.
+- `8d589ae37` (A1's area, no agent) `GroupGeometry::of`: on an axis where the extent exceeds `MAX_TRANSFORM_GROUP_SIDE` the box is
+  the clip taken back through the frame's matrix (bounding box of the four corners, outward, 66 px wider), inside
+  the extent, instead of the extent's first 16,384 px; `windowed` says so and `retained_candidate` does not keep
+  such a surface (its key has no place in the extent). An axis that fits, and every frame that fits on both, is
+  as before. Tests `cpurender::raster::audit_a1_tests::{an_extent_larger_than_a_surface_is_the_window_of_it_under_the_clip,
+  a_frame_with_a_child_far_away_paints_what_the_frame_without_it_paints,
+  a_frame_over_a_page_longer_than_a_surface_paints_both_ends_of_the_page, the_window_of_an_oversized_frame_is_not_kept}`;
+  mutants run: the window off: all four fail (`(groups_opened, groups_empty)` = (0, 1): the editor's symptom;
+  `group_px` 4,915,200 for 64,800); the `windowed` test off: "the window is not kept: left: 1, right: 0".
+- Suites: after the first two commits layout lib 10913 / 0 / 1, `tests/all` 3060 / 0 / 5 (`202`). After the third
+  (`8d589ae37`, log `206`): layout lib 10916 / 1 / 1 ignored, the 1 =
+  `text3::fontreg::tests::a_face_registered_once_is_put_in_a_cache_under_one_id` ("left: 7, right: 6"), the
+  known TEST race on the process-wide registry generation (milestone 5; alone 3 of 3 again); `tests/all`
+  3060 / 0 / 5; the renderer's groups alone (`cpurender::`, `audit_tests::a2_cpu`, `audit_tests::a1`,
+  `audit_tests::a10`, `dl_patch`): 923 / 0 / 1 ignored.
