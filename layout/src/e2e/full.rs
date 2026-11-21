@@ -741,14 +741,6 @@ pub struct FrameReportResponse {
 }
 
 /// [`azul_layout::cpu_counters::CpuFrameCounters`] for the E2E API.
-///
-/// A new counter of a CPU frame: its `Counter` variant, `COUNTERS`, its `CpuFrameCounters` field,
-/// `add` and `take` (`cpu_counters.rs`), then a field here and its line in the `From` below, of
-/// the same name (the guard `a11_every_cpu_frame_counter_is_in_the_frame_report_json` compares the
-/// two). A scenario then asserts it as `cpu_since_reset.<name>` / `cpu_last.<name>` after a
-/// `get_frame_report`. A value of the window that is not a CPU frame counter (a GPU-side count, the
-/// resident memory) is a field of `FrameReportResponse` instead, filled in
-/// `build_frame_report_response` from `FrameReport` (or from the window it is read of).
 #[cfg(feature = "std")]
 #[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct CpuCountersJson {
@@ -765,6 +757,13 @@ pub struct CpuCountersJson {
     pub scan_items: u64,
 }
 
+// A new counter of a CPU frame: its `Counter` variant, `COUNTERS`, its `CpuFrameCounters` field,
+// `add` and `take` (`cpu_counters.rs`), then a field of `CpuCountersJson` above and its line here,
+// of the same name (the guard `a11_every_cpu_frame_counter_is_in_the_frame_report_json` compares
+// the two). A scenario asserts it as `cpu_since_reset.<name>` / `cpu_last.<name>` after a
+// `get_frame_report`. A value of the window that is not a CPU frame counter (a GPU-side count, the
+// resident memory) is a field of `FrameReportResponse` instead, filled in
+// `build_frame_report_response`.
 #[cfg(feature = "std")]
 impl From<&azul_layout::cpu_counters::CpuFrameCounters> for CpuCountersJson {
     fn from(c: &azul_layout::cpu_counters::CpuFrameCounters) -> Self {
