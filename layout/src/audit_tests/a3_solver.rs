@@ -1224,6 +1224,73 @@ fn the_layout_of_a_label_takes_what_its_measure_shaped() {
     );
 }
 
+/// `body(0) > .p(1) > .r(2) > .c(3)`: an absolutely positioned box at (50, 40) holding a
+/// relatively positioned one (`left: 7px; top: 5px`) with a child.
+fn a_relative_box_in_an_absolute_one() -> Dom {
+    Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_div()
+            .with_css("position: absolute; left: 50px; top: 40px; width: 200px; height: 100px;")
+            .with_child(
+                Dom::create_div()
+                    .with_css("position: relative; left: 7px; top: 5px; width: 20px; height: 10px;")
+                    .with_child(Dom::create_div().with_css("width: 5px; height: 5px;")),
+            ),
+    )
+}
+
+/// A3-solver-45. The relative shifts are applied to the positions the flow computed
+/// (`adjust_relative_positions`), and after that the positioning pass places every absolutely
+/// positioned box and derives everything below it from the flow again
+/// (`cache::position_bfc_child_descendants`): a relatively positioned box inside an absolutely
+/// positioned one lost its shift, and its content with it.
+///
+/// Hand-computed: the box at (50, 40), no border, no padding; `.r` is its first child at the
+/// content origin (50, 40), shifted by (7, 5): (57, 45); `.c` goes with it: (57, 45). Before:
+/// both at (50, 40).
+///
+/// Mutation: without `shift_relative_descendants` after the box is placed, `.r` stands at
+/// (50, 40).
+#[test]
+fn a_relatively_positioned_box_inside_an_absolute_one_stands_at_its_offset() {
+    let mut lw = window();
+    lay_out(&mut lw, a_relative_box_in_an_absolute_one());
+    let (p, r, c) = (position_of(&lw, 1), position_of(&lw, 2), position_of(&lw, 3));
+    assert!(
+        (p.x - 50.0).abs() < 0.01 && (p.y - 40.0).abs() < 0.01,
+        "harness: the absolute box stands at its insets, ({}, {})",
+        p.x,
+        p.y
+    );
+    assert!(
+        (r.x - 57.0).abs() < 0.01 && (r.y - 45.0).abs() < 0.01,
+        "the relatively positioned box stands at ({}, {}), not at (57, 45)",
+        r.x,
+        r.y
+    );
+    assert!(
+        (c.x - 57.0).abs() < 0.01 && (c.y - 45.0).abs() < 0.01,
+        "its child stands at ({}, {}), not at (57, 45)",
+        c.x,
+        c.y
+    );
+}
+
+/// A3-solver-45, a second pass over the same page: the shift is there once, not twice (the
+/// positions are derived from the flow and shifted in every pass).
+#[test]
+fn a_relatively_positioned_box_inside_an_absolute_one_is_shifted_once_per_pass() {
+    let mut lw = window();
+    lay_out(&mut lw, with_a_paragraph(a_relative_box_in_an_absolute_one(), "one"));
+    lay_out(&mut lw, with_a_paragraph(a_relative_box_in_an_absolute_one(), "another"));
+    let r = position_of(&lw, 2);
+    assert!(
+        (r.x - 57.0).abs() < 0.01 && (r.y - 45.0).abs() < 0.01,
+        "after a second pass the relatively positioned box stands at ({}, {}), not at (57, 45)",
+        r.x,
+        r.y
+    );
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
