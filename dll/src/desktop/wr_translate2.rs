@@ -941,6 +941,16 @@ pub(crate) fn draw_this_many_halos_a_frame_in_this_thread(free: usize) {
 ///
 /// Unlike fonts, ImageKeys are generated directly from ImageRefHash using
 /// image_ref_hash_to_image_key(), so no separate mapping table is needed.
+///
+/// FOR TESTS. No frame is made with this: a frame's images are registered by
+/// `register_image_resources`, which makes the ONE scan of the frame for text
+/// halos. This function begins a scan of its own (it is that scan without the
+/// registration), so a caller that used it next to `register_image_resources`
+/// in one frame would age the kept halos twice per frame and drop pictures a
+/// frame early. It is `pub` only because `dll/tests/image_lifecycle.rs` - a
+/// crate of its own - reads the image adds and the live set through it;
+/// nothing else outside this file calls it, and it is not in `api.json`.
+#[doc(hidden)]
 pub fn collect_image_resource_updates(
     layout_window: &LayoutWindow,
     renderer_resources: &azul_core::resources::RendererResources,
@@ -1512,9 +1522,10 @@ fn translate_add_font_instance(add_instance: AddFontInstance) -> Option<WrAddFon
 
     // Convert Au to logical pixels (1 Au = 1/60 px), then multiply by DPI factor
     // to get the physical pixel size for rasterization.
-    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
-    // WebRender handles HiDPI scaling via device_pixel_scale. However, font instances
-    // need to be pre-scaled because they are rasterized at specific pixel sizes.
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels) and the
+    // translation scales them to device pixels itself; the fork draws with a global device
+    // pixel scale of 1.0 (`frame_builder.rs`). So a font instance is made at its device size
+    // here, like every other length: nothing downstream scales it.
     let glyph_size_px = (font_size_au.0 as f32) / 60.0 * dpi_factor;
 
     log_debug!(
@@ -2640,8 +2651,14 @@ pub fn generate_frame(
         view_rect,
         hidpi_factor.inner.get()
     );
-    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels), like a HTML engine.
-    // WebRender's device_pixel_scale handles the conversion to device pixels.
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels), like a HTML
+    // engine, and the TRANSLATION makes device pixels of them: every coordinate of a list
+    // is multiplied by the factor (`compositor2`: `x * dpi`), every bound transform's shift
+    // and every scroll offset too. WebRender does not scale the content by the factor
+    // handed over here: the fork's frame builder draws with a global device pixel scale of
+    // 1.0 whatever the document's view says (`webrender/core/src/frame_builder.rs`,
+    // `global_device_pixel_scale`). The factor is passed so that the view is described
+    // truthfully, nothing is drawn through it.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     // Process VirtualView updates (if any callbacks requested re-rendering)
@@ -3567,7 +3584,10 @@ pub(crate) fn build_full_transaction(
         view_rect,
         hidpi_factor.inner.get()
     );
-    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels).
+    // NOTE: azul_layout outputs coordinates in CSS pixels (logical pixels); the translation
+    // multiplies them by the factor (`compositor2`). WebRender draws with a global device
+    // pixel scale of 1.0 whatever is handed over here (`frame_builder.rs`): the factor
+    // describes the view, it is not applied to the content a second time.
     txn.set_document_view(view_rect, DevicePixelScale::new(hidpi_factor.inner.get()));
 
     build_webrender_transaction_tail(txn, layout_window)
