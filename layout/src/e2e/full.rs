@@ -5807,6 +5807,90 @@ struct E2eContinuation {
     /// The `assert_idle_frames` step in progress: the frames it has judged so far
     /// and the picture each frame is held to. `None` between steps.
     idle_frames: Option<IdleFramesRun>,
+    /// Whether what the test before left pressed has been let go for the
+    /// current test ([`e2e_input_released`]): once, before its setup and its
+    /// first step.
+    input_released: bool,
+}
+
+/// `state` with everything a scenario's steps can leave HELD let go, or `None`
+/// when nothing is held: the mouse buttons of every pointer seat, the keys of
+/// every keyboard seat (their modifiers follow), the touch contacts.
+///
+/// A test ends at its first failed step. Ended between a `mouse_down` and its
+/// `mouse_up` (or a `key_down` and its `key_up`, a `touch_start` and its
+/// `touch_end`) it left the button down in the window's state, and the next
+/// test of the file started with it: its own `mouse_down` was no edge, no
+/// `MouseDown` was determined, no handler ran, and the test failed for what
+/// the test before it had done. The runner pushes this state at the start of
+/// every test, through `modify_window_state` like a `mouse_up` step: the
+/// window's state machine sees the up edges (the release events, the end of a
+/// drag session, of a pointer capture and of the press targets), not a
+/// rewritten field.
+///
+/// What is NOT reset, because a release does not undo it: where the pointer
+/// is, the focus, scroll positions, the window's size, the engine clock, and
+/// whatever the app's own commands have set.
+#[cfg(feature = "std")]
+pub(super) fn e2e_input_released(
+    state: &azul_layout::window_state::FullWindowState,
+) -> Option<azul_layout::window_state::FullWindowState> {
+    use azul_core::window::{KeyboardState, MouseState, ScanCodeVec, VirtualKeyCodeVec};
+
+    let buttons_held =
+        |m: &MouseState| m.left_down || m.right_down || m.middle_down || m.other_down != 0;
+    let keys_held = |k: &KeyboardState| {
+        !k.pressed_virtual_keycodes.as_ref().is_empty()
+            || !k.pressed_scancodes.as_ref().is_empty()
+            || k.current_virtual_keycode.is_some()
+    };
+    let held = buttons_held(&state.mouse_state)
+        || state
+            .pointer_seats
+            .as_ref()
+            .iter()
+            .any(|seat| buttons_held(&seat.state))
+        || keys_held(&state.keyboard_state)
+        || state
+            .keyboard_seats
+            .as_ref()
+            .iter()
+            .any(|seat| keys_held(&seat.state))
+        || !state.touch_state.touch_points.as_ref().is_empty();
+    if !held {
+        return None;
+    }
+
+    let release_buttons = |m: &mut MouseState| {
+        m.left_down = false;
+        m.right_down = false;
+        m.middle_down = false;
+        m.other_down = 0;
+    };
+    let release_keys = |k: &mut KeyboardState| {
+        k.pressed_virtual_keycodes = VirtualKeyCodeVec::from_vec(alloc::vec::Vec::new());
+        k.pressed_scancodes = ScanCodeVec::from_vec(alloc::vec::Vec::new());
+        k.current_virtual_keycode = None.into();
+        k.current_physical_key = None.into();
+        k.is_repeat = false;
+        k.sync_modifiers();
+    };
+    let mut released = state.clone();
+    release_buttons(&mut released.mouse_state);
+    let mut seats = released.pointer_seats.clone().into_library_owned_vec();
+    for seat in &mut seats {
+        release_buttons(&mut seat.state);
+    }
+    released.pointer_seats = seats.into();
+    release_keys(&mut released.keyboard_state);
+    let mut keyboards = released.keyboard_seats.clone().into_library_owned_vec();
+    for seat in &mut keyboards {
+        release_keys(&mut seat.state);
+    }
+    released.keyboard_seats = keyboards.into();
+    released.touch_state.touch_points = alloc::vec::Vec::new().into();
+    released.touch_state.num_touches = 0;
+    Some(released)
 }
 
 /// How long an app command may answer `"pending": true` before its step
@@ -14210,6 +14294,30 @@ fn resume_e2e_continuation_inner(
             }
         }
 
+        // What the test before left pressed is let go before this one starts
+        // ([`e2e_input_released`]): pushed as a state change and YIELDED for,
+        // so that the shell has turned it into its release events before the
+        // setup and step 0 run.
+        if cont.step_idx == 0 && !cont.setup_applied && !cont.input_released {
+            cont.input_released = true;
+            if let Some(released) = e2e_input_released(callback_info.get_current_window_state()) {
+                log(
+                    LogLevel::Debug,
+                    LogCategory::DebugServer,
+                    format!(
+                        "[E2E] {}: releasing the buttons, keys and touches the test before left \
+                         held (yield)",
+                        test.name
+                    ),
+                    None,
+                );
+                callback_info.modify_window_state(released);
+                cont.app_data = app_data;
+                session.pending = Some(cont);
+                return needs_update;
+            }
+        }
+
         // Start new test if step_idx == 0
         if cont.step_idx == 0 && !cont.setup_applied {
             cont.current_step_results.clear();
@@ -15017,6 +15125,8 @@ fn resume_e2e_continuation_inner(
         cont.step_idx = 0;
         // The next test gets its own `setup` block applied.
         cont.setup_applied = false;
+        // ... and starts with nothing held.
+        cont.input_released = false;
     }
 
     // All tests done — send results
@@ -21655,6 +21765,7 @@ pub fn process_debug_event(
                 resume_after_frame: None,
                 frame_wait_ticks: 0,
                 setup_applied: false,
+                input_released: false,
                 step_attempt: 0,
                 step_pending_since: None,
                 settle_waited_ms: 0,

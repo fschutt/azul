@@ -4848,6 +4848,39 @@ fn run_e2e_test_inner(
     initial_dom: Option<StyledDom>,
     app: Option<(RefAny, &azul_core::resources::AppConfig)>,
 ) -> (E2eTestResult, Runner) {
+    let (results, runner) = run_e2e_tests_in_one_window(core::slice::from_ref(test), initial_dom, app);
+    let result = match results {
+        Ok(results) => results
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| fail_result(test, "RunE2eTests returned no results")),
+        Err(reason) => fail_result(test, &reason),
+    };
+
+    // A scenario that asked the engine for something this host cannot do is
+    // RED, no matter what its assertions said: they were evaluated against a
+    // window where that something never happened. Reported per unsupported
+    // change, by name — see `Runner::unsupported`.
+    let result = unsupported_to_failure(result, &runner.unsupported_changes);
+    (result, runner)
+}
+
+/// The tests of ONE scenario file, in order, in one window - as the shells run
+/// a file given by `AZ_E2E`: the window, its state and the app's data go from
+/// one test to the next, and the real runner (`resume_e2e_continuation`) is
+/// what starts each test. The window is the first test's (`setup`).
+/// `Err`: why the run gave no results.
+fn run_e2e_tests_in_one_window(
+    tests: &[E2eTest],
+    initial_dom: Option<StyledDom>,
+    app: Option<(RefAny, &azul_core::resources::AppConfig)>,
+) -> (Result<Vec<E2eTestResult>, String>, Runner) {
+    let Some(test) = tests.first() else {
+        return (
+            Err("no tests to run".to_string()),
+            Runner::new(800.0, 600.0, 96, false),
+        );
+    };
     if std::env::var_os("AZ_ANIM_DEBUG").is_some() {
         eprintln!("[scenario] {}", test.name);
     }
@@ -4894,7 +4927,7 @@ fn run_e2e_test_inner(
     let request = DebugRequest {
         request_id: 1,
         event: DebugEvent::RunE2eTests {
-            tests: vec![test.clone()],
+            tests: tests.to_vec(),
             snapshots: None,
         },
         window_id: None,
@@ -4965,31 +4998,21 @@ fn run_e2e_test_inner(
         );
     }
 
-    let result = match rx.try_recv() {
+    let results = match rx.try_recv() {
         Ok(DebugResponseData::Ok {
             data: Some(ResponseData::E2eResults(r)),
             ..
-        }) => r
-            .results
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| fail_result(test, "RunE2eTests returned no results")),
+        }) => Ok(r.results),
         Ok(DebugResponseData::Ok { .. }) => {
-            fail_result(test, "RunE2eTests returned a non-E2eResults response")
+            Err("RunE2eTests returned a non-E2eResults response".to_string())
         }
-        Ok(DebugResponseData::Err(e)) => fail_result(test, &e),
+        Ok(DebugResponseData::Err(e)) => Err(e),
         Ok(DebugResponseData::PendingScreenshot(_)) => {
-            fail_result(test, "RunE2eTests returned a screenshot")
+            Err("RunE2eTests returned a screenshot".to_string())
         }
-        Err(_) => fail_result(test, "RunE2eTests produced no response"),
+        Err(_) => Err("RunE2eTests produced no response".to_string()),
     };
-
-    // A scenario that asked the engine for something this host cannot do is
-    // RED, no matter what its assertions said: they were evaluated against a
-    // window where that something never happened. Reported per unsupported
-    // change, by name — see `Runner::unsupported`.
-    let result = unsupported_to_failure(result, &runner.unsupported_changes);
-    (result, runner)
+    (results, runner)
 }
 
 /// Fold the runner's unsupported-change log into the scenario result, turning a
@@ -8192,6 +8215,13 @@ mod focus_across_virtual_view_tests;
 #[cfg(test)]
 #[path = "virtual_view_events_tests.rs"]
 mod virtual_view_events_tests;
+
+// What a test of a file leaves pressed is let go before the next test of the
+// file starts: a test that failed between its `mouse_down` and its `mouse_up`
+// no longer makes the test after it fail.
+#[cfg(test)]
+#[path = "input_release_tests.rs"]
+mod input_release_tests;
 
 // ==== a key reaches the hovered node's path, unless a field takes the typing ====
 #[cfg(test)]
