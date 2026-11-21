@@ -462,6 +462,9 @@ pub struct TextShapingCache {
     /// family resolves to, which a group's key holds nothing else of, so text shaped with the
     /// fallback before is shaped again. 0 until it is set (nothing registered).
     pub(super) fonts_generation: u64,
+    /// What the shaping through this cache has noted: the shaping calls that came up short of a
+    /// font ([`Self::take_font_shape_deficit`]) and, in tests, the groups it shaped.
+    pub(super) tally: ShapingTally,
 }
 
 /// The caches are not swept below this many entries (in the largest of
@@ -571,7 +574,16 @@ impl TextShapingCache {
             generation: 0,
             sweep_at: SWEEP_AT_LEAST,
             fonts_generation: 0,
+            tally: ShapingTally::default(),
         }
+    }
+
+    /// The shaping calls through this cache since the last time that came up short of a font -
+    /// their face not loaded, or no face for any of their characters - drained: the layout pass
+    /// hands them to the frame report (`FrameReport::font_shape_deficit`). A window's cache
+    /// counts the window's text and nothing else's.
+    pub fn take_font_shape_deficit(&mut self) -> u32 {
+        core::mem::take(&mut self.tally.font_deficit)
     }
 
     /// Tells the cache the generation of the registered fonts the text is shaped under from now
@@ -602,6 +614,8 @@ impl TextShapingCache {
             generation: self.generation,
             sweep_at: self.sweep_at,
             fonts_generation: self.fonts_generation,
+            // What the fork shapes is its own to count: it dies with it.
+            tally: ShapingTally::default(),
         }
     }
 
@@ -1089,6 +1103,7 @@ impl TextShapingCache {
             &mut self.per_item_shaped,
             &mut self.per_item_accessed,
             self.fonts_generation,
+            &mut self.tally,
             font_chain_cache,
             fc_cache,
             loaded_fonts,
@@ -1668,7 +1683,6 @@ mod audit_a8_tests {
             .collect();
         let loaded = fm.get_loaded_fonts();
         let constraints = UnifiedConstraints::default();
-        let shaped = || super::super::shaping::GROUPS_SHAPED.with(core::cell::Cell::get);
         let pass = |cache: &mut TextShapingCache| {
             // the intrinsic measure of every paragraph, then its layout
             for _ in 0..2 {
@@ -1691,12 +1705,10 @@ mod audit_a8_tests {
         // font manager's own: no other test registers a face in this one's registry.
         let mut cache = TextShapingCache::new();
         cache.set_fonts_generation(fm.registered_fonts.generation());
-        let before = shaped();
         pass(&mut cache);
-        let first = shaped() - before;
-        let after_first = shaped();
+        let first = cache.tally.groups_shaped;
         pass(&mut cache);
-        let second = shaped() - after_first;
+        let second = cache.tally.groups_shaped - first;
         assert_eq!(first, 5_000, "each paragraph is shaped once in a pass");
         assert_eq!(second, 0, "the next pass over the same text shapes nothing");
     }

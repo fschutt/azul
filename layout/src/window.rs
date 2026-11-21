@@ -5164,11 +5164,12 @@ impl LayoutWindow {
         self.frame_report.last_dl_build_patched = self.layout_cache.last_build_was_patched;
         // Drain the shaping deficit this pass accumulated: > 0 means some
         // text produced zero glyphs because its font was not loaded when the
-        // shaper ran (see `text3::cache::FONT_SHAPE_DEFICIT`).
+        // shaper ran (see `text3::cache::ShapingTally`). The window's own text
+        // cache counts it: no other window's text is in it.
         self.frame_report.font_shape_deficit = self
             .frame_report
             .font_shape_deficit
-            .saturating_add(crate::text3::cache::take_font_shape_deficit());
+            .saturating_add(self.text_cache.take_font_shape_deficit());
 
         if let Err(ref e) = result {
             if let Some(msgs) = debug_messages.as_mut() {

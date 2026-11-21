@@ -160,7 +160,7 @@
             },
         }];
         let mut cache = TextShapingCache::new();
-        let deficit_before = thread_font_shape_deficit();
+        let deficit_before = cache.tally.font_deficit;
         let flow = cache
             .layout_flow(
                 &content,
@@ -178,7 +178,7 @@
             "the run is drawn by the loaded face behind the unloaded one"
         );
         assert!(
-            thread_font_shape_deficit() > deficit_before,
+            cache.tally.font_deficit > deficit_before,
             "a run drawn without the face that covers it is short of its font"
         );
     }
