@@ -315,6 +315,24 @@ impl FloatingContext {
 // +spec:floats:afc8e2 - Float positioning rules (CSS 2.2 § 9.5 rules 1-8): left/right edge
 // containment, earlier-float stacking, outer-top constraints, and "move down" when insufficient
 // space
+/// One layout unit: 1/64 px, the granularity browsers lay out in.
+const LAYOUT_UNIT: f32 = 1.0 / 64.0;
+
+/// Does a float whose margin box is `wanted` wide fit into the `available`
+/// room beside the floats of its line?
+///
+/// Tolerant by one layout unit, and this comparison alone is: a width that
+/// went through a decimal length keeps a quantisation error (`FloatValue`
+/// holds three decimals), and n floats on a line add n of them up. Ten floats
+/// of 19.6875 px with 20 px of padding fill a 396.875 px box exactly; held as
+/// 39.688 px each, nine of them leave 39.683 px and the tenth wrapped for
+/// 0.005 px. A browser lays these out in 1/64 px, where the ten fit. A float
+/// that fits by this tolerance is placed where an exact one is (at the edge
+/// of the room), so it reaches past the room by at most that unit.
+fn float_fits(wanted: f32, available: f32) -> bool {
+    wanted <= available + LAYOUT_UNIT
+}
+
 /// Position a float within a BFC, considering existing floats.
 /// Returns the `LogicalRect` (margin box) for the float.
 // +spec:box-model:db0f02 - Float positioning: line boxes shortened by floats, floats shift down if
@@ -354,7 +372,7 @@ pub(super) fn position_float(
 
         let available_width = avail_end - avail_start;
 
-        if available_width >= total_cross {
+        if float_fits(total_cross, available_width) {
             // +spec:floats:449158 - left float positioned at line-left, content flows on right
             // Found space that fits
             if float_type == LayoutFloat::Left {
@@ -502,4 +520,79 @@ pub(super) fn get_clear_property(styled_dom: &StyledDom, dom_id: Option<NodeId>)
     };
     let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
     get_clear(styled_dom, id, node_state).unwrap_or(LayoutClear::None)
+}
+
+/// A3-solver: the float fit is tolerant by one layout unit (the verifier's golden
+/// `css-backgrounds/background-gradient-subpixel-fills-area.html`).
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// Floats `widths` wide, left-floated one after the other into a box `container` wide:
+    /// the top of each.
+    fn tops(widths: &[f32], container: f32) -> Vec<f32> {
+        let wm = LayoutWritingMode::HorizontalTb;
+        let margin = EdgeSizes::default();
+        let mut floats = FloatingContext::default();
+        widths
+            .iter()
+            .map(|&width| {
+                let rect = position_float(
+                    &floats,
+                    LayoutFloat::Left,
+                    LogicalSize::new(width, 10.0),
+                    &margin,
+                    0.0,
+                    container,
+                    wm,
+                );
+                floats.add_float(LayoutFloat::Left, rect, margin);
+                rect.origin.y
+            })
+            .collect()
+    }
+
+    /// n floats whose exact widths sum to the container stand on one line, for n = 2, 10
+    /// and 64 (39.6875 px each: exact in binary, so the sums are exact).
+    #[test]
+    fn floats_whose_widths_sum_to_the_container_stand_on_one_line() {
+        for n in [2_usize, 10, 64] {
+            let width = 39.6875_f32;
+            let tops = tops(&vec![width; n], width * n as f32);
+            assert!(
+                tops.iter().all(|top| *top == 0.0),
+                "{n} floats of {width} px in {} px: {tops:?}",
+                width * n as f32
+            );
+        }
+    }
+
+    /// The golden's case, as the layout holds it: ten floats of 19.6875 px + 20 px padding
+    /// are 39.6875 px each and fill 396.875 px exactly; held to three decimals each is
+    /// 39.688 px. Nine take 357.192 px and leave 39.683 px: the tenth is over by 0.005 px,
+    /// less than a layout unit (0.015625 px), and stays on the line.
+    ///
+    /// Mutation: `float_fits` without the tolerance (`wanted <= available`) -> the tenth
+    /// float's top is 10, below the first line.
+    #[test]
+    fn the_tenth_of_ten_floats_that_fill_their_box_stays_on_the_line() {
+        let tops = tops(&[39.688; 10], 396.875);
+        assert_eq!(tops, vec![0.0; 10], "ten floats of 39.688 px in 396.875 px");
+    }
+
+    /// A float that is over by more than a layout unit wraps: nine floats of 39.688 px
+    /// leave 39.683 px, a tenth of 39.71 px is over by 0.027 px > 0.015625 px.
+    ///
+    /// Mutation: a tolerance of a tenth of a pixel keeps it on the line.
+    #[test]
+    fn a_float_over_by_more_than_a_layout_unit_wraps() {
+        let mut widths = vec![39.688_f32; 9];
+        widths.push(39.71);
+        let tops = tops(&widths, 396.875);
+        assert_eq!(&tops[..9], &[0.0; 9], "harness: nine fit");
+        assert!(
+            (tops[9] - 10.0).abs() < 0.001,
+            "the tenth float, over by 0.027 px, stands below the line: {tops:?}"
+        );
+    }
 }

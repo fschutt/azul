@@ -171,12 +171,6 @@ pub fn drain_css_prop_counts() -> Vec<(&'static str, usize)> {
         .unwrap_or_default()
 }
 
-// Unit conversion constants (CSS absolute units → pixels)
-const PT_TO_PX: f32 = 1.333_333;
-const IN_TO_PX: f32 = 96.0;
-const CM_TO_PX: f32 = 37.795_277;
-const MM_TO_PX: f32 = 3.779_527_7;
-
 /// Match on any `CssProperty` variant and access the inner `CssPropertyValue`<T>.
 #[allow(unused_macros)]
 macro_rules! match_property_value {
@@ -484,6 +478,9 @@ pub struct FlatVecVec<T> {
     data: Vec<T>,
     /// `(start, len)` offsets into `data` for each node (populated after flatten).
     offsets: Vec<(u32, u32)>,
+    /// How many entries of `data` the rows [`Self::replace_rows`] replaced since the store
+    /// was last compacted pointed at (an upper bound of what no node points at any more).
+    orphaned: usize,
 }
 
 impl<T: PartialEq> PartialEq for FlatVecVec<T> {
@@ -508,6 +505,7 @@ impl<T> Default for FlatVecVec<T> {
             build: Vec::new(),
             data: Vec::new(),
             offsets: Vec::new(),
+            orphaned: 0,
         }
     }
 }
@@ -539,6 +537,44 @@ impl<T> FlatVecVec<T> {
             build,
             data: Vec::new(),
             offsets: Vec::new(),
+            orphaned: 0,
+        }
+    }
+
+    /// Gives the nodes of `rows` the runs they come with and leaves every other node's run
+    /// where it lies: what a cascade over a few nodes of a DOM writes
+    /// ([`CssPropertyCache::recascade_nodes`]). In the read phase a row is appended to the flat
+    /// storage and its node pointed at it; the run the node had stays in the storage until
+    /// more than half of it is such runs, then the storage is compacted (`dedup_runs`). In
+    /// the build phase the node's inner `Vec` is replaced. A node outside the store is skipped.
+    pub fn replace_rows(&mut self, rows: impl Iterator<Item = (usize, Vec<T>)>)
+    where
+        T: Clone + PartialEq + core::hash::Hash,
+    {
+        if self.offsets.is_empty() {
+            for (node, row) in rows {
+                if let Some(slot) = self.build.get_mut(node) {
+                    *slot = row;
+                }
+            }
+            return;
+        }
+        for (node, row) in rows {
+            let Some(slot) = self.offsets.get_mut(node) else {
+                continue;
+            };
+            self.orphaned += slot.1 as usize;
+            if row.is_empty() {
+                *slot = (0, 0);
+                continue;
+            }
+            let start = u32::try_from(self.data.len()).unwrap_or(u32::MAX);
+            let len = u32::try_from(row.len()).unwrap_or(u32::MAX);
+            self.data.extend(row);
+            *slot = (start, len);
+        }
+        if self.orphaned > 256 && self.orphaned > self.data.len() / 2 {
+            self.dedup_runs();
         }
     }
 
@@ -726,6 +762,7 @@ impl<T> FlatVecVec<T> {
 
         self.data = new_data;
         self.offsets = new_offsets;
+        self.orphaned = 0;
     }
 
     /// Flatten: sort each inner Vec by key, deduplicate by keeping the last
@@ -1210,6 +1247,61 @@ impl InheritedValues {
                     let b = &mut self.buckets[bucket];
                     if b.nodes.last() != Some(&n) {
                         b.nodes.push(n);
+                    }
+                    bucket
+                }
+                None => self.push_bucket(InheritedBucket {
+                    prop_type: *prop_type,
+                    value: value.clone(),
+                    nodes: vec![n],
+                }),
+            };
+            placed.push(u32::try_from(bucket).unwrap_or(u32::MAX));
+        }
+        placed
+    }
+
+    /// Takes the nodes `gone` names (`gone[node]`) out of every value's node list: what a
+    /// cascade over a few nodes of a DOM does before it places their new values
+    /// ([`Self::place_node`]). The lists stay ascending; a value no node holds any more keeps
+    /// its (empty) bucket, which no lookup finds a node in.
+    pub fn remove_nodes(&mut self, gone: &[bool]) {
+        for bucket in &mut self.buckets {
+            bucket
+                .nodes
+                .retain(|node| !gone.get(*node as usize).copied().unwrap_or(false));
+        }
+    }
+
+    /// [`Self::set_node_near`] for a node that is placed out of turn - a node of a DOM whose
+    /// other nodes keep their values: its index goes into each value's node list at its
+    /// place, so the lists stay ascending and every lookup (a binary search) still finds the
+    /// nodes behind it. The node must hold no value yet ([`Self::remove_nodes`]).
+    pub fn place_node(
+        &mut self,
+        node: usize,
+        entries: &[(CssPropertyType, CssPropertyWithOrigin)],
+        near: Option<(&[(CssPropertyType, CssPropertyWithOrigin)], &[u32])>,
+    ) -> Vec<u32> {
+        let Ok(n) = u32::try_from(node) else {
+            return Vec::new();
+        };
+        let mut placed = Vec::with_capacity(entries.len());
+        for (prop_type, value) in entries {
+            let hinted = near.and_then(|(near_entries, near_buckets)| {
+                let at = near_entries
+                    .binary_search_by_key(prop_type, |(t, _)| *t)
+                    .ok()?;
+                let bucket = *near_buckets.get(at)? as usize;
+                let b = self.buckets.get(bucket)?;
+                (b.prop_type == *prop_type && b.value == *value).then_some(bucket)
+            });
+            let found = hinted.or_else(|| self.bucket_of(*prop_type, value));
+            let bucket = match found {
+                Some(bucket) => {
+                    let b = &mut self.buckets[bucket];
+                    if let Err(at) = b.nodes.binary_search(&n) {
+                        b.nodes.insert(at, n);
                     }
                     bucket
                 }
@@ -1724,20 +1816,7 @@ impl CssPropertyCache {
         // Those need the slow `css_props` walk at layout time because the compact
         // cache has nothing usable. We must keep them here or the slow path falls
         // back to UA CSS and silently clobbers the author's rule.
-        let keep = |p: &StatefulCssProperty| -> bool {
-            if p.state != PseudoStateType::Normal {
-                return true;
-            }
-            if !p.prop_type.has_compact_encoding() {
-                return true;
-            }
-            // Compact-encoded AND Normal: drop only if the compact cache fully
-            // captured the value (px metric, or Auto/Initial/Inherit/None).
-            if property_needs_slow_path_after_compact(&p.property) {
-                return true;
-            }
-            false
-        };
+        let keep = survives_the_prune;
         // css_props is STILL NOT PRUNED, but not for the reason recorded here
         // before. That reason — "regenerate_layout rebuilds the compact cache
         // from css_props every frame" (#8: white-space:pre-wrap collapsing) —
@@ -1847,6 +1926,23 @@ impl CssPropertyCache {
             .filter(move |p| p.state == state)
             .map(|p| &p.prop_type)
     }
+}
+
+/// Whether [`CssPropertyCache::prune_compact_normal_props`] keeps the inherited entry `p`:
+/// every entry of a state, every property the compact cache has no encoding for, and a
+/// compact-encoded resting one only when the compact cache could not hold its value (a
+/// length that is not px: the slow path still has to find it).
+fn survives_the_prune(p: &StatefulCssProperty) -> bool {
+    use azul_css::dynamic_selector::PseudoStateType;
+    if p.state != PseudoStateType::Normal {
+        return true;
+    }
+    if !p.prop_type.has_compact_encoding() {
+        return true;
+    }
+    // Compact-encoded AND Normal: drop only if the compact cache fully
+    // captured the value (px metric, or Auto/Initial/Inherit/None).
+    property_needs_slow_path_after_compact(&p.property)
 }
 
 /// Whether a node's own declaration `prop` (under `conditions`) loses to a
@@ -2193,6 +2289,7 @@ impl CssPropertyCache {
         use crate::custom_property_cascade::{needs_variable_pass, PendingVar, VarStage};
 
         let css_is_empty = css.is_empty();
+        crate::styled_dom::count_nodes_cascaded(node_data.len());
 
         // Custom properties are CASCADE-level (design
         // RICING_LAYERS_AND_STOPTHEMINGMYAPP_2026_09_29.md §7.3): the rule
@@ -5811,30 +5908,18 @@ impl CssPropertyCache {
         let target_pixel_value = pixel_value_of(target_property)?;
         let reference_pixel_value = pixel_value_of(reference_property)?;
 
-        // Convert reference to absolute pixels first
-        let reference_px = match reference_pixel_value.metric {
-            SizeMetric::Px => reference_pixel_value.number.get(),
-            SizeMetric::Pt => reference_pixel_value.number.get() * PT_TO_PX,
-            SizeMetric::In => reference_pixel_value.number.get() * IN_TO_PX,
-            SizeMetric::Cm => reference_pixel_value.number.get() * CM_TO_PX,
-            SizeMetric::Mm => reference_pixel_value.number.get() * MM_TO_PX,
-            // Reference can't be relative (em/rem/%) or viewport-relative.
-            SizeMetric::Em
-            | SizeMetric::Rem
-            | SizeMetric::Percent
-            | SizeMetric::Vw
-            | SizeMetric::Vh
-            | SizeMetric::Vmin
-            | SizeMetric::Vmax => return None,
-        };
+        // Convert reference to absolute pixels first, by the one conversion
+        // of the absolute units (`PixelValue::absolute_px`, shared with the
+        // compact cache). The reference can't be relative (em/rem/%) or
+        // viewport-relative: `None` for those.
+        let reference_px = reference_pixel_value.absolute_px()?;
 
         // Resolve target based on reference
         let resolved_px = match target_pixel_value.metric {
-            SizeMetric::Px => target_pixel_value.number.get(),
-            SizeMetric::Pt => target_pixel_value.number.get() * PT_TO_PX,
-            SizeMetric::In => target_pixel_value.number.get() * IN_TO_PX,
-            SizeMetric::Cm => target_pixel_value.number.get() * CM_TO_PX,
-            SizeMetric::Mm => target_pixel_value.number.get() * MM_TO_PX,
+            // The absolute units: the same conversion.
+            SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+                target_pixel_value.absolute_px()?
+            }
             // em/rem both scale by reference (rem uses reference as root font-size).
             SizeMetric::Em | SizeMetric::Rem => target_pixel_value.number.get() * reference_px,
             SizeMetric::Percent => target_pixel_value.number.get() / 100.0 * reference_px,
@@ -6900,11 +6985,14 @@ impl CssPropertyCache {
         };
 
         let resolved_px = match font_size.inner.metric {
-            SizeMetric::Px => font_size.inner.number.get(),
-            SizeMetric::Pt => font_size.inner.number.get() * PT_TO_PX,
-            SizeMetric::In => font_size.inner.number.get() * IN_TO_PX,
-            SizeMetric::Cm => font_size.inner.number.get() * CM_TO_PX,
-            SizeMetric::Mm => font_size.inner.number.get() * MM_TO_PX,
+            // The absolute units, by the one conversion the compact cache
+            // uses too (`PixelValue::absolute_px`): `1in` is 96 px in both.
+            SizeMetric::Px | SizeMetric::Pt | SizeMetric::In | SizeMetric::Cm | SizeMetric::Mm => {
+                let Some(px) = font_size.inner.absolute_px() else {
+                    return prop.clone();
+                };
+                px
+            }
             SizeMetric::Em => font_size.inner.number.get() * reference_px,
             SizeMetric::Rem => {
                 font_size.inner.number.get() * azul_css::props::basic::pixel::DEFAULT_FONT_SIZE
@@ -6993,6 +7081,848 @@ impl CssPropertyCache {
     pub(crate) fn invalidate_resolved_cache(&mut self) {
         self.compact_cache = None;
     }
+}
+
+impl CssPropertyCache {
+    /// Runs the cascade for the nodes `dirty` names (`dirty[node]`) and leaves every other
+    /// node's rows as they are: its matched rules, what it inherited, its computed inherited
+    /// values and its compact entries. What a rebuild that changed a few nodes of a DOM where
+    /// they stand runs instead of [`Self::restyle_cascade`] and the passes that follow it
+    /// (`StyledDom::restyle_changed_nodes`).
+    ///
+    /// SOUND when `dirty` holds every node whose cascade inputs moved since the rows were
+    /// made, the tree, the sheets, the window's context and the nodes' states being what they
+    /// were (`StyledDom::nodes_reached_by_changes` for a change of nodes' own data). Then, for
+    /// a node that is not named, every stage below reads what it read before:
+    /// - its matched rules (`css_props`) are a function of the rules in cascade order, the
+    ///   node, its ancestors and the element siblings before it and before them, and the
+    ///   states of those nodes (`crate::style::matches_html_element_remembering`);
+    /// - what it inherited (`cascaded_props`) is a function of its parent's own style,
+    ///   matched rules and inherited row, of its own type (the UA defaults) and of the rows
+    ///   of its ancestors (the stale copies the UA pass removes);
+    /// - its computed inherited values and its compact entries are functions of its own rows
+    ///   and of its parent's values and entries.
+    /// By induction from the root a node whose every ancestor is unnamed keeps every row.
+    ///
+    /// The named nodes' rows are made as the whole-DOM passes make them, pass by pass, from
+    /// copies of those passes' per-node steps. One thing has to be made again for nodes that
+    /// are NOT named: the inherited row of each ancestor of a named node as it stood BEFORE
+    /// the prune (`prune_compact_normal_props` drops the resting compact values from the kept
+    /// rows, and a child copies them from its parent's row). They are rebuilt from the root
+    /// down along those chains, used, and dropped: the ancestors keep the rows they have.
+    ///
+    /// Answers `false`, having changed nothing, where the whole cascade has to run instead:
+    /// a cache that is not complete (no compact cache, rows in their build phase, a composed
+    /// DOM), a custom property or `var()` anywhere (the variable pass resolves them DOM-wide),
+    /// a generated node among the named ones, `*` rules that are no longer the ones the rows
+    /// were made with, or more than half of the nodes named.
+    #[allow(clippy::too_many_lines, clippy::cognitive_complexity)] // the passes of a cascade, in order
+    pub fn recascade_nodes(
+        &mut self,
+        css: &mut Css,
+        node_data: &NodeDataContainerRef<'_, NodeData>,
+        node_hierarchy: &NodeHierarchyItemVec,
+        non_leaf_nodes: &ParentWithNodeDepthVec,
+        html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+        node_states: &[StyledNodeState],
+        dirty: &[bool],
+    ) -> bool {
+        use azul_css::{
+            css::{
+                CssDeclaration,
+                CssPathPseudoSelector::{
+                    self, Active, Backdrop, DragOver, Dragging, Focus, FocusVisible, FocusWithin,
+                    Hover, Placeholder, SeatFocus,
+                },
+                CssPathSelector, CssRuleBlock,
+            },
+            dynamic_selector::{DynamicSelector, PseudoStateType},
+        };
+
+        let node_count = node_data.len();
+        let hierarchy = node_hierarchy.as_container();
+        let items = hierarchy.internal;
+        let named = dirty.iter().filter(|d| **d).count();
+        if dirty.len() != node_count
+            || items.len() != node_count
+            || self.node_count != node_count
+            || self.css_props.len() != node_count
+            || self.cascaded_props.len() != node_count
+            || !self.css_props.is_flattened()
+            || !self.cascaded_props.is_flattened()
+            || self
+                .compact_cache
+                .as_ref()
+                .is_none_or(|compact| compact.node_count() != node_count)
+            || !self.ua_applied
+            || self.composed_since_recompute
+            || !self.resolved_inline.is_empty()
+            || self.variables_depend_on_context
+            || self.custom_property_envs
+                != crate::custom_property_cascade::CustomPropertyEnvs::default()
+            || crate::custom_property_cascade::needs_variable_pass(css, node_data.internal)
+            || named * 2 > node_count
+            || node_data
+                .internal
+                .iter()
+                .zip(dirty)
+                .any(|(node, named)| *named && node.is_generated_content())
+        {
+            return false;
+        }
+        if named == 0 {
+            return true;
+        }
+
+        let css_is_empty = css.is_empty();
+        let dyn_ctx = self.dynamic_context.clone();
+        let no_context_theme = dyn_ctx.is_none().then(crate::app_theme::current_theme);
+        let rule_applies = |conds: &azul_css::dynamic_selector::DynamicSelectorVec| -> bool {
+            let cs = conds.as_slice();
+            cs.is_empty()
+                || cs.iter().all(|sel| {
+                    condition_holds(dyn_ctx.as_deref(), no_context_theme.as_ref(), sel)
+                })
+        };
+        let rank = |conds: &[DynamicSelector]| {
+            rank_of(dyn_ctx.as_deref(), no_context_theme.as_ref(), conds)
+        };
+        let ancestor_states = crate::style::AncestorStates {
+            nodes: node_states,
+            window_inactive: dyn_ctx.as_deref().is_some_and(|c| !c.window_focused),
+            every_state: false,
+        };
+
+        // ---- The matched rules of the named nodes (`restyle_cascade`, node by node) ----
+
+        let mut new_css: Vec<Vec<StatefulCssProperty>> = vec![Vec::new(); node_count];
+        let mut new_overruled: alloc::collections::BTreeMap<
+            usize,
+            Vec<(PseudoStateType, CssPropertyType)>,
+        > = alloc::collections::BTreeMap::new();
+        let mut new_env = EnvReaders::default();
+
+        // Presentational hints first, as the first of a node's stylesheet properties.
+        for (index, nd) in node_data.internal.iter().enumerate() {
+            if !dirty[index] {
+                continue;
+            }
+            for rule in nd.style.rules.as_ref() {
+                let stateful = rule
+                    .conditions
+                    .as_slice()
+                    .iter()
+                    .any(|c| matches!(c, DynamicSelector::PseudoState(_)));
+                if rule.priority >= azul_css::css::rule_priority::INLINE
+                    || stateful
+                    || !rule_applies(&rule.conditions)
+                {
+                    continue;
+                }
+                for declaration in rule.declarations.as_ref() {
+                    new_env.note(Some(index), declaration);
+                    if let Some(prop) = declaration.resolve_in_cascade(dyn_ctx.as_deref()) {
+                        new_css[index].push(StatefulCssProperty {
+                            state: PseudoStateType::Normal,
+                            prop_type: prop.get_type(),
+                            property: prop,
+                            ua_origin: false,
+                            priority: azul_css::css::rule_priority::PRESENTATIONAL,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Whether the inheritance walk carries a `:backdrop` tier, as the whole cascade asks.
+        let mut any_backdrop = node_data.internal.iter().any(|nd| {
+            nd.style.iter_inline_properties().any(|(_, conds)| {
+                conds.as_slice().iter().any(|c| {
+                    matches!(c, DynamicSelector::PseudoState(PseudoStateType::Backdrop))
+                })
+            })
+        });
+
+        let mut global_priorities: Vec<(CssPropertyType, u8)> = Vec::new();
+        if !css_is_empty {
+            css.sort_by_specificity();
+
+            let is_global_only = |rule: &CssRuleBlock| {
+                let selectors = rule.path.selectors.as_ref();
+                selectors.len() == 1
+                    && matches!(selectors.first(), Some(CssPathSelector::Global))
+                    && rule.priority <= azul_css::css::rule_priority::INLINE
+                    && !rule
+                        .declarations
+                        .as_ref()
+                        .iter()
+                        .any(CssDeclaration::uses_custom_properties)
+            };
+            let mut all: Vec<&CssRuleBlock> = css.rules().collect();
+            Css::sort_rules_in_cascade_order(&mut all, rank);
+            let lowest_matched = all
+                .iter()
+                .filter(|rule| !is_global_only(rule))
+                .map(|rule| rule.priority)
+                .min();
+            let mut global_only_rules: Vec<&CssRuleBlock> = Vec::new();
+            let mut specific_rules: Vec<&CssRuleBlock> = Vec::new();
+            for rule in all {
+                if is_global_only(rule) && lowest_matched.is_none_or(|p| rule.priority <= p) {
+                    global_only_rules.push(rule);
+                } else {
+                    specific_rules.push(rule);
+                }
+            }
+
+            // The `*` bucket every node shares: it has to be the one the kept rows were made
+            // with, or no row stands.
+            let mut global_props: Vec<CssProperty> = Vec::new();
+            for rule in &global_only_rules {
+                if !rule_applies(&rule.conditions) {
+                    continue;
+                }
+                if crate::style::rule_ends_with(&rule.path, None) {
+                    for d in &rule.declarations {
+                        if let Some(s) = d.resolve_in_cascade(dyn_ctx.as_deref()) {
+                            global_priorities.push((s.get_type(), rule.priority));
+                            global_props.push(s);
+                        }
+                    }
+                }
+            }
+            if global_props != self.global_css_props {
+                return false;
+            }
+
+            if !specific_rules.is_empty() {
+                let passes: [(Option<CssPathPseudoSelector>, PseudoStateType); 11] = [
+                    (None, PseudoStateType::Normal),
+                    (Some(Hover), PseudoStateType::Hover),
+                    (Some(Active), PseudoStateType::Active),
+                    (Some(Focus), PseudoStateType::Focus),
+                    (Some(SeatFocus), PseudoStateType::SeatFocus),
+                    (Some(FocusVisible), PseudoStateType::FocusVisible),
+                    (Some(FocusWithin), PseudoStateType::FocusWithin),
+                    (Some(Dragging), PseudoStateType::Dragging),
+                    (Some(DragOver), PseudoStateType::DragOver),
+                    (Some(Placeholder), PseudoStateType::Placeholder),
+                    (Some(Backdrop), PseudoStateType::Backdrop),
+                ];
+                let backdrop_pass: u16 = 1 << (passes.len() - 1);
+                let ends_in: Vec<u16> = specific_rules
+                    .iter()
+                    .map(|rule| {
+                        passes
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, (pseudo, _))| {
+                                crate::style::rule_ends_with(&rule.path, pseudo.clone())
+                            })
+                            .fold(0u16, |bits, (pass, _)| bits | (1 << pass))
+                    })
+                    .collect();
+                let takes_part: Vec<u16> = specific_rules
+                    .iter()
+                    .zip(&ends_in)
+                    .map(|(rule, &bits)| {
+                        if rule_applies(&rule.conditions) {
+                            bits
+                        } else {
+                            0
+                        }
+                    })
+                    .collect();
+                any_backdrop |= ends_in.iter().any(|bits| bits & backdrop_pass != 0);
+                let live_passes = takes_part.iter().fold(0u16, |all, bits| all | bits);
+
+                let mut index = crate::style::SubjectRuleIndex::new(
+                    specific_rules.iter().map(|rule| &rule.path),
+                    &hierarchy,
+                );
+                let mut candidates: Vec<usize> = Vec::new();
+                let mut sibling_memo = crate::style::GeneralSiblingMemo::default();
+                let node_total = if live_passes == 0 { 0 } else { node_count };
+                // Ascending, as the index asks; a node that is not named is not asked for.
+                for node_index in 0..node_total {
+                    if !dirty[node_index] {
+                        continue;
+                    }
+                    let node_id = NodeId::new(node_index);
+                    index.candidates_into(node_index, &node_data[node_id], &mut candidates);
+                    for (pass, (pseudo, state)) in passes.iter().enumerate() {
+                        let bit = 1u16 << pass;
+                        if live_passes & bit == 0 {
+                            continue;
+                        }
+                        let state = *state;
+                        for &rule_idx in &candidates {
+                            if takes_part[rule_idx] & bit == 0 {
+                                continue;
+                            }
+                            let rule_block: &CssRuleBlock = specific_rules[rule_idx];
+                            if !crate::style::matches_html_element_remembering(
+                                &rule_block.path,
+                                node_id,
+                                &hierarchy,
+                                node_data,
+                                html_tree,
+                                pseudo.clone(),
+                                Some(ancestor_states),
+                                Some((&mut sibling_memo, rule_idx)),
+                            ) {
+                                continue;
+                            }
+                            if rule_block.priority > azul_css::css::rule_priority::INLINE {
+                                let overruled = new_overruled.entry(node_index).or_default();
+                                for ty in rule_block
+                                    .declarations
+                                    .as_slice()
+                                    .iter()
+                                    .filter_map(CssDeclaration::get_type)
+                                {
+                                    if !overruled.contains(&(state, ty)) {
+                                        overruled.push((state, ty));
+                                    }
+                                }
+                            }
+                            // No custom property and no `var()` (checked above): every
+                            // declaration is a property or an `env()`.
+                            for decl in rule_block.declarations.as_slice() {
+                                if let Some(prop) = decl.resolve_in_cascade(dyn_ctx.as_deref()) {
+                                    new_env.note(Some(node_index), decl);
+                                    new_css[node_index].push(StatefulCssProperty {
+                                        state,
+                                        prop_type: prop.get_type(),
+                                        property: prop,
+                                        ua_origin: false,
+                                        priority: rule_block.priority,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if !self.global_css_props.is_empty() {
+            return false;
+        }
+
+        // ---- Nothing below can fail: the rows are written ----
+        crate::styled_dom::count_nodes_cascaded(named);
+
+        // A value a rule outranks never shows (`drop_outranked_values`); then each row as
+        // `sort_each_and_flatten` leaves it: by (state, type), the last of a key kept.
+        let mut global: Vec<(CssPropertyType, u8)> = Vec::new();
+        for (ty, priority) in &global_priorities {
+            match global.iter_mut().find(|(t, _)| t == ty) {
+                Some(slot) => slot.1 = slot.1.max(*priority),
+                None => global.push((*ty, *priority)),
+            }
+        }
+        for (index, entries) in new_css.iter_mut().enumerate() {
+            if !dirty[index] {
+                continue;
+            }
+            let star = node_data.internal.get(index).is_some_and(star_selects);
+            drop_outranked_values(entries, if star { &global } else { &[] });
+            sort_row_keeping_the_last(entries);
+        }
+        self.inline_overruled
+            .retain(|node, _| !dirty.get(*node).copied().unwrap_or(false));
+        self.inline_overruled.extend(new_overruled);
+        self.env_readers
+            .nodes
+            .retain(|node, _| !dirty.get(*node).copied().unwrap_or(false));
+        self.env_readers.append(&mut new_env, 0);
+        self.css_props.replace_rows(
+            new_css
+                .into_iter()
+                .enumerate()
+                .filter(|(index, _)| dirty[*index]),
+        );
+
+        // ---- What the named nodes inherited (`restyle_cascade`'s walk, then the UA pass) ----
+        //
+        // `rebuild`: the named nodes and their ancestors. A row is built for each; only the
+        // named nodes' rows are kept.
+        let mut rebuild = dirty.to_vec();
+        for index in 0..node_count {
+            if !dirty[index] {
+                continue;
+            }
+            let mut up = items[index].parent_id();
+            while let Some(parent) = up {
+                if parent.index() >= node_count || rebuild[parent.index()] {
+                    break;
+                }
+                rebuild[parent.index()] = true;
+                up = items[parent.index()].parent_id();
+            }
+        }
+        let rebuilt: Vec<usize> = (0..node_count).filter(|index| rebuild[*index]).collect();
+        let mut rows: Vec<Vec<StatefulCssProperty>> = vec![Vec::new(); node_count];
+
+        if rebuild[0] && !self.inherited_from_host.is_empty() {
+            let from_host: Vec<StatefulCssProperty> = self
+                .inherited_from_host
+                .iter()
+                .filter(|(prop_type, value)| {
+                    !is_resolved_parent_inherited(*prop_type)
+                        && !inherits_its_computed_length(&value.property)
+                })
+                .map(|(prop_type, value)| StatefulCssProperty {
+                    state: PseudoStateType::Normal,
+                    prop_type: *prop_type,
+                    property: clone_inheritable_property(&value.property),
+                    ua_origin: false,
+                    priority: 0,
+                })
+                .collect();
+            rows[0].extend(from_host);
+        }
+
+        for ParentWithNodeDepth { depth: _, node_id } in non_leaf_nodes {
+            let Some(parent_id) = node_id.into_crate_internal() else {
+                continue;
+            };
+            if !rebuild.get(parent_id.index()).copied().unwrap_or(false) {
+                continue;
+            }
+
+            let all_states = [
+                PseudoStateType::Normal,
+                PseudoStateType::Hover,
+                PseudoStateType::Active,
+                PseudoStateType::Focus,
+                PseudoStateType::FocusVisible,
+                PseudoStateType::FocusWithin,
+                PseudoStateType::SeatFocus,
+                PseudoStateType::Dragging,
+                PseudoStateType::DragOver,
+                PseudoStateType::Placeholder,
+                PseudoStateType::Backdrop,
+            ];
+            let states = if any_backdrop {
+                &all_states[..]
+            } else {
+                &all_states[..all_states.len() - 1]
+            };
+
+            let mut inline_by_state: Vec<Vec<(CssPropertyType, CssProperty)>> = {
+                let mut parent_inline = Vec::new();
+                azul_css::css::inline_in_cascade_order(
+                    self.inline_properties(&node_data[parent_id], parent_id.index()),
+                    rank,
+                    &mut parent_inline,
+                );
+                states
+                    .iter()
+                    .map(|&state| {
+                        let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                        for &(prop, conds) in &parent_inline {
+                            let conditions = conds.as_slice();
+                            let decl_state = conditions
+                                .iter()
+                                .find_map(|c| match c {
+                                    DynamicSelector::PseudoState(s) => Some(*s),
+                                    _ => None,
+                                })
+                                .unwrap_or(PseudoStateType::Normal);
+                            let applies = decl_state == state
+                                && conditions.iter().all(|c| match c {
+                                    DynamicSelector::PseudoState(s) => *s == state,
+                                    other => condition_holds(
+                                        dyn_ctx.as_deref(),
+                                        no_context_theme.as_ref(),
+                                        other,
+                                    ),
+                                });
+                            let prop_type = prop.get_type();
+                            if !applies
+                                || !prop_type.is_inheritable()
+                                || is_resolved_parent_inherited(prop_type)
+                            {
+                                continue;
+                            }
+                            let value = clone_inheritable_property(prop);
+                            match picked.iter_mut().find(|(t, _)| *t == prop_type) {
+                                Some(slot) => slot.1 = value,
+                                None => picked.push((prop_type, value)),
+                            }
+                        }
+                        picked
+                    })
+                    .collect()
+            };
+
+            for (state_index, &state) in states.iter().enumerate() {
+                let parent_inheritable_inline = core::mem::take(&mut inline_by_state[state_index]);
+
+                // The parent's matched rules: its row in the flat store lists one entry per
+                // (state, type), the one that won - what the whole cascade picks out of the
+                // row in its build phase (the last of a type).
+                let parent_inheritable_css: Vec<(CssPropertyType, CssProperty)> = if css_is_empty {
+                    Vec::new()
+                } else {
+                    let mut picked: Vec<(CssPropertyType, CssProperty)> = Vec::new();
+                    for p in self.css_props.get_slice(parent_id.index()).iter().filter(|p| {
+                        p.state == state
+                            && p.prop_type.is_inheritable()
+                            && !is_resolved_parent_inherited(p.prop_type)
+                    }) {
+                        let value = clone_inheritable_property(&p.property);
+                        match picked.iter_mut().find(|(t, _)| *t == p.prop_type) {
+                            Some(slot) => slot.1 = value,
+                            None => picked.push((p.prop_type, value)),
+                        }
+                    }
+                    picked
+                };
+
+                let parent_inheritable_cascaded: Vec<(CssPropertyType, CssProperty)> = rows
+                    [parent_id.index()]
+                .iter()
+                .filter(|p| {
+                    p.state == state
+                        && p.prop_type.is_inheritable()
+                        && !is_resolved_parent_inherited(p.prop_type)
+                })
+                .map(|p| (p.prop_type, clone_inheritable_property(&p.property)))
+                .collect();
+
+                if parent_inheritable_inline.is_empty()
+                    && parent_inheritable_css.is_empty()
+                    && parent_inheritable_cascaded.is_empty()
+                {
+                    continue;
+                }
+
+                let mut offered: Vec<&(CssPropertyType, CssProperty)> = Vec::new();
+                for entry in parent_inheritable_inline
+                    .iter()
+                    .chain(parent_inheritable_css.iter())
+                    .chain(parent_inheritable_cascaded.iter())
+                {
+                    if !offered.iter().any(|(t, _)| *t == entry.0) {
+                        offered.push(entry);
+                    }
+                }
+                offered.retain(|(_, v)| !inherits_its_computed_length(v));
+
+                for child_id in parent_id.az_children(&hierarchy) {
+                    if !rebuild.get(child_id.index()).copied().unwrap_or(false) {
+                        continue;
+                    }
+                    let child_vec = &mut rows[child_id.index()];
+                    for (prop_type, prop_value) in offered.iter().copied() {
+                        if !child_vec
+                            .iter()
+                            .any(|p| p.state == state && p.prop_type == *prop_type)
+                        {
+                            child_vec.push(StatefulCssProperty {
+                                state,
+                                prop_type: *prop_type,
+                                property: prop_value.clone(),
+                                ua_origin: false,
+                                priority: 0,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // The UA defaults (`apply_ua_css_inner`), for the same nodes.
+        let ctx = self.dynamic_context.as_deref();
+        let mut global_bits: PropTypeBits = [0u128; 2];
+        for p in &self.global_css_props {
+            prop_type_bit_set(&mut global_bits, p.get_type());
+        }
+        let mut declared: Vec<PropTypeBits> = vec![[0u128; 2]; node_count];
+        for &index in &rebuilt {
+            let node = &node_data.internal[index];
+            let bits = &mut declared[index];
+            for p in self
+                .css_props
+                .get_slice(index)
+                .iter()
+                .filter(|p| p.state == PseudoStateType::Normal)
+            {
+                prop_type_bit_set(bits, p.prop_type);
+            }
+            for (prop, conds) in self.inline_properties(node, index) {
+                if conds.as_slice().is_empty() {
+                    prop_type_bit_set(bits, prop.get_type());
+                }
+            }
+            if star_selects(node) {
+                bits[0] |= global_bits[0];
+                bits[1] |= global_bits[1];
+            }
+        }
+        for &index in &rebuilt {
+            let node = &node_data.internal[index];
+            // What beats the UA sheet: what the node declares, and on a text node what it
+            // inherited (`normal_props_present`).
+            let mut present = declared[index];
+            if node.is_text_node() {
+                for p in rows[index]
+                    .iter()
+                    .filter(|p| p.state == PseudoStateType::Normal)
+                {
+                    prop_type_bit_set(&mut present, p.prop_type);
+                }
+            }
+            for prop_type in crate::ua_css::UA_PROPERTY_TYPES {
+                if prop_type_bit_test(&present, *prop_type) {
+                    continue;
+                }
+                let is_root = takes_root_ua_default(index, *prop_type, &self.inherited_from_host);
+                let Some(ua_prop) = crate::ua_css::get_ua_default(node, is_root, *prop_type, ctx)
+                else {
+                    continue;
+                };
+                rows[index].push(StatefulCssProperty {
+                    state: PseudoStateType::Normal,
+                    prop_type: *prop_type,
+                    property: ua_prop.clone(),
+                    ua_origin: true,
+                    priority: 0,
+                });
+            }
+        }
+
+        // The copies a UA default made stale (`hand_ua_defaults_down`), along the same nodes:
+        // a node's parent is among them.
+        let types: Vec<CssPropertyType> = crate::ua_css::UA_PROPERTY_TYPES
+            .iter()
+            .copied()
+            .filter(|t| t.is_inheritable() && !is_resolved_parent_inherited(*t))
+            .collect();
+        let mut stale: Vec<Option<CssProperty>> = vec![None; node_count];
+        for &ty in &types {
+            for &index in &rebuilt {
+                stale[index] = None;
+            }
+            for &node_index in &rebuilt {
+                if prop_type_bit_test(&declared[node_index], ty) {
+                    continue;
+                }
+                let is_normal_of = |e: &StatefulCssProperty| {
+                    e.state == PseudoStateType::Normal && e.prop_type == ty
+                };
+                let copy = rows[node_index]
+                    .iter()
+                    .rev()
+                    .find(|e| is_normal_of(e) && !e.ua_origin)
+                    .map(|e| clone_inheritable_property(&e.property));
+                let ua = rows[node_index]
+                    .iter()
+                    .rev()
+                    .find(|e| is_normal_of(e) && e.ua_origin)
+                    .map(|e| clone_inheritable_property(&e.property));
+                let inherited_stale = items[node_index]
+                    .parent_id()
+                    .map(|p| p.index())
+                    .filter(|p| *p < node_index)
+                    .and_then(|p| stale[p].clone());
+                let Some(copy) = copy else {
+                    continue;
+                };
+                if inherited_stale.as_ref() == Some(&copy) {
+                    rows[node_index].retain(|e| !is_normal_of(e) || e.ua_origin);
+                    stale[node_index] = Some(copy);
+                } else if ua.is_some_and(|u| u != copy) {
+                    stale[node_index] = Some(copy);
+                }
+            }
+        }
+
+        // The named nodes' rows go into the store as `sort_cascaded_props` leaves a row, with
+        // every resting value still in them: the two passes below read them so.
+        let mut kept_rows: Vec<(usize, Vec<StatefulCssProperty>)> = Vec::with_capacity(named);
+        for (index, mut row) in rows.into_iter().enumerate() {
+            if dirty[index] {
+                sort_row_keeping_the_last(&mut row);
+                kept_rows.push((index, row));
+            }
+        }
+        self.cascaded_props.replace_rows(kept_rows.iter().cloned());
+
+        // ---- The computed inherited values of the named nodes (`compute_inherited_values`) ----
+        self.computed_values.grow_to(node_count);
+        self.computed_values.remove_nodes(dirty);
+        self.css_wide_values
+            .retain(|(node, _, _), _| !dirty.get(*node).copied().unwrap_or(false));
+        let mut state_overlays: Vec<(usize, Vec<CssProperty>)> = Vec::new();
+        let mut ancestors: Vec<(usize, Vec<(CssPropertyType, CssPropertyWithOrigin)>, Vec<u32>)> =
+            Vec::new();
+        for node_index in 0..node_count {
+            if !dirty[node_index] {
+                continue;
+            }
+            let node_id = NodeId::new(node_index);
+            let parent_id = items[node_index].parent_id();
+            // The parent's stored values are on top of `ancestors` when the parent is a named
+            // node (the walk stored them); a parent that keeps its values reads the store.
+            let mut parent_on_top = false;
+            if let Some(pid) = parent_id {
+                while ancestors
+                    .last()
+                    .is_some_and(|(node, _, _)| *node != pid.index())
+                {
+                    ancestors.pop();
+                }
+                parent_on_top = !ancestors.is_empty();
+            }
+            // What the parent hands down on top of its resting values in the state it is
+            // in: found by the walk for a named parent, asked of a kept one.
+            let overlay: Option<Vec<CssProperty>> = parent_id.and_then(|pid| {
+                if dirty.get(pid.index()).copied().unwrap_or(false) {
+                    state_overlays
+                        .iter()
+                        .find(|(i, _)| *i == pid.index())
+                        .map(|(_, held)| held.clone())
+                } else {
+                    let state = node_states.get(pid.index())?;
+                    let held = self.state_inherited_values(
+                        node_data.internal.get(pid.index())?,
+                        pid.index(),
+                        state,
+                    );
+                    (!held.is_empty()).then_some(held)
+                }
+            });
+            let parent_owned: Option<Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
+                match parent_id {
+                    Some(_) if parent_on_top && overlay.is_none() => None,
+                    Some(pid) => {
+                        let mut values = if parent_on_top {
+                            ancestors
+                                .last()
+                                .map(|(_, values, _)| values.clone())
+                                .unwrap_or_default()
+                        } else {
+                            self.computed_values.values_for(pid.index())
+                        };
+                        if let Some(held) = overlay.as_ref() {
+                            for property in held {
+                                let ty = property.get_type();
+                                let entry = (
+                                    ty,
+                                    CssPropertyWithOrigin {
+                                        property: property.clone(),
+                                        origin: CssPropertyOrigin::Own,
+                                    },
+                                );
+                                match values.binary_search_by_key(&ty, |(k, _)| *k) {
+                                    Ok(at) => values[at] = entry,
+                                    Err(at) => values.insert(at, entry),
+                                }
+                            }
+                        }
+                        Some(values)
+                    }
+                    None if !self.inherited_from_host.is_empty() => {
+                        Some(self.inherited_from_host.clone())
+                    }
+                    None => None,
+                };
+            let parent_computed: Option<&Vec<(CssPropertyType, CssPropertyWithOrigin)>> =
+                match parent_owned.as_ref() {
+                    Some(owned) => Some(owned),
+                    None if parent_on_top => ancestors.last().map(|(_, values, _)| values),
+                    None => None,
+                };
+
+            let mut ctx_node = InheritanceContext {
+                node_id,
+                parent_id,
+                computed_values: Vec::new(),
+            };
+            let keyword_values =
+                self.css_wide_values_of_node(node_data.internal, node_index, parent_id);
+            self.css_wide_values.extend(keyword_values);
+            if let Some(parent_values) = parent_computed {
+                Self::inherit_from_parent(&mut ctx_node, parent_values);
+            }
+            self.apply_cascade_properties(
+                &mut ctx_node,
+                node_id,
+                parent_computed,
+                node_data.internal,
+                node_index,
+            );
+            if let Some(state) = node_states.get(node_index) {
+                let held =
+                    self.state_inherited_values(&node_data.internal[node_index], node_index, state);
+                if !held.is_empty() {
+                    state_overlays.push((node_index, held));
+                }
+            }
+            Self::compute_font_relative_line_height(&mut ctx_node);
+
+            let inheritable: Vec<(CssPropertyType, CssPropertyWithOrigin)> = ctx_node
+                .computed_values
+                .iter()
+                .filter(|(pt, _)| pt.is_inheritable())
+                .cloned()
+                .collect();
+            let near = if parent_on_top {
+                ancestors
+                    .last()
+                    .map(|(_, values, buckets)| (values.as_slice(), buckets.as_slice()))
+            } else {
+                None
+            };
+            let buckets = self.computed_values.place_node(node_index, &inheritable, near);
+            if items[node_index].last_child_id().is_some() {
+                ancestors.push((node_index, inheritable, buckets));
+            }
+        }
+
+        // ---- The compact entries of the named nodes ----
+        let prev_font_hashes: Vec<u64> = self
+            .compact_cache
+            .as_ref()
+            .map(|c| c.prev_font_hashes.clone())
+            .unwrap_or_default();
+        let compact = self.rebuild_compact_rows(
+            node_data.internal,
+            items,
+            node_states,
+            &prev_font_hashes,
+            dirty,
+        );
+        self.compact_cache = Some(compact);
+
+        // ---- The prune of the named nodes' rows (`prune_compact_normal_props`) ----
+        self.cascaded_props
+            .replace_rows(kept_rows.into_iter().map(|(index, mut row)| {
+                row.retain(survives_the_prune);
+                (index, row)
+            }));
+
+        self.invalidate_resolved_font_sizes();
+        self.ua_applied = true;
+        self.cascade_epoch = self.cascade_epoch.wrapping_add(1);
+        true
+    }
+}
+
+/// One node's row as `FlatVecVec::sort_each_and_flatten` leaves it: sorted by (state,
+/// property type), entries of one key in the order they were pushed, the LAST of a key kept.
+fn sort_row_keeping_the_last(row: &mut Vec<StatefulCssProperty>) {
+    row.sort_by_key(|p| (p.state, p.prop_type));
+    let keys: Vec<(azul_css::dynamic_selector::PseudoStateType, CssPropertyType)> =
+        row.iter().map(|p| (p.state, p.prop_type)).collect();
+    let mut index = 0;
+    row.retain(|_| {
+        let at = index;
+        index += 1;
+        keys.get(at + 1) != Some(&keys[at])
+    });
 }
 
 #[cfg(test)]

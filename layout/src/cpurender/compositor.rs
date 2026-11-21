@@ -2459,10 +2459,35 @@ pub fn scroll_fast_path_eligible_in(
     scroll_offsets: &ScrollOffsetMap,
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> bool {
+    scroll_fast_path_eligible_with(
+        display_list,
+        &frame_pushes(display_list, scroll_id),
+        scroll_id,
+        clip_bounds,
+        scroll_offset,
+        prev_offset,
+        scroll_offsets,
+        transforms,
+    )
+}
+
+/// [`scroll_fast_path_eligible_in`] with the frame's pushes ([`frame_pushes`]) found by the
+/// caller: a scroll step asks this and then for the overlays, and each found them again - two
+/// more passes over the list, each with a walk from the push to its pop.
+#[allow(clippy::too_many_arguments, clippy::implicit_hasher)]
+fn scroll_fast_path_eligible_with(
+    display_list: &DisplayList,
+    pushes: &[(usize, usize)],
+    scroll_id: LocalScrollId,
+    clip_bounds: &LogicalRect,
+    scroll_offset: (f32, f32),
+    prev_offset: (f32, f32),
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> bool {
     let _p = crate::probe::Probe::span("scroll_fastpath_check");
 
     let items = &display_list.items;
-    let pushes = frame_pushes(display_list, scroll_id);
     let Some(&(start, _)) = pushes.first() else {
         return true; // no frame for this id → nothing to shift
     };
@@ -3517,8 +3542,11 @@ pub fn execute_scroll_shift(
     let mut present_extra = Vec::new();
     let mut moves = Vec::new();
     let prev_offset = (offset.0 - delta.0, offset.1 - delta.1);
-    if scroll_fast_path_eligible_in(
+    // The frame's pushes, found once for the check and for the overlays.
+    let pushes = frame_pushes(display_list, scroll_id);
+    if scroll_fast_path_eligible_with(
         display_list,
+        &pushes,
         scroll_id,
         clip,
         offset,
@@ -3541,13 +3569,10 @@ pub fn execute_scroll_shift(
         let moved = !strips.is_empty();
         damage.extend(strips);
         if moved {
-            for g in overlay_rects_after_frame_in(
-                display_list,
-                scroll_id,
-                clip,
-                scroll_offsets,
-                transforms,
-            ) {
+            let overlays = pushes.first().map_or_else(Vec::new, |&(_, end)| {
+                overlay_rects_after(display_list, scroll_id, end, clip, scroll_offsets, transforms)
+            });
+            for g in overlays {
                 damage.push(g);
                 let mut ghost = g;
                 ghost.origin.x -= delta.0;
@@ -3968,23 +3993,49 @@ pub fn overlay_rects_after_frame_in(
     scroll_offsets: &ScrollOffsetMap,
     transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> Vec<LogicalRect> {
-    let mut out = Vec::new();
     let Some(&(_, end)) = frame_pushes(display_list, scroll_id).first() else {
-        return out;
+        return Vec::new();
     };
+    overlay_rects_after(display_list, scroll_id, end, clip_bounds, scroll_offsets, transforms)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: how many items [`overlay_rects_after`] has read the bounds of on this thread.
+    static OVERLAY_BOUNDS_READ: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// [`overlay_rects_after_frame_in`] for a frame whose first pop is at `end` (the caller found
+/// its pushes).
+#[allow(clippy::implicit_hasher)]
+fn overlay_rects_after(
+    display_list: &DisplayList,
+    scroll_id: LocalScrollId,
+    end: usize,
+    clip_bounds: &LogicalRect,
+    scroll_offsets: &ScrollOffsetMap,
+    transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
+) -> Vec<LogicalRect> {
+    let mut out = Vec::new();
     let cx1 = clip_bounds.origin.x + clip_bounds.size.width;
     let cy1 = clip_bounds.origin.y + clip_bounds.size.height;
     let mut stack = ScrollStack::with_transforms(scroll_offsets, transforms);
     for (i, it) in display_list.items.iter().enumerate() {
-        // Where the item paints, shadow and all; read before stepping over it.
-        let on_screen = it
-            .visual_bounds()
-            .map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED));
         let moved_with_the_frame = stack.is_open(scroll_id);
+        // Where the item paints, shadow and all, read before stepping over it - for an item
+        // that can be an overlay. The bounds of EVERY item were read first and the test came
+        // after: the pen bounds of every text run of the page, on every scroll step, for the
+        // few items painted after the frame.
+        let can_be_one =
+            i >= end && !moved_with_the_frame && !it.is_state_management() && !paints_nothing(it);
+        let on_screen = if can_be_one {
+            #[cfg(test)]
+            OVERLAY_BOUNDS_READ.with(|n| n.set(n.get() + 1));
+            it.visual_bounds().map(|b| stack.on_screen(b).unwrap_or(UNBOUNDED))
+        } else {
+            None
+        };
         stack.step(it);
-        if i < end || moved_with_the_frame || it.is_state_management() || paints_nothing(it) {
-            continue;
-        }
         let Some(b) = on_screen else { continue };
         // STRICT overlap: merely touching shares no pixels with the clip and
         // cannot be dragged.
@@ -4951,16 +5002,40 @@ impl FrameStack {
     /// around them: a box around a box around a turned rect grows with every
     /// frame (a spinner turned inside a turned frame damaged 58 px for its
     /// 32 px).
+    ///
+    /// A frame that is not the identity or a move is COMPOSITED: painted into a surface
+    /// and resampled where it lands (`pixmap::blit_pixmap_affine_clipped`). A destination
+    /// pixel takes a share of a surface pixel when its centre maps to within half a
+    /// surface pixel of it, and the surface pixels that hold `r` are those of its device
+    /// box (up to a pixel past `r`): what is painted reaches up to 1.5 device px past `r`
+    /// in the frame's own space, mapped out with it. So before `r`'s corners go through
+    /// such a frame they are moved out by [`COMPOSITE_REACH`] in the frame's space (every
+    /// corner in all four diagonal directions: the hull of those is `r` grown, also when
+    /// `r` came out of an inner frame as a slanted quad), and the box that comes out at
+    /// the end is grown by [`DIRECT_REACH`], for the turned frames a view draws without a
+    /// surface (an edge's anti-aliasing and a run's anchor, rounded to a whole pixel, are
+    /// device pixels whatever the matrix's scale).
+    ///
+    /// The geometric image alone left that ring out of the damage: a box turned by 30
+    /// degrees whose left tip is at x = 65.0 has a faint column 64; turned elsewhere by a
+    /// value, its old place was repainted from x = 65 and the pixel (64, 138) stayed
+    /// (`a2_cpu_the_damaged_render_is_the_full_render_over_random_pans_zooms_fades_and_
+    /// edits`, seed 1, step 19).
+    ///
+    /// Example: `r` = (10, 10) 20 x 10 through `scale(3)` about (0, 0): the corners
+    /// (10 - 2, 10 - 2) .. (30 + 2, 20 + 2) land at (24, 24) .. (96, 66), grown by 1:
+    /// (23, 23) 74 x 44, where the image alone is (30, 30) 60 x 30.
     fn map(&self, r: LogicalRect) -> Option<LogicalRect> {
         if self.frames.is_empty() {
             return Some(r);
         }
-        let mut corners = [
+        let mut corners = vec![
             (r.origin.x, r.origin.y),
             (r.origin.x + r.size.width, r.origin.y),
             (r.origin.x, r.origin.y + r.size.height),
             (r.origin.x + r.size.width, r.origin.y + r.size.height),
         ];
+        let mut composited = false;
         for (origin, m) in self.frames.iter().rev() {
             let mm = &m.m;
             let affine = mm[0][2] == 0.0
@@ -4970,6 +5045,27 @@ impl FrameStack {
                 && (mm[3][3] - 1.0).abs() < f32::EPSILON;
             if !affine {
                 return None;
+            }
+            if translation_2d(mm).is_none() {
+                composited = true;
+                // (At most a few such frames are nested; past 256 points the box of the
+                // points stands in for them.)
+                if corners.len() > 256 {
+                    let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
+                    let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+                    corners = vec![(x0, y0), (x1, y0), (x0, y1), (x1, y1)];
+                }
+                corners = corners
+                    .iter()
+                    .flat_map(|(x, y)| {
+                        [
+                            (x - COMPOSITE_REACH, y - COMPOSITE_REACH),
+                            (x + COMPOSITE_REACH, y - COMPOSITE_REACH),
+                            (x - COMPOSITE_REACH, y + COMPOSITE_REACH),
+                            (x + COMPOSITE_REACH, y + COMPOSITE_REACH),
+                        ]
+                    })
+                    .collect();
             }
             for c in &mut corners {
                 let (px, py) = (c.0 - origin.x, c.1 - origin.y);
@@ -4981,12 +5077,23 @@ impl FrameStack {
         }
         let (x0, x1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
         let (y0, y1) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+        let out = if composited { DIRECT_REACH } else { 0.0 };
         Some(LogicalRect::new(
-            LogicalPosition::new(x0, y0),
-            LogicalSize::new(x1 - x0, y1 - y0),
+            LogicalPosition::new(x0 - out, y0 - out),
+            LogicalSize::new(x1 - x0 + 2.0 * out, y1 - y0 + 2.0 * out),
         ))
     }
 }
+
+/// How far past a rect what is painted of it reaches when the frame it is in is composited
+/// (`FrameStack::map`), logical px in the frame's own space: 1.5 device px (a pixel of the
+/// surface's device box past the rect, and half a surface pixel of the resampling), which
+/// 2 logical px hold at every scale factor from 0.75 up.
+const COMPOSITE_REACH: f32 = 2.0;
+
+/// How far past the image of a rect a turned frame that is drawn without a surface can
+/// paint, logical px where it lands (`FrameStack::map`).
+const DIRECT_REACH: f32 = 1.0;
 
 /// The live matrices of the animated reference frames (`TransformKey.id ->
 /// matrix`, as `extract_gpu_values` reads them) in the frame before (`old`)
@@ -9163,11 +9270,16 @@ mod autotest_generated {
         let new = WindowGpuValues { transforms: [(3, translate(20.0, 0.0)), (9, scale(2.0))].into_iter().collect(), ..WindowGpuValues::default() };
         let d = window_value_damage(&scaled, &views, &old, &new, &ScrollOffsetMap::new());
         assert!(!d.needs_full);
+        // The old place is 80 x 60 @ (100, 80). Through the scaled frame 9 the rect grows by
+        // what the resampling paints past the image (A1-64, `FrameStack::map`): 2 px in the
+        // frame's space, x 2 by its scale, + 1 px where it lands = 5 px a side:
+        // (100 - 5, 80 - 5) 80 + 10 x 60 + 10. Frame 3 only moves: a move grows nothing.
+        // (The test asked the bare image, 80 x 60 @ (100, 80).)
         assert!(
-            d.rects.iter().any(|r| (r.origin.x - 100.0).abs() < 0.01
-                && (r.origin.y - 80.0).abs() < 0.01
-                && (r.size.width - 80.0).abs() < 0.01
-                && (r.size.height - 60.0).abs() < 0.01),
+            d.rects.iter().any(|r| (r.origin.x - 95.0).abs() < 0.01
+                && (r.origin.y - 75.0).abs() < 0.01
+                && (r.size.width - 90.0).abs() < 0.01
+                && (r.size.height - 70.0).abs() < 0.01),
             "the old place, scaled: {:?}",
             d.rects
         );
@@ -9556,8 +9668,11 @@ mod autotest_generated {
             values,
         );
         // (10, 10) of the child is (60, 50) in the window's list, and twice that - (120, 100) - on
-        // screen; 20 x 10 is 40 x 20.
-        assert!(has_rect(&d, (120.0, 100.0, 40.0, 20.0)), "{d:?}");
+        // screen; 20 x 10 is 40 x 20. Through a composited (scaled) frame the rect grows by what
+        // the resampling paints past the image (A1-64, `FrameStack::map`): 2 px in the frame's
+        // space, x 2 by its scale, + 1 px where it lands = 5 px a side:
+        // (120 - 5, 100 - 5) 40 + 10 x 20 + 10. (The test asked the bare image, 40 x 20 @ (120, 100).)
+        assert!(has_rect(&d, (115.0, 95.0, 50.0, 30.0)), "{d:?}");
     }
 
     /// A change under a frame INSIDE the view: the frame is painted with its live matrix as
@@ -12716,5 +12831,94 @@ mod audit_a1_tests {
         assert_eq!(at(&pm, 55, 15), (59, 15), "the last column that is the clip's");
         assert_eq!(at(&pm, 56, 15), (56, 15), "not the neighbour's column 60");
         assert_eq!(at(&pm, 60, 15), (60, 15));
+    }
+
+
+    /// A1-61: the overlay scan of a scroll step reads the bounds of the items that can be
+    /// overlays - those painted after the frame - and not of every item of the list. A page
+    /// of n rows inside the frame and two boxes after it (one over the frame's clip, one
+    /// beside it): two bounds are read whether n is 50 or 200, and the overlay found is the
+    /// part of the first box inside the clip. (Every item's bounds were read before the test
+    /// that skips it: n + 2 reads.)
+    /// Mutation: the bounds read before `can_be_one` counts 52 and 202.
+    #[test]
+    fn the_overlay_scan_reads_the_bounds_of_what_is_painted_after_the_frame() {
+        let clip = lr(0.0, 0.0, 100.0, 300.0);
+        let page = |rows: usize| {
+            let mut items = vec![DisplayListItem::PushScrollFrame {
+                clip_bounds: clip.into(),
+                content_size: LogicalSize { width: 100.0, height: 2000.0 },
+                scroll_id: 4,
+            }];
+            for row in 0..rows {
+                items.push(opaque(0.0, row as f32 * 10.0, 100.0, 10.0, [240, 240, 230]));
+            }
+            items.push(DisplayListItem::PopScrollFrame);
+            items.push(opaque(80.0, 20.0, 40.0, 30.0, [0, 0, 200]));
+            items.push(opaque(150.0, 20.0, 40.0, 30.0, [0, 200, 0]));
+            listed(items)
+        };
+        let scan = |rows: usize| {
+            OVERLAY_BOUNDS_READ.with(|n| n.set(0));
+            let found = overlay_rects_after_frame_in(&page(rows), 4, &clip, &ScrollOffsetMap::new(), &HashMap::new());
+            (found, OVERLAY_BOUNDS_READ.with(core::cell::Cell::get))
+        };
+        let (small, read_small) = scan(50);
+        let (large, read_large) = scan(200);
+        assert_eq!((read_small, read_large), (2, 2), "the two boxes after the frame, however long the page");
+        assert_eq!(small, vec![lr(80.0, 20.0, 20.0, 30.0)], "the box over the clip, cut to it");
+        assert_eq!(small, large);
+    }
+}
+
+#[cfg(test)]
+mod audit_a1_composite_reach_tests {
+    use super::*;
+
+    fn matrix(m: [[f32; 4]; 4]) -> azul_core::transform::ComputedTransform3D {
+        azul_core::transform::ComputedTransform3D { m }
+    }
+
+    fn rect(x: f32, y: f32, w: f32, h: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::new(x, y), LogicalSize::new(w, h))
+    }
+
+    /// A1-64: where a rect inside a frame is painted. Through a move: its image. Through a
+    /// frame that is composited (a scale, a turn): its image grown by what the resampling
+    /// reaches, 2 px in the frame's own space on every side, and a pixel where it lands.
+    /// Hand-computed for (10, 10) 20 x 10 about the origin (0, 0):
+    /// - `translate(5, 7)`: (15, 17) 20 x 10;
+    /// - `scale(3)`: the corners (8, 8) .. (32, 22) land at (24, 24) .. (96, 66), a pixel
+    ///   more: (23, 23) 74 x 44 (the image alone: (30, 30) 60 x 30);
+    /// - `translate(5, 7)` inside `scale(3)`: (13, 15) .. (37, 29) land at (39, 45) ..
+    ///   (111, 87): (38, 44) 74 x 44;
+    /// - a quarter turn (x' = -y, y' = x): x 8 .. 32, y 8 .. 22 land at x -22 .. -8,
+    ///   y 8 .. 32: (-23, 7) 16 x 26.
+    /// Mutation: the image alone (as it was) leaves the ring a composite paints out of the
+    /// damage: a box turned by 30 degrees whose tip is at x = 65.0 keeps a faint column 64
+    /// when a value turns it elsewhere (`a2_cpu_the_damaged_render_is_the_full_render_over_
+    /// random_pans_zooms_fades_and_edits`, seed 1, step 19: the pixel (64, 138)).
+    #[test]
+    fn what_a_composited_frame_paints_reaches_past_the_image_of_its_content() {
+        let r = rect(10.0, 10.0, 20.0, 10.0);
+        let origin = LogicalPosition::new(0.0, 0.0);
+        let by = |tx: f32, ty: f32, k: f32| {
+            matrix([[k, 0.0, 0.0, 0.0], [0.0, k, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [tx, ty, 0.0, 1.0]])
+        };
+        assert_eq!(FrameStack::default().map(r), Some(r), "no frame: the rect");
+        let mut moved = FrameStack::default();
+        moved.push(origin, by(5.0, 7.0, 1.0));
+        assert_eq!(moved.map(r), Some(rect(15.0, 17.0, 20.0, 10.0)), "a move paints the image");
+        let mut scaled = FrameStack::default();
+        scaled.push(origin, by(0.0, 0.0, 3.0));
+        assert_eq!(scaled.map(r), Some(rect(23.0, 23.0, 74.0, 44.0)), "a scaled frame is composited");
+        scaled.push(origin, by(5.0, 7.0, 1.0));
+        assert_eq!(scaled.map(r), Some(rect(38.0, 44.0, 74.0, 44.0)), "a move inside it");
+        let mut turned = FrameStack::default();
+        turned.push(
+            origin,
+            matrix([[0.0, 1.0, 0.0, 0.0], [-1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]]),
+        );
+        assert_eq!(turned.map(r), Some(rect(-23.0, 7.0, 16.0, 26.0)), "a quarter turn");
     }
 }

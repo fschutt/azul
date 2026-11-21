@@ -841,7 +841,7 @@ mod autotest_generated {
                 warm: Vec::new(),
                 cold: Vec::new(),
                 root: 0,
-                dom_to_layout: BTreeMap::new(),
+                dom_to_layout: Default::default(),
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
@@ -877,7 +877,7 @@ mod autotest_generated {
                 Some(0),
             ),
         ];
-        std::sync::Arc::make_mut(&mut result.layout_tree).dom_to_layout = dom_to_layout;
+        std::sync::Arc::make_mut(&mut result.layout_tree).dom_to_layout = dom_to_layout.into();
         result.calculated_positions = vec![LogicalPosition::zero(), LogicalPosition::zero()];
         result
     }

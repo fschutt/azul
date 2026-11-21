@@ -532,3 +532,6 @@ fn a_run_of_whole_frame_presents_allocates_two_buffers() {
     let _fresh = pool.take(64);
     assert_eq!(pool.allocations(), 9, "only KEPT were kept");
 }
+
+/// A10-06, the layer-backed present through `CpuBackend::render_frame`.
+mod layer;

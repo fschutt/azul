@@ -1127,10 +1127,13 @@ pub struct FrameTimings {
     pub gpu_frame_build_us: u64,
     /// GPU path, last frame: Time drawing the frame: texture uploads and draw calls (UI thread).
     pub gpu_render_us: u64,
+    /// GPU path, last frame: Picture cache tiles whose content the renderer drew again (a tile
+    /// that is only moved or scaled by the compositor is not one; whole process, like the glyphs).
+    pub gpu_tiles_drawn: u64,
 }
 
 /// How many counters [`GpuFrameCounters`] has.
-pub const GPU_FRAME_COUNTERS: usize = 23;
+pub const GPU_FRAME_COUNTERS: usize = 24;
 
 /// What the GPU path (the translation to the renderer's display lists, the
 /// transactions, the renderer's threads and its draw) did for one frame:
@@ -1188,13 +1191,17 @@ pub struct GpuFrameCounters {
     pub frame_build_us: u64,
     /// Time drawing the frame: texture uploads and draw calls (UI thread).
     pub render_us: u64,
+    /// Picture cache tiles whose content the renderer drew again (whole
+    /// process). A zoom step or a pan that the tiles of a view serve draws
+    /// none: the compositor moves or scales the tiles it has (audit A4-29).
+    pub tiles_drawn: u64,
 }
 
 impl GpuFrameCounters {
     /// The counters in the order of the fields.
     #[must_use]
     pub const fn to_array(&self) -> [u64; GPU_FRAME_COUNTERS] {
-        [self.transactions, self.lists_translated, self.items_translated, self.list_bytes, self.resource_adds, self.resource_updates, self.resource_deletes, self.resource_bytes, self.dynamic_properties, self.scene_builds, self.frame_builds, self.glyphs_rasterized, self.texture_uploads, self.texture_upload_px, self.draw_calls, self.translate_us, self.resources_us, self.values_us, self.transaction_us, self.blocked_us, self.scene_build_us, self.frame_build_us, self.render_us]
+        [self.transactions, self.lists_translated, self.items_translated, self.list_bytes, self.resource_adds, self.resource_updates, self.resource_deletes, self.resource_bytes, self.dynamic_properties, self.scene_builds, self.frame_builds, self.glyphs_rasterized, self.texture_uploads, self.texture_upload_px, self.draw_calls, self.translate_us, self.resources_us, self.values_us, self.transaction_us, self.blocked_us, self.scene_build_us, self.frame_build_us, self.render_us, self.tiles_drawn]
     }
 
     /// [`Self::to_array`] back.
@@ -1224,6 +1231,7 @@ impl GpuFrameCounters {
             scene_build_us: a[20],
             frame_build_us: a[21],
             render_us: a[22],
+            tiles_drawn: a[23],
         }
     }
 
@@ -1417,6 +1425,7 @@ impl FrameClock {
             gpu_scene_build_us: gpu.scene_build_us,
             gpu_frame_build_us: gpu.frame_build_us,
             gpu_render_us: gpu.render_us,
+            gpu_tiles_drawn: gpu.tiles_drawn,
         }
     }
 }
@@ -1788,7 +1797,7 @@ impl DomLayoutResult {
     /// write goes to this result's own copy, so the cache keeps the tree its
     /// next pass starts from, as it did when every pass handed over a copy.
     pub fn layout_tree_mut(&mut self) -> &mut LayoutTree {
-        Arc::make_mut(&mut self.layout_tree)
+        solver3::cache::own_mut(&mut self.layout_tree)
     }
 
     /// Puts the atomic inline children of the inline formatting context at
@@ -3765,32 +3774,135 @@ fn scrollbar_fade_work(boxes: usize) {
 const fn scrollbar_fade_work(_boxes: usize) {}
 
 std::thread_local! {
-    /// The choice of [`set_diff_first_on_this_thread`] for the calling thread.
-    static DIFF_FIRST_ON_THIS_THREAD: core::cell::Cell<Option<bool>> =
+    /// The choice of [`set_diff_first_on_this_thread`] / [`set_diff_first_steps_on_this_thread`]
+    /// for the calling thread: one bit per [`DiffFirstStep`].
+    static DIFF_FIRST_ON_THIS_THREAD: core::cell::Cell<Option<u8>> =
         const { core::cell::Cell::new(None) };
 }
 
+/// One step of the diff-first pipeline of a rebuild (`audit/diff-first.md`), switchable on its
+/// own by its [`Self::name`] in the environment variable `AZ_DIFF_FIRST`: unset (or any value
+/// that names no step, as `1`) is every step, `0` is none - the full path for every rebuild
+/// whose fingerprints moved - and a comma-separated list is exactly the steps it names
+/// (`AZ_DIFF_FIRST=text,nodes` leaves `style` off).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffFirstStep {
+    /// `text`: a rebuild that changed nothing but the characters of texts keeps the styled
+    /// DOM and writes the texts onto it. Off: such a rebuild takes the full path.
+    Text,
+    /// `nodes`: a rebuild that kept the tree and changed nodes where they stand (a class, an
+    /// id, an attribute, an inline style, a flag) keeps the styled DOM, writes the nodes onto
+    /// it and styles it again without a reconciliation. Off: the full path.
+    Nodes,
+    /// `style`: inside `nodes`, the cascade runs only for the changed nodes and the nodes
+    /// they reach, and every other node keeps its rows. Off: `nodes` runs the whole cascade
+    /// over the kept DOM.
+    Style,
+}
+
+impl DiffFirstStep {
+    /// Every step.
+    pub const ALL: [Self; 3] = [Self::Text, Self::Nodes, Self::Style];
+
+    /// The step's name in `AZ_DIFF_FIRST`.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Nodes => "nodes",
+            Self::Style => "style",
+        }
+    }
+
+    const fn bit(self) -> u8 {
+        match self {
+            Self::Text => 1,
+            Self::Nodes => 2,
+            Self::Style => 4,
+        }
+    }
+
+    const EVERY_BIT: u8 = 1 | 2 | 4;
+}
+
+/// The steps a value of `AZ_DIFF_FIRST` switches on, one [`DiffFirstStep`] bit each: `0` none,
+/// a list that names at least one step exactly the named ones (an unknown name in it is
+/// skipped), anything else every step.
+#[must_use]
+pub fn diff_first_steps_of(value: &str) -> u8 {
+    if value.trim() == "0" {
+        return 0;
+    }
+    let named = value
+        .split(',')
+        .map(str::trim)
+        .filter_map(|name| DiffFirstStep::ALL.into_iter().find(|step| step.name() == name))
+        .fold(0_u8, |bits, step| bits | step.bit());
+    if named == 0 {
+        DiffFirstStep::EVERY_BIT
+    } else {
+        named
+    }
+}
+
+/// The steps that are on for the calling thread: its own choice, else the environment's.
+fn diff_first_steps() -> u8 {
+    static FROM_ENVIRONMENT: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    if let Some(steps) = DIFF_FIRST_ON_THIS_THREAD.with(core::cell::Cell::get) {
+        return steps;
+    }
+    *FROM_ENVIRONMENT.get_or_init(|| {
+        std::env::var_os("AZ_DIFF_FIRST").map_or(DiffFirstStep::EVERY_BIT, |value| {
+            diff_first_steps_of(&value.to_string_lossy())
+        })
+    })
+}
+
 /// Whether a rebuild of a DOM is diffed against the build before it BEFORE it is styled, and
-/// styled, reconciled and laid out only for what that diff names (`audit/A3-window.md`, "The
-/// diff-first pipeline"). On unless the environment says `AZ_DIFF_FIRST=0`: then every rebuild
-/// whose fingerprints moved takes the full path (the cascade, the reconciliation, the
-/// equivalence check), which is the path the diff-first one must agree with.
+/// styled, reconciled and laid out only for what that diff names (`audit/diff-first.md`): any
+/// step of it. Off with `AZ_DIFF_FIRST=0`: then every rebuild whose fingerprints moved takes
+/// the full path (the cascade, the reconciliation, the equivalence check), which is the path
+/// the diff-first one must agree with.
 #[must_use]
 pub fn diff_first_enabled() -> bool {
-    static FROM_ENVIRONMENT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    if let Some(on) = DIFF_FIRST_ON_THIS_THREAD.with(core::cell::Cell::get) {
-        return on;
-    }
-    *FROM_ENVIRONMENT
-        .get_or_init(|| std::env::var_os("AZ_DIFF_FIRST").is_none_or(|value| value != "0"))
+    diff_first_steps() != 0
+}
+
+/// Whether `step` of the diff-first pipeline is on ([`DiffFirstStep`]).
+#[must_use]
+pub fn diff_first_step(step: DiffFirstStep) -> bool {
+    diff_first_steps() & step.bit() != 0
 }
 
 /// Chooses the path of [`diff_first_enabled`] for the calling thread, whatever the environment
-/// says (`None`: the environment's again). For a test that runs one rebuild down both paths
-/// and compares what they leave: the tests of a process share its environment and run side by
-/// side, one per thread.
+/// says: every step or none (`None`: the environment's again). For a test that runs one
+/// rebuild down both paths and compares what they leave: the tests of a process share its
+/// environment and run side by side, one per thread.
 pub fn set_diff_first_on_this_thread(on: Option<bool>) {
-    DIFF_FIRST_ON_THIS_THREAD.with(|choice| choice.set(on));
+    DIFF_FIRST_ON_THIS_THREAD
+        .with(|choice| choice.set(on.map(|on| if on { DiffFirstStep::EVERY_BIT } else { 0 })));
+}
+
+std::thread_local! {
+    /// Rebuilds on this thread that kept the styled DOM and styled nodes of it again
+    /// ([`kept_dom_rebuilds_on_this_thread`]).
+    static KEPT_DOM_REBUILDS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many rebuilds on the calling thread kept their styled DOM and styled the nodes the
+/// rebuild changed (`LayoutWindow::restyle_rebuilt_nodes`): what a test reads to say which
+/// path a rebuild took.
+#[must_use]
+pub fn kept_dom_rebuilds_on_this_thread() -> usize {
+    KEPT_DOM_REBUILDS.with(core::cell::Cell::get)
+}
+
+/// [`set_diff_first_on_this_thread`] step by step: exactly `steps` are on for the calling
+/// thread (`None`: the environment's again).
+pub fn set_diff_first_steps_on_this_thread(steps: Option<&[DiffFirstStep]>) {
+    DIFF_FIRST_ON_THIS_THREAD.with(|choice| {
+        choice.set(steps.map(|steps| steps.iter().fold(0_u8, |bits, step| bits | step.bit())));
+    });
 }
 
 std::thread_local! {
@@ -10359,6 +10471,9 @@ impl LayoutWindow {
         // Desktop (skip_gpu_sync == false) is unchanged.
         if self.skip_gpu_sync {
             if let Some(tree) = self.layout_cache.tree.clone() {
+                // Another result: what the registration raised beside the tree of
+                // the one before is derived again (see the same call below).
+                self.scroll_manager.forget_raised_bars(dom_id);
                 self.layout_results.insert(
                     dom_id,
                     DomLayoutResult {
@@ -10928,6 +11043,13 @@ impl LayoutWindow {
             .tree
             .clone()
             .ok_or(solver3::LayoutError::InvalidTree)?;
+        // The pass made this DOM's result anew: the scrollbars the registration
+        // raised beside the tree of the result before it (a view's published
+        // extent, `ScrollManager::raise_bars`) are derived again by the
+        // registration that follows - also when the pass hands the SAME tree on
+        // (nothing changed), which their own check by tree cannot see. Before
+        // the thumbs' update below reads this tree.
+        self.scroll_manager.forget_raised_bars(dom_id);
 
         // Get scroll IDs from cache (they were computed during layout_document)
         let scroll_ids = self.layout_cache.scroll_ids.clone();
@@ -19513,6 +19635,86 @@ impl LayoutWindow {
         moved
     }
 
+    /// Whether a rebuild of the window's DOM that changed nodes where they stand may keep
+    /// `retained`, the styled DOM (`regenerate_layout`, the diff-first exit for changed
+    /// nodes): nothing of what a full rebuild does beyond styling and laying out the changed
+    /// nodes is owed for this DOM.
+    ///
+    /// - No node declares an `animation`: the reconciliation tweens the property changes of
+    ///   such a node and slides it ([`styled_dom_declares_an_animation`]).
+    /// - The retained sheet makes no generated content: a node that starts to match such a
+    ///   rule gets a node more where the styled DOM is created, and none in a restyle.
+    /// - The app theme is no flora spin: `widgets::themes::spin` repaints the colours of
+    ///   every node of a fresh DOM before it is cascaded.
+    #[must_use]
+    pub fn rebuild_can_keep_the_styled_dom(&self, retained: &StyledDom) -> bool {
+        #[cfg(feature = "widgets")]
+        {
+            use crate::widgets::themes::spin::FloraSpin;
+            if FloraSpin::of_theme(self.app_theme.as_str()).is_some_and(|spin| spin != FloraSpin::Blue)
+            {
+                return false;
+            }
+        }
+        !azul_core::generated_content::css_generates_nodes(
+            &retained.get_css_property_cache().retained_author_css,
+        ) && !styled_dom_declares_an_animation(retained)
+    }
+
+    /// Styles `retained` again after a rebuild wrote nodes onto it where they stood
+    /// (`azul_core::diff::adopt_changed_nodes`; `replaced` holds the nodes before, ascending),
+    /// and stages the CSS diff of that for the layout pass that follows, as
+    /// [`Self::begin_reconciliation`] stages the diff of a full rebuild. Answers the nodes the
+    /// changes reach (`StyledDom::nodes_reached_by_changes`): every other node's cascade,
+    /// boxes and items are what they were.
+    ///
+    /// `states_before` are the states the nodes were in before this rebuild raised any: the
+    /// diff reads both cascades under them. `reuse_styles` (the step `style` of
+    /// [`DiffFirstStep`]) runs the cascade for the reached nodes only; without it the whole
+    /// cascade runs over the kept DOM (`StyledDom::restyle`), which is also what a state that
+    /// came with the rebuild needs.
+    pub fn restyle_rebuilt_nodes(
+        &mut self,
+        retained: &mut StyledDom,
+        replaced: &[(usize, azul_core::dom::NodeData)],
+        states_before: &[azul_core::styled_dom::StyledNodeState],
+        reuse_styles: bool,
+    ) -> Vec<bool> {
+        KEPT_DOM_REBUILDS.with(|count| count.set(count.get() + 1));
+        let changed: Vec<usize> = replaced.iter().map(|(index, _)| *index).collect();
+        let reached = retained.nodes_reached_by_changes(&changed);
+        let span_restyle = crate::probe::Probe::span("regen_restyle_changed_nodes");
+        // The cascade before is kept beside the new one for the diff below.
+        let old_cache = retained.get_css_property_cache().clone();
+        // The cascade for the reached nodes alone (`style`), every other node keeping its
+        // rows; where that cannot be (`CssPropertyCache::recascade_nodes` says when), and
+        // without the step, the whole cascade over the kept DOM, under the states its nodes
+        // are in.
+        if !(reuse_styles && retained.restyle_changed_nodes(&reached)) {
+            let css = old_cache.retained_author_css.clone();
+            retained.restyle(css);
+            // As a DOM that was just created reads: its inherited rows without the resting
+            // values the compact cache answers (`StyledDom`'s creation prunes them, a
+            // restyle does not). The diff below compares rows, and a row that differs only
+            // by that names its node.
+            retained
+                .get_css_property_cache_mut()
+                .prune_compact_normal_props();
+        }
+        drop(span_restyle);
+
+        let span_diff = crate::probe::Probe::span("regen_css_diff_changed_nodes");
+        let candidates = reached
+            .iter()
+            .enumerate()
+            .filter(|(_, reached)| **reached)
+            .map(|(index, _)| index);
+        let dirt = css_diff_of_kept_dom(&old_cache, retained, replaced, states_before, candidates);
+        drop(span_diff);
+        self.pending_css_dirty = Some((DomId::ROOT_ID, dirt));
+        reached
+    }
+
     /// Reconcile a NEW tree against the one this window currently holds, and
     /// migrate everything that can be migrated.
     ///
@@ -21790,9 +21992,10 @@ impl LayoutWindow {
 
         // Iterate over all nodes with scrollbar info
         for (node_idx, node) in layout_tree.nodes.iter().enumerate() {
-            // Check if node needs scrollbars
-            let warm = layout_tree.warm(LayoutNodeId::new(node_idx));
-            let Some(scrollbar_info) = warm.and_then(|w| w.scrollbar_info.as_ref()) else {
+            // Check if node needs scrollbars: the layout's answer, or the one the
+            // registration raised beside the tree (a view's published extent).
+            let Some(scrollbar_info) = scroll_manager.scrollbar_info(dom_id, node_idx, layout_tree)
+            else {
                 continue;
             };
 
@@ -28863,6 +29066,12 @@ impl LayoutWindow {
         // Use the ifc_layout_index we found earlier (correct layout tree index)
         let mut reshape_extent: Option<LogicalSize> = None;
         if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+            // The writes below make the tree this result's own. The scrollbars
+            // the registration raised beside it go into it first, so that it
+            // holds every flag, as it did when the registration wrote them
+            // there: the plan below and the list this edit builds read them.
+            self.scroll_manager
+                .settle_raised_bars(dom_id, &mut layout_result.layout_tree);
             let old_size = layout_result
                 .layout_tree
                 .get(LayoutNodeId::new(ifc_layout_index))
@@ -30077,6 +30286,15 @@ impl LayoutWindow {
             _ => Vec::new(),
         };
         self.bind_state_colors(dom_id, &state_colored, false);
+
+        // The build reads the scrollbars from the tree (`paint_scrollbars`): the
+        // ones the registration raised beside it go into it first. One copy of
+        // the tree if the solver's cache still shares it, none for a DOM
+        // without raised bars (`ScrollManager::settle_raised_bars`).
+        if let Some(layout_result) = self.layout_results.get_mut(&dom_id) {
+            self.scroll_manager
+                .settle_raised_bars(dom_id, &mut layout_result.layout_tree);
+        }
 
         // Get all the data we need from the layout result
         let Some(layout_result) = self.layout_results.get(&dom_id) else {
@@ -34006,7 +34224,7 @@ mod autotest_generated {
                 warm: Vec::new(),
                 cold: Vec::new(),
                 root: 0,
-                dom_to_layout: BTreeMap::new(),
+                dom_to_layout: Default::default(),
                 children_arena: Vec::new(),
                 children_offsets: Vec::new(),
                 subtree_needs_intrinsic: Vec::new(),
@@ -38433,6 +38651,102 @@ pub(crate) fn css_diff_between(
         out.push((m.new_node_id, worst));
     }
     Some(out)
+}
+
+/// Whether any node of `styled_dom` declares an `animation` under the state it is in: a
+/// `move`, or a timed change of a property. A full rebuild's reconciliation turns the changes
+/// of such a node's properties into tweens and slides it to its new place
+/// ([`LayoutWindow::begin_reconciliation`], [`LayoutWindow::finish_reconciliation`]); a rebuild
+/// that keeps the styled DOM and restyles nodes of it asks this first, because it captures
+/// none. A declared-only lookup per node; nothing is cascaded.
+#[must_use]
+pub fn styled_dom_declares_an_animation(styled_dom: &StyledDom) -> bool {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+
+    let cache = &styled_dom.css_property_cache.ptr;
+    let nodes = styled_dom.node_data.as_ref();
+    let states = styled_dom.styled_nodes.as_ref();
+    nodes
+        .iter()
+        .zip(states.iter())
+        .enumerate()
+        .any(|(index, (node, state))| {
+            cache
+                .get_property_if_declared(
+                    node,
+                    &NodeId::new(index),
+                    &state.styled_node_state,
+                    &CssPropertyType::Animation,
+                )
+                .is_some_and(|property| match property {
+                    CssProperty::Animation(value) => value.get_property().is_some(),
+                    _ => false,
+                })
+        })
+}
+
+/// The CSS diff of a rebuild that KEPT its styled DOM and styled nodes of it again: for each
+/// of `candidates` (node indices; the nodes whose cascade the rebuild could move), the widest
+/// `RelayoutScope` of the properties whose resolved value moved between `old_cache` - the
+/// DOM's cascade before - and the DOM as it is now. What [`css_diff_between`] answers for two
+/// DOMs paired node by node, read off one DOM: a node is paired with itself.
+///
+/// `replaced` holds the node data that stood at the indices the rebuild wrote
+/// (`azul_core::diff::adopt_changed_nodes`), ascending; every other node's data is what it was.
+/// `states` are the states both cascades are read under: the ones the nodes were in before
+/// the rebuild (the full path reads the new node in the interaction states of the old one).
+/// A node whose own insets or transform values alone moved is left to its fingerprint, as in
+/// the diff of two DOMs ([`restyle_is_left_to_the_fingerprint`]).
+pub(crate) fn css_diff_of_kept_dom(
+    old_cache: &azul_core::prop_cache::CssPropertyCache,
+    new: &StyledDom,
+    replaced: &[(usize, azul_core::dom::NodeData)],
+    states: &[azul_core::styled_dom::StyledNodeState],
+    candidates: impl Iterator<Item = usize>,
+) -> Vec<(NodeId, azul_css::props::property::RelayoutScope)> {
+    let new_cache = &new.css_property_cache.ptr;
+    let new_data = new.node_data.as_ref();
+    let inherited = InheritedIds::between(old_cache, new_cache, new_data.len(), new_data.len());
+    let same_context = old_cache.dynamic_context == new_cache.dynamic_context;
+    let mut out = Vec::new();
+    for index in candidates {
+        let (Some(new_nd), Some(state)) = (new_data.get(index), states.get(index)) else {
+            continue;
+        };
+        let old_nd = replaced
+            .binary_search_by_key(&index, |(at, _)| *at)
+            .ok()
+            .and_then(|at| replaced.get(at))
+            .map_or(new_nd, |(_, node)| node);
+        let id = NodeId::new(index);
+        let (_, changed) = changed_styles(
+            old_cache,
+            new_cache,
+            (old_nd, id, state),
+            (new_nd, id, state),
+            &inherited,
+        );
+        if changed.is_empty() {
+            continue;
+        }
+        if restyle_is_left_to_the_fingerprint(
+            old_cache,
+            new_cache,
+            (old_nd, index),
+            (new_nd, index),
+            same_context,
+            &inherited,
+            changed.iter().map(|(ty, ..)| *ty),
+        ) {
+            continue;
+        }
+        let worst = changed.iter().fold(
+            azul_css::props::property::RelayoutScope::None,
+            |worst, (ty, ..)| worst.max(ty.relayout_scope(true)),
+        );
+        out.push((id, worst));
+    }
+    out
 }
 
 /// Whether any node of `styled_dom` declares `animation: move` under the state it is in: the

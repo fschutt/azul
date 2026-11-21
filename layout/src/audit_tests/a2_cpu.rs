@@ -464,6 +464,12 @@ struct Stage {
     child: DomId,
     edits: Arc<AtomicUsize>,
     dpi: f32,
+    /// The last value `write` wrote per (DOM, class): a write of the value a node has is a
+    /// no-op (`ContentDirtyTier::Unchanged`), not a repaint.
+    written: BTreeMap<(usize, String), CssProperty>,
+    /// The nodes `write` wrote since the view last rendered (or the start): a node not in
+    /// here may stand at the value the scene builds it with.
+    written_since_render: Vec<(usize, String)>,
 }
 
 fn node_with_class(lw: &LayoutWindow, dom: DomId, class: &str) -> NodeId {
@@ -514,6 +520,8 @@ fn stage(dpi: u32, ground: bool, badge: bool) -> Stage {
         child,
         edits,
         dpi: dpi as f32 / 96.0,
+        written: BTreeMap::new(),
+        written_since_render: Vec::new(),
     }
 }
 
@@ -568,6 +576,23 @@ impl Stage {
     /// `CallbackInfo::set_css_property` of a value the display list binds: no rebuild.
     fn write(&mut self, dom: DomId, class: &str, prop: CssProperty) {
         let node = node_with_class(&self.lw, dom, class);
+        // The value this node was last written (the random steps pick from a few values and
+        // pick the same one twice now and then: the write is `Unchanged` then, a no-op by
+        // the tier's definition; this harness asked `Paint` of every write).
+        let key = (dom.inner, class.to_string());
+        let same_as_last = self
+            .written
+            .insert(key.clone(), prop.clone())
+            .is_some_and(|last| last == prop);
+        // The value the scene builds the node with (`scene`: the veil at opacity 0.8), while
+        // nothing was written to it since the view last rendered: "veil at 80 %" as the
+        // first write is a no-op too.
+        let at_rest = !self.written_since_render.contains(&key)
+            && class == "veil"
+            && prop == opacity_css(80.0);
+        if !self.written_since_render.contains(&key) {
+            self.written_since_render.push(key);
+        }
         let tier = self
             .lw
             .apply_content_change(ContentChange::NodeCss {
@@ -577,10 +602,13 @@ impl Stage {
                 override_only: false,
             })
             .tier;
-        assert_eq!(
-            tier,
-            ContentDirtyTier::Paint,
-            "harness: a value under the key of `{class}`, not a rebuild"
+        assert!(
+            tier == ContentDirtyTier::Paint
+                || ((same_as_last || at_rest) && tier == ContentDirtyTier::Unchanged),
+            "harness: a value under the key of `{class}`, not a rebuild (and a no-op only \
+             for the value it had): {tier:?}, same as the last write: {same_as_last}, the \
+             scene's own value: {at_rest}, written: {:?}",
+            self.written.get(&(dom.inner, class.to_string()))
         );
     }
 
@@ -588,6 +616,7 @@ impl Stage {
     /// queued re-render.
     fn edit(&mut self) {
         self.edits.fetch_add(1, Ordering::SeqCst);
+        self.written_since_render.clear();
         let mut updates = BTreeMap::new();
         let mut views = FastBTreeSet::new();
         views.insert(self.view);
