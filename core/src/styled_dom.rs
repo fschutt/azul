@@ -2354,6 +2354,15 @@ impl StyledDom {
     /// `false`, having changed nothing, where the whole cascade has to run
     /// ([`Self::restyle`]): see `recascade_nodes`.
     pub fn restyle_changed_nodes(&mut self, dirty: &[bool]) -> bool {
+        self.restyle_changed_nodes_moving(dirty, &[])
+    }
+
+    /// [`Self::restyle_changed_nodes`] for a DOM of which some nodes' own style moved IN
+    /// PLACE (`moved_in_place[node]`; empty: none): such a node is not cascaded - it keeps
+    /// its matched and inherited rows - and has its compact entries built again from its
+    /// style ([`Self::own_style_moved_in_place`] says which nodes these are,
+    /// [`CssPropertyCache::recascade_nodes`] why their rows stand).
+    pub fn restyle_changed_nodes_moving(&mut self, dirty: &[bool], moved_in_place: &[bool]) -> bool {
         let states = self.node_states();
         let mut css = core::mem::take(
             &mut self
@@ -2369,7 +2378,7 @@ impl StyledDom {
             &self.cascade_info.as_container(),
             &states,
             dirty,
-            &[],
+            moved_in_place,
         );
         self.css_property_cache.downcast_mut().retained_author_css = css;
         if !done {
