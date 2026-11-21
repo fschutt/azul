@@ -691,8 +691,27 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   (the UA's link colour, which is not black: before the fix the link and its text answer the list's colour);
   dll the three walks `a_rebuild_that_changed_nodes_under_the_pointer_*`,
   `a_rebuild_that_changed_the_tree_under_the_pointer_*`, `a_rebuild_that_styled_its_changed_nodes_under_the_pointer_*`.
+- second defect, in the fix itself (found by the verifier once the test had a true premise: an `<a>` needs an
+  `href` to be `:link`): the cascade over named nodes runs its inheritance pass over rows BEFORE their prune. A
+  child's inherited row holds a COPY of what its parent holds AT REST, and `apply_cascade_properties` step 2
+  applied the copy over the hover value the child had just inherited (`should_apply_cascaded` lets a row entry
+  beat an `Inherited` one). `get_property` answered the resting colour for every node below a hovered one
+  (#222222 for #00aa00), the compact entries the hover colour: the two stores disagreed. The whole pass over
+  unpruned rows (`restyle` under a state) did the same; only a pass over PRUNED rows came out right, which is
+  why the old code did - and lost the UA rows with the copies.
+- fix of the second defect (`3afb0f554`): both inheritance passes keep, per node, the inheritable types it shows
+  its children from a state (its own, or handed on from above while it holds the type as an inherited value);
+  a non-UA resting copy of such a type is passed over, a UA default applies as ever; for the KEPT parent of a
+  named node the set is read from the cache (`types_shown_from_a_state`, a walk up, once per kept parent).
+  `get_declared_property_ranked` tier 3 answers the node's inherited value where such a copy is still in the
+  row (a property whose copy survives the prune: `cursor`, `text-decoration`, `user-select`; rows that were
+  not pruned). At rest the sets are empty: no value and no origin changes.
+- tests of the second defect: the block's test, extended (both stores for every node below the box; nodes
+  styled again below a kept parent; a heading with its own colour; a link; the state lowered: every node of the
+  page back at rest in both stores), and `a_state_hands_down_a_property_whose_copy_survives_the_prune`. The
+  mutant of each assertion is in the test's doc comment and in the commit message.
 - severity: medium
-- status: fixed (the commit after bf43a5e96; hash in the hand-over table)
+- status: fixed 3afb0f554
 
 ### diff-first-18 a view that renders again has its whole list emitted, although the step `view` kept most of it
 - file:line: `layout/src/solver3/mod.rs` the patch gate (`cascade_ctx_unchanged`: `cache.last_cascade_epoch ==`
@@ -1092,6 +1111,7 @@ ARENA after the flatten, never `nodes_at`.
 | diff-first-15 (a moved box is painted anew by a patched pass; `AZ_DL_TRANSLATE_MOVED_RUNS`) | 8447aa202 | layout `audit_tests::diff_first::*` (three), `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`; dll the five walks `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_the_tree_*`, `a_view_rendered_again_leaves_what_the_full_path_leaves` |
 | diff-first-15, second part (the frames of a layout tween translate and record; the last frame and every other pass paint) | bf43a5e96 | layout `audit_tests::diff_first::*` (seven); `cargo test -p azul-layout --test all a_growing_ribbon` and `a_height_tween` (the two guards, not edited); layout `a_layout_tween_frame_reuses_the_tree_and_patches_the_list` |
 | diff-first-19 (a state that hands a value down no longer costs the DOM its inherited UA values) | 8e9ead705 | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, the whole core suite (hover / focus restyles); dll the three `*_under_the_pointer_*` walks, `a_full_rebuild_keeps_the_hover_colour_the_hovered_row_hands_its_text` |
+| diff-first-19, second part (what a node hands down from a state beats its children's copy of the resting value; both stores agree) | 3afb0f554 | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, `a_state_hands_down_a_property_whose_copy_survives_the_prune`, the whole core lib and `--tests` (`css_inheritance.rs` calls the pass directly); dll the three `*_under_the_pointer_*` walks; layout `a3_window::a_hover_colour_patched_into_the_list_is_the_list_a_build_gives` |
 | diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | 8420ec290 (`diff_test.rs`), 8e7a62d2c (`styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
 
 **The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
