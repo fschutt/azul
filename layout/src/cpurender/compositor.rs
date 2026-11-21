@@ -4738,6 +4738,69 @@ pub struct TranslateBlitResult {
     pub present_extra: Vec<LogicalRect>,
 }
 
+/// The order the movers of a layout move are blitted in, as indices into `mover_rects`.
+///
+/// A blit reads its mover's old rect and writes the rect `delta` away. One whose destination
+/// reaches into the old rect of a mover that is not blitted yet destroys the pixels that mover has
+/// still to carry: the two items `justify-content: center` slides by 90 px, at 0..60 and 60..120,
+/// are such a pair - in list order the first one's blit wrote 90..150 over the second one's
+/// source, and the second arrived at 150..210 holding the first one's red where a full redraw
+/// paints its blue (1,200 pixels of the frame). The movers are disjoint, so there is always one
+/// whose destination reaches no mover still waiting (the one furthest along the move): that one
+/// goes first, and so on. Movers that do not constrain each other keep their list order; should the
+/// movers ever overlap, so that no order exists, the rest go in list order.
+///
+/// A device pixel of slack on the destination: the blit snaps its clip to whole pixels, so a
+/// destination that stops short of a source by less than one reaches it.
+fn blit_order(mover_rects: &[LogicalRect], delta: (f32, f32), dpi_factor: f32) -> Vec<usize> {
+    let count = mover_rects.len();
+    let slack = 1.0 / dpi_factor.max(f32::EPSILON);
+    // Does the blit of mover `i` write over (part of) the old rect of mover `j`?
+    let clobbers = |i: usize, j: usize| -> bool {
+        let moved = mover_rects[i];
+        let destination = LogicalRect {
+            origin: LogicalPosition {
+                x: moved.origin.x + delta.0 - slack,
+                y: moved.origin.y + delta.1 - slack,
+            },
+            size: LogicalSize {
+                width: moved.size.width + 2.0 * slack,
+                height: moved.size.height + 2.0 * slack,
+            },
+        };
+        let reach = intersect_logical_rects(destination, mover_rects[j]);
+        reach.size.width > 0.0 && reach.size.height > 0.0
+    };
+    // `owed[i]`: how many movers whose old rect the blit of `i` writes over are still to be
+    // blitted; `clobbered_by[j]`: the movers whose blit writes over the old rect of `j`.
+    let mut owed = vec![0_usize; count];
+    let mut clobbered_by: Vec<Vec<usize>> = vec![Vec::new(); count];
+    for (i, owed_by_i) in owed.iter_mut().enumerate() {
+        for (j, clobbering) in clobbered_by.iter_mut().enumerate() {
+            if i != j && clobbers(i, j) {
+                *owed_by_i += 1;
+                clobbering.push(i);
+            }
+        }
+    }
+    let mut blitted = vec![false; count];
+    let mut order = Vec::with_capacity(count);
+    while order.len() < count {
+        let Some(next) = (0..count)
+            .find(|&i| !blitted[i] && owed[i] == 0)
+            .or_else(|| (0..count).find(|&i| !blitted[i]))
+        else {
+            break;
+        };
+        blitted[next] = true;
+        order.push(next);
+        for &i in &clobbered_by[next] {
+            owed[i] = owed[i].saturating_sub(1);
+        }
+    }
+    order
+}
+
 /// ROUND 3 of the incremental present — the layout-translation blit. The
 /// translated diff classified the dominant movers as MOVES (no damage);
 /// shift their pixels here and repaint only the exceptions + exposed strips.
@@ -4754,7 +4817,9 @@ pub struct TranslateBlitResult {
 /// old∪(old+delta) so both the vacated source and the destination lie
 /// inside the memmove region; exposed strips repaint per mover, and so does
 /// whatever is painted over a mover without moving with it, which the
-/// memmove dragged ([`PaintedOverMovers`]).
+/// memmove dragged ([`PaintedOverMovers`]). The blits run in the order
+/// [`blit_order`] gives, so that none writes over the old pixels of a mover that
+/// is still to be moved.
 #[must_use]
 pub fn execute_translate_blit(
     output: &mut AzulPixmap,
@@ -4818,7 +4883,8 @@ pub fn execute_translate_blit(
     } else {
         PaintedOverMovers::of(new_display_list, &destinations)
     };
-    for mr in mover_rects {
+    for &mover in &blit_order(mover_rects, d, dpi_factor) {
+        let mr = &mover_rects[mover];
         let dest = LogicalRect {
             origin: LogicalPosition {
                 x: mr.origin.x + d.0,
