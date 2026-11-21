@@ -1175,9 +1175,9 @@ Round 4 = commits `fd1230f3d` (the merge of `audit/integration` `480e156d8`) .. 
   `css/src/compact_cache*.rs` IN FULL first; nothing of step 4 is started). The harness for every step is
   `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves` (dll, `headless/mod.rs`): add a mutation
   kind per step and keep the switch `window::diff_first_enabled()` as the one gate.
-- **Rows still open, nothing half-done:** 11 (start: `git log audit/integration --grep 505c953ee` / A3-core-17
-  is in the merge: the `EmitPhase::Selection` arm of `node_patch::locate` may already be there - check
-  `layout/src/solver3/display_list/node_patch.rs` first), 38, 16, 32, 15, 27, 29, 36, 39, 42, 49. The starting
+- **Rows still open, nothing half-done:** 11 (A3-core-17, `505c953ee`, was NOT in
+  `audit/integration` at `480e156d8`: `EmitPhase` has three variants on this branch; merge `audit/integration`
+  again or `git cherry-pick -x 505c953ee`, then the arm in `node_patch::locate`, then the patch of the block), 38, 16, 32, 15, 27, 29, 36, 39, 42, 49. The starting
   points of the round-3 hand-over still hold for 11, 38, 16 (they are in the blocks).
 - **Not read in round 4 either:** `AnimationManager::tick`, `run_track_frames`, `dispatch_events_propagated`,
   `layout_transient_content`; of `apply_user_change` / `apply_system_change` only the arms around
