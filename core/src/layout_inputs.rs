@@ -513,11 +513,15 @@ pub enum NodeField {
     L10nKey,
     /// Whether it is drawn as part of its parent.
     PartOfParent,
+    /// The tree below the root of a `Dom` in its flat form
+    /// (`crate::dom::DomBuilder`): on a `Dom` being built only, never on a
+    /// node of a styled DOM.
+    Flat,
 }
 
 impl NodeField {
     /// Every row of the table.
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 20] = [
         Self::NodeType,
         Self::Callbacks,
         Self::Style,
@@ -537,6 +541,7 @@ impl NodeField {
         Self::AnimationCallbacks,
         Self::L10nKey,
         Self::PartOfParent,
+        Self::Flat,
     ];
 
     /// The field's name in [`NodeData`] or [`NodeDataExt`].
@@ -562,6 +567,7 @@ impl NodeField {
             Self::AnimationCallbacks => "animation_callbacks",
             Self::L10nKey => "l10n_key",
             Self::PartOfParent => "part_of_parent",
+            Self::Flat => "flat",
         }
     }
 
@@ -589,7 +595,9 @@ impl NodeField {
             | Self::DatasetMergeCallback
             | Self::ComponentOrigin
             | Self::AnimationCallbacks => Retained::Carried,
-            Self::L10nKey => Retained::Derived,
+            // A styled DOM holds no flat tree: the retained node's own
+            // value (none) is the right one.
+            Self::L10nKey | Self::Flat => Retained::Derived,
         }
     }
 
@@ -647,7 +655,8 @@ impl NodeField {
             | Self::DatasetMergeCallback
             | Self::ComponentOrigin
             | Self::AnimationCallbacks
-            | Self::L10nKey => Effects { live: true, ..none },
+            | Self::L10nKey
+            | Self::Flat => Effects { live: true, ..none },
         }
     }
 
@@ -702,7 +711,8 @@ impl NodeField {
             | Self::DatasetMergeCallback
             | Self::ComponentOrigin
             | Self::AnimationCallbacks
-            | Self::L10nKey => {}
+            | Self::L10nKey
+            | Self::Flat => {}
         }
     }
 
@@ -737,7 +747,8 @@ impl NodeField {
             | Self::DatasetMergeCallback
             | Self::ComponentOrigin
             | Self::AnimationCallbacks
-            | Self::L10nKey => true,
+            | Self::L10nKey
+            | Self::Flat => true,
         }
     }
 
@@ -769,7 +780,8 @@ impl NodeField {
             | Self::SvgData
             | Self::Key
             | Self::L10nKey
-            | Self::PartOfParent => false,
+            | Self::PartOfParent
+            | Self::Flat => false,
         }
     }
 
@@ -825,7 +837,8 @@ impl NodeField {
             | Self::SvgData
             | Self::Key
             | Self::L10nKey
-            | Self::PartOfParent => {}
+            | Self::PartOfParent
+            | Self::Flat => {}
         }
     }
 
@@ -906,7 +919,8 @@ impl NodeField {
             | Self::DatasetMergeCallback
             | Self::ComponentOrigin
             | Self::L10nKey
-            | Self::PartOfParent => {}
+            | Self::PartOfParent
+            | Self::Flat => {}
         }
     }
 

@@ -1083,7 +1083,7 @@ pub fn sync_parent(
 /// rebuild a change: it woke every other window, and a dialog that owns a popup of its own woke
 /// its parent, whose rebuild woke the dialog again - without end in a real window.
 fn looks_different(old: &Dom, new: &Dom) -> bool {
-    azul_core::diff::fingerprint_dom(old).0 != azul_core::diff::fingerprint_dom(new).0
+    azul_core::dom::fingerprint_built_dom(old).0 != azul_core::dom::fingerprint_built_dom(new).0
 }
 
 /// The title of a transient window - a popup, a torn-off toplevel, a dialog

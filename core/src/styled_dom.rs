@@ -1375,6 +1375,25 @@ impl StyledDom {
     /// `NodeDataVec`. CSS is collected from `CssWithNodeIdVec`.
     #[must_use]
     pub fn create_from_fast_dom(fast_dom: crate::dom::FastDom) -> Self {
+        Self::create_from_fast_dom_inheriting(fast_dom, None, &[], Vec::new())
+    }
+
+    /// [`Self::create_from_fast_dom`] with what [`Self::create_from_dom_inheriting`]
+    /// takes beside the DOM: the window context the first cascade runs under, the
+    /// USER-origin sheets (appended after the DOM's own, never scoped) and what the root
+    /// inherits from a host outside the DOM. For the same nodes, hierarchy and sheets
+    /// the result is the `StyledDom` the tree path makes: the sheets of
+    /// `fast_dom.css` are scoped to their owners' subtrees as `scope_inline_css` scopes
+    /// them and merged in the order they are listed (a `Dom` that carries its tree flat
+    /// lists them as `take_css_from_dom` takes them out of a tree:
+    /// `Dom::into_fast_dom`).
+    #[must_use]
+    pub fn create_from_fast_dom_inheriting(
+        fast_dom: crate::dom::FastDom,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        user_sheets: &[Css],
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> Self {
         use azul_css::css::Css;
 
         // 1. Merge CSS from CssWithNodeIdVec into a single Css, scoping each node-attached
@@ -1409,6 +1428,12 @@ impl StyledDom {
                     combined_rules.push(rule);
                 }
             }
+        }
+        // The user-origin sheets after the DOM's own, unscoped, as
+        // `create_from_dom_inheriting` appends them.
+        for css in user_sheets {
+            combined_rules.extend(css.rules.clone().into_library_owned_vec());
+            combined_keyframes.extend(css.keyframes.clone().into_library_owned_vec());
         }
         let combined_css = if combined_rules.is_empty() && combined_keyframes.is_empty() {
             Css::empty()
@@ -1449,8 +1474,8 @@ impl StyledDom {
             compact_dom,
             combined_css,
             node_hierarchy_items,
-            None,
-            Vec::new(),
+            context,
+            inherited_from_host,
         )
     }
 
@@ -1717,12 +1742,26 @@ impl StyledDom {
     /// [`Self::create_from_dom_with_user_sheets`].
     #[must_use]
     pub fn create_from_dom_inheriting(
-        mut dom: Dom,
+        dom: Dom,
         context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
         user_sheets: &[Css],
         inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
     ) -> Self {
         use azul_css::css::Css;
+
+        // A `Dom` that carries its tree flat (`DomBuilder::finish`) is styled from its
+        // arenas: no tree is built, walked or flattened in between.
+        let mut dom = match dom.into_fast_dom() {
+            Ok(fast_dom) => {
+                return Self::create_from_fast_dom_inheriting(
+                    fast_dom,
+                    context,
+                    user_sheets,
+                    inherited_from_host,
+                );
+            }
+            Err(dom) => dom,
+        };
 
         // #47: scope each node's inline css to its subtree BEFORE collecting, so a
         // non-root node's with_css cannot leak to the whole tree. Uses the same

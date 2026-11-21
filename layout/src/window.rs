@@ -14219,7 +14219,11 @@ impl LayoutWindow {
                 let child = self
                     .virtual_view_manager
                     .get_or_create_nested_dom_id(parent_dom_id, node_id);
-                let (fingerprints, transfers) = azul_core::diff::fingerprint_dom(&dom);
+                // A DOM its builder handed over flat answers from the tiers it
+                // made node by node (its root is hashed, no other node); a tree
+                // is walked. A view that built what it built before is kept
+                // below without its flat DOM ever becoming a tree.
+                let (fingerprints, transfers) = azul_core::dom::fingerprint_built_dom(&dom);
                 if self.reclaim_unchanged_child(child, &fingerprints, &transfers) {
                     self.virtual_view_manager.update_virtual_view_info(
                         parent_dom_id,
@@ -24447,6 +24451,11 @@ impl LayoutWindow {
     /// its widget several). The later call then finds nothing to replace.
     #[cfg(feature = "widgets")]
     pub fn resolve_form_controls(&self, dom: &mut Dom) -> usize {
+        // A DOM its builder handed over flat (`azul_core::dom::DomBuilder`) is
+        // a tree from here on: the walk below, and `fingerprint_dom` after it
+        // in the shell, read trees. (The shell's way to keep it flat:
+        // `resolve_form_controls_keeping_flat`.)
+        dom.expand_flat();
         // Widgets built here are built for this window's app theme.
         let _theme = azul_core::app_theme::ThemeScope::enter(self.app_theme.clone());
         crate::form_controls::resolve_form_controls_in_dom(
@@ -24454,6 +24463,32 @@ impl LayoutWindow {
             &self.form_control_memory,
             FORM_SCOPE_ROOT,
         )
+    }
+
+    /// [`Self::resolve_form_controls`] for a caller that reads the fresh DOM
+    /// through `azul_core::dom::fingerprint_built_dom` afterwards: a DOM its
+    /// builder handed over flat stays flat when none of its nodes can be a
+    /// raw form control (a `form`, `button`, `input`, `select`, `textarea`
+    /// or `datalist`: what the resolver's first walk looks for); any other
+    /// DOM is resolved as before.
+    #[cfg(feature = "widgets")]
+    pub fn resolve_form_controls_keeping_flat(&self, dom: &mut Dom) -> usize {
+        use azul_core::dom::NodeType;
+        let may_hold_controls = |node_type: &NodeType| {
+            matches!(
+                node_type,
+                NodeType::Form
+                    | NodeType::Button
+                    | NodeType::Input
+                    | NodeType::Select
+                    | NodeType::TextArea
+                    | NodeType::DataList
+            )
+        };
+        if dom.is_flat() && !dom.flat_holds_node_type(may_hold_controls) {
+            return 0;
+        }
+        self.resolve_form_controls(dom)
     }
 
     /// An XML document as the E2E `mount` op installs it in place of the
@@ -24563,6 +24598,9 @@ impl LayoutWindow {
         form_scope: u64,
         inherited_from_host: azul_core::prop_cache::InheritedFromHost,
     ) -> StyledDom {
+        // A DOM its builder handed over flat (`azul_core::dom::DomBuilder`) is
+        // a tree from here on: every pass below walks one.
+        dom.expand_flat();
         // The form controls are widgets built HERE, after `layout()`
         // returned: build them for this window's theme, like the rest of its
         // DOM (their structure may depend on it).
