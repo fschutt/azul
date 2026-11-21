@@ -1265,14 +1265,15 @@ mod retained_list_tests {
         );
 
         // The picture a frame draws when it draws every halo at once: a window of
-        // its own, the halos kept by now.
+        // its own (it keeps halos of its own), whose first frame has no budget.
         drop(gpu);
+        crate::desktop::wr_translate2::draw_every_halo_in_this_thread();
         let mut gpu = GpuSession::new(600.0, 340.0, 2.0).expect("a second session");
         gpu.lay_out(halo_page()).expect("the page lays out");
         let reference = gpu.present(true).expect("the reference frame");
         assert!(
             !gpu.window.gpu_state_manager.frames_owed(),
-            "the halos are kept: nothing is owed"
+            "every halo is drawn in the first frame: nothing is owed"
         );
         let whole = (0, 0, last.width, last.height);
         assert!(
