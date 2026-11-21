@@ -104,3 +104,34 @@ fn a4_01_changed_gpu_values_replace_the_set_webrender_holds() {
     assert!(!synchronize_gpu_values(&mut lw, &mut txn));
     assert!(txn.is_empty(), "nothing in the transaction for values that stood still");
 }
+
+/// A4-07. The digest that says "the same bound values as last time" is a sum of
+/// one hash per (key, value): the order the values come in (hash maps) does not
+/// change it, two keys that swap their values do, and a NaN is equal to itself
+/// (bitwise), so an unchanged set is never sent and a changed one always.
+/// Mutation: hashing the value without its key in `synchronize_gpu_values`
+/// makes the swap "unchanged".
+#[test]
+fn a4_07_the_digest_of_the_bound_values_sees_a_swap_and_not_the_order() {
+    let mut lw = window();
+    let (a, b) = (OpacityKey::unique(), OpacityKey::unique());
+    let mut sync = |lw: &mut LayoutWindow| synchronize_gpu_values(lw, &mut WrTransaction::new());
+
+    bind_opacity(&mut lw, 0, a, 0.25);
+    bind_opacity(&mut lw, 1, b, 0.75);
+    assert!(sync(&mut lw), "the first set is sent");
+    assert!(!sync(&mut lw), "the same set is not");
+
+    bind_opacity(&mut lw, 0, a, 0.75);
+    bind_opacity(&mut lw, 1, b, 0.25);
+    assert!(sync(&mut lw), "the two keys swapped their values: a change");
+    assert!(!sync(&mut lw));
+
+    bind_opacity(&mut lw, 0, a, f32::NAN);
+    assert!(sync(&mut lw), "a NaN is a new value");
+    assert!(!sync(&mut lw), "and equal to itself the next time");
+
+    // A full transaction forgets what was sent: the same set goes again.
+    lw.gpu_state_manager.invalidate_submitted_digests();
+    assert!(sync(&mut lw));
+}

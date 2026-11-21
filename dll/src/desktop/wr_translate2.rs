@@ -2299,19 +2299,92 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
         .inner
         .get();
 
-    // Collect all dynamic properties to update
-    let mut properties = DynamicProperties {
-        transforms: Vec::new(),
-        floats: Vec::new(),
-        colors: Vec::new(),
-    };
+    // FIRST WALK: is the set the one last sent? Nothing is allocated for the
+    // answer - a pan, a tile, a hover and every frame of a fade's hold ask it
+    // and get "yes". Every bound value, from THE shared source the CPU
+    // renderer reads too (`GpuValueCache::for_each_bound_value`): scrollbar
+    // thumbs and fades, CSS transforms and opacities, the animation channel,
+    // and the backgrounds whose colour fades (`DisplayList::color_bindings`).
+    //
+    // The digest is a SUM of one hash per (kind, key, value): the values come
+    // out of `HashMap`s, whose order is not a promise, and a sum does not
+    // depend on it (the lists used to be collected, copied and sorted for
+    // that, 320 KB for a map view's 2 000 transforms on every frame). Floats go
+    // in bitwise: a NaN opacity must compare equal to itself, or the idle loop
+    // this exists to break is back.
+    let (mut transform_sum, mut transform_count) = (0u64, 0usize);
+    let (mut float_sum, mut float_count) = (0u64, 0usize);
+    let (mut color_sum, mut color_count) = (0u64, 0usize);
+    for dom_id in layout_window.layout_results.keys() {
+        let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
+            continue;
+        };
+        gpu_cache.for_each_bound_value(
+            *dom_id,
+            |key, transform| {
+                let mut h = mix_value(0x7472_616e, key as u64);
+                for row in &transform.m {
+                    h = mix_value(
+                        h,
+                        (u64::from(row[0].to_bits()) << 32) | u64::from(row[1].to_bits()),
+                    );
+                    h = mix_value(
+                        h,
+                        (u64::from(row[2].to_bits()) << 32) | u64::from(row[3].to_bits()),
+                    );
+                }
+                transform_sum = transform_sum.wrapping_add(h);
+                transform_count += 1;
+            },
+            |key, opacity| {
+                let h = mix_value(
+                    mix_value(0x666c_6f61, key as u64),
+                    u64::from(opacity.to_bits()),
+                );
+                float_sum = float_sum.wrapping_add(h);
+                float_count += 1;
+            },
+        );
+        gpu_cache.for_each_bound_color(|key, color| {
+            let h = mix_value(
+                mix_value(0x636f_6c6f, key as u64),
+                u64::from(u32::from_be_bytes([color.r, color.g, color.b, color.a])),
+            );
+            color_sum = color_sum.wrapping_add(h);
+            color_count += 1;
+        });
+    }
 
-    // Every bound value, from THE shared source the CPU renderer reads too
-    // (`GpuValueCache::for_each_bound_value`): scrollbar thumbs and fades,
-    // CSS transforms and opacities, and the animation channel. The animation
-    // channel used to be missing here, so a tick that skipped the scene
-    // rebuild moved nothing on the GPU path; carrying it is what lets an
-    // animation frame be a dynamic-property update instead of a rebuild.
+    // Nothing collected at all: nothing to send, nothing changed.
+    if transform_count == 0 && float_count == 0 && color_count == 0 {
+        return false;
+    }
+
+    let mut digest = mix_value(transform_sum, transform_count as u64);
+    digest = mix_value(mix_value(digest, float_sum), float_count as u64);
+    digest = mix_value(mix_value(digest, color_sum), color_count as u64);
+    // The values are sent in device px: another scale is another set.
+    digest = mix_value(digest, u64::from(dpi_scale.to_bits()));
+
+    // The same values as last time are not news.
+    if layout_window.gpu_state_manager.last_gpu_value_digest == Some(digest) {
+        log_debug!(
+            LogCategory::Rendering,
+            "[synchronize_gpu_values] {} floats / {} transforms unchanged - not submitting",
+            float_count,
+            transform_count
+        );
+        return false;
+    }
+    layout_window.gpu_state_manager.last_gpu_value_digest = Some(digest);
+
+    // SECOND WALK, only for a set that differs: the values as WebRender takes
+    // them, in lists of the size the first walk counted.
+    let mut properties = DynamicProperties {
+        transforms: Vec::with_capacity(transform_count),
+        floats: Vec::with_capacity(float_count),
+        colors: Vec::with_capacity(color_count),
+    };
     for dom_id in layout_window.layout_results.keys() {
         let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
             continue;
@@ -2354,14 +2427,6 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
                 });
             },
         );
-    }
-
-    // The backgrounds whose colour fades, bound by their rects
-    // (`DisplayList::color_bindings`).
-    for dom_id in layout_window.layout_results.keys() {
-        let Some(gpu_cache) = layout_window.gpu_state_manager.get_cache(*dom_id) else {
-            continue;
-        };
         gpu_cache.for_each_bound_color(|key, color| {
             properties.colors.push(PropertyValue {
                 key: webrender::api::PropertyBindingKey::new(key as u64),
@@ -2374,62 +2439,6 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
             });
         });
     }
-
-    // Nothing collected at all: nothing to send, nothing changed.
-    if properties.floats.is_empty()
-        && properties.transforms.is_empty()
-        && properties.colors.is_empty()
-    {
-        return false;
-    }
-
-    // The same values as last time are not news. Compare bitwise (a NaN opacity
-    // must compare equal to itself, or the loop comes straight back).
-    // Order does not matter here: these are collected out of `HashMap`s, whose
-    // iteration order is not a promise, and `gpu_values_changed` sorts by key
-    // before digesting for exactly that reason.
-    let float_digest_input = properties
-        .floats
-        .iter()
-        .map(|p| (p.key.id.to_u64(), p.value))
-        .collect::<Vec<_>>();
-    let transform_digest_input = properties
-        .transforms
-        .iter()
-        .map(|p| (p.key.id.to_u64(), p.value.to_array()))
-        .collect::<Vec<_>>();
-
-    // The colours in the digest too: a colour fade frame is news, a colour
-    // that stood still is none.
-    let color_digest_input = properties
-        .colors
-        .iter()
-        .map(|p| {
-            let c = p.value;
-            let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
-            (p.key.id.to_u64(), [byte(c.r), byte(c.g), byte(c.b), byte(c.a)])
-        })
-        .collect::<Vec<_>>();
-    let changed = layout_window.gpu_state_manager.gpu_values_changed_with_colors(
-        &float_digest_input,
-        &transform_digest_input,
-        &color_digest_input,
-    );
-
-    if !changed {
-        log_debug!(
-            LogCategory::Rendering,
-            "[synchronize_gpu_values] {} floats / {} transforms unchanged - not submitting",
-            properties.floats.len(),
-            properties.transforms.len()
-        );
-        return false;
-    }
-
-    // Store lengths before moving properties
-    let float_count = properties.floats.len();
-    let transform_count = properties.transforms.len();
-    let color_count = properties.colors.len();
 
     // The set REPLACES the one WebRender holds: `append_dynamic_properties`
     // alone only ever adds to its pending list (`SceneProperties::add_properties`
@@ -2452,6 +2461,15 @@ pub fn synchronize_gpu_values(layout_window: &mut LayoutWindow, txn: &mut WrTran
     );
 
     true
+}
+
+/// One step of the digest of the bound values ([`synchronize_gpu_values`]):
+/// `word` mixed into `h` (a multiply by the 64-bit golden ratio and a fold,
+/// one per word where the byte-wise FNV took eight).
+#[inline]
+const fn mix_value(h: u64, word: u64) -> u64 {
+    let x = (h ^ word).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    x ^ (x >> 29)
 }
 
 // Additional Translation Functions
