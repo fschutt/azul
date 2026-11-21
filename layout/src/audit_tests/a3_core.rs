@@ -245,3 +245,79 @@ fn a_shared_scroll_chain_is_the_chain_of_every_box_that_shares_it() {
     assert_eq!(clips_around(list, 16), absolute_in_b, "the second absolute box of B");
     assert_eq!(clips_around(list, 18), absolute_in_b, "the third absolute box of B");
 }
+
+/// A3-core-12 (A3-solver 36a): an inset, margin, padding or border width is read from a compact
+/// slot at rest (tenths of a pixel) and from the cascade in any other state, which gave the
+/// declared number: `left: 10.04px` was 10.0 at rest and 10.04 hovered. Both give the slot's
+/// number now. And a length the slot cannot hold (beyond +-3276 px) is kept beside the slots
+/// when the cache is built: a resting read of it asks the cascade no more.
+#[test]
+fn an_inset_is_one_number_at_rest_and_hovered_and_costs_no_lookup_beyond_the_slot() {
+    use azul_core::styled_dom::StyledNodeState;
+    use azul_css::props::{
+        basic::pixel::PixelValue,
+        property::{CssProperty, CssPropertyType},
+    };
+
+    use crate::solver3::getters::get_css_left;
+
+    // 0 body, then the boxes 1..=4.
+    let boxed =
+        |left: &str| Dom::create_div().with_css(&format!("position: absolute; left: {left};"));
+    let mut styled = StyledDom::create_from_dom(
+        Dom::create_body()
+            .with_child(boxed("10.04px"))
+            .with_child(boxed("10.05px"))
+            .with_child(boxed("5000.25px"))
+            .with_child(boxed("7px")),
+    );
+    let rest = StyledNodeState::new();
+    let mut hovered = StyledNodeState::new();
+    hovered.hover = true;
+    let left = |styled: &StyledDom, node: usize, state: &StyledNodeState| {
+        get_css_left(styled, NodeId::new(node), state).exact()
+    };
+
+    // 10.04 px is 100.4 tenths: 100, 10.0 px. Hovered it read 10.04.
+    assert_eq!(left(&styled, 1, &rest), Some(PixelValue::px(10.0)));
+    assert_eq!(left(&styled, 1, &hovered), Some(PixelValue::px(10.0)), "10.04px, hovered");
+    // 10.05 px is 100.5 tenths (exactly, as f32): a half, away from zero: 101, 10.1 px.
+    assert_eq!(left(&styled, 2, &rest), Some(PixelValue::px(10.1)));
+    assert_eq!(left(&styled, 2, &hovered), Some(PixelValue::px(10.1)), "10.05px, hovered");
+    // Beyond the slot (50,002.5 tenths): the declared length, in both states.
+    assert_eq!(left(&styled, 3, &rest), Some(PixelValue::px(5000.25)));
+    assert_eq!(left(&styled, 3, &hovered), Some(PixelValue::px(5000.25)), "5000.25px, hovered");
+
+    // No cascade lookup for a resting read, in the slot's range or beyond it: an override
+    // written into the cascade behind the compact cache's back is seen by the reads that ask
+    // the cascade (another state) and by no resting read.
+    let seven: CssProperty = styled
+        .get_css_property_cache()
+        .get_property(
+            &styled.node_data.as_container()[NodeId::new(4)],
+            &NodeId::new(4),
+            &rest,
+            &CssPropertyType::Left,
+        )
+        .cloned()
+        .expect("left: 7px");
+    {
+        let overrides = &mut styled.css_property_cache.downcast_mut().user_overridden_properties;
+        if overrides.len() < 5 {
+            overrides.resize(5, Vec::new());
+        }
+        overrides[1] = vec![(CssPropertyType::Left, seven.clone())];
+        overrides[3] = vec![(CssPropertyType::Left, seven)];
+    }
+    assert_eq!(
+        left(&styled, 3, &hovered),
+        Some(PixelValue::px(7.0)),
+        "harness: the cascade answers the override"
+    );
+    assert_eq!(left(&styled, 1, &rest), Some(PixelValue::px(10.0)), "the slot was read");
+    assert_eq!(
+        left(&styled, 3, &rest),
+        Some(PixelValue::px(5000.25)),
+        "the kept length was read: a length beyond the slot cost a cascade lookup"
+    );
+}

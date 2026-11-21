@@ -1266,6 +1266,17 @@ impl CssPropertyCache {
                 );
             }
 
+            // A px slot that could not hold its length (beyond the i16
+            // range, or not px) keeps the length beside the slots.
+            note_px_overflow(
+                self,
+                nd,
+                node_id,
+                &default_state,
+                &result.tier2_dims[i],
+                &mut result.px_overflow,
+            );
+
             // Set populated bit
             if result.tier1_enums[i] != 0 {
                 result.tier1_enums[i] |= TIER1_POPULATED_BIT;
@@ -1307,6 +1318,56 @@ impl CssPropertyCache {
 // =============================================================================
 // Helpers extracted from build_compact_cache_with_inheritance_debug
 // =============================================================================
+
+/// Writes into `out` the resting length of every px slot of `dims` that is
+/// the sentinel (`CompactLayoutCache::px_overflow`): what the cascade
+/// answers for the property at rest, when that is an exact length. One
+/// cascade lookup per such slot, here, instead of one per read.
+fn note_px_overflow(
+    cache: &CssPropertyCache,
+    node_data: &NodeData,
+    node_id: NodeId,
+    rest: &StyledNodeState,
+    dims: &CompactNodeProps,
+    out: &mut alloc::collections::BTreeMap<
+        (u32, azul_css::props::property::CssPropertyType),
+        azul_css::props::basic::pixel::PixelValue,
+    >,
+) {
+    use azul_css::props::property::CssPropertyType as T;
+
+    let Ok(node) = u32::try_from(node_id.index()) else {
+        return;
+    };
+    macro_rules! slot {
+        ($field:ident, $ty:ident, $getter:ident) => {
+            if dims.$field == I16_SENTINEL {
+                let length = cache
+                    .$getter(node_data, &node_id, rest)
+                    .and_then(|value| value.get_property().copied());
+                if let Some(length) = length {
+                    out.insert((node, T::$ty), length.inner);
+                }
+            }
+        };
+    }
+    slot!(top, Top, get_top);
+    slot!(right, Right, get_right);
+    slot!(bottom, Bottom, get_bottom);
+    slot!(left, Left, get_left);
+    slot!(margin_top, MarginTop, get_margin_top);
+    slot!(margin_right, MarginRight, get_margin_right);
+    slot!(margin_bottom, MarginBottom, get_margin_bottom);
+    slot!(margin_left, MarginLeft, get_margin_left);
+    slot!(padding_top, PaddingTop, get_padding_top);
+    slot!(padding_right, PaddingRight, get_padding_right);
+    slot!(padding_bottom, PaddingBottom, get_padding_bottom);
+    slot!(padding_left, PaddingLeft, get_padding_left);
+    slot!(border_top_width, BorderTopWidth, get_border_top_width);
+    slot!(border_right_width, BorderRightWidth, get_border_right_width);
+    slot!(border_bottom_width, BorderBottomWidth, get_border_bottom_width);
+    slot!(border_left_width, BorderLeftWidth, get_border_left_width);
+}
 
 /// Apply UA CSS defaults for a node type directly to compact values.
 ///

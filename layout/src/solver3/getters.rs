@@ -1001,7 +1001,15 @@ macro_rules! get_css_property_pixel {
                         // Valid value: decode i16 ×10 → px
                         return MultiValue::Exact(PixelValue::px(f32::from(raw) / 10.0));
                     }
-                    // I16_SENTINEL or I16_INHERIT → fall through to slow path
+                    // I16_SENTINEL: a length the slot cannot hold (beyond
+                    // +-3276 px, or not px). The builder kept it beside the
+                    // slots (A3-core-12): no cascade lookup per read.
+                    if raw == azul_css::compact_cache::I16_SENTINEL {
+                        if let Some(length) = cc.px_overflow_of(node_id.index(), $ua_property) {
+                            return MultiValue::Exact(length);
+                        }
+                    }
+                    // I16_INHERIT, or a sentinel without a kept length → slow path
                 }
             }
 
@@ -1016,8 +1024,13 @@ macro_rules! get_css_property_pixel {
                 if val.is_auto() {
                     return MultiValue::Auto;
                 }
+                // A px length is the number the compact slot gives for it
+                // (tenths of a pixel), so a node reads one number at rest
+                // (the slot) and in any other state (here): A3-core-12.
                 if let Some(exact) = val.get_property().copied() {
-                    return MultiValue::Exact(exact.inner);
+                    return MultiValue::Exact(
+                        azul_css::compact_cache::px_as_the_i16_slot_reads_it(exact.inner),
+                    );
                 }
             }
 
@@ -1025,7 +1038,9 @@ macro_rules! get_css_property_pixel {
 
             if let Some(ua_prop) = ua_css {
                 if let Some(inner) = ua_prop.get_pixel_inner() {
-                    return MultiValue::Exact(inner);
+                    return MultiValue::Exact(
+                        azul_css::compact_cache::px_as_the_i16_slot_reads_it(inner),
+                    );
                 }
             }
 

@@ -1283,6 +1283,28 @@ pub fn encode_resolved_px_i16(px: f32) -> i16 {
     i16::try_from(scaled).unwrap_or(I16_SENTINEL)
 }
 
+/// A length as a reader of a px slot (tenths of a pixel in an `i16`) gets
+/// it: a px length within the slot's range in tenths of a pixel, exactly
+/// the number `decode` of [`encode_resolved_px_i16`] gives; any other
+/// length (another unit, beyond the range) as it is - the slot holds the
+/// sentinel for it and the reader falls back to the declared value.
+///
+/// The resting state reads these properties from the slot and every other
+/// state (hover) from the cascade; both go through this, so a length is one
+/// number whatever state its node is in (`left: 10.04px` was 10.0 at rest
+/// and 10.04 hovered).
+#[inline]
+#[must_use]
+pub fn px_as_the_i16_slot_reads_it(value: PixelValue) -> PixelValue {
+    if value.metric != SizeMetric::Px {
+        return value;
+    }
+    match decode_resolved_px_i16(encode_resolved_px_i16(value.number.get())) {
+        Some(px) => PixelValue::px(px),
+        None => value,
+    }
+}
+
 /// Decode an i16 back to resolved px. Returns None for sentinel values.
 #[inline]
 #[must_use]
@@ -1801,6 +1823,15 @@ pub struct CompactLayoutCache {
     /// viewport's shape alone (an aspect ratio, an orientation, a container
     /// size): a resize that crosses no threshold may still flip it.
     pub inline_viewport_shape: bool,
+    /// The lengths the px slots of `tier2_dims` cannot hold, by node and
+    /// property: a slot is tenths of a pixel in an `i16`, so an inset,
+    /// margin, padding or border width beyond +-3276 px or in another unit
+    /// is the sentinel there. The builder writes the resting value of each
+    /// such slot here once, and a reader that meets the sentinel takes it
+    /// from here instead of asking the cascade at every read (a map label
+    /// placed 3,300 px from its picture's origin is read several times per
+    /// layout). Only slots whose resting value is an exact length are here.
+    pub px_overflow: alloc::collections::BTreeMap<(u32, CssPropertyType), PixelValue>,
 }
 
 impl CompactLayoutCache {
@@ -1821,6 +1852,7 @@ impl CompactLayoutCache {
             inline_viewport_w: Vec::new(),
             inline_viewport_h: Vec::new(),
             inline_viewport_shape: false,
+            px_overflow: alloc::collections::BTreeMap::new(),
         }
     }
 
@@ -1841,7 +1873,21 @@ impl CompactLayoutCache {
             inline_viewport_w: Vec::new(),
             inline_viewport_h: Vec::new(),
             inline_viewport_shape: false,
+            px_overflow: alloc::collections::BTreeMap::new(),
         }
+    }
+
+    /// The length the px slot of `property` cannot hold for the node at
+    /// `node_idx` ([`Self::px_overflow`]), `None` when the slot holds its
+    /// value or the builder noted none.
+    #[inline]
+    #[must_use]
+    pub fn px_overflow_of(&self, node_idx: usize, property: CssPropertyType) -> Option<PixelValue> {
+        if self.px_overflow.is_empty() {
+            return None;
+        }
+        let node = u32::try_from(node_idx).ok()?;
+        self.px_overflow.get(&(node, property)).copied()
     }
 
     /// Number of nodes in this cache.
