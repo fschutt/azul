@@ -172,6 +172,20 @@ pub fn get_element_font_size_in_viewport(
         * get_effective_zoom(styled_dom, dom_id)
 }
 
+/// Whether the DOM's compact cache says that NO node declares the property
+/// (or properties) of `flag`, a `DOM_HAS_*` bit: the cascade then answers
+/// "nothing declared" for every node, in every state, and need not be asked.
+/// `false` without a compact cache (nothing is known).
+#[must_use]
+pub(crate) fn dom_declares_nothing_of(styled_dom: &StyledDom, flag: u32) -> bool {
+    styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .is_some_and(|cc| !cc.dom_declared(flag))
+}
+
 // ==== CSS zoom (LAYOUT7) ====
 
 /// A node's own `zoom` factor in the `Normal` state, 1.0 without one.
@@ -196,6 +210,12 @@ fn own_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
 /// pre-order: a parent precedes its children). EMPTY when no node zooms.
 #[cfg_attr(feature = "web_lift", allow(dead_code))]
 fn compute_all_zooms(styled_dom: &StyledDom) -> Vec<f32> {
+    // A DOM in which nothing declares `zoom` (no sheet, inline style, UA
+    // rule or override, in any state: `DOM_HAS_ZOOM_OR_ASPECT_RATIO` clear)
+    // has no zoom: each of the lookups below, one per node, would answer 1.
+    if dom_declares_nothing_of(styled_dom, azul_css::compact_cache::DOM_HAS_ZOOM_OR_ASPECT_RATIO) {
+        return Vec::new();
+    }
     let n = styled_dom.node_data.len();
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut zooms = vec![1.0f32; n];
@@ -2258,11 +2278,26 @@ get_css_property!(
 );
 
 get_css_property!(
-    get_aspect_ratio_property,
+    aspect_ratio_from_the_cascade,
     get_aspect_ratio,
     StyleAspectRatio,
     CssPropertyType::AspectRatio
 );
+
+/// `aspect-ratio`, asked in every used-size computation. A DOM in which
+/// nothing declares it (`DOM_HAS_ZOOM_OR_ASPECT_RATIO` clear; the UA sheet
+/// has no rule for it) answers what the cascade would: not set.
+#[must_use]
+pub fn get_aspect_ratio_property(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<StyleAspectRatio> {
+    if dom_declares_nothing_of(styled_dom, azul_css::compact_cache::DOM_HAS_ZOOM_OR_ASPECT_RATIO) {
+        return MultiValue::Auto;
+    }
+    aspect_ratio_from_the_cascade(styled_dom, node_id, node_state)
+}
 
 // NOTE: vertical-align does NOT use the compact cache because the compact cache
 // only stores keyword variants (3 bits = 8 values) and silently drops
@@ -2273,6 +2308,11 @@ pub fn get_vertical_align_property(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> MultiValue<StyleVerticalAlign> {
+    // Nothing in the DOM declares it, the UA sheet's table parts, `sub` and
+    // `sup` included (`DOM_HAS_VERTICAL_ALIGN` clear): not set.
+    if dom_declares_nothing_of(styled_dom, azul_css::compact_cache::DOM_HAS_VERTICAL_ALIGN) {
+        return MultiValue::Auto;
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     let author_css = styled_dom
@@ -2919,6 +2959,13 @@ fn background_as_declared(
     }
 }
 
+/// How many nodes [`inherited_color_override`] looked at on this thread.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static COLOR_OVERRIDE_WALK_STEPS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
 /// The colour an ancestor's runtime USER OVERRIDE hands down to `dom_id`.
 ///
 /// User overrides participate in inheritance: a colour transition writes its
@@ -2929,7 +2976,10 @@ fn background_as_declared(
 /// which re-roots inheritance below it. Free when no node has an override.
 fn inherited_color_override(styled_dom: &StyledDom, dom_id: NodeId) -> Option<ColorU> {
     let cache = &styled_dom.css_property_cache.ptr;
-    if cache.user_overridden_properties.is_empty() {
+    // No override at all, or (the table is never shrunk, and a view whose
+    // transform is bound has one from its first frame on) none of `color`:
+    // nothing to find on the way up.
+    if cache.user_overridden_properties.is_empty() || !cache.text_color_override_seen {
         return None;
     }
     let node_data = styled_dom.node_data.as_container();
@@ -2937,6 +2987,8 @@ fn inherited_color_override(styled_dom: &StyledDom, dom_id: NodeId) -> Option<Co
     let ty = CssPropertyType::TextColor;
     let mut cur = Some(dom_id);
     while let Some(n) = cur {
+        #[cfg(test)]
+        COLOR_OVERRIDE_WALK_STEPS.with(|steps| steps.set(steps.get() + 1));
         if let Some(CssProperty::TextColor(v)) =
             cache.get_user_override(&n, &ty)
         {
@@ -4555,8 +4607,14 @@ pub fn get_style_properties_for_state(
     // Get text-transform from CSS (uppercase / lowercase / capitalize / full-width).
     // Applied to the run text before shaping (fc.rs::apply_text_transform) so that
     // intrinsic widths reflect the transformed glyphs.
+    // (A DOM that declares it nowhere, `DOM_HAS_TEXT_TRANSFORM` clear,
+    // skips the cascade walk: there is nothing to find or to inherit.)
     let text_transform = cache
-        .get_text_transform(node_data, &dom_id, node_state)
+        .compact_cache
+        .as_ref()
+        .is_none_or(|cc| cc.dom_declared(azul_css::compact_cache::DOM_HAS_TEXT_TRANSFORM))
+        .then(|| cache.get_text_transform(node_data, &dom_id, node_state))
+        .flatten()
         .and_then(|v| v.get_property().copied())
         .map(|t| {
             use azul_css::props::style::text::StyleTextTransform as Css;

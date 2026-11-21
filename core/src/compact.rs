@@ -2608,6 +2608,26 @@ const fn update_dom_declared_flags(prop: &CssProperty, flags: &mut u32) {
                 *flags |= DOM_HAS_FLOW_FROM;
             }
         }
+        CssProperty::TextTransform(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_TEXT_TRANSFORM;
+            }
+        }
+        CssProperty::VerticalAlign(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_VERTICAL_ALIGN;
+            }
+        }
+        CssProperty::Zoom(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_ZOOM_OR_ASPECT_RATIO;
+            }
+        }
+        CssProperty::AspectRatio(v) => {
+            if v.get_property().is_some() {
+                *flags |= DOM_HAS_ZOOM_OR_ASPECT_RATIO;
+            }
+        }
         CssProperty::TextOverflow(v) => {
             if v.get_property().is_some() {
                 *flags |= DOM_HAS_TEXT_OVERFLOW;

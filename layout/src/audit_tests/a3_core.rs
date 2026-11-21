@@ -705,3 +705,154 @@ fn an_unchanged_dom_is_put_back_into_the_accessibility_tree_unread() {
         "the nodes read when the window changes do not grow with the view"
     );
 }
+
+/// A3-core-13 (A3-solver 36c): the used colour of a node asks every ancestor for a runtime
+/// override of `color` (a colour transition writes one on a container) as soon as the DOM has
+/// ANY override, and the table of overrides is never shrunk: a view whose transform is bound
+/// walked label -> root for every text colour from its first frame on. The walk now starts only
+/// when some node was given an override of `color`; one that was is still found from below.
+#[test]
+fn the_used_colour_walks_to_the_root_only_for_an_override_of_colour() {
+    use azul_core::styled_dom::StyledNodeState;
+    use azul_css::{
+        css::CssPropertyValue,
+        props::{
+            basic::{color::ColorU, pixel::PixelValue},
+            layout::position::LayoutLeft,
+            property::CssProperty,
+            style::text::StyleTextColor,
+        },
+    };
+
+    use crate::solver3::getters::{get_used_text_color, COLOR_OVERRIDE_WALK_STEPS};
+
+    // 0 body, 1 a container, 2 a paragraph in it, 3 its text.
+    let mut styled = StyledDom::create_from_dom(
+        Dom::create_body().with_child(
+            Dom::create_div().with_child(Dom::create_p().with_child(
+                Dom::create_text_do_not_use_without_block_level_wrapper("a label"),
+            )),
+        ),
+    );
+    let rest = StyledNodeState::new();
+    let text = NodeId::new(3);
+    let steps = |styled: &StyledDom| {
+        COLOR_OVERRIDE_WALK_STEPS.with(|n| n.set(0));
+        let colour = get_used_text_color(styled, text, &rest);
+        (colour, COLOR_OVERRIDE_WALK_STEPS.with(std::cell::Cell::get))
+    };
+    let (plain, walked) = steps(&styled);
+    assert_eq!(walked, 0, "no override at all");
+
+    // An override that is not of `color` (what a bound inset or transform is).
+    styled.set_user_property_override_fast(
+        &NodeId::new(1),
+        &[CssProperty::Left(CssPropertyValue::Exact(LayoutLeft { inner: PixelValue::px(5.0) }))],
+    );
+    assert!(
+        !styled.get_css_property_cache().user_overridden_properties.is_empty(),
+        "harness: the DOM has an override"
+    );
+    let (colour, walked) = steps(&styled);
+    assert_eq!(walked, 0, "an override of another property starts no walk");
+    assert_eq!(colour, plain);
+
+    // An override of `color` on the container reaches the text two levels below.
+    let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+    assert_ne!(plain, red, "harness: the text is not red by itself");
+    styled.set_user_property_override_fast(
+        &NodeId::new(1),
+        &[CssProperty::TextColor(CssPropertyValue::Exact(StyleTextColor { inner: red }))],
+    );
+    let (colour, walked) = steps(&styled);
+    assert_eq!(colour, red, "the container's override is the text's colour");
+    assert!(walked >= 3, "found by walking up: {walked} nodes");
+}
+
+/// A3-core-13 (A3-solver 36b): `zoom`, `aspect-ratio`, `vertical-align` and `text-transform`
+/// have no compact slot that could answer them, so each read was a cascade lookup: `zoom` for
+/// every node of a new DOM, `aspect-ratio` in every used-size computation, the other two for
+/// every text style. A DOM in which nothing declares one of them says so with a bit
+/// (`DOM_HAS_*`), and the readers answer "not set" from it; a declaration raises the bit and
+/// the readers answer what the cascade does.
+#[test]
+fn a_dom_that_declares_no_zoom_ratio_alignment_or_transform_is_not_asked_for_them() {
+    use azul_core::styled_dom::StyledNodeState;
+    use azul_css::{
+        compact_cache::{
+            DOM_HAS_TEXT_TRANSFORM, DOM_HAS_VERTICAL_ALIGN, DOM_HAS_ZOOM_OR_ASPECT_RATIO,
+        },
+        props::style::{effects::StyleAspectRatio, text::StyleVerticalAlign},
+    };
+
+    use crate::solver3::getters::{
+        aspect_ratio_from_the_cascade, get_aspect_ratio_property, get_effective_zoom,
+        get_vertical_align_property, MultiValue,
+    };
+
+    let rest = StyledNodeState::new();
+    let text = |t: &str| Dom::create_text_do_not_use_without_block_level_wrapper(t);
+    // 0 body, 1 the box, 2 its text.
+    let page = |css: &str| {
+        StyledDom::create_from_dom(
+            Dom::create_body().with_child(Dom::create_div().with_css(css).with_child(text("x"))),
+        )
+    };
+    let declared = |styled: &StyledDom, flag: u32| {
+        styled
+            .css_property_cache
+            .ptr
+            .compact_cache
+            .as_ref()
+            .expect("the compact cache is built with the styled DOM")
+            .dom_declared(flag)
+    };
+    let the_box = NodeId::new(1);
+
+    // Nothing declared: every bit is clear and every reader answers "not set".
+    let plain = page("width: 100px;");
+    for flag in [DOM_HAS_TEXT_TRANSFORM, DOM_HAS_VERTICAL_ALIGN, DOM_HAS_ZOOM_OR_ASPECT_RATIO] {
+        assert!(!declared(&plain, flag), "a plain page declares nothing of {flag:#x}");
+    }
+    assert_eq!(get_aspect_ratio_property(&plain, the_box, &rest), MultiValue::Auto);
+    assert_eq!(aspect_ratio_from_the_cascade(&plain, the_box, &rest), MultiValue::Auto);
+    assert_eq!(get_vertical_align_property(&plain, the_box, &rest), MultiValue::Auto);
+    assert!((get_effective_zoom(&plain, NodeId::new(2)) - 1.0).abs() < f32::EPSILON);
+
+    // `aspect-ratio`: the bit, and the cascade's answer.
+    let ratio = page("width: 100px; aspect-ratio: 2 / 1;");
+    assert!(declared(&ratio, DOM_HAS_ZOOM_OR_ASPECT_RATIO));
+    let answer = get_aspect_ratio_property(&ratio, the_box, &rest);
+    assert!(
+        matches!(answer, MultiValue::Exact(StyleAspectRatio::Ratio(_))),
+        "aspect-ratio: 2 / 1 is {answer:?}"
+    );
+    assert_eq!(answer, aspect_ratio_from_the_cascade(&ratio, the_box, &rest));
+
+    // `zoom`: the bit, and the box's text is zoomed with it.
+    let zoomed = page("zoom: 2;");
+    assert!(declared(&zoomed, DOM_HAS_ZOOM_OR_ASPECT_RATIO));
+    assert!((get_effective_zoom(&zoomed, NodeId::new(2)) - 2.0).abs() < 1e-6);
+
+    // `vertical-align`: an author's, and the UA sheet's for `sub`.
+    let aligned = page("display: inline-block; vertical-align: middle;");
+    assert!(declared(&aligned, DOM_HAS_VERTICAL_ALIGN));
+    assert_eq!(
+        get_vertical_align_property(&aligned, the_box, &rest),
+        MultiValue::Exact(StyleVerticalAlign::Middle)
+    );
+    let sub = StyledDom::create_from_dom(
+        Dom::create_body().with_child(Dom::create_p().with_child(Dom::create_sub().with_child(text("2")))),
+    );
+    assert!(declared(&sub, DOM_HAS_VERTICAL_ALIGN), "the UA rule of `sub` counts");
+    assert_eq!(
+        get_vertical_align_property(&sub, NodeId::new(2), &rest),
+        MultiValue::Exact(StyleVerticalAlign::Sub)
+    );
+
+    // `text-transform`: the bit (its reader is the text style, which then asks the cascade).
+    let shouting = page("text-transform: uppercase;");
+    assert!(declared(&shouting, DOM_HAS_TEXT_TRANSFORM));
+    assert!(!declared(&shouting, DOM_HAS_ZOOM_OR_ASPECT_RATIO));
+    assert!(!declared(&shouting, DOM_HAS_VERTICAL_ALIGN));
+}

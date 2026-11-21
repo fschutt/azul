@@ -2103,6 +2103,9 @@ impl StyledDom {
                     Ok(idx) => vec[idx].1 = new_prop.clone(),
                     Err(idx) => vec.insert(idx, (prop_type, new_prop.clone())),
                 }
+                if prop_type == CssPropertyType::TextColor {
+                    cache.text_color_override_seen = true;
+                }
             }
         }
     }
@@ -3501,6 +3504,9 @@ impl StyledDom {
                     .user_overridden_properties
                     .resize(node_count, Vec::new());
             }
+            cache.text_color_override_seen |= old_vec
+                .iter()
+                .any(|(ty, _)| *ty == CssPropertyType::TextColor);
             cache.user_overridden_properties[new_idx] = old_vec;
             migrated_any = true;
         }

@@ -1639,6 +1639,16 @@ pub const DOM_HAS_FONT_VARIANT_CAPS: u32 = 1 << 25;
 pub const DOM_HAS_FONT_FEATURE_SETTINGS: u32 = 1 << 26;
 pub const DOM_HAS_FLOW_INTO: u32 = 1 << 27;
 pub const DOM_HAS_FLOW_FROM: u32 = 1 << 28;
+/// `text-transform` (read for every text style built).
+pub const DOM_HAS_TEXT_TRANSFORM: u32 = 1 << 29;
+/// `vertical-align`, a UA default included (table parts, `sub`, `sup`): read
+/// for every inline item, and its tier-1 slot cannot hold a length.
+pub const DOM_HAS_VERTICAL_ALIGN: u32 = 1 << 30;
+/// `zoom` OR `aspect-ratio`. One bit for the two (the word is full): both
+/// are rare and author-only, a DOM that declares either reads both from the
+/// cascade as before. `zoom` is asked of every node of a new DOM,
+/// `aspect-ratio` in every used-size computation.
+pub const DOM_HAS_ZOOM_OR_ASPECT_RATIO: u32 = 1 << 31;
 pub const SCROLLBAR_GUTTER_AUTO: u8 = 0;
 pub const SCROLLBAR_GUTTER_STABLE: u8 = 1;
 pub const SCROLLBAR_GUTTER_BOTH_EDGES: u8 = 2;
@@ -5042,7 +5052,17 @@ mod autotest_generated {
             DOM_HAS_LINE_HEIGHT,
             DOM_HAS_COLUMN_WIDTH,
             DOM_HAS_SHAPE_MARGIN,
+            DOM_HAS_FONT_VARIANT_NUMERIC,
+            DOM_HAS_TEXT_OVERFLOW,
+            DOM_HAS_FONT_VARIANT_CAPS,
+            DOM_HAS_FONT_FEATURE_SETTINGS,
+            DOM_HAS_FLOW_INTO,
+            DOM_HAS_FLOW_FROM,
+            DOM_HAS_TEXT_TRANSFORM,
+            DOM_HAS_VERTICAL_ALIGN,
+            DOM_HAS_ZOOM_OR_ASPECT_RATIO,
         ];
+        assert_eq!(flags.len(), 32, "the word is full: a 33rd flag needs another word");
 
         let mut seen = 0u32;
         for f in flags {

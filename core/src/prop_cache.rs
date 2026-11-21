@@ -1254,6 +1254,17 @@ pub struct CssPropertyCache {
 
     // properties that were overridden in callbacks (not specific to any node state)
     pub user_overridden_properties: Vec<Vec<(CssPropertyType, CssProperty)>>,
+    /// Some node has, or had, a runtime override of `color` in
+    /// [`Self::user_overridden_properties`]. That is the one override a
+    /// node's DESCENDANTS take through inheritance while the precomputed
+    /// tables cannot see it, so a reader of the used colour walks to the
+    /// root for it (`inherited_color_override` in the layout crate) - once
+    /// ANY override exists, were it only a bound `transform`, unless this
+    /// says no node ever had one of `color`. Raised by every writer of the
+    /// table (`StyledDom::set_user_property_override_fast`,
+    /// `StyledDom::migrate_user_overrides_from`, [`Self::append`]) and never
+    /// lowered: `false` means there is none.
+    pub text_color_override_seen: bool,
     /// The window's dynamic-selector context (viewport size, theme, OS,
     /// media type...), provided by the layout funnel before the first
     /// layout. `None` = context UNKNOWN (a freshly created `StyledDom` that no
@@ -3207,6 +3218,7 @@ impl CssPropertyCache {
             paged_footnotes: PagedFootnotes::default(),
             retained_author_css: Css::default(),
             user_overridden_properties: Vec::new(),
+            text_color_override_seen: false,
             dynamic_context: None,
             ua_applied: false,
             cascade_epoch: 0,
@@ -3244,6 +3256,7 @@ impl CssPropertyCache {
     pub fn append(&mut self, other: &mut Self) {
         self.user_overridden_properties
             .append(&mut other.user_overridden_properties);
+        self.text_color_override_seen |= other.text_color_override_seen;
         // The parent's dynamic context wins; a child subtree styled before
         // composition has no window context of its own worth keeping.
         if self.dynamic_context.is_none() {
