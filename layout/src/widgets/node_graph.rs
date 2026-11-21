@@ -1072,10 +1072,12 @@ impl NodeGraph {
     /// display list translated again after every frame). A node that has no DOM
     /// stays in the graph (`NodeGraph::nodes` is untouched, and the callbacks
     /// get all of them); it gets its DOM when the graph is built again with an
-    /// `offset` that brings it near the box - so the app builds the graph
-    /// again once a drag has ended (`on_node_graph_dragged` only tells it the
-    /// amount), and a pan within the margin shows the nodes that were just
-    /// off screen without waiting for that.
+    /// `offset` that brings it near the box - so the widget asks the app to
+    /// build the graph again when a pan ends that brought a node or connection
+    /// without DOM near the box (`on_node_graph_dragged` only tells the app the
+    /// amount; a pan among the nodes that have their DOM asks for nothing), and
+    /// a pan within the margin shows the nodes that were just off screen
+    /// without waiting for that.
     ///
     /// A `view_size` that is not positive and finite (`0 x 0`) shows
     /// everything, as [`Self::dom`] does.
@@ -1132,7 +1134,7 @@ impl NodeGraph {
             active_node_being_dragged: None,
             marker_prefix: marker_prefix.clone(),
             callbacks: self.callbacks.clone(),
-            view_culling: view.is_some(),
+            culled: view.map(|view| CulledDom::of(&self, view)),
             graph_dragged: false,
         });
 
@@ -1211,14 +1213,11 @@ impl NodeGraph {
                                         .find(|i| i.node_type_id == node.node_type)?;
                                     // A node nowhere near the box gets no DOM.
                                     if let Some(view) = view.as_ref() {
-                                        let (w, h) =
-                                            (NODE_WIDTH, node_height_bound(&node_type_info.node_type_info, node));
-                                        if !view.shows(
-                                            self.offset.x + node.position.x,
-                                            self.offset.y + node.position.y,
-                                            w,
-                                            h,
-                                            self.scale_factor,
+                                        if !node_in_view(
+                                            &self,
+                                            &node_type_info.node_type_info,
+                                            node,
+                                            view,
                                         ) {
                                             return None;
                                         }
@@ -1287,10 +1286,12 @@ struct NodeGraphLocalDataset {
     /// datasets of one type existed.
     marker_prefix: AzString,
     callbacks: NodeGraphCallbacks,
-    /// Whether this render culled nodes to the box the graph is shown in
-    /// ([`NodeGraph::dom_in_view`]): the nodes a pan brings near the box have no
-    /// DOM until the graph is built again at the offset the pan ended at.
-    view_culling: bool,
+    /// What this render gave DOM to when it culled the graph to the box it is
+    /// shown in ([`NodeGraph::dom_in_view`]), `None` for a graph rendered
+    /// whole: a node or connection that a pan brings near the box and that is
+    /// not in here has no DOM until the graph is built again at the offset the
+    /// pan ended at ([`pan_needs_rebuild`]).
+    culled: Option<CulledDom>,
     /// The graph itself (not a node) was dragged since the button went down.
     graph_dragged: bool,
 }
@@ -2940,6 +2941,75 @@ fn render_node(
     ].into())
 }
 
+/// Every connection of `node_graph` that is drawn - its output port has a type
+/// with a colour, both its ends are nodes of the graph - with the rect it is
+/// drawn in ([`get_rect`], whose swap flags the dataset carries), in the order
+/// of the nodes and their outputs: the one walk of [`render_connections`] and of
+/// what a culled render records it gave DOM to ([`CulledDom::of`]).
+fn drawn_connections(node_graph: &NodeGraph) -> Vec<(ConnectionLocalDataset, LogicalRect)> {
+    let mut drawn = Vec::new();
+
+    for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref() {
+        let out_node_id = node_id;
+        let node_type_info = match node_graph
+            .node_types
+            .iter()
+            .find(|i| i.node_type_id == node.node_type)
+        {
+            Some(s) => &s.node_type_info,
+            None => continue,
+        };
+
+        for OutputConnection {
+            output_index,
+            connects_to,
+        } in node.connect_out.as_ref()
+        {
+            let Some(output_type_id) = node_type_info.outputs.get(*output_index) else {
+                continue;
+            };
+
+            let output_color = match node_graph
+                .input_output_types
+                .iter()
+                .find(|o| o.io_type_id == *output_type_id)
+            {
+                Some(s) => s.io_info.color,
+                None => continue,
+            };
+
+            for InputNodeAndIndex {
+                node_id,
+                input_index,
+            } in connects_to.as_ref()
+            {
+                let in_node_id = node_id;
+
+                let mut cld = ConnectionLocalDataset {
+                    out_node_id: *out_node_id,
+                    out_idx: *output_index,
+                    in_node_id: *in_node_id,
+                    in_idx: *input_index,
+                    swap_vert: false,
+                    swap_horz: false,
+                    color: output_color,
+                };
+
+                let Some((rect, swap_vert, swap_horz)) = get_rect(node_graph, cld) else {
+                    continue;
+                };
+
+                cld.swap_vert = swap_vert;
+                cld.swap_horz = swap_horz;
+
+                drawn.push((cld, rect));
+            }
+        }
+    }
+
+    drawn
+}
+
 #[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
                                  // (one branch per case)
 fn render_connections(
@@ -2967,123 +3037,63 @@ fn render_connections(
         .with_children({
             let mut children = Vec::new();
 
-            for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref() {
-                let out_node_id = node_id;
-                let node_type_info = match node_graph
-                    .node_types
-                    .iter()
-                    .find(|i| i.node_type_id == node.node_type)
-                {
-                    Some(s) => &s.node_type_info,
-                    None => continue,
-                };
-
-                for OutputConnection {
-                    output_index,
-                    connects_to,
-                } in node.connect_out.as_ref()
-                {
-                    let Some(output_type_id) = node_type_info.outputs.get(*output_index) else {
+            for (cld, rect) in drawn_connections(node_graph) {
+                // A connection nowhere near the box gets no DOM: its rect
+                // is what `get_rect` says, whether its nodes have DOM or not.
+                if let Some(view) = view {
+                    if !connection_in_view(node_graph, &rect, view) {
                         continue;
-                    };
-
-                    let output_color = match node_graph
-                        .input_output_types
-                        .iter()
-                        .find(|o| o.io_type_id == *output_type_id)
-                    {
-                        Some(s) => s.io_info.color,
-                        None => continue,
-                    };
-
-                    for InputNodeAndIndex {
-                        node_id,
-                        input_index,
-                    } in connects_to.as_ref()
-                    {
-                        let in_node_id = node_id;
-
-                        let mut cld = ConnectionLocalDataset {
-                            out_node_id: *out_node_id,
-                            out_idx: *output_index,
-                            in_node_id: *in_node_id,
-                            in_idx: *input_index,
-                            swap_vert: false,
-                            swap_horz: false,
-                            color: output_color,
-                        };
-
-                        let Some((rect, swap_vert, swap_horz)) = get_rect(node_graph, cld) else {
-                            continue;
-                        };
-
-                        // A connection nowhere near the box gets no DOM: its rect
-                        // is what `get_rect` says, whether its nodes have DOM or not.
-                        if let Some(view) = view {
-                            if !view.shows(
-                                node_graph.offset.x + rect.origin.x,
-                                node_graph.offset.y + rect.origin.y,
-                                rect.size.width,
-                                rect.size.height,
-                                node_graph.scale_factor,
-                            ) {
-                                continue;
-                            }
-                        }
-
-                        cld.swap_vert = swap_vert;
-                        cld.swap_horz = swap_horz;
-
-                        let cld_refany = RefAny::new(cld);
-                        let connection_div = Dom::create_image(ImageRef::callback(
-                            draw_connection as usize,
-                            cld_refany.clone(),
-                        ))
-                        .with_dataset(Some(cld_refany).into())
-                        .with_css_props(
-                            vec![
-                                CssPropertyWithConditions::simple(CssProperty::Transform(
-                                    StyleTransformVecValue::Exact(
-                                        vec![
-                                            StyleTransform::Translate(StyleTransformTranslate2D {
-                                                x: PixelValue::px(
-                                                    node_graph.offset.x + rect.origin.x,
-                                                ),
-                                                y: PixelValue::px(
-                                                    node_graph.offset.y + rect.origin.y,
-                                                ),
-                                            }),
-                                            StyleTransform::ScaleX(PercentageValue::new(
-                                                node_graph.scale_factor * 100.0,
-                                            )),
-                                            StyleTransform::ScaleY(PercentageValue::new(
-                                                node_graph.scale_factor * 100.0,
-                                            )),
-                                        ]
-                                        .into(),
-                                    ),
-                                )),
-                                CssPropertyWithConditions::simple(CssProperty::Width(
-                                    LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px(
-                                        rect.size.width,
-                                    ))),
-                                )),
-                                CssPropertyWithConditions::simple(CssProperty::Height(
-                                    LayoutHeightValue::Exact(LayoutHeight::Px(PixelValue::px(
-                                        rect.size.height,
-                                    ))),
-                                )),
-                            ]
-                            .into(),
-                        );
-
-                        children.push(
-                            Dom::create_div()
-                                .with_css("flex-grow: 1; position: absolute; overflow: hidden;")
-                                .with_children(vec![connection_div].into()),
-                        );
                     }
                 }
+
+                let cld_refany = RefAny::new(cld);
+                let connection_div = Dom::create_image(ImageRef::callback(
+                    draw_connection as usize,
+                    cld_refany.clone(),
+                ))
+                .with_dataset(Some(cld_refany).into())
+                .with_css_props(
+                    vec![
+                        CssPropertyWithConditions::simple(CssProperty::Transform(
+                            StyleTransformVecValue::Exact(
+                                vec![
+                                    StyleTransform::Translate(StyleTransformTranslate2D {
+                                        x: PixelValue::px(
+                                            node_graph.offset.x + rect.origin.x,
+                                        ),
+                                        y: PixelValue::px(
+                                            node_graph.offset.y + rect.origin.y,
+                                        ),
+                                    }),
+                                    StyleTransform::ScaleX(PercentageValue::new(
+                                        node_graph.scale_factor * 100.0,
+                                    )),
+                                    StyleTransform::ScaleY(PercentageValue::new(
+                                        node_graph.scale_factor * 100.0,
+                                    )),
+                                ]
+                                .into(),
+                            ),
+                        )),
+                        CssPropertyWithConditions::simple(CssProperty::Width(
+                            LayoutWidthValue::Exact(LayoutWidth::Px(PixelValue::px(
+                                rect.size.width,
+                            ))),
+                        )),
+                        CssPropertyWithConditions::simple(CssProperty::Height(
+                            LayoutHeightValue::Exact(LayoutHeight::Px(PixelValue::px(
+                                rect.size.height,
+                            ))),
+                        )),
+                    ]
+                    .into(),
+                );
+
+                children.push(
+                    Dom::create_div()
+                        .with_css("flex-grow: 1; position: absolute; overflow: hidden;")
+                        .with_children(vec![connection_div].into()),
+                );
             }
 
             children.into()
@@ -3177,6 +3187,99 @@ impl ViewWindow {
     }
 }
 
+/// Whether `node` gets DOM in a render of `graph` culled to `view`: the one
+/// test of the builder ([`NodeGraph::dom_in_view`]) and of the record a pan's
+/// end is decided with ([`CulledDom`]).
+fn node_in_view(
+    graph: &NodeGraph,
+    info: &NodeTypeInfo,
+    node: &NodeGraphNode,
+    view: &ViewWindow,
+) -> bool {
+    view.shows(
+        graph.offset.x + node.position.x,
+        graph.offset.y + node.position.y,
+        NODE_WIDTH,
+        node_height_bound(info, node),
+        graph.scale_factor,
+    )
+}
+
+/// As [`node_in_view`], for a connection drawn in `rect` ([`get_rect`]).
+fn connection_in_view(graph: &NodeGraph, rect: &LogicalRect, view: &ViewWindow) -> bool {
+    view.shows(
+        graph.offset.x + rect.origin.x,
+        graph.offset.y + rect.origin.y,
+        rect.size.width,
+        rect.size.height,
+        graph.scale_factor,
+    )
+}
+
+/// A connection as the record of a culled render names it: its output node
+/// and port, its input node and port.
+type ConnectionKey = (u64, usize, u64, usize);
+
+/// What a render culled to a box ([`NodeGraph::dom_in_view`]) gave DOM to.
+#[derive(Debug)]
+struct CulledDom {
+    /// The box the render was culled to.
+    view: ViewWindow,
+    /// `nodes[i]`: the i-th node of the graph has DOM.
+    nodes: Vec<bool>,
+    /// The connections that have DOM, sorted.
+    connections: Vec<ConnectionKey>,
+}
+
+impl CulledDom {
+    /// What a render of `graph` culled to `view` gives DOM to, by the tests
+    /// the builder makes: [`node_in_view`] for each node of a registered type,
+    /// [`connection_in_view`] for each connection that is drawn
+    /// ([`drawn_connections`]).
+    fn of(graph: &NodeGraph, view: ViewWindow) -> Self {
+        let nodes: Vec<bool> = graph
+            .nodes
+            .iter()
+            .map(|NodeIdNodeMap { node, .. }| {
+                graph
+                    .node_types
+                    .iter()
+                    .find(|i| i.node_type_id == node.node_type)
+                    .is_some_and(|i| node_in_view(graph, &i.node_type_info, node, &view))
+            })
+            .collect();
+        let mut connections: Vec<ConnectionKey> = drawn_connections(graph)
+            .iter()
+            .filter(|c| connection_in_view(graph, &c.1, &view))
+            .map(|c| (c.0.out_node_id.inner, c.0.out_idx, c.0.in_node_id.inner, c.0.in_idx))
+            .collect();
+        connections.sort_unstable();
+        Self {
+            view,
+            nodes,
+            connections,
+        }
+    }
+}
+
+/// Whether the end of a pan has to build the graph's DOM again: `graph` - the
+/// graph at the offset the pan left it at - has a node or a connection in the
+/// box that the render `built` gave no DOM. What the pan took out of the box
+/// keeps its DOM until the next rebuild (nothing reads "has DOM" as "is in
+/// the box"), so a pan among the nodes that have their DOM needs none: it
+/// moved them with `transform`.
+fn pan_needs_rebuild(built: &CulledDom, graph: &NodeGraph) -> bool {
+    let now = CulledDom::of(graph, built.view);
+    now.nodes
+        .iter()
+        .enumerate()
+        .any(|(i, in_view)| *in_view && !built.nodes.get(i).copied().unwrap_or(false))
+        || now
+            .connections
+            .iter()
+            .any(|c| built.connections.binary_search(c).is_err())
+}
+
 // calculates the rect on which the connection is drawn in the UI
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
@@ -3239,10 +3342,16 @@ extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInf
         // A graph dragged while its DOM is culled to the box shows the nodes the
         // drag brought near the box only once its DOM is built again at the
         // offset the drag ended at (the drag moved the DOM nodes it has): ask
-        // the app for one rebuild when the button goes up. The app keeps the
-        // offset current in `on_node_graph_dragged`.
-        if core::mem::take(&mut refany.graph_dragged) && refany.view_culling {
-            return Update::RefreshDom;
+        // the app for one rebuild when the button goes up - if the drag brought
+        // one near that has no DOM (`pan_needs_rebuild`); a drag among the
+        // nodes that have theirs is done. The app keeps the offset current in
+        // `on_node_graph_dragged`.
+        if core::mem::take(&mut refany.graph_dragged) {
+            if let Some(built) = refany.culled.as_ref() {
+                if pan_needs_rebuild(built, &refany.node_graph) {
+                    return Update::RefreshDom;
+                }
+            }
         }
     }
     Update::DoNothing
@@ -4263,7 +4372,7 @@ mod autotest_generated {
             active_node_being_dragged: None,
             marker_prefix: "azul-nodegraph-test".into(),
             callbacks: g.callbacks.clone(),
-            view_culling: false,
+            culled: None,
             graph_dragged: false,
         })
     }
@@ -6085,40 +6194,63 @@ mod autotest_generated {
         );
     }
 
-    /// With culling on, a pan that ended asks the app for one rebuild, so the
-    /// nodes the pan brought near the box get their DOM; a graph shown
-    /// whole, a node drag, or a release that dragged nothing asks for none.
+    /// With culling on, a pan that ended and brought a node without DOM near
+    /// the box asks the app for one rebuild, so that node gets its DOM; a pan
+    /// among the nodes that have theirs, a graph shown whole, a node drag, or
+    /// a release that dragged nothing asks for none.
+    ///
+    /// A3-solver-35a: every pan of a culled graph asked for the rebuild, the
+    /// pan among the nodes that have their DOM too. Mutation: `RefreshDom` for
+    /// any culled graph that was panned (`refany.culled.is_some()` for
+    /// `pan_needs_rebuild`) fails the `among` case.
     #[test]
     fn the_end_of_a_pan_rebuilds_a_culled_graph_once() {
         let g = graph();
-        let dataset = |culling: bool, graph_dragged: bool| {
+        let view = ViewWindow::new(VIEW).expect("a box to cull to");
+        let at = |x: f32| NodeGraph {
+            offset: LogicalPosition { x, y: 0.0 },
+            ..g.clone()
+        };
+        // A graph whose DOM was built at the offset `built_at` (`None`: built
+        // whole) and that stands at `now_at`.
+        let dataset = |built_at: Option<f32>, now_at: f32, graph_dragged: bool| {
             RefAny::new(NodeGraphLocalDataset {
-                node_graph: g.clone(),
+                node_graph: at(now_at),
                 last_input_or_output_clicked: None,
                 active_node_being_dragged: None,
                 marker_prefix: "azul-nodegraph-test".into(),
                 callbacks: g.callbacks.clone(),
-                view_culling: culling,
+                culled: built_at.map(|x| CulledDom::of(&at(x), view)),
                 graph_dragged,
             })
         };
-        let panned = dataset(true, true);
+        // Built 50 000 px to the right of the box (no node has DOM), panned
+        // back onto it.
+        let panned = dataset(Some(50_000.0), 0.0, true);
         assert_eq!(
             fire(|info| nodegraph_unset_active_node(panned.clone(), info)),
             Update::RefreshDom,
-            "a culled graph that was panned: build the DOM again at the new offset"
+            "a culled graph panned onto nodes without DOM: build the DOM again at the new offset"
         );
         assert_eq!(
             fire(|info| nodegraph_unset_active_node(panned.clone(), info)),
             Update::DoNothing,
             "once: the flag is spent"
         );
-        for (culling, dragged) in [(true, false), (false, true), (false, false)] {
-            let d = dataset(culling, dragged);
+        // Built at the box (the four nodes have DOM), panned by 30 px: the
+        // box shows those four and nothing else.
+        let among = dataset(Some(0.0), 30.0, true);
+        assert_eq!(
+            fire(|info| nodegraph_unset_active_node(among.clone(), info)),
+            Update::DoNothing,
+            "a culled graph panned among the nodes that have DOM: nothing to build"
+        );
+        for (built_at, dragged) in [(Some(50_000.0), false), (None, true), (None, false)] {
+            let d = dataset(built_at, 0.0, dragged);
             assert_eq!(
                 fire(|info| nodegraph_unset_active_node(d.clone(), info)),
                 Update::DoNothing,
-                "culling {culling}, graph dragged {dragged}"
+                "culled at {built_at:?}, graph dragged {dragged}"
             );
         }
     }
@@ -7054,5 +7186,235 @@ mod autotest_generated {
             theme_names(&flat)
         );
         assert_eq!(outline(&flat), outline(&flora));
+    }
+}
+
+/// A3-solver-35a: the end of a pan of a culled graph asks for a rebuild of its
+/// DOM only when the pan brought a node or a connection without DOM near the
+/// box. Counted: the pans that ask for one (`pan_needs_rebuild`, which is what
+/// `nodegraph_unset_active_node` returns `RefreshDom` for).
+#[cfg(all(test, feature = "std"))]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    const KIND: NodeTypeId = NodeTypeId { inner: 1 };
+    const PORT: InputOutputTypeId = InputOutputTypeId { inner: 10 };
+
+    /// The box the graphs are culled to: nodes and connections get DOM from
+    /// -615 to 1845 px across and from -350 to 1050 px down (`ViewWindow`).
+    const VIEW: LogicalSize = LogicalSize {
+        width: 1230.0,
+        height: 700.0,
+    };
+
+    /// A graph of one node type (one input and one output of one port type,
+    /// no field: a node's box is bound by 250 x 136 px) with a node at each
+    /// of `at`, ids from 1.
+    fn graph_of(at: &[(f32, f32)]) -> NodeGraph {
+        let mut g = NodeGraph {
+            node_types: vec![NodeTypeIdInfoMap {
+                node_type_id: KIND,
+                node_type_info: NodeTypeInfo {
+                    is_root: true,
+                    node_type_name: AzString::from_const_str("kind"),
+                    inputs: vec![PORT].into(),
+                    outputs: vec![PORT].into(),
+                },
+            }]
+            .into(),
+            input_output_types: vec![InputOutputTypeIdInfoMap {
+                io_type_id: PORT,
+                io_info: InputOutputInfo {
+                    data_type: AzString::from_const_str("port"),
+                    color: ColorU {
+                        r: 1,
+                        g: 2,
+                        b: 3,
+                        a: 255,
+                    },
+                },
+            }]
+            .into(),
+            ..NodeGraph::default()
+        };
+        for (id, (x, y)) in (1_u64..).zip(at.iter()) {
+            g.nodes.push(NodeIdNodeMap {
+                node_id: NodeGraphNodeId { inner: id },
+                node: NodeGraphNode {
+                    node_type: KIND,
+                    position: NodeGraphNodePosition { x: *x, y: *y },
+                    fields: NodeTypeFieldVec::new(),
+                    connect_in: InputConnectionVec::new(),
+                    connect_out: OutputConnectionVec::new(),
+                },
+            });
+        }
+        g
+    }
+
+    /// Wires output 0 of node `from` to input 0 of node `to`.
+    fn wire(g: &mut NodeGraph, from: u64, to: u64) {
+        g.connect_input_output(
+            NodeGraphNodeId { inner: to },
+            0,
+            NodeGraphNodeId { inner: from },
+            0,
+        )
+        .expect("a node feeds another");
+    }
+
+    /// The map editor's graph in small: `count` nodes in a column at x = 100,
+    /// 45 px apart from y = 200, each wired to the next. Node `i` (from 0)
+    /// stands at y = 200 + 45 i, the connection from it at y = 271 + 45 i
+    /// (250 x 60 px).
+    fn column(count: u64) -> NodeGraph {
+        let mut at = Vec::new();
+        let mut y = 200.0_f32;
+        for _ in 0..count {
+            at.push((100.0_f32, y));
+            y += 45.0;
+        }
+        let mut g = graph_of(&at);
+        for id in 1..count {
+            wire(&mut g, id, id + 1);
+        }
+        g
+    }
+
+    /// `g` as a pan leaves it at the offset `(x, y)`.
+    fn panned(g: &NodeGraph, x: f32, y: f32) -> NodeGraph {
+        NodeGraph {
+            offset: LogicalPosition { x, y },
+            ..g.clone()
+        }
+    }
+
+    /// The nodes and the connections that have DOM in a render of the graph.
+    fn with_dom(dom: &Dom) -> (usize, usize) {
+        let graph_box = &dom.children.as_ref()[0];
+        (
+            graph_box.children.as_ref()[1].children.len(),
+            graph_box.children.as_ref()[0].children.len(),
+        )
+    }
+
+    /// How many of the pans of `g` to the offsets `ends` ask for a rebuild,
+    /// when the DOM `g` has was built culled to `VIEW` where `g` stands.
+    fn rebuilds(g: &NodeGraph, ends: &[(f32, f32)]) -> usize {
+        let dom = g.clone().dom_in_view(VIEW);
+        let mut data = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+        let local = data
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("the graph's dataset");
+        let built = local
+            .culled
+            .as_ref()
+            .expect("a culled render records what it gave DOM to");
+        ends.iter()
+            .filter(|end| pan_needs_rebuild(built, &panned(g, end.0, end.1)))
+            .count()
+    }
+
+    /// The first 19 nodes of the column have DOM (node 19, from 0, stands at
+    /// y = 1055, 5 px below the cull box). A pan that brings none of the
+    /// others in - no move, down, sideways, right out of the box, 3 px up -
+    /// asks for no rebuild; 100 px up brings node 19 in and asks for one.
+    ///
+    /// Mutation: a rebuild for every pan of a culled graph (`pan_needs_rebuild`
+    /// answering `true`, the `graph_dragged && view_culling` of before) counts
+    /// 7 for the first list.
+    #[test]
+    fn a_pan_asks_for_a_rebuild_only_when_it_brings_in_a_node_without_dom() {
+        let g = column(60);
+        let (nodes, connections) = with_dom(&g.clone().dom_in_view(VIEW));
+        assert!(
+            nodes > 0 && nodes < 60 && connections > 0 && connections < 59,
+            "harness: the box shows a part of the column ({nodes} nodes, {connections} \
+             connections of 60 and 59)"
+        );
+        let among: [(f32, f32); 7] = [
+            (0.0, 0.0),
+            (0.0, 3.0),
+            (40.0, 0.0),
+            (-40.0, 0.0),
+            (0.0, 300.0),
+            (0.0, 2000.0),
+            (0.0, -3.0),
+        ];
+        assert_eq!(
+            rebuilds(&g, &among),
+            0,
+            "pans among the nodes that have DOM asked for a rebuild"
+        );
+        let (nodes_up, _) = with_dom(&panned(&g, 0.0, -100.0).dom_in_view(VIEW));
+        assert!(
+            nodes_up > nodes,
+            "harness: 100 px up the box shows more of the column ({nodes_up} for {nodes})"
+        );
+        assert_eq!(
+            rebuilds(&g, &[(0.0, -100.0)]),
+            1,
+            "a pan that brought a node without DOM into the box asks for one rebuild"
+        );
+    }
+
+    /// A connection between two nodes far left and far right of the box,
+    /// 2071 px down: neither node ever has DOM, the connection has none
+    /// where the graph is built. 500 px up it is still below the cull box;
+    /// 1500 px up it is in it, and the pan asks for the rebuild that draws it.
+    ///
+    /// Mutation: `pan_needs_rebuild` looking at the nodes only counts 0.
+    #[test]
+    fn a_pan_that_brings_in_a_connection_without_dom_asks_for_a_rebuild() {
+        let mut g = graph_of(&[(-3000.0, 2000.0), (4000.0, 2000.0)]);
+        wire(&mut g, 1, 2);
+        assert_eq!(
+            with_dom(&g.clone().dom_in_view(VIEW)),
+            (0, 0),
+            "harness: built where it stands, the graph has no DOM"
+        );
+        assert_eq!(
+            with_dom(&panned(&g, 0.0, -1500.0).dom_in_view(VIEW)),
+            (0, 1),
+            "harness: 1500 px up the box shows the connection and no node"
+        );
+        assert_eq!(rebuilds(&g, &[(0.0, -500.0)]), 0, "the connection is not in the box yet");
+        assert_eq!(rebuilds(&g, &[(0.0, -1500.0)]), 1, "the connection came into the box");
+    }
+
+    /// What a culled render records it gave DOM to is what it gave DOM to:
+    /// the builder and the record make the same tests (`node_in_view`,
+    /// `connection_in_view` over `drawn_connections`).
+    ///
+    /// Mutation: the builder culling by another test than the record's (the
+    /// cull box without its margin, say) differs at one of the offsets.
+    #[test]
+    fn a_culled_render_records_the_nodes_and_connections_it_gave_dom_to() {
+        let g = column(60);
+        for (x, y) in [(0.0, 0.0), (0.0, -700.0), (300.0, 100.0), (0.0, -2500.0), (5000.0, 0.0)] {
+            let dom = panned(&g, x, y).dom_in_view(VIEW);
+            let mut data = dom.root.get_dataset().expect("the wrapper's dataset").clone();
+            let local = data
+                .downcast_ref::<NodeGraphLocalDataset>()
+                .expect("the graph's dataset");
+            let built = local
+                .culled
+                .as_ref()
+                .expect("a culled render records what it gave DOM to");
+            assert_eq!(
+                (
+                    built.nodes.iter().filter(|has_dom| **has_dom).count(),
+                    built.connections.len()
+                ),
+                with_dom(&dom),
+                "at ({x}, {y})"
+            );
+        }
+        let whole = g.dom();
+        let mut data = whole.root.get_dataset().expect("the wrapper's dataset").clone();
+        let local = data
+            .downcast_ref::<NodeGraphLocalDataset>()
+            .expect("the graph's dataset");
+        assert!(local.culled.is_none(), "a graph rendered whole culled nothing");
     }
 }
