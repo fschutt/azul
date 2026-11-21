@@ -7207,6 +7207,14 @@ impl CssPropertyCache {
     /// rows, and a child copies them from its parent's row). They are rebuilt from the root
     /// down along those chains, used, and dropped: the ancestors keep the rows they have.
     ///
+    /// `moved_in_place` (empty: none) names nodes that are NOT cascaded and whose own style
+    /// moved in a way no row but their compact entries holds - the values of their insets,
+    /// of an exact `transform` / `opacity` (`StyledDom::own_style_moved_in_place`): these
+    /// properties do not inherit, a node's own declarations are read from its node data and
+    /// not from the matched or inherited rows, and no selector reads a style. Their compact
+    /// entries are built again with the named nodes'; their children copy only inheritable
+    /// slots from them, which did not move, and keep their entries.
+    ///
     /// Answers `false`, having changed nothing, where the whole cascade has to run instead:
     /// a cache that is not complete (no compact cache, rows in their build phase, a composed
     /// DOM), a custom property or `var()` anywhere (the variable pass resolves them DOM-wide),
@@ -7222,6 +7230,7 @@ impl CssPropertyCache {
         html_tree: &NodeDataContainerRef<'_, CascadeInfo>,
         node_states: &[StyledNodeState],
         dirty: &[bool],
+        moved_in_place: &[bool],
     ) -> bool {
         use azul_css::{
             css::{
@@ -7239,7 +7248,9 @@ impl CssPropertyCache {
         let hierarchy = node_hierarchy.as_container();
         let items = hierarchy.internal;
         let named = dirty.iter().filter(|d| **d).count();
+        let any_moved = moved_in_place.iter().any(|moved| *moved);
         if dirty.len() != node_count
+            || (!moved_in_place.is_empty() && moved_in_place.len() != node_count)
             || items.len() != node_count
             || self.node_count != node_count
             || self.css_props.len() != node_count
@@ -7514,7 +7525,7 @@ impl CssPropertyCache {
 
         // ---- Nothing below can fail: the rows are written ----
         self.left_state_mask = new_left_mask;
-        if named == 0 {
+        if named == 0 && !any_moved {
             return true;
         }
         crate::styled_dom::count_nodes_cascaded(named);
@@ -7996,12 +8007,24 @@ impl CssPropertyCache {
             .as_ref()
             .map(|c| c.prev_font_hashes.clone())
             .unwrap_or_default();
+        // ... and of the nodes whose own style moved in place: their slots hold its values.
+        let with_the_moved: Vec<bool>;
+        let compact_rows: &[bool] = if any_moved {
+            with_the_moved = dirty
+                .iter()
+                .zip(moved_in_place)
+                .map(|(dirty, moved)| *dirty || *moved)
+                .collect();
+            &with_the_moved
+        } else {
+            dirty
+        };
         let compact = self.rebuild_compact_rows(
             node_data.internal,
             items,
             node_states,
             &prev_font_hashes,
-            dirty,
+            compact_rows,
         );
         self.compact_cache = Some(compact);
 

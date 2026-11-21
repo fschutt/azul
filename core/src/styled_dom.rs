@@ -2369,6 +2369,7 @@ impl StyledDom {
             &self.cascade_info.as_container(),
             &states,
             dirty,
+            &[],
         );
         self.css_property_cache.downcast_mut().retained_author_css = css;
         if !done {
@@ -2396,7 +2397,11 @@ impl StyledDom {
     /// and `Dom::with_css`, the usual "inline style", is such a sheet. The caller passes
     /// them only where each list numbers the nodes as its arena does.
     ///
-    /// Answers which nodes kept their rows (`kept[n]`); the others were cascaded
+    /// Answers which nodes are UNCHANGED (`unchanged[n]`): they kept their rows and their own
+    /// style reads as it did, so they resolve every property as their old node did. Of the
+    /// others, a node whose own style MOVED IN PLACE ([`Self::own_style_moved_in_place`]: the
+    /// values of its insets, of an exact `transform` / `opacity`, and nothing else of it)
+    /// kept its rows too and had its compact entries built again; the rest were cascaded
     /// ([`CssPropertyCache::recascade_nodes`] over [`CssPropertyCache::spliced`]). `None`,
     /// having styled nothing, where no row can be kept: the caller runs
     /// [`Self::cascade_at_rest`] and lets the states in afterwards, as a rebuild always did.
@@ -2428,6 +2433,9 @@ impl StyledDom {
     ///    for every node such a rule can read left of `n`;
     /// 6. `o` holds no runtime override (its rows hold the override's values; the override
     ///    itself follows the node's identity later: [`Self::migrate_user_overrides_from`]).
+    /// A node whose own style differs from `o`'s only in place keeps its rows under 2-6 and
+    /// the rest of 1 all the same (`recascade_nodes` says why its rows stand), and counts as
+    /// a node that kept its rows in 2 and 4 for its children and the siblings after it.
     /// Of the whole DOM: the same window context, the same values inherited from a host, an
     /// active window (`:backdrop` is raised from the rows afterwards), no generated node, no
     /// drag state on `old` (it is written without a restyle), and what `spliced` and
@@ -2513,10 +2521,14 @@ impl StyledDom {
         let new_places = self.cascade_info.as_ref();
         let old_places = old.cascade_info.as_ref();
 
+        // `kept`: the node keeps its rows. `moved`: ... and its own style moved in place.
         let mut kept = vec![false; node_count];
+        let mut moved = vec![false; node_count];
+        let mut any_moved = false;
         let mut cascaded = 0_usize;
         for index in 0..node_count {
-            let keeps = (|| {
+            // `Some(moved in place)` for a node that keeps its rows.
+            let keeps: Option<bool> = (|| {
                 let o = old_of_new[index]?.index();
                 let (new_node, old_node) = (new_data.get(index)?, old_data.get(o)?);
                 let (new_item, old_item) = (new_hierarchy.get(index)?, old_hierarchy.get(o)?);
@@ -2571,21 +2583,29 @@ impl StyledDom {
                 if new_sheet_of.get(index)? != old_sheet_of.get(o)? {
                     return None;
                 }
-                [
+                if ![
                     NodeField::NodeType,
-                    NodeField::Style,
                     NodeField::Flags,
                     NodeField::Attributes,
                     NodeField::PartOfParent,
                 ]
                 .into_iter()
                 .all(|field| field.reads_alike(old_node, new_node))
-                .then_some(())
+                {
+                    return None;
+                }
+                if NodeField::Style.reads_alike(old_node, new_node) {
+                    return Some(false);
+                }
+                Self::own_style_moved_in_place(old_node, new_node).then_some(true)
             })();
-            if keeps.is_some() {
-                kept[index] = true;
-            } else {
-                cascaded += 1;
+            match keeps {
+                Some(moved_in_place) => {
+                    kept[index] = true;
+                    moved[index] = moved_in_place;
+                    any_moved |= moved_in_place;
+                }
+                None => cascaded += 1,
             }
         }
         if cascaded * 2 > node_count {
@@ -2614,6 +2634,7 @@ impl StyledDom {
             &self.cascade_info.as_container(),
             &states,
             &dirty,
+            if any_moved { moved.as_slice() } else { &[] },
         );
         if !done {
             // Nothing was styled: the sheet goes back to wait for the whole cascade.
@@ -2629,7 +2650,38 @@ impl StyledDom {
             .generate_tag_ids(&self.node_data.as_container(), &self.node_hierarchy);
         self.tag_ids_to_node_ids = tag_ids.into();
         self.sync_backdrop_state();
+        // Unchanged: the rows AND the own style of the old node.
+        for (unchanged, moved) in kept.iter_mut().zip(&moved) {
+            *unchanged = *unchanged && !*moved;
+        }
         Some(kept)
+    }
+
+    /// Whether the own styles of `old` and `new` differ only IN PLACE, for the cascade: the
+    /// values of their insets and / or of an exact `transform` / `opacity`
+    /// (`crate::diff::inline_style_moved_in_place`: the same declarations under the same
+    /// conditions otherwise), in styles whose rows no other table of the cascade copies -
+    /// no presentational hint (a rule below the inline priority: the cascade files its
+    /// values with the matched rules) and no CSS-wide keyword (`left: inherit` stands for a
+    /// value the inheritance pass looks up). Of such a node only the compact entries hold
+    /// the moved values: the cascade keeps every other row of it
+    /// ([`CssPropertyCache::recascade_nodes`], `moved_in_place`).
+    #[must_use]
+    pub fn own_style_moved_in_place(old: &NodeData, new: &NodeData) -> bool {
+        let plain = |node: &NodeData| {
+            node.style.rules.as_ref().iter().all(|rule| {
+                rule.priority >= azul_css::css::rule_priority::INLINE
+                    && rule.declarations.as_ref().iter().all(|declaration| {
+                        match declaration {
+                            azul_css::css::CssDeclaration::Static(property) => {
+                                property.css_wide_keyword().is_none()
+                            }
+                            _ => true,
+                        }
+                    })
+            })
+        };
+        crate::diff::inline_style_moved_in_place(old, new) && plain(old) && plain(new)
     }
 
     pub fn restyle_retained(&mut self) {
