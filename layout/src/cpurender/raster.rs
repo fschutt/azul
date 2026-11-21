@@ -14,7 +14,7 @@ use agg_rust::{
     rendering_buffer::RowAccessor,
     rounded_rect::RoundedRect,
     scanline_u::ScanlineU8,
-    span_gradient::{GradientConic, GradientRadialD, GradientRepeatAdaptor, GradientX},
+    span_gradient::{GradientRadialD, GradientRepeatAdaptor, GradientX},
     trans_affine::TransAffine,
 };
 use azul_core::{
@@ -522,8 +522,6 @@ fn render_conic_gradient(
         return;
     }
 
-    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
-
     let w = f64::from(rect.width);
     let h = f64::from(rect.height);
 
@@ -543,8 +541,11 @@ fn render_conic_gradient(
     transform.translate(cx, cy);
     transform.invert();
 
-    // GradientConic maps atan2(y,x) * d / pi, covering [0, d] for the half-circle.
-    // We use d2 = 100 as the range; the LUT maps 0..1 over that.
+    // The stops run over the whole turn (CSS Images 4, 3.3: a stop at an angle `a` is at
+    // `a / 360` of it); gradient space is 100 units a turn and the LUT maps 0..1 over that.
+    // agg's `GradientConic` is `|atan2(y, x)| d / pi`: the ramp over HALF a turn, mirrored on
+    // the other half. `conic-gradient(red, blue)` was red at 12 o'clock, blue at 6 and the
+    // same purple at 3 and at 9 (A1-58, found by A3-solver).
     let d2 = 100.0;
 
     let mut path = if border_radius.is_zero() {
@@ -553,16 +554,67 @@ fn render_conic_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
+    // `repeating-conic-gradient`: the part of the turn between the first and the last stop
+    // repeats (A1-59; `extend_mode` was not read). The LUT is built over that part.
+    if gradient.extend_mode == azul_css::props::style::background::ExtendMode::Repeat {
+        let resolved: Vec<(f32, ColorU)> = stops
+            .iter()
+            .map(|stop| {
+                (
+                    (stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0),
+                    resolve_color(&stop.color, system_colors),
+                )
+            })
+            .filter(|(t, _)| t.is_finite())
+            .collect();
+        let first = resolved.iter().map(|(t, _)| *t).fold(f32::INFINITY, f32::min);
+        let last = resolved.iter().map(|(t, _)| *t).fold(f32::NEG_INFINITY, f32::max);
+        // A part under a thousandth of the turn cannot repeat: it paints clamped.
+        if (last - first).is_finite() && last - first >= 1.0e-3 {
+            let over_part: Vec<(f32, ColorU)> =
+                resolved.iter().map(|(t, c)| ((t - first) / (last - first), *c)).collect();
+            let lut = build_gradient_lut(&over_part, GRADIENT_LUT_MIN);
+            let turn = ConicTurn { repeat: Some((f64::from(first), f64::from(last - first))) };
+            agg_fill_gradient_clipped(pixmap, &mut path, &lut, turn, transform, 0.0, d2, clip);
+            return;
+        }
+    }
+
+    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
     agg_fill_gradient_clipped(
         pixmap,
         &mut path,
         &lut,
-        GradientConic,
+        ConicTurn { repeat: None },
         transform,
         0.0,
         d2,
         clip,
     );
+}
+
+/// The angle of a point about the gradient's centre as a part of the whole turn, from the
+/// local +x axis towards +y (after `render_conic_gradient`'s transform: from the gradient's
+/// start angle, clockwise on screen), scaled to the gradient's far end `d`. With `repeat`
+/// `(first, part)`: the angle counted from `first` and wrapped into `part` of a turn, as a
+/// fraction of that part.
+struct ConicTurn {
+    repeat: Option<(f64, f64)>,
+}
+
+impl agg_rust::span_gradient::GradientFunction for ConicTurn {
+    #[allow(clippy::cast_possible_truncation)] // 0 ..= d
+    fn calculate(&self, x: i32, y: i32, d: i32) -> i32 {
+        let mut turn = f64::from(y).atan2(f64::from(x)) / core::f64::consts::TAU;
+        if turn < 0.0 {
+            turn += 1.0;
+        }
+        let t = match self.repeat {
+            Some((first, part)) if part > 0.0 => (turn - first).rem_euclid(part) / part,
+            _ => turn,
+        };
+        (t * f64::from(d) + 0.5) as i32
+    }
 }
 
 // ============================================================================
@@ -3074,7 +3126,13 @@ pub(crate) fn walk_range(
         // content paints past its box.
         let scope_extent = frame.map(|f| f.extent).or_else(|| {
             matches!(item, DisplayListItem::PushOpacity { .. })
-                .then(|| frames.get_or_insert_with(|| list.frame_index()).opacity_extent(item_idx))
+                .then(|| {
+                    // With the frames inside the group where their live matrices paint them
+                    // (A1-60): the group's region has to hold what a moved child paints.
+                    frames
+                        .get_or_insert_with(|| list.frame_index())
+                        .opacity_extent_with(&list.items, item_idx, &render_state.transforms)
+                })
                 .flatten()
         });
         render_single_item(
@@ -20101,5 +20159,158 @@ mod audit_a1_tests {
         }
         let clamped = radial_gradient_picture(Shape::Circle, Size::ClosestSide, false, &[(0.0, 0), (20.0, 255)]);
         assert_eq!(grey(&clamped, 122), 255, "not repeating: white beyond the last stop");
+    }
+
+
+    /// A conic gradient about the centre of a 100 x 100 box from 12 o'clock, painted.
+    fn conic_gradient_picture(repeat: bool, stops_degrees: &[(f32, [u8; 3])]) -> AzulPixmap {
+        use azul_css::props::{
+            basic::angle::AngleValue,
+            style::background::{
+                BackgroundPositionHorizontal, BackgroundPositionVertical, ConicGradient, ExtendMode,
+                NormalizedRadialColorStop, StyleBackgroundPosition,
+            },
+        };
+        let stops: Vec<NormalizedRadialColorStop> = stops_degrees
+            .iter()
+            .map(|(degrees, rgb)| NormalizedRadialColorStop {
+                angle: AngleValue::deg(*degrees),
+                color: ColorOrSystem::Color(ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 }),
+            })
+            .collect();
+        let gradient = ConicGradient {
+            extend_mode: if repeat { ExtendMode::Repeat } else { ExtendMode::Clamp },
+            center: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            angle: AngleValue::deg(0.0),
+            stops: stops.into(),
+        };
+        let mut pm = AzulPixmap::new(100, 100).unwrap();
+        pm.fill(0, 255, 0, 255);
+        render_conic_gradient(&mut pm, &rect(0.0, 0.0, 100.0, 100.0), &gradient, &BorderRadius::default(), None, 1.0, None);
+        pm
+    }
+
+    /// A1-58 (found by A3-solver): a conic gradient runs over the whole turn. `conic-gradient(
+    /// red, blue)` on a 100 x 100 box, centre (50, 50): the pixel (90, 50), at 3 o'clock, is a
+    /// quarter of the turn: rgb(191, 0, 64); (50, 90), 6 o'clock, half: rgb(128, 0, 128);
+    /// (10, 50), 9 o'clock, three quarters: rgb(64, 0, 191). Over half a turn and mirrored
+    /// (agg's `GradientConic`) they were rgb(128, 0, 128), rgb(0, 0, 255), rgb(128, 0, 128).
+    /// Mutation: `atan2(..).abs() / PI` in `ConicTurn`.
+    #[test]
+    fn a_conic_gradient_runs_over_the_whole_turn() {
+        let pm = conic_gradient_picture(false, &[(0.0, [255, 0, 0]), (360.0, [0, 0, 255])]);
+        for ((x, y), want) in [((90, 50), [191, 0, 64]), ((50, 90), [128, 0, 128]), ((10, 50), [64, 0, 191])] {
+            let got = px(&pm, x, y);
+            assert!(
+                (0..3).all(|c| got[c].abs_diff(want[c]) <= 3) && got[3] == 255,
+                "({x}, {y}): wanted {want:?}, got {got:?}"
+            );
+        }
+    }
+
+    /// A1-59: a repeating conic gradient repeats the part of the turn between its first and
+    /// its last stop. Black at 0deg, white at 90deg: the pixels at 45, 135, 225 and 315
+    /// degrees ((80, 19), (80, 80), (19, 80), (19, 19): 45.5 .. 46 degrees into their quarter)
+    /// are all half way: grey 128. Clamped, everything past 3 o'clock was white.
+    /// Mutation: `repeat: None` for a repeating gradient.
+    #[test]
+    fn a_repeating_conic_gradient_repeats_its_part_of_the_turn() {
+        let pm = conic_gradient_picture(true, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
+        for (x, y) in [(80, 19), (80, 80), (19, 80), (19, 19)] {
+            let got = px(&pm, x, y);
+            assert!(got[0] == got[1] && got[1] == got[2], "a grey at ({x}, {y}): {got:?}");
+            assert!(got[0].abs_diff(128) <= 8, "half way into its quarter at ({x}, {y}): {got:?}");
+        }
+        let clamped = conic_gradient_picture(false, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
+        assert_eq!(px(&clamped, 80, 80), [255, 255, 255, 255], "not repeating: white past the last stop");
+    }
+
+
+    /// A1-60 (found by A3-solver): what is painted inside a reference frame counts, in every
+    /// bound gathered over a group's items, where the frame's matrix puts it - not where it is
+    /// laid out. A column, box (0, 0) 200 x 400, holds a card, box (0, 0) 200 x 80 filled, built
+    /// with `translate(-100, 0)`: the card paints x -100 .. 100, so the column's laid-out
+    /// extent is (-100, 0) 300 x 400 (it was (0, 0) 200 x 400: only `extent_with` knew). The
+    /// same for an opacity group around the card; and with the card's LIVE matrix
+    /// `translate(50, 0)` the group paints (0, 0) 250 x 400.
+    /// Mutation: the `PushReferenceFrame` arm left out of `GroupBounds::step`.
+    #[test]
+    fn a_frame_inside_a_group_counts_where_its_matrix_paints_it() {
+        use azul_core::transform::ComputedTransform3D;
+        let card = frame(
+            2,
+            turn_scale_move(0.0, 1.0, -100.0, 0.0),
+            (200.0, 80.0),
+            vec![fill(0.0, 0.0, 200.0, 80.0, [200, 0, 0])],
+        );
+        let column = list(frame(1, IDENTITY, (200.0, 400.0), card.clone()));
+        let want = rect(-100.0, 0.0, 300.0, 400.0);
+        assert_eq!(column.frame_index().extent_of(0), Some(want));
+        assert_eq!(crate::solver3::display_list::reference_frame_extent_walked(&column.items, 0), Some(want));
+        assert_eq!(column.frame_index().extent_with(&column.items, 0, &HashMap::new()), Some(want));
+
+        let mut items = vec![DisplayListItem::PushOpacity {
+            bounds: wrect(0.0, 0.0, 200.0, 400.0),
+            opacity: 0.5,
+            opacity_key: None,
+            mix_blend_mode: Default::default(),
+        }];
+        items.extend(card);
+        items.push(DisplayListItem::PopOpacity);
+        let faded = list(items);
+        let index = faded.frame_index();
+        assert_eq!(index.opacity_extent(0), Some(want));
+        assert_eq!(index.opacity_extent_with(&faded.items, 0, &HashMap::new()), Some(want));
+        let mut live = HashMap::new();
+        live.insert(2, ComputedTransform3D { m: turn_scale_move(0.0, 1.0, 50.0, 0.0) });
+        assert_eq!(index.opacity_extent_with(&faded.items, 0, &live), Some(rect(0.0, 0.0, 250.0, 400.0)));
+    }
+
+    /// A1-60: a child that a transform moves out of a faded group's box is faded where it is
+    /// painted. A half-opaque group, box (10, 10) 40 x 40, holds a frame of the same box with a
+    /// red fill, moved by 60 px: the fill is painted at x 70 .. 110, half red over white
+    /// (255, 128, 128), and nothing is painted where it is laid out. With the group's region
+    /// taken from where the child is laid out, the moved fill was painted outside it at full
+    /// red. Both for a frame built with the matrix and for one moved by a live value.
+    /// Mutation: `opacity_extent` in place of `opacity_extent_with` in the walk fails the live
+    /// case; the frame arm left out of `GroupBounds::step` fails both.
+    #[test]
+    fn a_child_moved_out_of_a_faded_groups_box_is_faded_where_it_is_painted() {
+        use azul_core::transform::ComputedTransform3D;
+        let group = |built_with: [[f32; 4]; 4]| {
+            list(vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                    opacity: 0.5,
+                    opacity_key: None,
+                    mix_blend_mode: Default::default(),
+                },
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 7 },
+                    initial_transform: ComputedTransform3D { m: built_with },
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                },
+                fill(10.0, 10.0, 40.0, 40.0, [255, 0, 0]),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopOpacity,
+            ])
+        };
+        let moved = turn_scale_move(0.0, 1.0, 60.0, 0.0);
+        let (built, _) = full(&group(moved), &CpuRenderState::new(ScrollOffsetMap::new()), (160, 60));
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new());
+        state.transforms.insert(7, ComputedTransform3D { m: moved });
+        let (live, _) = full(&group(IDENTITY), &state, (160, 60));
+        for (what, painted) in [("built with the matrix", &built), ("moved by a live value", &live)] {
+            let [r, g, b, a] = px(painted, 90, 30);
+            assert!(
+                r == 255 && (120..=136).contains(&g) && (120..=136).contains(&b) && a == 255,
+                "{what}: half red over white where the child is painted, got {:?}",
+                [r, g, b, a]
+            );
+            assert_eq!(px(painted, 30, 30), [255, 255, 255, 255], "{what}: nothing where it is laid out");
+        }
     }
 }
