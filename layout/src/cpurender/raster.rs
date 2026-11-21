@@ -4272,11 +4272,13 @@ pub fn render_single_item(
                 // The view's own frames open their surfaces here and
                 // composite them into what this walk paints into.
                 let mut view_surfaces: Vec<AzulPixmap> = Vec::new();
-                // A view's list is a map or a page far larger than the box it shows.
+                // A view's list is a map or a page far larger than the box it shows. Its bound
+                // colours are read like the window's own (a fade inside a view moves a value
+                // in the view's cache, and `WindowGpuValues` holds every DOM's).
                 walk_items(
                     &child_dl,
                     WalkCull::ActiveClip,
-                    false,
+                    true,
                     pixmap,
                     dpi_factor,
                     renderer_resources,
@@ -16558,5 +16560,34 @@ mod audit_a1_tests {
         let _ = stripes.set_text_aa(TextAaSettings { mode: TextAa::Lcd, ..TextAaSettings::default() });
         assert_eq!(paint_settings(&smooth, &fm, &state), paint_settings(&smooth, &fm, &state));
         assert_ne!(paint_settings(&smooth, &fm, &state), paint_settings(&stripes, &fm, &state));
+    }
+
+    /// A1-15: a fill bound to a colour key inside a view is painted in the key's live value,
+    /// as in the window's own list (a colour fade inside a view painted the colour the list
+    /// was built with until the view rendered again). Without a value, the list's colour.
+    /// Mutation: `bind_colors` false for a view's list paints (200, 0, 0) in both cases.
+    #[test]
+    fn a_bound_colour_inside_a_view_is_painted_in_its_live_value() {
+        let mut child = list(vec![fill(0.0, 0.0, 50.0, 40.0, [200, 0, 0])]);
+        child.color_bindings = vec![Some(azul_core::resources::ColorKey { id: 9 })];
+        let host = list(vec![DisplayListItem::VirtualView {
+            child_dom_id: azul_core::dom::DomId { inner: 1 },
+            bounds: wrect(10.0, 10.0, 50.0, 40.0),
+            clip_rect: wrect(10.0, 10.0, 50.0, 40.0),
+            content_offset: LogicalPosition { x: 0.0, y: 0.0 },
+        }]);
+        let child = Arc::new(child);
+        let with = |live: Option<ColorU>| {
+            let mut state = CpuRenderState::new(ScrollOffsetMap::new()).with_virtual_view_display_lists(
+                [(azul_core::dom::DomId { inner: 1 }, Arc::clone(&child))].into_iter().collect(),
+            );
+            if let Some(colour) = live {
+                state.colors.insert(9, colour);
+            }
+            full(&host, &state, (80, 60)).0
+        };
+        assert_eq!(px(&with(Some(ColorU { r: 0, g: 0, b: 250, a: 255 })), 30, 30), [0, 0, 250, 255]);
+        assert_eq!(px(&with(None), 30, 30), [200, 0, 0, 255]);
+        assert_eq!(px(&with(None), 5, 5), [255, 255, 255, 255], "outside the view");
     }
 }
