@@ -88,11 +88,27 @@ std::thread_local! {
     static CSS_MATRICES_BUILT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
-/// One of the twelve transform maps of a [`GpuValueCache`]: the keys or the
-/// values of one [`TransformChannel`], by node. A `HashMap` that carries a
+/// What the key of a [`StampedMap`] has to be: what the map of this build
+/// asks of a key (`Eq + Hash` for the `HashMap` of a build with `std`, `Ord`
+/// for the `BTreeMap` of one without). Every such type is one.
+#[cfg(feature = "std")]
+pub trait StampedKey: Eq + core::hash::Hash {}
+#[cfg(feature = "std")]
+impl<K: Eq + core::hash::Hash> StampedKey for K {}
+/// What the key of a [`StampedMap`] has to be: what the map of this build
+/// asks of a key (`Eq + Hash` for the `HashMap` of a build with `std`, `Ord`
+/// for the `BTreeMap` of one without). Every such type is one.
+#[cfg(not(feature = "std"))]
+pub trait StampedKey: Ord {}
+#[cfg(not(feature = "std"))]
+impl<K: Ord> StampedKey for K {}
+
+/// One of the twenty-four value maps of a [`GpuValueCache`]: the keys or
+/// the values of one channel, by node (`K` = [`NodeId`], the default) or,
+/// for a scrollbar's fade, by DOM and node. A `HashMap` that carries a
 /// STAMP of its content - its own write generation. Two readers use the
-/// stamps: [`GpuValueCache::value_generation`] is the newest of them (a
-/// frame that finds it unchanged reads no value again), and
+/// stamps: [`GpuValueCache::value_generation`] is one number made of all
+/// of them (a frame that finds it unchanged reads no value again), and
 /// [`GpuValueCache::transform_stamps`] are those of the six maps a node's
 /// reference frame is read from (the hit tester keeps where every frame's
 /// boxes are painted while they are what they were, instead of reading
@@ -106,9 +122,20 @@ std::thread_local! {
 /// through [`Self::insert`], [`Self::remove`], [`Self::retain`] (which
 /// restamp only when the content did change) or through `DerefMut` (which
 /// restamps always: `entry`, `clear`, a `&mut HashMap` handed to a function).
+/// So a path that runs every frame writes with the three methods, never
+/// through `DerefMut`: an `entry()` for a key that is there changes nothing
+/// and still moves the generation, and every frame that skips work on an
+/// unchanged generation would stop skipping.
+///
+/// A map that is REPLACED whole (by an empty one, by a clone taken earlier)
+/// has the stamp of what replaced it, which can be an OLDER number than it
+/// had. The rule still holds (that stamp is that content), so a reader
+/// compares every stamp it depends on for equality and never asks for the
+/// newest alone: `transform_stamps` is the six numbers, `value_generation`
+/// a number every stamp goes into.
 #[derive(Clone)]
-pub struct StampedMap<V> {
-    map: HashMap<NodeId, V>,
+pub struct StampedMap<V, K = NodeId> {
+    map: HashMap<K, V>,
     stamp: u64,
 }
 
@@ -118,7 +145,7 @@ fn next_map_stamp() -> u64 {
     NEXT.fetch_add(1, AtomicOrdering::Relaxed) as u64
 }
 
-impl<V> Default for StampedMap<V> {
+impl<V, K> Default for StampedMap<V, K> {
     fn default() -> Self {
         Self {
             map: HashMap::new(),
@@ -127,46 +154,56 @@ impl<V> Default for StampedMap<V> {
     }
 }
 
-impl<V: core::fmt::Debug> core::fmt::Debug for StampedMap<V> {
+impl<V: core::fmt::Debug, K: core::fmt::Debug> core::fmt::Debug for StampedMap<V, K> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(&self.map, f)
     }
 }
 
-impl<V> core::ops::Deref for StampedMap<V> {
-    type Target = HashMap<NodeId, V>;
+/// Equal content; the stamps are not compared (two maps filled alike by
+/// different writes are equal).
+impl<V: PartialEq, K: StampedKey> PartialEq for StampedMap<V, K> {
+    fn eq(&self, other: &Self) -> bool {
+        self.map == other.map
+    }
+}
+
+impl<V, K> core::ops::Deref for StampedMap<V, K> {
+    type Target = HashMap<K, V>;
 
     fn deref(&self) -> &Self::Target {
         &self.map
     }
 }
 
-impl<V> core::ops::DerefMut for StampedMap<V> {
+impl<V, K> core::ops::DerefMut for StampedMap<V, K> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.stamp = next_map_stamp();
         &mut self.map
     }
 }
 
-impl<'a, V> IntoIterator for &'a StampedMap<V> {
-    type Item = (&'a NodeId, &'a V);
-    type IntoIter = <&'a HashMap<NodeId, V> as IntoIterator>::IntoIter;
+impl<'a, V, K> IntoIterator for &'a StampedMap<V, K> {
+    type Item = (&'a K, &'a V);
+    type IntoIter = <&'a HashMap<K, V> as IntoIterator>::IntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
         (&self.map).into_iter()
     }
 }
 
-impl<V> StampedMap<V> {
+impl<V, K> StampedMap<V, K> {
     /// The stamp of the content: equal stamps, equal content.
     #[must_use]
     pub const fn stamp(&self) -> u64 {
         self.stamp
     }
+}
 
-    /// `HashMap::remove`; a new stamp when the node had an entry.
-    pub fn remove(&mut self, node: &NodeId) -> Option<V> {
-        let removed = self.map.remove(node);
+impl<V, K: StampedKey> StampedMap<V, K> {
+    /// `HashMap::remove`; a new stamp when the key had an entry.
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        let removed = self.map.remove(key);
         if removed.is_some() {
             self.stamp = next_map_stamp();
         }
@@ -175,23 +212,77 @@ impl<V> StampedMap<V> {
 
     /// `HashMap::retain` for a test that only reads the value; a new stamp
     /// when an entry was dropped.
-    pub fn retain<F: FnMut(&NodeId, &V) -> bool>(&mut self, mut keep: F) {
+    pub fn retain<F: FnMut(&K, &V) -> bool>(&mut self, mut keep: F) {
         let before = self.map.len();
-        self.map.retain(|node, value| keep(node, value));
+        self.map.retain(|key, value| keep(key, value));
         if self.map.len() != before {
             self.stamp = next_map_stamp();
         }
     }
 }
 
-impl<V: PartialEq> StampedMap<V> {
-    /// `HashMap::insert`; a new stamp unless the node already had this
+impl<V: PartialEq, K: StampedKey> StampedMap<V, K> {
+    /// `HashMap::insert`; a new stamp unless the key already had this
     /// value.
-    pub fn insert(&mut self, node: NodeId, value: V) -> Option<V> {
-        if self.map.get(&node) != Some(&value) {
+    pub fn insert(&mut self, key: K, value: V) -> Option<V> {
+        if self.map.get(&key) != Some(&value) {
             self.stamp = next_map_stamp();
         }
-        self.map.insert(node, value)
+        self.map.insert(key, value)
+    }
+}
+
+/// A bound value of a [`GpuValueCache`] that is no map (the light the sheens
+/// shine in), stamped as a [`StampedMap`] is: read through `Deref`, written
+/// through [`Self::set`] alone, which takes a stamp from the maps' clock
+/// when the value is another one. There is no `DerefMut`: an assignment of
+/// the plain value does not compile.
+#[derive(Clone, Default)]
+pub struct StampedValue<T> {
+    value: T,
+    stamp: u64,
+}
+
+impl<T: core::fmt::Debug> core::fmt::Debug for StampedValue<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.value, f)
+    }
+}
+
+impl<T> core::ops::Deref for StampedValue<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
+}
+
+/// Compared with a plain value: `cache.sheen_light == light`.
+impl<T: PartialEq> PartialEq<T> for StampedValue<T> {
+    fn eq(&self, other: &T) -> bool {
+        self.value == *other
+    }
+}
+
+impl<T> StampedValue<T> {
+    /// The stamp of the value: equal stamps, equal value. 0 is the default
+    /// nobody wrote.
+    #[must_use]
+    pub const fn stamp(&self) -> u64 {
+        self.stamp
+    }
+}
+
+impl<T: PartialEq> StampedValue<T> {
+    /// Writes `value`; a new stamp when it is another one. Returns whether
+    /// it is.
+    pub fn set(&mut self, value: T) -> bool {
+        let changed = self.value != value;
+        if changed {
+            self.stamp = next_map_stamp();
+        }
+        self.value = value;
+        changed
     }
 }
 
@@ -260,14 +351,15 @@ pub struct GpuValueCache {
     /// logical px from the material's top-left.
     pub sheen_current_transform_values: StampedMap<ComputedTransform3D>,
     /// The sheen's eased strength, bound as the opacity of its layer.
-    pub sheen_opacity_keys: HashMap<NodeId, OpacityKey>,
+    pub sheen_opacity_keys: StampedMap<OpacityKey>,
     /// Each sheen's eased strength now, 0 (none) to 1.
-    pub sheen_current_opacity_values: HashMap<NodeId, f32>,
+    pub sheen_current_opacity_values: StampedMap<f32>,
     /// The light the sheens shine in: the window's material light's colour
     /// and intensity, which the layer bakes into its highlight's stops (so it
     /// is in the emission fingerprint: a new colour is a new list). `None`
-    /// until the layout window sets it: the default light's.
-    pub sheen_light: Option<(azul_css::props::basic::ColorU, f32)>,
+    /// until the layout window sets it: the default light's. Written with
+    /// [`Self::set_sheen_light`] (it stamps itself as the maps do).
+    pub sheen_light: StampedValue<Option<(azul_css::props::basic::ColorU, f32)>>,
     /// BACKGROUND COLOUR keys (keyed by node ID): one per node whose solid
     /// `background` colour fades. The display list binds the node's
     /// background rect to it (`DisplayList::color_bindings`), so each frame
@@ -275,40 +367,43 @@ pub struct GpuValueCache {
     /// rect, the CPU renderer's bound colour - instead of a new list. Kept
     /// by the layout window: minted when a fade starts, released by the
     /// display-list build after it settled.
-    pub color_keys: HashMap<NodeId, ColorKey>,
+    pub color_keys: StampedMap<ColorKey>,
     /// The colour each bound background shows now.
-    pub current_color_values: HashMap<NodeId, azul_css::props::basic::ColorU>,
+    pub current_color_values: StampedMap<azul_css::props::basic::ColorU>,
     /// Animation opacity keys (keyed by node ID).
-    pub anim_opacity_keys: HashMap<NodeId, OpacityKey>,
+    pub anim_opacity_keys: StampedMap<OpacityKey>,
     /// Current animation opacity values (keyed by node ID).
-    pub anim_current_opacity_values: HashMap<NodeId, f32>,
+    pub anim_current_opacity_values: StampedMap<f32>,
     /// CSS opacity keys (keyed by node ID)
-    pub opacity_keys: HashMap<NodeId, OpacityKey>,
+    pub opacity_keys: StampedMap<OpacityKey>,
     /// Current CSS opacity values (keyed by node ID)
-    pub current_opacity_values: HashMap<NodeId, f32>,
+    pub current_opacity_values: StampedMap<f32>,
     /// Vertical scrollbar opacity keys (keyed by DOM ID and scrollable node ID)
-    pub scrollbar_v_opacity_keys: HashMap<(DomId, NodeId), OpacityKey>,
+    pub scrollbar_v_opacity_keys: StampedMap<OpacityKey, (DomId, NodeId)>,
     /// Horizontal scrollbar opacity keys (keyed by DOM ID and scrollable node ID)
-    pub scrollbar_h_opacity_keys: HashMap<(DomId, NodeId), OpacityKey>,
+    pub scrollbar_h_opacity_keys: StampedMap<OpacityKey, (DomId, NodeId)>,
     /// Current vertical scrollbar opacity values
-    pub scrollbar_v_opacity_values: HashMap<(DomId, NodeId), f32>,
+    pub scrollbar_v_opacity_values: StampedMap<f32, (DomId, NodeId)>,
     /// Current horizontal scrollbar opacity values
-    pub scrollbar_h_opacity_values: HashMap<(DomId, NodeId), f32>,
+    pub scrollbar_h_opacity_values: StampedMap<f32, (DomId, NodeId)>,
     /// The stamp of the last NOTED write ([`Self::note_value_write`]): one
     /// part of the WRITE GENERATION of the bound values, which is read with
-    /// [`Self::value_generation`] and is the newest of this and of the
-    /// transform maps' own stamps. A frame that finds the generation it last
-    /// read has nothing to read again - no copy of the values, no comparison
-    /// with the previous ones, no synchronization with the compositor.
+    /// [`Self::value_generation`] and is made of this and of the values'
+    /// own stamps. A frame that finds the generation it last read has
+    /// nothing to read again - no copy of the values, no comparison with
+    /// the previous ones, no synchronization with the compositor.
     ///
-    /// The methods of this type that write values move the generation, and
-    /// only when a value or a key really changed (a `synchronize` that finds
-    /// every value as it was leaves it alone, however many events it
-    /// reports). The twelve TRANSFORM maps move it by themselves, whoever
-    /// writes them ([`StampedMap`]). CODE THAT WRITES ONE OF THE OTHER MAPS
-    /// (opacities, colours, scrollbar opacities) DIRECTLY MUST CALL
-    /// [`Self::note_value_write`]: until every such writer does, a reader
-    /// must not skip work by it. Only equality is compared.
+    /// Every bound value of this cache moves the generation by itself,
+    /// whoever writes it, and only when a value or a key really changed (a
+    /// `synchronize` that finds every value as it was leaves it alone,
+    /// however many events it reports): the twenty-four maps are
+    /// [`StampedMap`]s and the sheens' light is a [`StampedValue`]. No
+    /// writer has to say anything; a note is for what is no value of this
+    /// cache (`clear`, a rekeying). A FIELD ADDED TO THIS STRUCT THAT A
+    /// RENDERER READS MUST BE ONE OF THE TWO TYPES and be listed in
+    /// `value_stamps` (the test `every_value_field_of_the_cache_is_stamped`
+    /// reads this struct's source and fails otherwise). Only equality is
+    /// compared.
     pub value_generation: u64,
 }
 
@@ -338,30 +433,44 @@ impl GpuValueCache {
         Self::default()
     }
 
-    /// The write generation of the bound values: the NEWEST stamp of this
-    /// cache - of its twelve transform maps, which stamp themselves
-    /// ([`StampedMap`]), and of the last write that was noted
-    /// ([`Self::note_value_write`]: the opacities, the colours, the sheen
-    /// light, a rekeying). One clock for both ([`next_map_stamp`]), so the
-    /// newest stamp is another number after any of them changed. Only
-    /// equality is meaningful.
+    /// The write generation of the bound values: ONE NUMBER MADE OF EVERY
+    /// STAMP of this cache - of its twenty-four value maps and of the
+    /// sheens' light, which stamp themselves ([`StampedMap`],
+    /// [`StampedValue`]), and of the last write that was noted
+    /// ([`Self::note_value_write`]: `clear`, a rekeying). The same number
+    /// while none of them changed, another one after any did; 0 is the
+    /// cache nobody wrote. Only equality is meaningful.
+    ///
+    /// Every stamp goes in at a place of its own (`g = g * STEP + stamp`,
+    /// `STEP` odd): ONE stamp that changes changes the number, whichever
+    /// it is and whatever it changes to; several that change at once give
+    /// the old number only if their differences cancel modulo 2^64 (as two
+    /// windows' generations can collide in
+    /// `GpuStateManager::value_generation`: not in practice). It was the
+    /// NEWEST stamp alone, which is right only while no stamp ever goes
+    /// back - and a map that is replaced whole (an empty one, a clone
+    /// taken earlier) goes back to an older stamp, which the newest of the
+    /// other maps hid: values had changed and the generation had not.
     #[must_use]
     pub const fn value_generation(&self) -> u64 {
-        let stamps = self.transform_map_stamps();
-        let mut newest = self.value_generation;
+        const STEP: u64 = 0x9E37_79B9_7F4A_7C15;
+        let stamps = self.value_stamps();
+        let mut generation = self.value_generation;
         let mut i = 0;
         while i < stamps.len() {
-            if stamps[i] > newest {
-                newest = stamps[i];
-            }
+            generation = generation.wrapping_mul(STEP).wrapping_add(stamps[i]);
             i += 1;
         }
-        newest
+        generation
     }
 
-    /// The stamps of the twelve transform maps (keys and values of the six
-    /// channels).
-    const fn transform_map_stamps(&self) -> [u64; 12] {
+    /// The stamps of every bound value of this cache: the twelve transform
+    /// maps (keys and values of the six channels), the six opacity maps, the
+    /// two colour maps, the four scrollbar-fade maps and the sheens' light.
+    /// EVERY field of the struct that holds a bound value is here (the test
+    /// `every_value_field_of_the_cache_is_stamped` compares this list with
+    /// the struct's source).
+    const fn value_stamps(&self) -> [u64; 25] {
         [
             self.transform_keys.stamp(),
             self.current_transform_values.stamp(),
@@ -375,25 +484,40 @@ impl GpuValueCache {
             self.sticky_current_transform_values.stamp(),
             self.sheen_transform_keys.stamp(),
             self.sheen_current_transform_values.stamp(),
+            self.sheen_opacity_keys.stamp(),
+            self.sheen_current_opacity_values.stamp(),
+            self.sheen_light.stamp(),
+            self.color_keys.stamp(),
+            self.current_color_values.stamp(),
+            self.anim_opacity_keys.stamp(),
+            self.anim_current_opacity_values.stamp(),
+            self.opacity_keys.stamp(),
+            self.current_opacity_values.stamp(),
+            self.scrollbar_v_opacity_keys.stamp(),
+            self.scrollbar_h_opacity_keys.stamp(),
+            self.scrollbar_v_opacity_values.stamp(),
+            self.scrollbar_h_opacity_values.stamp(),
         ]
     }
 
-    /// Notes that a bound value or the set of bound keys changed, for what
-    /// does not stamp itself: takes a stamp from the maps' clock, so
-    /// [`Self::value_generation`] is another number. For the write methods of
-    /// the opacity, colour and scrollbar maps, and for every writer of THOSE
-    /// maps that is not one of this type's methods. A transform map needs no
-    /// note: it cannot be written without restamping.
+    /// Notes that the set of bound values changed in a way no value's own
+    /// stamp shows: takes a stamp from the maps' clock, so
+    /// [`Self::value_generation`] is another number. No writer of a map or
+    /// of the light needs it: none of them can be written without
+    /// restamping. Never call it on a path that runs every frame without a
+    /// change behind it: the generation would move every frame, and every
+    /// frame that skips work on an unchanged generation would stop skipping.
     pub fn note_value_write(&mut self) {
         self.value_generation = next_map_stamp();
     }
 
     // ------------------------------------------------------------------
-    // The write methods: every write of a bound key or value goes through
-    // one of these, and each moves the write generation exactly when it
-    // changed something. (The maps are still public fields; a writer that
-    // uses them directly has to call `note_value_write` itself, see
-    // `audit/A2-gpu.md`, "Integration".)
+    // The write methods: one call per kind of write of a bound key or
+    // value, each moving the write generation exactly when it changed
+    // something. (The maps are public fields that stamp themselves, so a
+    // writer that uses them directly moves it as well: `insert`, `remove`
+    // and `retain` exactly when the content changes, anything else that
+    // takes a `&mut` to the map inside - `entry()` - always.)
     // ------------------------------------------------------------------
 
     fn transform_maps(
@@ -625,7 +749,7 @@ impl GpuValueCache {
     fn opacity_maps(
         &self,
         channel: OpacityChannel,
-    ) -> (&NodeMap<OpacityKey>, &NodeMap<f32>) {
+    ) -> (&StampedMap<OpacityKey>, &StampedMap<f32>) {
         match channel {
             OpacityChannel::Css => (&self.opacity_keys, &self.current_opacity_values),
             OpacityChannel::Animation => {
@@ -638,7 +762,7 @@ impl GpuValueCache {
     fn opacity_maps_mut(
         &mut self,
         channel: OpacityChannel,
-    ) -> (&mut NodeMap<OpacityKey>, &mut NodeMap<f32>) {
+    ) -> (&mut StampedMap<OpacityKey>, &mut StampedMap<f32>) {
         match channel {
             OpacityChannel::Css => (&mut self.opacity_keys, &mut self.current_opacity_values),
             OpacityChannel::Animation => {
@@ -690,11 +814,16 @@ impl GpuValueCache {
     /// under a new one. Returns the key.
     pub fn key_opacity(&mut self, channel: OpacityChannel, node: NodeId, value: f32) -> OpacityKey {
         let (keys, values) = self.opacity_maps_mut(channel);
-        let mut minted = false;
-        let key = *keys.entry(node).or_insert_with(|| {
-            minted = true;
-            OpacityKey::unique()
-        });
+        // Not `entry()`: that is a `&mut` to the map inside, which restamps
+        // the keys whether or not one is minted (`StampedMap`).
+        let (key, minted) = match keys.get(&node).copied() {
+            Some(key) => (key, false),
+            None => {
+                let key = OpacityKey::unique();
+                keys.insert(node, key);
+                (key, true)
+            }
+        };
         let value_changed = values.insert(node, value) != Some(value);
         self.wrote(minted || value_changed);
         key
@@ -704,12 +833,13 @@ impl GpuValueCache {
     /// its value alone. Returns the key.
     pub fn ensure_opacity_key(&mut self, channel: OpacityChannel, node: NodeId) -> OpacityKey {
         let (keys, _) = self.opacity_maps_mut(channel);
-        let mut minted = false;
-        let key = *keys.entry(node).or_insert_with(|| {
-            minted = true;
-            OpacityKey::unique()
-        });
-        self.wrote(minted);
+        // Looked up first, not `entry()` (see `ensure_transform_key`).
+        if let Some(key) = keys.get(&node).copied() {
+            return key;
+        }
+        let key = OpacityKey::unique();
+        keys.insert(node, key);
+        self.wrote(true);
         key
     }
 
@@ -765,7 +895,10 @@ impl GpuValueCache {
     fn scrollbar_opacity_maps_mut(
         &mut self,
         orientation: ScrollbarOrientation,
-    ) -> (&mut DomNodeMap<OpacityKey>, &mut DomNodeMap<f32>) {
+    ) -> (
+        &mut StampedMap<OpacityKey, (DomId, NodeId)>,
+        &mut StampedMap<f32, (DomId, NodeId)>,
+    ) {
         match orientation {
             ScrollbarOrientation::Vertical => (
                 &mut self.scrollbar_v_opacity_keys,
@@ -893,11 +1026,15 @@ impl GpuValueCache {
     /// Gives `node`'s background the colour `value` under the key it has, or
     /// under a new one. Returns the key.
     pub fn key_color(&mut self, node: NodeId, value: azul_css::props::basic::ColorU) -> ColorKey {
-        let mut minted = false;
-        let key = *self.color_keys.entry(node).or_insert_with(|| {
-            minted = true;
-            ColorKey::unique()
-        });
+        // Not `entry()`: it restamps the keys whether or not one is minted.
+        let (key, minted) = match self.color_keys.get(&node).copied() {
+            Some(key) => (key, false),
+            None => {
+                let key = ColorKey::unique();
+                self.color_keys.insert(node, key);
+                (key, true)
+            }
+        };
         let value_changed = self.current_color_values.insert(node, value) != Some(value);
         self.wrote(minted || value_changed);
         key
@@ -935,9 +1072,8 @@ impl GpuValueCache {
     /// Sets the light the sheens shine in ([`Self::sheen_light`]). Returns
     /// whether it is another one.
     pub fn set_sheen_light(&mut self, light: Option<(azul_css::props::basic::ColorU, f32)>) -> bool {
-        let changed = self.sheen_light != light;
-        self.sheen_light = light;
-        self.wrote(changed)
+        // The light stamps itself (`StampedValue::set`).
+        self.sheen_light.set(light)
     }
 
     /// Drops every key and every value.
@@ -953,8 +1089,8 @@ impl GpuValueCache {
     /// what belongs to them: a map left out keeps a stranger's value under a
     /// reused id). The one place that lists the maps for that.
     pub fn rekey_nodes(&mut self, rekey: &mut impl RekeyNodes) {
-        // `&mut *map` of a transform map: the map inside a `StampedMap`,
-        // which is restamped by handing it out.
+        // `&mut *map`: the map inside a `StampedMap`, which is restamped by
+        // handing it out.
         rekey.node_map(&mut *self.transform_keys);
         rekey.node_map(&mut *self.current_transform_values);
         rekey.node_map(&mut *self.h_transform_keys);
@@ -968,18 +1104,18 @@ impl GpuValueCache {
         rekey.node_map(&mut *self.sticky_current_transform_values);
         rekey.node_map(&mut *self.sheen_transform_keys);
         rekey.node_map(&mut *self.sheen_current_transform_values);
-        rekey.node_map(&mut self.sheen_opacity_keys);
-        rekey.node_map(&mut self.sheen_current_opacity_values);
-        rekey.node_map(&mut self.color_keys);
-        rekey.node_map(&mut self.current_color_values);
-        rekey.node_map(&mut self.anim_opacity_keys);
-        rekey.node_map(&mut self.anim_current_opacity_values);
-        rekey.node_map(&mut self.opacity_keys);
-        rekey.node_map(&mut self.current_opacity_values);
-        rekey.dom_node_map(&mut self.scrollbar_v_opacity_keys);
-        rekey.dom_node_map(&mut self.scrollbar_h_opacity_keys);
-        rekey.dom_node_map(&mut self.scrollbar_v_opacity_values);
-        rekey.dom_node_map(&mut self.scrollbar_h_opacity_values);
+        rekey.node_map(&mut *self.sheen_opacity_keys);
+        rekey.node_map(&mut *self.sheen_current_opacity_values);
+        rekey.node_map(&mut *self.color_keys);
+        rekey.node_map(&mut *self.current_color_values);
+        rekey.node_map(&mut *self.anim_opacity_keys);
+        rekey.node_map(&mut *self.anim_current_opacity_values);
+        rekey.node_map(&mut *self.opacity_keys);
+        rekey.node_map(&mut *self.current_opacity_values);
+        rekey.dom_node_map(&mut *self.scrollbar_v_opacity_keys);
+        rekey.dom_node_map(&mut *self.scrollbar_h_opacity_keys);
+        rekey.dom_node_map(&mut *self.scrollbar_v_opacity_values);
+        rekey.dom_node_map(&mut *self.scrollbar_h_opacity_values);
         self.note_value_write();
     }
 
@@ -1220,7 +1356,7 @@ impl GpuValueCache {
             entries.push((16, n.index() as u64, k.id as u64));
         }
         // ...in the colour of the window's light, baked into its stops.
-        if let Some((c, intensity)) = self.sheen_light {
+        if let Some((c, intensity)) = *self.sheen_light {
             let rgba = u64::from(u32::from_be_bytes([c.r, c.g, c.b, c.a]));
             entries.push((15, rgba, u64::from(intensity.to_bits())));
         }
@@ -2613,7 +2749,7 @@ mod audit_a2_gpu_tests {
     }
 }
 
-/// Audit A6-05: the stamps of the transform maps.
+/// Audit A6-05 and A6-22: the stamps of the value maps and the write generation.
 #[cfg(test)]
 mod audit_a6_tests {
     use super::*;
@@ -2701,16 +2837,24 @@ mod audit_a6_tests {
     }
 
     /// ONE clock (the merge of A3-core's write generation, A2-gpu's write methods and the
-    /// stamps): the write generation is the newest stamp of the cache. A transform map
+    /// stamps): the write generation is made of every stamp of the cache. A transform map
     /// written directly - no write method, no `note_value_write` - moves it; a write that
-    /// changes nothing moves neither it nor the stamps; a noted write (an opacity) moves the
-    /// generation and leaves the frames' stamps alone; a scrollbar thumb moves the generation
-    /// and not the frames' stamps either (its maps are stamped, and are no frame's).
+    /// changes nothing moves neither it nor the stamps; a noted write moves the generation
+    /// and leaves the frames' stamps alone; a scrollbar thumb moves the generation and not
+    /// the frames' stamps either (its maps are stamped, and are no frame's).
+    ///
+    /// A6-23, the last step: a map REPLACED by a clone taken earlier goes back to the
+    /// clone's older stamp. Keys {a}: stamp s1; a second key: s2; an opacity written after
+    /// it: s3, the newest. The key map put back to its clone: s1 again, s3 still the newest.
+    /// The newest stamp alone answered s3 before and after: the keys had changed and the
+    /// generation had not.
+    ///
     /// Mutations: `value_generation()` answering the noted stamp only (the field) fails the
     /// direct write; `key_transform` through `entry()` again fails "the same value" (the key
-    /// map restamps); a thumb map among `transform_stamps` fails the last step.
+    /// map restamps); a thumb map among `transform_stamps` fails the step before the last;
+    /// `value_generation()` as the maximum of the stamps fails "a map put back".
     #[test]
-    fn the_write_generation_is_the_newest_stamp_of_the_cache() {
+    fn the_write_generation_is_made_of_every_stamp_of_the_cache() {
         let node = NodeId::new(9);
         let mut cache = GpuValueCache::default();
         assert_eq!(cache.value_generation(), 0);
@@ -2749,5 +2893,298 @@ mod audit_a6_tests {
         let before = cache.value_generation();
         cache.clear();
         assert!(cache.value_generation() != before && cache.value_generation() != 0);
+
+        // A map put back to an earlier clone of itself: an older stamp, and not the newest
+        // of the cache either before or after.
+        let (a, b) = (NodeId::new(1), NodeId::new(2));
+        cache.opacity_keys.insert(a, OpacityKey::unique());
+        let earlier = cache.opacity_keys.clone();
+        cache.opacity_keys.insert(b, OpacityKey::unique());
+        cache.current_opacity_values.insert(a, 0.5);
+        let newest = cache.current_opacity_values.stamp();
+        assert!(earlier.stamp() < cache.opacity_keys.stamp() && cache.opacity_keys.stamp() < newest);
+        let before = cache.value_generation();
+        cache.opacity_keys = earlier;
+        assert!(!cache.opacity_keys.contains_key(&b), "harness: the keys did change");
+        assert_eq!(
+            cache.value_stamps().into_iter().max(),
+            Some(newest),
+            "harness: the newest stamp is the one it was"
+        );
+        assert_ne!(cache.value_generation(), before, "a map put back is another generation");
+        // And a map emptied by replacing it.
+        let before = cache.value_generation();
+        cache.opacity_keys = StampedMap::default();
+        assert_ne!(cache.value_generation(), before, "a map replaced by an empty one");
+    }
+
+    /// The fields of `GpuValueCache` as its source declares them, in order: (name, type).
+    /// Comment lines are skipped and a declaration ends at a comma outside every bracket, so
+    /// a declaration that is wrapped over two lines is still one.
+    fn cache_fields() -> alloc::vec::Vec<(alloc::string::String, alloc::string::String)> {
+        let source = include_str!("gpu.rs");
+        let start = source
+            .find("pub struct GpuValueCache {")
+            .expect("the struct is in this file");
+        let body = &source[start..];
+        let body = &body[..body.find("\n}\n").expect("the struct's closing brace")];
+        let mut fields: alloc::vec::Vec<(alloc::string::String, alloc::string::String)> =
+            alloc::vec::Vec::new();
+        let mut depth = 0_i32;
+        let mut current = alloc::string::String::new();
+        // The first line is `pub struct GpuValueCache {`.
+        for line in body.lines().skip(1) {
+            let line = line.trim();
+            if line.starts_with("//") || line.starts_with("#[") {
+                continue;
+            }
+            for ch in line.chars() {
+                match ch {
+                    '<' | '(' | '[' => depth += 1,
+                    '>' | ')' | ']' => depth -= 1,
+                    _ => {}
+                }
+                if ch == ',' && depth == 0 {
+                    let declaration = core::mem::take(&mut current);
+                    let (head, ty) = declaration
+                        .split_once(':')
+                        .expect("a field is `name: Type`");
+                    let name = head.split_whitespace().last().expect("a field has a name");
+                    fields.push((name.into(), ty.trim().into()));
+                } else {
+                    current.push(ch);
+                }
+            }
+            current.push(' ');
+        }
+        assert!(current.trim().is_empty(), "harness: an unfinished declaration: {current:?}");
+        assert_eq!(depth, 0, "harness: unbalanced brackets in the struct");
+        fields
+    }
+
+    /// The fields of the cache that hold NO bound value, and why each may be a plain type:
+    /// `css_transform_sizes` is the size a CSS matrix was resolved against (no renderer
+    /// reads it; a matrix that changes with it restamps its own map), `value_generation` is
+    /// the noted stamp itself.
+    const NOT_A_BOUND_VALUE: [&str; 2] = ["css_transform_sizes", "value_generation"];
+
+    /// A6-22. The guarantee "a frame that finds the generation it last read has no value to
+    /// read again" is only as wide as the list of stamps the generation is made of. This
+    /// walks the struct's own source: every field is a `StampedMap` or a `StampedValue` AND
+    /// is in `value_stamps`, or it is one of the two named fields that hold no bound value.
+    /// A map added later as a plain `HashMap` (written by anybody, seen by no reader of the
+    /// generation: stale pixels until something else moves it) fails here by name.
+    ///
+    /// Mutations: a field's type back to `HashMap<NodeId, f32>` fails "is not stamped"; a
+    /// line removed from `value_stamps` fails "is not in `value_stamps`"; a new field
+    /// `pub blur_radii: HashMap<NodeId, f32>` fails "is not stamped".
+    #[test]
+    fn every_value_field_of_the_cache_is_stamped() {
+        let source = include_str!("gpu.rs");
+        let list = &source[source
+            .find("const fn value_stamps(&self)")
+            .expect("the list of stamps is in this file")..];
+        let list = &list[..list.find("\n    }\n").expect("the end of the list")];
+
+        let fields = cache_fields();
+        assert_eq!(fields.len(), 27, "harness: 24 maps, the light, the sizes, the noted stamp");
+        let mut stamped = 0_usize;
+        for (name, ty) in &fields {
+            if ty.starts_with("StampedMap<") || ty.starts_with("StampedValue<") {
+                assert!(
+                    list.contains(&format!("self.{name}.stamp(),")),
+                    "`{name}` is not in `value_stamps`: a write of it would not move the generation"
+                );
+                stamped += 1;
+            } else {
+                assert!(
+                    NOT_A_BOUND_VALUE.contains(&name.as_str()),
+                    "`{name}: {ty}` is not stamped: a bound value of `GpuValueCache` is a \
+                     `StampedMap` or a `StampedValue` and is listed in `value_stamps`"
+                );
+            }
+        }
+        assert_eq!(stamped, 25, "24 maps and the light");
+        assert_eq!(
+            list.matches(".stamp(),").count(),
+            stamped,
+            "`value_stamps` lists each stamped field once and nothing else"
+        );
+        assert!(list.contains("-> [u64; 25]"));
+        // The cache nobody wrote: every stamp is 0, and so is the generation.
+        let cache = GpuValueCache::default();
+        assert_eq!(cache.value_stamps(), [0; 25]);
+        assert_eq!(cache.value_generation(), 0, "the cache nobody wrote");
+    }
+
+    /// The five steps of one value map, written DIRECTLY (the public field: no write method
+    /// and no `note_value_write`): a new entry moves the generation, the same value again
+    /// does not, reading does not, another value does, a `retain` that drops nothing and a
+    /// `remove` of a key that is not there do not, a `remove` of the entry does.
+    macro_rules! direct_writes_of {
+        ($cache:ident, $walked:ident, $field:ident, $key:expr, $missing:expr, $a:expr, $b:expr) => {{
+            let field = stringify!($field);
+            let (key, missing, a, b) = ($key, $missing, $a, $b);
+            assert!(a != b && key != missing, "harness: two values, two keys");
+            $walked.push(field);
+
+            let before = $cache.value_generation();
+            assert_eq!($cache.$field.insert(key, a), None);
+            let written = $cache.value_generation();
+            assert_ne!(written, before, "{}: a new entry", field);
+
+            assert_eq!($cache.$field.insert(key, a), Some(a));
+            assert_eq!($cache.value_generation(), written, "{}: the same value again", field);
+
+            // Every way the renderers, the display-list builder and the tests read a map.
+            assert_eq!($cache.$field.get(&key), Some(&a));
+            assert_eq!($cache.$field.get(&missing), None);
+            assert_eq!($cache.$field[&key], a);
+            assert!($cache.$field.contains_key(&key) && !$cache.$field.is_empty());
+            assert_eq!($cache.$field.len(), 1);
+            assert_eq!($cache.$field.keys().count() + $cache.$field.values().count(), 2);
+            assert_eq!($cache.$field.iter().count(), 1);
+            for (k, v) in &$cache.$field {
+                assert_eq!((*k, *v), (key, a));
+            }
+            let copy = $cache.$field.clone();
+            assert!(copy == $cache.$field && copy.stamp() == $cache.$field.stamp());
+            assert_eq!($cache.value_generation(), written, "{}: a read", field);
+
+            assert_eq!($cache.$field.insert(key, b), Some(a));
+            let changed = $cache.value_generation();
+            assert_ne!(changed, written, "{}: another value", field);
+
+            $cache.$field.retain(|_, _| true);
+            assert_eq!($cache.$field.remove(&missing), None);
+            assert_eq!($cache.value_generation(), changed, "{}: nothing dropped, nothing removed", field);
+
+            assert_eq!($cache.$field.remove(&key), Some(b));
+            let removed = $cache.value_generation();
+            assert_ne!(removed, changed, "{}: the entry is gone", field);
+            assert_eq!($cache.$field.remove(&key), None);
+            assert_eq!($cache.value_generation(), removed, "{}: it was gone already", field);
+
+            // A `retain` that drops the entry.
+            let _ = $cache.$field.insert(key, a);
+            let refilled = $cache.value_generation();
+            $cache.$field.retain(|_, _| false);
+            assert_ne!($cache.value_generation(), refilled, "{}: retained away", field);
+            assert!($cache.$field.is_empty());
+        }};
+    }
+
+    /// A6-22. Every value map of the cache moves the write generation by itself when it is
+    /// written directly, exactly when its content changes; before, twelve of the twenty-four
+    /// (opacities, colours, scrollbar fades) and the sheens' light were plain, and a writer
+    /// that forgot `note_value_write()` changed a value no reader of the generation saw
+    /// (`tick_animations` released a faded colour's key and value that way).
+    ///
+    /// The rows are compared with the struct's source, so a map added later has to get one.
+    ///
+    /// Mutations: a field's type back to a plain `HashMap` fails its row at "a new entry"
+    /// (and does not compile at `.stamp()`); `StampedMap::insert` restamping always fails
+    /// "the same value again"; `StampedMap::remove` restamping always fails "nothing
+    /// removed"; `Deref` restamping (a `deref` that took a stamp) fails "a read"; a field
+    /// left out of `value_stamps` fails its row at "a new entry".
+    #[test]
+    fn a_direct_write_of_any_value_map_moves_the_generation_exactly_when_it_changes() {
+        use azul_css::props::basic::ColorU;
+
+        let (node, other) = (NodeId::new(4), NodeId::new(5));
+        let (bar, other_bar) = ((DomId::ROOT_ID, node), (DomId { inner: 7 }, node));
+        let (red, blue) = (ColorU::new(255, 0, 0, 255), ColorU::new(0, 0, 255, 255));
+        let mut cache = GpuValueCache::default();
+        let mut walked: alloc::vec::Vec<&str> = alloc::vec::Vec::new();
+        let t = TransformKey::unique;
+        let o = OpacityKey::unique;
+
+        direct_writes_of!(cache, walked, transform_keys, node, other, t(), t());
+        direct_writes_of!(cache, walked, current_transform_values, node, other, tx(1.0), tx(2.0));
+        direct_writes_of!(cache, walked, h_transform_keys, node, other, t(), t());
+        direct_writes_of!(cache, walked, h_current_transform_values, node, other, tx(1.0), tx(2.0));
+        direct_writes_of!(cache, walked, css_transform_keys, node, other, t(), t());
+        direct_writes_of!(cache, walked, css_current_transform_values, node, other, tx(1.0), tx(2.0));
+        direct_writes_of!(cache, walked, anim_transform_keys, node, other, t(), t());
+        direct_writes_of!(cache, walked, anim_current_transform_values, node, other, tx(1.0), tx(2.0));
+        direct_writes_of!(cache, walked, sticky_transform_keys, node, other, t(), t());
+        direct_writes_of!(cache, walked, sticky_current_transform_values, node, other, tx(1.0), tx(2.0));
+        direct_writes_of!(cache, walked, sheen_transform_keys, node, other, t(), t());
+        direct_writes_of!(cache, walked, sheen_current_transform_values, node, other, tx(1.0), tx(2.0));
+        direct_writes_of!(cache, walked, sheen_opacity_keys, node, other, o(), o());
+        direct_writes_of!(cache, walked, sheen_current_opacity_values, node, other, 0.25_f32, 0.5_f32);
+        direct_writes_of!(cache, walked, color_keys, node, other, ColorKey::unique(), ColorKey::unique());
+        direct_writes_of!(cache, walked, current_color_values, node, other, red, blue);
+        direct_writes_of!(cache, walked, anim_opacity_keys, node, other, o(), o());
+        direct_writes_of!(cache, walked, anim_current_opacity_values, node, other, 0.25_f32, 0.5_f32);
+        direct_writes_of!(cache, walked, opacity_keys, node, other, o(), o());
+        direct_writes_of!(cache, walked, current_opacity_values, node, other, 0.25_f32, 0.5_f32);
+        direct_writes_of!(cache, walked, scrollbar_v_opacity_keys, bar, other_bar, o(), o());
+        direct_writes_of!(cache, walked, scrollbar_h_opacity_keys, bar, other_bar, o(), o());
+        direct_writes_of!(cache, walked, scrollbar_v_opacity_values, bar, other_bar, 0.25_f32, 0.5_f32);
+        direct_writes_of!(cache, walked, scrollbar_h_opacity_values, bar, other_bar, 0.25_f32, 0.5_f32);
+
+        // Every map of the struct had its row.
+        let maps: alloc::vec::Vec<alloc::string::String> = cache_fields()
+            .into_iter()
+            .filter(|(_, ty)| ty.starts_with("StampedMap<"))
+            .map(|(name, _)| name)
+            .collect();
+        assert_eq!(maps.len(), 24);
+        for name in &maps {
+            assert!(walked.contains(&name.as_str()), "the map `{name}` has no row in this test");
+        }
+        assert_eq!(walked.len(), maps.len());
+
+        // The sheens' light, the one bound value that is no map: the same steps.
+        let before = cache.value_generation();
+        assert!(cache.sheen_light.set(Some((red, 0.5))));
+        let lit = cache.value_generation();
+        assert_ne!(lit, before, "the light: a new value");
+        assert!(!cache.sheen_light.set(Some((red, 0.5))));
+        assert!(!cache.set_sheen_light(Some((red, 0.5))));
+        assert_eq!(cache.value_generation(), lit, "the light: the same value again");
+        assert_eq!(*cache.sheen_light, Some((red, 0.5)));
+        assert!(cache.sheen_light == Some((red, 0.5)) && cache.sheen_light.is_some());
+        assert_eq!(cache.sheen_light.map_or(0.0, |(_, intensity)| intensity), 0.5);
+        assert_eq!(cache.value_generation(), lit, "the light: a read");
+        assert!(cache.set_sheen_light(Some((blue, 0.5))));
+        let relit = cache.value_generation();
+        assert_ne!(relit, lit, "the light: another colour");
+        assert!(cache.sheen_light.set(None));
+        assert_ne!(cache.value_generation(), relit, "the light: gone");
+        assert!(!cache.sheen_light.set(None));
+    }
+
+    /// A6-22. The write methods that key a node (`key_opacity`, `ensure_opacity_key`,
+    /// `key_color`) looked the key up with `entry()`. On a stamped map that is a `&mut` to
+    /// the map inside: the keys were restamped on every call, also for a node that had its
+    /// key - once per animated node per tick, with nothing changed.
+    ///
+    /// Mutation: `entry()` back in any of the three fails its line (the stamp of the key map
+    /// moves).
+    #[test]
+    fn keying_a_node_that_has_its_key_restamps_nothing() {
+        let node = NodeId::new(2);
+        let red = azul_css::props::basic::ColorU::new(255, 0, 0, 255);
+        let mut cache = GpuValueCache::default();
+        for channel in [OpacityChannel::Css, OpacityChannel::Animation, OpacityChannel::Sheen] {
+            let key = cache.key_opacity(channel, node, 0.5);
+            let keyed = cache.value_stamps();
+            assert_eq!(cache.key_opacity(channel, node, 0.5), key);
+            assert_eq!(cache.ensure_opacity_key(channel, node), key);
+            assert_eq!(cache.value_stamps(), keyed, "{channel:?}: the key and the value it had");
+            assert_eq!(cache.key_opacity(channel, node, 0.75), key);
+            let faded = cache.value_stamps();
+            assert_eq!(
+                faded.iter().zip(&keyed).filter(|(now, then)| now != then).count(),
+                1,
+                "{channel:?}: the value map alone was restamped"
+            );
+        }
+        let key = cache.key_color(node, red);
+        let keyed = cache.value_stamps();
+        assert_eq!(cache.key_color(node, red), key);
+        assert_eq!(cache.value_stamps(), keyed, "the colour key and the colour it had");
     }
 }

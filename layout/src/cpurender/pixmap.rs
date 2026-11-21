@@ -101,42 +101,43 @@ pub(crate) fn for_each_clipped_pixel(
     clip: Option<(i32, i32, i32, i32)>,
     mut apply: impl FnMut(&mut [u8], [u8; 4]),
 ) {
-    let sw = src.width as i32;
-    let sh = src.height as i32;
-    let dw = dst.width as i32;
-    let dh = dst.height as i32;
-
-    for sy in 0..sh {
-        // saturating: px_y/px_x are caller-supplied device offsets that a large-but-legal
-        // CSS transform can push to ~i32::MAX; a plain `+` overflows. A saturated result
-        // fails the bounds check below and is skipped, which is the intended outcome.
-        let dy = px_y.saturating_add(sy);
-        if dy < 0 || dy >= dh {
+    // The rows and columns of `src` that land inside `dst` and the clip, found once; a row is
+    // then one slice of each buffer. The loops used to visit every pixel of `src` and test it
+    // against the target, the clip and both buffers' lengths: a layer of the window's size
+    // composited under a small clip walked the whole layer (A1-55).
+    let (dw, dh) = (dst.width as i32, dst.height as i32);
+    let (x0, y0, x1, y1) = clip.map_or((0, 0, dw, dh), |(cx0, cy0, cx1, cy1)| {
+        (cx0.max(0), cy0.max(0), cx1.min(dw), cy1.min(dh))
+    });
+    // The `i` in `0..len` with `lo <= at + i < hi`.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // both are in 0..=len
+    let landing_between = |len: u32, at: i32, lo: i32, hi: i32| {
+        let first = (i64::from(lo) - i64::from(at)).max(0);
+        let end = i64::from(len).min(i64::from(hi) - i64::from(at));
+        (end > first).then_some((first as usize, end as usize))
+    };
+    let Some((cols, rows)) =
+        landing_between(src.width, px_x, x0, x1).zip(landing_between(src.height, px_y, y0, y1))
+    else {
+        return;
+    };
+    let (sw, dw) = (src.width as usize, dst.width as usize);
+    let from: &[u8] = &src.data;
+    let to: &mut [u8] = &mut dst.data;
+    for sy in rows.0..rows.1 {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // inside `dst`
+        let (dy, dx) = (
+            (i64::from(px_y) + sy as i64) as usize,
+            (i64::from(px_x) + cols.0 as i64) as usize,
+        );
+        let si = (sy * sw + cols.0) * 4;
+        let di = (dy * dw + dx) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(from.len(), si)).min(whole_pixels(to.len(), di));
+        if n == 0 {
             continue;
         }
-        if let Some((_, cy0, _, cy1)) = clip {
-            if dy < cy0 || dy >= cy1 {
-                continue;
-            }
-        }
-        for sx in 0..sw {
-            let dx = px_x.saturating_add(sx);
-            if dx < 0 || dx >= dw {
-                continue;
-            }
-            if let Some((cx0, _, cx1, _)) = clip {
-                if dx < cx0 || dx >= cx1 {
-                    continue;
-                }
-            }
-            let si = ((sy * sw + sx) * 4) as usize;
-            let di = ((dy * dw + dx) * 4) as usize;
-            if si + 3 >= src.data.len() || di + 3 >= dst.data.len() {
-                continue;
-            }
-
-            let px = [src.data[si], src.data[si + 1], src.data[si + 2], src.data[si + 3]];
-            apply(&mut dst.data[di..di + 4], px);
+        for (below, layer) in to[di..di + n * 4].chunks_exact_mut(4).zip(from[si..si + n * 4].chunks_exact(4)) {
+            apply(below, [layer[0], layer[1], layer[2], layer[3]]);
         }
     }
 }
@@ -877,24 +878,16 @@ impl AzulPixmap {
         let old_h = self.height as usize;
         let new_w = new_width as usize;
         let new_h = new_height as usize;
-        let mut new_data = vec![fill_a; new_w * new_h * 4];
-
-        // Fill entire buffer with fill color first (covers right + bottom strips)
-        for chunk in new_data.chunks_exact_mut(4) {
-            chunk[0] = fill_r;
-            chunk[1] = fill_g;
-            chunk[2] = fill_b;
-            chunk[3] = fill_a;
-        }
-
-        // Copy old rows into top-left corner
+        // The old rows in the top-left corner, the right and bottom strips in the fill colour.
         let old_stride = old_w * 4;
         let new_stride = new_w * 4;
-        for row in 0..old_h {
-            let src = row * old_stride;
-            let dst = row * new_stride;
-            new_data[dst..dst + old_stride].copy_from_slice(&self.data[src..src + old_stride]);
-        }
+        let new_data = resized_buffer(
+            &self.data,
+            old_stride,
+            (old_h, old_stride),
+            (new_h, new_stride),
+            [fill_r, fill_g, fill_b, fill_a],
+        );
 
         self.data = new_data.into();
         self.width = new_width;
@@ -924,25 +917,14 @@ impl AzulPixmap {
         let new_stride = new_w * 4;
         let old_stride = old_w * 4;
 
-        let mut new_data = vec![0u8; new_w * new_h * 4];
-
-        // Fill entire buffer with fill color
-        for chunk in new_data.chunks_exact_mut(4) {
-            chunk[0] = fill_r;
-            chunk[1] = fill_g;
-            chunk[2] = fill_b;
-            chunk[3] = fill_a;
-        }
-
-        // Copy overlapping region from old to new
-        let copy_rows = old_h.min(new_h);
-        let copy_cols_bytes = old_stride.min(new_stride);
-        for row in 0..copy_rows {
-            let src = row * old_stride;
-            let dst = row * new_stride;
-            new_data[dst..dst + copy_cols_bytes]
-                .copy_from_slice(&self.data[src..src + copy_cols_bytes]);
-        }
+        // The overlapping region from the old buffer, the rest in the fill colour.
+        let new_data = resized_buffer(
+            &self.data,
+            old_stride,
+            (old_h.min(new_h), old_stride.min(new_stride)),
+            (new_h, new_stride),
+            [fill_r, fill_g, fill_b, fill_a],
+        );
 
         self.data = new_data.into();
         self.width = new_width;
@@ -1026,6 +1008,38 @@ impl AzulPixmap {
             height,
         })
     }
+}
+
+/// A buffer of `new.0` rows of `new.1` bytes: its first `kept.0` rows start with the first
+/// `kept.1` bytes of the same row of `old` (rows of `old_stride` bytes), and every other pixel
+/// is `fill`. Each byte is written once: the resizes filled the whole new buffer with the
+/// colour (after `vec![..]` had written it, too) and then copied the old pixels over that -
+/// two to three passes over a frame of 22 MB on every step of a live resize (A1-56).
+fn resized_buffer(
+    old: &[u8],
+    old_stride: usize,
+    kept: (usize, usize),
+    new: (usize, usize),
+    fill: [u8; 4],
+) -> Vec<u8> {
+    let (rows, stride) = new;
+    // Zeroed by the allocator: nothing more is written for a transparent fill.
+    let mut data = vec![0u8; rows * stride];
+    if stride == 0 {
+        return data;
+    }
+    for (row, line) in data.chunks_exact_mut(stride).enumerate() {
+        let from_old = if row < kept.0 { kept.1.min(stride) } else { 0 };
+        if from_old > 0 {
+            line[..from_old].copy_from_slice(&old[row * old_stride..row * old_stride + from_old]);
+        }
+        if fill != [0; 4] {
+            for px in line[from_old..].chunks_exact_mut(4) {
+                px.copy_from_slice(&fill);
+            }
+        }
+    }
+    data
 }
 
 // ============================================================================
@@ -1709,46 +1723,53 @@ pub fn blit_buffer_sub(
         crate::cpu_counters::Counter::PxBlitted,
         span_on_target(x_end.saturating_sub(sx), dx, dw) * span_on_target(y_end.saturating_sub(sy), dy, dh),
     );
-
-    for py in sy..y_end {
-        let ty = dy.saturating_add((py - sy) as i32);
-        if ty < 0 || ty >= dh {
+    // The loops run over what lands, row by row through one slice of each buffer: every
+    // pixel of the region was tested against the target and both buffers' lengths before.
+    let Some((cols, rows)) = landing(x_end.saturating_sub(sx), dx, dw).zip(landing(y_end.saturating_sub(sy), dy, dh)) else {
+        return;
+    };
+    let data: &mut [u8] = &mut dst.data;
+    for j in rows.0..rows.1 {
+        let (py, ty) = (sy as usize + j, (i64::from(dy) + j as i64) as usize);
+        let si = (py * src_w as usize + sx as usize + cols.0) * 4;
+        let di = (ty * dw as usize + (i64::from(dx) + cols.0 as i64) as usize) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(src.len(), si)).min(whole_pixels(data.len(), di));
+        if n == 0 {
             continue;
         }
-        for px in sx..x_end {
-            let tx = dx.saturating_add((px - sx) as i32);
-            if tx < 0 || tx >= dw {
-                continue;
-            }
-            let si = ((py * src_w + px) * 4) as usize;
-            let di = ((ty as u32 * dst.width + tx as u32) * 4) as usize;
-            if si + 3 >= src.len() || di + 3 >= dst.data.len() {
-                continue;
-            }
-            let sa = u32::from(src[si + 3]);
+        let (from, to) = (&src[si..si + n * 4], &mut data[di..di + n * 4]);
+        for (d, q) in to.chunks_exact_mut(4).zip(from.chunks_exact(4)) {
+            let sa = u32::from(q[3]);
             if sa == 0 {
                 continue;
             }
             if sa == 255 {
-                dst.data[di] = src[si];
-                dst.data[di + 1] = src[si + 1];
-                dst.data[di + 2] = src[si + 2];
-                dst.data[di + 3] = 255;
+                d.copy_from_slice(q);
             } else {
                 let inv_sa = 255 - sa;
-                dst.data[di] =
-                    ((u32::from(src[si]) + u32::from(dst.data[di]) * inv_sa / 255).min(255)) as u8;
-                dst.data[di + 1] = ((u32::from(src[si + 1])
-                    + u32::from(dst.data[di + 1]) * inv_sa / 255)
-                    .min(255)) as u8;
-                dst.data[di + 2] = ((u32::from(src[si + 2])
-                    + u32::from(dst.data[di + 2]) * inv_sa / 255)
-                    .min(255)) as u8;
-                dst.data[di + 3] =
-                    ((sa + u32::from(dst.data[di + 3]) * inv_sa / 255).min(255)) as u8;
+                d[0] = (u32::from(q[0]) + u32::from(d[0]) * inv_sa / 255).min(255) as u8;
+                d[1] = (u32::from(q[1]) + u32::from(d[1]) * inv_sa / 255).min(255) as u8;
+                d[2] = (u32::from(q[2]) + u32::from(d[2]) * inv_sa / 255).min(255) as u8;
+                d[3] = (sa + u32::from(d[3]) * inv_sa / 255).min(255) as u8;
             }
         }
     }
+}
+
+/// The `i` in `0..len` with `0 <= at + i < limit`, as `(first, end)`: the part of `len` pixels
+/// placed at `at` that lands on an axis `limit` px long ([`span_on_target`] counts them).
+/// `None` when none does. 10 px at -3 on 100: `(3, 10)`; at 95: `(0, 5)`.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // both are in 0..=len
+fn landing(len: u32, at: i32, limit: i32) -> Option<(usize, usize)> {
+    let lo = (-i64::from(at)).max(0);
+    let hi = i64::from(len).min(i64::from(limit) - i64::from(at));
+    (hi > lo).then_some((lo as usize, hi as usize))
+}
+
+/// How many whole RGBA pixels a buffer of `len` bytes holds from byte `at` on: the pixels `i`
+/// with `at + 4 i + 3 < len`, the test the per-pixel loops made before each pixel.
+const fn whole_pixels(len: usize, at: usize) -> usize {
+    len.saturating_sub(at) / 4
 }
 
 /// How many of the `len` pixels that start at `at` on an axis of a target `limit` px long land
@@ -1789,53 +1810,71 @@ pub fn blit_tinted_coverage(
         crate::cpu_counters::Counter::PxBlitted,
         span_on_target(x_end.saturating_sub(sx), dx, dw) * span_on_target(y_end.saturating_sub(sy), dy, dh),
     );
-    let (cr, cg, cb, ca) = (
-        u32::from(color.r),
-        u32::from(color.g),
-        u32::from(color.b),
-        u32::from(color.a),
-    );
-    for py in sy..y_end {
-        let ty = dy.saturating_add((py - sy) as i32);
-        if ty < 0 || ty >= dh {
-            continue;
+    let Some((cols, rows)) = landing(x_end.saturating_sub(sx), dx, dw).zip(landing(y_end.saturating_sub(sy), dy, dh)) else {
+        return;
+    };
+    TINT_TABLE.with(|table| {
+        // The premultiplied source of every coverage in this colour: the coverage times the
+        // colour's alpha, and the colour scaled by that. A frame tints the halos of its labels
+        // with one colour or two, so the table of the colour before is nearly always this
+        // one's; each pixel worked the four products and divisions out again.
+        let mut table = table.borrow_mut();
+        let tint = [color.r, color.g, color.b, color.a];
+        if table.0 != Some(tint) {
+            let (cr, cg, cb, ca) = (
+                u32::from(color.r),
+                u32::from(color.g),
+                u32::from(color.b),
+                u32::from(color.a),
+            );
+            for (cov, entry) in table.1.iter_mut().enumerate() {
+                let sa = (cov as u32 * ca + 127) / 255;
+                *entry = [
+                    ((cr * sa + 127) / 255) as u8,
+                    ((cg * sa + 127) / 255) as u8,
+                    ((cb * sa + 127) / 255) as u8,
+                    sa as u8,
+                ];
+            }
+            table.0 = Some(tint);
         }
-        let row = &coverage[(py * cov_w) as usize..((py + 1) * cov_w) as usize];
-        for px in sx..x_end {
-            let cov = u32::from(row[px as usize]);
-            if cov == 0 {
+        let sources = &table.1;
+        let data: &mut [u8] = &mut dst.data;
+        for j in rows.0..rows.1 {
+            let (py, ty) = (sy as usize + j, (i64::from(dy) + j as i64) as usize);
+            let row = &coverage[py * cov_w as usize..(py + 1) * cov_w as usize];
+            let di = (ty * dw as usize + (i64::from(dx) + cols.0 as i64) as usize) * 4;
+            let n = (cols.1 - cols.0).min(whole_pixels(data.len(), di));
+            if n == 0 {
                 continue;
             }
-            let tx = dx.saturating_add((px - sx) as i32);
-            if tx < 0 || tx >= dw {
-                continue;
-            }
-            // The premultiplied source: the coverage times the colour's alpha, and the colour
-            // scaled by that.
-            let sa = (cov * ca + 127) / 255;
-            if sa == 0 {
-                continue;
-            }
-            let di = ((ty as u32 * dst.width + tx as u32) * 4) as usize;
-            if di + 3 >= dst.data.len() {
-                continue;
-            }
-            let (sr, sg, sb) = ((cr * sa + 127) / 255, (cg * sa + 127) / 255, (cb * sa + 127) / 255);
-            if sa == 255 {
-                dst.data[di] = sr as u8;
-                dst.data[di + 1] = sg as u8;
-                dst.data[di + 2] = sb as u8;
-                dst.data[di + 3] = 255;
-            } else {
-                let inv = 255 - sa;
-                let over = |s: u32, d: u8| (s + u32::from(d) * inv / 255).min(255) as u8;
-                dst.data[di] = over(sr, dst.data[di]);
-                dst.data[di + 1] = over(sg, dst.data[di + 1]);
-                dst.data[di + 2] = over(sb, dst.data[di + 2]);
-                dst.data[di + 3] = over(sa, dst.data[di + 3]);
+            let from = &row[sx as usize + cols.0..sx as usize + cols.0 + n];
+            for (d, cov) in data[di..di + n * 4].chunks_exact_mut(4).zip(from) {
+                let source = sources[usize::from(*cov)];
+                let sa = u32::from(source[3]);
+                if sa == 0 {
+                    continue;
+                }
+                if sa == 255 {
+                    d.copy_from_slice(&source);
+                } else {
+                    let inv = 255 - sa;
+                    let over = |s: u8, d: u8| (u32::from(s) + u32::from(d) * inv / 255).min(255) as u8;
+                    d[0] = over(source[0], d[0]);
+                    d[1] = over(source[1], d[1]);
+                    d[2] = over(source[2], d[2]);
+                    d[3] = over(source[3], d[3]);
+                }
             }
         }
-    }
+    });
+}
+
+std::thread_local! {
+    /// [`blit_tinted_coverage`]: the colour last tinted with on this thread (`r, g, b, a`), and
+    /// the premultiplied pixel it gives each coverage 0..=255.
+    static TINT_TABLE: core::cell::RefCell<(Option<[u8; 4]>, [[u8; 4]; 256])> =
+        const { core::cell::RefCell::new((None, [[0; 4]; 256])) };
 }
 
 /// Alpha-blend one premultiplied-alpha RGBA buffer onto another at (dx, dy).
@@ -1898,30 +1937,22 @@ pub fn blit_buffer(dst: &mut AzulPixmap, src: &[u8], src_w: u32, src_h: u32, dx:
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)] // bounded pixel/coord/colour/glyph cast
 #[must_use]
 pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> Vec<u8> {
-    let pw = pixmap.width as i32;
-    let ph = pixmap.height as i32;
     let mut snap = vec![0u8; (w as usize) * (h as usize) * 4];
-
-    for py in 0..h as i32 {
-        // saturating: an extreme snapshot origin would overflow a plain `+`.
-        let sy = y.saturating_add(py);
-        if sy < 0 || sy >= ph {
+    // Row by row, the columns that lie on the pixmap as one copy: every pixel was tested
+    // against the pixmap and both buffers' lengths and copied byte by byte before.
+    let Some((cols, rows)) = landing(w, x, pixmap.width as i32).zip(landing(h, y, pixmap.height as i32)) else {
+        return snap;
+    };
+    let data: &[u8] = &pixmap.data;
+    for py in rows.0..rows.1 {
+        let sy = (i64::from(y) + py as i64) as usize;
+        let si = (sy * pixmap.width as usize + (i64::from(x) + cols.0 as i64) as usize) * 4;
+        let di = (py * w as usize + cols.0) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(data.len(), si)).min(whole_pixels(snap.len(), di));
+        if n == 0 {
             continue;
         }
-        for px in 0..w as i32 {
-            let sx = x.saturating_add(px);
-            if sx < 0 || sx >= pw {
-                continue;
-            }
-            let si = ((sy as u32 * pixmap.width + sx as u32) * 4) as usize;
-            let di = ((py as u32 * w + px as u32) * 4) as usize;
-            if si + 3 < pixmap.data.len() && di + 3 < snap.len() {
-                snap[di] = pixmap.data[si];
-                snap[di + 1] = pixmap.data[si + 1];
-                snap[di + 2] = pixmap.data[si + 2];
-                snap[di + 3] = pixmap.data[si + 3];
-            }
-        }
+        snap[di..di + n * 4].copy_from_slice(&data[si..si + n * 4]);
     }
     snap
 }
@@ -1935,28 +1966,21 @@ pub fn snapshot_region(pixmap: &AzulPixmap, x: i32, y: i32, w: u32, h: u32) -> V
 // bounded image-dimension / non-negative-loop-index coordinate casts
 #[allow(clippy::cast_possible_wrap, clippy::cast_sign_loss)]
 pub fn write_region(dst: &mut AzulPixmap, src: &[u8], w: u32, h: u32, x: i32, y: i32) {
-    let dw = dst.width as i32;
-    let dh = dst.height as i32;
-    for py in 0..h as i32 {
-        // saturating: an extreme write-region origin would overflow a plain `+`.
-        let dy = y.saturating_add(py);
-        if dy < 0 || dy >= dh {
+    // As `snapshot_region`: the rows and columns that land, a copy per row.
+    let Some((cols, rows)) = landing(w, x, dst.width as i32).zip(landing(h, y, dst.height as i32)) else {
+        return;
+    };
+    let dw = dst.width as usize;
+    let data: &mut [u8] = &mut dst.data;
+    for py in rows.0..rows.1 {
+        let dy = (i64::from(y) + py as i64) as usize;
+        let si = (py * w as usize + cols.0) * 4;
+        let di = (dy * dw + (i64::from(x) + cols.0 as i64) as usize) * 4;
+        let n = (cols.1 - cols.0).min(whole_pixels(src.len(), si)).min(whole_pixels(data.len(), di));
+        if n == 0 {
             continue;
         }
-        for px in 0..w as i32 {
-            let dx = x.saturating_add(px);
-            if dx < 0 || dx >= dw {
-                continue;
-            }
-            let si = ((py as u32 * w + px as u32) * 4) as usize;
-            let di = ((dy as u32 * dst.width + dx as u32) * 4) as usize;
-            if si + 3 < src.len() && di + 3 < dst.data.len() {
-                dst.data[di] = src[si];
-                dst.data[di + 1] = src[si + 1];
-                dst.data[di + 2] = src[si + 2];
-                dst.data[di + 3] = src[si + 3];
-            }
-        }
+        data[di..di + n * 4].copy_from_slice(&src[si..si + n * 4]);
     }
 }
 
@@ -4416,5 +4440,292 @@ mod audit_a1_tests {
         // A region that asks for more than the source holds counts what the source holds.
         blit_buffer_sub(&mut target, &buffer, 10, 4, 6, 0, 10, 4, 0, 0);
         assert_eq!(crate::cpu_counters::take().px_blitted, 4 * 4);
+    }
+
+
+    // The per-pixel loops the row blits replaced (A1-57), on plain buffers.
+
+    fn old_blit_sub(
+        dst: &mut [u8],
+        (dw, dh): (i32, i32),
+        src: &[u8],
+        (src_w, src_h): (u32, u32),
+        (sx, sy, w, h): (u32, u32, u32, u32),
+        (dx, dy): (i32, i32),
+    ) {
+        let x_end = sx.saturating_add(w).min(src_w);
+        let y_end = sy.saturating_add(h).min(src_h);
+        for py in sy..y_end {
+            let ty = dy.saturating_add((py - sy) as i32);
+            if ty < 0 || ty >= dh {
+                continue;
+            }
+            for px in sx..x_end {
+                let tx = dx.saturating_add((px - sx) as i32);
+                if tx < 0 || tx >= dw {
+                    continue;
+                }
+                let si = ((py * src_w + px) * 4) as usize;
+                let di = ((ty * dw + tx) * 4) as usize;
+                if si + 3 >= src.len() || di + 3 >= dst.len() {
+                    continue;
+                }
+                let sa = u32::from(src[si + 3]);
+                if sa == 0 {
+                    continue;
+                }
+                if sa == 255 {
+                    dst[di..di + 4].copy_from_slice(&[src[si], src[si + 1], src[si + 2], 255]);
+                } else {
+                    let inv = 255 - sa;
+                    for c in 0..3 {
+                        dst[di + c] = (u32::from(src[si + c]) + u32::from(dst[di + c]) * inv / 255).min(255) as u8;
+                    }
+                    dst[di + 3] = (sa + u32::from(dst[di + 3]) * inv / 255).min(255) as u8;
+                }
+            }
+        }
+    }
+
+    fn old_blit_tinted(
+        dst: &mut [u8],
+        (dw, dh): (i32, i32),
+        coverage: &[u8],
+        cov_w: u32,
+        (sx, sy, w, h): (u32, u32, u32, u32),
+        (dx, dy): (i32, i32),
+        color: [u8; 4],
+    ) {
+        let cov_h = if cov_w == 0 { 0 } else { coverage.len() as u32 / cov_w };
+        let x_end = sx.saturating_add(w).min(cov_w);
+        let y_end = sy.saturating_add(h).min(cov_h);
+        let [cr, cg, cb, ca] = color.map(u32::from);
+        for py in sy..y_end {
+            let ty = dy.saturating_add((py - sy) as i32);
+            if ty < 0 || ty >= dh {
+                continue;
+            }
+            for px in sx..x_end {
+                let cov = u32::from(coverage[(py * cov_w + px) as usize]);
+                let tx = dx.saturating_add((px - sx) as i32);
+                if cov == 0 || tx < 0 || tx >= dw {
+                    continue;
+                }
+                let sa = (cov * ca + 127) / 255;
+                let di = ((ty * dw + tx) * 4) as usize;
+                if sa == 0 || di + 3 >= dst.len() {
+                    continue;
+                }
+                let source = [(cr * sa + 127) / 255, (cg * sa + 127) / 255, (cb * sa + 127) / 255, sa];
+                for c in 0..4 {
+                    dst[di + c] = if sa == 255 {
+                        if c == 3 { 255 } else { source[c] as u8 }
+                    } else {
+                        (source[c] + u32::from(dst[di + c]) * (255 - sa) / 255).min(255) as u8
+                    };
+                }
+            }
+        }
+    }
+
+    fn old_snapshot(data: &[u8], (pw, ph): (i32, i32), (x, y): (i32, i32), (w, h): (u32, u32)) -> Vec<u8> {
+        let mut snap = vec![0_u8; (w * h * 4) as usize];
+        for py in 0..h as i32 {
+            for px in 0..w as i32 {
+                let (sx, sy) = (x.saturating_add(px), y.saturating_add(py));
+                if sx < 0 || sx >= pw || sy < 0 || sy >= ph {
+                    continue;
+                }
+                let si = ((sy * pw + sx) * 4) as usize;
+                let di = ((py as u32 * w + px as u32) * 4) as usize;
+                if si + 3 < data.len() && di + 3 < snap.len() {
+                    snap[di..di + 4].copy_from_slice(&data[si..si + 4]);
+                }
+            }
+        }
+        snap
+    }
+
+    fn old_write(dst: &mut [u8], (dw, dh): (i32, i32), src: &[u8], (w, h): (u32, u32), (x, y): (i32, i32)) {
+        for py in 0..h as i32 {
+            for px in 0..w as i32 {
+                let (dx, dy) = (x.saturating_add(px), y.saturating_add(py));
+                if dx < 0 || dx >= dw || dy < 0 || dy >= dh {
+                    continue;
+                }
+                let si = ((py as u32 * w + px as u32) * 4) as usize;
+                let di = ((dy * dw + dx) * 4) as usize;
+                if si + 3 < src.len() && di + 3 < dst.len() {
+                    dst[di..di + 4].copy_from_slice(&src[si..si + 4]);
+                }
+            }
+        }
+    }
+
+    /// A 9 x 7 target with a byte pattern (every alpha level among them).
+    fn patterned_target() -> AzulPixmap {
+        let mut target = AzulPixmap::new(9, 7).expect("a pixmap");
+        for (i, b) in target.data_mut().iter_mut().enumerate() {
+            *b = (i * 29 % 253) as u8;
+        }
+        target
+    }
+
+    /// A1-57: the buffer blits and the region copies walk the pixels that land, row by row
+    /// through one slice of each buffer. The same bytes as the per-pixel loops they replace
+    /// (above), for a 6 x 5 source with empty, translucent and opaque pixels at every kind of
+    /// place around a 9 x 7 target - inside, across each edge, outside - and for regions of
+    /// the source that start anywhere, past its end too; a source buffer shorter than its
+    /// size says is read as far as it goes.
+    /// Mutation: `cols.0` left out of a row's start shifts every row cut at the left edge;
+    /// `whole_pixels` without the division copies a partial pixel (a panic at the end).
+    #[test]
+    fn the_row_blits_are_the_per_pixel_blits() {
+        let (src_w, src_h) = (6_u32, 5_u32);
+        let mut src = Vec::new();
+        let mut coverage = Vec::new();
+        for i in 0..src_w * src_h {
+            let a = [0_u8, 255, 90, 255, 1, 254, 200][(i % 7) as usize];
+            let premultiplied = |v: u32| (v % 256 * u32::from(a) / 255) as u8;
+            src.extend_from_slice(&[premultiplied(i * 11), premultiplied(i * 23), premultiplied(i * 37), a]);
+            coverage.push(a);
+        }
+        let short = &src[..src.len() - 6];
+        let regions = [(0, 0, 6, 5), (2, 1, 3, 2), (4, 3, 9, 9), (6, 0, 1, 1), (0, 0, 0, 3), (5, 4, 1, 1)];
+        let tints = [[200, 100, 50, 255], [255, 255, 255, 128], [200, 100, 50, 255], [0, 0, 0, 0]];
+        let mut checked = 0;
+        for dx in [-7, -2, 0, 4, 8, 9] {
+            for dy in [-6, -1, 0, 3, 6, 7] {
+                for region in regions {
+                    for source in [src.as_slice(), short] {
+                        let mut new = patterned_target();
+                        let mut old = patterned_target().data().to_vec();
+                        blit_buffer_sub(&mut new, source, src_w, src_h, region.0, region.1, region.2, region.3, dx, dy);
+                        old_blit_sub(&mut old, (9, 7), source, (src_w, src_h), region, (dx, dy));
+                        assert!(new.data() == old.as_slice(), "blit_buffer_sub {region:?} at ({dx}, {dy})");
+                    }
+                    for tint in tints {
+                        let mut new = patterned_target();
+                        let mut old = patterned_target().data().to_vec();
+                        let color = azul_css::props::basic::ColorU { r: tint[0], g: tint[1], b: tint[2], a: tint[3] };
+                        blit_tinted_coverage(&mut new, &coverage, src_w, region.0, region.1, region.2, region.3, dx, dy, color);
+                        old_blit_tinted(&mut old, (9, 7), &coverage, src_w, region, (dx, dy), tint);
+                        assert!(new.data() == old.as_slice(), "blit_tinted_coverage {region:?} at ({dx}, {dy}) in {tint:?}");
+                    }
+                    let (w, h) = (region.2.min(8), region.3.min(8));
+                    let target = patterned_target();
+                    assert!(
+                        snapshot_region(&target, dx, dy, w, h) == old_snapshot(target.data(), (9, 7), (dx, dy), (w, h)),
+                        "snapshot_region {w} x {h} at ({dx}, {dy})"
+                    );
+                    let patch: Vec<u8> = (0..w * h * 4).map(|i| (i * 7 % 256) as u8).collect();
+                    let mut new = patterned_target();
+                    let mut old = patterned_target().data().to_vec();
+                    write_region(&mut new, &patch, w, h, dx, dy);
+                    old_write(&mut old, (9, 7), &patch, (w, h), (dx, dy));
+                    assert!(new.data() == old.as_slice(), "write_region {w} x {h} at ({dx}, {dy})");
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 6 * 6 * 6);
+        let _ = crate::cpu_counters::take();
+    }
+
+
+    /// A1-55: a layer blit walks the pixels that land inside the target and the clip, row by
+    /// row. The same bytes as the loop over every pixel of the layer it replaces (here, on
+    /// plain buffers, with `blend_over` at an opacity of 0.5 = 127), for a 6 x 5 layer at every kind
+    /// of place around a 9 x 7 target under no clip, a clip inside it, one that reaches past
+    /// it and an empty one; and `copy_pixmap_clipped` copies exactly those pixels.
+    /// Mutation: the clip's near edge left out of `landing_between` paints left of the clip.
+    #[test]
+    fn a_layer_blit_over_what_lands_is_the_blit_over_every_pixel() {
+        let mut layer = AzulPixmap::new(6, 5).expect("a layer");
+        for (i, px) in layer.data_mut().chunks_exact_mut(4).enumerate() {
+            let a = [0_u8, 255, 90, 255, 1, 254, 200][i % 7];
+            let premultiplied = |v: usize| (v % 256 * usize::from(a) / 255) as u8;
+            px.copy_from_slice(&[premultiplied(i * 11), premultiplied(i * 23), premultiplied(i * 37), a]);
+        }
+        let old = |dst: &mut [u8], (px_x, px_y): (i32, i32), clip: Option<(i32, i32, i32, i32)>, copy: bool| {
+            for sy in 0..5_i32 {
+                for sx in 0..6_i32 {
+                    let (dx, dy) = (px_x.saturating_add(sx), px_y.saturating_add(sy));
+                    if dx < 0 || dx >= 9 || dy < 0 || dy >= 7 {
+                        continue;
+                    }
+                    if clip.is_some_and(|(cx0, cy0, cx1, cy1)| dx < cx0 || dx >= cx1 || dy < cy0 || dy >= cy1) {
+                        continue;
+                    }
+                    let (si, di) = (((sy * 6 + sx) * 4) as usize, ((dy * 9 + dx) * 4) as usize);
+                    let s = &layer.data()[si..si + 4];
+                    if copy {
+                        dst[di..di + 4].copy_from_slice(s);
+                    } else {
+                        blend_over(&mut dst[di..di + 4], [s[0], s[1], s[2], s[3]], 127);
+                    }
+                }
+            }
+        };
+        let clips = [None, Some((2, 1, 7, 5)), Some((-4, -4, 40, 40)), Some((5, 5, 5, 9)), Some((8, 0, 3, 7))];
+        for px_x in [-7, -2, 0, 4, 8, 9] {
+            for px_y in [-6, -1, 0, 3, 6, 7] {
+                for clip in clips {
+                    let mut new = patterned_target();
+                    let mut want = patterned_target().data().to_vec();
+                    blit_pixmap_clipped(&layer, &mut new, px_x, px_y, 0.5, clip);
+                    old(&mut want, (px_x, px_y), clip, false);
+                    assert!(new.data() == want.as_slice(), "blended at ({px_x}, {px_y}) under {clip:?}");
+                    let mut new = patterned_target();
+                    let mut want = patterned_target().data().to_vec();
+                    copy_pixmap_clipped(&layer, &mut new, px_x, px_y, clip);
+                    old(&mut want, (px_x, px_y), clip, true);
+                    assert!(new.data() == want.as_slice(), "copied at ({px_x}, {px_y}) under {clip:?}");
+                }
+            }
+        }
+    }
+
+    /// A1-56: a resized pixmap holds the old pixels where the two sizes overlap and the fill
+    /// colour everywhere else, each byte written once. A 5 x 4 pixmap of numbered pixels made
+    /// larger, smaller, wider and lower, narrower and higher: pixel (x, y) is the old one
+    /// where x < 5 and y < 4, else the colour; growing does the same and refuses to shrink.
+    /// Mutation: the fill from byte 0 of every row writes over the kept pixels.
+    #[test]
+    fn a_resized_pixmap_keeps_what_overlaps_and_fills_the_rest() {
+        let numbered = || {
+            let mut pm = AzulPixmap::new(5, 4).expect("a pixmap");
+            for (i, px) in pm.data_mut().chunks_exact_mut(4).enumerate() {
+                px.copy_from_slice(&[i as u8, 100, 200, 255]);
+            }
+            pm
+        };
+        let check = |pm: &AzulPixmap, fill: [u8; 4], what: &str| {
+            for y in 0..pm.height() {
+                for x in 0..pm.width() {
+                    let at = ((y * pm.width() + x) * 4) as usize;
+                    let want = if x < 5 && y < 4 { [(y * 5 + x) as u8, 100, 200, 255] } else { fill };
+                    assert_eq!(&pm.data()[at..at + 4], &want[..], "{what}: pixel ({x}, {y})");
+                }
+            }
+        };
+        for (w, h) in [(8, 6), (3, 2), (8, 2), (3, 6), (5, 4), (5, 9)] {
+            for fill in [[9, 8, 7, 255], [0, 0, 0, 0]] {
+                let mut pm = numbered();
+                pm.resize_reuse(w, h, fill[0], fill[1], fill[2], fill[3]);
+                assert_eq!((pm.width(), pm.height(), pm.data().len()), (w, h, (w * h * 4) as usize));
+                check(&pm, fill, "resize_reuse");
+                let mut pm = numbered();
+                let grown = pm.resize_grow_only(w, h, fill[0], fill[1], fill[2], fill[3]);
+                if w >= 5 && h >= 4 {
+                    assert!(grown.is_some());
+                    assert_eq!((pm.width(), pm.height()), (w, h));
+                    check(&pm, fill, "resize_grow_only");
+                } else {
+                    assert!(grown.is_none(), "a pixmap does not shrink by growing");
+                    assert_eq!((pm.width(), pm.height()), (5, 4));
+                }
+            }
+        }
     }
 }

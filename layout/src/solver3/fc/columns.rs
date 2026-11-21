@@ -400,7 +400,7 @@ pub(super) fn distribute_into_columns<T: ParsedFontTrait>(
 /// The heights of the footnotes (`float: footnote`) anchored in the in-flow
 /// child `child` of a multi-column container, as the pass before measured
 /// them: a footnote that is a child of a paragraph with `lines` is added to
-/// the line it is anchored in (`inline_static_place_in_tree`) - it goes to
+/// the line it is anchored in (`TreeStaticPlaces::place`) - it goes to
 /// the column, and so the page, of that line; every other footnote inside
 /// the box is returned, for the box as a whole (it stands at the bottom of
 /// the page the box's top lands on).
@@ -414,6 +414,8 @@ fn anchored_notes<T: ParsedFontTrait>(
     let mut of_the_box = 0.0_f32;
     // (box, its parent), depth first; a footnote's own content is not searched.
     let mut stack: Vec<(usize, usize)> = tree.children(child).iter().map(|&c| (c, child)).collect();
+    // The lines of `child`, listed once for all the footnotes anchored in them.
+    let mut places = TreeStaticPlaces::default();
     while let Some((index, parent)) = stack.pop() {
         let dom = tree.get(LayoutNodeId::new(index)).and_then(|n| n.dom_node_id);
         let Some(dom) = dom.filter(|d| crate::solver3::getters::is_footnote(ctx.styled_dom, *d))
@@ -428,7 +430,7 @@ fn anchored_notes<T: ParsedFontTrait>(
         let _ = parent;
         let line = (!lines.is_empty()
             && inline_context_of(ctx.styled_dom, tree, index) == Some(child))
-        .then(|| inline_static_place_in_tree(tree, child, index))
+        .then(|| places.place(tree, child, index))
         .flatten()
             .and_then(|place| lines.iter_mut().find(|l| l.index == place.line));
         match line {

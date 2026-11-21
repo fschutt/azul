@@ -571,3 +571,78 @@ fn a_backend_that_released_its_caches_paints_the_same_frames() {
     let after = z.frame(&mut backend);
     assert_the_frame_is_what_a_full_paint_gives(&z, &after, "a zoom step after a release");
 }
+
+/// A6-25: a frame that finds the write generation of the GPU values and the display lists of
+/// the frame before collects no value (it used to fill three maps with every bound value of
+/// every DOM, look each up in the maps of the frame before and free those: per pan frame, per
+/// tile, per idle frame). A write - through `set_css_property`'s channel or straight into a
+/// public map of a cache - is collected and painted by the next frame, once; a list built
+/// again with the same values is collected for; so is the first frame of a backend and the
+/// frame after the backend's lists were forgotten.
+///
+/// Counted: the values a frame collects for its own use (`GPU_VALUES_COLLECTED`; the
+/// collection a debug build makes to check a skip is not counted).
+/// Mutations: the generation left out of `values_unchanged` fails "a value was written" (and
+/// the debug assertion of the frame); `same_lists` left out fails "another list"; the skip
+/// taken out fails "nothing was written".
+#[test]
+fn a6_25_a_frame_with_nothing_written_collects_no_gpu_value() {
+    let collected = || crate::cpu_backend::GPU_VALUES_COLLECTED.with(core::cell::Cell::get);
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+
+    // The first frame of a backend collects: the picture's matrix and the veil's opacity.
+    let before = collected();
+    let _ = z.frame(&mut backend);
+    let per_frame = collected() - before;
+    assert!(per_frame >= 2, "the picture's transform and the veil's opacity: {per_frame}");
+
+    // Nothing written, the same lists: three frames collect nothing and paint nothing.
+    let before = collected();
+    for _ in 0..3 {
+        let _ = z.frame(&mut backend);
+        assert_eq!(backend.last_frame_damage, FrameDamage::None);
+    }
+    assert_eq!(collected() - before, 0, "nothing was written: no value is read again");
+
+    // A write of a value: collected once, painted, and then nothing again.
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let before = collected();
+    let zoomed = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "a value was written");
+    assert_eq!(red_box(&zoomed), Some(z.on_screen((60.0, 35.0, 80.0, 60.0))));
+    assert_the_frame_is_what_a_full_paint_gives(&z, &zoomed, "after the write");
+    let _ = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "and not again");
+
+    // A value written straight into a public map of the view's cache: no method, no note.
+    z.lw
+        .gpu_state_manager
+        .get_or_create_cache(z.child)
+        .current_opacity_values
+        .insert(z.veil, 0.4);
+    let before = collected();
+    let faded = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "a map written directly");
+    assert!(
+        near(z.veil_centre(&faded), [153, 153, 255]),
+        "blue at 0.4 over white, got {:?}",
+        z.veil_centre(&faded)
+    );
+
+    // The view's list built again with the same items and the same values: another list.
+    let rebuilt = std::sync::Arc::new((*z.lw.layout_results[&z.child].display_list).clone());
+    z.lw.layout_results.get_mut(&z.child).expect("the view's DOM").display_list = rebuilt;
+    let before = collected();
+    let again = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "another list: its values are collected");
+    assert_the_frame_is_what_a_full_paint_gives(&z, &again, "after the list was built again");
+    let _ = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame);
+
+    // A shell that forgets the backend's list (its way to force a full frame) collects too.
+    backend.previous_display_list = None;
+    let before = collected();
+    let _ = z.frame(&mut backend);
+    assert_eq!(collected() - before, per_frame, "no list of the frame before: the full path");
+}

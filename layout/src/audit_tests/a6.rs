@@ -627,3 +627,135 @@ mod the_runner_tells_a_hover_change_once {
         assert!(determined < marked && marked - determined < 1500);
     }
 }
+
+/// A6-26, the key of the GPU reader: `GpuStateManager::gpu_values_are_the_digested_ones`
+/// answers "a walk of the bound values would give the kept digest again" without reading a
+/// value, and `synchronize_gpu_values` (dll) returns before its walk on it.
+#[cfg(feature = "text_layout")]
+mod the_digested_gpu_values {
+    use std::sync::Arc;
+
+    use azul_core::{
+        dom::{Dom, DomId, NodeId},
+        geom::LogicalSize,
+        gpu::OpacityChannel,
+        resources::{OpacityKey, RendererResources},
+        styled_dom::StyledDom,
+    };
+    use rust_fontconfig::FcFontCache;
+
+    use crate::{
+        callbacks::ExternalSystemCallbacks, window::LayoutWindow, window_state::FullWindowState,
+    };
+
+    /// A laid-out window of one box.
+    fn window() -> LayoutWindow {
+        let mut dom = Dom::create_body()
+            .with_child(Dom::create_div().with_css("width: 40px; height: 20px; background: #3366cc;"));
+        let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+        let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+        let mut ws = FullWindowState::default();
+        ws.size.dimensions = LogicalSize::new(200.0, 100.0);
+        lw.current_window_state = ws.clone();
+        lw.layout_and_generate_display_list(
+            styled,
+            &ws,
+            &RendererResources::default(),
+            &ExternalSystemCallbacks::rust_internal(),
+            &mut None,
+        )
+        .expect("the window lays out");
+        lw
+    }
+
+    /// What the renderer's host does where its walk of the values gave `digest`.
+    fn walked(lw: &mut LayoutWindow, scale: f32, digest: u64) {
+        let LayoutWindow {
+            ref layout_results,
+            ref mut gpu_state_manager,
+            ..
+        } = *lw;
+        gpu_state_manager.note_gpu_value_digest(layout_results, scale, digest);
+        gpu_state_manager.last_gpu_value_digest = Some(digest);
+    }
+
+    fn as_digested(lw: &LayoutWindow, scale: f32) -> bool {
+        lw.gpu_state_manager
+            .gpu_values_are_the_digested_ones(&lw.layout_results, scale)
+    }
+
+    /// The walk is skipped exactly while nothing the digest is a function of changed: no
+    /// value written (also directly, through a public map), the same scale, the same display
+    /// lists, the digest still the kept one.
+    ///
+    /// Mutations (each fails the step named): the generation left out of the comparison:
+    /// "another opacity"; the scale left out: "another scale"; the lists left out: "a list
+    /// built again" and "no DOM"; `last_gpu_value_digest == Some(source.digest)` left out:
+    /// "a full frame forgot the digest" and "another digest is kept".
+    #[test]
+    fn the_walk_is_skipped_only_while_nothing_it_reads_changed() {
+        let mut lw = window();
+        let node = NodeId::new(1);
+        let key = OpacityKey::unique();
+        assert!(!as_digested(&lw, 1.0), "no digest was taken yet");
+
+        let _ = lw
+            .gpu_state_manager
+            .get_or_create_cache(DomId::ROOT_ID)
+            .set_opacity(OpacityChannel::Css, node, key, 0.5);
+        assert!(!as_digested(&lw, 1.0));
+        walked(&mut lw, 1.0, 77);
+        assert!(as_digested(&lw, 1.0), "nothing was written since the walk");
+        assert!(as_digested(&lw, 1.0), "asking changes nothing");
+
+        // The value it has, written again: through a method and through the public map.
+        let cache = lw.gpu_state_manager.get_or_create_cache(DomId::ROOT_ID);
+        let _ = cache.set_opacity_value(OpacityChannel::Css, node, 0.5);
+        cache.current_opacity_values.insert(node, 0.5);
+        assert_eq!(cache.opacity_value(OpacityChannel::Css, node), Some(0.5));
+        assert!(as_digested(&lw, 1.0), "the same opacity");
+
+        // Another value, written directly: no method, no note.
+        lw.gpu_state_manager
+            .get_or_create_cache(DomId::ROOT_ID)
+            .current_opacity_values
+            .insert(node, 0.25);
+        assert!(!as_digested(&lw, 1.0), "another opacity");
+        walked(&mut lw, 1.0, 78);
+        assert!(as_digested(&lw, 1.0));
+
+        assert!(!as_digested(&lw, 2.0), "another scale: other device px");
+
+        // The root's list built again with the same items and the same values.
+        let rebuilt = Arc::new((*lw.layout_results[&DomId::ROOT_ID].display_list).clone());
+        let shown = core::mem::replace(
+            &mut lw
+                .layout_results
+                .get_mut(&DomId::ROOT_ID)
+                .expect("the root")
+                .display_list,
+            rebuilt,
+        );
+        assert!(!as_digested(&lw, 1.0), "a list built again");
+        // The list it showed, put back: the very allocation again.
+        lw.layout_results
+            .get_mut(&DomId::ROOT_ID)
+            .expect("the root")
+            .display_list = shown;
+        assert!(as_digested(&lw, 1.0), "the list the digest was taken with");
+
+        // Which DOMs there are decides whose values are read.
+        let root = lw.layout_results.remove(&DomId::ROOT_ID).expect("the root");
+        assert!(!as_digested(&lw, 1.0), "no DOM");
+        lw.layout_results.insert(DomId::ROOT_ID, root);
+        assert!(as_digested(&lw, 1.0));
+
+        // A full frame makes the renderer need the values again.
+        lw.gpu_state_manager.invalidate_submitted_digests();
+        assert!(!as_digested(&lw, 1.0), "a full frame forgot the digest");
+        walked(&mut lw, 1.0, 78);
+        assert!(as_digested(&lw, 1.0));
+        lw.gpu_state_manager.last_gpu_value_digest = Some(5);
+        assert!(!as_digested(&lw, 1.0), "another digest is kept");
+    }
+}

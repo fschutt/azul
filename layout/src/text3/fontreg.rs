@@ -130,10 +130,10 @@ pub fn generation() -> u64 {
 }
 
 /// The bytes of the runtime face `id`, shared, as a font manager's loader
-/// takes them; `None` for any other id. A font cache holds its own copy of a
-/// runtime face (`rust_fontconfig::FcFont` owns a `Vec`), and handing that out
-/// copied it twice more (`get_font_by_id` clones the font, `get_font_bytes`
-/// copies the clone into an `Arc`): the loaded face shares these instead.
+/// takes them; `None` for any other id. Since rust-fontconfig 5.1 every font
+/// cache holds this same allocation too (`FcFont.bytes: Arc<[u8]>`, put there
+/// by [`ensure_in`]); before, each cache held a copy and handing it out copied
+/// it twice more.
 pub(crate) fn shared_bytes(id: &FontId) -> Option<Arc<rust_fontconfig::FontBytes>> {
     let faces = FACES.read().ok()?;
     let face = faces.iter().find(|face| face.id == *id)?;
@@ -156,7 +156,8 @@ pub(crate) fn ensure_in(fc_cache: &FcFontCache) -> Vec<(String, MemoryFace)> {
                     face.id,
                     memory_font_pattern(&face.family, &style, face.ranges.clone()),
                     rust_fontconfig::FcFont {
-                        bytes: face.bytes.to_vec(),
+                        // The registry's allocation itself (rust-fontconfig 5.1).
+                        bytes: Arc::clone(&face.bytes),
                         font_index: 0,
                         id: face.family.clone(),
                     },
@@ -206,6 +207,23 @@ impl crate::callbacks::CallbackInfo {
         if registered {
             // This window's cache takes the face now; every other cache
             // takes it when its window resolves its fonts again.
+            drop(ensure_in(&self.get_layout_window().font_manager.fc_cache));
+        }
+        registered
+    }
+
+    /// [`Self::register_font`] for bytes the app shares (`SharedBytes`): the
+    /// registry keeps that allocation - every window's font cache and every face
+    /// loaded from it share it with the app's own handle - and copies nothing.
+    /// The bytes stay alive for the process, as every registered face does,
+    /// whatever the app does with its handle afterwards.
+    pub fn register_font_shared(
+        &mut self,
+        family: azul_css::AzString,
+        bytes: azul_css::shared_bytes::SharedBytes,
+    ) -> bool {
+        let registered = register_font_shared(family.as_str(), bytes.to_arc());
+        if registered {
             drop(ensure_in(&self.get_layout_window().font_manager.fc_cache));
         }
         registered
@@ -467,5 +485,61 @@ mod audit_a8_tests {
             panic!("a runtime face's bytes are owned");
         };
         assert!(Arc::ptr_eq(held, &bytes), "the registry holds the caller's allocation");
+    }
+
+    /// A8-26 (the C API's type): a face registered through `SharedBytes`
+    /// shares the caller's bytes - the registry and every loaded face hold the
+    /// very allocation (pointer equality) - and the bytes outlive the caller's
+    /// handle.
+    /// Mutation: `bytes.to_arc()` -> `Arc::from(bytes.as_slice())` in the path
+    /// `CallbackInfo::register_font_shared` takes fails the `ptr_eq`.
+    #[test]
+    fn a_face_registered_through_shared_bytes_shares_and_outlives_the_callers_handle() {
+        use azul_css::shared_bytes::SharedBytes;
+        let fonts = crate::text3::ui_fonts::bundled_ui_fonts();
+        let family = "Azul A8 SharedBytes Face";
+        let handle = SharedBytes::from_arc(Arc::from(&fonts[2 % fonts.len()].bytes[..]));
+        let data = handle.as_slice().as_ptr();
+        // what `CallbackInfo::register_font_shared` does with the handle
+        assert!(register_font_shared(family, handle.to_arc()));
+        drop(handle);
+        let norm = rust_fontconfig::utils::normalize_family_name(family);
+        let id = ensure_in(&FcFontCache::default())
+            .into_iter()
+            .find(|(n, _)| *n == norm)
+            .map(|(_, face)| face.font_match.id)
+            .expect("the face is registered");
+        let shared = shared_bytes(&id).expect("a runtime face");
+        let rust_fontconfig::FontBytes::Owned(held) = &*shared else {
+            panic!("a runtime face's bytes are owned");
+        };
+        assert!(core::ptr::eq(held.as_ptr(), data), "the caller's allocation, not a copy");
+        assert_eq!(&held[..], &fonts[2 % fonts.len()].bytes[..], "alive after the handle is gone");
+    }
+
+    /// A8-15 (rust-fontconfig 5.1): the font cache a runtime face is put into
+    /// holds the registry's allocation, not a copy of it: what the cache hands
+    /// out for the face (`get_font_bytes`) is the registry's `Arc`.
+    /// Mutation: `bytes: Arc::from(&face.bytes[..])` in `ensure_in` fails it.
+    #[test]
+    fn a_font_cache_holds_the_registrys_allocation_of_a_runtime_face() {
+        let fonts = crate::text3::ui_fonts::bundled_ui_fonts();
+        let family = "Azul A8 Cache Shares Face";
+        assert!(register_font(family, &fonts[3 % fonts.len()].bytes));
+        let cache = FcFontCache::default();
+        let norm = rust_fontconfig::utils::normalize_family_name(family);
+        let id = ensure_in(&cache)
+            .into_iter()
+            .find(|(n, _)| *n == norm)
+            .map(|(_, face)| face.font_match.id)
+            .expect("the face is put into the cache");
+        let registry = shared_bytes(&id).expect("a runtime face");
+        let from_cache = cache.get_font_bytes(&id).expect("the cache holds the face");
+        let (rust_fontconfig::FontBytes::Owned(a), rust_fontconfig::FontBytes::Owned(b)) =
+            (&*registry, &*from_cache)
+        else {
+            panic!("a memory face's bytes are owned");
+        };
+        assert!(Arc::ptr_eq(a, b), "the cache shares the registry's allocation");
     }
 }

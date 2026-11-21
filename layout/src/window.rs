@@ -1081,6 +1081,160 @@ pub struct FrameTimings {
     pub frame_work_us: u64,
     /// The last layout pass alone: style, layout and display list.
     pub layout_us: u64,
+    /// GPU path, last frame: Transactions sent to the renderer.
+    pub gpu_transactions: u64,
+    /// GPU path, last frame: Display lists translated and sent (a list the renderer holds is not).
+    pub gpu_lists_translated: u64,
+    /// GPU path, last frame: Items of those lists.
+    pub gpu_items_translated: u64,
+    /// GPU path, last frame: Their serialised size in bytes.
+    pub gpu_list_bytes: u64,
+    /// GPU path, last frame: Images, fonts and font instances added.
+    pub gpu_resource_adds: u64,
+    /// GPU path, last frame: Images updated in place.
+    pub gpu_resource_updates: u64,
+    /// GPU path, last frame: Images, fonts and font instances deleted.
+    pub gpu_resource_deletes: u64,
+    /// GPU path, last frame: Bytes of the images added and updated (the dirty part of an update).
+    pub gpu_resource_bytes: u64,
+    /// GPU path, last frame: Bound values sent (transforms, opacities, colours): the whole set whenever one changed.
+    pub gpu_dynamic_properties: u64,
+    /// GPU path, last frame: Scenes the renderer built (every list of the window flattened again).
+    pub gpu_scene_builds: u64,
+    /// GPU path, last frame: Frames the renderer built.
+    pub gpu_frame_builds: u64,
+    /// GPU path, last frame: Glyphs rasterised (whole process: the rasteriser's workers have no window).
+    pub gpu_glyphs_rasterized: u64,
+    /// GPU path, last frame: Uploads into the renderer's texture cache: images, glyphs.
+    pub gpu_texture_uploads: u64,
+    /// GPU path, last frame: Their pixels.
+    pub gpu_texture_upload_px: u64,
+    /// GPU path, last frame: Draw calls of the frame.
+    pub gpu_draw_calls: u64,
+    /// GPU path, last frame: Time in the translation of the display lists (UI thread).
+    pub gpu_translate_us: u64,
+    /// GPU path, last frame: Time registering fonts and images, text halos included (UI thread).
+    pub gpu_resources_us: u64,
+    /// GPU path, last frame: Time collecting and comparing the bound values (UI thread).
+    pub gpu_values_us: u64,
+    /// GPU path, last frame: Time building the transactions, the three above included (UI thread).
+    pub gpu_transaction_us: u64,
+    /// GPU path, last frame: Time the UI thread waited for the renderer's threads (send + flush).
+    pub gpu_blocked_us: u64,
+    /// GPU path, last frame: Time of the scene builds (scene builder thread, inside `blocked_us`).
+    pub gpu_scene_build_us: u64,
+    /// GPU path, last frame: Time of the frame builds (render backend thread, inside `blocked_us`).
+    pub gpu_frame_build_us: u64,
+    /// GPU path, last frame: Time drawing the frame: texture uploads and draw calls (UI thread).
+    pub gpu_render_us: u64,
+}
+
+/// How many counters [`GpuFrameCounters`] has.
+pub const GPU_FRAME_COUNTERS: usize = 23;
+
+/// What the GPU path (the translation to the renderer's display lists, the
+/// transactions, the renderer's threads and its draw) did for one frame:
+/// counts and microseconds, written by the renderer's host when the frame has
+/// been drawn ([`FrameClock::note_gpu`]). All zero on a CPU backend.
+///
+/// A count does not depend on how loaded the machine is; the times say where
+/// a frame's interval went. `FrameTimings::gpu_*` are the last frame's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
+#[repr(C)]
+pub struct GpuFrameCounters {
+    /// Transactions sent to the renderer.
+    pub transactions: u64,
+    /// Display lists translated and sent (a list the renderer holds is not).
+    pub lists_translated: u64,
+    /// Items of those lists.
+    pub items_translated: u64,
+    /// Their serialised size in bytes.
+    pub list_bytes: u64,
+    /// Images, fonts and font instances added.
+    pub resource_adds: u64,
+    /// Images updated in place.
+    pub resource_updates: u64,
+    /// Images, fonts and font instances deleted.
+    pub resource_deletes: u64,
+    /// Bytes of the images added and updated (the dirty part of an update).
+    pub resource_bytes: u64,
+    /// Bound values sent (transforms, opacities, colours): the whole set whenever one changed.
+    pub dynamic_properties: u64,
+    /// Scenes the renderer built (every list of the window flattened again).
+    pub scene_builds: u64,
+    /// Frames the renderer built.
+    pub frame_builds: u64,
+    /// Glyphs rasterised (whole process: the rasteriser's workers have no window).
+    pub glyphs_rasterized: u64,
+    /// Uploads into the renderer's texture cache: images, glyphs.
+    pub texture_uploads: u64,
+    /// Their pixels.
+    pub texture_upload_px: u64,
+    /// Draw calls of the frame.
+    pub draw_calls: u64,
+    /// Time in the translation of the display lists (UI thread).
+    pub translate_us: u64,
+    /// Time registering fonts and images, text halos included (UI thread).
+    pub resources_us: u64,
+    /// Time collecting and comparing the bound values (UI thread).
+    pub values_us: u64,
+    /// Time building the transactions, the three above included (UI thread).
+    pub transaction_us: u64,
+    /// Time the UI thread waited for the renderer's threads (send + flush).
+    pub blocked_us: u64,
+    /// Time of the scene builds (scene builder thread, inside `blocked_us`).
+    pub scene_build_us: u64,
+    /// Time of the frame builds (render backend thread, inside `blocked_us`).
+    pub frame_build_us: u64,
+    /// Time drawing the frame: texture uploads and draw calls (UI thread).
+    pub render_us: u64,
+}
+
+impl GpuFrameCounters {
+    /// The counters in the order of the fields.
+    #[must_use]
+    pub const fn to_array(&self) -> [u64; GPU_FRAME_COUNTERS] {
+        [self.transactions, self.lists_translated, self.items_translated, self.list_bytes, self.resource_adds, self.resource_updates, self.resource_deletes, self.resource_bytes, self.dynamic_properties, self.scene_builds, self.frame_builds, self.glyphs_rasterized, self.texture_uploads, self.texture_upload_px, self.draw_calls, self.translate_us, self.resources_us, self.values_us, self.transaction_us, self.blocked_us, self.scene_build_us, self.frame_build_us, self.render_us]
+    }
+
+    /// [`Self::to_array`] back.
+    #[must_use]
+    pub const fn from_array(a: [u64; GPU_FRAME_COUNTERS]) -> Self {
+        Self {
+            transactions: a[0],
+            lists_translated: a[1],
+            items_translated: a[2],
+            list_bytes: a[3],
+            resource_adds: a[4],
+            resource_updates: a[5],
+            resource_deletes: a[6],
+            resource_bytes: a[7],
+            dynamic_properties: a[8],
+            scene_builds: a[9],
+            frame_builds: a[10],
+            glyphs_rasterized: a[11],
+            texture_uploads: a[12],
+            texture_upload_px: a[13],
+            draw_calls: a[14],
+            translate_us: a[15],
+            resources_us: a[16],
+            values_us: a[17],
+            transaction_us: a[18],
+            blocked_us: a[19],
+            scene_build_us: a[20],
+            frame_build_us: a[21],
+            render_us: a[22],
+        }
+    }
+
+    /// `self` plus `other`, counter by counter.
+    pub fn add(&mut self, other: &Self) {
+        let (mut a, b) = (self.to_array(), other.to_array());
+        for (x, y) in a.iter_mut().zip(b) {
+            *x = x.saturating_add(y);
+        }
+        *self = Self::from_array(a);
+    }
 }
 
 /// The text halo counters, among the window's own records: what
@@ -1102,6 +1256,15 @@ pub struct FrameClock {
     interval_ns: core::sync::atomic::AtomicU64,
     work_ns: core::sync::atomic::AtomicU64,
     layout_ns: core::sync::atomic::AtomicU64,
+    /// The stamp of the frame that was noted as presented and has not been
+    /// recorded as rendered yet ([`Self::note_rendered`]); `0`: none.
+    open: core::sync::atomic::AtomicU64,
+    /// When the work of that frame started; `0`: it needed no layout pass.
+    open_work_started: core::sync::atomic::AtomicU64,
+    /// The GPU path's counters of the last frame ([`GpuFrameCounters`]) ...
+    gpu_last: [core::sync::atomic::AtomicU64; GPU_FRAME_COUNTERS],
+    /// ... and of every frame of this window.
+    gpu_total: [core::sync::atomic::AtomicU64; GPU_FRAME_COUNTERS],
     /// The frame's exact factor when `size.dpi` cannot hold it, as the bits
     /// of an `f32`; 0 = none (`LayoutWindow::frame_scale`, A10-10).
     frame_scale_bits: core::sync::atomic::AtomicU32,
@@ -1160,17 +1323,100 @@ impl FrameClock {
             },
             Ordering::Relaxed,
         );
+        self.open.store(stamp, Ordering::Relaxed);
+        self.open_work_started.store(started, Ordering::Relaxed);
+    }
+
+    /// The frame last noted as presented ([`Self::note_present`]) has left its
+    /// renderer at `now` (nanoseconds): it is the SAME frame, so it is not
+    /// counted again and the interval stays the one between two frames; its
+    /// work now reaches to here (the paint of a CPU frame, the renderer's
+    /// threads and the draw of a GPU frame). A frame nobody noted is noted
+    /// here.
+    ///
+    /// The backends that record a frame's damage note the frame when they hand
+    /// it to the renderer and record it when it is drawn. Both went through
+    /// `note_present`: every frame was counted twice, the "interval" an app
+    /// read was the time between those two calls of ONE frame (the renderer's
+    /// time, not the frame rate), and the work of every frame was 0 (the
+    /// second call found no work started). Audit A4-04.
+    pub fn note_rendered(&self, now: u64) {
+        if self.open.swap(0, Ordering::Relaxed) == 0 {
+            self.note_present(now);
+            self.open.store(0, Ordering::Relaxed);
+            return;
+        }
+        let started = self.open_work_started.swap(0, Ordering::Relaxed);
+        if started != 0 {
+            self.work_ns.store(
+                now.saturating_add(1).saturating_sub(started),
+                Ordering::Relaxed,
+            );
+        }
+    }
+
+    /// What the GPU path did for the frame that was just drawn.
+    pub fn note_gpu(&self, frame: &GpuFrameCounters) {
+        for ((last, total), value) in self
+            .gpu_last
+            .iter()
+            .zip(self.gpu_total.iter())
+            .zip(frame.to_array())
+        {
+            last.store(value, Ordering::Relaxed);
+            total.fetch_add(value, Ordering::Relaxed);
+        }
+    }
+
+    /// The GPU path's counters of the last frame it drew.
+    #[must_use]
+    pub fn gpu_last(&self) -> GpuFrameCounters {
+        GpuFrameCounters::from_array(core::array::from_fn(|i| {
+            self.gpu_last[i].load(Ordering::Relaxed)
+        }))
+    }
+
+    /// The GPU path's counters summed over every frame of this window.
+    #[must_use]
+    pub fn gpu_total(&self) -> GpuFrameCounters {
+        GpuFrameCounters::from_array(core::array::from_fn(|i| {
+            self.gpu_total[i].load(Ordering::Relaxed)
+        }))
     }
 
     /// What the clock measured so far.
     #[must_use]
     pub fn timings(&self) -> FrameTimings {
         let us = |nanos: &core::sync::atomic::AtomicU64| nanos.load(Ordering::Relaxed) / 1_000;
+        let gpu = self.gpu_last();
         FrameTimings {
             frame_count: self.frames.load(Ordering::Relaxed),
             frame_interval_us: us(&self.interval_ns),
             frame_work_us: us(&self.work_ns),
             layout_us: us(&self.layout_ns),
+            gpu_transactions: gpu.transactions,
+            gpu_lists_translated: gpu.lists_translated,
+            gpu_items_translated: gpu.items_translated,
+            gpu_list_bytes: gpu.list_bytes,
+            gpu_resource_adds: gpu.resource_adds,
+            gpu_resource_updates: gpu.resource_updates,
+            gpu_resource_deletes: gpu.resource_deletes,
+            gpu_resource_bytes: gpu.resource_bytes,
+            gpu_dynamic_properties: gpu.dynamic_properties,
+            gpu_scene_builds: gpu.scene_builds,
+            gpu_frame_builds: gpu.frame_builds,
+            gpu_glyphs_rasterized: gpu.glyphs_rasterized,
+            gpu_texture_uploads: gpu.texture_uploads,
+            gpu_texture_upload_px: gpu.texture_upload_px,
+            gpu_draw_calls: gpu.draw_calls,
+            gpu_translate_us: gpu.translate_us,
+            gpu_resources_us: gpu.resources_us,
+            gpu_values_us: gpu.values_us,
+            gpu_transaction_us: gpu.transaction_us,
+            gpu_blocked_us: gpu.blocked_us,
+            gpu_scene_build_us: gpu.scene_build_us,
+            gpu_frame_build_us: gpu.frame_build_us,
+            gpu_render_us: gpu.render_us,
         }
     }
 }
@@ -1285,6 +1531,11 @@ pub struct FrameReport {
     /// a steady state must pin: a view that reports a different size every
     /// time it is handed the box it asked for would show up here every frame.
     pub virtual_view_size_passes: u32,
+    /// What the GPU path did for the last frame it drew ([`GpuFrameCounters`]; all zero on a CPU
+    /// backend). Filled in by [`LayoutWindow::frame_report_synced`].
+    pub gpu_last: GpuFrameCounters,
+    /// The GPU path's counters summed over every frame of the window (two reads give a span's).
+    pub gpu_total: GpuFrameCounters,
     /// What the GPU backend's scans did with the text halos it keeps as pictures
     /// ([`crate::cpurender::TextHaloStats`]): the last scan's numbers (drawn, dropped, left,
     /// painted with a stand-in), the sums of this thread and what is kept. Per thread, not per
@@ -3704,6 +3955,8 @@ impl LayoutWindow {
     pub fn frame_report_synced(&self) -> FrameReport {
         let generation = self.frame_report_reset_request.load(Ordering::SeqCst);
         let mut report = self.frame_report.as_of_generation(generation);
+        report.gpu_last = self.frame_clock.gpu_last();
+        report.gpu_total = self.frame_clock.gpu_total();
         let cpu = self.cpu_frame_counters();
         report.cpu_last = cpu.last;
         report.cpu_since_reset = cpu.since_reset;
@@ -3772,7 +4025,7 @@ impl LayoutWindow {
         self.frame_report
             .record_frame_at_generation(generation, paint, present);
         self.frame_clock
-            .note_present(crate::probe::monotonic_now_nanos());
+            .note_rendered(crate::probe::monotonic_now_nanos());
     }
 
     /// Create a new layout window with empty caches.
@@ -10500,29 +10753,26 @@ impl LayoutWindow {
                         let initial_opacity = if always_visible { 1.0 } else { 0.0 };
                         if let Some(opacity_key) = info.opacity_key {
                             match hit_id {
+                                // Not `entry()`: on a stamped map that is a write, and a
+                                // bar that has its key moved the write generation on every
+                                // layout pass (A6-22). A bar with a key keeps key and value.
                                 ScrollbarHitId::VerticalThumb(_, nid) => {
-                                    let key = (dom_id, *nid);
-                                    if let std::collections::hash_map::Entry::Vacant(e) =
-                                        gpu_cache.scrollbar_v_opacity_keys.entry(key)
-                                    {
-                                        e.insert(opacity_key);
-                                        gpu_cache
-                                            .scrollbar_v_opacity_values
-                                            .insert(key, initial_opacity);
-                                        gpu_cache.note_value_write();
-                                    }
+                                    let _ = gpu_cache.register_scrollbar_opacity(
+                                        azul_core::dom::ScrollbarOrientation::Vertical,
+                                        dom_id,
+                                        *nid,
+                                        opacity_key,
+                                        initial_opacity,
+                                    );
                                 }
                                 ScrollbarHitId::HorizontalThumb(_, nid) => {
-                                    let key = (dom_id, *nid);
-                                    if let std::collections::hash_map::Entry::Vacant(e) =
-                                        gpu_cache.scrollbar_h_opacity_keys.entry(key)
-                                    {
-                                        e.insert(opacity_key);
-                                        gpu_cache
-                                            .scrollbar_h_opacity_values
-                                            .insert(key, initial_opacity);
-                                        gpu_cache.note_value_write();
-                                    }
+                                    let _ = gpu_cache.register_scrollbar_opacity(
+                                        azul_core::dom::ScrollbarOrientation::Horizontal,
+                                        dom_id,
+                                        *nid,
+                                        opacity_key,
+                                        initial_opacity,
+                                    );
                                 }
                                 _ => {}
                             }
@@ -10968,7 +11218,8 @@ impl LayoutWindow {
             node,
             azul_core::transform::ComputedTransform3D::new_translation(x, y, 0.0),
         );
-        cache.note_value_write();
+        // No note: the two maps stamp themselves, the value only when the pointer moved
+        // the node (a note here moved the write generation on every call, A6-22).
         if keyed && previous.is_some() {
             ProcessEventResult::ShouldReRenderCurrentWindow
         } else if dom_id != DomId::ROOT_ID {
@@ -13068,8 +13319,7 @@ impl LayoutWindow {
                 .then_some((self.material_light.color, self.material_light.intensity));
             let cache = self.gpu_state_manager.get_or_create_cache(dom);
             let had: BTreeSet<NodeId> = cache.sheen_opacity_keys.keys().copied().collect();
-            let same_light = cache.sheen_light == light;
-            cache.sheen_light = light;
+            let same_light = !cache.set_sheen_light(light);
             if had == wanted && cache.sheen_transform_keys.len() == wanted.len() && same_light {
                 continue;
             }
@@ -13085,10 +13335,7 @@ impl LayoutWindow {
                 // Not `entry()`: a `&mut` to the stamped map restamps it whether or not a
                 // key is minted.
                 let _ = cache.ensure_transform_key(azul_core::gpu::TransformChannel::Sheen, *node);
-                cache
-                    .sheen_opacity_keys
-                    .entry(*node)
-                    .or_insert_with(OpacityKey::unique);
+                let _ = cache.ensure_opacity_key(azul_core::gpu::OpacityChannel::Sheen, *node);
             }
             cache.note_value_write();
             changed.push(dom);
@@ -14506,22 +14753,33 @@ impl LayoutWindow {
     /// A stroke's mask is a live image too - leaving it out makes the GC free the
     /// mask the compositor is still drawing through.
     pub fn images_in_display_lists(&self) -> impl Iterator<Item = &ImageRef> + '_ {
-        use crate::solver3::display_list::DisplayListItem;
-
         self.layout_results
             .values()
             .flat_map(|layout_result| layout_result.display_list.items.iter())
-            .filter_map(|item| match item {
-                DisplayListItem::Image { image, .. } => Some(image),
-                DisplayListItem::PushImageMaskClip {
-                    mask_image: Some(mask_image),
-                    ..
-                } => Some(mask_image),
-                DisplayListItem::StrokedPath {
-                    mask: Some(mask), ..
-                } => Some(mask),
-                _ => None,
-            })
+            .filter_map(Self::image_of_item)
+    }
+
+    /// The image one display list item draws or clips by, when it has one: what
+    /// [`Self::images_in_display_lists`] is made of, item by item (audit A4-10g:
+    /// the GPU shell keeps WHICH items of a list have one while the list lives,
+    /// and asks this of those items alone).
+    #[must_use]
+    pub fn image_of_item(
+        item: &crate::solver3::display_list::DisplayListItem,
+    ) -> Option<&ImageRef> {
+        use crate::solver3::display_list::DisplayListItem;
+
+        match item {
+            DisplayListItem::Image { image, .. } => Some(image),
+            DisplayListItem::PushImageMaskClip {
+                mask_image: Some(mask_image),
+                ..
+            } => Some(mask_image),
+            DisplayListItem::StrokedPath {
+                mask: Some(mask), ..
+            } => Some(mask),
+            _ => None,
+        }
     }
 
     /// Helper function to convert `ScrollManager` to nested format for `CallbackInfo`
@@ -19812,14 +20070,14 @@ impl LayoutWindow {
                 node_id,
                 flip_to_matrix(t),
             );
-            cache
-                .anim_opacity_keys
-                .entry(node_id)
-                .or_insert_with(OpacityKey::unique);
-            cache
-                .anim_current_opacity_values
-                .insert(node_id, anim.current_opacity());
-            cache.note_value_write();
+            // The opacity alike, and no note after the two: an unconditional one moved
+            // the write generation on every tick, also for a slide that wrote the values
+            // it had (A6-22).
+            let _ = cache.key_opacity(
+                azul_core::gpu::OpacityChannel::Animation,
+                node_id,
+                anim.current_opacity(),
+            );
         }
 
         // Keyframed tracks advance their CLOCKS here — one engine clock —
@@ -20091,8 +20349,9 @@ impl LayoutWindow {
                             result.display_list.color_bindings.contains(&Some(*key))
                         });
                         if let Some(key) = bound_key {
+                            // No note: the map stamps itself, and only when the colour
+                            // is another one (8-bit colours repeat between ticks, A6-22).
                             cache.current_color_values.insert(tr.node, to_c);
-                            cache.note_value_write();
                             gpu_values_moved = true;
                             // The last frame releases the key once the list
                             // already shows the final colour (renderers fall
@@ -20121,12 +20380,9 @@ impl LayoutWindow {
                             continue;
                         }
                         if tr.t < 1.0 {
-                            let key = *cache
-                                .color_keys
-                                .entry(tr.node)
-                                .or_insert_with(azul_core::resources::ColorKey::unique);
-                            cache.current_color_values.insert(tr.node, to_c);
-                            cache.note_value_write();
+                            // `key_color`: `entry()` and the note after it both moved the
+                            // write generation whether or not a key was minted (A6-22).
+                            let key = cache.key_color(tr.node, to_c);
                             bind_jobs.push((tr.node, to_c, key));
                         }
                     }
@@ -23266,14 +23522,9 @@ impl LayoutWindow {
                 ],
             },
         );
-        cache
-            .anim_opacity_keys
-            .entry(node)
-            .or_insert_with(OpacityKey::unique);
-        cache.anim_current_opacity_values.insert(node, smp.opacity);
-        // The opacity maps are plain maps: their writer says so (the transform above
-        // stamped itself).
-        cache.note_value_write();
+        // The opacity alike. Its maps stamp themselves, exactly when the sample is another
+        // one: the note that stood here moved the write generation on every sample (A6-22).
+        let _ = cache.key_opacity(azul_core::gpu::OpacityChannel::Animation, node, smp.opacity);
     }
 
     /// Runs a single timer, similar to `CallbacksOfHitTest.call()`
@@ -28438,6 +28689,7 @@ impl LayoutWindow {
                 style_cache: Default::default(),
                 virtual_view_sizes: None,
                 scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                pass_memo: Default::default(),
                 styled_dom,
                 font_manager: &self.font_manager,
                 text_selections: &text_selections_map,
@@ -28651,6 +28903,7 @@ impl LayoutWindow {
             style_cache: Default::default(),
             virtual_view_sizes: None,
             scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+            pass_memo: Default::default(),
             styled_dom,
             font_manager: &self.font_manager,
             text_selections: &text_selections_map,
