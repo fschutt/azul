@@ -2027,10 +2027,15 @@ mod sys {
 
     /// errno set to 0, so the end of a listing is told from an error.
     fn clear_errno() {
-        #[cfg(any(target_os = "linux", target_os = "android"))]
+        #[cfg(target_os = "linux")]
         {
             // SAFETY: the thread's own errno.
             unsafe { *libc::__errno_location() = 0 };
+        }
+        #[cfg(target_os = "android")]
+        {
+            // SAFETY: the thread's own errno (bionic calls the accessor `__errno`).
+            unsafe { *libc::__errno() = 0 };
         }
         #[cfg(any(target_vendor = "apple", target_os = "freebsd"))]
         {
