@@ -2112,7 +2112,9 @@ jobs:
 
       - name: Run the WPT reftest and editing suites
         env:
-          AZ_WPT_OUT: target/wpt
+          # Absolute: the test binary runs in layout/, so a relative path put the results in
+          # layout/target/wpt and the upload step below found nothing (run of 2026-11-21).
+          AZ_WPT_OUT: ${{ github.workspace }}/target/wpt
           AZ_WPT_SHOW: "40"
         run: |
           set -o pipefail
