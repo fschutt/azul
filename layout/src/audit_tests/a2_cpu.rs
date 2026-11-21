@@ -57,6 +57,16 @@ use crate::{
 
 /// How many pixels of two frames differ in colour, and the first one that does.
 fn differing(a: &AzulPixmap, b: &AzulPixmap) -> (usize, Option<(u32, u32)>) {
+    differing_by_more_than(a, b, 0)
+}
+
+/// How many pixels of two frames differ by more than `levels` in a colour channel, and the
+/// first one that does.
+fn differing_by_more_than(
+    a: &AzulPixmap,
+    b: &AzulPixmap,
+    levels: u8,
+) -> (usize, Option<(u32, u32)>) {
     assert_eq!(
         (a.width(), a.height()),
         (b.width(), b.height()),
@@ -66,7 +76,7 @@ fn differing(a: &AzulPixmap, b: &AzulPixmap) -> (usize, Option<(u32, u32)>) {
     let mut count = 0usize;
     let mut first = None;
     for i in (0..da.len().min(db.len())).step_by(4) {
-        if da[i] != db[i] || da[i + 1] != db[i + 1] || da[i + 2] != db[i + 2] {
+        if (0..3).any(|c| da[i + c].abs_diff(db[i + c]) > levels) {
             count += 1;
             if first.is_none() {
                 let px = (i / 4) as u32;
@@ -142,17 +152,18 @@ fn parent_list(offset: (f32, f32)) -> DisplayList {
 
 /// The view's content: an opaque ground 256 px around the view (what the map editor draws, so a
 /// pan inside it may move pixels) and a grid of boxes of 48 colours over it, so that a move by
-/// the wrong amount or to the wrong side shows.
+/// the wrong amount or to the wrong side shows. Every edge is a multiple of 4 px: a whole device
+/// pixel at 1.25, 1.5 and 2 as well (no edge on a half pixel, whose rounding is not the point).
 fn child_list() -> Arc<DisplayList> {
     let mut items = vec![rect(-256.0, -256.0, VIEW.2 + 512.0, VIEW.3 + 512.0, [47, 49, 54])];
     for j in 0..6u8 {
         for i in 0..8u8 {
             let colour = [40 + 25 * i, 250 - 35 * j, 30 + 9 * (i + 3 * j)];
             items.push(rect(
-                f32::from(i) * 57.0 - 90.0,
-                f32::from(j) * 53.0 - 70.0,
-                37.0,
-                31.0,
+                f32::from(i) * 56.0 - 88.0,
+                f32::from(j) * 52.0 - 68.0,
+                36.0,
+                32.0,
                 colour,
             ));
         }
@@ -351,7 +362,8 @@ fn abs_box(x: f32, y: f32, w: f32, h: f32, rest: &str) -> Dom {
 /// The view's DOM: a `picture` that carries the identity transform at build time (the zoom
 /// writes it), around its top left corner; in it the ground, twelve boxes, a box an edit moves
 /// and recolours, a `turned` box with a box inside (a frame inside the picture's frame) and a
-/// `veil` at opacity 0.8.
+/// `veil` at opacity 0.8. Every edge is a multiple of 4 px (a whole device pixel at 1.25, 1.5
+/// and 2).
 extern "C" fn scene(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualViewReturn {
     let (edit, ground) = match data.downcast_ref::<Scene>() {
         Some(scene) => (scene.edits.load(Ordering::SeqCst), scene.ground),
@@ -383,33 +395,33 @@ extern "C" fn scene(mut data: RefAny, info: VirtualViewCallbackInfo) -> VirtualV
             (60 + 37 * i) % 256
         );
         picture = picture.with_child(abs_box(
-            12.0 + 71.0 * (i % 4) as f32,
-            9.0 + 47.0 * (i / 4) as f32,
-            43.0,
-            29.0,
+            12.0 + 72.0 * (i % 4) as f32,
+            8.0 + 48.0 * (i / 4) as f32,
+            44.0,
+            28.0,
             &colour,
         ));
     }
     picture = picture.with_child(abs_box(
-        20.0 + 13.0 * (edit % 9) as f32,
+        20.0 + 12.0 * (edit % 9) as f32,
         168.0,
-        30.0,
+        32.0,
         20.0,
         if edit % 2 == 0 { "background: #ff00ff;" } else { "background: #00ffff;" },
     ));
     picture = picture.with_child(
         abs_box(
-            150.0,
+            148.0,
             100.0,
             80.0,
             20.0,
             "background: #00aa55; transform-origin: 0px 0px; transform: rotate(30deg);",
         )
         .with_class("turned".into())
-        .with_child(abs_box(10.0, 5.0, 40.0, 10.0, "background: #ffffff;")),
+        .with_child(abs_box(8.0, 4.0, 40.0, 12.0, "background: #ffffff;")),
     );
     picture = picture.with_child(
-        abs_box(220.0, 120.0, 50.0, 50.0, "background: #0000ff; opacity: 0.8;")
+        abs_box(220.0, 120.0, 48.0, 48.0, "background: #0000ff; opacity: 0.8;")
             .with_class("veil".into()),
     );
     let page = Dom::create_div().with_child(picture);
@@ -709,7 +721,8 @@ fn random_step(s: &mut Stage, rng: &mut Lcg, badge: bool) -> String {
         -310.0,
     ];
     const SCALES: [f32; 9] = [0.5, 0.75, 0.999, 1.0, 1.001, 1.25, 1.414, 2.0, 3.0];
-    const MOVES: [f32; 8] = [-150.0, -60.5, -12.0, 0.0, 0.4, 12.0, 60.5, 150.0];
+    // No move is a half device pixel at 1.25 or 1.5 (152 x 1.25 = 190, 60.3 x 1.5 = 90.45).
+    const MOVES: [f32; 8] = [-152.0, -60.3, -12.0, 0.0, 0.3, 12.0, 60.3, 152.0];
     const FADES: [f32; 3] = [20.0, 50.0, 80.0];
     const TURNS: [f32; 5] = [0.0, 15.0, 30.0, 90.0, -45.0];
     const NUDGES: [f32; 5] = [-40.0, -7.5, 0.0, 7.5, 40.0];
@@ -762,6 +775,19 @@ fn random_step(s: &mut Stage, rng: &mut Lcg, badge: bool) -> String {
     }
 }
 
+/// How far a channel of a moved pixel may be from a fresh render's: nothing at 1 and 2, where a
+/// view's snapped offset (`round(v x s) / s`) is an exact number, two levels at 1.25 and 1.5,
+/// where it is not (`n / 1.25 x 1.25` is `n` to 1e-5): a group resampled at an offset that is
+/// 1e-5 px off blends with weights one step apart (A2-cpu-16). A strip on the wrong side, a
+/// rect that was not repainted or a move by the wrong distance differ by whole colours.
+fn resample_noise(dpi: u32) -> u8 {
+    if dpi % 96 == 0 {
+        0
+    } else {
+        2
+    }
+}
+
 fn run_sequence(dpi: u32, seed: u64, steps: usize, ground: bool, badge: bool) {
     let mut s = stage(dpi, ground, badge);
     let first = s.paint();
@@ -774,7 +800,7 @@ fn run_sequence(dpi: u32, seed: u64, steps: usize, ground: bool, badge: bool) {
         history.push(what.clone());
         let painted = s.paint();
         let damage: FrameDamage = s.backend.last_frame_damage.clone();
-        let (n, at) = differing(&painted, &s.fresh());
+        let (n, at) = differing_by_more_than(&painted, &s.fresh(), resample_noise(dpi));
         assert_eq!(
             n,
             0,
@@ -862,7 +888,7 @@ fn a2_cpu_the_editors_pan_then_zoom_then_pan_is_a_fresh_renders_frame_at_every_s
             }
             let painted = s.paint();
             let damage = s.backend.last_frame_damage.clone();
-            let (n, at) = differing(&painted, &s.fresh());
+            let (n, at) = differing_by_more_than(&painted, &s.fresh(), resample_noise(dpi));
             assert_eq!(
                 n, 0,
                 "dpi {dpi}, {step:?}: {n} pixels differ from a fresh render, first at {at:?}. \
