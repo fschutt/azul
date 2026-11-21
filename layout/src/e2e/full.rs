@@ -809,6 +809,14 @@ pub struct CpuCountersJson {
     pub group_px: u64,
     pub retained_hits: u64,
     pub scan_items: u64,
+    pub bands: u64,
+    pub band_threads: u64,
+    pub groups_empty: u64,
+    pub group_px_painted: u64,
+    pub retained_misses: u64,
+    pub retained_invalidations: u64,
+    pub retained_patched: u64,
+    pub cells_built: u64,
 }
 
 // A new counter of a CPU frame: its `Counter` variant, `COUNTERS`, its `CpuFrameCounters` field,
@@ -833,6 +841,14 @@ impl From<&azul_layout::cpu_counters::CpuFrameCounters> for CpuCountersJson {
             group_px: c.group_px,
             retained_hits: c.retained_hits,
             scan_items: c.scan_items,
+            bands: c.bands,
+            band_threads: c.band_threads,
+            groups_empty: c.groups_empty,
+            group_px_painted: c.group_px_painted,
+            retained_misses: c.retained_misses,
+            retained_invalidations: c.retained_invalidations,
+            retained_patched: c.retained_patched,
+            cells_built: c.cells_built,
         }
     }
 }

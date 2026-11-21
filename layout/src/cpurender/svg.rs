@@ -738,10 +738,9 @@ fn render_svg_group_inner(
             if group_opacity <= 0.0 {
                 continue;
             }
-            let Some(mut layer) = AzulPixmap::new(pixmap.width, pixmap.height) else {
+            let Some(mut layer) = AzulPixmap::new_transparent(pixmap.width, pixmap.height) else {
                 continue;
             };
-            layer.fill(0, 0, 0, 0);
             render_svg_child(
                 child_node,
                 &tag,

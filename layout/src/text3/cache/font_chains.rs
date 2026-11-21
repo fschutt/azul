@@ -134,14 +134,76 @@ impl FontChainKey {
             .is_some_and(|s| s.style == FontStyle::Oblique);
         let optical_size = font_stack.first().map_or(0, |s| s.optical_size);
 
-        Self {
+        let mut key = Self {
             font_families,
             weight,
             italic: is_italic,
             oblique: is_oblique,
-            optical_size,
+            optical_size: 0,
+        };
+        // A stack whose chain is the same at every optical size is keyed
+        // without one (A8-28, `size_free_key_of`).
+        if optical_size != 0 && !is_size_free(&key) {
+            key.optical_size = optical_size;
+        }
+        key
+    }
+}
+
+/// The size-free keys (`optical_size` 0) of the stacks whose chain is drawn
+/// alike at every optical size ([`size_free_key_of`]), for the process: a
+/// face's axes do not change, and a stack resolves to the same faces in every
+/// font cache of the process (each window's is a clone of the one system
+/// scan, with the same registered faces).
+static SIZE_FREE: std::sync::RwLock<BTreeSet<FontChainKey>> =
+    std::sync::RwLock::new(BTreeSet::new());
+
+/// How many keys [`SIZE_FREE`] holds: 0 skips its lock, and a memo of
+/// [`FontChainKey::from_selectors`]'s keys (`with_chain_key`) compares it to
+/// know it is current.
+pub(crate) static SIZE_FREE_KEYS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Whether the size-free key `key` (`optical_size` 0) is known to name a
+/// chain that is the same at every optical size.
+#[must_use]
+pub fn is_size_free(key: &FontChainKey) -> bool {
+    SIZE_FREE_KEYS.load(std::sync::atomic::Ordering::Acquire) != 0
+        && SIZE_FREE.read().is_ok_and(|keys| keys.contains(key))
+}
+
+/// The key to keep `chain` under, resolved for `key` and not yet drawn at its
+/// variable instances (before `select_variable_instances`): `key` without its
+/// optical size when no CSS group's first face has an `opsz` axis
+/// ([`crate::solver3::getters::chain_depends_on_optical_size`]), and that
+/// size-free key is remembered, so [`FontChainKey::from_selectors`] builds it
+/// for the stack at every size from then on.
+///
+/// Every key carried the used font size in whole px, also for stacks no
+/// face of which has an optical-size axis (A9-10): each zoom settle at a new
+/// scale resolved one chain per stack and px size and added it to the
+/// window's map, which only a change of the root DOM's stacks replaces.
+#[must_use]
+pub fn size_free_key_of(
+    key: FontChainKey,
+    chain: &rust_fontconfig::FontFallbackChain,
+    fc_cache: &FcFontCache,
+) -> FontChainKey {
+    if key.optical_size == 0
+        || crate::solver3::getters::chain_depends_on_optical_size(chain, fc_cache)
+    {
+        return key;
+    }
+    let free = FontChainKey {
+        optical_size: 0,
+        ..key
+    };
+    if let Ok(mut keys) = SIZE_FREE.write() {
+        if keys.insert(free.clone()) {
+            SIZE_FREE_KEYS.store(keys.len(), std::sync::atomic::Ordering::Release);
         }
     }
+    free
 }
 
 /// On-demand chain resolution for a shaping-time cache miss.
@@ -177,6 +239,8 @@ pub(crate) fn resolve_chain_on_miss(
         None,
         &mut trace,
     );
+    // Remembers a stack drawn alike at every size, as the pre-pass does.
+    let _ = size_free_key_of(key.clone(), &chain, fc_cache);
     // Same instance selection as the pre-pass, so a miss draws what a hit would.
     crate::solver3::getters::select_variable_instances(
         &mut chain,
@@ -490,4 +554,104 @@ pub fn append_coverage_faces(
             },
             fonts: faces,
         });
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use azul_css::props::basic::FontRef;
+
+    use super::*;
+    use crate::solver3::getters::{resolve_font_chains_with_registry, CollectedFontStacks};
+
+    fn stacks_at(size: u16) -> Vec<Vec<FontSelector>> {
+        let at = |family: &str, weight| {
+            vec![FontSelector {
+                family: family.to_string(),
+                weight,
+                optical_size: size,
+                ..FontSelector::default()
+            }]
+        };
+        vec![
+            at("Azul Mock Mono", FcWeight::Normal),
+            at("Azul Mock Wide", FcWeight::Normal),
+            at("Azul Mock Mono", FcWeight::Bold),
+        ]
+    }
+
+    /// A8-28 (A9-10): a view settled at ten zoom levels - ten px sizes of its
+    /// three stacks, none of whose faces has an optical-size axis - keeps one
+    /// chain per stack in the window's map, merged as `window.rs` merges a
+    /// view's chains (`entry().or_insert`). Each key carried the size before:
+    /// 30 chains, one more per stack at every new size.
+    /// Mutation: return `key` unchanged from `size_free_key_of` and the map
+    /// holds 30.
+    #[test]
+    fn a_view_settled_at_ten_sizes_keeps_one_chain_per_stack() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let mut window_map: HashMap<FontChainKey, rust_fontconfig::FontFallbackChain> =
+            HashMap::new();
+        for size in 11..=20 {
+            let collected = CollectedFontStacks {
+                font_stacks: stacks_at(size),
+                hash_to_index: HashMap::new(),
+                font_refs: HashMap::new(),
+            };
+            let resolved = resolve_font_chains_with_registry(
+                &collected,
+                &fm.fc_cache,
+                None,
+                None,
+                &fm.memory_families,
+            );
+            for (key, chain) in resolved.into_fontconfig_chains() {
+                window_map.entry(key).or_insert(chain);
+            }
+            // what the run's style asks for at this size finds the chain
+            for stack in stacks_at(size) {
+                let key = FontChainKey::from_selectors(&stack);
+                assert!(window_map.contains_key(&key), "{key:?} at {size} px");
+            }
+        }
+        assert_eq!(window_map.len(), 3, "{:?}", window_map.keys().collect::<Vec<_>>());
+        assert!(window_map.keys().all(|key| key.optical_size == 0));
+        // the memory faces are drawn alike at every size, and are known to be
+        assert!(window_map.keys().all(is_size_free));
+    }
+
+    /// A8-28: a chain is kept without its size only when no CSS group's first
+    /// face could be baked at an optical size: a key that is already size-free
+    /// and a chain the resolver found nothing for keep their key as given.
+    #[test]
+    fn a_key_loses_its_size_only_for_a_chain_drawn_alike_at_every_size() {
+        let fm: FontManager<FontRef> =
+            FontManager::new(FcFontCache::default()).expect("a font manager");
+        let key = FontChainKey::from_selectors(&stacks_at(0)[0]);
+        assert_eq!(key.optical_size, 0);
+        let chain = resolve_chain_on_miss(&key, &fm.fc_cache);
+        assert_eq!(size_free_key_of(key.clone(), &chain, &fm.fc_cache), key);
+        // a chain with an unknown (no longer cached) first face keeps its size
+        let mut unknown = chain.clone();
+        unknown.css_fallbacks = vec![rust_fontconfig::CssFallbackGroup {
+            css_name: "A8-28 unknown".to_string(),
+            fonts: vec![rust_fontconfig::FontMatch {
+                id: rust_fontconfig::FontId::new(),
+                unicode_ranges: Vec::new(),
+                fallbacks: Vec::new(),
+            }],
+            script_fonts: Vec::new(),
+        }];
+        let sized = FontChainKey {
+            font_families: vec!["A8-28 unknown".to_string()],
+            optical_size: 15,
+            ..key
+        };
+        assert_eq!(size_free_key_of(sized.clone(), &unknown, &fm.fc_cache), sized);
+        assert!(!is_size_free(&FontChainKey {
+            optical_size: 0,
+            ..sized
+        }));
+    }
 }

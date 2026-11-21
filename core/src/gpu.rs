@@ -552,12 +552,17 @@ impl GpuValueCache {
     /// comes). Returns the key.
     pub fn ensure_transform_key(&mut self, channel: TransformChannel, node: NodeId) -> TransformKey {
         let (keys, _) = self.transform_maps_mut(channel);
-        let mut minted = false;
-        let key = *keys.entry(node).or_insert_with(|| {
-            minted = true;
-            TransformKey::unique()
-        });
-        self.wrote(minted);
+        // Looked up first, not `entry()`: a map that stamps itself when it
+        // is written (the `StampedMap` the transform maps are on the
+        // integration branch) takes every `entry()` for a write, minted or
+        // not, and the generation then moved on every call for a node that
+        // had its key.
+        if let Some(key) = keys.get(&node).copied() {
+            return key;
+        }
+        let key = TransformKey::unique();
+        keys.insert(node, key);
+        self.wrote(true);
         key
     }
 

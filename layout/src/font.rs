@@ -522,6 +522,38 @@ pub mod parsed {
         TICK.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Where a font table's raw bytes are kept (A8-37): a range of the face's
+    /// source bytes (`ParsedFont::original_bytes`), which every constructor
+    /// attaches and which hold the very bytes the face was parsed from, or -
+    /// where the table provider hands out a copy (a WOFF font's tables are
+    /// unpacked) - that copy. GSUB and GPOS were copied out of the source for
+    /// every face loaded (tens of KiB to megabytes for a CJK face) and kept
+    /// for the face's life, next to the source they came from.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub(crate) enum TableBytes {
+        InSource { offset: usize, len: usize },
+        Owned(Vec<u8>),
+    }
+
+    impl TableBytes {
+        /// Where `table`, as a table provider over `source` handed it out,
+        /// is kept: its range of `source` when it is borrowed from it,
+        /// otherwise the copy.
+        fn of(table: std::borrow::Cow<'_, [u8]>, source: &[u8]) -> Self {
+            if let std::borrow::Cow::Borrowed(slice) = &table {
+                let offset = (slice.as_ptr() as usize).checked_sub(source.as_ptr() as usize);
+                let fits = |o: &usize| o.checked_add(slice.len()).is_some_and(|end| end <= source.len());
+                if let Some(offset) = offset.filter(fits) {
+                    return Self::InSource {
+                        offset,
+                        len: slice.len(),
+                    };
+                }
+            }
+            Self::Owned(table.into_owned())
+        }
+    }
+
     /// Glyph-outline decoder state. See the
     /// [`ParsedFont::loca_glyf`] field docs for the full description.
     #[derive(Clone)]
@@ -691,20 +723,21 @@ pub mod parsed {
         pub vhea_table: Option<HheaTable>,
         /// Maximum profile table (maxp) containing glyph count and memory hints.
         pub maxp_table: MaxpTable,
-        /// Raw GSUB table bytes, kept as a `Vec<u8>` (tens to low-hundreds
-        /// of KiB) so the parsed `GsubCache` can be built on first shape
-        /// call instead of up-front. Access via [`ParsedFont::gsub`] —
-        /// that getter populates `gsub_cache_lazy` via `OnceLock` and
-        /// returns a borrow.
-        pub(crate) gsub_bytes: Option<Vec<u8>>,
+        /// Where the raw GSUB table is (tens of KiB to megabytes), so the
+        /// parsed `GsubCache` can be built on first shape call instead of
+        /// up-front. Access via [`ParsedFont::gsub`] — that getter populates
+        /// `gsub_cache_lazy` via `OnceLock` and returns a borrow. A range of
+        /// the source bytes where the table provider hands out a borrowed
+        /// slice ([`TableBytes`]).
+        pub(crate) gsub_bytes: Option<TableBytes>,
         /// Lazy GSUB cache: populated on first [`ParsedFont::gsub`] call.
         /// `None` means "font has no GSUB table" *after* init attempt;
         /// the `OnceLock` wrapper distinguishes "not yet initialised"
         /// from "initialised to None".
         pub(crate) gsub_cache_lazy: std::sync::OnceLock<Option<GsubCache>>,
-        /// Raw GPOS table bytes. Same lazy-parse arrangement as
+        /// Where the raw GPOS table is. Same lazy-parse arrangement as
         /// `gsub_bytes` — see [`ParsedFont::gpos`].
-        pub(crate) gpos_bytes: Option<Vec<u8>>,
+        pub(crate) gpos_bytes: Option<TableBytes>,
         /// Lazy GPOS cache, populated on first [`ParsedFont::gpos`] call.
         pub(crate) gpos_cache_lazy: std::sync::OnceLock<Option<GposCache>>,
         /// Glyph definition table (GDEF) for glyph classification.
@@ -786,10 +819,18 @@ pub mod parsed {
         pub font_type: FontType,
         /// PostScript font name from the NAME table.
         pub font_name: Option<String>,
-        /// TrueType bytecode hinting instance (mutable interpreter state).
-        /// Wrapped in Mutex because hinting mutates internal state.
-        /// None for CFF fonts or fonts without hinting data.
-        pub hint_instance: Option<std::sync::Mutex<allsorts::hinting::HintInstance>>,
+        /// TrueType bytecode hinting instance (mutable interpreter state),
+        /// read through [`ParsedFont::hint_instance`]. Wrapped in Mutex
+        /// because hinting mutates internal state. Holds `None` for CFF
+        /// fonts or fonts without hinting data.
+        ///
+        /// Built on first use from the retained source bytes, not at load:
+        /// `HintInstance::new` copies `cvt`/`fpgm`/`prep`, allocates the
+        /// interpreter and executes `fpgm`, and a face is only ever hinted
+        /// when `text_hinting_enabled()` (off by default on macOS), so a load
+        /// paid that for every face of every chain for nothing.
+        pub(crate) hint_slot:
+            std::sync::OnceLock<Option<std::sync::Mutex<allsorts::hinting::HintInstance>>>,
     }
 
     impl Clone for ParsedFont {
@@ -837,8 +878,9 @@ pub mod parsed {
                 font_type: self.font_type.clone(),
                 font_name: self.font_name.clone(),
                 // HintInstance has mutable interpreter state and is not Clone.
-                // Clones are used for PDF/serialization where hinting isn't needed.
-                hint_instance: None,
+                // Clones are used for PDF/serialization where hinting isn't needed:
+                // the slot is filled with `None`, so a clone never builds one.
+                hint_slot: std::sync::OnceLock::from(None),
             }
         }
     }
@@ -1654,25 +1696,8 @@ pub mod parsed {
 
             let mut font_data_impl = allsorts::font::Font::new(provider).ok()?;
 
-            // Create TrueType hinting instance from font tables.
-            // [az-web-lift] Skip on the web build. The lifted layout never grid-fits glyphs to a
-            // pixel raster (it measures + ships a display list to JS), so hinting is never used.
-            // Building it (HintInstance::new) runs the allsorts bytecode Interpreter
-            // (Interpreter::new + ::dispatch — a large un-devirt'd opcode jump table the remill
-            // lift can't resolve, plus ~700 op_* fns of closure bloat). This is INDEPENDENT of the
-            // lift's jump-table devirt: even with a perfect lift, web has no use for hinting, and
-            // hinted advances are lower-quality output than the plain scaled advance. Native keeps
-            // real hinting unchanged.
-            #[cfg(feature = "web_lift")]
-            let hint_instance: Option<
-                std::sync::Mutex<allsorts::hinting::HintInstance>,
-            > = None;
-            #[cfg(not(feature = "web_lift"))]
-            let hint_instance =
-                allsorts::hinting::HintInstance::new(&font_data_impl.font_table_provider)
-                    .ok()
-                    .flatten()
-                    .map(std::sync::Mutex::new);
+            // The TrueType hinting instance is built on first use, from the
+            // source bytes the constructors attach (`ParsedFont::hint_instance`).
 
             // Stash raw GSUB/GPOS bytes for lazy parse. Typical fonts
             // have ~tens of KiB of GSUB + a few-to-tens of KiB of GPOS —
@@ -1686,13 +1711,13 @@ pub mod parsed {
                 .table_data(tag::GSUB)
                 .ok()
                 .flatten()
-                .map(std::borrow::Cow::into_owned);
+                .map(|table| TableBytes::of(table, font_bytes));
             let gpos_bytes = font_data_impl
                 .font_table_provider
                 .table_data(tag::GPOS)
                 .ok()
                 .flatten()
-                .map(std::borrow::Cow::into_owned);
+                .map(|table| TableBytes::of(table, font_bytes));
             let opt_gdef_table = font_data_impl.gdef_table().ok().and_then(|o| o);
             let num_glyphs = font_data_impl.num_glyphs();
 
@@ -1765,7 +1790,7 @@ pub mod parsed {
                 index_to_cid: BTreeMap::new(), // Will be filled for CFF fonts
                 font_type: FontType::TrueType, // Default, will be updated if CFF
                 font_name,
-                hint_instance,
+                hint_slot: std::sync::OnceLock::new(),
             };
 
             // The space's advance is measured by the constructors once the source
@@ -1959,6 +1984,14 @@ pub mod parsed {
             self.last_used.load(std::sync::atomic::Ordering::Relaxed)
         }
 
+        /// Stamps this face as used now, as [`Self::get_or_decode_glyph`]
+        /// does: for a renderer that draws a run from cached glyph paths
+        /// without decoding any of its glyphs, once per run.
+        pub fn touch(&self) {
+            self.last_used
+                .store(monotonic_now_nanos(), std::sync::atomic::Ordering::Relaxed);
+        }
+
         /// Drop the cached `LocaGlyf` for this face if it's
         /// `Deferred`-with-bytes-retained — so the next
         /// [`get_or_decode_glyph`] re-parses from `bytes`. No-op for
@@ -1998,7 +2031,7 @@ pub mod parsed {
                         binary::read::ReadScope,
                         layout::{new_layout_cache, LayoutTable, GSUB},
                     };
-                    let bytes = self.gsub_bytes.as_ref()?;
+                    let bytes = self.table_bytes(self.gsub_bytes.as_ref()?)?;
                     ReadScope::new(bytes)
                         .read::<LayoutTable<GSUB>>()
                         .ok()
@@ -2035,7 +2068,7 @@ pub mod parsed {
                         binary::read::ReadScope,
                         layout::{new_layout_cache, LayoutTable, GPOS},
                     };
-                    let bytes = self.gpos_bytes.as_ref()?;
+                    let bytes = self.table_bytes(self.gpos_bytes.as_ref()?)?;
                     ReadScope::new(bytes)
                         .read::<LayoutTable<GPOS>>()
                         .ok()
@@ -2157,6 +2190,20 @@ pub mod parsed {
         /// chain fails, falls back to an empty-outline record with the
         /// `hmtx` advance. This mirrors the pre-lazy behaviour where
         /// every gid ended up in `glyph_records_decoded`.
+        /// The bytes of a table kept as `table` ([`TableBytes`]): its range of
+        /// the source bytes, or its copy. `None` for a range when the source
+        /// bytes are not attached or do not reach that far.
+        fn table_bytes<'a>(&'a self, table: &'a TableBytes) -> Option<&'a [u8]> {
+            match table {
+                TableBytes::InSource { offset, len } => self
+                    .original_bytes
+                    .as_ref()?
+                    .as_slice()
+                    .get(*offset..offset.checked_add(*len)?),
+                TableBytes::Owned(bytes) => Some(bytes.as_slice()),
+            }
+        }
+
         fn hmtx_bytes(&self) -> &[u8] {
             let (off, len) = self.hmtx_range;
             if len == 0 {
@@ -2481,6 +2528,58 @@ pub mod parsed {
             }
         }
 
+        /// The face's TrueType hinting instance: `None` for CFF fonts, fonts
+        /// without hinting data, clones, and faces with no source bytes.
+        ///
+        /// Built on the first call from the source bytes (`original_bytes`),
+        /// through the same table provider the parse uses, so it is the
+        /// instance the eager build at load produced; later calls return it.
+        ///
+        /// [az-web-lift] Never built on the web build. The lifted layout never
+        /// grid-fits glyphs to a pixel raster (it measures + ships a display list
+        /// to JS), so hinting is never used. Building it (`HintInstance::new`)
+        /// runs the allsorts bytecode Interpreter (`Interpreter::new` +
+        /// `::dispatch` — a large un-devirt'd opcode jump table the remill lift
+        /// can't resolve, plus ~700 `op_*` fns of closure bloat). This is
+        /// INDEPENDENT of the lift's jump-table devirt: even with a perfect lift,
+        /// web has no use for hinting, and hinted advances are lower-quality
+        /// output than the plain scaled advance. Native keeps real hinting.
+        pub fn hint_instance(&self) -> Option<&std::sync::Mutex<allsorts::hinting::HintInstance>> {
+            #[cfg(feature = "web_lift")]
+            {
+                None
+            }
+            #[cfg(not(feature = "web_lift"))]
+            {
+                self.hint_slot
+                    .get_or_init(|| self.build_hint_instance())
+                    .as_ref()
+            }
+        }
+
+        /// Builds the hinting instance from `original_bytes`, choosing the table
+        /// provider as `from_bytes_internal` does (the hand-rolled provider for
+        /// OpenType, allsorts' otherwise).
+        #[cfg(not(feature = "web_lift"))]
+        fn build_hint_instance(&self) -> Option<std::sync::Mutex<allsorts::hinting::HintInstance>> {
+            use allsorts::{binary::read::ReadScope, font_data::FontData, hinting::HintInstance};
+            #[cfg(test)]
+            audit_a8_tests::HINT_BUILDS.with(|c| c.set(c.get() + 1));
+            let bytes = self.original_bytes.as_ref()?.as_slice();
+            let index = self.original_index;
+            let built = match ReadScope::new(bytes).read::<FontData<'_>>().ok()? {
+                FontData::OpenType(otf) => {
+                    if let Some(mp) = ManualTableProvider::new(bytes, index) {
+                        HintInstance::new(&mp)
+                    } else {
+                        HintInstance::new(&otf.table_provider(index).ok()?)
+                    }
+                }
+                other => HintInstance::new(&other.table_provider(index).ok()?),
+            };
+            built.ok().flatten().map(std::sync::Mutex::new)
+        }
+
         /// Get the hinted advance width in pixels for a glyph at the given ppem.
         ///
         /// For glyphs with outlines, runs TrueType bytecode hinting to get the
@@ -2514,7 +2613,7 @@ pub mod parsed {
                 }
 
                 // Check if we even have a hint instance
-                let hint_mutex = self.hint_instance.as_ref()?;
+                let hint_mutex = self.hint_instance()?;
 
                 let scale = compute_scale(ppem, upem);
                 // Round the LIVE hmtx advance, not the decoded glyph's cached
@@ -2527,25 +2626,16 @@ pub mod parsed {
                 let hmtx_advance = self.get_horizontal_advance(glyph_index);
                 let adv_f26dot6 = F26Dot6::from_funits(i32::from(hmtx_advance), scale);
 
-                // For glyphs with outline data, run bytecode hinting
-                if let (Some(raw_points), Some(raw_on_curve), Some(raw_contour_ends)) = (
-                    glyph.raw_points.as_ref(),
-                    glyph.raw_on_curve.as_ref(),
-                    glyph.raw_contour_ends.as_ref(),
-                ) {
-                    let instructions = glyph.instructions.as_deref().unwrap_or(&[]);
+                // A glyph with outline data prepares the interpreter for this ppem
+                // (scales the CVT, runs `prep`). The advance itself is not hinted
+                // (below), so its points are not scaled here: that Vec was built
+                // per glyph and dropped unread.
+                if glyph.raw_points.is_some()
+                    && glyph.raw_on_curve.is_some()
+                    && glyph.raw_contour_ends.is_some()
+                {
                     let mut hint = hint_mutex.lock().ok()?;
                     hint.set_ppem(ppem, f64::from(ppem)).ok()?;
-                    drop(hint);
-
-                    let points_f26dot6: Vec<(i32, i32)> = raw_points
-                        .iter()
-                        .map(|&(x, y)| {
-                            let sx = F26Dot6::from_funits(i32::from(x), scale);
-                            let sy = F26Dot6::from_funits(i32::from(y), scale);
-                            (sx.to_bits(), sy.to_bits())
-                        })
-                        .collect();
                 }
 
                 // Use the scaled advance rounded to pixel grid, NOT the hinted
@@ -3116,7 +3206,7 @@ pub mod parsed {
                 index_to_cid: BTreeMap::new(),
                 font_type: FontType::TrueType,
                 font_name: None,
-                hint_instance: None,
+                hint_slot: std::sync::OnceLock::from(None),
             }
         }
 
@@ -4052,7 +4142,7 @@ pub mod parsed {
             let _ = clone.get_or_decode_glyph(1);
             assert!(font.glyph_cache_snapshot().contains_key(&1));
             // HintInstance is not Clone: it is deliberately dropped
-            assert!(clone.hint_instance.is_none());
+            assert!(clone.hint_instance().is_none());
         }
 
         #[test]
@@ -4764,6 +4854,205 @@ pub mod parsed {
                 let font =
                     ParsedFont::from_bytes(&helvetica, 0, &mut warnings).expect("Helvetica parses");
                 assert!(font.tracking.is_none(), "Helvetica is not tracked");
+            }
+        }
+    }
+
+    #[cfg(all(test, not(feature = "web_lift")))]
+    mod audit_a8_tests {
+        use std::cell::Cell;
+
+        use super::*;
+
+        thread_local! {
+            /// `ParsedFont::build_hint_instance` calls on this thread.
+            pub(super) static HINT_BUILDS: Cell<usize> = const { Cell::new(0) };
+        }
+
+        fn hint_builds() -> usize {
+            HINT_BUILDS.with(Cell::get)
+        }
+
+        const MOCK_MONO: &[u8] = crate::text3::mock_fonts::MOCK_MONO_TTF;
+
+        fn shared(bytes: &[u8]) -> Option<ParsedFont> {
+            let arc = Arc::new(rust_fontconfig::FontBytes::Owned(Arc::from(bytes.to_vec())));
+            ParsedFont::from_bytes_shared(arc, 0, &mut Vec::new())
+        }
+
+        /// What the load built before A8-24: `HintInstance::new` over the
+        /// provider `from_bytes_internal` hands an OpenType face's `from_provider`.
+        fn eager_reference(bytes: &[u8]) -> Option<allsorts::hinting::HintInstance> {
+            let provider = ManualTableProvider::new(bytes, 0)?;
+            allsorts::hinting::HintInstance::new(&provider).ok().flatten()
+        }
+
+        /// Hints `ch` at `ppem` with `hint`, as `build_hinted_path` scales it.
+        fn hint_char(
+            font: &ParsedFont,
+            hint: &mut allsorts::hinting::HintInstance,
+            ch: char,
+            ppem: u16,
+        ) -> Option<Vec<(i32, i32)>> {
+            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
+            let glyph = font.get_or_decode_glyph(font.lookup_glyph_index(u32::from(ch))?)?;
+            let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+            let points: Vec<(i32, i32)> = glyph
+                .raw_points
+                .as_ref()?
+                .iter()
+                .map(|&(x, y)| {
+                    (
+                        F26Dot6::from_funits(i32::from(x), scale).to_bits(),
+                        F26Dot6::from_funits(i32::from(y), scale).to_bits(),
+                    )
+                })
+                .collect();
+            let advance = F26Dot6::from_funits(i32::from(glyph.horz_advance), scale).to_bits();
+            hint.set_ppem(ppem, f64::from(ppem)).ok()?;
+            hint.hint_glyph(
+                &points,
+                glyph.raw_on_curve.as_ref()?,
+                glyph.raw_contour_ends.as_ref()?,
+                glyph.instructions.as_deref().unwrap_or(&[]),
+                advance,
+            )
+            .ok()
+        }
+
+        #[test]
+        fn a_load_builds_no_hint_instance_and_its_first_use_builds_one() {
+            let before = hint_builds();
+            let font = shared(MOCK_MONO).expect("Azul Mock Mono parses");
+            let eager = ParsedFont::from_bytes(MOCK_MONO, 0, &mut Vec::new()).expect("parses");
+            assert_eq!(hint_builds(), before, "a load runs no HintInstance::new");
+            assert!(font.hint_slot.get().is_none(), "the slot is still unbuilt");
+            // Mock Mono has a version-1 maxp and no fpgm: the eager build made one.
+            assert!(eager_reference(MOCK_MONO).is_some());
+            assert!(font.hint_instance().is_some());
+            assert!(font.hint_instance().is_some());
+            assert!(eager.hint_instance().is_some());
+            assert_eq!(hint_builds(), before + 2, "one build per face, on its first use");
+            // a clone dropped hinting before, and builds none now
+            let clone = font.clone();
+            assert!(clone.hint_instance().is_none());
+            assert_eq!(hint_builds(), before + 2);
+            // a face without source bytes has nothing to build from
+            let bare = ParsedFont::from_bytes_internal(MOCK_MONO, 0, &mut Vec::new(), true)
+                .expect("parses");
+            assert!(bare.hint_instance().is_none());
+        }
+
+        #[test]
+        fn the_instance_built_on_first_use_hints_as_the_eager_one_did() {
+            // Mock Mono (no fpgm) everywhere, plus one face with real fpgm/prep
+            // programs where the platform has it.
+            let candidates = [
+                "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+            ];
+            let mut faces = vec![MOCK_MONO.to_vec()];
+            faces.extend(candidates.iter().find_map(|p| std::fs::read(p).ok()));
+            for bytes in &faces {
+                let font = shared(bytes).expect("parses");
+                let Some(mut reference) = eager_reference(bytes) else {
+                    assert!(font.hint_instance().is_none(), "no instance before, none now");
+                    continue;
+                };
+                let mut lazy = font.hint_instance().expect("built on first use").lock().unwrap();
+                for ppem in [11, 16, 23] {
+                    for ch in ['a', 'g', 'H', '0'] {
+                        assert_eq!(
+                            hint_char(&font, &mut lazy, ch, ppem),
+                            hint_char(&font, &mut reference, ch, ppem),
+                            "{ch:?} at {ppem} ppem"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn a_hinted_advance_is_the_rounded_scaled_hmtx_advance_of_every_glyph() {
+            // A8-25 dropped the per-glyph points Vec the function built and never
+            // read; what it returns is unchanged: Some(round(scaled hmtx)) for every
+            // glyph that decodes, with the interpreter set to the ppem.
+            use allsorts::hinting::f26dot6::{compute_scale, F26Dot6};
+            let font = shared(MOCK_MONO).expect("parses");
+            for ppem in [9u16, 16, 31] {
+                let scale = compute_scale(ppem, font.font_metrics.units_per_em);
+                for gid in 0..font.num_glyphs() {
+                    let expected = font.get_or_decode_glyph(gid).map(|_| {
+                        let adv = F26Dot6::from_funits(
+                            i32::from(font.get_horizontal_advance(gid)),
+                            scale,
+                        );
+                        ((adv.to_bits() + 32) & !63) as f32 / 64.0
+                    });
+                    assert_eq!(font.get_hinted_advance_px(gid, ppem), expected, "gid {gid}");
+                }
+            }
+        }
+
+        /// A8-37: a face keeps its GSUB and GPOS as ranges of its source bytes,
+        /// not as copies, and they are the very bytes the table provider hands
+        /// out; the layout tables parsed from them answer as the ones parsed
+        /// from a copy do (a system face with real features where there is one).
+        /// Mutation: `TableBytes::Owned(table.into_owned())` for every table
+        /// fails the `InSource` assertions.
+        #[test]
+        fn layout_tables_are_kept_as_ranges_of_the_source() {
+            use allsorts::{
+                binary::read::ReadScope,
+                layout::{new_layout_cache, LayoutTable, GSUB},
+                tables::FontTableProvider,
+                tag,
+            };
+            let candidates = [
+                "/System/Library/Fonts/Supplemental/Times New Roman.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "C:/Windows/Fonts/arial.ttf",
+            ];
+            let mut faces = vec![MOCK_MONO.to_vec()];
+            faces.extend(candidates.iter().find_map(|p| std::fs::read(p).ok()));
+            for bytes in &faces {
+                let font = shared(bytes).expect("parses");
+                let provider = ManualTableProvider::new(bytes, 0).expect("an sfnt");
+                for (kept, table) in [(&font.gsub_bytes, tag::GSUB), (&font.gpos_bytes, tag::GPOS)] {
+                    let Some(expected) = provider.table_data(table).ok().flatten() else {
+                        assert!(kept.is_none());
+                        continue;
+                    };
+                    let kept = kept.as_ref().expect("the table is kept");
+                    assert!(matches!(kept, TableBytes::InSource { .. }), "{kept:?}");
+                    assert_eq!(font.table_bytes(kept), Some(&expected[..]));
+                }
+                let Some(copy) = provider.table_data(tag::GSUB).ok().flatten() else {
+                    continue;
+                };
+                let from_copy = ReadScope::new(&copy.into_owned())
+                    .read::<LayoutTable<GSUB>>()
+                    .ok()
+                    .map(new_layout_cache);
+                assert_eq!(font.gsub().is_some(), from_copy.is_some());
+                let Some(from_copy) = from_copy else {
+                    continue;
+                };
+                for script in [tag::LATN, tag::DFLT, tag::ARAB] {
+                    for feature in [tag::LIGA, tag::KERN, tag::SMCP, tag::CCMP, tag::LOCL] {
+                        let table = &from_copy.layout_table;
+                        let reference = table
+                            .find_script_or_default(script)
+                            .ok()
+                            .flatten()
+                            .and_then(|s| s.find_langsys_or_default(None).ok().flatten())
+                            .is_some_and(|langsys| {
+                                matches!(table.find_langsys_feature(langsys, feature, None), Ok(Some(_)))
+                            });
+                        assert_eq!(font.has_gsub_feature_tag(script, feature), reference);
+                    }
+                }
             }
         }
     }

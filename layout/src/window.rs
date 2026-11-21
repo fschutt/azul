@@ -18256,7 +18256,7 @@ impl LayoutWindow {
     #[cfg(feature = "std")]
     pub fn refresh_scrollbar_gpu_cache_for_cpu_frame(&mut self) -> bool {
         let system_callbacks = ExternalSystemCallbacks::rust_internal();
-        let mut moved = self.refresh_scrollbar_transforms();
+        let mut moved = false;
         let fade_delay = self.gpu_state_manager.fade_delay;
         let fade_duration = self.gpu_state_manager.fade_duration;
         let Self {
@@ -18265,6 +18265,15 @@ impl LayoutWindow {
             ref mut gpu_state_manager,
             ..
         } = *self;
+        // The thumbs and the sticky boxes, from the boxes the layout pass
+        // listed (A2-gpu-14): a frame looks at those, not at every box of
+        // every tree (`refresh_scrollbar_transforms` is the walk, for a tree
+        // that was just made or written to).
+        for (dom_id, layout_result) in layout_results {
+            moved |= !gpu_state_manager
+                .refresh_scroll_driven_transforms(*dom_id, scroll_manager, &layout_result.layout_tree)
+                .is_empty();
+        }
         for (dom_id, layout_result) in layout_results {
             moved |= !Self::synchronize_scrollbar_opacity(
                 gpu_state_manager,
@@ -21139,6 +21148,16 @@ impl LayoutWindow {
                 nested_dom_hosts.insert(nested, (host_dom, host_node));
             }
         }
+        // The generation of each DOM ([`DomGenerations`]): a DOM that is
+        // still the one the last pass walked is put back into the tree
+        // without a node of it being read (A3-core-10a). A DOM without a
+        // generation (0) is not in the map and is walked.
+        let generations: BTreeMap<DomId, u64> = self
+            .layout_results
+            .keys()
+            .map(|dom_id| (*dom_id, self.dom_generation(*dom_id)))
+            .filter(|(_, generation)| *generation != 0)
+            .collect();
         let inputs = crate::managers::a11y::A11yTreeInputs {
             layout_results: &self.layout_results,
             scroll_manager: &self.scroll_manager,
@@ -21158,6 +21177,7 @@ impl LayoutWindow {
             language_is_rtl: language.is_rtl,
             translate: has_translations
                 .then_some(crate::managers::a11y::A11yTranslate(&translate_key)),
+            dom_generations: Some(&generations),
         };
         // A refused update keeps the last good state parked/delivered and the
         // next pass resends the whole tree; `last_rejection` records why (the
@@ -34776,8 +34796,15 @@ mod autotest_generated {
             .keys()
             .map(|k| k.optical_size)
             .collect();
+        // A stack drawn alike at every optical size is kept without one
+        // (A8-28) and cannot miss; one with an optical-size axis is at its size.
+        let size_free = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .any(|k| k.optical_size == 0 && crate::text3::cache::is_size_free(k));
         assert!(
-            sizes.contains(&40),
+            sizes.contains(&40) || size_free,
             "5vw of an 800px window is 40px: the text's chain is collected at that optical size \
              (collected: {sizes:?})"
         );
@@ -34816,8 +34843,15 @@ mod autotest_generated {
             .keys()
             .map(|k| k.optical_size)
             .collect();
+        // A stack drawn alike at every optical size is kept without one
+        // (A8-28) and cannot miss; one with an optical-size axis is at its size.
+        let size_free = win
+            .font_manager
+            .font_chain_cache
+            .keys()
+            .any(|k| k.optical_size == 0 && crate::text3::cache::is_size_free(k));
         assert!(
-            sizes.contains(&20),
+            sizes.contains(&20) || size_free,
             "5vw of a 400px window is 20px: the resize collects the text's chain at that size \
              (collected: {sizes:?})"
         );

@@ -276,6 +276,8 @@ impl ShapedItem {
     // can't merge)
     #[must_use]
     pub fn bounds(&self) -> Rect {
+        #[cfg(test)]
+        ITEM_BOUNDS_CALLS.with(|n| n.set(n.get() + 1));
         match self {
             Self::Cluster(cluster) => {
                 // The width of a text cluster is its total advance.
@@ -370,12 +372,19 @@ impl ClusterFlags {
                     bits |= Self::SOFT_HYPHEN_START;
                 }
                 // Grapheme-extender probe: 'x' + ch collapsing to one
-                // grapheme means ch extends the preceding base.
-                let mut probe = String::with_capacity(1 + ch.len_utf8());
-                probe.push('x');
-                probe.push(ch);
-                if probe.graphemes(true).count() == 1 {
-                    bits |= Self::GRAPHEME_CONTINUATION;
+                // grapheme means ch extends the preceding base. On the stack
+                // (it was a `String` per cluster shaped), and not for ASCII,
+                // which extends nothing: no ASCII character is an extender, a
+                // spacing mark or a joiner, so "x" + it is two graphemes.
+                if !ch.is_ascii() {
+                    let mut buf = [0u8; 5];
+                    buf[0] = b'x';
+                    let len = 1 + ch.encode_utf8(&mut buf[1..]).len();
+                    if core::str::from_utf8(&buf[..len])
+                        .is_ok_and(|probe| probe.graphemes(true).count() == 1)
+                    {
+                        bits |= Self::GRAPHEME_CONTINUATION;
+                    }
                 }
             }
         }
@@ -603,4 +612,74 @@ pub struct PositionedItem {
     pub item: ShapedItem,
     pub position: Point,
     pub line_index: usize,
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: how often this thread has measured an item's bounds.
+    pub(crate) static ITEM_BOUNDS_CALLS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    /// `ClusterFlags::classify` before A8-22 (a `String` probe per call), kept
+    /// as the reference.
+    fn old_classify(text: &str) -> ClusterFlags {
+        let mut bits = 0u16;
+        for (i, ch) in text.chars().enumerate() {
+            if is_word_separator_char(ch) {
+                bits |= ClusterFlags::WORD_SEPARATOR;
+            }
+            if matches!(ch, '\u{00A0}' | '\u{202F}' | '\u{2060}' | '\u{FEFF}') {
+                bits |= ClusterFlags::NO_BREAK_SPACE;
+            }
+            if ch == '\u{200B}' {
+                bits |= ClusterFlags::ZERO_WIDTH_SPACE;
+            }
+            if is_cjk_character(ch) {
+                bits |= ClusterFlags::HAS_CJK;
+            }
+            if i == 0 {
+                if ch == '\u{00AD}' {
+                    bits |= ClusterFlags::SOFT_HYPHEN_START;
+                }
+                let mut probe = String::with_capacity(1 + ch.len_utf8());
+                probe.push('x');
+                probe.push(ch);
+                if probe.graphemes(true).count() == 1 {
+                    bits |= ClusterFlags::GRAPHEME_CONTINUATION;
+                }
+            }
+        }
+        if text.ends_with('\u{002D}') || text.ends_with('\u{2010}') || text.ends_with('\u{002F}') {
+            bits |= ClusterFlags::ENDS_BREAKABLE;
+        }
+        ClusterFlags(bits)
+    }
+
+    /// A8-22: every character as a cluster of its own, and followed by an
+    /// 'a' and a '-', classifies as before: all of U+0000..=U+FFFF (ASCII,
+    /// the combining marks, joiners, Hangul jamo, spacing marks) and the
+    /// emoji modifiers, tags and supplementary marks above.
+    /// Mutation: skip the probe for every character below U+0370 (not only
+    /// for ASCII) and the combining marks U+0300..U+036F fail it.
+    #[test]
+    fn a_cluster_classifies_as_it_did() {
+        let above = (0x1_F3FB..=0x1_F3FF).chain(0xE_0020..=0xE_007F).chain(0x1_D165..=0x1_D169);
+        for code in (0..=0xFFFF_u32).chain(above) {
+            let Some(ch) = char::from_u32(code) else {
+                continue;
+            };
+            for text in [ch.to_string(), format!("{ch}a-")] {
+                assert_eq!(
+                    ClusterFlags::classify(&text).0,
+                    old_classify(&text).0,
+                    "U+{code:04X} in {text:?}"
+                );
+            }
+        }
+    }
 }

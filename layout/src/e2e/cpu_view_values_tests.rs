@@ -482,3 +482,92 @@ fn a_zoom_step_is_counted_and_a_settled_frame_counts_nothing() {
         "an idle frame walks, paints, clears and blits nothing"
     );
 }
+
+/// A1-11 (`audit/A1.md`; A10-08): a frame painted at another scale factor than the frame
+/// before is painted in full, and keeps no group surface of the old factor. The backend is
+/// told that its last frame was at a factor of 2; the next frame, at 1, must not be a repaint
+/// of parts (the list did not change: the diff alone finds nothing and the frame would be
+/// skipped, showing the old scale's pixels).
+/// Mutation: `dpi_changed` left out of `frame_may_reuse_previous_pixels` skips the frame.
+#[test]
+fn a1_11_a_frame_at_another_scale_factor_is_painted_in_full() {
+    let z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let first = z.frame(&mut backend);
+    let _ = z.frame(&mut backend);
+    assert!(matches!(backend.last_frame_damage, crate::window::FrameDamage::None), "premise: an idle frame");
+    backend.last_dpi_factor = Some(2.0);
+    let again = z.frame(&mut backend);
+    assert!(
+        matches!(backend.last_frame_damage, crate::window::FrameDamage::Full),
+        "another factor: a full frame, got {:?}",
+        backend.last_frame_damage
+    );
+    assert_eq!(backend.last_dpi_factor, Some(1.0));
+    assert!(backend.retained_frames.is_empty(), "no surface of the old factor is kept");
+    assert!(first.data() == again.data(), "and it is the frame a first paint gives");
+}
+
+/// A1-16: the GPU values a frame paints with are moved into its render state and come back:
+/// after a zoom step the backend holds the picture's matrix again (the next frame diffs
+/// against it), and that next frame, with nothing written, is idle.
+/// Mutation: the values not moved back leaves `previous_gpu_values` empty, and the next frame
+/// sees every value as changed.
+#[test]
+fn a1_16_the_values_a_frame_painted_with_are_the_next_frames_previous_values() {
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let _ = z.frame(&mut backend);
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let _ = z.frame(&mut backend);
+    assert!(
+        !backend.previous_gpu_values.transforms.is_empty(),
+        "the frame's values are the backend's again"
+    );
+    let _ = z.frame(&mut backend);
+    assert!(matches!(backend.last_frame_damage, crate::window::FrameDamage::None), "nothing written: an idle frame");
+}
+
+/// A1 (merge follow-up 3): the frame `render_frame` paints is as large as
+/// `present_geometry::frame_size_px` says, the function every shell sizes its buffer with
+/// (A10): 400.2 x 300 logical px at a factor of 2 are 801 x 600 px (800.4 rounds up), not the
+/// 800 a truncation gives.
+/// Mutation: a size of its own in `render_frame` that truncates is 800 px wide.
+#[test]
+fn the_frame_is_as_large_as_the_shells_buffer_formula_says() {
+    let z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    backend.render_frame(&z.lw, &z.resources, 400.2, 300.0, 2.0);
+    let expected = crate::window::present_geometry::frame_size_px(400.2, 300.0, 2.0);
+    assert_eq!(expected, (801, 600), "premise: ceil(800.4) x 600");
+    let frame = backend.last_frame.as_ref().expect("the backend painted a frame");
+    assert_eq!((frame.width(), frame.height()), expected);
+    assert_eq!(backend.last_frame_px, Some(expected));
+}
+
+/// A1-29 (merge follow-up 4): what the macOS shell gives back for a window nobody sees and
+/// under memory pressure (`CpuBackend::release_caches`: the kept group surfaces, this thread's
+/// kept halos, the compositor) costs the next frames work, never a pixel: an unchanged frame
+/// after the release is idle (the frame on screen is kept), and a zoom step after it is the
+/// frame a backend that never kept anything paints.
+/// Mutation: a release that also drops `last_frame` or the previous display list turns the
+/// idle frame into a full one.
+#[test]
+fn a_backend_that_released_its_caches_paints_the_same_frames() {
+    let mut z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    let _ = z.frame(&mut backend);
+    z.write(z.picture, zoom(40.0, 20.0, 2.0));
+    let _ = z.frame(&mut backend);
+    backend.release_caches();
+    assert!(backend.retained_frames.is_empty() && backend.compositor.is_none());
+    let _ = z.frame(&mut backend);
+    assert!(
+        matches!(backend.last_frame_damage, crate::window::FrameDamage::None),
+        "nothing changed: an idle frame, got {:?}",
+        backend.last_frame_damage
+    );
+    z.write(z.picture, zoom(40.0, 20.0, 2.5));
+    let after = z.frame(&mut backend);
+    assert_the_frame_is_what_a_full_paint_gives(&z, &after, "a zoom step after a release");
+}

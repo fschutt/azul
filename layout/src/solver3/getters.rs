@@ -172,6 +172,20 @@ pub fn get_element_font_size_in_viewport(
         * get_effective_zoom(styled_dom, dom_id)
 }
 
+/// Whether the DOM's compact cache says that NO node declares the property
+/// (or properties) of `flag`, a `DOM_HAS_*` bit: the cascade then answers
+/// "nothing declared" for every node, in every state, and need not be asked.
+/// `false` without a compact cache (nothing is known).
+#[must_use]
+pub(crate) fn dom_declares_nothing_of(styled_dom: &StyledDom, flag: u32) -> bool {
+    styled_dom
+        .css_property_cache
+        .ptr
+        .compact_cache
+        .as_ref()
+        .is_some_and(|cc| !cc.dom_declared(flag))
+}
+
 // ==== CSS zoom (LAYOUT7) ====
 
 /// A node's own `zoom` factor in the `Normal` state, 1.0 without one.
@@ -196,6 +210,12 @@ fn own_zoom(styled_dom: &StyledDom, dom_id: NodeId) -> f32 {
 /// pre-order: a parent precedes its children). EMPTY when no node zooms.
 #[cfg_attr(feature = "web_lift", allow(dead_code))]
 fn compute_all_zooms(styled_dom: &StyledDom) -> Vec<f32> {
+    // A DOM in which nothing declares `zoom` (no sheet, inline style, UA
+    // rule or override, in any state: `DOM_HAS_ZOOM_OR_ASPECT_RATIO` clear)
+    // has no zoom: each of the lookups below, one per node, would answer 1.
+    if dom_declares_nothing_of(styled_dom, azul_css::compact_cache::DOM_HAS_ZOOM_OR_ASPECT_RATIO) {
+        return Vec::new();
+    }
     let n = styled_dom.node_data.len();
     let hierarchy = styled_dom.node_hierarchy.as_container();
     let mut zooms = vec![1.0f32; n];
@@ -977,7 +997,8 @@ impl MultiValue<LayoutFloat> {
 /// Helper macro to reduce boilerplate for simple CSS property getters
 /// Returns the inner `PixelValue` wrapped in `MultiValue`
 macro_rules! get_css_property_pixel {
-    // Variant WITH compact cache fast path for i16-encoded resolved px properties
+    // Variant WITH compact cache fast path for the box length slots (`PxSlot`:
+    // thousandths of a px, so the slot gives the declared number exactly)
     (
         $fn_name:ident, $cache_method:ident, $ua_property:expr,compact_i16 = $compact_method:ident
     ) => {
@@ -991,17 +1012,25 @@ macro_rules! get_css_property_pixel {
             if node_state.is_normal() {
                 if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
                     let raw = cc.$compact_method(node_id.index());
-                    if raw == azul_css::compact_cache::I16_AUTO {
+                    if raw == azul_css::compact_cache::PX_SLOT_AUTO {
                         return MultiValue::Auto;
                     }
-                    if raw == azul_css::compact_cache::I16_INITIAL {
+                    if raw == azul_css::compact_cache::PX_SLOT_INITIAL {
                         return MultiValue::Initial;
                     }
-                    if raw < azul_css::compact_cache::I16_SENTINEL_THRESHOLD {
-                        // Valid value: decode i16 ×10 → px
-                        return MultiValue::Exact(PixelValue::px(f32::from(raw) / 10.0));
+                    // A px length: the declared one, to the thousandth.
+                    if let Some(length) = azul_css::compact_cache::px_slot_length(raw) {
+                        return MultiValue::Exact(length);
                     }
-                    // I16_SENTINEL or I16_INHERIT → fall through to slow path
+                    // PX_SLOT_SENTINEL: a length the slot cannot hold (not
+                    // px, or beyond 2 million px). The builder kept it beside
+                    // the slots (A3-core-12): no cascade lookup per read.
+                    if raw == azul_css::compact_cache::PX_SLOT_SENTINEL {
+                        if let Some(length) = cc.px_overflow_of(node_id.index(), $ua_property) {
+                            return MultiValue::Exact(length);
+                        }
+                    }
+                    // PX_SLOT_INHERIT, or a sentinel without a kept length → slow path
                 }
             }
 
@@ -1016,6 +1045,10 @@ macro_rules! get_css_property_pixel {
                 if val.is_auto() {
                     return MultiValue::Auto;
                 }
+                // The declared length: the number the compact slot gives
+                // for it at rest too (it holds thousandths of a pixel, what
+                // a declared length has), so a node reads one number in
+                // every state: A3-core-12.
                 if let Some(exact) = val.get_property().copied() {
                     return MultiValue::Exact(exact.inner);
                 }
@@ -2245,11 +2278,26 @@ get_css_property!(
 );
 
 get_css_property!(
-    get_aspect_ratio_property,
+    aspect_ratio_from_the_cascade,
     get_aspect_ratio,
     StyleAspectRatio,
     CssPropertyType::AspectRatio
 );
+
+/// `aspect-ratio`, asked in every used-size computation. A DOM in which
+/// nothing declares it (`DOM_HAS_ZOOM_OR_ASPECT_RATIO` clear; the UA sheet
+/// has no rule for it) answers what the cascade would: not set.
+#[must_use]
+pub fn get_aspect_ratio_property(
+    styled_dom: &StyledDom,
+    node_id: NodeId,
+    node_state: &StyledNodeState,
+) -> MultiValue<StyleAspectRatio> {
+    if dom_declares_nothing_of(styled_dom, azul_css::compact_cache::DOM_HAS_ZOOM_OR_ASPECT_RATIO) {
+        return MultiValue::Auto;
+    }
+    aspect_ratio_from_the_cascade(styled_dom, node_id, node_state)
+}
 
 // NOTE: vertical-align does NOT use the compact cache because the compact cache
 // only stores keyword variants (3 bits = 8 values) and silently drops
@@ -2260,6 +2308,11 @@ pub fn get_vertical_align_property(
     node_id: NodeId,
     node_state: &StyledNodeState,
 ) -> MultiValue<StyleVerticalAlign> {
+    // Nothing in the DOM declares it, the UA sheet's table parts, `sub` and
+    // `sup` included (`DOM_HAS_VERTICAL_ALIGN` clear): not set.
+    if dom_declares_nothing_of(styled_dom, azul_css::compact_cache::DOM_HAS_VERTICAL_ALIGN) {
+        return MultiValue::Auto;
+    }
     let node_data = &styled_dom.node_data.as_container()[node_id];
 
     let author_css = styled_dom
@@ -2307,12 +2360,23 @@ pub fn get_style_border_radius(
                     PixelValue::px(f32::from(raw) / 10.0 * zoom)
                 }
             };
-            return StyleBorderRadius {
-                top_left: decode(cc.get_border_top_left_radius_raw(idx)),
-                top_right: decode(cc.get_border_top_right_radius_raw(idx)),
-                bottom_right: decode(cc.get_border_bottom_right_radius_raw(idx)),
-                bottom_left: decode(cc.get_border_bottom_left_radius_raw(idx)),
-            };
+            let raw = [
+                cc.get_border_top_left_radius_raw(idx),
+                cc.get_border_top_right_radius_raw(idx),
+                cc.get_border_bottom_right_radius_raw(idx),
+                cc.get_border_bottom_left_radius_raw(idx),
+            ];
+            // A corner the slot cannot hold (`50%`, `1em`, `9999px`:
+            // `I16_AUTO`, `encode_radius_i16`) is asked of the cascade
+            // below; read as "unset" it was no radius at all at rest.
+            if !raw.contains(&azul_css::compact_cache::I16_AUTO) {
+                return StyleBorderRadius {
+                    top_left: decode(raw[0]),
+                    top_right: decode(raw[1]),
+                    bottom_right: decode(raw[2]),
+                    bottom_left: decode(raw[3]),
+                };
+            }
         }
     }
     let node_data = &styled_dom.node_data.as_container()[node_id];
@@ -2322,7 +2386,7 @@ pub fn get_style_border_radius(
         .ptr
         .get_border_top_left_radius(node_data, &node_id, node_state)
         .and_then(|br| br.get_property_or_default())
-        .map(|v| v.inner)
+        .map(|v| azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v.inner))
         .unwrap_or_default();
 
     let top_right = styled_dom
@@ -2330,7 +2394,7 @@ pub fn get_style_border_radius(
         .ptr
         .get_border_top_right_radius(node_data, &node_id, node_state)
         .and_then(|br| br.get_property_or_default())
-        .map(|v| v.inner)
+        .map(|v| azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v.inner))
         .unwrap_or_default();
 
     let bottom_right = styled_dom
@@ -2338,7 +2402,7 @@ pub fn get_style_border_radius(
         .ptr
         .get_border_bottom_right_radius(node_data, &node_id, node_state)
         .and_then(|br| br.get_property_or_default())
-        .map(|v| v.inner)
+        .map(|v| azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v.inner))
         .unwrap_or_default();
 
     let bottom_left = styled_dom
@@ -2346,7 +2410,7 @@ pub fn get_style_border_radius(
         .ptr
         .get_border_bottom_left_radius(node_data, &node_id, node_state)
         .and_then(|br| br.get_property_or_default())
-        .map(|v| v.inner)
+        .map(|v| azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v.inner))
         .unwrap_or_default();
 
     let radius = StyleBorderRadius {
@@ -2398,12 +2462,16 @@ pub fn get_border_radius(
                     f32::from(raw) / 10.0 * zoom
                 }
             };
-            return BorderRadius {
-                top_left: decode(tl),
-                top_right: decode(tr),
-                bottom_right: decode(br),
-                bottom_left: decode(bl),
-            };
+            // A corner the slot cannot hold (`I16_AUTO`: a percentage, an
+            // em, beyond its range) is resolved from the cascade below.
+            if ![tl, tr, br, bl].contains(&azul_css::compact_cache::I16_AUTO) {
+                return BorderRadius {
+                    top_left: decode(tl),
+                    top_right: decode(tr),
+                    bottom_right: decode(br),
+                    bottom_left: decode(bl),
+                };
+            }
         }
     }
 
@@ -2462,7 +2530,10 @@ pub fn get_border_radius(
 
     // CSS `zoom`: an absolute radius scales by the effective zoom, an em or a
     // percentage already follows the zoomed font size / box (`zoomed_length`).
+    // (A px radius as its slot gives it at rest, tenths of a pixel: one
+    // number in every state.)
     let resolve = |v: PixelValue| -> f32 {
+        let v = azul_css::compact_cache::px_as_a_tenths_slot_reads_it(v);
         zoomed_length(
             styled_dom,
             node_id,
@@ -2906,6 +2977,13 @@ fn background_as_declared(
     }
 }
 
+/// How many nodes [`inherited_color_override`] looked at on this thread.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static COLOR_OVERRIDE_WALK_STEPS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+}
+
 /// The colour an ancestor's runtime USER OVERRIDE hands down to `dom_id`.
 ///
 /// User overrides participate in inheritance: a colour transition writes its
@@ -2916,7 +2994,10 @@ fn background_as_declared(
 /// which re-roots inheritance below it. Free when no node has an override.
 fn inherited_color_override(styled_dom: &StyledDom, dom_id: NodeId) -> Option<ColorU> {
     let cache = &styled_dom.css_property_cache.ptr;
-    if cache.user_overridden_properties.is_empty() {
+    // No override at all, or (the table is never shrunk, and a view whose
+    // transform is bound has one from its first frame on) none of `color`:
+    // nothing to find on the way up.
+    if cache.user_overridden_properties.is_empty() || !cache.text_color_override_seen {
         return None;
     }
     let node_data = styled_dom.node_data.as_container();
@@ -2924,6 +3005,8 @@ fn inherited_color_override(styled_dom: &StyledDom, dom_id: NodeId) -> Option<Co
     let ty = CssPropertyType::TextColor;
     let mut cur = Some(dom_id);
     while let Some(n) = cur {
+        #[cfg(test)]
+        COLOR_OVERRIDE_WALK_STEPS.with(|steps| steps.set(steps.get() + 1));
         if let Some(CssProperty::TextColor(v)) =
             cache.get_user_override(&n, &ty)
         {
@@ -3137,12 +3220,14 @@ pub const fn used_border_width(
 /// Whether a border width read from the compact cache has to be read from
 /// the cascade instead: the cache stores resolved px only, so a width in
 /// another unit (`1in`, `0.25em`) or an explicit `inherit` is a sentinel
-/// (`I16_SENTINEL` / `I16_INHERIT`) that means "ask the cascade", not "no
-/// width". (`auto` / `initial` are the initial `medium`.)
-pub(crate) const fn compact_border_width_needs_cascade(raw: i16) -> bool {
-    raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD
-        && raw != azul_css::compact_cache::I16_AUTO
-        && raw != azul_css::compact_cache::I16_INITIAL
+/// (`PX_SLOT_SENTINEL` / `PX_SLOT_INHERIT`) that means "ask the cascade",
+/// not "no width". (`auto` / `initial` are the initial `medium`.)
+pub(crate) const fn compact_border_width_needs_cascade(
+    raw: azul_css::compact_cache::PxSlot,
+) -> bool {
+    raw >= azul_css::compact_cache::PX_SLOT_THRESHOLD
+        && raw != azul_css::compact_cache::PX_SLOT_AUTO
+        && raw != azul_css::compact_cache::PX_SLOT_INITIAL
 }
 
 /// The border of `node_id` as the cascade declared it: `None` for a side
@@ -3156,7 +3241,7 @@ fn declared_border_info(
     use azul_css::{
         css::CssPropertyValue,
         props::{
-            basic::{color::ColorU, pixel::PixelValue},
+            basic::color::ColorU,
             style::{
                 border::{
                     BorderStyle, StyleBorderBottomColor, StyleBorderBottomStyle,
@@ -3176,21 +3261,13 @@ fn declared_border_info(
         if let Some(ref cc) = styled_dom.css_property_cache.ptr.compact_cache {
             let idx = node_id.index();
 
-            // Border widths: decode from compact i16 (resolved px × 10).
+            // Border widths: decode from the compact slot (thousandths of a px).
             // Previously this block called the slow convenience getters
             // despite being in the "fast path" branch — 2014 slow walks
             // per width × 4 widths per cold excel.html layout. Fixed
             // 2026-04-17.
-            let make_width_px = |raw: i16| -> Option<PixelValue> {
-                if raw == azul_css::compact_cache::I16_AUTO
-                    || raw == azul_css::compact_cache::I16_INITIAL
-                    || raw >= azul_css::compact_cache::I16_SENTINEL_THRESHOLD
-                {
-                    None
-                } else {
-                    Some(PixelValue::px(f32::from(raw) / 10.0))
-                }
-            };
+            // (`None` for every sentinel: `auto`, `initial` and the rest.)
+            let make_width_px = azul_css::compact_cache::px_slot_length;
             // A width the cache could not resolve (`1in`, `0.25em`:
             // `compact_border_width_needs_cascade`) is read from the
             // cascade - decoded as "no width" it painted `medium` (3px)
@@ -4548,8 +4625,14 @@ pub fn get_style_properties_for_state(
     // Get text-transform from CSS (uppercase / lowercase / capitalize / full-width).
     // Applied to the run text before shaping (fc.rs::apply_text_transform) so that
     // intrinsic widths reflect the transformed glyphs.
+    // (A DOM that declares it nowhere, `DOM_HAS_TEXT_TRANSFORM` clear,
+    // skips the cascade walk: there is nothing to find or to inherit.)
     let text_transform = cache
-        .get_text_transform(node_data, &dom_id, node_state)
+        .compact_cache
+        .as_ref()
+        .is_none_or(|cc| cc.dom_declared(azul_css::compact_cache::DOM_HAS_TEXT_TRANSFORM))
+        .then(|| cache.get_text_transform(node_data, &dom_id, node_state))
+        .flatten()
         .and_then(|v| v.get_property().copied())
         .map(|t| {
             use azul_css::props::style::text::StyleTextTransform as Css;
@@ -6102,6 +6185,26 @@ pub fn select_variable_instances(
     }
 }
 
+/// Whether `chain`, as resolved (before [`select_variable_instances`]), is
+/// drawn differently at different optical sizes: whether the first face of
+/// one of its CSS groups - the only faces `select_variable_instances` bakes -
+/// is a font FILE with an `opsz` axis, or one whose axes are not known. A
+/// memory face is never baked ([`variable_instance`]), nor is a face without
+/// an `opsz` axis at another size than at 0, so such a chain is the same at
+/// every optical size and its key need not carry one
+/// ([`crate::text3::cache::size_free_key_of`], A8-28).
+pub(crate) fn chain_depends_on_optical_size(
+    chain: &FontFallbackChain,
+    fc_cache: &FcFontCache,
+) -> bool {
+    chain.css_fallbacks.iter().any(|group| {
+        group.fonts.first().is_some_and(|face| {
+            !fc_cache.is_memory_font(&face.id)
+                && variation_axes(fc_cache, face.id).map_or(true, |axes| axes.opsz.is_some())
+        })
+    })
+}
+
 /// The face to draw instead of `face` when a chain asks for `weight` at
 /// `optical_size` (a `FontChainKey::optical_size`, whole CSS px, 0 = the
 /// default): the static instance of a variable font file at that weight and
@@ -6498,6 +6601,15 @@ pub fn resolve_font_chains_with_registry(
                 unresolved.insert(family.clone());
             }
         }
+
+        // A chain no face of which has an optical-size axis is kept without
+        // the size: one chain per stack, not one per stack and px size (A8-28).
+        let cache_key = match cache_key {
+            FontChainKeyOrRef::Chain(key) => FontChainKeyOrRef::Chain(
+                crate::text3::cache::size_free_key_of(key, &chain, fc_cache),
+            ),
+            other => other,
+        };
 
         // A variable font FILE matched at its default instance is drawn at
         // the weight and optical size asked for (macOS's SFNS.ttf for every
@@ -6907,6 +7019,15 @@ pub fn resolve_font_chains_fast(
             }
         }
 
+        // A chain no face of which has an optical-size axis is kept without
+        // the size: one chain per stack, not one per stack and px size (A8-28).
+        let cache_key = match cache_key {
+            FontChainKeyOrRef::Chain(key) => FontChainKeyOrRef::Chain(
+                crate::text3::cache::size_free_key_of(key, &chain, &shared_cache),
+            ),
+            other => other,
+        };
+
         // A variable font FILE matched at its default instance is drawn at
         // the weight and optical size asked for (macOS's SFNS.ttf for every
         // bold system face, and SF Pro Text below 17px).
@@ -7143,8 +7264,11 @@ where
     for font_id in font_ids {
         // Get font bytes from fc_cache as a shared mmap. Faces backed
         // by the same .ttc all observe the same `Arc<FontBytes>` via
-        // rust_fontconfig's `shared_bytes` dedup.
-        let Some(font_bytes) = fc_cache.get_font_bytes(font_id) else {
+        // rust_fontconfig's `shared_bytes` dedup. A face registered at
+        // runtime shares the registry's bytes (the cache's would be copied).
+        let runtime = crate::text3::fontreg::shared_bytes(font_id);
+        let is_runtime = runtime.is_some();
+        let Some(font_bytes) = runtime.or_else(|| fc_cache.get_font_bytes(font_id)) else {
             failed.push((
                 *font_id,
                 format!("Could not get font bytes for {font_id:?}"),
@@ -7152,13 +7276,18 @@ where
             continue;
         };
 
-        // Get font index (for font collections like .ttc files)
-        let font_index = fc_cache
-            .get_font_by_id(font_id)
-            .map_or(0, |source| match source {
-                rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
-                rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
-            });
+        // Get font index (for font collections like .ttc files); a runtime
+        // face is index 0 (`fontreg::ensure_in`).
+        let font_index = if is_runtime {
+            0
+        } else {
+            fc_cache
+                .get_font_by_id(font_id)
+                .map_or(0, |source| match source {
+                    rust_fontconfig::OwnedFontSource::Disk(path) => path.font_index,
+                    rust_fontconfig::OwnedFontSource::Memory(font) => font.font_index,
+                })
+        };
 
         // Load the font using the provided function
         match load_fn(font_bytes, font_index) {

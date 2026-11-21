@@ -764,12 +764,17 @@ pub struct DisplayList {
     /// Index ranges (start, end) of display list items that belong to fixed-position elements.
     /// In paged media, these items are replicated on every page (CSS Positioned Layout §2.1).
     pub fixed_position_item_ranges: Vec<(usize, usize)>,
-    /// Per-item PROVEN uniform background (Text items only, None elsewhere).
+    /// Per-item uniform background HINT (Text items only, None elsewhere):
+    /// the opaque colour of the nearest ancestor that paints one, with that
+    /// ancestor's rect. Not a proof: whatever else is painted under the text
+    /// (an earlier positioned sibling, an image) is not looked at, and a
+    /// reader has to check the pixels before it relies on the colour, as the
+    /// CPU rasteriser does (`backdrop_is_colour`).
     /// Parallel to `items` like `node_mapping`. Lives on the LIST rather
     /// than in the `Text` variant because printpdf (crates.io, immutable)
     /// pattern-matches the variant exhaustively — a new variant field is a
     /// downstream semver break; a new list field is not. See
-    /// `compute_uniform_text_bg` for what "proven" means and the raster's
+    /// `compute_uniform_text_bg` for what the hint covers and the raster's
     /// pre-blended tile path for what it buys (~6 ms/repaint of per-pixel
     /// linear LCD compositing).
     pub uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
@@ -1445,6 +1450,13 @@ pub enum EmitPhase {
     BgBorder,
     /// Pushed by `paint_node_content`.
     Content,
+    /// Pushed by `paint_selections` for the text block whose IFC root is
+    /// the box: the highlight rects of the local and the remote ranges and
+    /// the selection handles, painted between the box's clips and its
+    /// content run. Tagged so that a patch can find the old run of a block
+    /// whose selection changed (the drag highlight); never substituted
+    /// from a cached list: a build decides it from the selection as it is.
+    Selection,
 }
 
 impl DisplayList {
@@ -3540,6 +3552,11 @@ struct GroupBounds {
     union: Option<LogicalRect>,
     clips: Vec<Option<LogicalRect>>,
     in_scroll_frames: usize,
+    /// How far each text shadow open here paints past the ink of a run under it
+    /// ([`text_shadow_reach`]): a run's bounds are widened by the largest (A2-cpu-R05). The
+    /// ink alone left the halo out of a frame's extent: a moved frame's damage missed the
+    /// ring of the halo, and a group's surface cut it.
+    shadows: Vec<f32>,
 }
 
 impl GroupBounds {
@@ -3596,8 +3613,33 @@ impl GroupBounds {
             DisplayListItem::PopClip | DisplayListItem::PopImageMaskClip => {
                 self.clips.pop();
             }
+            DisplayListItem::PushTextShadow { shadow } => {
+                self.shadows.push(text_shadow_reach(shadow));
+            }
+            DisplayListItem::PopTextShadow => {
+                self.shadows.pop();
+            }
             _ => {
                 if let Some(b) = visual {
+                    let reach = if matches!(item, DisplayListItem::Text { .. }) {
+                        self.shadows.iter().copied().fold(0.0_f32, f32::max)
+                    } else {
+                        0.0
+                    };
+                    let b = if reach > 0.0 {
+                        LogicalRect {
+                            origin: LogicalPosition {
+                                x: b.origin.x - reach,
+                                y: b.origin.y - reach,
+                            },
+                            size: LogicalSize {
+                                width: b.size.width + 2.0 * reach,
+                                height: b.size.height + 2.0 * reach,
+                            },
+                        }
+                    } else {
+                        b
+                    };
                     self.add(clip, b);
                 }
             }
@@ -3653,13 +3695,106 @@ pub(crate) fn reference_frame_extent_walked(
 
 /// One reference frame of a list: where it ends and what it paints.
 #[derive(Debug, Clone, Copy)]
-struct FrameEntry {
+pub(crate) struct FrameEntry {
     /// The index of its `PushReferenceFrame`.
-    push: usize,
+    pub(crate) push: usize,
     /// The index of its matching `PopReferenceFrame` (the list's length when it has none).
-    end: usize,
+    pub(crate) end: usize,
     /// Its box and everything down to the pop, in its own space.
-    extent: LogicalRect,
+    pub(crate) extent: LogicalRect,
+    /// Every scope opened between the push and the pop (a clip, a mask, a scroll frame, an
+    /// opacity or filter group, a text shadow, a frame) is closed there, innermost first, and
+    /// the pop closes nothing opened before the push: a walk that steps from the push to past
+    /// the pop leaves its stacks as a walk through the frame does. `false` for a frame that is
+    /// never popped.
+    pub(crate) self_contained: bool,
+    /// No reference frame, scroll frame or view inside: everything the frame paints is placed
+    /// by the frame's own matrix alone, inside `extent` widened by `shadow_reach`.
+    pub(crate) leaf: bool,
+    /// How far past the ink of a text run a text shadow pushed inside the frame paints (the
+    /// largest offset + blur + spread, logical px): `extent` counts the ink alone.
+    pub(crate) shadow_reach: f32,
+    /// Text inside, and nothing but text, text shadows, fills, stacking contexts and hit-test
+    /// areas: no clip, mask, opacity or filter group, image, border or gradient. A renderer
+    /// may draw such a frame through its matrix item by item instead of into a surface.
+    pub(crate) text_only: bool,
+}
+
+/// What the picture of a reference frame depends on besides the items between its push and its
+/// pop: the keys bound there (their live values are read when the frame is painted) and the
+/// scroll frames there (their offsets are). A renderer that keeps a frame's picture keeps it
+/// for one set of these values. Kept only for frames that have any.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub(crate) struct FrameInner {
+    /// The keys of the frames and scrollbar thumbs inside, in list order.
+    pub(crate) transform_keys: Vec<usize>,
+    /// The keys of the opacity groups and scrollbars inside.
+    pub(crate) opacity_keys: Vec<usize>,
+    /// The colour keys bound to fills inside.
+    pub(crate) color_keys: Vec<usize>,
+    /// The scroll frames inside.
+    pub(crate) scroll_ids: Vec<LocalScrollId>,
+    /// A view inside: the picture depends on another list.
+    pub(crate) has_view: bool,
+}
+
+impl FrameInner {
+    fn is_empty(&self) -> bool {
+        self.transform_keys.is_empty()
+            && self.opacity_keys.is_empty()
+            && self.color_keys.is_empty()
+            && self.scroll_ids.is_empty()
+            && !self.has_view
+    }
+}
+
+/// The kinds of scope a display list opens and closes ([`FrameEntry::self_contained`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScopeKind {
+    Clip,
+    ImageMask,
+    ScrollFrame,
+    StackingContext,
+    Frame,
+    Filter,
+    BackdropFilter,
+    Opacity,
+    TextShadow,
+}
+
+/// `(kind, true)` for an item that opens a scope, `(kind, false)` for one that closes one.
+fn scope_of(item: &DisplayListItem) -> Option<(ScopeKind, bool)> {
+    Some(match item {
+        DisplayListItem::PushClip { .. } => (ScopeKind::Clip, true),
+        DisplayListItem::PopClip => (ScopeKind::Clip, false),
+        DisplayListItem::PushImageMaskClip { .. } => (ScopeKind::ImageMask, true),
+        DisplayListItem::PopImageMaskClip => (ScopeKind::ImageMask, false),
+        DisplayListItem::PushScrollFrame { .. } => (ScopeKind::ScrollFrame, true),
+        DisplayListItem::PopScrollFrame => (ScopeKind::ScrollFrame, false),
+        DisplayListItem::PushStackingContext { .. } => (ScopeKind::StackingContext, true),
+        DisplayListItem::PopStackingContext => (ScopeKind::StackingContext, false),
+        DisplayListItem::PushReferenceFrame { .. } => (ScopeKind::Frame, true),
+        DisplayListItem::PopReferenceFrame => (ScopeKind::Frame, false),
+        DisplayListItem::PushFilter { .. } => (ScopeKind::Filter, true),
+        DisplayListItem::PopFilter => (ScopeKind::Filter, false),
+        DisplayListItem::PushBackdropFilter { .. } => (ScopeKind::BackdropFilter, true),
+        DisplayListItem::PopBackdropFilter => (ScopeKind::BackdropFilter, false),
+        DisplayListItem::PushOpacity { .. } => (ScopeKind::Opacity, true),
+        DisplayListItem::PopOpacity => (ScopeKind::Opacity, false),
+        DisplayListItem::PushTextShadow { .. } => (ScopeKind::TextShadow, true),
+        DisplayListItem::PopTextShadow => (ScopeKind::TextShadow, false),
+        _ => return None,
+    })
+}
+
+/// How far a text shadow paints past the ink of the text under it: the larger offset, the
+/// blur and the spread, logical px (what the rasteriser's cull widens a run by).
+pub(crate) fn text_shadow_reach(shadow: &StyleBoxShadow) -> f32 {
+    use azul_css::props::basic::pixel::DEFAULT_FONT_SIZE;
+    let length = |v: &PixelValue| v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE);
+    length(&shadow.offset_x.inner).abs().max(length(&shadow.offset_y.inner).abs())
+        + length(&shadow.blur_radius.inner).max(0.0)
+        + length(&shadow.spread_radius.inner).max(0.0)
 }
 
 /// The reference frames of one list, found in one walk: where each ends and what it paints
@@ -3681,6 +3816,28 @@ pub(crate) struct FrameIndex {
     views: Vec<usize>,
     /// The bounds of the fully opaque, square-cornered rect fills, in list order.
     opaque_fills: Vec<LogicalRect>,
+    /// For each of `opaque_fills`, the pushes of the reference frames open around it,
+    /// outermost first: a fill inside a frame is painted where the frame's matrix puts it.
+    opaque_fill_frames: Vec<Vec<usize>>,
+    /// By the index of a frame's push: what its picture depends on besides its items, for the
+    /// frames that bind anything inside ([`FrameInner`]).
+    inner: std::collections::HashMap<usize, FrameInner>,
+    /// By the index of a frame's push, for the frames that hold frames: what the frame paints
+    /// itself and the frames directly inside it ([`FrameIndex::extent_with`]).
+    nesting: std::collections::HashMap<usize, FrameNest>,
+    /// By the index of a `PushOpacity`, for the groups whose content paints past the group's
+    /// own box: the box united with what the items down to the pop paint
+    /// ([`FrameIndex::opacity_extent`]).
+    opacity_extents: std::collections::HashMap<usize, LogicalRect>,
+}
+
+/// A frame that holds frames: `own` is its box and what its own items paint (not what is
+/// inside a frame inside it), in its space; `children` are the pushes of the frames directly
+/// inside it, in list order.
+#[derive(Debug, Clone)]
+struct FrameNest {
+    own: LogicalRect,
+    children: Vec<usize>,
 }
 
 impl FrameIndex {
@@ -3693,14 +3850,156 @@ impl FrameIndex {
         let mut opacity_keys = std::collections::HashSet::new();
         let mut views = Vec::new();
         let mut opaque_fills = Vec::new();
+        let mut opaque_fill_frames: Vec<Vec<usize>> = Vec::new();
         struct Open {
             push: usize,
             frame_box: LogicalRect,
             bounds: GroupBounds,
+            /// How many scopes were open at the push.
+            scopes_before: usize,
+            well_formed: bool,
+            leaf: bool,
+            shadow_reach: f32,
+            text_only: bool,
+            has_text: bool,
+            inner: FrameInner,
+            /// As `bounds`, counting only the items that are in no frame inside this one.
+            own: GroupBounds,
+            children: Vec<usize>,
         }
         let mut open: Vec<Open> = Vec::new();
         let mut frames: Vec<FrameEntry> = Vec::new();
+        let mut inner: std::collections::HashMap<usize, FrameInner> = std::collections::HashMap::new();
+        let mut nesting: std::collections::HashMap<usize, FrameNest> = std::collections::HashMap::new();
+        // The opacity groups open at the item: (push, the group's box, what its items paint).
+        let mut fading: Vec<(usize, LogicalRect, GroupBounds)> = Vec::new();
+        let mut opacity_extents: std::collections::HashMap<usize, LogicalRect> =
+            std::collections::HashMap::new();
+        // The scopes open at the item, outermost first: a frame is self-contained when the
+        // scopes opened inside it are closed inside it, innermost first.
+        let mut scopes: Vec<ScopeKind> = Vec::new();
         for (i, item) in items.iter().enumerate() {
+            match scope_of(item) {
+                // A frame's own push and pop are counted where the frame opens and closes.
+                Some((ScopeKind::Frame, _)) | None => {}
+                Some((kind, true)) => scopes.push(kind),
+                Some((kind, false)) => {
+                    let closes_its_own = scopes.last() == Some(&kind)
+                        && open.last().is_none_or(|frame| scopes.len() > frame.scopes_before + 1);
+                    if closes_its_own {
+                        scopes.pop();
+                    } else {
+                        // A pop without its push, or across a frame's edge: no frame open here
+                        // can be stepped over.
+                        for frame in &mut open {
+                            frame.well_formed = false;
+                        }
+                    }
+                }
+            }
+            match item {
+                DisplayListItem::PushReferenceFrame { .. }
+                | DisplayListItem::PushScrollFrame { .. }
+                | DisplayListItem::VirtualView { .. } => {
+                    for frame in &mut open {
+                        frame.leaf = false;
+                    }
+                }
+                DisplayListItem::PushTextShadow { shadow } => {
+                    let reach = text_shadow_reach(shadow);
+                    for frame in &mut open {
+                        frame.shadow_reach = frame.shadow_reach.max(reach);
+                    }
+                }
+                _ => {}
+            }
+            if !open.is_empty()
+                && !matches!(
+                    item,
+                    DisplayListItem::Text { .. }
+                        | DisplayListItem::TextLayout { .. }
+                        | DisplayListItem::Rect { .. }
+                        | DisplayListItem::PushTextShadow { .. }
+                        | DisplayListItem::PopTextShadow
+                        | DisplayListItem::PushStackingContext { .. }
+                        | DisplayListItem::PopStackingContext
+                        | DisplayListItem::HitTestArea { .. }
+                        | DisplayListItem::PopReferenceFrame
+                )
+            {
+                // (A frame inside is no text either; the pop is the open frame's own or an
+                // inner one's, whose push already said so.)
+                for frame in &mut open {
+                    frame.text_only = false;
+                }
+            }
+            if matches!(item, DisplayListItem::Text { .. }) {
+                for frame in &mut open {
+                    frame.has_text = true;
+                }
+            }
+            // What each open opacity group paints (A2-gpu-06: a group fades all of it, not only
+            // what lies in its node's box).
+            if let DisplayListItem::PopOpacity = item {
+                if let Some((push, group_box, bounds)) = fading.pop() {
+                    if let Some(content) = bounds.finish() {
+                        let extent = rect_union(group_box, content);
+                        if extent != group_box {
+                            opacity_extents.insert(push, extent);
+                        }
+                    }
+                }
+            }
+            if !fading.is_empty() {
+                let visual = GroupBounds::visual_of(item);
+                for (_, _, bounds) in &mut fading {
+                    bounds.step(item, visual);
+                }
+            }
+            if let DisplayListItem::PushOpacity { bounds, .. } = item {
+                fading.push((i, *bounds.inner(), GroupBounds::default()));
+            }
+            // What the open frames' pictures depend on besides their items.
+            if !open.is_empty() {
+                match item {
+                    DisplayListItem::PushReferenceFrame { transform_key, .. } => {
+                        for frame in &mut open {
+                            frame.inner.transform_keys.push(transform_key.id);
+                        }
+                    }
+                    DisplayListItem::PushOpacity { opacity_key: Some(k), .. } => {
+                        for frame in &mut open {
+                            frame.inner.opacity_keys.push(k.id);
+                        }
+                    }
+                    DisplayListItem::ScrollBarStyled { info } => {
+                        for frame in &mut open {
+                            if let Some(k) = info.thumb_transform_key {
+                                frame.inner.transform_keys.push(k.id);
+                            }
+                            if let Some(k) = info.opacity_key {
+                                frame.inner.opacity_keys.push(k.id);
+                            }
+                        }
+                    }
+                    DisplayListItem::PushScrollFrame { scroll_id, .. } => {
+                        for frame in &mut open {
+                            frame.inner.scroll_ids.push(*scroll_id);
+                        }
+                    }
+                    DisplayListItem::VirtualView { .. } => {
+                        for frame in &mut open {
+                            frame.inner.has_view = true;
+                        }
+                    }
+                    _ => {}
+                }
+                if let Some(key) = list.color_binding(i) {
+                    for frame in &mut open {
+                        frame.inner.color_keys.push(key.id);
+                    }
+                }
+            }
             match item {
                 DisplayListItem::PushReferenceFrame { transform_key, .. } => {
                     transform_keys.insert(transform_key.id);
@@ -3721,31 +4020,73 @@ impl FrameIndex {
                     if color.a == 255 && border_radius.is_zero() =>
                 {
                     opaque_fills.push(*bounds.inner());
+                    opaque_fill_frames.push(open.iter().map(|frame| frame.push).collect());
                 }
                 _ => {}
             }
             if let DisplayListItem::PopReferenceFrame = item {
                 // Closes the innermost open frame; the pop is not in that frame's range.
                 if let Some(done) = open.pop() {
+                    // Its own push is the innermost scope still open: nothing inside it was
+                    // left open. Otherwise the frames around it cannot be stepped over either.
+                    let closed = scopes.len() == done.scopes_before + 1;
+                    if !closed {
+                        for frame in &mut open {
+                            frame.well_formed = false;
+                        }
+                    }
+                    scopes.truncate(done.scopes_before);
                     let extent = done
                         .bounds
                         .finish()
                         .map_or(done.frame_box, |c| rect_union(done.frame_box, c));
-                    frames.push(FrameEntry { push: done.push, end: i, extent });
+                    frames.push(FrameEntry {
+                        push: done.push,
+                        end: i,
+                        extent,
+                        self_contained: closed && done.well_formed,
+                        leaf: done.leaf,
+                        shadow_reach: done.shadow_reach,
+                        text_only: done.text_only && done.has_text,
+                    });
+                    if !done.inner.is_empty() {
+                        inner.insert(done.push, done.inner);
+                    }
+                    if !done.children.is_empty() {
+                        let own = done.own.finish().map_or(done.frame_box, |c| rect_union(done.frame_box, c));
+                        nesting.insert(done.push, FrameNest { own, children: done.children });
+                    }
                 }
             }
             if !open.is_empty() {
                 let visual = GroupBounds::visual_of(item);
-                for frame in &mut open {
+                let innermost = open.len() - 1;
+                for (depth, frame) in open.iter_mut().enumerate() {
                     frame.bounds.step(item, visual);
+                    // Its own items only: what a frame inside it paints is placed by that
+                    // frame's matrix (`extent_with`).
+                    frame.own.step(item, if depth == innermost { visual } else { None });
                 }
             }
             if let DisplayListItem::PushReferenceFrame { bounds, .. } = item {
+                if let Some(parent) = open.last_mut() {
+                    parent.children.push(i);
+                }
                 open.push(Open {
                     push: i,
                     frame_box: *bounds.inner(),
                     bounds: GroupBounds::default(),
+                    scopes_before: scopes.len(),
+                    well_formed: true,
+                    leaf: true,
+                    shadow_reach: 0.0,
+                    text_only: true,
+                    has_text: false,
+                    inner: FrameInner::default(),
+                    own: GroupBounds::default(),
+                    children: Vec::new(),
                 });
+                scopes.push(ScopeKind::Frame);
             }
         }
         // A frame that is never popped runs to the end of the list.
@@ -3754,7 +4095,15 @@ impl FrameIndex {
                 .bounds
                 .finish()
                 .map_or(done.frame_box, |c| rect_union(done.frame_box, c));
-            frames.push(FrameEntry { push: done.push, end: items.len(), extent });
+            frames.push(FrameEntry {
+                push: done.push,
+                end: items.len(),
+                extent,
+                self_contained: false,
+                leaf: done.leaf,
+                shadow_reach: done.shadow_reach,
+                text_only: done.text_only && done.has_text,
+            });
         }
         frames.sort_by_key(|f| f.push);
         Self {
@@ -3766,6 +4115,10 @@ impl FrameIndex {
             color_keys: list.color_bindings.iter().flatten().map(|k| k.id).collect(),
             views,
             opaque_fills,
+            opaque_fill_frames,
+            inner,
+            nesting,
+            opacity_extents,
         }
     }
 
@@ -3799,6 +4152,14 @@ impl FrameIndex {
         &self.opaque_fills
     }
 
+    /// [`Self::opaque_fills`], each with the pushes of the reference frames open around it
+    /// (outermost first; none for a fill in no frame).
+    pub(crate) fn opaque_fills_in_frames(&self) -> impl Iterator<Item = (&LogicalRect, &[usize])> {
+        self.opaque_fills
+            .iter()
+            .zip(self.opaque_fill_frames.iter().map(Vec::as_slice))
+    }
+
     fn entry(&self, push: usize) -> Option<&FrameEntry> {
         self.frames
             .binary_search_by_key(&push, |f| f.push)
@@ -3809,6 +4170,98 @@ impl FrameIndex {
     /// What the frame pushed at `push` paints.
     pub(crate) fn extent_of(&self, push: usize) -> Option<LogicalRect> {
         self.entry(push).map(|f| f.extent)
+    }
+
+    /// The frame pushed at `push`: where it ends, what it paints, whether a walk may step over it.
+    pub(crate) fn frame_at(&self, push: usize) -> Option<FrameEntry> {
+        self.entry(push).copied()
+    }
+
+    /// What the frame pushed at `push` of `items` paints with the frames inside it moved by
+    /// their matrices (`transforms`: the live values by key; a key without one is painted
+    /// with its push's own matrix): its own items' bounds united with the box of each inner
+    /// frame's extent, turned about that frame's origin `o` by its matrix, `o + M (q - o)`
+    /// (A2-cpu-04: [`Self::extent_of`] takes the inner frames' items where they are laid out,
+    /// so a card moved by `translate(-100, 0)` inside a column was missing from the column's
+    /// extent by 100 px). `None` when an inner matrix has a perspective part: unbounded.
+    ///
+    /// Example: a column, box (0, 0) 200 x 400, holds a card, box (0, 0) 200 x 80 with
+    /// `translate(-100, 0)`: the card paints x -100 .. 100, the column's extent is
+    /// (-100, 0) 300 x 400, where `extent_of` says (0, 0) 200 x 400.
+    pub(crate) fn extent_with(
+        &self,
+        items: &[DisplayListItem],
+        push: usize,
+        transforms: &std::collections::HashMap<usize, azul_core::transform::ComputedTransform3D>,
+    ) -> Option<LogicalRect> {
+        let frame = self.entry(push)?;
+        let Some(nest) = self.nesting.get(&push) else {
+            return Some(frame.extent);
+        };
+        let mut extent = nest.own;
+        for child in &nest.children {
+            let Some(DisplayListItem::PushReferenceFrame { transform_key, initial_transform, bounds }) =
+                items.get(*child)
+            else {
+                return Some(frame.extent);
+            };
+            let inside = self.extent_with(items, *child, transforms)?;
+            let m = transforms.get(&transform_key.id).map_or(&initial_transform.m, |t| &t.m);
+            // A matrix with a perspective part maps a point `q` about `o` to
+            // `o + (L q + t) / w`, `w = m03 qx + m13 qy + m33` (A2-cpu-R01): the corners are
+            // mapped that way, as the rasteriser composites the group. `w` is linear, so with
+            // four corners in front of the eye (`w > 0`) the box's image is the quad of the
+            // mapped corners; a corner at or behind the eye has no bound (`None`). For an
+            // affine matrix `w` is 1.0 exactly and nothing changes. (The test used to be
+            // `|m03| <= 1e-6`, another tolerance than the rasteriser's, with the laid-out
+            // extent as the answer above it: a tilted card's surface was cut.)
+            let o = bounds.inner().origin;
+            let (mut x0, mut y0) = (f32::INFINITY, f32::INFINITY);
+            let (mut x1, mut y1) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+            for (cx, cy) in [
+                (inside.origin.x, inside.origin.y),
+                (inside.origin.x + inside.size.width, inside.origin.y),
+                (inside.origin.x, inside.origin.y + inside.size.height),
+                (inside.origin.x + inside.size.width, inside.origin.y + inside.size.height),
+            ] {
+                let (qx, qy) = (cx - o.x, cy - o.y);
+                let w = qx * m[0][3] + qy * m[1][3] + m[3][3];
+                if !(w > 1e-6) {
+                    return None;
+                }
+                let x = o.x + (qx * m[0][0] + qy * m[1][0] + m[3][0]) / w;
+                let y = o.y + (qx * m[0][1] + qy * m[1][1] + m[3][1]) / w;
+                x0 = x0.min(x);
+                y0 = y0.min(y);
+                x1 = x1.max(x);
+                y1 = y1.max(y);
+            }
+            if ![x0, y0, x1, y1].iter().all(|v| v.is_finite()) {
+                return None;
+            }
+            extent = rect_union(
+                extent,
+                LogicalRect {
+                    origin: LogicalPosition { x: x0, y: y0 },
+                    size: LogicalSize { width: x1 - x0, height: y1 - y0 },
+                },
+            );
+        }
+        Some(extent)
+    }
+
+    /// What the opacity group pushed at `push` paints when that is more than the group's own
+    /// box: the box united with the visual bounds of its items (shadows and overflowing
+    /// children included), in list space. `None`: the box is all of it. Content inside a
+    /// reference frame of the group is counted where it is laid out.
+    pub(crate) fn opacity_extent(&self, push: usize) -> Option<LogicalRect> {
+        self.opacity_extents.get(&push).copied()
+    }
+
+    /// What the picture of the frame pushed at `push` depends on besides its items; `None`
+    /// when nothing is bound inside it.
+    pub(crate) fn inner_of(&self, push: usize) -> Option<&FrameInner> {
+        self.inner.get(&push)
     }
 
     /// The index of the pop of the frame pushed at `push`.
@@ -4008,14 +4461,36 @@ impl DisplayListBuilder {
     /// `PageBreakPosition::causing_node`).
     /// This is used for CSS break-before: always and break-after: always.
     pub(crate) fn add_forced_page_break(&mut self, y_position: f32, causing_node: Option<NodeId>) {
-        // Avoid duplicates and keep sorted by Y
-        if !self.forced_page_breaks.iter().any(|b| b.y == y_position) {
-            self.forced_page_breaks.push(ForcedBreak {
-                y: y_position,
-                causing_node,
-            });
-            self.forced_page_breaks
-                .sort_by(|a, b| a.y.partial_cmp(&b.y).unwrap_or(core::cmp::Ordering::Equal));
+        // No duplicates, sorted by Y. The list is kept that way, so the
+        // place of a break - or the break that is already there - is found
+        // by bisection; it was a scan for the duplicate and a sort of the
+        // whole list per break (quadratic in the breaks of a long document:
+        // 10,000 forced breaks were 50 million compares and 10,000 sorts).
+        //
+        // A position that is not a number equals no break, itself included:
+        // it is recorded on every call, as it always was, behind the numbers
+        // (which stay sorted among themselves).
+        let numbers = self.forced_page_breaks.len()
+            - self
+                .forced_page_breaks
+                .iter()
+                .rev()
+                .take_while(|b| b.y.is_nan())
+                .count();
+        let new_break = ForcedBreak {
+            y: y_position,
+            causing_node,
+        };
+        if y_position.is_nan() {
+            self.forced_page_breaks.push(new_break);
+            return;
+        }
+        let place = self.forced_page_breaks[..numbers].binary_search_by(|b| {
+            b.y.partial_cmp(&y_position)
+                .unwrap_or(core::cmp::Ordering::Equal)
+        });
+        if let Err(at) = place {
+            self.forced_page_breaks.insert(at, new_break);
         }
     }
 
@@ -5068,6 +5543,19 @@ struct DisplayListGenerator<'a, 'b, T: ParsedFontTrait> {
     /// of the flow are painted there with the parts of them that region
     /// holds ([`DisplayListGenerator::region_part`]). `None` outside regions.
     painting_region: Option<usize>,
+    /// Every DOM node's hit-test tag by node index ([`tags_by_node`]), made
+    /// at the first lookup ([`DisplayListGenerator::tag_id_of`]): every box
+    /// asks for its tag, and each ask used to scan the DOM's whole tag list.
+    tags_by_node: core::cell::OnceCell<Vec<Option<u64>>>,
+    /// The fonts the font manager has loaded, asked for once per list
+    /// ([`DisplayListGenerator::loaded_fonts`]).
+    loaded_fonts: core::cell::OnceCell<std::sync::Arc<text3::cache::LoadedFonts<T>>>,
+    /// The links of a box's [`ScrollChain`](crate::solver3::scroll_chain::ScrollChain)
+    /// (their layout indices, outermost first) by the box's parent and how
+    /// the box is positioned - all a box's chain depends on
+    /// ([`DisplayListGenerator::box_chain_key`]). Every positioned box asks
+    /// for its chain; the labels of a map layer share a handful.
+    box_chains: BTreeMap<(usize, u8), Vec<usize>>,
 }
 
 /// What the region being painted holds of a box (see
@@ -5570,7 +6058,9 @@ impl<'a> PatchState<'a> {
                 i += 1;
             }
             if let Some((node, phase)) = tag {
-                if !matches!(phase, EmitPhase::ScWalk) {
+                // A selection run is built from the selection on every pass
+                // and is no paint call a cached run could stand in for.
+                if !matches!(phase, EmitPhase::ScWalk | EmitPhase::Selection) {
                     if prev.items[start..i].iter().all(patchable_item) {
                         runs.entry((node, phase as u8))
                             .or_default()
@@ -5645,6 +6135,83 @@ where
             open_clips: Vec::new(),
             canvas_painted: [None, None],
             painting_region: None,
+            tags_by_node: core::cell::OnceCell::new(),
+            loaded_fonts: core::cell::OnceCell::new(),
+            box_chains: BTreeMap::new(),
+        }
+    }
+
+    /// The fonts the font manager has loaded, as of the first ask of this
+    /// list build. `FontManager::get_loaded_fonts` takes two locks and folds
+    /// a fingerprint over every loaded face per call; an ellipsis and a
+    /// placeholder prompt each asked for it again (per clipped line, per
+    /// empty field). No font is loaded while a list is built: one answer
+    /// serves the build.
+    fn loaded_fonts(&self) -> std::sync::Arc<text3::cache::LoadedFonts<T>> {
+        std::sync::Arc::clone(
+            self.loaded_fonts
+                .get_or_init(|| self.ctx.font_manager.get_loaded_fonts()),
+        )
+    }
+
+    /// What the scroll chain of the box at `node_index` depends on: its
+    /// parent and whether it is `absolute`, `fixed` or neither
+    /// (`scroll_chain::box_anchor` reads nothing else of the box itself;
+    /// every later step of the chain walk reads its ancestors). `None` for
+    /// a box without a parent, whose chain is empty.
+    fn box_chain_key(&self, node_index: usize) -> Option<(usize, u8)> {
+        let node = self.positioned_tree.tree.get(LayoutNodeId::new(node_index))?;
+        let parent = node.parent?;
+        let kind = match get_position_type(self.ctx.styled_dom, node.dom_node_id) {
+            LayoutPosition::Absolute => 1,
+            LayoutPosition::Fixed => 2,
+            _ => 0,
+        };
+        Some((parent, kind))
+    }
+
+    /// The layout indices of the links of the box chain of `node_index`
+    /// (`ScrollChain::of` with `AncestorsOnly`), outermost first: walked
+    /// once per parent and kind of positioning, read from
+    /// [`Self::box_chains`] after that.
+    ///
+    /// Returns the key the links are filed under in [`Self::box_chains`]
+    /// (`None`: no parent, no links), so that the caller can read them next
+    /// to another field of the generator.
+    fn box_chain_links(&mut self, node_index: usize) -> Option<(usize, u8)> {
+        let key = self.box_chain_key(node_index)?;
+        if !self.box_chains.contains_key(&key) {
+            #[cfg(test)]
+            SCROLL_CHAIN_WALKS.with(|n| n.set(n.get() + 1));
+            let chain = crate::solver3::scroll_chain::ScrollChain::of(
+                self.positioned_tree.tree,
+                self.ctx.styled_dom,
+                self.scroll_ids,
+                LayoutNodeId::new(node_index),
+                azul_core::spaces::Inclusivity::AncestorsOnly,
+            );
+            let links = chain
+                .links
+                .iter()
+                .map(|link| link.layout_index.index())
+                .collect();
+            self.box_chains.insert(key, links);
+        }
+        Some(key)
+    }
+
+    /// The hit-test tag of DOM node `id`, the answer of [`get_tag_id`]: the
+    /// node's FIRST entry in the DOM's tag list, read from a table of the
+    /// whole list by node index that the first ask makes. A node past the
+    /// table (no node of this DOM) is still looked for in the list itself.
+    fn tag_id_of(&self, id: Option<NodeId>) -> Option<DisplayListTagId> {
+        let node_id = id?;
+        let tags = self
+            .tags_by_node
+            .get_or_init(|| tags_by_node(self.ctx.styled_dom));
+        match tags.get(node_id.index()) {
+            Some(tag) => tag.map(|tag| (tag, TAG_TYPE_DOM_NODE)),
+            None => get_tag_id(self.ctx.styled_dom, id),
         }
     }
 
@@ -5741,13 +6308,27 @@ where
         face.with_synthetic_bold(text3::cache::needs_synthetic_bold(true, face_weight))
     }
 
-    /// Prove the SOLID OPAQUE color a text run inside this IFC sits on, or
-    /// `None`. Correct-by-construction: only claims a background when the
-    /// nearest layout ancestor that paints ANY background paints exactly one
-    /// solid opaque color (no gradients/images, no translucency) and no
-    /// selection touches the node (selection rects paint between background
-    /// and glyphs). No claim for canvas-direct text — the clear color is a
+    /// The SOLID OPAQUE color a text run inside this IFC PROBABLY sits on, or
+    /// `None`: a HINT, not a proof. It claims a background when the nearest
+    /// layout ancestor that paints ANY background paints exactly one solid
+    /// opaque color (no gradients/images, no translucency) and no selection
+    /// touches the node (selection rects paint between background and
+    /// glyphs). No claim for canvas-direct text — the clear color is a
     /// renderer detail (`AZ_DEBUG_FILL` can change it).
+    ///
+    /// What it does NOT look at is everything that is not an ancestor and
+    /// is painted between that ancestor's fill and the text: an earlier
+    /// positioned sibling or cousin (a map's tile image under a label, a
+    /// gradient layer, another label that overlaps this one), a negative
+    /// `z-index` box, a float. Finding those here would mean searching the
+    /// items painted so far for every text block. The consumer has the
+    /// answer for free: the CPU rasteriser stamps its pre-blended tiles only
+    /// where every pixel the run covers IS this colour (`backdrop_is_colour`
+    /// in `render_single_item`, the one place a hint is read), and blends
+    /// against the pixels otherwise; the GPU path does not read the hint.
+    /// So a wrong hint costs one scan of the run's pixels up to the first
+    /// other colour, never a wrong pixel - and a consumer that trusted the
+    /// hint without that check would be wrong.
     fn compute_uniform_text_bg(
         &self,
         source_node_index: usize,
@@ -5980,17 +6561,19 @@ where
         // anonymous block's container's (it has no style of its own).
         let dom_id = block.container();
 
-        // Get inline layout using the unified helper that handles IFC membership
-        // This is critical: text nodes don't have their own inline_layout_result,
-        // but they have ifc_membership pointing to their IFC root
-        // (d6h) Materialized: sentinel-safe caret/selection geometry.
-        let Some(layout) = self
-            .positioned_tree
-            .tree
-            .materialized_inline_layout_for_node(node_index)
-        else {
+        // The block's lines are read (and, kept dense, made up into a copy:
+        // `materialized_inline_layout_for_node`) only once a selection asks
+        // for its rects below. Every text block of a display list comes
+        // through here; the copy made up front cost each of them its
+        // clusters, for the one block (or none) a selection is in. A block
+        // without an inline layout paints nothing, as before.
+        if tree
+            .warm(LayoutNodeId::new(node_index))
+            .and_then(|w| w.inline_layout_result.as_ref())
+            .is_none()
+        {
             return Ok(());
-        };
+        }
 
         // Get the absolute position of this node (border-box position)
         let node_pos = self
@@ -6030,6 +6613,15 @@ where
                 .map(|ranges| ranges.iter().collect())
                 .unwrap_or_default();
             if local_ranges.is_some() || !remote_ranges.is_empty() {
+                // Get inline layout using the unified helper that handles IFC membership
+                // This is critical: text nodes don't have their own inline_layout_result,
+                // but they have ifc_membership pointing to their IFC root
+                // (d6h) Materialized: sentinel-safe caret/selection geometry.
+                #[cfg(test)]
+                INLINE_LAYOUT_COPIES.with(|n| n.set(n.get() + 1));
+                let Some(layout) = tree.materialized_inline_layout_for_node(node_index) else {
+                    return Ok(());
+                };
                 let style = get_selection_style(
                     self.ctx.styled_dom,
                     Some(dom_id),
@@ -6243,8 +6835,24 @@ where
         let dom_id = block.container();
         let node_state = &self.ctx.styled_dom.styled_nodes.as_container()[dom_id].styled_node_state;
 
+        // A block no caret stands in paints none: the loop below skips the
+        // carets of every other block. Said here, before the block's lines
+        // are made up into a copy for the caret's geometry - with a caret
+        // anywhere in the window, every text block of every display list
+        // paid that copy.
+        if !self
+            .ctx
+            .cursor_locations
+            .iter()
+            .any(|location| location.block == block)
+        {
+            return Ok(());
+        }
+
         // Get inline layout
         // (d6h) Materialized: sentinel-safe caret/selection geometry.
+        #[cfg(test)]
+        INLINE_LAYOUT_COPIES.with(|n| n.set(n.get() + 1));
         let Some(layout) = self
             .positioned_tree
             .tree
@@ -6870,7 +7478,7 @@ where
                 let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
                 let overflow_y = get_overflow_y(self.ctx.styled_dom, dom_id, &styled_node_state);
                 if overflow_x.is_scroll() || overflow_y.is_scroll() {
-                    if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
+                    if let Some(tag_id) = self.tag_id_of(node.dom_node_id) {
                         builder.push_hit_test_area(node_bounds, tag_id);
                     }
                 }
@@ -7102,13 +7710,6 @@ where
         builder: &mut DisplayListBuilder,
         node_index: usize,
     ) -> ChainDetour {
-        let chain = crate::solver3::scroll_chain::ScrollChain::of(
-            self.positioned_tree.tree,
-            self.ctx.styled_dom,
-            self.scroll_ids,
-            LayoutNodeId::new(node_index),
-            azul_core::spaces::Inclusivity::AncestorsOnly,
-        );
         let movable_from = self
             .open_clips
             .iter()
@@ -7118,32 +7719,45 @@ where
             OpenClip::Owner(index) => Some(*index),
             OpenClip::Barrier => None,
         };
-        let fixed: Vec<usize> = self.open_clips[..movable_from]
+        // The three lists this compares - the owners below the barrier,
+        // the owners above it, the links of the chain that are not below
+        // it - are read where they lie. They used to be copied into a
+        // `Vec` each, for every positioned box (a label layer inside one
+        // clipping box: an allocation or two per label), and a box that
+        // needs no detour, the usual case, now allocates nothing: the two
+        // lists below stay empty.
+        let chain = self.box_chain_links(node_index);
+        let links: &[usize] = chain
+            .and_then(|key| self.box_chains.get(&key))
+            .map_or(&[][..], Vec::as_slice);
+        let (fixed, movable) = self.open_clips.split_at(movable_from);
+        let mut open = movable.iter().filter_map(owner);
+        let mut wanted = links
             .iter()
-            .filter_map(owner)
-            .collect();
-        let open: Vec<usize> = self.open_clips[movable_from..]
-            .iter()
-            .filter_map(owner)
-            .collect();
-        let wanted: Vec<usize> = chain
-            .links
-            .iter()
-            .map(|link| link.layout_index.index())
-            .filter(|index| !fixed.contains(index))
-            .collect();
-        let keep = open
-            .iter()
-            .zip(wanted.iter())
-            .take_while(|(a, b)| a == b)
-            .count();
+            .copied()
+            .filter(|index| !fixed.contains(&OpenClip::Owner(*index)));
+        // Past their common start, what is open is closed and what is
+        // wanted is opened.
+        let mut closed: Vec<usize> = Vec::new();
+        let mut to_open: Vec<usize> = Vec::new();
+        loop {
+            match (open.next(), wanted.next()) {
+                (Some(a), Some(b)) if a == b => {}
+                (a, b) => {
+                    closed.extend(a);
+                    closed.extend(open);
+                    to_open.extend(b);
+                    to_open.extend(wanted);
+                    break;
+                }
+            }
+        }
 
-        let closed: Vec<usize> = open[keep..].to_vec();
         for &index in closed.iter().rev() {
             self.close_owner(builder, index);
         }
         let mut opened = Vec::new();
-        for &index in &wanted[keep..] {
+        for &index in &to_open {
             if self.reopen_owner(builder, index) {
                 opened.push(index);
             }
@@ -7202,7 +7816,10 @@ where
 
         // 2. Selection highlights go UNDER the content...
         if paints_its_selection {
-            self.paint_selections(builder, node_index)?;
+            builder.set_current_layout(Some((node_index, EmitPhase::Selection)));
+            let painted = self.paint_selections(builder, node_index);
+            builder.set_current_layout(None);
+            painted?;
         }
 
         // 3. Paint the node's own content (text, images, hit-test areas).
@@ -9327,7 +9944,7 @@ where
         // NOTE: For scrollable containers (overflow: scroll/auto), the hit-test area
         // was already pushed in generate_for_stacking_context BEFORE the scroll frame,
         // so we skip it here to avoid duplicate hit-test areas that would scroll with content.
-        if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, node.dom_node_id) {
+        if let Some(tag_id) = self.tag_id_of(node.dom_node_id) {
             let is_scrollable = if let Some(dom_id) = node.dom_node_id {
                 let styled_node_state = self.get_styled_node_state(dom_id);
                 let overflow_x = get_overflow_x(self.ctx.styled_dom, dom_id, &styled_node_state);
@@ -9848,7 +10465,7 @@ where
             )
             .is_some();
 
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.loaded_fonts();
         let glyphs = text3::cache::shape_placeholder_text(
             text,
             &style,
@@ -10647,7 +11264,7 @@ where
                 height: self.ctx.viewport_size.height,
             },
         ));
-        let loaded_fonts = self.ctx.font_manager.get_loaded_fonts();
+        let loaded_fonts = self.loaded_fonts();
         let glyphs = text3::cache::shape_ellipsis(
             &style,
             &self.ctx.font_manager.font_chain_cache,
@@ -11237,19 +11854,33 @@ where
         let mut ancestors: BTreeMap<NodeId, Vec<NodeId>> = BTreeMap::new();
         let mut box_paints: BTreeMap<NodeId, Option<super::getters::InlineBoxPaint>> =
             BTreeMap::new();
-        // Text node -> whether a span around it paints.
+        // Text node -> whether a span around it paints. A text without an
+        // inline box around it (the text of a label, straight in its block)
+        // is in neither map: nothing around it paints, which is what a
+        // missing entry says below, and its (empty) list of boxes is made
+        // again by whoever asks (`paint_inline_box_fragments`). Entering it
+        // cost every text block of a list two map nodes: 12,400 allocations
+        // for the 6,200 labels of a map.
         let mut in_painting_box: BTreeMap<NodeId, bool> = BTreeMap::new();
+        // The text of the run before: the runs of one text come in a row.
+        let mut last_text: Option<NodeId> = None;
         for run in glyph_runs {
             let Some(text) = run.source_node_id else {
                 continue;
             };
-            if in_painting_box.contains_key(&text) {
+            if last_text == Some(text) || in_painting_box.contains_key(&text) {
                 continue;
             }
+            last_text = Some(text);
             let boxes = self.inline_ancestors(text, ifc_root);
+            if boxes.is_empty() {
+                continue;
+            }
             let paints = boxes
                 .iter()
                 .any(|&b| self.inline_box_paint(b, &mut box_paints).is_some());
+            #[cfg(test)]
+            INLINE_BOX_MEMO_ENTRIES.with(|n| n.set(n.get() + 1));
             ancestors.insert(text, boxes);
             in_painting_box.insert(text, paints);
         }
@@ -11871,7 +12502,7 @@ where
         // Push hit-test area for this inline-block element
         // This is critical for buttons and other inline-block elements to receive
         // mouse events and display the correct cursor (e.g., cursor: pointer)
-        if let Some(tag_id) = get_tag_id(self.ctx.styled_dom, Some(node_id)) {
+        if let Some(tag_id) = self.tag_id_of(Some(node_id)) {
             builder.push_hit_test_area(border_box_bounds, tag_id);
         }
     }
@@ -12202,14 +12833,69 @@ fn get_scroll_content_size(node: &LayoutNodeHot, warm: Option<&LayoutNodeWarm>) 
     content_size
 }
 
+/// How often the display lists of this thread walked a box's scroll chain
+/// (`ScrollChain::of`) for `DisplayListGenerator::enter_scroll_chain`: what
+/// the tests read to say the positioned boxes of one parent share one walk.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static SCROLL_CHAIN_WALKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// How many texts the inline content painter entered into its per-block
+    /// maps of inline boxes on this thread (texts with a box around them).
+    pub(crate) static INLINE_BOX_MEMO_ENTRIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How often the selection and caret painters of this thread asked for a
+/// text block's lines as a copy (`materialized_inline_layout_for_node`): what
+/// the tests read to say a block without a selection or a caret costs none.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INLINE_LAYOUT_COPIES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// How many entries of a DOM's tag list the tag lookups of this thread read
+/// ([`get_tag_id`], [`tags_by_node`]): what the size sweep of the tests reads
+/// to say a display list looks at the list once, not once per box.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static TAG_LIST_READS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The hit-test tag of DOM node `id`: its first entry in the DOM's tag list,
+/// found by reading the list from the front. One ask costs the list, so a
+/// pass that asks for every box goes through
+/// [`DisplayListGenerator::tag_id_of`] instead.
 fn get_tag_id(dom: &StyledDom, id: Option<NodeId>) -> Option<DisplayListTagId> {
     let node_id = id?;
     let tag_mapping = dom
         .tag_ids_to_node_ids
         .as_ref()
         .iter()
-        .find(|m| m.node_id.into_crate_internal() == Some(node_id))?;
+        .find(|m| {
+            #[cfg(test)]
+            TAG_LIST_READS.with(|n| n.set(n.get() + 1));
+            m.node_id.into_crate_internal() == Some(node_id)
+        })?;
     Some((tag_mapping.tag_id.inner, TAG_TYPE_DOM_NODE))
+}
+
+/// Every node's hit-test tag by node index, `None` for a node without one:
+/// for each node the FIRST of its entries in the DOM's tag list, the one
+/// [`get_tag_id`] finds. One read of the list.
+fn tags_by_node(dom: &StyledDom) -> Vec<Option<u64>> {
+    let mut tags = vec![None; dom.node_data.as_ref().len()];
+    for mapping in dom.tag_ids_to_node_ids.as_ref() {
+        #[cfg(test)]
+        TAG_LIST_READS.with(|n| n.set(n.get() + 1));
+        let Some(node) = mapping.node_id.into_crate_internal() else {
+            continue;
+        };
+        if let Some(slot) = tags.get_mut(node.index()) {
+            if slot.is_none() {
+                *slot = Some(mapping.tag_id.inner);
+            }
+        }
+    }
+    tags
 }
 
 /// Resolve an [`ImageSource`] (as carried by an inline `InlineContent::Image`)
