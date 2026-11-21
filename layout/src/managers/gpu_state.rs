@@ -614,13 +614,17 @@ impl GpuStateManager {
     /// (`register_scroll_nodes` for a `VirtualView` or a text edit that
     /// began to overflow): whoever raises it registers the node with that
     /// bar. A sticky box is made by a layout pass only.
+    ///
+    /// `AZ_WALK_SCROLL_BOXES` in the environment makes every call the walk
+    /// (`walk_every_frame`).
     pub fn refresh_scroll_driven_transforms(
         &mut self,
         dom_id: DomId,
         scroll_manager: &ScrollManager,
         layout_tree: &LayoutTree,
     ) -> GpuEventChanges {
-        if !self.scroll_driven_boxes_hold(dom_id, scroll_manager, layout_tree) {
+        if walk_every_frame() || !self.scroll_driven_boxes_hold(dom_id, scroll_manager, layout_tree)
+        {
             return self.update_scrollbar_transforms(dom_id, scroll_manager, layout_tree);
         }
         let mut changes = GpuEventChanges::empty();
@@ -671,6 +675,21 @@ impl GpuStateManager {
                 .nodes_with_a_bar(dom_id)
                 .all(|node_id| listed.nodes.binary_search(&node_id).is_ok())
     }
+}
+
+/// `AZ_WALK_SCROLL_BOXES` set (to anything): every frame walks every box of
+/// every tree, as before the list of scroll-driven boxes existed. The switch
+/// that tells a thumb or a sticky box that stays behind BECAUSE of the list
+/// from one that stays behind for another reason. Read once per process.
+#[cfg(feature = "std")]
+fn walk_every_frame() -> bool {
+    static SET: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *SET.get_or_init(|| std::env::var_os("AZ_WALK_SCROLL_BOXES").is_some())
+}
+
+#[cfg(not(feature = "std"))]
+const fn walk_every_frame() -> bool {
+    false
 }
 
 /// Refreshes what box `node_idx` of `layout_tree` binds to a scroll offset -
