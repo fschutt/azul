@@ -64,6 +64,9 @@ std::thread_local! {
     /// is this count, so tests read it to see which rules a node is tried
     /// against.
     pub(crate) static MATCH_ATTEMPTS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// How many earlier siblings the general sibling combinator (`~`) tried
+    /// on this thread.
+    pub(crate) static GENERAL_SIBLING_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 /// The interaction states selector matching reads for the compounds LEFT of
@@ -137,7 +140,6 @@ pub fn matches_html_element(
 /// As in `.btn:hover .ink` or `.anchor:hover + .tip`: without states such a
 /// compound's interaction pseudo-class never holds.
 #[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
-#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
 #[must_use]
 pub fn matches_html_element_in(
     css_path: &CssPath,
@@ -147,6 +149,53 @@ pub fn matches_html_element_in(
     html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
     expected_path_ending: Option<CssPathPseudoSelector>,
     ancestor_states: Option<AncestorStates<'_>>,
+) -> bool {
+    matches_html_element_remembering(
+        css_path,
+        node_id,
+        node_hierarchy,
+        node_data,
+        html_node_tree,
+        expected_path_ending,
+        ancestor_states,
+        None,
+    )
+}
+
+/// What the matching of one cascade remembers about the general sibling
+/// combinator (`~`): per rule, per `~` of its path and per node, the nearest
+/// earlier sibling that matches the compound left of the `~` (`None`: there
+/// is none).
+///
+/// `.a ~ .b` asks, for every `.b`, for the nearest `.a` before it, and found
+/// it by walking back over the siblings: with one `.a` in front of 12,000
+/// `.b` that is 72 million steps. A sibling that does not match has the same
+/// answer as the node the walk started from, so every sibling a walk passed
+/// is given the answer, and the next walk stops at the first of them.
+///
+/// Valid for one set of rules and node states, i.e. one cascade pass; the
+/// caller names a rule by a number of its own.
+#[derive(Debug, Default)]
+pub struct GeneralSiblingMemo {
+    nearest: alloc::collections::BTreeMap<(usize, usize, NodeId), Option<NodeId>>,
+}
+
+/// [`matches_html_element_in`] for a caller that matches many nodes against
+/// the same rules: `sibling_memo` is its [`GeneralSiblingMemo`] and the
+/// number it names `css_path` by.
+#[allow(clippy::needless_pass_by_value)] // owned azul value taken by value (public API / ownership-transfer convention)
+#[allow(clippy::too_many_lines)] // large but cohesive: one branch per selector kind
+#[allow(clippy::too_many_arguments)] // the matcher's inputs plus the memo
+#[must_use]
+pub fn matches_html_element_remembering(
+    css_path: &CssPath,
+    node_id: NodeId,
+    node_hierarchy: &NodeDataContainerRef<'_, NodeHierarchyItem>,
+    node_data: &NodeDataContainerRef<'_, NodeData>,
+    html_node_tree: &NodeDataContainerRef<'_, CascadeInfo>,
+    expected_path_ending: Option<CssPathPseudoSelector>,
+    ancestor_states: Option<AncestorStates<'_>>,
+    mut sibling_memo: Option<(&mut GeneralSiblingMemo, usize)>,
 ) -> bool {
     use self::CssGroupSplitReason::{AdjacentSibling, Children, DirectChildren, GeneralSibling};
 
@@ -193,7 +242,7 @@ pub fn matches_html_element_in(
     // The combinator to a group's right comes from the PREVIOUS group's reason.
     let mut combinator = first_reason;
 
-    for (content_group, reason) in groups {
+    for (ordinal, (content_group, reason)) in groups.enumerate() {
         let this_combinator = combinator;
         combinator = reason;
 
@@ -270,26 +319,58 @@ pub fn matches_html_element_in(
                 }
             }
             GeneralSibling => {
-                // Search previous siblings for a match (general sibling `~`)
-                let mut sibling =
-                    find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
-                let mut found = false;
-                while let Some(sib) = sibling {
-                    if left_group_matches(
-                        content_group,
-                        html_node_tree[sib],
-                        &node_data[sib],
-                        sib,
-                        ancestor_states,
-                    ) {
-                        current_node = sib;
-                        found = true;
-                        break;
+                // Search previous siblings for a match (general sibling `~`):
+                // the nearest one, remembered for this node and for every
+                // sibling the search passes (`GeneralSiblingMemo`).
+                let key = |node: NodeId, memo: &(&mut GeneralSiblingMemo, usize)| {
+                    (memo.1, ordinal, node)
+                };
+                let known = sibling_memo
+                    .as_ref()
+                    .and_then(|memo| memo.0.nearest.get(&key(current_node, memo)).copied());
+                let found = if let Some(known) = known {
+                    known
+                } else {
+                    let mut sibling =
+                        find_non_anonymous_prev_sibling(current_node, node_hierarchy, node_data);
+                    let mut found = None;
+                    // The siblings passed: none of them matches, so each has
+                    // the answer this search ends with.
+                    let mut passed: Vec<NodeId> = Vec::new();
+                    while let Some(sib) = sibling {
+                        #[cfg(all(test, feature = "std"))]
+                        GENERAL_SIBLING_STEPS.with(|c| c.set(c.get() + 1));
+                        if left_group_matches(
+                            content_group,
+                            html_node_tree[sib],
+                            &node_data[sib],
+                            sib,
+                            ancestor_states,
+                        ) {
+                            found = Some(sib);
+                            break;
+                        }
+                        if let Some(memo) = sibling_memo.as_ref() {
+                            if let Some(known) = memo.0.nearest.get(&key(sib, memo)) {
+                                found = *known;
+                                break;
+                            }
+                            passed.push(sib);
+                        }
+                        sibling = find_non_anonymous_prev_sibling(sib, node_hierarchy, node_data);
                     }
-                    sibling = find_non_anonymous_prev_sibling(sib, node_hierarchy, node_data);
-                }
-                if !found {
-                    return false;
+                    if let Some(memo) = sibling_memo.as_mut() {
+                        let rule = memo.1;
+                        memo.0.nearest.insert((rule, ordinal, current_node), found);
+                        for sib in passed {
+                            memo.0.nearest.insert((rule, ordinal, sib), found);
+                        }
+                    }
+                    found
+                };
+                match found {
+                    Some(sib) => current_node = sib,
+                    None => return false,
                 }
             }
         }

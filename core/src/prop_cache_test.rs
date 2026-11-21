@@ -2521,6 +2521,46 @@ mod audit_a3_core_tests {
         );
     }
 
+    /// A3-core-11e: `.a ~ .b` asks for the nearest `.a` before every `.b`
+    /// and found it by walking back over the siblings: one `.a` in front of
+    /// k `.b` took k * k / 2 steps. What a walk found is remembered for the
+    /// siblings it passed, so the next `.b` asks its neighbour.
+    #[test]
+    fn the_general_sibling_combinator_does_not_walk_back_from_every_sibling() {
+        let class = |d: Dom, c: &str| d.with_class(c.into());
+        // 0 body, 1 a `.b` (before any `.a`), 2 the `.a`, 3.. `k` more `.b`.
+        let page = |k: usize| {
+            let mut root = Dom::create_body()
+                .with_component_css(Css::from_string(".a ~ .b { width: 7px; }".into()))
+                .with_child(class(Dom::create_div(), "b"))
+                .with_child(class(Dom::create_div(), "a"));
+            for _ in 0..k {
+                root = root.with_child(class(Dom::create_div(), "b"));
+            }
+            crate::style::GENERAL_SIBLING_STEPS.with(|c| c.set(0));
+            let styled = StyledDom::create_from_dom(root);
+            (styled, crate::style::GENERAL_SIBLING_STEPS.with(core::cell::Cell::get))
+        };
+        let (styled, few) = page(200);
+        let (_, many) = page(800);
+        assert!(few >= 200, "harness: the combinator looked at siblings ({few})");
+        assert!(few <= 3 * 200, "{few} sibling steps for 200 siblings");
+        assert!(
+            many <= few * 6,
+            "four times the siblings took {many} steps for {few}: every sibling walked back"
+        );
+
+        // The rule holds for every `.b` after the `.a`, and for nothing else.
+        let cache = styled.get_css_property_cache();
+        let compact = cache.compact_cache.as_ref().expect("the compact cache");
+        let has_width = |node: usize| compact.get_width_raw(node) != azul_css::compact_cache::U32_AUTO;
+        assert!(!has_width(1), "the `.b` before the `.a` has no `.a` before it");
+        assert!(!has_width(2), "the `.a` is no `.b`");
+        for node in 3..203 {
+            assert!(has_width(node), "`.b` number {node} follows the `.a`");
+        }
+    }
+
     /// A3-core-07b: when the rule sets ALTERNATE from node to node (the cells
     /// of a table with a class per column, rows cycling through styles) the
     /// run the node before had is never the node's own, and every node read

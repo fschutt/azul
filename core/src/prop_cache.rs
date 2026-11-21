@@ -2453,6 +2453,10 @@ impl CssPropertyCache {
                     &hierarchy,
                 );
                 let mut candidates: Vec<usize> = Vec::new();
+                // What the `~` combinators of the rules found, for the nodes
+                // still to come (the node states and the rules are the same
+                // for every node and pass of this cascade).
+                let mut sibling_memo = crate::style::GeneralSiblingMemo::default();
                 let node_total = if live_passes == 0 { 0 } else { node_data.len() };
                 for node_index in 0..node_total {
                     let node_id = NodeId::new(node_index);
@@ -2469,7 +2473,7 @@ impl CssPropertyCache {
                                 continue;
                             }
                             let rule_block: &CssRuleBlock = specific_rules[rule_idx];
-                            if !crate::style::matches_html_element_in(
+                            if !crate::style::matches_html_element_remembering(
                                 &rule_block.path,
                                 node_id,
                                 &hierarchy,
@@ -2477,6 +2481,7 @@ impl CssPropertyCache {
                                 html_tree,
                                 pseudo.clone(),
                                 Some(ancestor_states),
+                                Some((&mut sibling_memo, rule_idx)),
                             ) {
                                 continue;
                             }
