@@ -30,7 +30,7 @@ use crate::codegen::{
 pub struct Rust;
 
 /// Rust keywords that need a raw identifier (`r#type`) as a field name.
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
     "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move",
     "mut", "pub", "ref", "return", "static", "struct", "trait", "true", "type", "unsafe", "use",

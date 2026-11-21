@@ -44,7 +44,7 @@ use crate::codegen::{
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Pascal;
 
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "and", "array", "as", "asm", "begin", "case", "class", "const", "constructor", "destructor",
     "div", "do", "downto", "else", "end", "except", "exports", "file", "finalization",
     "finally", "for", "function", "goto", "if", "implementation", "in", "inherited",
@@ -186,11 +186,11 @@ fn item_fn(item: &Item) -> (String, String) {
 
 /// Reserved besides [`KEYWORDS`] where a generated name stands alone
 /// (`is_pascal_reserved` in `lang_pascal/mod.rs`).
-const RESERVED_EXTRA: &[&str] = &["absolute", "external"];
+static RESERVED_EXTRA: &[&str] = &["absolute", "external"];
 
 /// The names a constructor of a wrapper class is kept off
 /// (`is_pascal_method_shadow` in `lang_pascal/mod.rs`).
-const METHOD_SHADOWS: &[&str] = &[
+static METHOD_SHADOWS: &[&str] = &[
     "result", "len", "cap", "clone", "create", "delete", "free", "raw", "wrap", "destroy", "ptr",
     "string", "self", "tag", "get", "set", "id", "value",
 ];
@@ -205,11 +205,11 @@ fn is_reserved(name: &str) -> bool {
 /// `<arg>` (`create_h1_with_text(text)`, `create_abbr_with_title(abbr_text,
 /// title)`, `create_th_with_scope(scope, text)`): they fold into an
 /// overload of the base name.
-const FOLDED_ARGS: &[&str] = &["_with_text", "_with_title", "_with_scope"];
+static FOLDED_ARGS: &[&str] = &["_with_text", "_with_title", "_with_scope"];
 
 /// The `create_<x>_with_text` whose argument is not `text`
 /// (`create_code_with_text(code)` stays `TDom.CodeWithText`).
-const FOLD_EXCEPTIONS: &[&str] = &["code_with_text"];
+static FOLD_EXCEPTIONS: &[&str] = &["code_with_text"];
 
 /// The wrapper-class constructor of the static api.json `method`
 /// (`constructor_pascal_names` in `lang_pascal/wrappers.rs`): `create_<x>`

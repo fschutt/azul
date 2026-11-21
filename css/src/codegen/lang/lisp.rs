@@ -79,7 +79,7 @@ fn package_name(m: &Module) -> &'static str {
 }
 
 /// `is_lisp_reserved` of `lang_lisp/mod.rs`.
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "block", "catch", "eval-when", "flet", "function", "go", "if", "labels", "let", "let*",
     "load-time-value", "locally", "macrolet", "multiple-value-call", "multiple-value-prog1",
     "progn", "progv", "quote", "return-from", "setq", "symbol-macrolet", "tagbody", "the",

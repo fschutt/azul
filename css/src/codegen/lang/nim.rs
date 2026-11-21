@@ -46,7 +46,7 @@ use crate::codegen::{
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Nim;
 
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "addr", "and", "as", "asm", "bind", "block", "break", "case", "cast", "concept", "const",
     "continue", "converter", "defer", "discard", "distinct", "div", "do", "elif", "else", "end",
     "enum", "except", "export", "finally", "for", "from", "func", "if", "import", "in",
@@ -68,7 +68,7 @@ fn ident(name: &str) -> String {
 /// The names a DOM function's body uses that a parameter must not shadow:
 /// the string helper, the wrapper procs it chains, the parameter type and
 /// the implicit `result`.
-const SHADOWED: &[&str] = &[
+static SHADOWED: &[&str] = &[
     "azStr", "azVec", "withChild", "withCss", "withId", "withClass", "string", "result",
 ];
 

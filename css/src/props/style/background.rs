@@ -81,7 +81,7 @@ pub const BUILTIN_IMAGE_PREFIX: &str = "azul-builtin:";
 /// pixel by the app's light for the rect they fill (their bevel, pillow and
 /// tint set by `--azul-*` custom properties). They need azul-layout's
 /// `materials` feature and are transparent without it.
-pub const BUILTIN_IMAGES: &[&str] = &[
+pub static BUILTIN_IMAGES: &[&str] = &[
     "vellum",
     "vellum-overlay",
     "leather",

@@ -290,7 +290,7 @@ pub fn is_dom_item(item: &Item) -> bool {
 }
 
 /// The api.json classes the DOM lowering (`azul_core::xml`) constructs.
-pub const DOM_CLASSES: &[&str] = &["Dom", "SmallAriaInfo"];
+pub static DOM_CLASSES: &[&str] = &["Dom", "SmallAriaInfo"];
 
 /// How a printer spells DOM items through its binding's WRAPPER layer (the
 /// managed classes: native strings, `dom.withChild(..)` chains) when its

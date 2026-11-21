@@ -74,13 +74,13 @@ pub fn swift_camel(name: &str) -> String {
 }
 
 /// `reserved_member` of the Swift generator: these get a trailing `_`.
-const RESERVED_MEMBERS: &[&str] = &[
+static RESERVED_MEMBERS: &[&str] = &[
     "description", "debugDescription", "hashValue", "hash", "copy", "init", "deinit", "self",
     "Type", "Protocol", "default", "downcast", "subscript",
 ];
 
 /// Swift keywords, wrapped in backticks when used as a name.
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func", "import",
     "init", "inout", "internal", "let", "open", "operator", "private", "precedencegroup",
     "protocol", "public", "rethrows", "static", "struct", "subscript", "typealias", "var",

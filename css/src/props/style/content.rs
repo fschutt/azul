@@ -95,9 +95,9 @@ impl PrintAsCssValue for CounterEntryVec {
 }
 
 /// The counters the `list-item` constants name.
-const LIST_ITEM_AT_ZERO: &[CounterEntry] =
+static LIST_ITEM_AT_ZERO: &[CounterEntry] =
     &[CounterEntry::new(AzString::from_const_str("list-item"), 0)];
-const LIST_ITEM_BY_ONE: &[CounterEntry] =
+static LIST_ITEM_BY_ONE: &[CounterEntry] =
     &[CounterEntry::new(AzString::from_const_str("list-item"), 1)];
 
 /// CSS `counter-reset` (CSS Lists 3 s4.2): the counters an element makes,

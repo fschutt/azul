@@ -45,7 +45,7 @@ use crate::codegen::{
 pub struct V;
 
 /// `is_v_keyword` of `lang_v/mod.rs`.
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "as", "asm", "assert", "atomic", "break", "const", "continue", "defer", "else", "enum",
     "false", "fn", "for", "go", "goto", "if", "import", "in", "interface", "is", "isreftype",
     "lock", "match", "module", "mut", "none", "or", "pub", "return", "rlock", "select", "shared",

@@ -40,7 +40,7 @@ use crate::codegen::{
 pub struct Algol68;
 
 /// `is_algol_reserved` of `lang_algol68/mod.rs`.
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "abs", "alien", "and", "andth", "begin", "bits", "bool", "by", "bytes", "case", "channel",
     "char", "co", "comment", "complex", "compl", "do", "elif", "else", "empty", "end", "esac",
     "exit", "false", "fi", "file", "finish", "flex", "for", "format", "from", "go", "goto",

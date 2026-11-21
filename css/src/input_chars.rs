@@ -42,7 +42,7 @@ const fn row(first: char, last: char, action: InputCharAction) -> InputCharRule 
 }
 
 /// U+FFFD REPLACEMENT CHARACTER, which stands for a character that cannot be kept.
-const REPLACEMENT: InputCharAction = InputCharAction::Replace('\u{FFFD}');
+static REPLACEMENT: InputCharAction = InputCharAction::Replace('\u{FFFD}');
 
 /// The characters the rule changes, sorted and disjoint; every other character stays.
 ///
@@ -50,7 +50,7 @@ const REPLACEMENT: InputCharAction = InputCharAction::Replace('\u{FFFD}');
 /// controls, and the noncharacters U+FDD0 to U+FDEF and the last two of each plane above the
 /// first (U+1FFFE, U+1FFFF ... U+10FFFF), which XML counts as characters and Unicode allows
 /// in interchange (Corrigendum #9).
-pub const INPUT_CHAR_RULES: &[InputCharRule] = &[
+pub static INPUT_CHAR_RULES: &[InputCharRule] = &[
     // NULL: HTML's tokenizer reads it as U+FFFD wherever its tree construction does not
     // ignore it (13.2.5, "unexpected-null-character"); XML 1.0 has no NULL (2.2, `Char`),
     // and a C string ends at one.

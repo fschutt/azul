@@ -51,7 +51,7 @@ use crate::codegen::{
 pub struct Crystal;
 
 /// `is_crystal_keyword` of `lang_crystal/mod.rs` (lib struct field names).
-const KEYWORDS: &[&str] = &[
+static KEYWORDS: &[&str] = &[
     "abstract", "alias", "as", "asm", "begin", "break", "case", "class", "def", "do", "else",
     "elsif", "end", "ensure", "enum", "extend", "false", "for", "fun", "if", "in", "include",
     "instance_sizeof", "lib", "macro", "module", "next", "nil", "of", "offsetof", "out",
@@ -61,7 +61,7 @@ const KEYWORDS: &[&str] = &[
 ];
 
 /// `reserved_method` of `lang_crystal/wrappers.rs`.
-const RESERVED_METHODS: &[&str] = &[
+static RESERVED_METHODS: &[&str] = &[
     "as", "as?", "is_a?", "nil?", "responds_to?", "class", "hash", "clone", "dup", "to_s",
     "inspect", "to_unsafe", "finalize", "initialize", "allocate", "object_id", "same?",
     "not_nil!", "try", "tap", "itself", "crystal_type_id", "unsafe_as", "in?", "default",

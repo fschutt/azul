@@ -43,7 +43,7 @@ pub struct FreeBasic;
 
 /// `is_freebasic_reserved` of `lang_freebasic/mod.rs`, plus the built-in
 /// statements and functions a parameter name would shadow.
-const RESERVED: &[&str] = &[
+static RESERVED: &[&str] = &[
     "any", "as", "asm", "byref", "byte", "byval", "call", "case", "cdecl", "common", "const",
     "constructor", "continue", "data", "declare", "destructor", "dim", "do", "double", "else",
     "elseif", "end", "enum", "exit", "export", "extends", "extern", "field", "for", "function",

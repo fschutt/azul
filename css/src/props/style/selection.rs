@@ -16,7 +16,7 @@ use crate::props::{
 use crate::props::basic::color::{parse_color_or_system_token, parse_css_color};
 
 /// Default selection highlight background — light blue, similar to macOS.
-const DEFAULT_SELECTION_BG: ColorU = ColorU::new(173, 214, 255, 255);
+static DEFAULT_SELECTION_BG: ColorU = ColorU::new(173, 214, 255, 255);
 
 // --- -azul-selection-background-color ---
 

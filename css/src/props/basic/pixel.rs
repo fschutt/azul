@@ -770,19 +770,19 @@ impl PixelValue {
 // across parsing and resolution.
 
 /// border-width: thin = 1px (per CSS spec)
-pub const THIN_BORDER_THICKNESS: PixelValue = PixelValue {
+pub static THIN_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
     number: FloatValue { number: 1000 },
 };
 
 /// border-width: medium = 3px (per CSS spec, default)
-pub const MEDIUM_BORDER_THICKNESS: PixelValue = PixelValue {
+pub static MEDIUM_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
     number: FloatValue { number: 3000 },
 };
 
 /// border-width: thick = 5px (per CSS spec)
-pub const THICK_BORDER_THICKNESS: PixelValue = PixelValue {
+pub static THICK_BORDER_THICKNESS: PixelValue = PixelValue {
     metric: SizeMetric::Px,
     number: FloatValue { number: 5000 },
 };

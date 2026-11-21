@@ -284,7 +284,7 @@ const NO_REGISTRATION: &str = "the PHP bindings cannot make one: the FFI binding
                                wraps no ComponentDef";
 
 /// Why an app's `main.php` opens no window (the lines it writes to STDERR).
-const NO_APP: &[&str] = &[
+static NO_APP: &[&str] = &[
     "No window opens: the PHP FFI binding registers every callback (the window's",
     "layout callback too) through Azul::registerCallback, which throws: php-ffi cannot",
     "turn a PHP closure into a C function pointer. The Zend extension (libazul built",

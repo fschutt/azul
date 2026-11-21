@@ -882,7 +882,7 @@ pub const DEFAULT_APP_THEME: &str = "flat";
 /// last entry) flat's blocks would otherwise fill every gap of flora's look
 /// (flora draws no `border` and would inherit flat's). User and rice themes
 /// are not in here: they layer on top of the floor at their rank.
-pub const COMPILED_IN_APP_THEMES: &[&str] = &["flat", "flora", "native"];
+pub static COMPILED_IN_APP_THEMES: &[&str] = &["flat", "flora", "native"];
 
 /// Is `name` one of the [`COMPILED_IN_APP_THEMES`]?
 #[must_use]

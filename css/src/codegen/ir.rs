@@ -487,7 +487,7 @@ impl Expr {
 /// Lists whose items are independent (a style's properties, a rule's
 /// declarations, a stylesheet's rules): an item the bindings cannot build is
 /// dropped from them (with a note) instead of poisoning the whole list.
-pub const DROPPABLE_VECS: &[&str] = &[
+pub static DROPPABLE_VECS: &[&str] = &[
     "CssPropertyWithConditionsVec",
     "CssDeclarationVec",
     "CssPropertyVec",

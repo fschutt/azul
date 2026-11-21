@@ -2000,7 +2000,7 @@ impl SystemColorRef {
 /// unchanged and a reader that never resolves it paints nothing (it is fully
 /// transparent). The display list resolves it per node, where the node's
 /// `color` is known.
-pub const CURRENT_COLOR_TOKEN: ColorU = ColorU {
+pub static CURRENT_COLOR_TOKEN: ColorU = ColorU {
     r: SYSTEM_COLOR_TOKEN_R,
     g: SYSTEM_COLOR_TOKEN_G,
     b: 0xFF,

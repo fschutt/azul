@@ -1035,10 +1035,10 @@ impl CssStyleFontSizeParseErrorOwned {
 
 /// `font-size: smaller` (CSS Fonts 4 s2.5 leaves the ratio to the UA): 0.83em,
 /// the browsers' 1/1.2 - the UA sheet's `small, sub, sup` take it too.
-pub const FONT_SIZE_SMALLER: PixelValue = PixelValue::const_em_fractional(0, 83);
+pub static FONT_SIZE_SMALLER: PixelValue = PixelValue::const_em_fractional(0, 83);
 
 /// `font-size: larger`: 1.2em, the inverse step (the UA sheet's `big`).
-pub const FONT_SIZE_LARGER: PixelValue = PixelValue::const_em_fractional(1, 2);
+pub static FONT_SIZE_LARGER: PixelValue = PixelValue::const_em_fractional(1, 2);
 
 /// The absolute-size keywords of `font-size` (CSS Fonts 4 s2.5) and the px
 /// browsers give them at the 16px default, smallest first.
