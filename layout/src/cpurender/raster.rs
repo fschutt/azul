@@ -6678,9 +6678,19 @@ fn render_glyphs_lcd(
 
         // A band asks the window's cache for the cells before it builds anything into its
         // own. Without hinting (`ppem == 0`) no path is hinted (`GlyphCache::get_or_build`),
-        // so the cells' key is known before the path is looked up: a glyph the window holds
-        // costs the band no path.
-        if ppem == 0 {
+        // so the cells' key is known without a path: a glyph the window holds costs the band
+        // no path.
+        // (With hinting the key needs the path's kind, which the window's cache says without
+        // building the path: `cached_path_kind`, A1-49.)
+        let window_kind = if ppem == 0 {
+            Some(false)
+        } else {
+            shared
+                .as_deref()
+                .and_then(|window| window.cached_path_kind(font_hash.font_hash, glyph_index, ppem))
+                .flatten()
+        };
+        if let Some(window_hinted) = window_kind {
             if let Some(held) = shared.as_deref().and_then(|window| {
                 window.cached_cells_lcd(
                     font_hash.font_hash,
@@ -6689,7 +6699,7 @@ fn render_glyphs_lcd(
                     glyph_x,
                     glyph_baseline_y,
                     scale,
-                    false,
+                    window_hinted,
                     hint_correction,
                     embolden_px,
                 )
@@ -6714,29 +6724,6 @@ fn render_glyphs_lcd(
             continue;
         };
         let is_hinted = cached.is_hinted;
-
-        // With hinting the key needs the path's kind: the band's own path, then the window's
-        // cells.
-        if ppem != 0 {
-            if let Some(held) = shared.as_deref().and_then(|window| {
-                window.cached_cells_lcd(
-                    font_hash.font_hash,
-                    glyph_index,
-                    ppem,
-                    glyph_x,
-                    glyph_baseline_y,
-                    scale,
-                    is_hinted,
-                    hint_correction,
-                    embolden_px,
-                )
-            }) {
-                if let Some((cells, int_x, int_y)) = held {
-                    ras.add_cells_offset(cells, int_x * 3, int_y);
-                }
-                continue;
-            }
-        }
 
         // Cells are rasterized once per (glyph, ppem, scale, 1/3-px bucket)
         // and replayed here at an integer offset. `int_x` is in whole pixels
@@ -7054,6 +7041,8 @@ fn render_text_prerendered_lcd(
     let mut next_component = 0usize;
     // The face is in use (`FontManager::evict_unused`), though cached paths decode nothing.
     parsed_font.touch();
+    // In a band: the window's cache, asked first and never written (`shared_glyphs`).
+    let shared = shared_glyphs();
     for glyph in glyphs {
         let gx = (glyph.point.x - scroll_offset.0) * dpi_factor;
         let gy = (glyph.point.y - scroll_offset.1) * dpi_factor;
@@ -7063,32 +7052,63 @@ fn render_text_prerendered_lcd(
             continue;
         }
         let glyph_index = glyph.index as u16;
-        // A glyph without an outline has no tile: skipped here as below.
-        let Some(is_hinted) = glyph_cache
-            .get_or_build_decoding(font_hash.font_hash, glyph_index, parsed_font, ppem, || {
-                parsed_font.get_or_decode_glyph(glyph_index)
+        // A band asks the window's cache first (A1-49): the kind of the glyph's path, then
+        // its tile - a glyph the window holds costs the band nothing.
+        let window_kind = shared
+            .as_deref()
+            .and_then(|window| window.cached_path_kind(font_hash.font_hash, glyph_index, ppem));
+        if window_kind == Some(None) {
+            continue; // held as "no outline": no tile, as below
+        }
+        let window_tile = window_kind.flatten().and_then(|is_hinted| {
+            shared.as_deref().and_then(|window| {
+                window.cached_lcd_tile(
+                    font_hash.font_hash,
+                    glyph_index,
+                    ppem,
+                    gx,
+                    gy,
+                    scale,
+                    is_hinted,
+                    hint_correction,
+                    color,
+                    bg,
+                )
             })
-            .map(|c| c.is_hinted)
-        else {
-            continue;
+        });
+        let tile = if let Some(tile) = window_tile {
+            tile
+        } else {
+            // This cache: its path first (a tile is built from the path of the cache it is
+            // built in), then its tile.
+            // A glyph without an outline has no tile: skipped here as below.
+            let Some(is_hinted) = glyph_cache
+                .get_or_build_decoding(font_hash.font_hash, glyph_index, parsed_font, ppem, || {
+                    parsed_font.get_or_decode_glyph(glyph_index)
+                })
+                .map(|c| c.is_hinted)
+            else {
+                continue;
+            };
+            let cells_built_before = glyph_cache.cells_built();
+            let tile = glyph_cache.get_or_build_lcd_tile(
+                font_hash.font_hash,
+                glyph.index as u16,
+                ppem,
+                gx,
+                gy,
+                scale,
+                is_hinted,
+                hint_correction,
+                color,
+                bg,
+                lut,
+                params,
+            );
+            // Per glyph: the loop has a `return` of its own below.
+            count_cells_built(glyph_cache, cells_built_before);
+            tile
         };
-        let cells_built_before = glyph_cache.cells_built();
-        let tile = glyph_cache.get_or_build_lcd_tile(
-            font_hash.font_hash,
-            glyph.index as u16,
-            ppem,
-            gx,
-            gy,
-            scale,
-            is_hinted,
-            hint_correction,
-            color,
-            bg,
-            lut,
-            params,
-        );
-        // Per glyph: the loop has a `return` of its own below.
-        count_cells_built(glyph_cache, cells_built_before);
         let Some((tile, int_x, int_y)) = tile else {
             continue; // no cells (space) — nothing to paint for this glyph
         };
@@ -7373,7 +7393,15 @@ pub(super) fn render_text(
         // A band asks the window's cache for the cells before it builds anything into its
         // own; without hinting (`ppem == 0`: no path is hinted) before the path is looked
         // up (see `render_glyphs_lcd`).
-        if ppem == 0 {
+        let window_kind = if ppem == 0 {
+            Some(false)
+        } else {
+            shared
+                .as_deref()
+                .and_then(|window| window.cached_path_kind(font_hash.font_hash, glyph_index, ppem))
+                .flatten()
+        };
+        if let Some(window_hinted) = window_kind {
             if let Some(held) = shared.as_deref().and_then(|window| {
                 window.cached_cells(
                     font_hash.font_hash,
@@ -7382,7 +7410,7 @@ pub(super) fn render_text(
                     glyph_x,
                     glyph_baseline_y,
                     scale,
-                    false,
+                    window_hinted,
                     hint_correction,
                     embolden_px,
                 )
@@ -7406,29 +7434,6 @@ pub(super) fn render_text(
         else {
             continue;
         };
-
-        // With hinting the key needs the path's kind: the band's own path, then the window's
-        // cells.
-        if ppem != 0 {
-            if let Some(held) = shared.as_deref().and_then(|window| {
-                window.cached_cells(
-                    font_hash.font_hash,
-                    glyph_index,
-                    ppem,
-                    glyph_x,
-                    glyph_baseline_y,
-                    scale,
-                    is_hinted,
-                    hint_correction,
-                    embolden_px,
-                )
-            }) {
-                if let Some((cells, int_x, int_y)) = held {
-                    ras.add_cells_offset(cells, int_x, int_y);
-                }
-                continue;
-            }
-        }
 
         let Some((cells, int_x, int_y)) = glyph_cache.get_or_build_cells_emboldened(
             font_hash.font_hash,
