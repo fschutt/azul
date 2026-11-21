@@ -13474,11 +13474,51 @@ pub fn e2e_set_presented_frame(
     layout_window: &azul_layout::window::LayoutWindow,
     pixmap: &azul_layout::cpurender::AzulPixmap,
 ) {
-    layout_window
+    let mut scratch = layout_window
         .e2e_scratch
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .presented_frame = Some((pixmap.width(), pixmap.height(), pixmap.data().to_vec()));
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // A9-02: the kept buffer is refilled, not allocated anew: a frame is 14.7 MB at
+    // 2560x1440 (59 MB at DPI 2) and every presented frame published one.
+    let mut kept = scratch
+        .presented_frame
+        .take()
+        .map(|(_, _, data)| data)
+        .unwrap_or_default();
+    kept.clear();
+    kept.extend_from_slice(pixmap.data());
+    scratch.presented_frame = Some((pixmap.width(), pixmap.height(), kept));
+}
+
+/// A9-02: publishing the presented frame refills the kept buffer.
+#[cfg(all(test, feature = "std", feature = "cpurender"))]
+mod audit_a9_tests {
+    use super::*;
+
+    #[test]
+    fn a9_02_presented_frame_reuses_its_buffer() {
+        let lw = azul_layout::window::LayoutWindow::new(rust_fontconfig::FcFontCache::default())
+            .expect("a layout window");
+        let mut frame = azul_layout::cpurender::AzulPixmap::new(64, 32).expect("a pixmap");
+        e2e_set_presented_frame(&lw, &frame);
+        let kept_ptr = |lw: &azul_layout::window::LayoutWindow| {
+            let scratch = lw.e2e_scratch.lock().unwrap();
+            let (w, h, data) = scratch.presented_frame.as_ref().expect("published");
+            (*w, *h, data.as_ptr() as usize, data.len())
+        };
+        let (w, h, first, len) = kept_ptr(&lw);
+        assert_eq!((w, h, len), (64, 32, 64 * 32 * 4));
+        for shade in [10u8, 20, 30] {
+            frame.fill(shade, shade, shade, 255);
+            e2e_set_presented_frame(&lw, &frame);
+            let (_, _, ptr, len) = kept_ptr(&lw);
+            assert_eq!(ptr, first, "the same buffer is refilled (mutant: `to_vec()` per frame)");
+            assert_eq!(len, 64 * 32 * 4);
+        }
+        // And it holds the last frame's pixels.
+        let (_, _, rgba) = e2e_presented_frame(&lw).expect("published");
+        assert_eq!(&rgba[..4], &[30, 30, 30, 255]);
+    }
 }
 
 /// The framebuffer [`e2e_set_presented_frame`] last published on this window
