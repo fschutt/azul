@@ -1489,6 +1489,67 @@ fn a_restyled_label_is_laid_out_without_its_layer() {
     assert_as_in_a_fresh_layout(&lw, &fresh(page, &second), &[2, 140, 141, 142, 143, 144, 400]);
 }
 
+/// The absolutely positioned boxes `positioning::position_out_of_flow_elements` solved and the
+/// ones it placed from their last solve, on this thread since the last call.
+fn abs_boxes_since_last_asked() -> (usize, usize) {
+    use crate::solver3::positioning::{ABS_BOXES_PLACED_AS_KEPT, ABS_BOXES_SOLVED};
+    (
+        ABS_BOXES_SOLVED.with(|n| n.replace(0)),
+        ABS_BOXES_PLACED_AS_KEPT.with(|n| n.replace(0)),
+    )
+}
+
+/// A3-solver-14b. The positioning pass solved every absolutely positioned box in every pass:
+/// containing block, used size, insets and the six rules, some forty style reads for a label,
+/// 12,000 times for a paragraph that changed beside a map's layer. A box whose cache entry
+/// stands and whose containing block, viewport and static position are what they were is
+/// placed from its last solve (`cache::AbsPlacement`). In this crate's tests such a box is
+/// solved all the same and the result compared, so a box placed wrongly panics here.
+///
+/// Mutation: the store of `placement` at the end of a box's solve writing `None` solves 200.
+#[test]
+fn a_pass_for_a_paragraph_solves_none_of_the_labels_beside_it() {
+    let k = 200;
+    let mut lw = window();
+    lay_out(&mut lw, with_a_paragraph(layer_of_absolute_blocks(k), "one"));
+    let (first, _) = abs_boxes_since_last_asked();
+    assert!(first >= k, "harness: the first pass solved the {k} labels ({first})");
+    lay_out(&mut lw, with_a_paragraph(layer_of_absolute_blocks(k), "another, longer text"));
+    let (solved, kept) = abs_boxes_since_last_asked();
+    assert_eq!(solved, 0, "a pass that changed one paragraph solved {solved} labels beside it");
+    assert!(kept >= k, "harness: the {k} labels were placed again ({kept} from their last solve)");
+    let mut fresh = window();
+    lay_out(&mut fresh, with_a_paragraph(layer_of_absolute_blocks(k), "another, longer text"));
+    assert_as_in_a_fresh_layout(&lw, &fresh, &[2, 3, 100, 101, 2 * k, 2 * k + 1]);
+}
+
+/// A3-solver-14b, the input that moves without clearing a box's cache entry: its insets
+/// (A3-solver-41 keeps the box of a label that only moved). Such a box is solved again - from
+/// its last solve it would stay where it was (in this crate's tests: panic, the check finds the
+/// new place).
+///
+/// Mutation: without the loop over `paint_dirty` in `layout_document` the 200 moved labels are
+/// placed from their last solve.
+#[test]
+fn labels_that_moved_are_solved_again() {
+    let k = 200;
+    let mut lw = window();
+    lay_out(&mut lw, labels_moved(k, 0, 0, 5));
+    let _ = abs_boxes_since_last_asked();
+    lay_out(&mut lw, labels_moved(k, 7, 3, 25));
+    let (solved, kept) = abs_boxes_since_last_asked();
+    assert_eq!(kept, 0, "{kept} labels that moved were placed from their last solve");
+    assert!(solved >= k, "harness: the {k} moved labels were solved ({solved})");
+    // Label 57 (DOM node 2 + 2 * 57) at (10 * 7 + 7, 9 * 1 + 3).
+    let label = position_of(&lw, 2 + 2 * 57);
+    assert!(
+        (label.x - 77.0).abs() < 0.01 && (label.y - 12.0).abs() < 0.01,
+        "the moved label 57 stands at ({}, {}), not at its insets (77, 12)",
+        label.x,
+        label.y
+    );
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;

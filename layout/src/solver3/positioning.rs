@@ -172,6 +172,56 @@ thread_local! {
     pub(crate) static ABS_INTERIORS_REUSED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// The `direction` of the containing block of the absolutely or fixed
+/// positioned box at `node_index`: of its nearest positioned ancestor, `ltr`
+/// for the viewport (a fixed box, or no positioned ancestor).
+fn containing_block_direction(
+    tree: &LayoutTree,
+    styled_dom: &StyledDom,
+    node_index: usize,
+    position_type: LayoutPosition,
+) -> azul_css::props::style::StyleDirection {
+    use azul_css::props::style::StyleDirection;
+    let cb_dom_id = if position_type == LayoutPosition::Fixed {
+        None // viewport CB, default LTR
+    } else {
+        let mut parent = tree.nodes[node_index].parent;
+        let mut found = None;
+        while let Some(pidx) = parent {
+            if let Some(pnode) = tree.get(LayoutNodeId::new(pidx)) {
+                if get_position_type(styled_dom, pnode.dom_node_id).is_positioned() {
+                    found = pnode.dom_node_id;
+                    break;
+                }
+                parent = pnode.parent;
+            } else {
+                break;
+            }
+        }
+        found
+    };
+    match cb_dom_id {
+        Some(cb_id) => {
+            let cb_ns = &styled_dom.styled_nodes.as_container()[cb_id].styled_node_state;
+            match get_direction_property(styled_dom, cb_id, cb_ns) {
+                MultiValue::Exact(v) => v,
+                _ => StyleDirection::Ltr,
+            }
+        }
+        None => StyleDirection::Ltr,
+    }
+}
+
+/// How many absolutely positioned boxes [`position_out_of_flow_elements`]
+/// solved on this thread and how many it placed from their last solve
+/// (`cache::AbsPlacement`): what the tests count. A solve made only to check
+/// a placement (see [`checks_interior_reuse`]) counts as a placement.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static ABS_BOXES_SOLVED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static ABS_BOXES_PLACED_AS_KEPT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Where the flow puts the out-of-flow box at `node_index`: its parent's
 /// content box plus the offset its parent's layout stored for it
 /// (`warm.relative_position`, its static position seen from there) - what
@@ -397,6 +447,113 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     Err(_) => continue,
                 }
             };
+
+            // Whether this box's interior and placement are tracked
+            // (`cache::AbsInterior`): only for a box nothing else lays out -
+            // one whose parent is a block container (a flex or grid
+            // container's taffy lays its absolutely positioned children out
+            // itself, a table its boxes), and no `::marker` or other pseudo
+            // box (laid out by its element's flow, under its element's node).
+            let interior_is_tracked = reuse_interiors
+                && tree
+                    .warm(LayoutNodeId::new(node_index))
+                    .is_some_and(|w| w.pseudo_element.is_none())
+                && tree.nodes[node_index]
+                    .parent
+                    .and_then(|p| tree.get(LayoutNodeId::new(p)))
+                    .is_none_or(|pn| {
+                        matches!(
+                            pn.formatting_context,
+                            azul_core::dom::FormattingContext::Block { .. }
+                                | azul_core::dom::FormattingContext::Inline
+                                | azul_core::dom::FormattingContext::InlineBlock
+                        )
+                    });
+            let cb_direction =
+                containing_block_direction(tree, ctx.styled_dom, node_index, position_type);
+            // The inputs of the solve that can move while the box's cache
+            // entry stands (`cache::AbsPlacement`), and the solve of the pass
+            // before if it was made from these: then the box is placed from
+            // it. Its own style is not among them - see there.
+            let placement_inputs = (
+                super::cache::AbsPlacement::rect_bits(containing_block_rect),
+                super::cache::AbsPlacement::viewport_bits(viewport, ctx.viewport_size),
+                matches!(cb_direction, StyleDirection::Rtl),
+            );
+            let kept_placement = if interior_is_tracked && position_type == LayoutPosition::Absolute
+            {
+                let slot = calculated_positions
+                    .get(node_index)
+                    .copied()
+                    .unwrap_or_default();
+                let props = tree.nodes[node_index].box_props;
+                let margin_auto = [
+                    props.margin_auto.top,
+                    props.margin_auto.right,
+                    props.margin_auto.bottom,
+                    props.margin_auto.left,
+                ];
+                ctx.cache_map
+                    .entries
+                    .get(node_index)
+                    .and_then(|entry| entry.abs_interior.as_deref())
+                    .filter(|run| {
+                        run.margin == props.margin
+                            && run.padding == props.padding
+                            && run.border == props.border
+                    })
+                    .and_then(|run| run.placement)
+                    .filter(|kept| {
+                        kept.is_for(
+                            placement_inputs.0,
+                            placement_inputs.1,
+                            placement_inputs.2,
+                            margin_auto,
+                            slot,
+                        )
+                    })
+            } else {
+                None
+            };
+            if let Some(kept) = kept_placement {
+                #[cfg(test)]
+                ABS_BOXES_PLACED_AS_KEPT.with(|n| n.set(n.get() + 1));
+                if !checks_interior_reuse() {
+                    let final_pos = kept.final_position();
+                    super::pos_set(calculated_positions, node_index, final_pos);
+                    if let Some(node_mut) = tree.get_mut(LayoutNodeId::new(node_index)) {
+                        node_mut.used_size = Some(kept.solved_size());
+                    }
+                    if !tree.children(node_index).is_empty() {
+                        let bp = tree.nodes[node_index].box_props.unpack();
+                        crate::solver3::cache::position_bfc_child_descendants(
+                            tree,
+                            node_index,
+                            LogicalPosition::new(
+                                final_pos.x + bp.border.left + bp.padding.left,
+                                final_pos.y + bp.border.top + bp.padding.top,
+                            ),
+                            calculated_positions,
+                        );
+                        shift_relative_descendants(
+                            ctx,
+                            tree,
+                            calculated_positions,
+                            viewport,
+                            node_index,
+                            &mut boxes_below,
+                        );
+                    }
+                    continue;
+                }
+            } else {
+                #[cfg(test)]
+                ABS_BOXES_SOLVED.with(|n| n.set(n.get() + 1));
+            }
+            // Whether the interior below was read off its last run or laid
+            // out by one that reported a height: with it the box may be
+            // placed from this solve next time.
+            let mut interior_stands = false;
 
             // Get node again after containing block calculation
             let node = &tree.nodes[node_index];
@@ -677,40 +834,9 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 let left_is_auto = left_val.is_none();
                 let right_is_auto = right_val.is_none();
 
-                // Get direction of containing block for over-constrained resolution
-                let cb_direction = {
-                    let cb_dom_id = if position_type == LayoutPosition::Fixed {
-                        None // viewport CB, default LTR
-                    } else {
-                        let mut parent = tree.nodes[node_index].parent;
-                        let mut found = None;
-                        while let Some(pidx) = parent {
-                            if let Some(pnode) = tree.get(LayoutNodeId::new(pidx)) {
-                                if get_position_type(ctx.styled_dom, pnode.dom_node_id)
-                                    .is_positioned()
-                                {
-                                    found = pnode.dom_node_id;
-                                    break;
-                                }
-                                parent = pnode.parent;
-                            } else {
-                                break;
-                            }
-                        }
-                        found
-                    };
-                    match cb_dom_id {
-                        Some(cb_id) => {
-                            let cb_ns = &ctx.styled_dom.styled_nodes.as_container()[cb_id]
-                                .styled_node_state;
-                            match get_direction_property(ctx.styled_dom, cb_id, cb_ns) {
-                                MultiValue::Exact(v) => v,
-                                _ => StyleDirection::Ltr,
-                            }
-                        }
-                        None => StyleDirection::Ltr,
-                    }
-                };
+                // The direction of the containing block, for the
+                // over-constrained resolution: `cb_direction`, read above
+                // (`containing_block_direction`).
 
                 // +spec:replaced-elements:7d8ba8 - §10.3.8: for absolutely positioned replaced
                 // elements, width is determined first (as for inline replaced), so
@@ -935,32 +1061,13 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 // and a visit from the parent's flow that wrote anything
                 // drop the entry). Laying the interior out again would leave
                 // the tree as it is, so the content height is read off the
-                // entry. Only for a box nothing else lays out: one whose
-                // parent is a block container (a flex or grid container's
-                // taffy lays its absolutely positioned children out itself, a
-                // table its boxes), and no `::marker` or other pseudo box
-                // (laid out by its element's flow, under its element's node).
-                let interior_is_tracked = reuse_interiors
-                    && tree
-                        .warm(LayoutNodeId::new(node_index))
-                        .is_some_and(|w| w.pseudo_element.is_none())
-                    && tree.nodes[node_index]
-                        .parent
-                        .and_then(|p| tree.get(LayoutNodeId::new(p)))
-                        .is_none_or(|pn| {
-                            matches!(
-                                pn.formatting_context,
-                                azul_core::dom::FormattingContext::Block { .. }
-                                    | azul_core::dom::FormattingContext::Inline
-                                    | azul_core::dom::FormattingContext::InlineBlock
-                            )
-                        });
+                // entry. Only for a tracked box (`interior_is_tracked`).
                 let laid_out_in = tree.nodes[node_index].box_props;
                 let kept_run = ctx
                     .cache_map
                     .entries
                     .get(node_index)
-                    .and_then(|entry| entry.abs_interior)
+                    .and_then(|entry| entry.abs_interior.as_deref().copied())
                     .filter(|run| interior_is_tracked && run.is_for(solved_size, &laid_out_in));
                 // The content height of the interior, where a run gave one.
                 let interior_height: Option<f32> = if let (Some(run), false) =
@@ -1022,12 +1129,13 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     // What the next pass may read off this run. Stored after
                     // it: the run itself writes into the subtree.
                     if let Some(entry) = ctx.cache_map.entries.get_mut(node_index) {
-                        entry.abs_interior = height
-                            .filter(|_| interior_is_tracked)
-                            .map(|h| super::cache::AbsInterior::new(solved_size, &laid_out_in, h));
+                        entry.abs_interior = height.filter(|_| interior_is_tracked).map(|h| {
+                            Box::new(super::cache::AbsInterior::new(solved_size, &laid_out_in, h))
+                        });
                     }
                     height
                 };
+                interior_stands = interior_is_tracked && interior_height.is_some();
 
                 // §10.6.4 rules 1 and 3: with height:auto and at most one
                 // vertical inset, the used height IS the laid-out content
@@ -1118,6 +1226,7 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                 );
             }
 
+            let is_margin_note = margin_note.is_some();
             // Two margin notes on one side of a container do not overlap:
             // the later one stands below the earlier ones it would cover.
             // (CSS has no rule for boxes placed like this; a choice of this
@@ -1166,6 +1275,60 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                         &mut boxes_below,
                     );
                 }
+            }
+
+            // What the next pass may place this box from
+            // (`cache::AbsPlacement`), and the check of what this pass would
+            // have placed it from (`checks_interior_reuse`). Kept with the
+            // interior's entry, so only for a box whose interior stands; not
+            // for a fixed box, a margin note (placed among the notes before
+            // it) or an SVG text (placed by its attributes).
+            let solved_now = tree.nodes[node_index].used_size;
+            if let Some(kept) = kept_placement {
+                assert!(
+                    (final_pos.x.to_bits(), final_pos.y.to_bits()) == kept.final_bits
+                        && solved_now.map(|s| (s.width.to_bits(), s.height.to_bits()))
+                            == Some(kept.solved_bits),
+                    "the absolutely positioned box {node_index} was placed from its last solve \
+                     at {:?} with the size {:?}, and solving it now gives {:?} and {:?}: an \
+                     input of the solve is missing in `cache::AbsPlacement`",
+                    kept.final_position(),
+                    kept.solved_size(),
+                    final_pos,
+                    solved_now,
+                );
+            }
+            let placement = (interior_stands
+                && position_type == LayoutPosition::Absolute
+                && !is_margin_note
+                && super::svg::text_scale(ctx.styled_dom, tree, node_index).is_none()
+                && super::svg::text_mapping(ctx.styled_dom, tree, dom_id).is_none())
+            .then_some(solved_now)
+            .flatten()
+            .map(|size| {
+                let props = tree.nodes[node_index].box_props;
+                super::cache::AbsPlacement {
+                    containing_block: placement_inputs.0,
+                    viewport: placement_inputs.1,
+                    rtl: placement_inputs.2,
+                    margin_auto: [
+                        props.margin_auto.top,
+                        props.margin_auto.right,
+                        props.margin_auto.bottom,
+                        props.margin_auto.left,
+                    ],
+                    static_bits: (static_pos.x.to_bits(), static_pos.y.to_bits()),
+                    final_bits: (final_pos.x.to_bits(), final_pos.y.to_bits()),
+                    solved_bits: (size.width.to_bits(), size.height.to_bits()),
+                }
+            });
+            if let Some(run) = ctx
+                .cache_map
+                .entries
+                .get_mut(node_index)
+                .and_then(|entry| entry.abs_interior.as_deref_mut())
+            {
+                run.placement = placement;
             }
         }
     }

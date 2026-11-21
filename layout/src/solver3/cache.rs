@@ -261,7 +261,7 @@ pub struct NodeCache {
     /// out for - see [`AbsInterior`]. Forgotten by [`Self::clear`] (the box
     /// or something below it is dirty) and by every visit of the box by
     /// [`calculate_layout_for_subtree_fragment`] that wrote into the tree.
-    pub abs_interior: Option<AbsInterior>,
+    pub abs_interior: Option<Box<AbsInterior>>,
 }
 
 /// What the positioning pass laid the interior of an absolutely positioned
@@ -295,6 +295,97 @@ pub struct AbsInterior {
     /// `LayoutOutput::overflow_size.height` of that run: the content height
     /// an auto-height box takes its used height from (CSS 2.2 10.6.4).
     pub overflow_height: f32,
+    /// Where the positioning pass put the box with that run, and from what
+    /// ([`AbsPlacement`]); none where it may not be read again.
+    pub placement: Option<AbsPlacement>,
+}
+
+/// What the positioning pass solved an absolutely positioned box from and
+/// to: the inputs of its solve that can move while the box's [`NodeCache`]
+/// stands, and the results.
+///
+/// The pass solves every absolutely positioned box in every pass: its used
+/// size, its insets and the six rules of CSS 2.2 10.3.7 / 10.6.4, some forty
+/// style reads for a label. With this entry standing and its inputs as they
+/// were, the solve comes out as it did, and the box is placed from the entry.
+///
+/// The inputs kept here: the containing block's rectangle, the viewport, the
+/// containing block's direction, the box's margins / borders / paddings (in
+/// its [`AbsInterior`]) and which margins are `auto`, and its static
+/// position. The box's own style is not kept: a change of it that lays out
+/// clears the box's `NodeCache` (the reconcile builds the box fresh, the css
+/// diff names it), and a change of its insets alone, which does not
+/// (`cache::reconcile_node`, the paint flag), drops this entry
+/// (`layout_document`, after the dirty marks).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AbsPlacement {
+    /// The containing block's origin and size, as bits.
+    pub containing_block: [u32; 4],
+    /// The pass's viewport (origin, size) and the context's viewport size.
+    pub viewport: [u32; 6],
+    /// Whether the containing block's direction is `rtl`.
+    pub rtl: bool,
+    /// Which of the box's margins are `auto` (top, right, bottom, left).
+    pub margin_auto: [bool; 4],
+    /// The box's slot of the position vector when the solve read it: its
+    /// static position.
+    pub static_bits: (u32, u32),
+    /// The position the pass gave the box.
+    pub final_bits: (u32, u32),
+    /// The used size the pass gave the box.
+    pub solved_bits: (u32, u32),
+}
+
+impl AbsPlacement {
+    /// The bits of a rectangle's origin and size.
+    #[must_use]
+    pub fn rect_bits(rect: LogicalRect) -> [u32; 4] {
+        [
+            rect.origin.x.to_bits(),
+            rect.origin.y.to_bits(),
+            rect.size.width.to_bits(),
+            rect.size.height.to_bits(),
+        ]
+    }
+
+    /// The bits of the pass's viewport and the context's viewport size.
+    #[must_use]
+    pub fn viewport_bits(viewport: LogicalRect, viewport_size: LogicalSize) -> [u32; 6] {
+        let [x, y, w, h] = Self::rect_bits(viewport);
+        [x, y, w, h, viewport_size.width.to_bits(), viewport_size.height.to_bits()]
+    }
+
+    /// Whether a box whose slot holds `slot` is solved from the same inputs:
+    /// the slot is the static position the solve read, or still the position
+    /// it wrote (no pass derived the slot from the flow since).
+    #[must_use]
+    pub fn is_for(
+        &self,
+        containing_block: [u32; 4],
+        viewport: [u32; 6],
+        rtl: bool,
+        margin_auto: [bool; 4],
+        slot: LogicalPosition,
+    ) -> bool {
+        let slot = (slot.x.to_bits(), slot.y.to_bits());
+        self.containing_block == containing_block
+            && self.viewport == viewport
+            && self.rtl == rtl
+            && self.margin_auto == margin_auto
+            && (slot == self.static_bits || slot == self.final_bits)
+    }
+
+    /// The position the pass gave the box.
+    #[must_use]
+    pub fn final_position(&self) -> LogicalPosition {
+        LogicalPosition::new(f32::from_bits(self.final_bits.0), f32::from_bits(self.final_bits.1))
+    }
+
+    /// The used size the pass gave the box.
+    #[must_use]
+    pub fn solved_size(&self) -> LogicalSize {
+        LogicalSize::new(f32::from_bits(self.solved_bits.0), f32::from_bits(self.solved_bits.1))
+    }
 }
 
 impl AbsInterior {
@@ -312,6 +403,7 @@ impl AbsInterior {
             padding: box_props.padding,
             border: box_props.border,
             overflow_height,
+            placement: None,
         }
     }
 

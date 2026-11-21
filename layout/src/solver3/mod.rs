@@ -1340,6 +1340,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .copied(),
         &new_tree.nodes,
     );
+    // A box the reconcile kept although its inline style changed - its
+    // insets alone moved, or what it paints (`cache::reconcile_node`, the
+    // paint flag) - keeps its cache entry, and with it the place the
+    // positioning pass solved for it (`cache::AbsPlacement`), which its
+    // insets are an input of: that place is solved again.
+    for &moved in &recon_result.paint_dirty {
+        if let Some(run) = cache_map
+            .entries
+            .get_mut(moved)
+            .and_then(|entry| entry.abs_interior.as_deref_mut())
+        {
+            run.placement = None;
+        }
+    }
     // ...and EVERY node's size / layout slots when the viewport moved under a
     // document that uses viewport units (the Step 1.2 gate): a slot is keyed
     // by the box's available size, which a `vh` length does not move - a
