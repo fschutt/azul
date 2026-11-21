@@ -14,7 +14,7 @@ use agg_rust::{
     rendering_buffer::RowAccessor,
     rounded_rect::RoundedRect,
     scanline_u::ScanlineU8,
-    span_gradient::{GradientConic, GradientRadialD, GradientRepeatAdaptor, GradientX},
+    span_gradient::{GradientRadialD, GradientRepeatAdaptor, GradientX},
     trans_affine::TransAffine,
 };
 use azul_core::{
@@ -522,8 +522,6 @@ fn render_conic_gradient(
         return;
     }
 
-    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
-
     let w = f64::from(rect.width);
     let h = f64::from(rect.height);
 
@@ -543,8 +541,11 @@ fn render_conic_gradient(
     transform.translate(cx, cy);
     transform.invert();
 
-    // GradientConic maps atan2(y,x) * d / pi, covering [0, d] for the half-circle.
-    // We use d2 = 100 as the range; the LUT maps 0..1 over that.
+    // The stops run over the whole turn (CSS Images 4, 3.3: a stop at an angle `a` is at
+    // `a / 360` of it); gradient space is 100 units a turn and the LUT maps 0..1 over that.
+    // agg's `GradientConic` is `|atan2(y, x)| d / pi`: the ramp over HALF a turn, mirrored on
+    // the other half. `conic-gradient(red, blue)` was red at 12 o'clock, blue at 6 and the
+    // same purple at 3 and at 9 (A1-58, found by A3-solver).
     let d2 = 100.0;
 
     let mut path = if border_radius.is_zero() {
@@ -553,16 +554,67 @@ fn render_conic_gradient(
         build_rounded_rect_path(&rect, border_radius, dpi_factor)
     };
 
+    // `repeating-conic-gradient`: the part of the turn between the first and the last stop
+    // repeats (A1-59; `extend_mode` was not read). The LUT is built over that part.
+    if gradient.extend_mode == azul_css::props::style::background::ExtendMode::Repeat {
+        let resolved: Vec<(f32, ColorU)> = stops
+            .iter()
+            .map(|stop| {
+                (
+                    (stop.angle.to_degrees_raw() / 360.0).clamp(0.0, 1.0),
+                    resolve_color(&stop.color, system_colors),
+                )
+            })
+            .filter(|(t, _)| t.is_finite())
+            .collect();
+        let first = resolved.iter().map(|(t, _)| *t).fold(f32::INFINITY, f32::min);
+        let last = resolved.iter().map(|(t, _)| *t).fold(f32::NEG_INFINITY, f32::max);
+        // A part under a thousandth of the turn cannot repeat: it paints clamped.
+        if (last - first).is_finite() && last - first >= 1.0e-3 {
+            let over_part: Vec<(f32, ColorU)> =
+                resolved.iter().map(|(t, c)| ((t - first) / (last - first), *c)).collect();
+            let lut = build_gradient_lut(&over_part, GRADIENT_LUT_MIN);
+            let turn = ConicTurn { repeat: Some((f64::from(first), f64::from(last - first))) };
+            agg_fill_gradient_clipped(pixmap, &mut path, &lut, turn, transform, 0.0, d2, clip);
+            return;
+        }
+    }
+
+    let lut = build_gradient_lut_radial(&gradient.stops, system_colors);
     agg_fill_gradient_clipped(
         pixmap,
         &mut path,
         &lut,
-        GradientConic,
+        ConicTurn { repeat: None },
         transform,
         0.0,
         d2,
         clip,
     );
+}
+
+/// The angle of a point about the gradient's centre as a part of the whole turn, from the
+/// local +x axis towards +y (after `render_conic_gradient`'s transform: from the gradient's
+/// start angle, clockwise on screen), scaled to the gradient's far end `d`. With `repeat`
+/// `(first, part)`: the angle counted from `first` and wrapped into `part` of a turn, as a
+/// fraction of that part.
+struct ConicTurn {
+    repeat: Option<(f64, f64)>,
+}
+
+impl agg_rust::span_gradient::GradientFunction for ConicTurn {
+    #[allow(clippy::cast_possible_truncation)] // 0 ..= d
+    fn calculate(&self, x: i32, y: i32, d: i32) -> i32 {
+        let mut turn = f64::from(y).atan2(f64::from(x)) / core::f64::consts::TAU;
+        if turn < 0.0 {
+            turn += 1.0;
+        }
+        let t = match self.repeat {
+            Some((first, part)) if part > 0.0 => (turn - first).rem_euclid(part) / part,
+            _ => turn,
+        };
+        (t * f64::from(d) + 0.5) as i32
+    }
 }
 
 // ============================================================================
@@ -591,7 +643,7 @@ fn render_conic_gradient(
 /// unbounded memory.
 const SHADOW_CACHE_MAX_BYTES: usize = 16 * 1024 * 1024;
 
-struct ShadowCacheEntry {
+pub(crate) struct ShadowCacheEntry {
     data: std::sync::Arc<Vec<u8>>,
     w: u32,
     h: u32,
@@ -610,7 +662,7 @@ thread_local! {
 }
 
 /// The blurred box shadows a thread keeps: by key, their order of use, their bytes.
-type ShadowCache = (
+pub(crate) type ShadowCache = (
     HashMap<u64, ShadowCacheEntry>,
     std::collections::VecDeque<u64>,
     usize,
@@ -3074,7 +3126,13 @@ pub(crate) fn walk_range(
         // content paints past its box.
         let scope_extent = frame.map(|f| f.extent).or_else(|| {
             matches!(item, DisplayListItem::PushOpacity { .. })
-                .then(|| frames.get_or_insert_with(|| list.frame_index()).opacity_extent(item_idx))
+                .then(|| {
+                    // With the frames inside the group where their live matrices paint them
+                    // (A1-60): the group's region has to hold what a moved child paints.
+                    frames
+                        .get_or_insert_with(|| list.frame_index())
+                        .opacity_extent_with(&list.items, item_idx, &render_state.transforms)
+                })
                 .flatten()
         });
         render_single_item(
@@ -9065,68 +9123,14 @@ fn render_border_sides(
     let iw = ow - wl - wr;
     let ih = oh - wt - wb;
 
-    // Each side is a trapezoid with 4 vertices:
-    // Top:    (ox, oy) → (ox+ow, oy) → (ix+iw, iy) → (ix, iy)
-    // Right:  (ox+ow, oy) → (ox+ow, oy+oh) → (ix+iw, iy+ih) → (ix+iw, iy)
-    // Bottom: (ox+ow, oy+oh) → (ox, oy+oh) → (ix, iy+ih) → (ix+iw, iy+ih)
-    // Left:   (ox, oy+oh) → (ox, oy) → (ix, iy) → (ix, iy+ih)
+    // A side that is drawn in dashes or dots.
+    let patterned = |side: usize| {
+        widths[side] > 0.0
+            && colors[side].a > 0
+            && matches!(styles[side], BorderStyle::Dashed | BorderStyle::Dotted)
+    };
 
-    let sides: [(f64, f64, f64, f64, f64, f64, f64, f64, ColorU, f32); 4] = [
-        // Top trapezoid
-        (
-            ox,
-            oy,
-            ox + ow,
-            oy,
-            ix + iw,
-            iy,
-            ix,
-            iy,
-            colors[0],
-            widths[0],
-        ),
-        // Right trapezoid
-        (
-            ox + ow,
-            oy,
-            ox + ow,
-            oy + oh,
-            ix + iw,
-            iy + ih,
-            ix + iw,
-            iy,
-            colors[1],
-            widths[1],
-        ),
-        // Bottom trapezoid
-        (
-            ox + ow,
-            oy + oh,
-            ox,
-            oy + oh,
-            ix,
-            iy + ih,
-            ix + iw,
-            iy + ih,
-            colors[2],
-            widths[2],
-        ),
-        // Left trapezoid
-        (
-            ox,
-            oy + oh,
-            ox,
-            oy,
-            ix,
-            iy,
-            ix,
-            iy + ih,
-            colors[3],
-            widths[3],
-        ),
-    ];
-
-    if border_radius.is_zero() {
+    if border_radius.is_zero() && !(0..4).any(patterned) {
         // Fast path: axis-aligned border strips — no rasterizer needed
         let pw = pixmap.width;
         let ph = pixmap.height;
@@ -9220,26 +9224,124 @@ fn render_border_sides(
             );
         }
     } else {
-        // Rounded borders: use trapezoid rasterizer
-        for &(x0, y0, x1, y1, x2, y2, x3, y3, color, width) in &sides {
-            if width <= 0.0 || color.a == 0 {
-                continue;
+        // A radius, or a side in dashes or dots (A1-47): the border's RING - the rounded outer
+        // edge minus the inner edge - filled once, each pixel in the colour of the side it
+        // belongs to (`BorderSideSpans`). The sides used to be four straight trapezoids,
+        // filled solid: under a radius the border had square corners and the arcs between
+        // them were not painted at all, and a dashed or dotted side was a solid one.
+        let mut ring = build_rounded_rect_path(&rect, border_radius, dpi_factor);
+        if let Some(inner) = AzRect::from_xywh(ix as f32, iy as f32, iw as f32, ih as f32) {
+            // The inner edge's corners are elliptical: the outer radius less the width of
+            // the side it meets on each axis (CSS Backgrounds 3, 5.2); `widths` are logical,
+            // as the radii are.
+            let less = |r: f32, w: f32| (r - w.max(0.0)).max(0.0);
+            let [wt_l, wr_l, wb_l, wl_l] = widths;
+            let inner_x = BorderRadius {
+                top_left: less(border_radius.top_left, wl_l),
+                top_right: less(border_radius.top_right, wr_l),
+                bottom_right: less(border_radius.bottom_right, wr_l),
+                bottom_left: less(border_radius.bottom_left, wl_l),
+            };
+            let inner_y = BorderRadius {
+                top_left: less(border_radius.top_left, wt_l),
+                top_right: less(border_radius.top_right, wt_l),
+                bottom_right: less(border_radius.bottom_right, wb_l),
+                bottom_left: less(border_radius.bottom_left, wb_l),
+            };
+            let mut hole = build_rounded_rect_path_xy(&inner, &inner_x, &inner_y, dpi_factor);
+            ring.concat_path(&mut hole, 0);
+        }
+        // The pattern `render_border_xy` strokes: a dash of three widths and a gap of one, a
+        // dot of one width and a gap of one.
+        let pattern = |side: usize, width: f64| {
+            if !patterned(side) {
+                (0.0, 0.0)
+            } else if styles[side] == BorderStyle::Dashed {
+                (3.0 * width, width)
+            } else {
+                (width, width)
             }
+        };
+        let mut spans = BorderSideSpans {
+            outer: (ox, oy, ow, oh),
+            widths: [wt, wr, wb, wl],
+            colors,
+            dashes: [pattern(0, wt), pattern(1, wr), pattern(2, wb), pattern(3, wl)],
+        };
+        super::pixmap::agg_fill_spans_clipped(pixmap, &mut ring, FillingRule::EvenOdd, &mut spans, clip);
+    }
+}
 
-            let mut path = PathStorage::new();
-            path.move_to(x0, y0);
-            path.line_to(x1, y1);
-            path.line_to(x2, y2);
-            path.line_to(x3, y3);
-            path.close_polygon(PATH_FLAGS_NONE);
+/// The colour of each pixel of a border whose sides differ ([`render_border_sides`]): a pixel
+/// belongs to the side it is least deep in, the depth counted in that side's own width. In a
+/// square corner that is the mitre from the outer to the inner corner; in a rounded one the
+/// same line carried on through the arc. A side without a width owns nothing; a side without
+/// a style (its colour made transparent) owns its pixels and leaves them unpainted. Along a
+/// dashed or dotted side the alpha is the part of the pixel that lies in a dash.
+struct BorderSideSpans {
+    /// The border box, device px: x, y, width, height.
+    outer: (f64, f64, f64, f64),
+    /// Device widths: top, right, bottom, left.
+    widths: [f64; 4],
+    colors: [ColorU; 4],
+    /// Dash and gap, device px, per side; `(0, 0)` for a solid one.
+    dashes: [(f64, f64); 4],
+}
 
-            let agg_color = Rgba8::new(
-                u32::from(color.r),
-                u32::from(color.g),
-                u32::from(color.b),
-                u32::from(color.a),
-            );
-            agg_fill_path_clipped(pixmap, &mut path, &agg_color, FillingRule::NonZero, clip);
+/// How much of the pixel `[at - 0.5, at + 0.5]` along a side lies in a dash: dashes of `dash`
+/// px start every `dash + gap` px from 0.
+fn dash_coverage(at: f64, dash: f64, gap: f64) -> f64 {
+    let period = dash + gap;
+    // The length in dashes from 0 to `v`.
+    let filled = |v: f64| {
+        let k = (v / period).floor();
+        k * dash + (v - k * period).min(dash)
+    };
+    (filled(at + 0.5) - filled(at - 0.5)).clamp(0.0, 1.0)
+}
+
+impl agg_rust::renderer_scanline::SpanGenerator for BorderSideSpans {
+    type Color = Rgba8;
+
+    fn prepare(&mut self) {}
+
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::cast_precision_loss)] // an alpha, a span index
+    fn generate(&mut self, span: &mut [Rgba8], x: i32, y: i32, len: u32) {
+        let (ox, oy, ow, oh) = self.outer;
+        let py = f64::from(y) + 0.5;
+        for (i, out) in span.iter_mut().take(len as usize).enumerate() {
+            let px = f64::from(x) + i as f64 + 0.5;
+            // How deep the pixel is in each side: top, right, bottom, left.
+            let depth = [py - oy, ox + ow - px, oy + oh - py, px - ox];
+            let mut owner: Option<(usize, f64)> = None;
+            for side in 0..4 {
+                if self.widths[side] > 0.0 {
+                    let d = depth[side] / self.widths[side];
+                    if owner.is_none_or(|(_, least)| d < least) {
+                        owner = Some((side, d));
+                    }
+                }
+            }
+            *out = match owner {
+                Some((side, _)) if self.colors[side].a > 0 => {
+                    let c = self.colors[side];
+                    let (dash, gap) = self.dashes[side];
+                    let in_dash = if dash > 0.0 && gap > 0.0 {
+                        // Along the side: x for top and bottom, y for left and right.
+                        let along = if side % 2 == 0 { px - ox } else { py - oy };
+                        dash_coverage(along, dash, gap)
+                    } else {
+                        1.0
+                    };
+                    Rgba8::new(
+                        u32::from(c.r),
+                        u32::from(c.g),
+                        u32::from(c.b),
+                        (f64::from(c.a) * in_dash).round() as u32,
+                    )
+                }
+                _ => Rgba8::new(0, 0, 0, 0),
+            };
         }
     }
 }
@@ -20101,5 +20203,237 @@ mod audit_a1_tests {
         }
         let clamped = radial_gradient_picture(Shape::Circle, Size::ClosestSide, false, &[(0.0, 0), (20.0, 255)]);
         assert_eq!(grey(&clamped, 122), 255, "not repeating: white beyond the last stop");
+    }
+
+
+    /// A conic gradient about the centre of a 100 x 100 box from 12 o'clock, painted.
+    fn conic_gradient_picture(repeat: bool, stops_degrees: &[(f32, [u8; 3])]) -> AzulPixmap {
+        use azul_css::props::{
+            basic::angle::AngleValue,
+            style::background::{
+                BackgroundPositionHorizontal, BackgroundPositionVertical, ConicGradient, ExtendMode,
+                NormalizedRadialColorStop, StyleBackgroundPosition,
+            },
+        };
+        let stops: Vec<NormalizedRadialColorStop> = stops_degrees
+            .iter()
+            .map(|(degrees, rgb)| NormalizedRadialColorStop {
+                angle: AngleValue::deg(*degrees),
+                color: ColorOrSystem::Color(ColorU { r: rgb[0], g: rgb[1], b: rgb[2], a: 255 }),
+            })
+            .collect();
+        let gradient = ConicGradient {
+            extend_mode: if repeat { ExtendMode::Repeat } else { ExtendMode::Clamp },
+            center: StyleBackgroundPosition {
+                horizontal: BackgroundPositionHorizontal::Center,
+                vertical: BackgroundPositionVertical::Center,
+            },
+            angle: AngleValue::deg(0.0),
+            stops: stops.into(),
+        };
+        let mut pm = AzulPixmap::new(100, 100).unwrap();
+        pm.fill(0, 255, 0, 255);
+        render_conic_gradient(&mut pm, &rect(0.0, 0.0, 100.0, 100.0), &gradient, &BorderRadius::default(), None, 1.0, None);
+        pm
+    }
+
+    /// A1-58 (found by A3-solver): a conic gradient runs over the whole turn. `conic-gradient(
+    /// red, blue)` on a 100 x 100 box, centre (50, 50): the pixel (90, 50), at 3 o'clock, is a
+    /// quarter of the turn: rgb(191, 0, 64); (50, 90), 6 o'clock, half: rgb(128, 0, 128);
+    /// (10, 50), 9 o'clock, three quarters: rgb(64, 0, 191). Over half a turn and mirrored
+    /// (agg's `GradientConic`) they were rgb(128, 0, 128), rgb(0, 0, 255), rgb(128, 0, 128).
+    /// Mutation: `atan2(..).abs() / PI` in `ConicTurn`.
+    #[test]
+    fn a_conic_gradient_runs_over_the_whole_turn() {
+        let pm = conic_gradient_picture(false, &[(0.0, [255, 0, 0]), (360.0, [0, 0, 255])]);
+        for ((x, y), want) in [((90, 50), [191, 0, 64]), ((50, 90), [128, 0, 128]), ((10, 50), [64, 0, 191])] {
+            let got = px(&pm, x, y);
+            assert!(
+                (0..3).all(|c| got[c].abs_diff(want[c]) <= 3) && got[3] == 255,
+                "({x}, {y}): wanted {want:?}, got {got:?}"
+            );
+        }
+    }
+
+    /// A1-59: a repeating conic gradient repeats the part of the turn between its first and
+    /// its last stop. Black at 0deg, white at 90deg: the pixels at 45, 135, 225 and 315
+    /// degrees ((80, 19), (80, 80), (19, 80), (19, 19): 45.5 .. 46 degrees into their quarter)
+    /// are all half way: grey 128. Clamped, everything past 3 o'clock was white.
+    /// Mutation: `repeat: None` for a repeating gradient.
+    #[test]
+    fn a_repeating_conic_gradient_repeats_its_part_of_the_turn() {
+        let pm = conic_gradient_picture(true, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
+        for (x, y) in [(80, 19), (80, 80), (19, 80), (19, 19)] {
+            let got = px(&pm, x, y);
+            assert!(got[0] == got[1] && got[1] == got[2], "a grey at ({x}, {y}): {got:?}");
+            assert!(got[0].abs_diff(128) <= 8, "half way into its quarter at ({x}, {y}): {got:?}");
+        }
+        let clamped = conic_gradient_picture(false, &[(0.0, [0, 0, 0]), (90.0, [255, 255, 255])]);
+        assert_eq!(px(&clamped, 80, 80), [255, 255, 255, 255], "not repeating: white past the last stop");
+    }
+
+
+    /// A1-60 (found by A3-solver): what is painted inside a reference frame counts, in every
+    /// bound gathered over a group's items, where the frame's matrix puts it - not where it is
+    /// laid out. A column, box (0, 0) 200 x 400, holds a card, box (0, 0) 200 x 80 filled, built
+    /// with `translate(-100, 0)`: the card paints x -100 .. 100, so the column's laid-out
+    /// extent is (-100, 0) 300 x 400 (it was (0, 0) 200 x 400: only `extent_with` knew). The
+    /// same for an opacity group around the card; and with the card's LIVE matrix
+    /// `translate(50, 0)` the group paints (0, 0) 250 x 400.
+    /// Mutation: the `PushReferenceFrame` arm left out of `GroupBounds::step`.
+    #[test]
+    fn a_frame_inside_a_group_counts_where_its_matrix_paints_it() {
+        use azul_core::transform::ComputedTransform3D;
+        let card = frame(
+            2,
+            turn_scale_move(0.0, 1.0, -100.0, 0.0),
+            (200.0, 80.0),
+            vec![fill(0.0, 0.0, 200.0, 80.0, [200, 0, 0])],
+        );
+        let column = list(frame(1, IDENTITY, (200.0, 400.0), card.clone()));
+        let want = rect(-100.0, 0.0, 300.0, 400.0);
+        assert_eq!(column.frame_index().extent_of(0), Some(want));
+        assert_eq!(crate::solver3::display_list::reference_frame_extent_walked(&column.items, 0), Some(want));
+        assert_eq!(column.frame_index().extent_with(&column.items, 0, &HashMap::new()), Some(want));
+
+        let mut items = vec![DisplayListItem::PushOpacity {
+            bounds: wrect(0.0, 0.0, 200.0, 400.0),
+            opacity: 0.5,
+            opacity_key: None,
+            mix_blend_mode: Default::default(),
+        }];
+        items.extend(card);
+        items.push(DisplayListItem::PopOpacity);
+        let faded = list(items);
+        let index = faded.frame_index();
+        assert_eq!(index.opacity_extent(0), Some(want));
+        assert_eq!(index.opacity_extent_with(&faded.items, 0, &HashMap::new()), Some(want));
+        let mut live = HashMap::new();
+        live.insert(2, ComputedTransform3D { m: turn_scale_move(0.0, 1.0, 50.0, 0.0) });
+        assert_eq!(index.opacity_extent_with(&faded.items, 0, &live), Some(rect(0.0, 0.0, 250.0, 400.0)));
+    }
+
+    /// A1-60: a child that a transform moves out of a faded group's box is faded where it is
+    /// painted. A half-opaque group, box (10, 10) 40 x 40, holds a frame of the same box with a
+    /// red fill, moved by 60 px: the fill is painted at x 70 .. 110, half red over white
+    /// (255, 128, 128), and nothing is painted where it is laid out. With the group's region
+    /// taken from where the child is laid out, the moved fill was painted outside it at full
+    /// red. Both for a frame built with the matrix and for one moved by a live value.
+    /// Mutation: `opacity_extent` in place of `opacity_extent_with` in the walk fails the live
+    /// case; the frame arm left out of `GroupBounds::step` fails both.
+    #[test]
+    fn a_child_moved_out_of_a_faded_groups_box_is_faded_where_it_is_painted() {
+        use azul_core::transform::ComputedTransform3D;
+        let group = |built_with: [[f32; 4]; 4]| {
+            list(vec![
+                DisplayListItem::PushOpacity {
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                    opacity: 0.5,
+                    opacity_key: None,
+                    mix_blend_mode: Default::default(),
+                },
+                DisplayListItem::PushReferenceFrame {
+                    transform_key: azul_core::resources::TransformKey { id: 7 },
+                    initial_transform: ComputedTransform3D { m: built_with },
+                    bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                },
+                fill(10.0, 10.0, 40.0, 40.0, [255, 0, 0]),
+                DisplayListItem::PopReferenceFrame,
+                DisplayListItem::PopOpacity,
+            ])
+        };
+        let moved = turn_scale_move(0.0, 1.0, 60.0, 0.0);
+        let (built, _) = full(&group(moved), &CpuRenderState::new(ScrollOffsetMap::new()), (160, 60));
+        let mut state = CpuRenderState::new(ScrollOffsetMap::new());
+        state.transforms.insert(7, ComputedTransform3D { m: moved });
+        let (live, _) = full(&group(IDENTITY), &state, (160, 60));
+        for (what, painted) in [("built with the matrix", &built), ("moved by a live value", &live)] {
+            let [r, g, b, a] = px(painted, 90, 30);
+            assert!(
+                r == 255 && (120..=136).contains(&g) && (120..=136).contains(&b) && a == 255,
+                "{what}: half red over white where the child is painted, got {:?}",
+                [r, g, b, a]
+            );
+            assert_eq!(px(painted, 30, 30), [255, 255, 255, 255], "{what}: nothing where it is laid out");
+        }
+    }
+
+
+    /// A1-47: a border whose sides differ follows its radius, and each pixel is the side's it
+    /// lies least deep in. Box (10, 10) 60 x 40, radius 10, every side 4 px, the top red, the
+    /// others blue. The outer arc of the top-left corner is about (20, 20), radius 10; the
+    /// inner one radius 6.
+    /// - (11, 11) is 12.0 px from the arc's centre: outside the border. The sides were square
+    ///   trapezoids and painted it.
+    /// - (14, 15) and (15, 14) lie whole in the ring (their corners are 6.4 to 7.8 px from the
+    ///   centre), right of the left side's strip (x < 14) and below the top side's (y < 14):
+    ///   no trapezoid held them. (14, 15) is 1.375 widths into the top side and 1.125 into
+    ///   the left one: blue; (15, 14) the other way round: red.
+    /// - (16, 13) is 0.875 widths into the top side, 1.625 into the left: red.
+    /// - (40, 11), on the straight part of the top side: red; (40, 30), inside: not painted.
+    /// Mutation: the outer path built without the radius paints (11, 11); the depth not
+    /// divided by the width, with a top side of 8 px, moves the mitre.
+    #[test]
+    fn a_border_with_different_sides_follows_its_radius() {
+        use azul_css::props::style::border::BorderStyle;
+        let (red, blue) = (ColorU { r: 255, g: 0, b: 0, a: 255 }, ColorU { r: 0, g: 0, b: 255, a: 255 });
+        let white = [255, 255, 255, 255];
+        let mut pm = AzulPixmap::new(90, 70).unwrap();
+        pm.fill(255, 255, 255, 255);
+        let radius = BorderRadius { top_left: 10.0, top_right: 10.0, bottom_left: 10.0, bottom_right: 10.0 };
+        render_border_sides(
+            &mut pm,
+            &rect(10.0, 10.0, 60.0, 40.0),
+            [red, blue, blue, blue],
+            [4.0; 4],
+            [BorderStyle::Solid; 4],
+            &radius,
+            None,
+            1.0,
+        );
+        assert_eq!(px(&pm, 11, 11), white, "outside the rounded corner");
+        assert_eq!(px(&pm, 14, 15), [0, 0, 255, 255], "on the arc, the left side's");
+        assert_eq!(px(&pm, 15, 14), [255, 0, 0, 255], "on the arc, the top side's");
+        assert_eq!(px(&pm, 16, 13), [255, 0, 0, 255], "in the top side's strip, on the arc");
+        assert_eq!(px(&pm, 40, 11), [255, 0, 0, 255], "the top side");
+        assert_eq!(px(&pm, 11, 30), [0, 0, 255, 255], "the left side");
+        assert_eq!(px(&pm, 40, 30), white, "inside the border");
+        assert_eq!(px(&pm, 16, 16), white, "inside the inner arc (5.0 px from its centre, radius 6)");
+    }
+
+    /// A1-47: a dashed or dotted side of a border whose sides differ is drawn in dashes. Box
+    /// (10, 10) 80 x 30 without a radius, every side 4 px, the top dashed red (dashes of 12 px
+    /// and gaps of 4 from the box's left edge: 10 .. 22, 26 .. 38, ...), the others solid blue.
+    /// The pixel (30, 11) is in the second dash: red. (23, 11) is in the first gap (22 .. 26):
+    /// not painted - it was red, the side was drawn solid. A dotted bottom side (4 px on,
+    /// 4 px off): (20, 37) in a dot, (24, 37) in a gap.
+    /// Mutation: the pattern taken as `(0, 0)` for every side paints the gaps.
+    #[test]
+    fn a_dashed_side_of_a_border_with_different_sides_is_dashed() {
+        use azul_css::props::style::border::BorderStyle;
+        let (red, blue) = (ColorU { r: 255, g: 0, b: 0, a: 255 }, ColorU { r: 0, g: 0, b: 255, a: 255 });
+        let white = [255, 255, 255, 255];
+        let mut pm = AzulPixmap::new(100, 50).unwrap();
+        pm.fill(255, 255, 255, 255);
+        render_border_sides(
+            &mut pm,
+            &rect(10.0, 10.0, 80.0, 30.0),
+            [red, blue, red, blue],
+            [4.0; 4],
+            [BorderStyle::Dashed, BorderStyle::Solid, BorderStyle::Dotted, BorderStyle::Solid],
+            &BorderRadius::default(),
+            None,
+            1.0,
+        );
+        assert_eq!(px(&pm, 30, 11), [255, 0, 0, 255], "in a dash of the top side");
+        assert_eq!(px(&pm, 23, 11), white, "in a gap of the top side");
+        assert_eq!(px(&pm, 20, 37), [255, 0, 0, 255], "in a dot of the bottom side (18 .. 22)");
+        assert_eq!(px(&pm, 24, 37), white, "in a gap of the bottom side (22 .. 26)");
+        assert_eq!(px(&pm, 11, 25), [0, 0, 255, 255], "the solid left side");
+        assert_eq!(px(&pm, 88, 25), [0, 0, 255, 255], "the solid right side");
+        assert_eq!(px(&pm, 50, 25), white, "inside the border");
+        // The coverage of a pixel across a dash's end: half in, half out.
+        assert!((dash_coverage(12.0, 12.0, 4.0) - 0.5).abs() < 1e-9);
+        assert!((dash_coverage(5.5, 12.0, 4.0) - 1.0).abs() < 1e-9 && dash_coverage(14.0, 12.0, 4.0).abs() < 1e-9);
     }
 }

@@ -616,9 +616,9 @@ dependencies = [
 
 [[package]]
 name = "agg-rust-azul"
-version = "1.1.4"
+version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac039e3c6c386b293acd28d6260c7c2ed664ca5107b3f93c54d59562cd2b681b"
+checksum = "d43f61015e7f137512a9201c6871207722a022df8941d95bf4139b50a055b739"
 
 [[package]]
 name = "aho-corasick"
@@ -11744,9 +11744,9 @@ dependencies = [
 
 [[package]]
 name = "rust-fontconfig"
-version = "5.0.2"
+version = "5.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ed5799956a5fa7abd968823c4d4876f2eb9301d5c02e2f53d0dc9471c001c782"
+checksum = "84fcc8f6a2d9042dcf7418e7aaa801f9a1215e43490f39478ea31d59fc5d95bd"
 dependencies = [
  "allsorts-azul",
  "bincode 1.3.3",
