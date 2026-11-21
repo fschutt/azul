@@ -526,6 +526,28 @@ fn a_hover_over_one_label_of_many_touches_that_labels_items_alone() {
     assert_eq!(painted_lines(&lw, child), before, "and is painted as before the hover");
 }
 
+/// `lines` with the id of every `TransformKey { id: .. }` blanked: for comparing the lists of
+/// two different windows, whose key ids come from one process-wide counter.
+fn without_transform_key_ids(lines: &[String]) -> Vec<String> {
+    const OPEN: &str = "TransformKey { id: ";
+    lines
+        .iter()
+        .map(|line| {
+            let mut out = String::with_capacity(line.len());
+            let mut rest = line.as_str();
+            while let Some(at) = rest.find(OPEN) {
+                let after = &rest[at + OPEN.len()..];
+                let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+                out.push_str(&rest[..at + OPEN.len()]);
+                out.push('_');
+                rest = &after[digits..];
+            }
+            out.push_str(rest);
+            out
+        })
+        .collect()
+}
+
 /// The list of `dom` as the renderers paint it: a rect bound to a colour key in the key's
 /// value (`GpuValueCache::for_each_bound_color`), left out where that value is see-through
 /// (both renderers paint nothing for it); every other item as it is.
@@ -797,9 +819,14 @@ fn a_pointer_swept_over_labels_it_never_touched_writes_values_and_changes_no_lis
             for enters in [true, false] {
                 drop(hover(&mut built, built_child, label, enters));
                 built.regenerate_display_list_for_dom(built_child);
+                // The verifier's correction of the premise: `lw` and `built` are two windows, and
+                // `TransformKey::unique()` is a process-wide counter (core/src/gpu.rs), so the
+                // reference frames of the turned labels never share key ids across windows (seen:
+                // 13 `PushReferenceFrame` lines, ids 4702.. against 5008..). With the id blanked 0
+                // of the 188 lines differ. Everything else of a line is compared as it was.
                 assert_eq!(
-                    steps[step],
-                    painted_lines(&built, built_child),
+                    without_transform_key_ids(&steps[step]),
+                    without_transform_key_ids(&painted_lines(&built, built_child)),
                     "{labels} labels, label {label}, enters {enters}: what a built list paints"
                 );
                 step += 1;
