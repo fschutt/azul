@@ -150,10 +150,11 @@ pub struct CpuBackend {
     pub last_present_damage: FrameDamage,
     /// The pixels the most recent `render_frame` MOVED inside the frame instead of painting
     /// them (a scroll, a pan of a view), in the order it moved them
-    /// (`cpurender::PresentMove`, device pixels). A presenter that can move the pixels it
-    /// already shows applies these and then presents `last_present_damage_after_moves`; one
+    /// (`cpurender::PresentMove`: `new[p] = old[p - (dx, dy)]` for every device pixel `p` of
+    /// `dst`). A presenter that can move the pixels it already shows applies these and THEN
+    /// presents `last_present_damage_after_moves`, which wins where it overlaps a `dst`; one
     /// that cannot ignores both and presents `last_present_damage`, which covers the moved
-    /// boxes whole. Empty for a full repaint and for a frame that moved nothing.
+    /// clips whole. Empty for a full repaint and for a frame that moved nothing.
     pub last_present_moves: Vec<crate::cpurender::PresentMove>,
     /// What a presenter that applied `last_present_moves` still has to present: the paint
     /// damage (the strips that came into view, what is painted over the moved content, every

@@ -2008,20 +2008,22 @@ pub fn scroll_shift_region(
 }
 
 /// Pixels a frame moved inside its target instead of painting them again (a scroll, a pan of
-/// a view): the box `[x0, x1) x [y0, y1)` in device pixels of the frame, y down, and how far
-/// its content moved. Every pixel `(x, y)` of the box now shows what `(x - dx, y - dy)` showed
-/// in the frame before, wherever that pixel is in the box too; the rest of the box (the strip
-/// that came into view) and whatever is painted over the moved content is in the frame's paint
-/// damage. A presenter that can move the pixels it already shows applies the frame's moves in
-/// order and then presents the paint damage alone (`CpuBackend::last_present_moves`); one that
-/// cannot presents `present_extra`, the whole box.
+/// a view), as a presenter that can move the pixels it already shows needs them (the contract
+/// is A10's, `audit/A10.md`, "The contract of `present_moves`").
+///
+/// Device pixels of the frame, y down. For every pixel `p` of `dst`, `new[p] = old[p - (dx,
+/// dy)]`: `dst` is the moved clip cut to where its source lies in the clip too,
+/// `clip ∩ (clip + (dx, dy))`. The rest of the clip (the strip that came into view) and
+/// whatever is painted over the moved content is in the frame's paint damage, which is
+/// presented AFTER the moves and wins over them. The invariant: the previous frame, with the
+/// frame's moves applied in order (as `memmove`), then the paint damage copied from the new
+/// frame, is the new frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PresentMove {
-    pub x0: i32,
-    pub y0: i32,
-    pub x1: i32,
-    pub y1: i32,
-    /// Device pixels the content moved to the right (negative: to the left).
+    /// The destination: `(x, y, width, height)`.
+    pub dst: (u32, u32, u32, u32),
+    /// Device pixels the content moved to the right (negative: to the left). A scroll delta
+    /// `px_dx` moves the content by `-px_dx`.
     pub dx: i32,
     /// Device pixels the content moved down (negative: up).
     pub dy: i32,
@@ -2132,15 +2134,21 @@ fn scroll_shift_region_impl(
     // 1-D pass; diagonal pan gets a SINGLE-pass 2-D move (each row copied once
     // from its diagonally-offset source) instead of two sequential full passes —
     // half the memory traffic. (no-op is already handled by the early return.)
-    // The movers shift content up / left for a positive delta: the content moved by its negative.
-    *moved = Some(PresentMove {
-        x0: cx0,
-        y0: cy0,
-        x1: cx1,
-        y1: cy1,
-        dx: -px_dx,
-        dy: -px_dy,
-    });
+    // The movers shift content up / left for a positive delta: the content moved by its
+    // negative, (dx, dy) = (-px_dx, -px_dy). The destination is the region cut to where its
+    // source is in the region: [cx0, cx1) moved by dx and cut to [cx0, cx1), the same in y.
+    // (The shift is smaller than the region: checked above. The region is inside the pixmap.)
+    #[allow(clippy::cast_sign_loss)]
+    {
+        let (dx, dy) = (-px_dx, -px_dy);
+        let (x0, x1) = (cx0.max(cx0 + dx), cx1.min(cx1 + dx));
+        let (y0, y1) = (cy0.max(cy0 + dy), cy1.min(cy1 + dy));
+        *moved = Some(PresentMove {
+            dst: (x0 as u32, y0 as u32, (x1 - x0) as u32, (y1 - y0) as u32),
+            dx,
+            dy,
+        });
+    }
     let stride_px = pw;
     let data = pixmap.data_mut();
     match (px_dx != 0, px_dy != 0) {
@@ -11819,13 +11827,15 @@ mod audit_a1_tests {
         (pm.data()[i], pm.data()[i + 1])
     }
 
-    /// A1-09 (f): the move a shift reports is the move it made. A clip (10, 10) 60 x 40 scrolled
-    /// by (12, 0): the content moves 12 px to the left, so pixel (20, 15) shows what (32, 15)
-    /// showed; the move is the box [10, 70) x [10, 50) with dx = -12, dy = 0, and the strip
-    /// that came into view is the 13 columns x 57 .. 70 (12 and the one over-covered). The same
-    /// for the other seven directions: every pixel of the box whose source is in the box too
-    /// holds its source.
-    /// Mutations: `dx: px_dx` (the sign) or a box of the unclamped clip fails every direction.
+    /// A1-09 (f): the move a shift reports is the move it made, as the presenter's contract
+    /// asks: the previous frame with the move applied, then the painted strips copied from the
+    /// new frame, is the new frame. A clip (10, 10) 60 x 40 scrolled by (12, 0): the content
+    /// moves 12 px to the left, so pixel (20, 15) shows what (32, 15) showed; `dst` is the clip
+    /// cut to where its source is in the clip, (10, 10) 48 x 40, with dx = -12, dy = 0, and the
+    /// strip that came into view is the 13 columns x 57 .. 70 (12 and the one over-covered).
+    /// The same for the other seven directions.
+    /// Mutations: `dx: px_dx` (the sign), or `dst` the whole clip (its last 12 columns would
+    /// read from outside the clip) fail every direction.
     #[test]
     fn the_move_a_shift_reports_is_the_move_it_made() {
         let clip = LogicalRect {
@@ -11833,36 +11843,48 @@ mod audit_a1_tests {
             size: LogicalSize { width: 60.0, height: 40.0 },
         };
         for delta in [(12.0_f32, 0.0_f32), (-12.0, 0.0), (0.0, 7.0), (0.0, -7.0), (5.0, 3.0), (-5.0, 3.0), (5.0, -3.0), (-5.0, -3.0)] {
-            let mut pm = numbered();
-            let (strips, moved) = scroll_shift_region_moved(&mut pm, &clip, delta, delta, 1.0);
+            let old = numbered();
+            let mut new = numbered();
+            let (strips, moved) = scroll_shift_region_moved(&mut new, &clip, delta, delta, 1.0);
             let moved = moved.expect("pixels were moved");
+            let (dx, dy) = (-(delta.0 as i32), -(delta.1 as i32));
+            assert_eq!((moved.dx, moved.dy), (dx, dy), "delta {delta:?}");
             assert_eq!(
-                moved,
-                PresentMove { x0: 10, y0: 10, x1: 70, y1: 50, dx: -(delta.0 as i32), dy: -(delta.1 as i32) },
-                "delta {delta:?}"
+                moved.dst,
+                ((10 + dx.max(0)) as u32, (10 + dy.max(0)) as u32, (60 - dx.abs()) as u32, (40 - dy.abs()) as u32),
+                "delta {delta:?}: the clip cut to where its source is in the clip"
             );
             assert!(!strips.is_empty(), "delta {delta:?}: a strip came into view");
-            let mut carried = 0;
-            for y in moved.y0..moved.y1 {
-                for x in moved.x0..moved.x1 {
-                    let (sx, sy) = (x - moved.dx, y - moved.dy);
-                    if sx >= moved.x0 && sx < moved.x1 && sy >= moved.y0 && sy < moved.y1 {
-                        assert_eq!(at(&pm, x, y), (sx as u8, sy as u8), "delta {delta:?}: ({x}, {y}) shows ({sx}, {sy})");
-                        carried += 1;
-                    }
+            // The renderer paints the strips next: stand-in pixels no frame holds.
+            for strip in &strips {
+                new.fill_rect(strip.origin.x as i32, strip.origin.y as i32, strip.size.width as i32, strip.size.height as i32, 200, 200, 200, 255);
+            }
+            // The presenter: the frame before, the move, then the painted strips from the frame.
+            let mut shown = numbered();
+            let (x, y, w, h) = moved.dst;
+            for py in y..y + h {
+                for px in x..x + w {
+                    let from = (((py as i32 - dy) * 100 + (px as i32 - dx)) * 4) as usize;
+                    let to = ((py * 100 + px) * 4) as usize;
+                    let source = [old.data()[from], old.data()[from + 1], old.data()[from + 2], old.data()[from + 3]];
+                    shown.data_mut()[to..to + 4].copy_from_slice(&source);
                 }
             }
-            assert!(carried > 1500, "delta {delta:?}: most of the box was carried ({carried} px)");
-            // Outside the box nothing moved.
-            assert_eq!(at(&pm, 9, 15), (9, 15));
-            assert_eq!(at(&pm, 70, 15), (70, 15));
-            assert_eq!(at(&pm, 20, 9), (20, 9));
-            assert_eq!(at(&pm, 20, 50), (20, 50));
+            for strip in &strips {
+                let (sx, sy) = (strip.origin.x as usize, strip.origin.y as usize);
+                let (sw, sh) = (strip.size.width as usize, strip.size.height as usize);
+                for py in sy..sy + sh {
+                    let row = (py * 100 + sx) * 4..(py * 100 + sx + sw) * 4;
+                    let painted = new.data()[row.clone()].to_vec();
+                    shown.data_mut()[row].copy_from_slice(&painted);
+                }
+            }
+            assert!(shown.data() == new.data(), "delta {delta:?}: the move and the strips give the frame");
         }
         let mut pm = numbered();
         let (strips, moved) = scroll_shift_region_moved(&mut pm, &clip, (12.0, 0.0), (12.0, 0.0), 1.0);
         assert_eq!(at(&pm, 20, 15), (32, 15), "the hand-computed pixel");
-        assert_eq!(moved.map(|m| (m.dx, m.dy)), Some((-12, 0)));
+        assert_eq!(moved, Some(PresentMove { dst: (10, 10, 48, 40), dx: -12, dy: 0 }));
         assert_eq!(strips.len(), 1);
         assert_eq!((strips[0].origin.x, strips[0].size.width), (57.0, 13.0));
         // Nothing moved: no move.
