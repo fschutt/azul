@@ -4611,7 +4611,7 @@ pub struct TranslateBlitResult {
 /// old∪(old+delta) so both the vacated source and the destination lie
 /// inside the memmove region; exposed strips repaint per mover, and so does
 /// whatever is painted over a mover without moving with it, which the
-/// memmove dragged ([`painted_over_mover`]).
+/// memmove dragged ([`PaintedOverMovers`]).
 #[must_use]
 pub fn execute_translate_blit(
     output: &mut AzulPixmap,
@@ -4647,6 +4647,34 @@ pub fn execute_translate_blit(
             eprintln!("[blit]   exception {e:?}");
         }
     }
+    // Read from the list ONCE for every mover (A1-44): each mover used to read the whole
+    // list once per vacated strip for the text runs, and twice more for what is painted over
+    // it, with every destination asked for every item - movers x items x (2 + movers).
+    let text_boxes: Vec<LogicalRect> = if mover_rects.is_empty() {
+        Vec::new()
+    } else {
+        new_display_list
+            .items
+            .iter()
+            .filter(|item| matches!(item, DisplayListItem::Text { .. }))
+            .filter_map(DisplayListItem::bounds)
+            .map(|b| LogicalRect {
+                origin: LogicalPosition {
+                    x: b.origin.x - 1.0,
+                    y: b.origin.y - 1.0,
+                },
+                size: LogicalSize {
+                    width: b.size.width + 2.0,
+                    height: b.size.height + 2.0,
+                },
+            })
+            .collect()
+    };
+    let over_movers = if mover_rects.is_empty() {
+        PaintedOverMovers::default()
+    } else {
+        PaintedOverMovers::of(new_display_list, &destinations)
+    };
     for mr in mover_rects {
         let dest = LogicalRect {
             origin: LogicalPosition {
@@ -4696,27 +4724,13 @@ pub fn execute_translate_blit(
         // strip is damaged WHOLE — cleared and re-rendered exactly like the
         // full-repaint control.
         for strip in &strips {
-            for item in &new_display_list.items {
-                if let DisplayListItem::Text { .. } = item {
-                    if let Some(b) = item.bounds() {
-                        let inflated = LogicalRect {
-                            origin: LogicalPosition {
-                                x: b.origin.x - 1.0,
-                                y: b.origin.y - 1.0,
-                            },
-                            size: LogicalSize {
-                                width: b.size.width + 2.0,
-                                height: b.size.height + 2.0,
-                            },
-                        };
-                        let ix = inflated.origin.x < strip.origin.x + strip.size.width
-                            && strip.origin.x < inflated.origin.x + inflated.size.width
-                            && inflated.origin.y < strip.origin.y + strip.size.height
-                            && strip.origin.y < inflated.origin.y + inflated.size.height;
-                        if ix {
-                            res.damage.push(inflated);
-                        }
-                    }
+            for inflated in &text_boxes {
+                let ix = inflated.origin.x < strip.origin.x + strip.size.width
+                    && strip.origin.x < inflated.origin.x + inflated.size.width
+                    && inflated.origin.y < strip.origin.y + strip.size.height
+                    && strip.origin.y < inflated.origin.y + inflated.size.height;
+                if ix {
+                    res.damage.push(*inflated);
                 }
             }
         }
@@ -4732,7 +4746,7 @@ pub fn execute_translate_blit(
         // `translate_hint_for_patch` - so the list's bounds are where things
         // are painted.)
         if moved {
-            for over in painted_over_mover(new_display_list, &dest, &destinations) {
+            for over in over_movers.over(new_display_list, &dest) {
                 let under = intersect_logical_rects(over, clip);
                 if under.size.width > 0.0 && under.size.height > 0.0 {
                     res.damage.push(under);
@@ -4776,40 +4790,73 @@ fn scrollbar_bounds(it: &DisplayListItem) -> Option<LogicalRect> {
 /// before the mover is below its opaque background (`compute_patch_move_
 /// summary` blits only opaque movers). An item this finds that does not
 /// cross the blit clip costs nothing: the caller intersects.
+///
+/// Read from the list in two steps: [`PaintedOverMovers::of`] once for all movers of a
+/// frame, [`PaintedOverMovers::over`] per mover.
+#[cfg(test)]
 fn painted_over_mover(
     display_list: &DisplayList,
     dest: &LogicalRect,
     destinations: &[LogicalRect],
 ) -> Vec<LogicalRect> {
+    PaintedOverMovers::of(display_list, destinations).over(display_list, dest)
+}
+
+/// Is `r` inside `outer`, to half a pixel?
+fn inside_within_half_a_pixel(outer: &LogicalRect, r: &LogicalRect) -> bool {
     const EPS: f32 = 0.5;
-    let inside = |outer: &LogicalRect, r: &LogicalRect| {
-        r.origin.x >= outer.origin.x - EPS
-            && r.origin.y >= outer.origin.y - EPS
-            && r.origin.x + r.size.width <= outer.origin.x + outer.size.width + EPS
-            && r.origin.y + r.size.height <= outer.origin.y + outer.size.height + EPS
-    };
-    let paints = |it: &DisplayListItem| {
-        !it.is_state_management() && !matches!(it, DisplayListItem::HitTestArea { .. })
-    };
-    let first = display_list
-        .items
-        .iter()
-        .position(|it| paints(it) && it.bounds().is_some_and(|b| inside(dest, &b)));
-    display_list
-        .items
-        .iter()
-        .enumerate()
-        .filter_map(|(i, it)| {
-            if let Some(bar) = scrollbar_bounds(it) {
-                return Some(bar);
-            }
-            if first.is_none_or(|f| i <= f) || !paints(it) {
-                return None;
-            }
-            let b = it.visual_bounds()?;
-            (!destinations.iter().any(|m| inside(m, &b))).then_some(b)
-        })
-        .collect()
+    r.origin.x >= outer.origin.x - EPS
+        && r.origin.y >= outer.origin.y - EPS
+        && r.origin.x + r.size.width <= outer.origin.x + outer.size.width + EPS
+        && r.origin.y + r.size.height <= outer.origin.y + outer.size.height + EPS
+}
+
+/// Does `it` paint (for [`PaintedOverMovers`]: no state item, no hit-test area)?
+fn paints_for_a_mover(it: &DisplayListItem) -> bool {
+    !it.is_state_management() && !matches!(it, DisplayListItem::HitTestArea { .. })
+}
+
+/// What is painted over movers (the rule above `painted_over_mover`), the part that is the
+/// same for every mover of a frame, in list order: every scrollbar (`is_bar`), and every other painting item whose
+/// ink lies inside no destination. One mover then only needs the index of its first item.
+#[derive(Debug, Default)]
+struct PaintedOverMovers {
+    /// (index in the list, bounds, is it a scrollbar).
+    candidates: Vec<(usize, LogicalRect, bool)>,
+}
+
+impl PaintedOverMovers {
+    fn of(display_list: &DisplayList, destinations: &[LogicalRect]) -> Self {
+        let candidates = display_list
+            .items
+            .iter()
+            .enumerate()
+            .filter_map(|(i, it)| {
+                if let Some(bar) = scrollbar_bounds(it) {
+                    return Some((i, bar, true));
+                }
+                if !paints_for_a_mover(it) {
+                    return None;
+                }
+                let b = it.visual_bounds()?;
+                (!destinations.iter().any(|m| inside_within_half_a_pixel(m, &b))).then_some((i, b, false))
+            })
+            .collect();
+        Self { candidates }
+    }
+
+    /// What is painted over the mover now at `dest`: every scrollbar, and the other
+    /// candidates after the mover's first item.
+    fn over(&self, display_list: &DisplayList, dest: &LogicalRect) -> Vec<LogicalRect> {
+        let first = display_list.items.iter().position(|it| {
+            paints_for_a_mover(it) && it.bounds().is_some_and(|b| inside_within_half_a_pixel(dest, &b))
+        });
+        self.candidates
+            .iter()
+            .filter(|(i, _, is_bar)| *is_bar || first.is_some_and(|f| *i > f))
+            .map(|(_, b, _)| *b)
+            .collect()
+    }
 }
 
 /// The reference frames (CSS transforms) open at a display-list item, as the
@@ -12404,5 +12451,36 @@ mod audit_a1_tests {
         };
         assert_eq!(at(30, 10), clear, "the cleared frame, once");
         assert_eq!(at(5, 5), [255, 0, 0, 255], "the fill");
+    }
+
+    /// A1-44: what is painted over movers, read from the list once for all of them, is what
+    /// the per-mover reading found. A list of [mover A's fill, mover B's fill, a ring over
+    /// both, a scrollbar-less tail fill inside B]: destinations A = (0, 0) 100 x 20 and
+    /// B = (0, 30) 100 x 20.
+    /// - Over A: the items after A's first item (index 0) that lie inside no destination -
+    ///   the ring (index 2), not B's fill (inside B), not the tail (inside B).
+    /// - Over B: the items after B's first item (index 1): the ring again.
+    /// - A destination that holds no item (`first` is none): nothing.
+    /// Mutation: `*i >= f` in `over` returns a mover's own first item when it lies inside no
+    /// destination (here it lies inside one, so the mutation that drops the `first` test
+    /// altogether is the one this fails: the empty destination then gets the ring).
+    #[test]
+    fn what_is_painted_over_movers_is_read_once_and_found_per_mover() {
+        let (a, b) = (lr(0.0, 0.0, 100.0, 20.0), lr(0.0, 30.0, 100.0, 20.0));
+        let ring = lr(-2.0, -2.0, 104.0, 54.0);
+        let dl = listed(vec![
+            opaque(0.0, 0.0, 100.0, 20.0, [1, 1, 1]),
+            opaque(0.0, 30.0, 100.0, 20.0, [2, 2, 2]),
+            opaque(ring.origin.x, ring.origin.y, ring.size.width, ring.size.height, [3, 3, 3]),
+            opaque(10.0, 35.0, 20.0, 10.0, [4, 4, 4]),
+        ]);
+        let destinations = [a, b];
+        let once = PaintedOverMovers::of(&dl, &destinations);
+        assert_eq!(once.candidates.len(), 1, "the ring alone lies inside no destination");
+        assert_eq!(once.over(&dl, &a), vec![ring]);
+        assert_eq!(once.over(&dl, &b), vec![ring]);
+        assert_eq!(once.over(&dl, &a), painted_over_mover(&dl, &a, &destinations));
+        let nowhere = lr(500.0, 500.0, 10.0, 10.0);
+        assert!(once.over(&dl, &nowhere).is_empty(), "no item of the list is inside it");
     }
 }
