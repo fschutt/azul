@@ -39,6 +39,17 @@ NOT renamed and keep their signatures: `paint_node_background_and_border_inner`,
 `compute_uniform_text_bg`, `svg_stroke_for`, `get_paint_rect`; fields `canvas_painted`, `bound_colors`,
 `forced_page_breaks`, `open_opacity_groups`; `DisplayListGenerator::new` (same arguments).
 
+## Merge into `audit/integration`
+
+`6a96d4006` (merge of 732611d3d). One conflict, `core/src/gpu.rs`: the integration form (stamped maps) is kept
+whole, this branch's b37653684 is subsumed; its test holds unchanged. Follow-ups on the integration branch only:
+`3f3aa4e84` (`node_patch::locate` knows `EmitPhase::Selection` and refuses an insert for a box with a highlight),
+`b3230563b` + `71f992ebb` (A3-core-10a wired to `LayoutWindow::dom_generation`). A10's picks of the a11y layout
+commits and this branch's are one definition each.
+Still to come when their branches are merged: A3-solver's `getters.rs` / `sizing.rs` / `taffy_bridge.rs` against
+A3-core-12 / -13 / -23 / -25 (the box slots are `PxSlot` now: any new read of `get_*_raw` as `i16`, any new
+`DOM_HAS_*` bit at 29-31, will not compile or will collide), and `ctx.loaded_fonts()` for A3-core-22.
+
 ## Findings
 
 Real sizes used below: Berlin view 12,470 DOM nodes (about 6,200 labels = span + text, 1 text style: 3 rules in the
@@ -166,9 +177,10 @@ measured: the ranking is by steps.
 - test: `audit_tests::a3_core::an_unchanged_dom_is_put_back_into_the_accessibility_tree_unread` (a manager told the
   generations against one that is not, eight passes at k = 50 and 200 labels: same updates; 0 nodes read when
   nothing changed, the window's 4 at both k when the window changed).
-- status: open: one line in `update_a11y_tree_now` (`dom_generations: Some(&generations)`, the map collected from
-  `self.layout_results.keys()` and `self.dom_generation(..)`) once A3-window's d305eaae7 is on the branch; that
-  commit does not cherry-pick onto this branch (it needs its earlier commits). Mechanism and test: 240793513
+- status: fixed b3230563b
+  (mechanism and test 240793513 on this branch; the line that hands the pass the generations is b3230563b on
+  `audit/integration`, where A3-window's `DomGenerations` is in the tree, with the window-level test
+  `a_pass_over_a_dom_of_the_same_generation_reads_none_of_its_nodes`, 71f992ebb)
 - re-architecture not done, design: for a zero-cost replay the third pass, the invariant guard and the removal
   would have to work on per-DOM segments (`order` as one `Vec` per DOM, `seen` per DOM, the guard's `valid` /
   `claimed` sets only for walked DOMs plus the host nodes of replayed ones, whose own-DOM children are their
@@ -193,7 +205,9 @@ measured: the ranking is by steps.
 - class: waste (the closure runs on every call because `init_accessibility` forces the adapter active).
   severity: medium
 - fix: the exact change is under "For area A10" below (switch `AZ_A11Y_EAGER=1` keeps today's path).
-- status: open: the shell files are A10's; the change is written out under "For area A10"
+- status: fixed 6c6e90517
+  (A10's commit on `audit/integration`, as written under "For area A10": `update_tree_on_demand`, no forced
+  activation, `AZ_A11Y_EAGER=1` for the old path; checked against this branch's API in the merge)
 
 ### A3-core-10d a11y: Win32, X11 and Wayland build the update before `update_if_active`
 - file:line: `windows/accessibility.rs:96-129` + drains `windows/mod.rs` 1953, 7662; `linux/x11/accessibility.rs:87-115`
