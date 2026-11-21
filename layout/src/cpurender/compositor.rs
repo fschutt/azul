@@ -62,7 +62,7 @@ pub fn mat3_affine_part(m: &Mat3) -> TransAffine {
 }
 use crate::{
     solver3::display_list::{
-        reference_frame_extent, reference_frame_extent_walked, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
+        reference_frame_extent, BorderRadius, DisplayList, DisplayListItem, LocalScrollId,
     },
     text3::cache::FontManager,
 };
@@ -552,7 +552,7 @@ impl CompositorState {
                 .and_then(|id| layers.get(id))
                 .map_or(display_list.items.len(), |p| p.display_list_range.1);
             painted_over_later(
-                &display_list.items,
+                display_list,
                 end,
                 parent_end,
                 extent.unwrap_or(UNBOUNDED),
@@ -1068,8 +1068,10 @@ impl CompositorState {
         // A layer unreachable from the root cannot exist after
         // `allocate_layers_from_display_list`, but render it rather than
         // drop it if it ever does.
+        // (Reached layers are the root and every key of `parent_of`: asked of the map, not of
+        // the list of all layers once per layer.)
         for id in self.layers.keys() {
-            if !order.contains(id) {
+            if *id != self.root_layer && !parent_of.contains_key(id) {
                 order.push(*id);
             }
         }
@@ -1460,9 +1462,17 @@ impl CompositorState {
             return;
         }
 
-        // For root layer, just blit directly
+        // The root layer IS the frame: copied, not blended over what the frame was cleared to.
+        // Blending read and wrote every pixel through `blend_over` for what one copy does,
+        // and a clear colour that is neither opaque nor fully transparent (a translucent
+        // window) was blended onto itself (A1-40). A root of another size than the output
+        // (never, after `resize`) keeps the blit.
         if layer_id == self.root_layer {
-            blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0);
+            if layer.pixbuf.width == output.width && layer.pixbuf.height == output.height {
+                output.data_mut().copy_from_slice(layer.pixbuf.data());
+            } else {
+                blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0);
+            }
         } else if layer.is_backdrop_filter && !layer.filters.is_empty() {
             // `backdrop-filter`: the backdrop (parent + earlier siblings) is
             // ALREADY composited into `output` at this point (bottom-up
@@ -1558,98 +1568,6 @@ impl CompositorState {
         for child_id in &children {
             self.composite_layer_recursive(*child_id, output, child_base, child_clip, dpi_factor);
         }
-    }
-
-    /// Handle scroll by shifting pixels and re-rendering the exposed strip.
-    #[allow(clippy::cast_possible_truncation)] // bounded pixel/coord/colour/glyph cast
-    #[allow(clippy::similar_names)] // domain-standard coordinate/geometry/short-lived names
-    /// # Panics
-    ///
-    /// Panics if `layer_id` is not present in the layer map.
-    /// # Errors
-    ///
-    /// Returns an error string if the layer cannot be scrolled.
-    pub fn scroll_layer(
-        &mut self,
-        scroll_id: LocalScrollId,
-        new_offset: (f32, f32),
-        display_list: &DisplayList,
-        dpi_factor: f32,
-        renderer_resources: &RendererResources,
-        font_manager: &FontManager<FontRef>,
-        glyph_cache: &mut GlyphCache,
-    ) -> Result<(), String> {
-        // Find the layer with this scroll_id
-        let layer_id = self
-            .layers
-            .iter()
-            .find(|(_, l)| l.scroll_id == Some(scroll_id))
-            .map(|(id, _)| *id);
-
-        let Some(layer_id) = layer_id else {
-            return Ok(()); // No layer for this scroll ID
-        };
-
-        let layer = self.layers.get_mut(&layer_id).unwrap();
-        let old_offset = layer.scroll_offset;
-        let dx = new_offset.0 - old_offset.0;
-        let dy = new_offset.1 - old_offset.1;
-
-        if dx.abs() < 0.5 && dy.abs() < 0.5 {
-            return Ok(());
-        }
-
-        // Shift pixels
-        let px_dx = (dx * dpi_factor).round() as i32;
-        let px_dy = (dy * dpi_factor).round() as i32;
-        shift_pixbuf(&mut layer.pixbuf, px_dx, px_dy);
-
-        // Compute exposed strips and re-render them.
-        // Diagonal scroll produces 2 rects (one vertical strip + one horizontal strip).
-        let exposed = compute_exposed_rects(&layer.bounds, dx, dy);
-        for exposed_rect in exposed {
-            layer.damage.push(exposed_rect);
-        }
-
-        layer.scroll_offset = new_offset;
-        layer.composite_dirty = true;
-
-        // Re-render damaged regions
-        let range = layer.display_list_range;
-        let bounds = layer.bounds;
-        let offset_x = bounds.origin.x;
-        let offset_y = bounds.origin.y;
-        // Child-layer ranges to skip (rendered separately) — same as render_layers.
-        let child_ranges: Vec<(usize, usize)> = self
-            .layers
-            .get(&layer_id)
-            .map(|l| {
-                l.children
-                    .iter()
-                    .filter_map(|cid| self.layers.get(cid).map(|c| c.display_list_range))
-                    .collect()
-            })
-            .unwrap_or_default();
-        // Scroll fast-path: VirtualView content (separate child DOMs) isn't
-        // re-composited here — an empty state suffices (VirtualViews inside a
-        // scrolling region are an edge case; the next full repaint composites them).
-        let empty_rs = CpuRenderState::new(ScrollOffsetMap::new());
-        render_display_list_range(
-            display_list,
-            &mut self.layers.get_mut(&layer_id).unwrap().pixbuf,
-            range.0,
-            range.1.min(display_list.items.len()),
-            &child_ranges,
-            offset_x,
-            offset_y,
-            dpi_factor,
-            renderer_resources,
-            font_manager,
-            glyph_cache,
-            &empty_rs,
-        )?;
-
-        Ok(())
     }
 }
 
@@ -1768,13 +1686,17 @@ fn rects_overlap(a: &LogicalRect, b: &LogicalRect) -> bool {
 /// later as its content moved by its live matrix. Conservative: a false
 /// "yes" costs a layer, never a wrong picture.
 fn painted_over_later(
-    items: &[DisplayListItem],
+    display_list: &DisplayList,
     end: usize,
     parent_end: usize,
     extent: LogicalRect,
     open_groups: &[OpenGroup],
     live_transforms: &HashMap<usize, azul_core::transform::ComputedTransform3D>,
 ) -> bool {
+    let items = &display_list.items;
+    // Where each later frame ends and what it paints: the list's index, not a walk from the
+    // frame's push to its pop for every frame after every candidate group (A1-39).
+    let index = display_list.frame_index();
     let mut extent = extent;
     // The frames around the group the walk has not left yet.
     let mut enclosing = open_groups.len();
@@ -1801,15 +1723,17 @@ fn painted_over_later(
                     later.push(None);
                 } else {
                     // Everything it paints, moved - then past its pop.
-                    let content =
-                        reference_frame_extent_walked(items, i).unwrap_or_else(|| *bounds.inner());
+                    let frame = index.frame_at(i);
+                    let content = frame.map_or_else(|| *bounds.inner(), |f| f.extent);
                     let moved = affine_rect_about(m, bounds.inner().origin, content)
                         .unwrap_or(UNBOUNDED);
                     let seen = later.iter().flatten().next().copied().unwrap_or(moved);
                     if rects_overlap(&seen, &extent) {
                         return true;
                     }
-                    i = find_matching_pop(items, i, MatchKind::ReferenceFrame).saturating_add(1);
+                    i = frame
+                        .map_or_else(|| find_matching_pop(items, i, MatchKind::ReferenceFrame), |f| f.end)
+                        .saturating_add(1);
                     continue;
                 }
             }
@@ -1893,75 +1817,6 @@ fn find_matching_pop(items: &[DisplayListItem], start: usize, kind: MatchKind) -
     items.len()
 }
 
-/// Compute exposed rectangles after a scroll of (dx, dy) in logical coords.
-/// Returns 0, 1, or 2 rects: a vertical strip (top/bottom) and/or a horizontal
-/// strip (left/right). Diagonal scrolling produces both strips.
-fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalRect> {
-    let w = bounds.size.width;
-    let h = bounds.size.height;
-    let mut rects = Vec::new();
-
-    // Vertical exposed strip (full width, covers top or bottom edge)
-    if dy.abs() > 0.5 {
-        let strip = if dy > 0.0 {
-            // Scrolled down — top strip exposed
-            LogicalRect {
-                origin: LogicalPosition {
-                    x: bounds.origin.x,
-                    y: bounds.origin.y,
-                },
-                size: LogicalSize {
-                    width: w,
-                    height: dy.min(h),
-                },
-            }
-        } else {
-            // Scrolled up — bottom strip exposed
-            LogicalRect {
-                origin: LogicalPosition {
-                    x: bounds.origin.x,
-                    y: bounds.origin.y + h + dy,
-                },
-                size: LogicalSize {
-                    width: w,
-                    height: (-dy).min(h),
-                },
-            }
-        };
-        rects.push(strip);
-    }
-
-    // Horizontal exposed strip (full height, covers left or right edge)
-    if dx.abs() > 0.5 {
-        let strip = if dx > 0.0 {
-            LogicalRect {
-                origin: LogicalPosition {
-                    x: bounds.origin.x,
-                    y: bounds.origin.y,
-                },
-                size: LogicalSize {
-                    width: dx.min(w),
-                    height: h,
-                },
-            }
-        } else {
-            LogicalRect {
-                origin: LogicalPosition {
-                    x: bounds.origin.x + w + dx,
-                    y: bounds.origin.y,
-                },
-                size: LogicalSize {
-                    width: (-dx).min(w),
-                    height: h,
-                },
-            }
-        };
-        rects.push(strip);
-    }
-
-    rects
-}
-
 /// Scroll a frame's clip region by *moving the pixels already on screen* and
 /// return the newly-exposed strip(s) (logical coords) that still need painting.
 ///
@@ -1974,8 +1829,9 @@ fn compute_exposed_rects(bounds: &LogicalRect, dx: f32, dy: f32) -> Vec<LogicalR
 /// `render_single_item`/`scroll_rect` draw a content item at `position - offset`,
 /// so a *positive* `delta` (the user scrolled further down/right) moves on-screen
 /// content UP/LEFT. We therefore move the existing pixels UP/LEFT and expose a
-/// strip at the trailing (bottom/right) edge. `compute_exposed_rects` assumed the
-/// inverse and never matched the renderer — it and `scroll_layer` are dead code.
+/// strip at the trailing (bottom/right) edge. (`compute_exposed_rects` and
+/// `CompositorState::scroll_layer`, which assumed the inverse and were called by nothing but
+/// their tests, are removed: A1-41.)
 ///
 /// Only pixels strictly inside the (clamped) clip rectangle are moved, so the
 /// scrollbar, the parent background and sibling content outside the frame are
@@ -4457,11 +4313,27 @@ fn render_display_list_range(
     let mut scroll_offset_stack: Vec<(f32, f32)> = vec![(offset_x, offset_y)];
     let mut text_shadow_stack: Vec<azul_css::props::style::box_shadow::StyleBoxShadow> = Vec::new();
 
-    for i in start..end {
+    // The child ranges in list order (they are disjoint: direct children), with a cursor on
+    // the next one - not every range asked for every item (17,495 x 2,118 tests for a root
+    // with a layer per turned frame, A1-39).
+    let mut skips = skip_ranges.to_vec();
+    skips.sort_unstable();
+    let mut next_skip = 0usize;
+    let mut i = start;
+    while i < end {
         // Skip items rendered by a child layer (see skip_ranges doc above).
-        if skip_ranges.iter().any(|(s, e)| i >= *s && i < *e) {
-            continue;
+        while skips.get(next_skip).is_some_and(|&(_, e)| e <= i) {
+            next_skip += 1;
         }
+        if let Some(&(s, e)) = skips.get(next_skip) {
+            if i >= s && i < e {
+                i = e;
+                continue;
+            }
+        }
+        let index_of_item = i;
+        i += 1;
+        let i = index_of_item;
         let bound_item = item_with_bound_color(&display_list.items[i], display_list.color_binding(i), render_state);
         let item = &*bound_item;
         render_single_item(
@@ -7620,70 +7492,6 @@ mod autotest_generated {
             DisplayListItem::PopScrollFrame,
         ];
         assert_eq!(find_matching_pop(&items, 0, MatchKind::ScrollFrame), 1);
-    }
-
-    // ============================== compute_exposed_rects ===================
-
-    #[test]
-    fn compute_exposed_rects_zero_and_subpixel_delta_expose_nothing() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        assert!(compute_exposed_rects(&b, 0.0, 0.0).is_empty());
-        assert!(
-            compute_exposed_rects(&b, 0.49, -0.49).is_empty(),
-            "|d| <= 0.5 is a no-op"
-        );
-    }
-
-    #[test]
-    fn compute_exposed_rects_nan_delta_exposes_nothing() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        // NaN.abs() > 0.5 is false — no strip, no panic.
-        assert!(compute_exposed_rects(&b, f32::NAN, f32::NAN).is_empty());
-    }
-
-    #[test]
-    fn compute_exposed_rects_clamps_strip_to_bounds() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        let r = compute_exposed_rects(&b, 0.0, 1000.0);
-        assert_eq!(r.len(), 1);
-        assert_eq!(
-            r[0].size.height, 100.0,
-            "strip cannot exceed the frame height"
-        );
-        assert_eq!(r[0].size.width, 200.0);
-    }
-
-    #[test]
-    fn compute_exposed_rects_infinite_delta_saturates_to_bounds() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        let pos = compute_exposed_rects(&b, 0.0, f32::INFINITY);
-        assert_eq!(pos.len(), 1);
-        assert_eq!(
-            pos[0].size.height, 100.0,
-            "+inf must clamp via min(h), not stay inf"
-        );
-        assert!(pos[0].origin.y.is_finite());
-
-        let neg = compute_exposed_rects(&b, 0.0, f32::NEG_INFINITY);
-        assert_eq!(neg.len(), 1);
-        assert_eq!(neg[0].size.height, 100.0);
-        assert!(!neg[0].size.height.is_nan());
-    }
-
-    #[test]
-    fn compute_exposed_rects_diagonal_yields_two_strips() {
-        let b = lr(0.0, 0.0, 200.0, 100.0);
-        let r = compute_exposed_rects(&b, -10.0, 10.0);
-        assert_eq!(
-            r.len(),
-            2,
-            "diagonal scroll = vertical strip + horizontal strip"
-        );
-        assert!(r.iter().any(|s| s.size.width == 200.0), "full-width strip");
-        assert!(
-            r.iter().any(|s| s.size.height == 100.0),
-            "full-height strip"
-        );
     }
 
     // ============================== scroll_shift_region =====================
@@ -11655,88 +11463,6 @@ mod autotest_generated {
         );
     }
 
-    // ============================== scroll_layer =============================
-
-    #[test]
-    fn scroll_layer_with_an_unknown_id_is_ok() {
-        let mut c = CompositorState::new(32, 32);
-        let list = dlist(vec![]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        let (rr, mut gc, _st) = render_deps();
-        assert!(
-            c.scroll_layer(
-                4242,
-                (0.0, 10.0),
-                &list,
-                1.0,
-                &rr,
-                &test_font_manager(),
-                &mut gc
-            )
-            .is_ok(),
-            "scrolling a frame that has no layer is a no-op, not a panic"
-        );
-    }
-
-    #[test]
-    fn scroll_layer_ignores_subpixel_deltas() {
-        // Taller than the frame: a frame covering the WHOLE root is the
-        // page's own and is painted in place, without a layer.
-        let mut c = CompositorState::new(32, 40);
-        let list = dlist(vec![
-            push_scroll(1, 0.0, 0.0, 32.0, 32.0),
-            opaque_rect(0.0, 0.0, 32.0, 200.0),
-            DisplayListItem::PopScrollFrame,
-        ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        let (rr, mut gc, _st) = render_deps();
-        c.scroll_layer(
-            1,
-            (0.0, 0.4),
-            &list,
-            1.0,
-            &rr,
-            &test_font_manager(),
-            &mut gc,
-        )
-        .unwrap();
-        let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
-        assert_eq!(
-            l.scroll_offset,
-            (0.0, 0.0),
-            "|dy| < 0.5 must not move anything"
-        );
-        assert!(l.damage.is_empty());
-    }
-
-    #[test]
-    fn scroll_layer_updates_offset_and_records_the_exposed_strip() {
-        // Taller than the frame: a frame covering the WHOLE root is the
-        // page's own and is painted in place, without a layer.
-        let mut c = CompositorState::new(32, 40);
-        let list = dlist(vec![
-            push_scroll(1, 0.0, 0.0, 32.0, 32.0),
-            opaque_rect(0.0, 0.0, 32.0, 200.0),
-            DisplayListItem::PopScrollFrame,
-        ]);
-        c.allocate_layers_from_display_list(&list, 1.0, &HashMap::new(), &HashMap::new());
-        let (rr, mut gc, _st) = render_deps();
-        c.scroll_layer(
-            1,
-            (0.0, 10.0),
-            &list,
-            1.0,
-            &rr,
-            &test_font_manager(),
-            &mut gc,
-        )
-        .unwrap();
-        let l = c.layers.values().find(|l| l.scroll_id == Some(1)).unwrap();
-        assert_eq!(l.scroll_offset, (0.0, 10.0));
-        assert_eq!(l.damage.len(), 1, "a single-axis scroll exposes one strip");
-        assert!(l.composite_dirty);
-    }
-
     // ============================== render_display_list_range ================
 
     #[test]
@@ -12612,5 +12338,71 @@ mod audit_a1_tests {
         assert_eq!(backdrop.children.len(), 1, "the filter group inside it is its child");
         let child = comp.layers.get(&backdrop.children[0]).expect("the child layer");
         assert_eq!(child.display_list_range, (5, 6), "the filter group's own range");
+    }
+
+    /// A1-39: a layer's walk steps over the ranges of its child layers, however many, and
+    /// paints every other item. Six 10 x 10 fills side by side (item `k` at x = 10 k, red
+    /// 40 k); the ranges (1, 2) and (4, 6) belong to child layers: the items 0, 2 and 3 are
+    /// painted, 1, 4 and 5 are not (the pixmap keeps its white there).
+    /// Mutation: the cursor not advanced past a range that ended (`e <= i` as `e < i`) is
+    /// harmless here; `i = e + 1` after a range drops item 2; the ranges unsorted and the
+    /// cursor on the second one first paints item 1.
+    #[test]
+    fn a_layers_walk_steps_over_its_child_layers_ranges() {
+        let dl = listed((0..6u8).map(|k| opaque(10.0 * f32::from(k), 0.0, 10.0, 10.0, [40 * k, 0, 0])).collect());
+        let fm = FontManager::new(rust_fontconfig::FcFontCache::default()).expect("a font manager");
+        let mut gc = GlyphCache::new();
+        let mut pm = AzulPixmap::new(60, 10).expect("a pixmap");
+        pm.fill(255, 255, 255, 255);
+        render_display_list_range(
+            &dl,
+            &mut pm,
+            0,
+            6,
+            &[(4, 6), (1, 2)],
+            0.0,
+            0.0,
+            1.0,
+            &RendererResources::default(),
+            &fm,
+            &mut gc,
+            &CpuRenderState::new(ScrollOffsetMap::new()),
+        )
+        .unwrap();
+        let red_at = |k: u32| pm.data()[((5 * 60 + 10 * k + 5) * 4) as usize];
+        let green_at = |k: u32| pm.data()[((5 * 60 + 10 * k + 5) * 4 + 1) as usize];
+        for k in [0u32, 2, 3] {
+            assert_eq!((red_at(k), green_at(k)), ((40 * k) as u8, 0), "item {k} is this layer's and is painted");
+        }
+        for k in [1u32, 4, 5] {
+            assert_eq!((red_at(k), green_at(k)), (255, 255), "item {k} is a child layer's and is stepped over");
+        }
+    }
+
+    /// A1-40: the root layer is the frame - copied, not blended over what the frame was
+    /// cleared to. A translucent window: clear colour (0, 0, 255, 128), a red 10 x 10 fill at
+    /// (0, 0). Outside the fill the frame holds the clear colour exactly; blended onto the
+    /// frame the backend cleared to the same colour, its alpha came out 128 + 128 * 127 / 255
+    /// = 191.
+    /// Mutation: `blit_pixmap(&layer.pixbuf, output, 0, 0, 1.0)` for the root gives 191.
+    #[test]
+    fn the_root_layer_is_copied_into_the_frame() {
+        let dl = listed(vec![opaque(0.0, 0.0, 10.0, 10.0, [255, 0, 0])]);
+        let clear = [0u8, 0, 255, 128];
+        let mut comp = CompositorState::new(40, 20);
+        comp.set_clear_color(clear);
+        comp.allocate_layers_from_display_list(&dl, 1.0, &HashMap::new(), &HashMap::new());
+        let fm = FontManager::new(rust_fontconfig::FcFontCache::default()).expect("a font manager");
+        let mut gc = GlyphCache::new();
+        comp.render_layers(&dl, 1.0, &RendererResources::default(), &fm, &mut gc, &CpuRenderState::new(ScrollOffsetMap::new())).unwrap();
+        let mut out = AzulPixmap::new(40, 20).expect("a pixmap");
+        out.fill(clear[0], clear[1], clear[2], clear[3]);
+        comp.composite_frame(&mut out, 1.0);
+        let at = |x: u32, y: u32| {
+            let i = ((y * 40 + x) * 4) as usize;
+            [out.data()[i], out.data()[i + 1], out.data()[i + 2], out.data()[i + 3]]
+        };
+        assert_eq!(at(30, 10), clear, "the cleared frame, once");
+        assert_eq!(at(5, 5), [255, 0, 0, 255], "the fill");
     }
 }
