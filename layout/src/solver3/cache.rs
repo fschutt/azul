@@ -2278,6 +2278,14 @@ fn reconcile_table_children(
     Ok(())
 }
 
+/// How many children of old parents [`try_reuse_anon_wrapper`] looked at on this
+/// thread to list their anonymous inline wrappers: each parent's children once,
+/// not once per inline run (the size sweep of `audit_tests::a3_solver` reads it).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static OLD_WRAPPER_CANDIDATES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Ordinal-match a freshly created anonymous inline wrapper to the old
 /// parent's Nth anon wrapper and, when the run's children are IDENTICAL
 /// (same dom ids, same order), carry the warm caches forward.
@@ -2351,6 +2359,9 @@ fn try_reuse_anon_wrapper(
     style_dom_id: NodeId,
     subtree: InheritedChange,
     text_styles: &mut TextStyleReader<'_>,
+    // The old parent's anonymous inline wrappers in child order, listed by
+    // the first run that asks and kept for the parent's later runs.
+    old_wrappers: &mut Option<Vec<usize>>,
 ) -> bool {
     let (Some(t), Some(op)) = (old_tree, old_parent_idx) else {
         return false;
@@ -2360,16 +2371,24 @@ fn try_reuse_anon_wrapper(
         return false;
     }
     // Children live on the TREE (hot/warm/cold split), not the node struct.
-    let Some(old_anon) = t
-        .children(op)
-        .iter()
-        .copied()
-        .filter(|&c| {
-            t.cold(LayoutNodeId::new(c))
-                .is_some_and(|cold| cold.anonymous_type == Some(AnonymousBoxType::InlineWrapper))
-        })
-        .nth(anon_ordinal)
-    else {
+    // The wrappers are listed once per parent: counted off again from the
+    // parent's first child for every run (`.filter(..).nth(anon_ordinal)`), a
+    // block of r inline runs between its blocks looked at r * children / 2
+    // children.
+    let wrappers = old_wrappers.get_or_insert_with(|| {
+        t.children(op)
+            .iter()
+            .copied()
+            .filter(|&c| {
+                #[cfg(test)]
+                OLD_WRAPPER_CANDIDATES.with(|n| n.set(n.get() + 1));
+                t.cold(LayoutNodeId::new(c)).is_some_and(|cold| {
+                    cold.anonymous_type == Some(AnonymousBoxType::InlineWrapper)
+                })
+            })
+            .collect()
+    });
+    let Some(old_anon) = wrappers.get(anon_ordinal).copied() else {
         return false;
     };
     let old_anon_children = t.children(old_anon);
@@ -2605,6 +2624,9 @@ pub fn reconcile_recursive(
                                                                // identity try_reuse_anon_wrapper
                                                                // matches against the old tree.
         let mut anon_ordinal: usize = 0;
+        // The old parent's anonymous inline wrappers, listed by the first
+        // run that asks for one (`try_reuse_anon_wrapper`).
+        let mut old_wrappers: Option<Vec<usize>> = None;
 
         for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
             if block_level[i] {
@@ -2647,6 +2669,7 @@ pub fn reconcile_recursive(
                             new_dom_id,
                             subtree,
                             text_styles,
+                            &mut old_wrappers,
                         );
                         anon_ordinal += 1;
 
@@ -2815,6 +2838,7 @@ pub fn reconcile_recursive(
                     new_dom_id,
                     subtree,
                     text_styles,
+                    &mut old_wrappers,
                 );
                 anon_ordinal += 1;
 

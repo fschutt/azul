@@ -117,3 +117,45 @@ fn absolute_blocks_of_a_block_stand_at_their_insets() {
         );
     }
 }
+
+/// `body > div > r x [span > text, div]`: a block whose inline content is cut into `r` runs
+/// by `r` blocks. Each run is wrapped in an anonymous block (CSS 2.2 s9.2.1.1), so the layer's
+/// box has `2 r` children: `r` anonymous inline wrappers and `r` blocks.
+fn block_of_inline_runs(r: usize) -> Dom {
+    let mut layer = Dom::create_div().with_css("width: 600px;");
+    for i in 0..r {
+        layer = layer
+            .with_child(Dom::create_span_with_text(format!("run {i}")))
+            .with_child(Dom::create_div().with_css("height: 2px;"));
+    }
+    Dom::create_body().with_css("margin: 0px;").with_child(layer)
+}
+
+/// A3-solver-02. When a page is laid out again, `cache::try_reuse_anon_wrapper` matches the
+/// i-th anonymous wrapper of a block with the i-th of the block's old box, which it found by
+/// counting the old box's children off from the first for every run
+/// (`.filter(is_wrapper).nth(i)`): r runs x r children. The old box's wrappers are listed once.
+///
+/// Mutation: listing them for every run (`*old_wrappers = None` before the listing, or the old
+/// `.filter(..).nth(anon_ordinal)`) looks at 16x the children here.
+#[test]
+fn a_block_of_many_inline_runs_lists_the_wrappers_of_its_old_box_once() {
+    use crate::solver3::cache::OLD_WRAPPER_CANDIDATES;
+    let looked_at = |r: usize| {
+        let mut lw = window();
+        lay_out(&mut lw, block_of_inline_runs(r));
+        OLD_WRAPPER_CANDIDATES.with(|n| n.set(0));
+        // The same page again: every run finds the wrapper it had.
+        lay_out(&mut lw, block_of_inline_runs(r));
+        OLD_WRAPPER_CANDIDATES.with(std::cell::Cell::get)
+    };
+    let (small, large) = (looked_at(100), looked_at(400));
+    assert!(
+        small >= 100,
+        "harness: the second layout looked for the wrappers of the old box ({small})"
+    );
+    assert!(
+        large < small * 6,
+        "four times the runs looked at {large} old children for {small}: more than linear"
+    );
+}
