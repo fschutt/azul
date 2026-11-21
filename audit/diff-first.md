@@ -732,7 +732,48 @@ compact entries and all ~200 properties per node in three states equal a DOM sty
   walk and the tag lookups, est. 0.1-0.2 ms per 1,000). A settle that kept every label would go from 12-25 ms
   to 3-5 ms of list emission.
 - severity: high for the editor's settle (after styling and layout it is the largest part left)
-- status: open: part 1 has a design and no code (the coordinator decides after the checkpoint); part 2 waits for diff-first-06b and diff-first-07
+- part 1, the exact plan (decided by the coordinator for the second round; NOT started: this agent's context
+  ran out at the clean commit `8e9ead705`):
+  1. `layout/src/solver3/cache.rs`: a one-shot latch on `LayoutCache` beside `dom_diff_clean`, e.g.
+     `diff_names_every_restyle: bool` ("the pass's css dirt and its `dom_diff_clean` flags together name every
+     node whose cascade answers anything else than before"). `LayoutCache` has exhaustive literals: three in
+     `layout/src/window.rs`, one in `layout/src/cpurender/raster.rs`.
+  2. `layout/src/window.rs`: set it where the step `view` hands the child's cache its flags (the callers of
+     `reconcile_rematerialized_child` / `restyle_kept_child` in `invoke_virtual_view_callback_impl`, where
+     `dom_diff_clean` of `child_layout_caches[child]` is written), only when the new step is on, the flags are
+     handed (`!written_since_its_pass`) and the css diff was made by `css_diff_between_knowing` over every node
+     that did not keep its rows (both kept exits and the pairing path do that).
+  3. `layout/src/solver3/mod.rs`, `layout_document`: before `dom_diff_clean` is taken for the reconcile, when
+     the latch is set, keep the DOM nodes with `clean == false`. At the patch gate: `structure_ok` also holds
+     for `last_reconcile_structure_preserved && latch && context_unchanged` (the epoch is NOT asked: the latch
+     says what it stood for); `css_dirty_reemit` is `css_dirty_reemit_set(&new_tree, css_dirty, false)` in
+     that case too; and the boxes of the unclean nodes (`new_tree.dom_to_layout`) join `reemit`, and
+     `reemit_full` for the move summary. Everything else of the gate stays (fresh, retargeted, paint-dirty,
+     size-changed and reflowed boxes re-emit already; a moved box is painted anew by diff-first-15: a re-render
+     is no tween frame).
+  4. the switch: `DiffFirstStep::List` (`ALL: [Self; 6]`, bit 32, name `list`; the test
+     `the_steps_of_the_switch_are_named_one_by_one` lists the names), asked in 2; with it off the latch is never
+     set and a view's re-render emits in full (`AZ_DIFF_FIRST=text,nodes,style,tree,view` = today).
+  5. counters: `display_list::cached_runs_copied_on_this_thread()` exists; a twin for paint calls a patched
+     build made itself (count in `paint_node_background_and_border` / `paint_node_content` after a `false` from
+     `try_copy_cached_run` while a patch is armed), so a test can say "5 % painted, the rest copied".
+  6. tests (dll, with the `dfv_*` helpers of the step `view`): (a) a view rendered again unchanged: no pass at
+     all today (identical fingerprints) - so the test is "one label's class changed": that label's runs
+     painted, every other run copied, the list bit for bit the full emission's (`verify_patched_display_list`
+     on the child, or the walk `a_view_rendered_again_leaves_what_the_full_path_leaves` with the step on);
+     (b) 5 % of the labels exchanged: needs part 2 (the tree changed); with part 1 alone it is "5 % of the
+     labels restyled where they stand"; (c) every label moved: every label painted (each is `paint_dirty` and
+     moved), the count says so; (d) the mutant: the unclean boxes not added to `reemit`: the restyled label
+     keeps its old colour in the list and the walk names its item.
+  7. to read first and answer under "## For area A7-editor (m4p)" (not read by this agent): the editor's
+     `render_map_view` in the m4p integration worktree, `mapedit3/src/ui/main/map.rs`: do the labels' own
+     `left` / `top` change on every settle (then part 1 gains nothing for a pan settle: every label is moved
+     and painted), or does the view's content offset move while the labels keep their insets (then every
+     label that stays is copied)? What the editor must do for the gain: build label positions in a coordinate
+     frame that does not move with the pan (world or tile-anchored coordinates as `left` / `top`), and express
+     the pan as the view's offset / one transform on the labels' parent, so that a settle changes the insets
+     of no label that stays.
+- status: open: part 1 has the plan above and no code; part 2 waits for diff-first-06b and diff-first-07
 
 ### diff-first-17 the first half's core tests took `Dom::with_css` for a node's own style (seven red tests)
 - file:line: `core/src/diff_test.rs` `audit_diff_first_tests` (`page`, the nested tree); `core/src/styled_dom_test.rs`
@@ -1050,7 +1091,7 @@ ARENA after the flatten, never `nodes_at`.
 | diff-first-14 (the gate `animation`, per reached node) | 6e4391abc | dll `an_animated_node_elsewhere_does_not_send_a_rebuild_down_the_full_path`, `an_identical_rebuild_and_a_changed_text_style_no_node` |
 | diff-first-15 (a moved box is painted anew by a patched pass; `AZ_DL_TRANSLATE_MOVED_RUNS`) | 8447aa202 | layout `audit_tests::diff_first::*` (three), `audit_tests::a3_window::a_box_that_moved_in_a_pass_is_painted_as_a_fresh_layout_paints_it`; dll the five walks `a_rebuild_down_the_diff_first_path_leaves_what_the_full_path_leaves`, `a_rebuild_that_changed_the_tree_*`, `a_view_rendered_again_leaves_what_the_full_path_leaves` |
 | diff-first-15, second part (the frames of a layout tween translate and record; the last frame and every other pass paint) | bf43a5e96 | layout `audit_tests::diff_first::*` (seven); `cargo test -p azul-layout --test all a_growing_ribbon` and `a_height_tween` (the two guards, not edited); layout `a_layout_tween_frame_reuses_the_tree_and_patches_the_list` |
-| diff-first-19 (a state that hands a value down no longer costs the DOM its inherited UA values) | `git log --grep diff-first-19` | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, the whole core suite (hover / focus restyles); dll the three `*_under_the_pointer_*` walks, `a_full_rebuild_keeps_the_hover_colour_the_hovered_row_hands_its_text` |
+| diff-first-19 (a state that hands a value down no longer costs the DOM its inherited UA values) | 8e9ead705 | core `audit_diff_first_tests::a_state_that_hands_a_colour_down_costs_no_other_node_what_it_inherits`, the whole core suite (hover / focus restyles); dll the three `*_under_the_pointer_*` walks, `a_full_rebuild_keeps_the_hover_colour_the_hovered_row_hands_its_text` |
 | diff-first-17 (the core fixtures: a node's own style, not `Dom::with_css`) | 8420ec290 (`diff_test.rs`), 8e7a62d2c (`styled_dom_test.rs`) | core `diff::diff_test::audit_diff_first_tests` (all), `styled_dom::...::audit_diff_first_tests::the_cascade_over_changed_nodes_*` (three walks) and the rest of that module |
 
 **The verifier's first run of the dll suite (integration `57a46db75`, first half): the seven of this area.**
@@ -1086,9 +1127,13 @@ of `height` seeding a tween, as the tests of `layout/tests` do).
 the slider and the plain walks green, the tests of the steps `tree` and `view` green. Red: the ribbon guard (as
 expected on `8447aa202`: fixed by bf43a5e96) and the three walks under the pointer (diff-first-19).
 
-**In flight:** diff-first-18 part 1 (the list of a view that renders again copies the runs of nodes the step
-`view` did not cascade; a step name `list` in `AZ_DIFF_FIRST`), by the coordinator's decision, for the verifier's
-second round. Not started in code. The checkpoint takes the tip that holds bf43a5e96 and diff-first-19.
+**In flight:** nothing. The working tree is clean at the commit that adds this line; the checkpoint takes
+`8e9ead705` (it holds bf43a5e96 and diff-first-19) or this notes-only commit after it.
+
+**Stopped here (this agent's context ran short): diff-first-18 part 1** (the list of a view that renders again
+copies the runs of the nodes the step `view` did not cascade; a step name `list`), decided by the coordinator for
+the verifier's second round. No code exists. The plan, file by file, with the tests and the question about the
+editor's `render_map_view` that is still to be read, is in the block of diff-first-18 ("part 1, the exact plan").
 
 **Left, in the order of the coordinator's priorities, each with its design in the block named:**
 1. (done: eba4d13e4) Views, the kept exits.
