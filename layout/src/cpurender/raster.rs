@@ -5912,7 +5912,7 @@ fn draw_kept_text_shadow(
                     clip_rect: shadow.shadow_clip_rect,
                     clip: source,
                 };
-                blurred_glyphs(
+                blurred_glyph_coverage(
                     &[run],
                     ColorU::WHITE,
                     buffer,
@@ -5924,12 +5924,12 @@ fn draw_kept_text_shadow(
                     glyph_cache,
                     scroll_offset,
                 )
-                .map(|tmp| {
+                .map(|coverage| {
                     std::sync::Arc::new(CpuHalo {
                         width: buffer.width,
                         height: buffer.height,
                         offset: (x0 - anchor.0, y0 - anchor.1),
-                        coverage: tmp.data().chunks_exact(4).map(|p| p[3]).collect(),
+                        coverage,
                     })
                 })
             };
@@ -6420,8 +6420,83 @@ pub(super) fn blurred_glyphs(
     glyph_cache: &mut GlyphCache,
     scroll_offset: (f32, f32),
 ) -> Option<AzulPixmap> {
-    let mut tmp = AzulPixmap::new(buffer.width, buffer.height)?;
-    tmp.fill(0, 0, 0, 0);
+    let mut tmp = buffered_glyphs(
+        runs,
+        color,
+        buffer,
+        renderer_resources,
+        font_manager,
+        dpi_factor,
+        glyph_cache,
+        scroll_offset,
+    )?;
+    dilate_disk(&mut tmp, spread);
+    blur_buffer(&mut tmp, radius);
+    Some(tmp)
+}
+
+/// The coverage of [`blurred_glyphs`] - the alpha of its pixels, row by row -
+/// with the glyphs grown and blurred on their alpha alone: what a kept halo
+/// keeps ([`draw_kept_text_shadow`]). The same bytes as the alpha of
+/// `blurred_glyphs`: the dilation and the stack blur treat each channel on its
+/// own, so the alpha they make depends on the alpha alone; growing the colour
+/// as well, a halo's three quarters of the dilation, was thrown away.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn blurred_glyph_coverage(
+    runs: &[BufferedRun<'_>],
+    color: ColorU,
+    buffer: PixelBox,
+    radius: u32,
+    spread: f32,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+) -> Option<Vec<u8>> {
+    let mut tmp = buffered_glyphs(
+        runs,
+        color,
+        buffer,
+        renderer_resources,
+        font_manager,
+        dpi_factor,
+        glyph_cache,
+        scroll_offset,
+    )?;
+    let (w, h) = (tmp.width as usize, tmp.height as usize);
+    dilate_disk_channels(tmp.data_mut(), w, h, spread, 3);
+    blur_buffer(&mut tmp, radius);
+    Some(tmp.data().chunks_exact(4).map(|p| p[3]).collect())
+}
+
+/// The stack blur of a text shadow's buffer by `radius` pixels (none for 0).
+#[allow(clippy::cast_possible_wrap)] // a bounded stride
+fn blur_buffer(tmp: &mut AzulPixmap, radius: u32) {
+    if radius > 0 {
+        let (w, h) = (tmp.width, tmp.height);
+        let stride = (w * 4) as i32;
+        let mut ra = unsafe { RowAccessor::new_with_buf(tmp.data.as_mut_ptr(), w, h, stride) };
+        stack_blur_rgba32(&mut ra, radius, radius);
+    }
+}
+
+/// `runs` drawn in `color` into a transparent `buffer` (device px of the
+/// target, where it will land): the glyphs of a text shadow before they are
+/// grown and blurred. Grayscale coverage: the buffer is transparent.
+#[allow(clippy::cast_possible_wrap, clippy::cast_precision_loss, clippy::too_many_arguments)]
+fn buffered_glyphs(
+    runs: &[BufferedRun<'_>],
+    color: ColorU,
+    buffer: PixelBox,
+    renderer_resources: &RendererResources,
+    font_manager: &FontManager<FontRef>,
+    dpi_factor: f32,
+    glyph_cache: &mut GlyphCache,
+    scroll_offset: (f32, f32),
+) -> Option<AzulPixmap> {
+    // Zeroed by the allocator: the bytes `new` + `fill(0, 0, 0, 0)` wrote.
+    let mut tmp = AzulPixmap::new_transparent(buffer.width, buffer.height)?;
     // The buffer starts at (buffer.x, buffer.y) of the target: the glyphs and
     // their clips move by that much to land in it.
     let (dx, dy) = (buffer.x as f32 / dpi_factor, buffer.y as f32 / dpi_factor);
@@ -6458,14 +6533,76 @@ pub(super) fn blurred_glyphs(
             true,
         );
     }
-    dilate_disk(&mut tmp, spread);
-    if radius > 0 {
-        let (w, h) = (tmp.width, tmp.height);
-        let stride = (w * 4) as i32;
-        let mut ra = unsafe { RowAccessor::new_with_buf(tmp.data.as_mut_ptr(), w, h, stride) };
-        stack_blur_rgba32(&mut ra, radius, radius);
-    }
     Some(tmp)
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`): the kept halo's coverage.
+#[cfg(all(test, feature = "std"))]
+mod audit_a8_halo_tests {
+    use super::{
+        lcd_pretile_tests::{load_test_font_pub, rr_with_pub, shape_pub},
+        *,
+    };
+
+    /// A8-04: the coverage a kept halo keeps is, byte for byte, the alpha of
+    /// the halo `blurred_glyphs` draws (in all four channels), for the
+    /// editor's solid spread, a spread with a blur, and a blur alone.
+    /// Mutation: `dilate_disk_channels(.., 3)` -> `(.., 2)` in
+    /// `blurred_glyph_coverage` (grows a colour channel instead) fails it.
+    #[test]
+    fn a_kept_halos_coverage_is_the_alpha_of_the_drawn_halo() {
+        let Some(font) = load_test_font_pub() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = rr_with_pub(&font);
+        let glyphs = shape_pub(&font, "Tuebingen", 24.0, 12.25, 40.0);
+        let clip_rect = LogicalRect {
+            origin: LogicalPosition { x: 8.0, y: 12.0 },
+            size: LogicalSize { width: 150.0, height: 40.0 },
+        };
+        let clip = AzRect::from_xywh(8.0, 12.0, 150.0, 40.0).expect("a clip");
+        let buffer = PixelBox { x: 0, y: 0, width: 180, height: 70 };
+        for (radius, spread) in [(0_u32, 1.2_f32), (0, 2.5), (2, 1.5), (3, 0.0)] {
+            let run = || BufferedRun {
+                glyphs: &glyphs,
+                font_hash,
+                font_size_px: 24.0,
+                clip_rect,
+                clip,
+            };
+            let mut cache = GlyphCache::new();
+            let whole = blurred_glyphs(
+                &[run()],
+                ColorU::WHITE,
+                buffer,
+                radius,
+                spread,
+                &rr,
+                &fm,
+                1.0,
+                &mut cache,
+                (0.0, 0.0),
+            )
+            .expect("a buffer");
+            let coverage = blurred_glyph_coverage(
+                &[run()],
+                ColorU::WHITE,
+                buffer,
+                radius,
+                spread,
+                &rr,
+                &fm,
+                1.0,
+                &mut cache,
+                (0.0, 0.0),
+            )
+            .expect("a buffer");
+            let alpha: Vec<u8> = whole.data().chunks_exact(4).map(|p| p[3]).collect();
+            assert!(alpha.iter().any(|a| *a > 0), "the glyphs paint");
+            assert_eq!(coverage, alpha, "radius {radius}, spread {spread}");
+        }
+    }
 }
 
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
