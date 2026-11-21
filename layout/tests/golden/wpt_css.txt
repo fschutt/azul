@@ -1151,14 +1151,14 @@ n19 p18 d20 Inline @164,244 -x- ic=11.203125/11.203125
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x296 ov=800x296 bl=257 ic=240/348.01563
 n1 p0 d1 Block { establishes_new_context: false } @8,8 784x288 ov=784x288 mt=8 mb=8 bl=249 ic=224/332.01563 rel=8,8
-n2 p1 d3 Block { establishes_new_context: false } @8,8 784x120 ov=784x120 mt=0 mb=0 bl=81 ic=224/228 rel=0,0
-n3 p2 d5 Block { establishes_new_context: false } @8,8 784x120 ov=720x96 bl=69 ic=160/164 rel=0,0
+n2 p1 d3 Block { establishes_new_context: false } @8,8 784x120 ov=784x120 mt=0 mb=0 bl=81 ic=224/243.20313 rel=0,0
+n3 p2 d5 Block { establishes_new_context: false } @8,8 784x120 ov=720x96 bl=69 ic=160/179.20313 rel=0,0
 n4 p3 d5 Inline pseudo=Marker @60,20 720x16 ov=15.203125x16 bl=13 ic=0/0 rel=0,0
-n5 p3 d7 Block { establishes_new_context: false } @60,36 720x80 ov=720x80 mt=0 mb=0 bl=53 ic=160/164 rel=0,16
-n6 p5 d9 Block { establishes_new_context: false } @60,36 720x80 ov=656x56 bl=41 ic=96/100 rel=0,0
+n5 p3 d7 Block { establishes_new_context: false } @60,36 720x80 ov=720x80 mt=0 mb=0 bl=53 ic=160/179.20313 rel=0,16
+n6 p5 d9 Block { establishes_new_context: false } @60,36 720x80 ov=656x56 bl=41 ic=96/115.203125 rel=0,0
 n7 p6 d9 Inline pseudo=Marker @112,48 656x16 ov=15.203125x16 bl=13 ic=0/0 rel=0,0
-n8 p6 d11 Block { establishes_new_context: false } @112,64 656x40 ov=656x40 mt=0 mb=0 bl=25 ic=96/100 rel=0,16
-n9 p8 d13 Inline @112,64 656x40 ov=51.203125x16 bl=13 ic=32/36 rel=0,0
+n8 p6 d11 Block { establishes_new_context: false } @112,64 656x40 ov=656x40 mt=0 mb=0 bl=25 ic=96/115.203125 rel=0,16
+n9 p8 d13 Inline @112,64 656x40 ov=51.203125x16 bl=13 ic=32/51.203125 rel=0,0
 n10 p9 d13 Inline pseudo=Marker @164,76 -x- ic=0/0
 n11 p9 d14 Inline @164,76 -x- ic=0/0
 n12 p9 d15 Inline @164,76 -x- ic=32/32
@@ -2247,8 +2247,8 @@ n153 p1 d201 Inline @8,8 -x- ic=0/0
   dl188 PopStackingContext
 === wpt/normalized/css/CSS2/tables/border-collapse-offset-001-ref.xht
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x8 ov=800x8 ic=24/24
-n1 p0 d1 Block { establishes_new_context: false } @8,8 784x0 ov=0x0 ic=8/8 rel=8,8
+n0 root d0 Block { establishes_new_context: true } @0,0 800x8 ov=800x8 ic=16/16
+n1 p0 d1 Block { establishes_new_context: false } @8,8 784x0 ov=0x0 ic=0/0 rel=8,8
 n2 p1 d3 Block { establishes_new_context: true } @8,8 118x48 ov=110x40 ic=32.40625/110 rel=0,0
 n3 p2 d5 Table @12,12 110x40 ov=110x40 ic=32.40625/110 rel=0,0
 n4 p3 d7 TableRowGroup @12,12 110x40 ic=32.40625/44.40625 rel=0,0
@@ -2268,8 +2268,8 @@ n7 p6 d10 Inline @17,17 -x- ic=22.40625/34.40625
   dl10 PopStackingContext
 === wpt/normalized/css/CSS2/tables/border-collapse-offset-001.xht
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x8 ov=800x8 ic=24/24
-n1 p0 d1 Block { establishes_new_context: false } @8,8 784x0 ov=0x0 ic=8/8 rel=8,8
+n0 root d0 Block { establishes_new_context: true } @0,0 800x8 ov=800x8 ic=16/16
+n1 p0 d1 Block { establishes_new_context: false } @8,8 784x0 ov=0x0 ic=0/0 rel=8,8
 n2 p1 d3 Block { establishes_new_context: true } @8,8 118x48 ov=110x40 ic=32.40625/110 rel=0,0
 n3 p2 d5 Table @12,12 110x40 ov=106x36 ic=28.40625/106 rel=0,0
 n4 p3 d7 TableRowGroup @14,14 106x36 ic=28.40625/40.40625 rel=0,0
@@ -3112,32 +3112,32 @@ n6 p2 d7 Inline @16,16 -x- ic=3.203125/3.203125
   dl10 PopStackingContext
 === wpt/normalized/css/CSS2/tables/separated-border-model-007.xht
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x86 ov=800x86 ic=36/636
-n1 p0 d1 Block { establishes_new_context: false } @16,16 768x70 ov=604x70 mt=16 mb=16 ic=4/604 rel=16,16
-n2 p1 d3 Table @16,16 604x70 ov=604x70 ic=4/604 rel=0,0
-n3 p2 d5 TableRowGroup @18,18 600x32 ic=0/0 rel=2,2
-n4 p3 d7 TableRow @18,18 600x32 ic=0/0 rel=0,0
-n5 p4 d9 TableCell @18,18 600x32 ov=0x0 ic=0/0 rel=0,0
-n6 p2 d13 TableRowGroup @18,52 600x32 ic=0/0 rel=2,36
-n7 p6 d15 TableRow @18,52 600x32 ic=0/0 rel=0,0
-n8 p7 d17 TableCell @18,52 600x32 ov=0x0 ic=0/0 rel=0,0
-n9 p1 d22 Inline @16,16 600x48 ov=209.59375x16 bl=13 ic=600/600 rel=0,70
+n0 root d0 Block { establishes_new_context: true } @0,0 800x224 ov=800x224 ic=32/632
+n1 p0 d1 Block { establishes_new_context: false } @16,16 768x208 ov=600x208 mt=16 mb=16 ic=0/600 rel=16,16
+n2 p1 d3 Table @16,16 600x208 ov=600x208 ic=0/600 rel=0,0
+n3 p2 d5 TableRowGroup @16,64 600x32 ic=0/0 rel=0,48
+n4 p3 d7 TableRow @16,64 600x32 ic=0/0 rel=0,0
+n5 p4 d9 TableCell @16,64 600x32 ov=0x0 ic=0/0 rel=0,0
+n6 p2 d13 TableRowGroup @16,144 600x32 ic=0/0 rel=0,128
+n7 p6 d15 TableRow @16,144 600x32 ic=0/0 rel=0,0
+n8 p7 d17 TableCell @16,144 600x32 ov=0x0 ic=0/0 rel=0,0
+n9 p1 d22 Inline @16,16 600x48 ov=209.59375x16 bl=13 ic=600/600 rel=0,208
 n10 p9 d23 Inline @16,16 -x- ic=48/158.40625
 n11 p9 d24 Inline @16,16 -x- ic=24/44
 n12 p11 d25 Inline @16,16 -x- ic=24/44
 n13 p9 d26 Inline @16,16 -x- ic=3.203125/3.203125
-n14 p1 d28 Block { establishes_new_context: true } @16,96 600x48 ov=0x0 ic=600/600 rel=0,70
-n15 p1 d30 Block { establishes_new_context: true } @16,176 600x48 ov=0x0 ic=600/600 rel=0,70
-  dl0 PushStackingContext 0,0 800x86
-  dl1 HitTestArea 16,16 768x70
-  dl2 Rect 16,16 604x70
-  dl3 Rect 18,18 600x32
-  dl4 Rect 18,52 600x32
-  dl5 HitTestArea 16,16 604x70
-  dl6 HitTestArea 18,18 600x32
-  dl7 HitTestArea 18,18 600x32
-  dl8 HitTestArea 18,52 600x32
-  dl9 HitTestArea 18,52 600x32
+n14 p1 d28 Block { establishes_new_context: true } @16,96 600x48 ov=0x0 ic=600/600 rel=0,208
+n15 p1 d30 Block { establishes_new_context: true } @16,176 600x48 ov=0x0 ic=600/600 rel=0,208
+  dl0 PushStackingContext 0,0 800x224
+  dl1 HitTestArea 16,16 768x208
+  dl2 Rect 16,16 600x208
+  dl3 Rect 16,64 600x32
+  dl4 Rect 16,144 600x32
+  dl5 HitTestArea 16,16 600x208
+  dl6 HitTestArea 16,64 600x32
+  dl7 HitTestArea 16,64 600x32
+  dl8 HitTestArea 16,144 600x32
+  dl9 HitTestArea 16,144 600x32
   dl10 Rect 16,16 600x48
   dl11 HitTestArea 16,16 600x48
   dl12 Text 0,16 632x48 glyphs=24 fs=16
@@ -3152,32 +3152,32 @@ n15 p1 d30 Block { establishes_new_context: true } @16,176 600x48 ov=0x0 ic=600/
   dl21 PopStackingContext
 === wpt/normalized/css/CSS2/tables/separated-border-model-008.xht
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x86 ov=800x86 ic=36/636
-n1 p0 d1 Block { establishes_new_context: false } @16,16 768x70 ov=604x70 mt=16 mb=16 ic=4/604 rel=16,16
-n2 p1 d3 Table @16,16 604x70 ov=604x70 ic=4/604 rel=0,0
-n3 p2 d5 TableRowGroup @18,52 600x32 ic=0/0 rel=2,36
-n4 p3 d7 TableRow @18,52 600x32 ic=0/0 rel=0,0
-n5 p4 d9 TableCell @18,52 600x32 ov=0x0 ic=0/0 rel=0,0
-n6 p2 d13 TableRowGroup @18,18 600x32 ic=0/0 rel=2,2
-n7 p6 d15 TableRow @18,18 600x32 ic=0/0 rel=0,0
-n8 p7 d17 TableCell @18,18 600x32 ov=0x0 ic=0/0 rel=0,0
-n9 p1 d22 Inline @16,16 600x48 ov=209.59375x16 bl=13 ic=600/600 rel=0,70
+n0 root d0 Block { establishes_new_context: true } @0,0 800x224 ov=800x224 ic=32/632
+n1 p0 d1 Block { establishes_new_context: false } @16,16 768x208 ov=600x208 mt=16 mb=16 ic=0/600 rel=16,16
+n2 p1 d3 Table @16,16 600x208 ov=600x208 ic=0/600 rel=0,0
+n3 p2 d5 TableRowGroup @16,144 600x32 ic=0/0 rel=0,128
+n4 p3 d7 TableRow @16,144 600x32 ic=0/0 rel=0,0
+n5 p4 d9 TableCell @16,144 600x32 ov=0x0 ic=0/0 rel=0,0
+n6 p2 d13 TableRowGroup @16,64 600x32 ic=0/0 rel=0,48
+n7 p6 d15 TableRow @16,64 600x32 ic=0/0 rel=0,0
+n8 p7 d17 TableCell @16,64 600x32 ov=0x0 ic=0/0 rel=0,0
+n9 p1 d22 Inline @16,16 600x48 ov=209.59375x16 bl=13 ic=600/600 rel=0,208
 n10 p9 d23 Inline @16,16 -x- ic=48/158.40625
 n11 p9 d24 Inline @16,16 -x- ic=24/44
 n12 p11 d25 Inline @16,16 -x- ic=24/44
 n13 p9 d26 Inline @16,16 -x- ic=3.203125/3.203125
-n14 p1 d28 Block { establishes_new_context: true } @16,96 600x48 ov=0x0 ic=600/600 rel=0,70
-n15 p1 d30 Block { establishes_new_context: true } @16,176 600x48 ov=0x0 ic=600/600 rel=0,70
-  dl0 PushStackingContext 0,0 800x86
-  dl1 HitTestArea 16,16 768x70
-  dl2 Rect 16,16 604x70
-  dl3 Rect 18,52 600x32
-  dl4 Rect 18,18 600x32
-  dl5 HitTestArea 16,16 604x70
-  dl6 HitTestArea 18,52 600x32
-  dl7 HitTestArea 18,52 600x32
-  dl8 HitTestArea 18,18 600x32
-  dl9 HitTestArea 18,18 600x32
+n14 p1 d28 Block { establishes_new_context: true } @16,96 600x48 ov=0x0 ic=600/600 rel=0,208
+n15 p1 d30 Block { establishes_new_context: true } @16,176 600x48 ov=0x0 ic=600/600 rel=0,208
+  dl0 PushStackingContext 0,0 800x224
+  dl1 HitTestArea 16,16 768x208
+  dl2 Rect 16,16 600x208
+  dl3 Rect 16,144 600x32
+  dl4 Rect 16,64 600x32
+  dl5 HitTestArea 16,16 600x208
+  dl6 HitTestArea 16,144 600x32
+  dl7 HitTestArea 16,144 600x32
+  dl8 HitTestArea 16,64 600x32
+  dl9 HitTestArea 16,64 600x32
   dl10 Rect 16,16 600x48
   dl11 HitTestArea 16,16 600x48
   dl12 Text 0,16 632x48 glyphs=24 fs=16
@@ -5612,10 +5612,10 @@ n3 p2 d3 Inline @0,0 -x- ic=33.609375/84.8125
   dl4 PopStackingContext
 === wpt/normalized/css/css-lists/content-property/marker-text-matches-decimal.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/69.609375
-n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n3 p2 d4 Inline @0,0 800x16 ov=84.796875x16 bl=13 ic=33.609375/69.609375 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/84.8125
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/84.8125 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/84.8125 rel=0,0
+n3 p2 d4 Inline @0,0 800x16 ov=84.796875x16 bl=13 ic=33.609375/84.8125 rel=0,0
 n4 p3 d4 Inline pseudo=Marker @0,0 -x- ic=0/0
 n5 p3 d5 Inline @0,0 -x- ic=33.609375/69.609375
   dl0 PushStackingContext 0,0 800x16
@@ -5673,10 +5673,10 @@ n3 p2 d3 Inline @0,0 -x- ic=33.609375/84.8125
   dl4 PopStackingContext
 === wpt/normalized/css/css-lists/content-property/marker-text-matches-lower-latin.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/69.609375
-n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n3 p2 d4 Inline @0,0 800x16 ov=84.796875x16 bl=13 ic=33.609375/69.609375 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/84.8125
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/84.8125 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/84.8125 rel=0,0
+n3 p2 d4 Inline @0,0 800x16 ov=84.796875x16 bl=13 ic=33.609375/84.8125 rel=0,0
 n4 p3 d4 Inline pseudo=Marker @0,0 -x- ic=0/0
 n5 p3 d5 Inline @0,0 -x- ic=33.609375/69.609375
   dl0 PushStackingContext 0,0 800x16
@@ -5701,10 +5701,10 @@ n3 p2 d3 Inline @0,0 -x- ic=33.609375/80
   dl4 PopStackingContext
 === wpt/normalized/css/css-lists/content-property/marker-text-matches-lower-roman.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/69.609375
-n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n3 p2 d4 Inline @0,0 800x16 ov=80x16 bl=13 ic=33.609375/69.609375 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/80
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/80 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/80 rel=0,0
+n3 p2 d4 Inline @0,0 800x16 ov=80x16 bl=13 ic=33.609375/80 rel=0,0
 n4 p3 d4 Inline pseudo=Marker @0,0 -x- ic=0/0
 n5 p3 d5 Inline @0,0 -x- ic=33.609375/69.609375
   dl0 PushStackingContext 0,0 800x16
@@ -5762,10 +5762,10 @@ n3 p2 d3 Inline @0,0 -x- ic=33.609375/84.8125
   dl4 PopStackingContext
 === wpt/normalized/css/css-lists/content-property/marker-text-matches-upper-latin.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/69.609375
-n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n3 p2 d4 Inline @0,0 800x16 ov=84.796875x16 bl=13 ic=33.609375/69.609375 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/84.8125
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/84.8125 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/84.8125 rel=0,0
+n3 p2 d4 Inline @0,0 800x16 ov=84.796875x16 bl=13 ic=33.609375/84.8125 rel=0,0
 n4 p3 d4 Inline pseudo=Marker @0,0 -x- ic=0/0
 n5 p3 d5 Inline @0,0 -x- ic=33.609375/69.609375
   dl0 PushStackingContext 0,0 800x16
@@ -5790,10 +5790,10 @@ n3 p2 d3 Inline @0,0 -x- ic=33.609375/84.8125
   dl4 PopStackingContext
 === wpt/normalized/css/css-lists/content-property/marker-text-matches-upper-roman.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/69.609375
-n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/69.609375 rel=0,0
-n3 p2 d4 Inline @0,0 800x16 ov=84.796875x16 bl=13 ic=33.609375/69.609375 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x16 ov=800x16 bl=13 ic=33.609375/84.8125
+n1 p0 d1 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/84.8125 rel=0,0
+n2 p1 d2 Block { establishes_new_context: false } @0,0 800x16 ov=800x16 mt=0 mb=0 bl=13 ic=33.609375/84.8125 rel=0,0
+n3 p2 d4 Inline @0,0 800x16 ov=84.796875x16 bl=13 ic=33.609375/84.8125 rel=0,0
 n4 p3 d4 Inline pseudo=Marker @0,0 -x- ic=0/0
 n5 p3 d5 Inline @0,0 -x- ic=33.609375/69.609375
   dl0 PushStackingContext 0,0 800x16
@@ -7333,8 +7333,8 @@ dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x560 ov=800x560 bl=557 ic=216/216
 n1 p0 d1 Block { establishes_new_context: false } @40,0 760x560 ov=176x560 mt=0 mb=0 bl=557 ic=176/176 rel=40,0
 n2 p1 d3 Block { establishes_new_context: false } @40,0 176x560 ov=176x560 mt=0 mb=0 bl=557 ic=176/176 rel=0,0
-n3 p2 d6 Block { establishes_new_context: false } @40,0 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,0
-n4 p3 d7 Inline @40,0 176x16 ov=16x16 bl=13 ic=8/8 rel=0,0
+n3 p2 d6 Block { establishes_new_context: false } @40,0 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/16 rel=0,0
+n4 p3 d7 Inline @40,0 176x16 ov=16x16 bl=13 ic=8/16 rel=0,0
 n5 p4 d7 Inline pseudo=Marker @40,0 -x- ic=0/0
 n6 p4 d8 Inline @40,0 -x- ic=8/8
 n7 p2 d- Inline anon=InlineWrapper @40,16 176x32 ov=176x32 bl=29 ic=8/229 rel=0,16
@@ -7345,37 +7345,37 @@ n11 p10 d12 Inline pseudo=Marker @40,48 176x16 ov=8x16 bl=13 ic=0/0 rel=0,0
 n12 p2 d- Inline anon=InlineWrapper @40,64 176x16 ov=8x16 bl=13 ic=9/9 rel=0,64
 n13 p12 d13 Inline @40,64 -x- ic=9/9
 n14 p12 d14 Inline @40,64 -x- ic=0/0
-n15 p2 d15 Block { establishes_new_context: false } @40,80 176x80 ov=176x80 mt=0 mb=0 bl=77 ic=8/229 rel=0,80
-n16 p15 d18 Block { establishes_new_context: false } @40,80 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,0
-n17 p16 d19 Inline @40,80 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n15 p2 d15 Block { establishes_new_context: false } @40,80 176x80 ov=176x80 mt=0 mb=0 bl=77 ic=11.203125/229 rel=0,80
+n16 p15 d18 Block { establishes_new_context: false } @40,80 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,0
+n17 p16 d19 Inline @40,80 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n18 p17 d19 Inline pseudo=Marker @40,80 -x- ic=0/0
 n19 p17 d20 Inline @40,80 -x- ic=8/8
 n20 p15 d- Inline anon=InlineWrapper @40,96 176x32 ov=176x32 bl=29 ic=8/229 rel=0,16
 n21 p20 d21 Inline @40,96 -x- ic=8/229
-n22 p15 d23 Block { establishes_new_context: false } @40,128 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,48
-n23 p22 d24 Inline @40,128 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n22 p15 d23 Block { establishes_new_context: false } @40,128 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,48
+n23 p22 d24 Inline @40,128 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n24 p23 d24 Inline pseudo=Marker @40,128 -x- ic=0/0
 n25 p23 d25 Inline @40,128 -x- ic=8/8
-n26 p15 d28 Block { establishes_new_context: false } @40,144 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,64
-n27 p26 d29 Inline @40,144 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n26 p15 d28 Block { establishes_new_context: false } @40,144 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,64
+n27 p26 d29 Inline @40,144 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n28 p27 d29 Inline pseudo=Marker @40,144 -x- ic=0/0
 n29 p27 d30 Inline @40,144 -x- ic=8/8
-n30 p2 d36 Block { establishes_new_context: false } @40,160 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,160
-n31 p30 d37 Inline @40,160 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n30 p2 d36 Block { establishes_new_context: false } @40,160 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,160
+n31 p30 d37 Inline @40,160 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n32 p31 d37 Inline pseudo=Marker @40,160 -x- ic=0/0
 n33 p31 d38 Inline @40,160 -x- ic=8/8
 n34 p2 d- Inline anon=InlineWrapper @40,176 176x32 ov=176x32 bl=29 ic=8/229 rel=0,176
 n35 p34 d39 Inline @40,176 -x- ic=8/229
-n36 p2 d41 Block { establishes_new_context: false } @40,208 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,208
-n37 p36 d42 Inline @40,208 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n36 p2 d41 Block { establishes_new_context: false } @40,208 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,208
+n37 p36 d42 Inline @40,208 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n38 p37 d42 Inline pseudo=Marker @40,208 -x- ic=0/0
 n39 p37 d43 Inline @40,208 -x- ic=8/8
-n40 p2 d46 Block { establishes_new_context: false } @40,224 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,224
-n41 p40 d47 Inline @40,224 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n40 p2 d46 Block { establishes_new_context: false } @40,224 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,224
+n41 p40 d47 Inline @40,224 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n42 p41 d47 Inline pseudo=Marker @40,224 -x- ic=0/0
 n43 p41 d48 Inline @40,224 -x- ic=8/8
-n44 p2 d52 Block { establishes_new_context: false } @40,240 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,240
-n45 p44 d53 Inline @40,240 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n44 p2 d52 Block { establishes_new_context: false } @40,240 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,240
+n45 p44 d53 Inline @40,240 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n46 p45 d53 Inline pseudo=Marker @40,240 -x- ic=0/0
 n47 p45 d54 Inline @40,240 -x- ic=8/8
 n48 p2 d- Inline anon=InlineWrapper @40,256 176x32 ov=176x32 bl=29 ic=8/229 rel=0,256
@@ -7385,24 +7385,24 @@ n51 p50 d58 Block { establishes_new_context: false } @40,288 176x16 ov=176x16 mt
 n52 p51 d58 Inline pseudo=Marker @40,288 176x16 ov=15.203125x16 bl=13 ic=0/0 rel=0,0
 n53 p2 d- Inline anon=InlineWrapper @40,304 176x16 ov=8x16 bl=13 ic=8/8 rel=0,304
 n54 p53 d59 Inline @40,304 -x- ic=8/8
-n55 p2 d60 Block { establishes_new_context: false } @40,320 176x64 ov=176x64 mt=0 mb=0 bl=61 ic=8/229 rel=0,320
-n56 p55 d63 Block { establishes_new_context: false } @40,320 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,0
-n57 p56 d64 Inline @40,320 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n55 p2 d60 Block { establishes_new_context: false } @40,320 176x64 ov=176x64 mt=0 mb=0 bl=61 ic=11.203125/229 rel=0,320
+n56 p55 d63 Block { establishes_new_context: false } @40,320 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,0
+n57 p56 d64 Inline @40,320 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n58 p57 d64 Inline pseudo=Marker @40,320 -x- ic=0/0
 n59 p57 d65 Inline @40,320 -x- ic=8/8
 n60 p55 d- Inline anon=InlineWrapper @40,336 176x32 ov=176x32 bl=29 ic=8/229 rel=0,16
 n61 p60 d66 Inline @40,336 -x- ic=8/229
-n62 p55 d68 Block { establishes_new_context: false } @40,368 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,48
-n63 p62 d69 Inline @40,368 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n62 p55 d68 Block { establishes_new_context: false } @40,368 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,48
+n63 p62 d69 Inline @40,368 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n64 p63 d69 Inline pseudo=Marker @40,368 -x- ic=0/0
 n65 p63 d70 Inline @40,368 -x- ic=8/8
-n66 p2 d74 Block { establishes_new_context: false } @40,384 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,384
-n67 p66 d75 Inline @40,384 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n66 p2 d74 Block { establishes_new_context: false } @40,384 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,384
+n67 p66 d75 Inline @40,384 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n68 p67 d75 Inline pseudo=Marker @40,384 -x- ic=0/0
 n69 p67 d76 Inline @40,384 -x- ic=8/8
-n70 p2 d79 Block { establishes_new_context: false } @40,400 176x160 ov=176x160 mt=0 mb=0 bl=157 ic=8/229 rel=0,400
-n71 p70 d82 Block { establishes_new_context: false } @40,400 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,0
-n72 p71 d83 Inline @40,400 176x16 ov=16x16 bl=13 ic=8/8 rel=0,0
+n70 p2 d79 Block { establishes_new_context: false } @40,400 176x160 ov=176x160 mt=0 mb=0 bl=157 ic=11.203125/229 rel=0,400
+n71 p70 d82 Block { establishes_new_context: false } @40,400 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/16 rel=0,0
+n72 p71 d83 Inline @40,400 176x16 ov=16x16 bl=13 ic=8/16 rel=0,0
 n73 p72 d83 Inline pseudo=Marker @40,400 -x- ic=0/0
 n74 p72 d84 Inline @40,400 -x- ic=8/8
 n75 p70 d- Inline anon=InlineWrapper @40,416 176x32 ov=176x32 bl=29 ic=8/229 rel=0,16
@@ -7413,18 +7413,18 @@ n79 p78 d89 Block { establishes_new_context: false } @40,448 176x16 ov=176x16 mt
 n80 p79 d89 Inline pseudo=Marker @40,448 176x16 ov=8x16 bl=13 ic=0/0 rel=0,0
 n81 p77 d- Inline anon=InlineWrapper @40,464 176x16 ov=8x16 bl=13 ic=8/8 rel=0,16
 n82 p81 d90 Inline @40,464 -x- ic=8/8
-n83 p70 d94 Block { establishes_new_context: false } @40,480 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,80
-n84 p83 d95 Inline @40,480 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n83 p70 d94 Block { establishes_new_context: false } @40,480 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,80
+n84 p83 d95 Inline @40,480 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n85 p84 d95 Inline pseudo=Marker @40,480 -x- ic=0/0
 n86 p84 d96 Inline @40,480 -x- ic=8/8
 n87 p70 d- Inline anon=InlineWrapper @40,496 176x32 ov=176x32 bl=29 ic=8/229 rel=0,96
 n88 p87 d97 Inline @40,496 -x- ic=8/229
-n89 p70 d99 Block { establishes_new_context: false } @40,528 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,128
-n90 p89 d100 Inline @40,528 176x16 ov=23.203125x16 bl=13 ic=8/8 rel=0,0
+n89 p70 d99 Block { establishes_new_context: false } @40,528 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=11.203125/23.203125 rel=0,128
+n90 p89 d100 Inline @40,528 176x16 ov=23.203125x16 bl=13 ic=11.203125/23.203125 rel=0,0
 n91 p90 d100 Inline pseudo=Marker @40,528 -x- ic=0/0
 n92 p90 d101 Inline @40,528 -x- ic=8/8
-n93 p70 d104 Block { establishes_new_context: false } @40,544 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/8 rel=0,144
-n94 p93 d105 Inline @40,544 176x16 ov=16x16 bl=13 ic=8/8 rel=0,0
+n93 p70 d104 Block { establishes_new_context: false } @40,544 176x16 ov=176x16 mt=0 mb=0 bl=13 ic=8/16 rel=0,144
+n94 p93 d105 Inline @40,544 176x16 ov=16x16 bl=13 ic=8/16 rel=0,0
 n95 p94 d105 Inline pseudo=Marker @40,544 -x- ic=0/0
 n96 p94 d106 Inline @40,544 -x- ic=8/8
   dl0 Rect 0,0 800x600
@@ -8236,72 +8236,70 @@ n10 p1 d27 Inline @8,8 -x- ic=0/0
   dl13 PopStackingContext
 === wpt/normalized/css/css-lists/list-style-position-001-notref.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x140 ov=800x140 bl=135 ic=140.40625/153.20313
-n1 p0 d1 Block { establishes_new_context: false } @50,8 742x132 ov=95.203125x132 mt=8 mb=8 bl=127 ic=82.40625/95.203125 rel=50,8
-n2 p1 d2 Block { establishes_new_context: false } @50,8 95.203125x132 ov=91.203125x128 bl=125 ic=78.40625/91.203125 rel=0,0
-n3 p2 d4 Inline @52,10 91.203125x16 ov=86.40625x16 bl=13 ic=78.40625/78.40625 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x124 ov=800x124 bl=119 ic=140.40625/161.20313
+n1 p0 d1 Block { establishes_new_context: false } @50,8 742x116 ov=103.203125x116 mt=8 mb=8 bl=111 ic=82.40625/103.203125 rel=50,8
+n2 p1 d2 Block { establishes_new_context: false } @50,8 103.203125x116 ov=99.203125x112 bl=109 ic=78.40625/99.203125 rel=0,0
+n3 p2 d4 Inline @52,10 99.203125x16 ov=86.40625x16 bl=13 ic=78.40625/86.40625 rel=0,0
 n4 p3 d4 Inline pseudo=Marker @52,10 -x- ic=0/0
 n5 p3 d5 Inline @52,10 -x- ic=78.40625/78.40625
-n6 p2 d7 Inline @52,26 91.203125x16 ov=59.203125x16 bl=13 ic=51.203125/51.203125 rel=0,16
+n6 p2 d7 Inline @52,26 99.203125x16 ov=59.203125x16 bl=13 ic=51.203125/59.203125 rel=0,16
 n7 p6 d7 Inline pseudo=Marker @52,26 -x- ic=0/0
 n8 p6 d8 Inline @52,26 -x- ic=51.203125/51.203125
-n9 p2 d10 Inline @52,42 91.203125x16 ov=44.796875x16 bl=13 ic=36.8125/36.8125 rel=0,32
+n9 p2 d10 Inline @52,42 99.203125x16 ov=44.796875x16 bl=13 ic=36.8125/44.8125 rel=0,32
 n10 p9 d10 Inline pseudo=Marker @52,42 -x- ic=0/0
 n11 p9 d11 Inline @52,42 -x- ic=36.8125/36.8125
-n12 p2 d13 Inline @52,58 91.203125x16 ov=54.40625x16 bl=13 ic=46.40625/46.40625 rel=0,48
+n12 p2 d13 Inline @52,58 99.203125x16 ov=54.40625x16 bl=13 ic=46.40625/54.40625 rel=0,48
 n13 p12 d13 Inline pseudo=Marker @52,58 -x- ic=0/0
 n14 p12 d14 Inline @52,58 -x- ic=46.40625/46.40625
-n15 p2 d16 Inline @52,74 91.203125x16 ov=48x16 bl=13 ic=40/40 rel=0,64
+n15 p2 d16 Inline @52,74 99.203125x16 ov=48x16 bl=13 ic=40/48 rel=0,64
 n16 p15 d16 Inline pseudo=Marker @52,74 -x- ic=0/0
 n17 p15 d17 Inline @52,74 -x- ic=40/40
-n18 p2 d19 Inline @52,90 91.203125x16 ov=56x16 bl=13 ic=48/48 rel=0,80
+n18 p2 d19 Inline @52,90 99.203125x16 ov=56x16 bl=13 ic=48/56 rel=0,80
 n19 p18 d19 Inline pseudo=Marker @52,90 -x- ic=0/0
 n20 p18 d20 Inline @52,90 -x- ic=48/48
-n21 p2 d22 Inline @52,106 91.203125x32 ov=64x32 bl=29 ic=56/91.203125 rel=0,96
+n21 p2 d22 Inline @52,106 99.203125x16 ov=99.203125x16 bl=13 ic=56/99.203125 rel=0,96
 n22 p21 d22 Inline pseudo=Marker @52,106 -x- ic=0/0
 n23 p21 d23 Inline @52,106 -x- ic=56/91.203125
-  dl0 PushStackingContext 0,0 800x140
-  dl1 HitTestArea 50,8 742x132
-  dl2 Border 50,8 95.203125x132
-  dl3 HitTestArea 50,8 95.203125x132
-  dl4 HitTestArea 52,10 91.203125x16
-  dl5 Text 36,10 123.203125x16 glyphs=2 fs=16
-  dl6 Text 36,10 123.203125x16 glyphs=11 fs=16
+  dl0 PushStackingContext 0,0 800x124
+  dl1 HitTestArea 50,8 742x116
+  dl2 Border 50,8 103.203125x116
+  dl3 HitTestArea 50,8 103.203125x116
+  dl4 HitTestArea 52,10 99.203125x16
+  dl5 Text 36,10 131.20313x16 glyphs=2 fs=16
+  dl6 Text 36,10 131.20313x16 glyphs=11 fs=16
   dl7 HitTestArea 60,10.203125 78.40625x16
   dl8 HitTestArea 52,10 0x0
-  dl9 HitTestArea 52,26 91.203125x16
-  dl10 Text 36,26 123.203125x16 glyphs=2 fs=16
-  dl11 Text 36,26 123.203125x16 glyphs=7 fs=16
+  dl9 HitTestArea 52,26 99.203125x16
+  dl10 Text 36,26 131.20313x16 glyphs=2 fs=16
+  dl11 Text 36,26 131.20313x16 glyphs=7 fs=16
   dl12 HitTestArea 60,26.203125 51.203125x16
   dl13 HitTestArea 52,26 0x0
-  dl14 HitTestArea 52,42 91.203125x16
-  dl15 Text 36,42 123.203125x16 glyphs=2 fs=16
-  dl16 Text 36,42 123.203125x16 glyphs=7 fs=16
+  dl14 HitTestArea 52,42 99.203125x16
+  dl15 Text 36,42 131.20313x16 glyphs=2 fs=16
+  dl16 Text 36,42 131.20313x16 glyphs=7 fs=16
   dl17 HitTestArea 60,42.203125 36.796875x16
   dl18 HitTestArea 52,42 0x0
-  dl19 HitTestArea 52,58 91.203125x16
-  dl20 Text 36,58 123.203125x16 glyphs=2 fs=16
-  dl21 Text 36,58 123.203125x16 glyphs=7 fs=16
+  dl19 HitTestArea 52,58 99.203125x16
+  dl20 Text 36,58 131.20313x16 glyphs=2 fs=16
+  dl21 Text 36,58 131.20313x16 glyphs=7 fs=16
   dl22 HitTestArea 60,58.203125 46.40625x16
   dl23 HitTestArea 52,58 0x0
-  dl24 HitTestArea 52,74 91.203125x16
-  dl25 Text 36,74 123.203125x16 glyphs=2 fs=16
-  dl26 Text 36,74 123.203125x16 glyphs=5 fs=16
+  dl24 HitTestArea 52,74 99.203125x16
+  dl25 Text 36,74 131.20313x16 glyphs=2 fs=16
+  dl26 Text 36,74 131.20313x16 glyphs=5 fs=16
   dl27 HitTestArea 60,74.203125 40x16
   dl28 HitTestArea 52,74 0x0
-  dl29 HitTestArea 52,90 91.203125x16
-  dl30 Text 36,90 123.203125x16 glyphs=2 fs=16
-  dl31 Text 36,90 123.203125x16 glyphs=6 fs=16
+  dl29 HitTestArea 52,90 99.203125x16
+  dl30 Text 36,90 131.20313x16 glyphs=2 fs=16
+  dl31 Text 36,90 131.20313x16 glyphs=6 fs=16
   dl32 HitTestArea 60,90.203125 48x16
   dl33 HitTestArea 52,90 0x0
-  dl34 HitTestArea 52,106 91.203125x32
-  dl35 Text 36,106 123.203125x32 glyphs=2 fs=16
-  dl36 Text 36,106 123.203125x32 glyphs=7 fs=16
-  dl37 Text 36,106 123.203125x32 glyphs=5 fs=16
-  dl38 HitTestArea 60,106.203125 56x16
-  dl39 HitTestArea 52,122.203125 35.203125x16
-  dl40 HitTestArea 52,106 0x0
-  dl41 PopStackingContext
+  dl34 HitTestArea 52,106 99.203125x16
+  dl35 Text 36,106 131.20313x16 glyphs=2 fs=16
+  dl36 Text 36,106 131.20313x16 glyphs=12 fs=16
+  dl37 HitTestArea 60,106.203125 91.203125x16
+  dl38 HitTestArea 52,106 0x0
+  dl39 PopStackingContext
 === wpt/normalized/css/css-lists/list-style-position-001-ref.html
 dom DomId { inner: 0 }
 n0 root d0 Block { establishes_new_context: true } @0,0 800x124 ov=800x124 bl=119 ic=140.40625/153.20313
@@ -8711,32 +8709,32 @@ n35 p32 d46 Inline @48,144 -x- ic=33.609375/45.609375
   dl52 PopStackingContext
 === wpt/normalized/css/css-lists/list-style-type-string-001a.html
 dom DomId { inner: 0 }
-n0 root d0 Block { establishes_new_context: true } @0,0 800x160 ov=800x160 bl=157 ic=89.609375/109.609375
-n1 p0 d1 Block { establishes_new_context: false } @8,16 784x144 ov=784x144 mt=16 mb=16 bl=141 ic=73.609375/93.609375 rel=8,16
-n2 p1 d3 Block { establishes_new_context: false } @8,16 784x64 ov=744x64 mt=16 mb=16 bl=61 ic=33.609375/53.609375 rel=0,0
-n3 p2 d5 Inline @48,16 744x16 ov=65.59375x16 bl=13 ic=33.609375/53.609375 rel=0,0
+n0 root d0 Block { establishes_new_context: true } @0,0 800x160 ov=800x160 bl=157 ic=89.609375/121.609375
+n1 p0 d1 Block { establishes_new_context: false } @8,16 784x144 ov=784x144 mt=16 mb=16 bl=141 ic=73.609375/105.609375 rel=8,16
+n2 p1 d3 Block { establishes_new_context: false } @8,16 784x64 ov=744x64 mt=16 mb=16 bl=61 ic=33.609375/65.609375 rel=0,0
+n3 p2 d5 Inline @48,16 744x16 ov=65.59375x16 bl=13 ic=33.609375/65.609375 rel=0,0
 n4 p3 d5 Inline pseudo=Marker @48,16 -x- ic=0/0
 n5 p3 d6 Inline @48,16 -x- ic=33.609375/53.609375
-n6 p2 d8 Inline @48,32 744x16 ov=57.59375x16 bl=13 ic=33.609375/45.609375 rel=0,16
+n6 p2 d8 Inline @48,32 744x16 ov=57.59375x16 bl=13 ic=33.609375/57.609375 rel=0,16
 n7 p6 d8 Inline pseudo=Marker @48,32 -x- ic=0/0
 n8 p6 d9 Inline @48,32 -x- ic=33.609375/45.609375
-n9 p2 d11 Inline @48,48 744x16 ov=57.59375x16 bl=13 ic=33.609375/45.609375 rel=0,32
+n9 p2 d11 Inline @48,48 744x16 ov=57.59375x16 bl=13 ic=33.609375/57.609375 rel=0,32
 n10 p9 d11 Inline pseudo=Marker @48,48 -x- ic=0/0
 n11 p9 d12 Inline @48,48 -x- ic=33.609375/45.609375
-n12 p2 d14 Inline @48,64 744x16 ov=57.59375x16 bl=13 ic=33.609375/45.609375 rel=0,48
+n12 p2 d14 Inline @48,64 744x16 ov=57.59375x16 bl=13 ic=33.609375/57.609375 rel=0,48
 n13 p12 d14 Inline pseudo=Marker @48,64 -x- ic=0/0
 n14 p12 d15 Inline @48,64 -x- ic=33.609375/45.609375
-n15 p1 d18 Block { establishes_new_context: false } @8,96 784x64 ov=744x64 mt=16 mb=16 bl=61 ic=33.609375/53.609375 rel=0,80
-n16 p15 d20 Inline @48,96 744x16 ov=65.59375x16 bl=13 ic=33.609375/53.609375 rel=0,0
+n15 p1 d18 Block { establishes_new_context: false } @8,96 784x64 ov=744x64 mt=16 mb=16 bl=61 ic=33.609375/65.609375 rel=0,80
+n16 p15 d20 Inline @48,96 744x16 ov=65.59375x16 bl=13 ic=33.609375/65.609375 rel=0,0
 n17 p16 d20 Inline pseudo=Marker @48,96 -x- ic=0/0
 n18 p16 d21 Inline @48,96 -x- ic=33.609375/53.609375
-n19 p15 d23 Inline @48,112 744x16 ov=57.59375x16 bl=13 ic=33.609375/45.609375 rel=0,16
+n19 p15 d23 Inline @48,112 744x16 ov=57.59375x16 bl=13 ic=33.609375/57.609375 rel=0,16
 n20 p19 d23 Inline pseudo=Marker @48,112 -x- ic=0/0
 n21 p19 d24 Inline @48,112 -x- ic=33.609375/45.609375
-n22 p15 d26 Inline @48,128 744x16 ov=57.59375x16 bl=13 ic=33.609375/45.609375 rel=0,32
+n22 p15 d26 Inline @48,128 744x16 ov=57.59375x16 bl=13 ic=33.609375/57.609375 rel=0,32
 n23 p22 d26 Inline pseudo=Marker @48,128 -x- ic=0/0
 n24 p22 d27 Inline @48,128 -x- ic=33.609375/45.609375
-n25 p15 d29 Inline @48,144 744x16 ov=57.59375x16 bl=13 ic=33.609375/45.609375 rel=0,48
+n25 p15 d29 Inline @48,144 744x16 ov=57.59375x16 bl=13 ic=33.609375/57.609375 rel=0,48
 n26 p25 d29 Inline pseudo=Marker @48,144 -x- ic=0/0
 n27 p25 d30 Inline @48,144 -x- ic=33.609375/45.609375
   dl0 PushStackingContext 0,0 800x160
@@ -11091,7 +11089,7 @@ n3 p2 d4 Inline @24,24 -x- ic=83.78125/728.5781
 n4 p2 d5 Inline @24,24 -x- ic=40/40
 n5 p4 d6 Inline @24,24 -x- ic=40/40
 n6 p2 d7 Inline @24,24 -x- ic=65.609375/109.609375
-n7 p1 d9 Block { establishes_new_context: false } @8,77 784x0 ov=0x0 ic=64/64 rel=0,69
+n7 p1 d9 Block { establishes_new_context: false } @8,77 784x0 ov=0x0 ic=0/0 rel=0,69
 n8 p7 d11 Inline @8,77 506.15625x102.671875 ov=442.14063x38.671875 bl=21 ic=136.54688/442.15625 rel=0,0
 n9 p8 d12 Inline @40,109 -x- ic=123.265625/428.875
 n10 p9 d13 Inline @40,109 -x- ic=86.40625/297.60938
