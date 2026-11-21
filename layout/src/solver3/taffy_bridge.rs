@@ -691,34 +691,6 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     /// SAFETY: This pointer is only valid for the lifetime of the `TaffyBridge`
     /// and must only be used within `compute_child_layout` callbacks
     text_cache: *mut crate::font_traits::TextLayoutCache,
-    /// Heap-pinned `CalcResolveContext`s whose addresses are passed into taffy
-    /// `Dimension::calc(ptr)`. Kept alive for the duration of the layout pass.
-    /// Uses `RefCell` because `get_core_container_style` takes `&self`.
-    // Box gives each CalcResolveContext a stable heap address for the `*const` handed to
-    // taffy `Dimension::calc()`; a plain Vec<T> would invalidate those pointers on realloc.
-    #[allow(clippy::vec_box)]
-    calc_storage: std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
-    /// Memoised `translate_style_to_taffy` results, indexed by DOM node id
-    /// (`NodeId::index`). Taffy calls `get_core_container_style` and
-    /// `should_suppress_cross_intrinsic` many times per node during a single
-    /// layout pass; each build is ~13 `cache.get_property` cascade walks.
-    /// Built once per node and LENT, never cloned: a hashed memo that handed
-    /// out clones (a `Style` holds Vecs) was 8% of a 300-contact list's layout
-    /// (`AzContacts`, 2026-10-06).
-    ///
-    /// Each cell holds its style BOXED: a bridge is made for every flex or
-    /// grid container a block, an inline or the positioning pass lays out
-    /// (`layout_taffy_subtree`), with one cell per node of the WHOLE document,
-    /// and a `Style` is several hundred bytes. Unboxed, every bridge
-    /// allocated, initialised and dropped megabytes whatever the size of the
-    /// container it was made for (a node graph of 4,000 nodes: 4 MB per
-    /// bridge, hundreds of bridges per layout). A pointer per node is 8 bytes.
-    dom_styles: Vec<std::cell::OnceCell<Box<Style>>>,
-    /// The style each LAYOUT node hands taffy ([`Self::get_taffy_style`]: its
-    /// DOM node's, with the root's margin and a stretched item's cross size
-    /// adjusted - both fixed by the styles and the tree), indexed by layout
-    /// node, built once. Boxed like [`Self::dom_styles`].
-    node_styles: Vec<std::cell::OnceCell<Box<Style>>>,
     /// The style of a node without a DOM node (anonymous boxes).
     default_style: Style,
     /// Flex ROWS whose width alone is being measured, innermost last (see
@@ -726,9 +698,68 @@ struct TaffyBridge<'a, 'b, T: ParsedFontTrait> {
     width_only_rows: Vec<usize>,
 }
 
-/// What a layout pass keeps for its taffy bridges (`solver3::PassMemo::taffy`).
-#[derive(Debug, Default)]
-pub struct TaffyPassMemo {}
+/// What a layout pass keeps for its taffy bridges (`solver3::PassMemo::taffy`):
+/// the taffy styles of the styled DOM's nodes.
+///
+/// A bridge is made for every flex or grid container a block, an inline or
+/// the positioning pass lays out (`layout_taffy_subtree`) - hundreds per
+/// layout of a node graph - and each bridge held these memos itself: a cell
+/// per node of the WHOLE document (and one per layout box) initialised and
+/// dropped with every bridge, and the style of every node a bridge reached
+/// converted again (`translate_style_to_taffy`, some 36 cascade getters per
+/// node). The styles are a function of the styled DOM alone, and a
+/// `LayoutContext` holds one styled DOM for its whole life: the pass keeps
+/// them, sized by its first bridge.
+///
+/// Reached through `&self` of a bridge (`self.ctx.pass_memo.taffy`), so a
+/// lent `&Style` ends before any `&mut self` call, as when the bridge owned
+/// the memos; a bridge made inside another one (a flex container in a block
+/// in a flex item) reads and fills the same cells.
+#[derive(Default)]
+pub struct TaffyPassMemo {
+    /// Heap-pinned `CalcResolveContext`s whose addresses are passed into taffy
+    /// `Dimension::calc(ptr)`. Kept alive for the duration of the layout pass,
+    /// with the styles that hold those pointers ([`Self::dom_styles`]):
+    /// nothing is ever taken out of it.
+    /// Uses `RefCell` because `get_core_container_style` takes `&self`.
+    // Box gives each CalcResolveContext a stable heap address for the `*const` handed to
+    // taffy `Dimension::calc()`; a plain Vec<T> would invalidate those pointers on realloc.
+    #[allow(clippy::vec_box)]
+    calc_storage: std::cell::RefCell<Vec<Box<CalcResolveContext>>>,
+    /// Memoised `translate_style_to_taffy` results, indexed by DOM node id
+    /// (`NodeId::index`). Taffy calls `get_core_container_style` many times
+    /// per node during a single layout pass; each build is ~13
+    /// `cache.get_property` cascade walks.
+    /// Built once per node and LENT, never cloned: a hashed memo that handed
+    /// out clones (a `Style` holds Vecs) was 8% of a 300-contact list's layout
+    /// (`AzContacts`, 2026-10-06).
+    ///
+    /// Each cell holds its style BOXED: there is one cell per node of the
+    /// WHOLE document, and a `Style` is several hundred bytes. A pointer per
+    /// node is 8 bytes.
+    dom_styles: Vec<std::cell::OnceCell<Box<Style>>>,
+    /// The style of a layout box WITHOUT A PARENT (the root of the layout
+    /// tree): its DOM node's with the margin zeroed
+    /// ([`TaffyBridge::root_style`]), indexed by DOM node id like
+    /// [`Self::dom_styles`]. Its cells are made when the first such box is
+    /// asked for its style - a pass whose root is no flex or grid container
+    /// never makes them.
+    root_styles: std::cell::OnceCell<Vec<std::cell::OnceCell<Box<Style>>>>,
+}
+
+impl core::fmt::Debug for TaffyPassMemo {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Not the styles themselves: a context printed for a log would carry
+        // several hundred bytes of text per node.
+        f.debug_struct("TaffyPassMemo")
+            .field("dom_nodes", &self.dom_styles.len())
+            .field(
+                "styles",
+                &self.dom_styles.iter().filter(|c| c.get().is_some()).count(),
+            )
+            .finish_non_exhaustive()
+    }
+}
 
 /// How many bridges were made on this thread, and how many bytes one cell of
 /// their style memos takes (`audit_tests::a3_solver`: a bridge costs a pointer
@@ -739,6 +770,16 @@ thread_local! {
     pub(crate) static STYLE_CELL_BYTES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// How many DOM node styles were converted for taffy on this thread
+/// (`TaffyBridge::translate_style_to_taffy`), and how many cells of the style
+/// memos were made (`audit_tests::a3_solver`: once per node and pass, however
+/// many bridges the pass makes).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STYLE_CONVERSIONS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    pub(crate) static STYLE_CELLS_MADE: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     fn new(
         ctx: &'a mut LayoutContext<'b, T>,
@@ -747,33 +788,39 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
     ) -> Self {
         #[cfg(test)]
         BRIDGES_MADE.with(|n| n.set(n.get() + 1));
+        // The pass's style memo gets its cells from the first bridge: one per
+        // node of the styled DOM, which every later bridge of the pass finds
+        // again (a context holds one styled DOM for its whole life, so the
+        // lengths differ only while the memo is still empty). No `&Style` is
+        // lent here: `ctx` is held mutably.
         let dom_nodes = ctx.styled_dom.node_data.len();
-        let layout_nodes = tree.nodes.len();
+        let memo = &mut ctx.pass_memo.taffy;
+        if memo.dom_styles.len() != dom_nodes {
+            #[cfg(test)]
+            STYLE_CELLS_MADE.with(|n| n.set(n.get() + dom_nodes));
+            memo.dom_styles = core::iter::repeat_with(std::cell::OnceCell::new)
+                .take(dom_nodes)
+                .collect();
+            memo.root_styles = std::cell::OnceCell::new();
+        }
         Self {
             ctx,
             tree,
             text_cache,
-            calc_storage: std::cell::RefCell::new(Vec::new()),
-            dom_styles: core::iter::repeat_with(std::cell::OnceCell::new)
-                .take(dom_nodes)
-                .collect(),
-            node_styles: core::iter::repeat_with(std::cell::OnceCell::new)
-                .take(layout_nodes)
-                .collect(),
             default_style: Style::DEFAULT,
             width_only_rows: Vec::new(),
         }
     }
 
     /// Cache-backed wrapper for `translate_style_to_taffy`: built on the
-    /// first ask, lent after. Indexed by DOM node (not tree index) because
-    /// the result depends only on the styled DOM, not on the transient
-    /// layout tree.
+    /// first ask of the pass (`TaffyPassMemo::dom_styles`), lent after.
+    /// Indexed by DOM node (not tree index) because the result depends only
+    /// on the styled DOM, not on the transient layout tree.
     fn translate_style_to_taffy_cached(&self, dom_id: Option<NodeId>) -> &Style {
         let Some(id) = dom_id else {
             return &self.default_style;
         };
-        match self.dom_styles.get(id.index()) {
+        match self.ctx.pass_memo.taffy.dom_styles.get(id.index()) {
             Some(cell) => {
                 #[cfg(test)]
                 STYLE_CELL_BYTES.with(|n| n.set(core::mem::size_of_val(cell)));
@@ -793,6 +840,8 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         let Some(id) = dom_id else {
             return Style::default();
         };
+        #[cfg(test)]
+        STYLE_CONVERSIONS.with(|n| n.set(n.get() + 1));
         let styled_dom = &self.ctx.styled_dom;
         let node_data = &styled_dom.node_data.as_ref()[id.index()];
         let node_state = &styled_dom.styled_nodes.as_container()[id].styled_node_state;
@@ -850,13 +899,13 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
 
         let taffy_width = from_layout_width(
             width.unwrap_or_default(),
-            &self.calc_storage,
+            &self.ctx.pass_memo.taffy.calc_storage,
             em_size,
             rem_size,
         );
         let taffy_height = from_layout_height(
             height.unwrap_or_default(),
-            &self.calc_storage,
+            &self.ctx.pass_memo.taffy.calc_storage,
             em_size,
             rem_size,
         );
@@ -1536,69 +1585,85 @@ impl<'a, 'b, T: ParsedFontTrait> TaffyBridge<'a, 'b, T> {
         taffy_style
     }
 
-    /// The Taffy style of a layout node, built once ([`Self::node_styles`]).
+    /// The Taffy style of a layout node: its DOM node's
+    /// ([`Self::translate_style_to_taffy_cached`]), and for a box without a
+    /// parent that style with the margin zeroed ([`Self::root_style`]).
+    ///
+    /// Both are kept by DOM node for the whole pass (`TaffyPassMemo`), so no
+    /// bridge builds a style of its own. A bridge used to clone each node's
+    /// style into a memo per LAYOUT box (a cell per box of the whole tree,
+    /// made and dropped with every bridge) to adjust two things in the clone:
+    /// the root's margin, and the cross size of a stretched flex item, which
+    /// it set to `auto` - only where `should_suppress_cross_intrinsic` had
+    /// found it `auto` already. That second adjustment never changed a style
+    /// (asserted below), which leaves the root's margin.
     fn get_taffy_style(&self, node_idx: usize) -> &Style {
-        match self.node_styles.get(node_idx) {
-            Some(cell) => &**cell.get_or_init(|| Box::new(self.build_taffy_style(node_idx))),
-            None => &self.default_style,
+        let Some(node) = self.tree.get(LayoutNodeId::new(node_idx)) else {
+            return &self.default_style;
+        };
+        let style = self.translate_style_to_taffy_cached(node.dom_node_id);
+        debug_assert!(
+            self.cross_suppression_changes_nothing(node_idx, style),
+            "a stretched item's cross size is suppressed only where it is `auto` already"
+        );
+        if node.parent.is_none() {
+            return self.root_style(node.dom_node_id, style);
         }
+        style
     }
 
-    /// The Taffy style of a layout node: its DOM node's, adjusted.
-    fn build_taffy_style(&self, node_idx: usize) -> Style {
-        let dom_id = self
-            .tree
-            .get(LayoutNodeId::new(node_idx))
-            .and_then(|n| n.dom_node_id);
-        let mut style = self.translate_style_to_taffy_cached(dom_id).clone();
-
-        // CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
-        //
-        // The root element's margin is already resolved and subtracted from
-        // available_size by calculate_used_size_for_node() (sizing.rs). The
-        // resulting margin-adjusted size is passed to Taffy as known_dimensions.
-        //
-        // Taffy's layout algorithm reads margin from the style and subtracts it
-        // from known_dimensions internally. If we also pass the margin through
-        // the style, it gets subtracted twice:
-        //   1. calculate_used_size_for_node: viewport - margin → available_size
-        //   2. Taffy: known_dimensions - style.margin → content_area
-        //
-        // Zeroing the style margin for root nodes prevents this double-subtraction.
-        // This is NOT a hack — it's the correct integration point between Azul's
-        // BFC-level sizing and Taffy's Flex/Grid algorithm.
-        let is_root = self
-            .tree
-            .get(LayoutNodeId::new(node_idx))
-            .is_some_and(|n| n.parent.is_none());
-        if is_root {
-            style.margin = Rect::zero();
-        }
-
-        // FIX: Apply cross-axis intrinsic size suppression for stretch alignment.
-        // This enables align-self: stretch to work correctly by ensuring Taffy
-        // sees the cross-axis size as Auto (allowing stretch) rather than a definite value.
+    /// Whether setting the cross sizes [`Self::should_suppress_cross_intrinsic`]
+    /// names to `auto` would leave `style` as it is: it names a cross size
+    /// only where that size is `auto`. What lets [`Self::get_taffy_style`]
+    /// hand the DOM node's style out unchanged.
+    fn cross_suppression_changes_nothing(&self, node_idx: usize, style: &Style) -> bool {
         let (suppress_width, suppress_height) =
-            self.should_suppress_cross_intrinsic(node_idx, &style);
+            self.should_suppress_cross_intrinsic(node_idx, style);
+        (!suppress_width || style.size.width == Dimension::auto())
+            && (!suppress_height || style.size.height == Dimension::auto())
+    }
 
-        // Force the cross size to Auto: taffy treats Auto size + Stretch
-        // alignment as a signal to fill the line. The min-size stays as
-        // declared. A cross-axis `min-*: auto` has no content minimum, and
-        // taffy clamps nothing with it; a declared one clamps the stretched
-        // size again (CSS Flexbox 9.4 step 11, as Chrome does). An auto
-        // min-size must not become 0: under a min-content measure taffy
-        // hands the item its min cross size as a definite space, and the
-        // item would be laid out zero wide where the flex algorithm asks for
-        // its fit-content size.
-        if suppress_width {
-            style.size.width = Dimension::auto();
+    /// `style` - the style of DOM node `dom_id` - as the box at the root of
+    /// the layout tree hands it to taffy: with the margin zeroed, built on
+    /// the first ask of the pass (`TaffyPassMemo::root_styles`), lent after.
+    ///
+    /// CSS 2.1 § 10.3.3: Root element margin handling for Flex/Grid.
+    ///
+    /// The root element's margin is already resolved and subtracted from
+    /// available_size by calculate_used_size_for_node() (sizing.rs). The
+    /// resulting margin-adjusted size is passed to Taffy as known_dimensions.
+    ///
+    /// Taffy's layout algorithm reads margin from the style and subtracts it
+    /// from known_dimensions internally. If we also pass the margin through
+    /// the style, it gets subtracted twice:
+    ///   1. calculate_used_size_for_node: viewport - margin → available_size
+    ///   2. Taffy: known_dimensions - style.margin → content_area
+    ///
+    /// Zeroing the style margin for root nodes prevents this double-subtraction.
+    /// This is NOT a hack — it's the correct integration point between Azul's
+    /// BFC-level sizing and Taffy's Flex/Grid algorithm.
+    fn root_style<'s>(&'s self, dom_id: Option<NodeId>, style: &'s Style) -> &'s Style {
+        // A box without a DOM node has the default style, whose margin is zero.
+        let Some(id) = dom_id else {
+            return style;
+        };
+        let memo = &self.ctx.pass_memo.taffy;
+        let cells = memo.root_styles.get_or_init(|| {
+            #[cfg(test)]
+            STYLE_CELLS_MADE.with(|n| n.set(n.get() + memo.dom_styles.len()));
+            core::iter::repeat_with(std::cell::OnceCell::new)
+                .take(memo.dom_styles.len())
+                .collect()
+        });
+        match cells.get(id.index()) {
+            Some(cell) => &**cell.get_or_init(|| {
+                let mut zeroed = style.clone();
+                zeroed.margin = Rect::zero();
+                Box::new(zeroed)
+            }),
+            // A node the styled DOM does not have: `style` is the default.
+            None => style,
         }
-
-        if suppress_height {
-            style.size.height = Dimension::auto();
-        }
-
-        style
     }
 
     /// The node's explicit PIXEL `min-height` / `max-height` in BORDER-BOX terms
@@ -2024,8 +2089,9 @@ impl<T: ParsedFontTrait> LayoutPartialTree for TaffyBridge<'_, '_, T> {
 
     fn resolve_calc_value(&self, val: *const (), basis: f32) -> f32 {
         // SAFETY: `val` came from `store_calc_and_make_dimension` which stored
-        // a `Box<CalcResolveContext>` in `self.calc_storage`. The Box is alive for
-        // the lifetime of this TaffyBridge, and taffy only clears the low 3 bits.
+        // a `Box<CalcResolveContext>` in the pass's `TaffyPassMemo::calc_storage`,
+        // beside the style that holds the pointer. The Box is alive as long as
+        // the `LayoutContext` this bridge borrows, and taffy only clears the low 3 bits.
         let ctx = unsafe { &*val.cast::<CalcResolveContext>() };
         crate::solver3::calc::evaluate_calc(ctx, basis)
     }
@@ -5152,7 +5218,7 @@ mod autotest_generated {
     // ==================================================================
 
     #[cfg(all(feature = "text_layout", feature = "font_loading"))]
-    mod with_layout_context {
+    pub(super) mod with_layout_context {
         use azul_core::{
             dom::{Dom, DomId},
             selection::TextSelection,
@@ -5166,7 +5232,7 @@ mod autotest_generated {
         };
 
         /// Owns everything a `LayoutContext` borrows.
-        struct Env {
+        pub(in crate::solver3::taffy_bridge) struct Env {
             styled_dom: StyledDom,
             font_manager: FontManager<FontRef>,
             text_selections: BTreeMap<DomId, TextSelection>,
@@ -5188,7 +5254,7 @@ mod autotest_generated {
                 Self::of(Dom::create_body().with_child(Dom::create_div()))
             }
 
-            fn of(mut dom: Dom) -> Self {
+            pub(in crate::solver3::taffy_bridge) fn of(mut dom: Dom) -> Self {
                 let (css, _warnings) = azul_css::parser2::new_from_str("");
                 Self {
                     styled_dom: StyledDom::create(&mut dom, css),
@@ -5201,7 +5267,7 @@ mod autotest_generated {
                 }
             }
 
-            fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
+            pub(in crate::solver3::taffy_bridge) fn ctx(&mut self) -> LayoutContext<'_, FontRef> {
                 LayoutContext {
                     owner_colors: Default::default(),
                     seat_focus_rings: Vec::new(),
@@ -5551,6 +5617,131 @@ mod a_split_panes_paragraphs_are_laid_out_a_bounded_number_of_times_tests {
             flows <= 4 * paragraphs && visits <= 8 * paragraphs,
             "{paragraphs} paragraphs: {flows} text layouts, {visits} inline-context visits - a \
              measure of a pane's width laid the pane's whole text out again"
+        );
+    }
+}
+
+/// The A3-solver guards that need the bridge's private items (the others are
+/// in `audit_tests::a3_solver::taffy`). No layout is run here: a bridge is
+/// made over a context and a tree and asked directly.
+#[cfg(all(test, feature = "text_layout", feature = "font_loading"))]
+mod audit_a3_solver_tests {
+    use azul_core::dom::Dom;
+
+    use super::{autotest_generated::with_layout_context::Env, *};
+    use crate::solver3::layout_tree::generate_layout_tree;
+
+    /// A3-solver-18. Every bridge held its own memo of taffy styles, so two
+    /// bridges of one pass converted the style of every node they both
+    /// reached twice (`translate_style_to_taffy`, some 36 cascade getters),
+    /// and each made a cell per node of the document and per box of the tree.
+    /// The memo is the pass's (`TaffyPassMemo`): the second bridge converts
+    /// nothing and makes no cell.
+    ///
+    /// Mutation: a memo per bridge (`*memo = TaffyPassMemo::default()` in
+    /// `TaffyBridge::new`) converts every style again in the second bridge.
+    #[test]
+    fn two_bridges_of_one_pass_convert_each_nodes_style_once() {
+        // body > div > 3 x div.
+        let mut env = Env::of(
+            Dom::create_body().with_child(
+                Dom::create_div()
+                    .with_child(Dom::create_div())
+                    .with_child(Dom::create_div())
+                    .with_child(Dom::create_div()),
+            ),
+        );
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        let dom_nodes = ctx.styled_dom.node_data.len();
+        let boxes = tree.nodes.len();
+        // The DOM nodes that have a box: each one's style is asked for.
+        let styled: std::collections::BTreeSet<usize> = tree
+            .nodes
+            .iter()
+            .filter_map(|n| n.dom_node_id)
+            .map(|id| id.index())
+            .collect();
+        assert!(
+            styled.len() >= 5 && boxes >= 5,
+            "harness: the body, the div and its three children have boxes ({boxes} boxes of {} \
+             DOM nodes)",
+            styled.len()
+        );
+
+        STYLE_CONVERSIONS.with(|n| n.set(0));
+        STYLE_CELLS_MADE.with(|n| n.set(0));
+        let mut first: Vec<Style> = Vec::new();
+        {
+            let bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            for idx in 0..boxes {
+                first.push(bridge.get_taffy_style(idx).clone());
+            }
+        }
+        let converted_by_the_first = STYLE_CONVERSIONS.with(core::cell::Cell::get);
+        {
+            let bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+            for (idx, style) in first.iter().enumerate() {
+                assert!(
+                    bridge.get_taffy_style(idx) == style,
+                    "box {idx} hands the second bridge another style than the first"
+                );
+            }
+        }
+        let converted = STYLE_CONVERSIONS.with(core::cell::Cell::get);
+        let cells = STYLE_CELLS_MADE.with(core::cell::Cell::get);
+        assert_eq!(
+            converted_by_the_first,
+            styled.len(),
+            "the first bridge converts the style of each DOM node with a box once"
+        );
+        assert_eq!(
+            converted, converted_by_the_first,
+            "the second bridge of the pass converted styles again"
+        );
+        assert!(
+            cells >= dom_nodes && cells <= 2 * dom_nodes,
+            "two bridges over a document of {dom_nodes} nodes made {cells} memo cells: the \
+             pass's, by DOM node, and the root's"
+        );
+    }
+
+    /// A3-solver-18, the result: a box hands taffy the style of its DOM node,
+    /// and the box at the root of the tree that style with its margin zeroed
+    /// (the root's margin is taken off before taffy is asked) - what the
+    /// bridge's per-box clones held.
+    ///
+    /// Mutation: `root_style` handing `style` back keeps the body's margin.
+    #[test]
+    fn a_box_hands_taffy_its_nodes_style_and_the_root_box_zeroes_the_margin() {
+        let mut env = Env::of(
+            Dom::create_body().with_css("margin: 20px;").with_child(
+                Dom::create_div()
+                    .with_css("display: flex; margin-left: 7px;")
+                    .with_child(Dom::create_div().with_css("width: 30px; height: 10px;")),
+            ),
+        );
+        let mut ctx = env.ctx();
+        let mut tree = generate_layout_tree(&mut ctx).expect("the dom builds");
+        let root = tree.root;
+        let boxes = tree.nodes.len();
+        let bridge = TaffyBridge::new(&mut ctx, &mut tree, core::ptr::null_mut());
+        for idx in 0..boxes {
+            let node = bridge.tree.get(LayoutNodeId::new(idx)).expect("a box of the tree");
+            let (dom_id, parentless) = (node.dom_node_id, node.parent.is_none());
+            let mut expected = bridge.translate_style_to_taffy(dom_id);
+            if parentless {
+                expected.margin = Rect::zero();
+            }
+            assert!(
+                *bridge.get_taffy_style(idx) == expected,
+                "box {idx} (parentless: {parentless}) hands taffy another style than its DOM \
+                 node's"
+            );
+        }
+        assert!(
+            bridge.get_taffy_style(root).margin == Rect::zero(),
+            "the root box hands taffy a margin"
         );
     }
 }
