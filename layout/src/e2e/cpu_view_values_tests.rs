@@ -612,8 +612,11 @@ fn a6_25_a_frame_with_nothing_written_collects_no_gpu_value() {
     assert_eq!(collected() - before, per_frame, "a value was written");
     assert_eq!(red_box(&zoomed), Some(z.on_screen((60.0, 35.0, 80.0, 60.0))));
     assert_the_frame_is_what_a_full_paint_gives(&z, &zoomed, "after the write");
+    // Counted from here: the check above paints with a backend of its own, whose first
+    // frame collects its values into the same (thread's) counter.
+    let before = collected();
     let _ = z.frame(&mut backend);
-    assert_eq!(collected() - before, per_frame, "and not again");
+    assert_eq!(collected() - before, 0, "and not again");
 
     // A value written straight into a public map of the view's cache: no method, no note.
     z.lw
@@ -637,8 +640,10 @@ fn a6_25_a_frame_with_nothing_written_collects_no_gpu_value() {
     let again = z.frame(&mut backend);
     assert_eq!(collected() - before, per_frame, "another list: its values are collected");
     assert_the_frame_is_what_a_full_paint_gives(&z, &again, "after the list was built again");
+    // As above: the check's own backend collected too.
+    let before = collected();
     let _ = z.frame(&mut backend);
-    assert_eq!(collected() - before, per_frame);
+    assert_eq!(collected() - before, 0, "the same list again: nothing is collected");
 
     // A shell that forgets the backend's list (its way to force a full frame) collects too.
     backend.previous_display_list = None;
