@@ -1166,6 +1166,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     )
                 })
             };
+            // An out-of-flow box whose restyle changed its size or its text
+            // alone is its own root: no sibling moves with it and its parent
+            // holds nothing of it (`cache::restyled_out_of_flow_box_stands_alone`).
+            let size_only = cache::restyled_in_size_only(css_dirty);
+            let stands_alone = |idx: usize| {
+                new_tree.nodes.get(idx).is_some_and(|n| {
+                    n.dom_node_id.is_some_and(|dom| size_only.contains(&dom))
+                        && new_tree.warm(LayoutNodeId::new(idx)).is_some_and(|w| {
+                            cache::restyled_out_of_flow_box_stands_alone(
+                                w.computed_style.position,
+                                n.parent
+                                    .and_then(|p| new_tree.nodes.get(p))
+                                    .map(|p| p.formatting_context),
+                                any_columns,
+                            )
+                        })
+                })
+            };
             let mut dirty_roots = std::collections::BTreeSet::new();
             for (dom_id_dirty, scope) in css_dirty {
                 if *scope == azul_css::props::property::RelayoutScope::None {
@@ -1197,7 +1215,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 // thumb of 400 (a_grown_scroll_box_paints_its_thumb_from_
                 // the_layout_that_grew_it). A flex / grid item or an
                 // inline-level box is lifted to its container below anyway.
-                let root = if cache::lift_to_slot_container(idx, &node_of) == idx {
+                let root = if stands_alone(idx) {
+                    idx
+                } else if cache::lift_to_slot_container(idx, &node_of) == idx {
                     new_tree
                         .nodes
                         .get(idx)
@@ -1212,7 +1232,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // inline-level box is re-solved by its container, or its
             // siblings keep the slots they had; a box in a multi-column
             // flow by the multi-column container.
-            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, node_of);
+            let promoted = cache::promote_layout_roots_to_containers_but(
+                &dirty_roots,
+                node_of,
+                stands_alone,
+            );
             recon_result.layout_roots.extend(promoted);
             // A root below another one is laid out by that one's pass (the
             // reconcile's own roots were cleaned the same way).
@@ -1753,7 +1777,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     (None, Some(_)) => true,
                     _ => false,
                 };
-                if changed {
+                // A box out of the flow that came out another size grows no
+                // box around it and moves none beside it: nothing follows.
+                let out_of_flow = matches!(
+                    positioning::get_position_type(
+                        new_dom,
+                        new_tree.nodes.get(root_idx).and_then(|n| n.dom_node_id),
+                    ),
+                    azul_css::props::layout::LayoutPosition::Absolute
+                        | azul_css::props::layout::LayoutPosition::Fixed
+                ) && !fc::is_marker_box(&new_tree, root_idx);
+                if changed && !out_of_flow {
                     resized.insert(root_idx);
                 }
             }

@@ -1296,6 +1296,78 @@ pub(crate) fn promote_layout_roots_to_containers(
         .collect()
 }
 
+/// [`promote_layout_roots_to_containers`] for all roots but the ones `alone`
+/// names, which stay their own roots ([`restyled_out_of_flow_box_stands_alone`]).
+pub(crate) fn promote_layout_roots_to_containers_but(
+    roots: &BTreeSet<usize>,
+    node: impl Fn(usize) -> Option<(Option<usize>, FormattingContext, bool)>,
+    alone: impl Fn(usize) -> bool,
+) -> BTreeSet<usize> {
+    let (kept, lifted): (BTreeSet<usize>, BTreeSet<usize>) =
+        roots.iter().copied().partition(|&idx| alone(idx));
+    let mut promoted = promote_layout_roots_to_containers(&lifted, node);
+    promoted.extend(kept);
+    promoted
+}
+
+/// The DOM nodes of `css_dirty` whose restyle changed what lays out without
+/// reaching the scope `Full`: their size or their text moved (`SizingOnly`,
+/// `IfcOnly`), not their `position`, `display`, `float`, margins or insets.
+#[must_use]
+pub(crate) fn restyled_in_size_only(
+    css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
+) -> BTreeSet<NodeId> {
+    use azul_css::props::property::RelayoutScope;
+    let mut nodes: BTreeSet<NodeId> = css_dirty
+        .iter()
+        .filter(|(_, scope)| matches!(scope, RelayoutScope::IfcOnly | RelayoutScope::SizingOnly))
+        .map(|(node, _)| *node)
+        .collect();
+    for (node, scope) in css_dirty {
+        if *scope == RelayoutScope::Full {
+            nodes.remove(node);
+        }
+    }
+    nodes
+}
+
+/// Whether a box whose restyle changed its size or its text
+/// ([`restyled_in_size_only`]) is laid out as its own layout root: an
+/// absolutely or fixed positioned box under a block container, in a document
+/// without multi-column flow.
+///
+/// A restyled box of block flow is laid out by its PARENT (the css-dirty
+/// channel of `layout_document`), and an inline-level one or a block that
+/// holds only inline content is lifted to it ([`lift_to_slot_container`]):
+/// its new size moves its siblings and changes what the parent holds. None of
+/// that holds for a box that is out of the flow and stays out of it: no
+/// sibling moves, the parent's size, intrinsic sizes and scroll extent do not
+/// take it in (`fc::layout_bfc` skips it, `sizing::adds_nothing_to_its_parent`),
+/// and the positioning pass places it from its containing block and its own
+/// size. Laid out by its parent, one restyled label of a map's layer laid the
+/// whole layer out again: its 12,000 static positions and a visit of every
+/// label.
+///
+/// Not under a flex or grid container (taffy places its absolutely
+/// positioned children with the container) or a part of a table.
+#[must_use]
+pub(crate) fn restyled_out_of_flow_box_stands_alone(
+    position: LayoutPosition,
+    parent_fc: Option<FormattingContext>,
+    any_columns: bool,
+) -> bool {
+    !any_columns
+        && matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed)
+        && matches!(
+            parent_fc,
+            Some(
+                FormattingContext::Block { .. }
+                    | FormattingContext::Inline
+                    | FormattingContext::InlineBlock
+            )
+        )
+}
+
 /// The layout roots with no ancestor among them: a root's pass lays out its
 /// whole subtree, so a root below another one needs no pass of its own.
 /// `parent_of` yields a node's parent. The one cleanup for both producers of
@@ -1601,7 +1673,24 @@ pub fn reposition_block_flow_siblings(
         let child_main_sum = child_bp.margin.main_sum(writing_mode);
         let margin_box_main_size = child_size.main(writing_mode) + child_main_sum;
 
+        // A box out of the flow takes no room in it: one laid out again as a
+        // root moves nothing however it grew, and a clean one behind a root
+        // follows the flow (its static position) without being stacked into
+        // it.
+        let out_of_flow = matches!(
+            get_position_type(
+                styled_dom,
+                // (A box of a node the DOM does not hold is taken for in flow.)
+                child_node
+                    .dom_node_id
+                    .filter(|id| id.index() < styled_dom.node_data.len()),
+            ),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) && !fc::is_marker_box(tree, child_idx);
         if layout_roots.contains(&child_idx) {
+            if out_of_flow {
+                continue;
+            }
             // Laid out again by this pass, at the place it had.
             if calculated_positions.get(child_idx).is_none() {
                 continue;
@@ -1689,7 +1778,9 @@ pub fn reposition_block_flow_siblings(
                 shift_subtree_position(child_idx, delta, tree, calculated_positions);
             }
 
-            main_pen = Some(pen + margin_box_main_size);
+            if !out_of_flow {
+                main_pen = Some(pen + margin_box_main_size);
+            }
         } else if shift != 0.0 {
             // This child is *clean*, behind roots that grew by `shift`.
             shift_subtree_position(
@@ -1967,8 +2058,12 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
     // `reposition_clean_subtrees` comment always claimed the parent would
     // "already be a layout root"; now it is.)
     let any_columns = crate::solver3::multicol::dom_declares_columns(ctx.styled_dom);
-    let promoted_layout_roots =
-        promote_layout_roots_to_containers(&recon_result.layout_roots, |idx| {
+    // ...but for an out-of-flow box whose restyle changed its size or text
+    // alone: it is its own root (`restyled_out_of_flow_box_stands_alone`).
+    let size_only = restyled_in_size_only(css_dirty);
+    let promoted_layout_roots = promote_layout_roots_to_containers_but(
+        &recon_result.layout_roots,
+        |idx| {
             new_tree_builder.get(idx).map(|n| {
                 (
                     n.parent,
@@ -1977,7 +2072,20 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
                         && crate::solver3::multicol::is_multicol_box(ctx.styled_dom, n.dom_node_id),
                 )
             })
-        });
+        },
+        |idx| {
+            new_tree_builder.get(idx).is_some_and(|n| {
+                n.dom_node_id.is_some_and(|dom| size_only.contains(&dom))
+                    && restyled_out_of_flow_box_stands_alone(
+                        n.computed_style.position,
+                        n.parent
+                            .and_then(|p| new_tree_builder.get(p))
+                            .map(|p| p.formatting_context),
+                        any_columns,
+                    )
+            })
+        },
+    );
     recon_result.layout_roots = promoted_layout_roots;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.

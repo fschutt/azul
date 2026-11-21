@@ -1427,6 +1427,68 @@ fn a_sticky_box_beside_a_re_laid_one_keeps_its_static_place_for_later_scrolls() 
     );
 }
 
+/// `body(0) > .layer(1) > 200 x [div.l(2 + 2 i) > text]`, label 70 of class `s` as well: a
+/// layer of absolutely positioned labels, one of which a stylesheet can restyle.
+fn layer_with_one_marked_label() -> Dom {
+    use azul_core::dom::IdOrClass::Class;
+    let mut layer = div_class("layer");
+    for i in 0..200 {
+        let classes = if i == 70 {
+            vec![Class("l".into()), Class("s".into())]
+        } else {
+            vec![Class("l".into())]
+        };
+        layer = layer.with_child(
+            Dom::create_div_with_text(format!("label {i}"))
+                .with_ids_and_classes(classes.into())
+                .with_css(&format!("left: {}px; top: {}px;", (i % 50) * 10, (i / 50) * 9)),
+        );
+    }
+    Dom::create_body().with_child(layer)
+}
+
+/// A3-solver-30. A box whose restyle changes what lays out is laid out by its parent (the
+/// css-dirty channel of `layout_document`), and a block that holds only inline content is lifted
+/// to it as if it were on one of its lines (`cache::lift_to_slot_container`). For a label of a
+/// map's layer that is the layer: one label marked - a wider padding - and the layer was laid
+/// out again, the static position of each of its labels found among its children and every
+/// label visited. An absolutely positioned box whose size or text alone changed moves no
+/// sibling and nothing of its parent: it is laid out as its own root.
+///
+/// Counted: the lookups `cache::process_out_of_flow_children` makes for the static positions of
+/// a block's children (`CHILD_LOOKUP_STEPS`); the layer makes one per label when it is laid
+/// out, a label none.
+///
+/// Mutation: `restyled_out_of_flow_box_stands_alone` answering `false` lays the layer out
+/// (more than 200 lookups).
+#[test]
+fn a_restyled_label_is_laid_out_without_its_layer() {
+    use crate::solver3::cache::CHILD_LOOKUP_STEPS;
+    let page: fn() -> Dom = layer_with_one_marked_label;
+    let base = "body { margin: 0; } \
+                .layer { position: relative; width: 600px; height: 400px; } \
+                .l { position: absolute; }";
+    let (first, second) = (
+        format!("{base} .s {{ padding-left: 0px; }}"),
+        format!("{base} .s {{ padding-left: 6px; }}"),
+    );
+    let mut lw = window();
+    lay_out_styled(&mut lw, styled_page(page(), &first));
+    let mut next = styled_page(page(), &second);
+    let _pending =
+        lw.begin_reconciliation(DomId::ROOT_ID, &mut next, azul_core::task::Instant::now());
+    CHILD_LOOKUP_STEPS.with(|n| n.set(0));
+    lay_out_styled(&mut lw, next);
+    let lookups = CHILD_LOOKUP_STEPS.with(std::cell::Cell::get);
+    assert_eq!(
+        lookups, 0,
+        "one restyled label made its layer look {lookups} static positions up among its children"
+    );
+    // The marked label (2 + 2 * 70 = 142), its text and its neighbours stand as in a fresh
+    // layout of the second stylesheet.
+    assert_as_in_a_fresh_layout(&lw, &fresh(page, &second), &[2, 140, 141, 142, 143, 144, 400]);
+}
+
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
