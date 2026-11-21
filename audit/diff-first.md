@@ -616,6 +616,56 @@ a node with the style of ANOTHER node (rows handed to the wrong node) or with it
    entries alone when it does not (`recascade_nodes(.., dirty = subtree of x or nothing, moved_in_place = {x})`
    reads `user_overridden_properties` in the compact builder's step 4b and in `apply_cascade_properties` step 5).
 
+## For area dom-builder
+
+Checked against `regenerate_layout` at this branch's tip (after the steps `tree` and `view`), for the two lines
+of `audit/dom-builder.md`, "## For area diff-first" (1):
+
+**The two lines stand as written.** Both sites are unchanged here: step 1.35 still reads
+`let _ = layout_window.resolve_form_controls(&mut user_dom);` and the early diff
+`Some(azul_core::diff::fingerprint_dom(&user_dom))`, with `user_dom` a `let mut`. `DomFingerprints` has the seven
+fields it had at `cfc4d6d72` (no tier was added), so `prev != Some(&out.0)` in `fingerprint_built_dom_against`
+compares what it compared.
+
+**One thing the merge has to place by hand, or a flat DOM reaches a tree walk:** the note's reason "the only
+later reader of `user_dom` is `style_user_dom_for`, which expands it" has a second reader here. When the `Dom`
+stays flat (fingerprints equal) and exit A's gate still fails on the node count (the retained arena is not the
+shape of the fingerprints: a generated node, a resolved icon), exit 1.47 reads it:
+`layout_window.flatten_user_dom_for(user_dom, current_window_state)`. And the body `dom.expand_flat()` was added to
+(`LayoutWindow::style_user_dom_inheriting`, dom-builder `layout/src/window.rs` 25435) has MOVED on this branch:
+`style_user_dom_inheriting` is now `flatten_user_dom_inheriting(..)` + `StyledDom::cascade_at_rest()`, and its
+parameter is `dom: Dom` (no `mut`). The merge will conflict there. Resolve it so that the line is the first
+statement of `flatten_user_dom_inheriting`:
+```
+    pub fn flatten_user_dom_inheriting(
+        &self,
+        mut dom: Dom,
+        window_state: &FullWindowState,
+        form_scope: u64,
+        inherited_from_host: azul_core::prop_cache::InheritedFromHost,
+    ) -> StyledDom {
+        // A DOM its builder handed over flat (`azul_core::dom::DomBuilder`) is
+        // a tree from here on: every pass below walks one.
+        dom.expand_flat();
+        // The form controls are widgets built HERE, after `layout()`
+```
+and `style_user_dom_inheriting` stays the two-line wrapper it is here. Then every way to a styled DOM expands:
+`style_user_dom_for` / `style_user_dom_inheriting` (through the wrapper), `flatten_user_dom_for` (exit 1.47) and
+the view's re-render under the step `view` (which calls `flatten_user_dom_inheriting` directly; its site's
+`fingerprint_built_dom(&dom)` is unchanged here).
+
+**What the steps `tree` and `view` read of the builder's fingerprints**, beyond what the first half read:
+`structure.len()` (must be the arena's node count for any row to be kept) and `sheets` (the hash of the sheets hung
+on each node, by pre-order index; `StyledDom::cascade_reusing` compares the old build's entry of a node with the
+new build's). A builder whose `sheets` differ from `fingerprint_dom`'s for the same tree makes the cascade keep
+no row of that node (correct, slow), or - if two different sheets hashed alike - keep a row it must not: the
+builder's `hash_sheets` has to stay the copy of `node_sheets_hash` it is
+(`a_ui_built_both_ways_is_the_same_tree_with_the_same_fingerprints` on that branch says so).
+
+The note's (2), (3), (5) (`nodes_at` for a flat `Dom`, `fingerprint_dom` itself flat-aware, a view's changed
+rebuild reading `flat_node_data_at`) touch nothing these steps changed: exit 1.47 and the view's step read the
+ARENA after the flatten, never `nodes_at`.
+
 ## Hand-over (kept current at every commit)
 
 **Built (branch `audit/diff-first`, all `[unverified]`):**
