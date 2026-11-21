@@ -259,6 +259,16 @@ arguments through it: run the built binary instead, cwd = the crate, `CARGO_MANI
 delete stale binaries (`find $S/azul-target/debug/deps -maxdepth 1 -type f -perm +111 ! -name '*.dylib'
 -delete; rm -f $S/azul-target/debug/deps/libazul.a $S/azul-target/debug/deps/libazul.dylib`). Disk: about 9.8 GB
 free with the target directory at 3.5 GB; `run` refuses under 9 GB.
+AFTER the checkpoint (the coordinator's order, in sequence): (1) `scripts/e2e.sh` on the checkpoint build, one
+line to the coordinator; (2) azul: `audit/diff-first` at `3afb0f554` is merged (`5b7f319a3`); run
+`<scratchpad>/verify/gate3.sh` (results in `gate3.txt`), MILESTONE 6 with the new verified commit (full hash); if
+green apart from the font test race the coordinator pushes; (3) on its word: the editor's pin to that commit (four
+rev lines, lock via `cargo update -p azul-dll` or any build; bindings unchanged if `api.json` is), plain release
+build, the binary to `~/Development/m4p-bin/mapedit3-<new short m4p hash>`, `scripts/e2e.sh` again, the budgets
+calibration (`python3 -I mapedit3/scripts/budgets.py calibrate --keep-logs <dir>`, then `--apply`), `perf_matrix.py`
+three ways (default; `AZ_DL_TRANSLATE_MOVED_RUNS=1`; `AZ_MOVE_IN_PLACE=0`); (4) at the end leave the shared
+`~/Development/m4p/mapedit3/target/release/mapedit3` as the final PLAIN release build of the new pin and tell the
+coordinator its hash.
 <!-- STATE-END -->
 
 ## State for a successor (the FIRST verifier's hand-over at `a23a72fde`; superseded by the section above)
@@ -557,3 +567,27 @@ GIT_CONFIG_VALUE_0=https://github.com/fschutt/azul` (cargo found `98a2ebd8b` wit
   `m4p_types::GlobalOptions` -> `m4p_types::config::GlobalOptions` (A7-editor-41, `project_io.rs` x 2, `pdf.rs`);
   `Recorder`'s derived `Default` with `[u64; 35]` (E0277) written out (`frames.rs`). Then 0 errors.
 - m4p commits: `22725f9` (the two compile fixes), `8cf454d` (the pin). Not pushed.
+- plain release build (`prun 91-pin-release build --release -j 2`): 0 errors, 6 min 18 s. **The checkpoint binary:
+  `~/Development/m4p-bin/mapedit3-8cf454d`** (59,139,760 bytes, sha256 `d6c9287a5d84fad9...`; m4p `8cf454d` on azul
+  `98a2ebd8b`; default features).
+- `cargo check --features e2e`: 0 errors (the `debug/` check units the two checks made in the shared target, 0.9 GB,
+  deleted after).
+- the editor's tests, in RELEASE (`cargo test --release --bin mapedit3`: a debug build of azul does not fit the
+  disk; the release profile shares its dependencies with the test build): **233 passed, 2 failed, 12 ignored**.
+  Both fail alone too, both are audit tests of the editor's areas (sent to the coordinator):
+  `cli::ops::audit_a7_types_tests::a_refused_block_op_leaves_the_corrections_as_they_were` (`src/cli/ops.rs:1270:58`
+  "called `Option::unwrap()` on a `None` value": after the good `move_block` with `columns: 2` answered ok,
+  `c.street_index_blocks` is empty) and
+  `ui::main::cleanup::audit_a7_editor_tests::a_terminal_formats_only_the_rows_it_shows` (`cleanup.rs:1441`
+  "207 allocations for 1,000 rows, 94 for 4,000": left 207, right 94: the count does not grow with the rows, the
+  first measured call holds 113 more).
+- `scripts/e2e.sh` (with `pinenv.sh` sourced; builds `--release --features e2e` into the shared target and
+  OVERWRITES the shared `target/release/mapedit3`; the e2e binary is copied to `<m4p worktree>/mapedit3/target/e2e/
+  mapedit3-e2e`; log `94-e2e`): result below.
+
+### After the checkpoint: the fix of the open core test (towards milestone 6)
+
+- merge `audit/diff-first` at `3afb0f554` (`5b7f319a3`, no conflict): diff-first-19 completed (`core/src/prop_cache.rs`,
+  `core/src/styled_dom_test.rs`). The gate for it: `<scratchpad>/verify/gate3.sh` -> `gate3.txt` (core lib, core
+  `--tests`, layout lib + `tests/all`, dll lib, `headless_lifecycle`; css, the cross checks and the fork stand:
+  untouched by a core-only commit). Started after the e2e scenarios (one build at a time).
