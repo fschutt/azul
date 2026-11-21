@@ -2835,6 +2835,10 @@ pub enum ImageSlot {
     Node(DomId, NodeId),
     /// A background layer's callback frame.
     Background(BackgroundSlot),
+    /// A text shadow kept as a picture (a label's halo), by the number the
+    /// keeper of the pictures gives it: the picture drawn at the label's new
+    /// size replaces, under the one key, the one that stood in for it.
+    TextHalo(u64),
 }
 
 /// Renderer resources that manage font, image and font instance keys.

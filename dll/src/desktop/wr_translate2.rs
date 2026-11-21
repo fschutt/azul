@@ -901,14 +901,28 @@ pub fn collect_image_resource_updates(
     // AddImage messages, which only cover *newly*-seen images).
     azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
 ) {
-    let (updates, live, _halos_left) =
-        collect_image_resource_updates_and_halos_left(layout_window, renderer_resources);
+    let (updates, live, _halos) =
+        collect_image_resource_updates_and_halos(layout_window, renderer_resources);
     (updates, live)
 }
 
-/// [`collect_image_resource_updates`] and the number of text halos the scan
-/// left for a later frame (its budget ran out).
-fn collect_image_resource_updates_and_halos_left(
+/// What a scan of the display lists found of text halos
+/// ([`collect_image_resource_updates_and_halos`]).
+#[derive(Debug, Default)]
+struct HaloScan {
+    /// The halos the scan's budget left for a later frame.
+    left: usize,
+    /// Every text shadow the lists paint as a kept picture, per DOM in list
+    /// order, exactly as a translation of the lists made now paints it
+    /// (`compositor2`, which asks the same question of the same pictures).
+    painted: Vec<(DomId, Vec<azul_layout::cpurender::TextHalo>)>,
+}
+
+/// [`collect_image_resource_updates`] and the text halos of the lists. The
+/// pictures of the halos are in the live set and NOT among the images to add:
+/// a halo is painted from a slot, whose key outlives the picture it shows
+/// ([`register_text_halos`]).
+fn collect_image_resource_updates_and_halos(
     layout_window: &LayoutWindow,
     renderer_resources: &azul_core::resources::RendererResources,
 ) -> (
@@ -917,7 +931,7 @@ fn collect_image_resource_updates_and_halos_left(
         azul_core::resources::AddImageMsg,
     )>,
     azul_core::FastBTreeSet<azul_core::resources::ImageRefHash>,
-    usize,
+    HaloScan,
 ) {
     use azul_core::{resources::build_add_image_resource_updates, FastBTreeSet};
 
@@ -932,7 +946,7 @@ fn collect_image_resource_updates_and_halos_left(
     // colour through that mask - it has no vector rasteriser - so the mask is
     // uploaded like any other image; the CPU backend ignores it and strokes the
     // outline directly). ONE scan, the image GC's and the e2e runner's too.
-    let mut images_in_display_list: FastBTreeSet<ImageRef> =
+    let images_in_display_list: FastBTreeSet<ImageRef> =
         layout_window.images_in_display_lists().cloned().collect();
 
     // The text shadows the compositor paints as kept pictures: drawn here the
@@ -948,21 +962,39 @@ fn collect_image_resource_updates_and_halos_left(
     // the translation of these lists will find, so each is in the live set below.
     let dpi = layout_window.current_window_state.size.get_hidpi_factor().inner.get();
     let (free, time) = halo_budget();
+    let mut painted: Vec<(DomId, Vec<azul_layout::cpurender::TextHalo>)> = Vec::new();
     let ((), halos_left) = azul_layout::cpurender::within_halo_budget(
         free,
         time,
         || {
-            for layout_result in layout_window.layout_results.values() {
-                for halo in azul_layout::cpurender::text_halos(
+            for (dom_id, layout_result) in &layout_window.layout_results {
+                let halos = azul_layout::cpurender::text_halos(
                     &layout_result.display_list.items,
                     dpi,
                     Some((renderer_resources, &layout_window.font_manager)),
-                ) {
-                    images_in_display_list.insert(halo.image);
+                );
+                if !halos.is_empty() {
+                    painted.push((*dom_id, halos));
                 }
             }
         },
     );
+    // A scan that drew or dropped a picture, or showed one that waited, changed
+    // what the shadows it had looked at before are painted with: the picture
+    // that stood in for a shape is another one now, a slot shows another
+    // picture. What the lists paint is then asked once more, the way their
+    // translation asks (without fonts: nothing is drawn, nothing counted twice),
+    // so that what is registered is what a translation finds.
+    if azul_layout::cpurender::halo_scan_changed_pictures() {
+        painted.clear();
+        for (dom_id, layout_result) in &layout_window.layout_results {
+            let halos =
+                azul_layout::cpurender::text_halos(&layout_result.display_list.items, dpi, None);
+            if !halos.is_empty() {
+                painted.push((*dom_id, halos));
+            }
+        }
+    }
     if halos_left > 0 {
         log_debug!(
             LogCategory::Rendering,
@@ -971,10 +1003,16 @@ fn collect_image_resource_updates_and_halos_left(
         );
     }
 
-    // The live set as hashes (identity), for the GC diff in the caller.
+    // The live set as hashes (identity), for the GC diff in the caller: the
+    // images of the lists and the pictures the halos are painted with.
     let live_hashes: FastBTreeSet<azul_core::resources::ImageRefHash> = images_in_display_list
         .iter()
         .map(azul_core::resources::image_ref_get_hash)
+        .chain(
+            painted
+                .iter()
+                .flat_map(|(_, halos)| halos.iter().map(|halo| halo.image.get_hash())),
+        )
         .collect();
 
     // Build AddImage messages for new images using our gl_texture_integration
@@ -1006,7 +1044,14 @@ fn collect_image_resource_updates_and_halos_left(
         image_updates.len()
     );
 
-    (image_updates, live_hashes, halos_left)
+    (
+        image_updates,
+        live_hashes,
+        HaloScan {
+            left: halos_left,
+            painted,
+        },
+    )
 }
 
 /// This scans all display lists for Text items, extracts their font_hashes,
@@ -1536,13 +1581,19 @@ pub(crate) fn register_frame_resources(
 fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
     let follow_up = layout_window.gpu_state_manager.halos_owed;
     // --- Images ---
-    let (image_updates, live_image_hashes, halos_left) =
-        collect_image_resource_updates_and_halos_left(layout_window, &layout_window.renderer_resources);
+    let (image_updates, live_image_hashes, halos) =
+        collect_image_resource_updates_and_halos(layout_window, &layout_window.renderer_resources);
     {
         let state = &mut layout_window.gpu_state_manager;
         state.halo_follow_ups = if follow_up { state.halo_follow_ups + 1 } else { 0 };
-        state.halos_owed = halos_left > 0 && state.halo_follow_ups < HALO_FOLLOW_UPS_MAX;
+        state.halos_owed = halos.left > 0 && state.halo_follow_ups < HALO_FOLLOW_UPS_MAX;
     }
+
+    // --- Text halos: each slot's picture under the slot's key ---
+    // BEFORE the image GC below: a slot that shows a new picture forgets the
+    // old one here (`release_frame`), so the GC does not delete the slot's key
+    // for a picture the key no longer shows.
+    register_text_halos(layout_window, txn, &halos);
 
     // Update currently_registered_images + the reverse image_key_map lookup so
     // the display-list builder can resolve an ImageRefHash to its ImageKey.
@@ -1572,6 +1623,7 @@ fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransa
     // is a never-reused id, so a freed key can't collide with a future image.
     let image_deletes = collect_stale_image_deletes(layout_window, &live_image_hashes);
     if !image_deletes.is_empty() {
+        forget_deleted_halo_slots(&mut layout_window.renderer_resources, &image_deletes);
         let wr_image_deletes: Vec<webrender::ResourceUpdate> = image_deletes
             .into_iter()
             .filter_map(|del| translate_resource_update(del))
@@ -1601,6 +1653,124 @@ fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransa
             txn.update_resources(wr_image_resources);
         }
     }
+}
+
+/// The text halos of a scan, registered with the renderer: every SLOT the lists
+/// paint a halo from (`TextHalo::slot`) has one image key for as long as it is
+/// painted, and the key shows the slot's picture - `add_image` the first time,
+/// `update_image` when the slot shows another picture (the label's own, drawn
+/// into the place of the one that stood in for it, `cpurender::text_halo`).
+/// The picture's hash resolves to the slot's key, which is how the translation
+/// finds it (`compositor2`, `PushTextShadow`).
+///
+/// Then what each DOM's list paints of halos - per shadow the key, the rect,
+/// the colour - is compared, as a digest, with what the scan before found
+/// (`GpuStateManager::text_halo_digests`), and a DOM for which it differs is
+/// marked: its list goes again (`text_halo_stale`, [`submit_display_lists`]).
+/// So a list is sent again exactly when the translation of its halos would
+/// come out different. A scan that only replaced pictures under their keys
+/// marks nothing, every list stays where it is, and its transaction carries
+/// image updates and nothing else (audit A4, the frames after a zoom settles:
+/// each one translated every list and built a scene, 17,495 items a frame on a
+/// municipal map, to say "this label's halo is that picture now").
+///
+/// The order of a slot's updates across transactions - its `add_image` before
+/// every `update_image` - holds because a transaction with resource updates
+/// never skips the scene builder ([`skip_scene_builder_unless_it_carries_resources`]).
+fn register_text_halos(layout_window: &mut LayoutWindow, txn: &mut WrTransaction, halos: &HaloScan) {
+    use azul_core::resources::ImageSlot;
+
+    let namespace = layout_window.id_namespace;
+    // Each slot once, with the picture it shows. (Two shadows of one slot show
+    // one picture: a slot is a kept picture's, and the scan asked what the
+    // lists paint only after it had drawn.)
+    let mut seen: HashSet<u64> = HashSet::new();
+    let frames = halos
+        .painted
+        .iter()
+        .flat_map(|(_, list)| list.iter())
+        .filter(|halo| seen.insert(halo.slot))
+        .map(|halo| (ImageSlot::TextHalo(halo.slot), &halo.image, ImageDirtyRect::All));
+    let uploads =
+        plan_overlay_image_uploads(frames, &mut layout_window.renderer_resources, namespace);
+    for upload in uploads {
+        let key = translate_image_key(upload.key);
+        let descriptor = wr_translate_image_descriptor(&upload.descriptor);
+        let data = translate_image_data(upload.data);
+        if upload.update {
+            // Another picture, and as a rule another size: the whole of it.
+            txn.update_image(key, descriptor, data, &DirtyRect::All);
+        } else {
+            txn.add_image(key, descriptor, data, None);
+        }
+    }
+
+    // What each DOM's list paints of halos now, against what the last scan
+    // found: a DOM for which that differs has a list the renderer holds
+    // translated otherwise.
+    let mut found: BTreeMap<DomId, u64> = BTreeMap::new();
+    for (dom_id, list) in &halos.painted {
+        let mut digest = FrameDigest::new();
+        digest.push_u64(list.len() as u64);
+        for halo in list {
+            let key = layout_window
+                .renderer_resources
+                .currently_registered_images
+                .get(&halo.image.get_hash())
+                .map_or(u64::MAX, |resolved| resolved.key.key);
+            digest.push_u64(halo.push as u64);
+            digest.push_u64(key);
+            digest.push_f32(halo.origin.0);
+            digest.push_f32(halo.origin.1);
+            digest.push_f32(halo.size.0);
+            digest.push_f32(halo.size.1);
+            digest.push_u64(u64::from(u32::from_be_bytes([
+                halo.color.r,
+                halo.color.g,
+                halo.color.b,
+                halo.color.a,
+            ])));
+        }
+        found.insert(*dom_id, digest.finish());
+    }
+    let LayoutWindow {
+        ref layout_results,
+        gpu_state_manager: ref mut state,
+        ..
+    } = *layout_window;
+    // (A DOM that is gone has no list to send.)
+    state
+        .text_halo_stale
+        .retain(|dom_id| layout_results.contains_key(dom_id));
+    for dom_id in layout_results.keys() {
+        if state.text_halo_digests.get(dom_id) != found.get(dom_id) {
+            state.text_halo_stale.insert(*dom_id);
+        }
+    }
+    state.text_halo_digests = found;
+}
+
+/// The image GC deleted these keys: a text halo's slot whose key went is
+/// forgotten with it (the slots are numbered without end; kept, the map grew by
+/// one entry for every label a window ever showed).
+fn forget_deleted_halo_slots(
+    rr: &mut azul_core::resources::RendererResources,
+    deletes: &[ResourceUpdate],
+) {
+    use azul_core::resources::ImageSlot;
+
+    let deleted: HashSet<ImageKey> = deletes
+        .iter()
+        .filter_map(|update| match update {
+            ResourceUpdate::DeleteImage(key) => Some(*key),
+            _ => None,
+        })
+        .collect();
+    if deleted.is_empty() {
+        return;
+    }
+    rr.image_slots
+        .retain(|slot, key| !(matches!(slot, ImageSlot::TextHalo(_)) && deleted.contains(&*key)));
 }
 
 // ==== Video tiles: one renderer image per tile, updated in place ====
@@ -2910,6 +3080,17 @@ pub fn build_webrender_transaction(
     render_api: &mut WrRenderApi,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) -> Result<(), &'static str> {
+    let _ = render_api;
+    build_full_transaction(txn, layout_window, gl_context)
+}
+
+/// [`build_webrender_transaction`] itself. It asks nothing of the renderer's
+/// handle, so a test without a renderer builds a frame's transaction with it.
+pub(crate) fn build_full_transaction(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    gl_context: &azul_core::gl::OptionGlContextPtr,
+) -> Result<(), &'static str> {
     publish_stale_gpu_frame(layout_window);
     let _timed = gpu_time(GpuTime::Transaction);
     log_debug!(
@@ -3040,11 +3221,16 @@ pub(crate) struct DisplayListSubmission {
     pub(crate) failed: Vec<DomId>,
 }
 
-/// What a display list is translated against besides the list itself: the
-/// renderer's scale (every coordinate is scaled by it) and the text halos drawn
-/// so far (a shadow is translated to its picture once it has one, to a blurred
-/// shadow before: a list translated before a halo was drawn does not hold it).
-/// A held list is held only while this is what it was translated against.
+/// What every display list is translated against besides the list itself: the
+/// renderer's scale (every coordinate is scaled by it). A held list is held
+/// only while this is what it was translated against.
+///
+/// The text halos were part of it, as the NUMBER of halos drawn so far (a
+/// shadow is translated to its picture once it has one): every halo a frame
+/// drew sent every list of the window again. What a list paints of halos is
+/// now followed per DOM ([`register_text_halos`], `text_halo_stale`): a picture
+/// that takes the place of its stand-in - the same key, the same rect - sends
+/// no list, and one that does not sends the list of its DOM.
 pub(crate) fn translation_env(layout_window: &LayoutWindow) -> u64 {
     let scale = u64::from(
         layout_window
@@ -3055,7 +3241,7 @@ pub(crate) fn translation_env(layout_window: &LayoutWindow) -> u64 {
             .get()
             .to_bits(),
     );
-    (scale << 32) ^ azul_layout::cpurender::halos_drawn() as u64
+    scale << 32
 }
 
 /// Record the lists as the renderer now holds them (see
@@ -3068,6 +3254,9 @@ fn note_display_lists_submitted(layout_window: &mut LayoutWindow) {
         ..
     } = *layout_window;
     gpu_state_manager.note_display_lists_submitted(layout_results, env);
+    // Every list the renderer holds is translated against the halos of the
+    // last scan now.
+    gpu_state_manager.text_halo_stale.clear();
 }
 
 /// Translate the DOMs' display lists and put them into `txn` at the current
@@ -3108,6 +3297,10 @@ fn submit_display_lists(
     let mut submission = DisplayListSubmission::default();
     for (dom_id, layout_result) in &layout_window.layout_results {
         if !force_all
+            && !layout_window
+                .gpu_state_manager
+                .text_halo_stale
+                .contains(dom_id)
             && layout_window.gpu_state_manager.display_list_is_held(
                 *dom_id,
                 &layout_result.display_list,
@@ -3280,6 +3473,17 @@ pub fn build_image_only_transaction(
     _render_api: &mut WrRenderApi,
     gl_context: &azul_core::gl::OptionGlContextPtr,
 ) -> Result<LightweightFrame, &'static str> {
+    build_lightweight_transaction(txn, layout_window, gl_context)
+}
+
+/// [`build_image_only_transaction`] itself. It asks nothing of the renderer's
+/// handle, so a test without a renderer makes the pass of a frame that laid
+/// nothing out with it.
+pub(crate) fn build_lightweight_transaction(
+    txn: &mut WrTransaction,
+    layout_window: &mut LayoutWindow,
+    gl_context: &azul_core::gl::OptionGlContextPtr,
+) -> Result<LightweightFrame, &'static str> {
     publish_stale_gpu_frame(layout_window);
     let _timed = gpu_time(GpuTime::Transaction);
     log_debug!(
@@ -3302,9 +3506,10 @@ pub fn build_image_only_transaction(
 
     // Step 1.6: Text halos. A scan that ran out of its budget left halos for the
     // frames that follow (`GpuStateManager::halos_owed`, which keeps the platform
-    // loop asking for them): this one scans again and draws the next ones, and the
-    // lists that name them are translated again below (the halos drawn so far are
-    // part of what a translation is made against, `translation_env`).
+    // loop asking for them): this one scans again and draws the next ones. A
+    // picture drawn into the place of its stand-in is an image update under the
+    // key the lists name, and no list goes; a DOM whose list would be translated
+    // differently now is marked and its list goes below (`register_text_halos`).
     let resources_before_the_scan = txn.resource_updates.len();
     if layout_window.gpu_state_manager.halos_owed {
         let _timed = gpu_time(GpuTime::Resources);
@@ -3325,6 +3530,7 @@ pub fn build_image_only_transaction(
     let env_changed = layout_window.gpu_state_manager.submitted_translation_env
         != translation_env(layout_window);
     let lists_unsubmitted = env_changed
+        || !layout_window.gpu_state_manager.text_halo_stale.is_empty()
         || layout_window
             .gpu_state_manager
             .display_lists_unsubmitted(&layout_window.layout_results);
@@ -3767,6 +3973,7 @@ fn process_virtual_view_updates(layout_window: &mut LayoutWindow, txn: &mut WrTr
         layout_window
             .gpu_state_manager
             .note_one_display_list_submitted(dom_id, &list);
+        layout_window.gpu_state_manager.text_halo_stale.remove(&dom_id);
     }
 }
 

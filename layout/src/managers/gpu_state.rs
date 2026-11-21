@@ -160,6 +160,18 @@ pub struct GpuStateManager {
     /// only while this still equals what a translation would be made against
     /// ([`Self::display_list_is_held`]).
     pub submitted_translation_env: u64,
+    /// What each DOM's display list paints of text halos, as the renderer
+    /// host's last scan found it: per DOM a digest over every shadow painted as
+    /// a kept picture (its image key, rect and colour); a DOM without one is
+    /// absent. Written by the host's scan only.
+    pub text_halo_digests: BTreeMap<DomId, u64>,
+    /// The DOMs whose list the renderer holds translated against other halos
+    /// than the last scan found ([`Self::text_halo_digests`] changed since the
+    /// list was sent): owed to the renderer like a list that was built again.
+    /// A scan that only replaced pictures under the keys the lists name leaves
+    /// it empty. Set by the host's scan, cleared by the host for each DOM whose
+    /// list it sends.
+    pub text_halo_stale: alloc::collections::BTreeSet<DomId>,
     /// GPU events produced during layout (CSS transform / opacity synchronization,
     /// scrollbar transform / opacity updates) that have not yet been pushed to
     /// the renderer. Drained by the platform render path when a transaction is
@@ -338,6 +350,8 @@ impl GpuStateManager {
             last_scroll_digest: None,
             submitted_display_lists: BTreeMap::new(),
             submitted_translation_env: 0,
+            text_halo_digests: BTreeMap::new(),
+            text_halo_stale: alloc::collections::BTreeSet::new(),
             pending_changes: GpuEventChanges::empty(),
         }
     }

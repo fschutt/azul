@@ -24,7 +24,8 @@ pub use raster::*;
 pub use shape::*;
 pub use svg::*;
 pub use text_halo::{
-    halos_drawn, text_halo_bounds_in_this_thread, text_halo_stats, text_halos,
-    within_halo_budget, TextHalo, TextHaloStats,
+    halo_scan_changed_pictures, halos_drawn, text_halo_bounds_in_this_thread,
+    text_halo_slots_in_this_thread, text_halo_stats, text_halos, within_halo_budget, TextHalo,
+    TextHaloStats,
 };
 pub use text_raster::*;
