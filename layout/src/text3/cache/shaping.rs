@@ -221,6 +221,8 @@ pub fn shape_bidi_runs_with_per_item_cache<T: ParsedFontTrait>(
             }));
         } else {
             // Cache miss — shape this group
+            #[cfg(test)]
+            GROUPS_SHAPED.with(|n| n.set(n.get() + 1));
             let deficit_before = thread_font_shape_deficit();
             let group_items = shape_bidi_runs(
                 &bidi_runs[idx..coalesce_end],
@@ -450,6 +452,13 @@ pub(crate) static FONT_SHAPE_DEFICIT: core::sync::atomic::AtomicU32 =
 #[must_use]
 pub fn take_font_shape_deficit() -> u32 {
     FONT_SHAPE_DEFICIT.swap(0, core::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: the shaping groups this thread has shaped (that missed the
+    /// per-item cache).
+    pub(crate) static GROUPS_SHAPED: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
 std::thread_local! {
