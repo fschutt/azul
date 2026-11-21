@@ -761,12 +761,17 @@ pub struct DisplayList {
     /// Index ranges (start, end) of display list items that belong to fixed-position elements.
     /// In paged media, these items are replicated on every page (CSS Positioned Layout §2.1).
     pub fixed_position_item_ranges: Vec<(usize, usize)>,
-    /// Per-item PROVEN uniform background (Text items only, None elsewhere).
+    /// Per-item uniform background HINT (Text items only, None elsewhere):
+    /// the opaque colour of the nearest ancestor that paints one, with that
+    /// ancestor's rect. Not a proof: whatever else is painted under the text
+    /// (an earlier positioned sibling, an image) is not looked at, and a
+    /// reader has to check the pixels before it relies on the colour, as the
+    /// CPU rasteriser does (`backdrop_is_colour`).
     /// Parallel to `items` like `node_mapping`. Lives on the LIST rather
     /// than in the `Text` variant because printpdf (crates.io, immutable)
     /// pattern-matches the variant exhaustively — a new variant field is a
     /// downstream semver break; a new list field is not. See
-    /// `compute_uniform_text_bg` for what "proven" means and the raster's
+    /// `compute_uniform_text_bg` for what the hint covers and the raster's
     /// pre-blended tile path for what it buys (~6 ms/repaint of per-pixel
     /// linear LCD compositing).
     pub uniform_text_bgs: Vec<Option<(ColorU, WindowLogicalRect)>>,
@@ -5809,13 +5814,27 @@ where
         face.with_synthetic_bold(text3::cache::needs_synthetic_bold(true, face_weight))
     }
 
-    /// Prove the SOLID OPAQUE color a text run inside this IFC sits on, or
-    /// `None`. Correct-by-construction: only claims a background when the
-    /// nearest layout ancestor that paints ANY background paints exactly one
-    /// solid opaque color (no gradients/images, no translucency) and no
-    /// selection touches the node (selection rects paint between background
-    /// and glyphs). No claim for canvas-direct text — the clear color is a
+    /// The SOLID OPAQUE color a text run inside this IFC PROBABLY sits on, or
+    /// `None`: a HINT, not a proof. It claims a background when the nearest
+    /// layout ancestor that paints ANY background paints exactly one solid
+    /// opaque color (no gradients/images, no translucency) and no selection
+    /// touches the node (selection rects paint between background and
+    /// glyphs). No claim for canvas-direct text — the clear color is a
     /// renderer detail (`AZ_DEBUG_FILL` can change it).
+    ///
+    /// What it does NOT look at is everything that is not an ancestor and
+    /// is painted between that ancestor's fill and the text: an earlier
+    /// positioned sibling or cousin (a map's tile image under a label, a
+    /// gradient layer, another label that overlaps this one), a negative
+    /// `z-index` box, a float. Finding those here would mean searching the
+    /// items painted so far for every text block. The consumer has the
+    /// answer for free: the CPU rasteriser stamps its pre-blended tiles only
+    /// where every pixel the run covers IS this colour (`backdrop_is_colour`
+    /// in `render_single_item`, the one place a hint is read), and blends
+    /// against the pixels otherwise; the GPU path does not read the hint.
+    /// So a wrong hint costs one scan of the run's pixels up to the first
+    /// other colour, never a wrong pixel - and a consumer that trusted the
+    /// hint without that check would be wrong.
     fn compute_uniform_text_bg(
         &self,
         source_node_index: usize,
