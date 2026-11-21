@@ -113,10 +113,16 @@ impl Default for FaceStyle {
 /// `head` italic bit). Falls back to upright Normal when the font can't be
 /// parsed, so registration never fails on a malformed face.
 pub(crate) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
-    let Some(faces) = rust_fontconfig::FcParseFontBytes(bytes, family) else {
+    #[cfg(test)]
+    FACE_STYLE_PARSES.with(|n| n.set(n.get() + 1));
+    // The patterns alone: `FcParseFontBytes` also built a font record with a
+    // copy of the bytes, thrown away here (rust-fontconfig 5.1). The family only
+    // named that record.
+    let _ = family;
+    let Some(faces) = rust_fontconfig::FcParseFontPatterns(bytes) else {
         return FaceStyle::default();
     };
-    let Some((pat, _)) = faces.into_iter().next() else {
+    let Some(pat) = faces.into_iter().next() else {
         return FaceStyle::default();
     };
     FaceStyle {
@@ -128,15 +134,115 @@ pub(crate) fn parse_face_style(bytes: &[u8], family: &str) -> FaceStyle {
     }
 }
 
+#[cfg(test)]
+std::thread_local! {
+    /// Tests: how often this thread has parsed a face's style
+    /// ([`parse_face_style`]: a whole-face parse).
+    pub(crate) static FACE_STYLE_PARSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    /// Tests: how often [`with_chain_key`] has had to build a key on this thread.
+    pub(crate) static CHAIN_KEYS_BUILT: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+std::thread_local! {
+    /// The selectors [`with_chain_key`] was last asked for, with their key
+    /// and the count of size-free keys it was built under (`SIZE_FREE_KEYS`:
+    /// a stack found to be drawn alike at every size is keyed without the
+    /// size from then on, A8-28).
+    static LAST_CHAIN_KEY: core::cell::RefCell<Option<(Vec<FontSelector>, usize, FontChainKey)>> =
+        const { core::cell::RefCell::new(None) };
+}
+
+/// `f` with the chain key of `selectors` ([`FontChainKey::from_selectors`]),
+/// kept on the thread for the last selectors asked. Every `layout_ifc` entry
+/// asks for the key of its container's font stack (the strut,
+/// [`FontManager::first_available_font_metrics`]), the reuse path included,
+/// and consecutive containers mostly share one stack (a map's labels come
+/// layer by layer): the key - a `Vec<String>` of the families - was built,
+/// hashed and dropped for each, 12,500 times a pass in a Berlin view. Equal
+/// selectors give an equal key (`from_selectors` reads nothing else but the
+/// set of size-free keys, whose count the memo compares), so a hit compares
+/// them and hands out the kept key.
+pub(crate) fn with_chain_key<R>(
+    selectors: &[FontSelector],
+    f: impl FnOnce(&FontChainKey) -> R,
+) -> R {
+    LAST_CHAIN_KEY.with(|last| {
+        let mut last = last.borrow_mut();
+        let free = super::font_chains::SIZE_FREE_KEYS.load(std::sync::atomic::Ordering::Acquire);
+        let known = matches!(
+            &*last,
+            Some((seen, seen_free, _)) if *seen_free == free && seen.as_slice() == selectors
+        );
+        if !known {
+            #[cfg(test)]
+            CHAIN_KEYS_BUILT.with(|n| n.set(n.get() + 1));
+            *last = Some((selectors.to_vec(), free, FontChainKey::from_selectors(selectors)));
+        }
+        match &*last {
+            Some((_, _, key)) => f(key),
+            None => f(&FontChainKey::from_selectors(selectors)),
+        }
+    })
+}
+
 /// One face an app registered for the process ([`set_app_fonts`]): every
 /// `FontManager` built afterwards registers it.
 struct AppFace {
     /// The family a stylesheet names it by.
     family: String,
-    /// The TrueType / OpenType bytes.
-    bytes: Vec<u8>,
+    /// The TrueType / OpenType bytes, shared with every font cache a manager
+    /// puts the face into (rust-fontconfig 5.1 `FcFont.bytes: Arc<[u8]>`).
+    bytes: Arc<[u8]>,
     /// The code points of its cmap, read once when the app registered it.
     ranges: Vec<UnicodeRange>,
+    /// Its weight, slant and stretch, read once when the app registered it
+    /// (every `FontManager` built afterwards registers it).
+    style: FaceStyle,
+}
+
+/// The style of a face whose bytes live for the whole process (the bundled UI
+/// faces, the mock faces), parsed once per process: every `FontManager` -
+/// each window, each text image (`text_raster`), each SVG text painter -
+/// registers them, and `parse_face_style` is a whole-face parse. Kept by the
+/// address and length of the bytes, which a `'static` borrow never frees or
+/// moves, so an address names one face for good.
+fn static_face_style(bytes: &'static [u8]) -> FaceStyle {
+    static STYLES: std::sync::OnceLock<Mutex<Vec<(usize, usize, FaceStyle)>>> =
+        std::sync::OnceLock::new();
+    let styles = STYLES.get_or_init(|| Mutex::new(Vec::new()));
+    let at = (bytes.as_ptr() as usize, bytes.len());
+    if let Ok(known) = styles.lock() {
+        if let Some((_, _, style)) = known.iter().find(|(ptr, len, _)| (*ptr, *len) == at) {
+            return *style;
+        }
+    }
+    // The family only names the parsed record; the style is the bytes'.
+    let style = parse_face_style(bytes, "");
+    if let Ok(mut known) = styles.lock() {
+        known.push((at.0, at.1, style));
+    }
+    style
+}
+
+/// The one shared allocation of the bytes of a face that lives for the whole
+/// process (a bundled UI face, a mock face), kept by the address and length of
+/// its `'static` bytes as [`static_face_style`] keeps its style: every font
+/// cache a manager puts the face into shares it (it was copied into each).
+fn static_face_bytes(bytes: &'static [u8]) -> Arc<[u8]> {
+    static KEPT: std::sync::OnceLock<Mutex<Vec<(usize, Arc<[u8]>)>>> = std::sync::OnceLock::new();
+    let kept = KEPT.get_or_init(|| Mutex::new(Vec::new()));
+    let Ok(mut kept) = kept.lock() else {
+        return Arc::from(bytes);
+    };
+    if let Some((_, shared)) = kept
+        .iter()
+        .find(|(ptr, shared)| *ptr == bytes.as_ptr() as usize && shared.len() == bytes.len())
+    {
+        return Arc::clone(shared);
+    }
+    let shared: Arc<[u8]> = Arc::from(bytes);
+    kept.push((bytes.as_ptr() as usize, Arc::clone(&shared)));
+    shared
 }
 
 /// The font faces the app ships (`AppConfig::add_font`), for the process:
@@ -157,8 +263,9 @@ pub fn set_app_fonts(fonts: &[azul_core::resources::NamedFont]) {
             let ranges = cmap_coverage(font.bytes.as_ref());
             (!ranges.is_empty()).then(|| AppFace {
                 family: font.name.as_str().to_string(),
-                bytes: font.bytes.as_ref().to_vec(),
+                bytes: Arc::from(font.bytes.as_ref()),
                 ranges,
+                style: parse_face_style(font.bytes.as_ref(), font.name.as_str()),
             })
         })
         .collect();
@@ -220,9 +327,9 @@ pub(crate) const fn memory_face(
 /// Unicode cmap, as rust-fontconfig reads it for a font on disk. Empty for
 /// bytes that are no font.
 pub(crate) fn cmap_coverage(bytes: &[u8]) -> Vec<UnicodeRange> {
-    rust_fontconfig::FcParseFontBytes(bytes, "")
+    rust_fontconfig::FcParseFontPatterns(bytes)
         .and_then(|faces| faces.into_iter().next())
-        .map(|(pattern, _)| pattern.unicode_ranges)
+        .map(|pattern| pattern.unicode_ranges)
         .unwrap_or_default()
 }
 
@@ -453,6 +560,31 @@ impl<T: ParsedFontTrait> FontManager<T> {
         coverage: Vec<UnicodeRange>,
         tier: MemoryFontTier,
     ) -> FontId {
+        self.register_named_font_styled(
+            family,
+            bytes,
+            || Arc::from(bytes),
+            coverage,
+            tier,
+            || parse_face_style(bytes, family),
+        )
+    }
+
+    /// [`Self::register_named_font_in_tier`] with the face's style from
+    /// `style_of` (called when the face is not a variable font, where it was
+    /// parsed before): a face whose style is known already - a bundled or
+    /// mock face, parsed once per process ([`static_face_style`]); an app
+    /// face, parsed when the app set it - is not parsed again by every
+    /// manager made.
+    fn register_named_font_styled(
+        &mut self,
+        family: &str,
+        bytes: &[u8],
+        kept: impl FnOnce() -> Arc<[u8]>,
+        coverage: Vec<UnicodeRange>,
+        tier: MemoryFontTier,
+        style_of: impl FnOnce() -> FaceStyle,
+    ) -> FontId {
         let norm = rust_fontconfig::utils::normalize_family_name(family);
 
         // Variable fonts: expand into one STATIC instance per weight bucket so the
@@ -474,7 +606,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // its internal family "Helvetica" must both yield weight=Bold. A font can
         // (and Helvetica does) reuse the same family name across faces, so faces
         // are distinguished by (weight, italic, oblique), never by name alone.
-        let style = parse_face_style(bytes, family);
+        let style = style_of();
 
         // IDEMPOTENT: several `FontManager`s (one per window, plus the PDF
         // writer) share one `FcFontCache`. Registering the same face twice would
@@ -483,15 +615,21 @@ impl<T: ParsedFontTrait> FontManager<T> {
         // existing memory font ONLY when family AND (weight, italic, oblique)
         // match — a bold face must not be deduplicated against the regular one.
         let mut existing: Vec<(FontId, Vec<UnicodeRange>)> = Vec::new();
+        // Every pattern of the cache is looked at (the system's faces too,
+        // for every face registered): the style first, and the family as
+        // `normalize_family_name(f) == norm` without making the `String`.
         self.fc_cache.for_each_pattern(|pattern, id| {
-            let fam_hit = pattern
-                .family
-                .as_deref()
-                .is_some_and(|f| rust_fontconfig::utils::normalize_family_name(f) == norm);
             let style_hit = pattern.weight == style.weight
                 && (pattern.italic == PatternMatch::True) == style.italic
                 && (pattern.oblique == PatternMatch::True) == style.oblique;
-            if fam_hit && style_hit {
+            let fam_hit = style_hit
+                && pattern.family.as_deref().is_some_and(|f| {
+                    f.chars()
+                        .filter(|c| c.is_alphanumeric())
+                        .map(|c| c.to_ascii_lowercase())
+                        .eq(norm.chars())
+                });
+            if fam_hit {
                 existing.push((*id, pattern.unicode_ranges.clone()));
             }
         });
@@ -508,7 +646,9 @@ impl<T: ParsedFontTrait> FontManager<T> {
                 id,
                 pattern,
                 rust_fontconfig::FcFont {
-                    bytes: bytes.to_vec(),
+                    // The caller's allocation where it has one (a bundled, mock or
+                    // app face: shared by every cache), else one copy.
+                    bytes: kept(),
                     font_index: 0,
                     id: family.to_string(),
                 },
@@ -628,7 +768,7 @@ impl<T: ParsedFontTrait> FontManager<T> {
                 id,
                 pattern,
                 rust_fontconfig::FcFont {
-                    bytes: inst_bytes,
+                    bytes: inst_bytes.into(),
                     font_index: 0,
                     id: family.to_string(),
                 },
@@ -658,7 +798,15 @@ impl<T: ParsedFontTrait> FontManager<T> {
     /// path as production instead of a test-only bypass.
     pub fn register_builtin_mock_fonts(&mut self) {
         for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
-            self.register_named_font(family, bytes, crate::text3::mock_fonts::mock_font_ranges());
+            let bytes: &'static [u8] = *bytes;
+            self.register_named_font_styled(
+                family,
+                bytes,
+                || static_face_bytes(bytes),
+                crate::text3::mock_fonts::mock_font_ranges(),
+                MemoryFontTier::Primary,
+                || static_face_style(bytes),
+            );
         }
         self.register_builtin_ui_fonts();
     }
@@ -674,20 +822,25 @@ impl<T: ParsedFontTrait> FontManager<T> {
             if face.bytes.is_empty() {
                 continue;
             }
-            self.register_named_font_in_tier(
+            let bytes: &'static [u8] = face.bytes.as_slice();
+            self.register_named_font_styled(
                 face.family,
-                &face.bytes,
+                bytes,
+                || static_face_bytes(bytes),
                 face.ranges(),
                 MemoryFontTier::Fallback,
+                || static_face_style(bytes),
             );
         }
         if let Ok(faces) = APP_FONTS.read() {
             for face in faces.iter() {
-                self.register_named_font_in_tier(
+                self.register_named_font_styled(
                     &face.family,
                     &face.bytes,
+                    || Arc::clone(&face.bytes),
                     face.ranges.clone(),
                     MemoryFontTier::Fallback,
+                    || face.style,
                 );
             }
         }
@@ -1140,9 +1293,8 @@ impl<T: ParsedFontTrait> FontManager<T> {
         match font_stack {
             FontStack::Ref(font_ref) => Some(font_ref.get_font_metrics()),
             FontStack::Stack(selectors) => {
-                let chain = self
-                    .font_chain_cache
-                    .get(&FontChainKey::from_selectors(selectors))?;
+                let chain =
+                    with_chain_key(selectors, |key| self.font_chain_cache.get(key))?;
                 let id = covering_font(chain, ' ')
                     .or_else(|| chain.resolve_codepoint(u32::from(' ')).map(|(id, _)| id))?;
                 let parsed = self.parsed_fonts.lock().ok()?;
@@ -1439,5 +1591,79 @@ mod app_font_tests {
             "with the coverage of its cmap: {:?}",
             faces[0].font_match.unicode_ranges
         );
+    }
+}
+
+/// Guards of the 2026-11-21 audit, area A8 (`audit/A8.md`).
+#[cfg(test)]
+mod audit_a8_tests {
+    use super::*;
+
+    fn stack(family: &str, optical_size: u16) -> Vec<FontSelector> {
+        vec![FontSelector {
+            family: family.to_string(),
+            optical_size,
+            ..FontSelector::default()
+        }]
+    }
+
+    /// A8-12: asking again for the stack asked last builds no chain key, a
+    /// change of stack builds the new one's, and the key handed out is always
+    /// `FontChainKey::from_selectors` of the selectors asked.
+    /// Mutation: drop the `known` check (build every time) and the count is
+    /// 102, not 3; compare only the families and the two sizes share a key.
+    #[test]
+    fn a_stack_asked_again_keeps_its_chain_key() {
+        let built = || CHAIN_KEYS_BUILT.with(core::cell::Cell::get);
+        // A family no test resolves: no other test can make its key size-free
+        // meanwhile (A8-28).
+        let (a, b) = (stack("A8-12 unresolved", 12), stack("A8-12 unresolved", 13));
+        let before = built();
+        for _ in 0..100 {
+            with_chain_key(&a, |key| assert_eq!(*key, FontChainKey::from_selectors(&a)));
+        }
+        assert_eq!(built() - before, 1, "one stack asked 100 times: one key");
+        with_chain_key(&b, |key| assert_eq!(*key, FontChainKey::from_selectors(&b)));
+        with_chain_key(&a, |key| assert_eq!(*key, FontChainKey::from_selectors(&a)));
+        assert_eq!(built() - before, 3, "each change of stack builds the new one's key");
+    }
+
+    /// A8-14: the built-in faces' styles are parsed once per process: a
+    /// second `FontManager` (a window, a text image, an SVG painter) parses
+    /// none, and the kept style is the one a parse gives.
+    /// Mutation: `|| static_face_style(bytes)` -> `|| parse_face_style(bytes,
+    /// family)` in `register_builtin_ui_fonts` fails the count.
+    #[test]
+    fn a_second_font_manager_parses_no_built_in_face() {
+        type Manager = FontManager<azul_css::props::basic::FontRef>;
+        let parses = || FACE_STYLE_PARSES.with(core::cell::Cell::get);
+        drop(Manager::new(FcFontCache::default()).expect("a manager"));
+        let after_first = parses();
+        drop(Manager::new(FcFontCache::default()).expect("a manager"));
+        assert_eq!(parses(), after_first, "the second manager parsed a built-in face");
+        for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
+            let kept = format!("{:?}", static_face_style(*bytes));
+            assert_eq!(kept, format!("{:?}", parse_face_style(bytes, family)));
+        }
+        for face in crate::text3::ui_fonts::bundled_ui_fonts() {
+            let kept = format!("{:?}", static_face_style(face.bytes.as_slice()));
+            assert_eq!(kept, format!("{:?}", parse_face_style(&face.bytes, face.family)));
+        }
+    }
+
+    /// A8-15 (rust-fontconfig 5.1): a bundled or mock face's bytes are one
+    /// allocation for the process, which every font cache a manager registers
+    /// the face into shares; the style read takes the patterns alone.
+    #[test]
+    fn a_static_faces_bytes_are_one_shared_allocation() {
+        for (family, bytes) in crate::text3::mock_fonts::BUILTIN_MOCK_FONTS {
+            let (a, b) = (static_face_bytes(*bytes), static_face_bytes(*bytes));
+            assert!(Arc::ptr_eq(&a, &b), "{family}");
+            assert_eq!(&a[..], *bytes);
+            let patterns = rust_fontconfig::FcParseFontPatterns(bytes).expect("parses");
+            let records = rust_fontconfig::FcParseFontBytes(bytes, family).expect("parses");
+            assert_eq!(patterns.len(), records.len());
+            assert_eq!(format!("{:?}", patterns[0]), format!("{:?}", records[0].0));
+        }
     }
 }

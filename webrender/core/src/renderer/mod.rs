@@ -1977,6 +1977,16 @@ impl Renderer {
                 };
             }
 
+            // Counted for the host's frame report (audit A4).
+            let (mut uploads, mut upload_px) = (0u64, 0u64);
+            for updates in update_list.updates.values() {
+                for update in updates {
+                    uploads += 1;
+                    upload_px += update.rect.area().max(0) as u64;
+                }
+            }
+            crate::azul_counters::textures_uploaded(uploads, upload_px);
+
             upload_to_texture_cache(self, update_list.updates);
 
             self.check_gl_errors();

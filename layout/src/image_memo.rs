@@ -34,6 +34,9 @@ pub struct ImageMemo<K, V> {
     max_entries: usize,
     /// The most bytes the entries may hold together.
     max_bytes: usize,
+    /// Entries last used at or after this reading of the clock are never dropped to make room
+    /// ([`Self::keep_used_since`]); `None`: any entry may go.
+    keep_since: Option<u64>,
 }
 
 impl<K: Hash + Eq + Copy, V: Clone> ImageMemo<K, V> {
@@ -48,7 +51,29 @@ impl<K: Hash + Eq + Copy, V: Clone> ImageMemo<K, V> {
             scanned: 0,
             max_entries,
             max_bytes,
+            keep_since: None,
         }
+    }
+
+    /// The clock's reading: it ticks once per lookup and per insert.
+    #[must_use]
+    pub const fn clock(&self) -> u64 {
+        self.clock
+    }
+
+    /// From now on, an entry last used at or after the clock reading `since` is not dropped to
+    /// make room; the memo then holds more than its bounds for as long as it must. A renderer
+    /// passes the reading at the start of the frame before the one it paints: a frame that
+    /// uses more pictures than the bound holds must not drop, while it paints, the pictures
+    /// it or the frame before used (it would draw each again on every frame). `None` lifts it.
+    pub fn keep_used_since(&mut self, since: Option<u64>) {
+        self.keep_since = since;
+    }
+
+    /// Bytes the entries hold, as their callers counted them.
+    #[must_use]
+    pub const fn bytes(&self) -> usize {
+        self.bytes
     }
 
     /// The value kept for `key`, which counts as a use of it.
@@ -104,10 +129,14 @@ impl<K: Hash + Eq + Copy, V: Clone> ImageMemo<K, V> {
         self.scanned += oldest.len() as u64;
         oldest.sort_unstable_by_key(|(last_used, _)| *last_used);
         let at_least = (oldest.len() / 8).max(1);
-        for (dropped, (_, key)) in oldest.into_iter().enumerate() {
+        for (dropped, (last_used, key)) in oldest.into_iter().enumerate() {
             let fits =
                 self.entries.len() < self.max_entries && self.bytes + bytes <= self.max_bytes;
             if fits && dropped >= at_least {
+                break;
+            }
+            // Oldest first: from the first entry that is kept on, every entry is.
+            if self.keep_since.is_some_and(|since| last_used >= since) {
                 break;
             }
             if let Some(gone) = self.entries.remove(&key) {
@@ -200,5 +229,26 @@ mod audit_a5_tests {
         assert_eq!((memo.get(&3), memo.get(&2)), (None, None), "3 was stored before 2 was asked for");
         assert_eq!(memo.get(&4), Some("four"));
         assert_eq!(memo.get(&5), Some("five"));
+    }
+
+    /// A1-22: entries used since a given reading of the clock are not dropped to make room;
+    /// older ones are. A memo of two entries: 1 is old, 2 and 3 were used since the mark; a
+    /// fourth drops 1 and keeps 2 and 3 although the memo then holds three.
+    /// Mutation: the check left out of `make_room` drops 2.
+    #[test]
+    fn entries_used_since_the_mark_are_not_dropped_to_make_room() {
+        let mut memo = ImageMemo::new(2, 100);
+        memo.insert(1, "one", 10);
+        let mark = memo.clock();
+        memo.insert(2, "two", 10);
+        memo.keep_used_since(Some(mark + 1));
+        memo.insert(3, "three", 10);
+        assert_eq!(memo.get(&1), None, "one is older than the mark: it made room");
+        memo.insert(4, "four", 10);
+        assert_eq!((memo.get(&2), memo.get(&3), memo.get(&4)), (Some("two"), Some("three"), Some("four")));
+        assert_eq!(memo.bytes(), 30, "over its bound of two entries, by what is in use");
+        memo.keep_used_since(None);
+        memo.insert(5, "five", 10);
+        assert!(memo.bytes() <= 20, "and back inside it once nothing is kept");
     }
 }

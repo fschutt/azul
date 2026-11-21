@@ -318,7 +318,7 @@ fn styled_div_with_css(css: &str) -> StyledDom {
     styled(dom, css)
 }
 
-/// Read a compact i16 field and decode to f32 px value (÷10)
+/// Read a compact box length slot (thousandths of a px) and decode to f32 px
 fn read_compact_i16_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
     let cc = styled
         .css_property_cache
@@ -346,7 +346,7 @@ fn read_compact_i16_as_px(styled: &StyledDom, idx: usize, field: &str) -> f32 {
         "right" => d.right,
         _ => panic!("Unknown field: {field}"),
     };
-    raw as f32 / 10.0
+    raw as f32 / 1000.0
 }
 
 /// Read a compact u32 width/height field and decode to f32 px value
@@ -859,8 +859,8 @@ fn test_dom_node_id_mapping_with_whitespace_text() {
         "div.a text_color red should be 255 (got {a_r} at idx {a_idx})"
     );
     assert_eq!(
-        cc.tier2_dims[a_idx].padding_top, 100,
-        "div.a padding_top should be 100 (10px) at idx {a_idx}"
+        cc.tier2_dims[a_idx].padding_top, 10_000,
+        "div.a padding_top should be 10000 (10px) at idx {a_idx}"
     );
 
     // div.b should have blue text color and 20px padding
@@ -871,8 +871,8 @@ fn test_dom_node_id_mapping_with_whitespace_text() {
         "div.b text_color blue should be 255 (got {b_b} at idx {b_idx})"
     );
     assert_eq!(
-        cc.tier2_dims[b_idx].padding_top, 200,
-        "div.b padding_top should be 200 (20px) at idx {b_idx}"
+        cc.tier2_dims[b_idx].padding_top, 20_000,
+        "div.b padding_top should be 20000 (20px) at idx {b_idx}"
     );
 
     // Text "first" inside div.a should inherit red text color

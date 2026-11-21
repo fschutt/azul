@@ -482,11 +482,13 @@ pub use icon::{
 /// Callback handling for layout events (invocation, result processing).
 #[cfg(feature = "text_layout")]
 pub mod callbacks;
+/// What a CPU frame did, counted.
+#[cfg(feature = "cpurender")]
+pub mod cpu_counters;
 /// CPU-based software rendering (no GPU required).
 #[cfg(feature = "cpurender")]
 // Scoped (was crate-wide): complex rasterizer signatures.
 #[allow(clippy::type_complexity)]
-pub mod cpu_counters;
 pub mod cpurender;
 #[cfg(feature = "cpurender")]
 pub mod cpu_backend;

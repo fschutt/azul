@@ -730,9 +730,15 @@ mod autotest_generated {
 
     #[test]
     fn scale_for_dpi_quantizes_below_the_fixed_point_precision() {
-        // FloatValue keeps 3 decimals; anything smaller truncates to zero.
-        let s = scaled(all_ones(), 0.0001);
+        // FloatValue keeps 3 decimals and rounds to the nearest thousandth
+        // (A3-core-14; it truncated before): anything under half a thousandth
+        // is zero. 8 x 0.00005 = 0.0004.
+        let s = scaled(all_ones(), 0.00005);
         assert_eq!(numbers(&s), [0.0, 0.0, 0.0, 0.0]);
+        // 8 x 0.0001 = 0.0008 is nearer to a thousandth than to zero (the
+        // truncating store kept 0 here); 4 x 0.0001 = 0.0004 still is zero.
+        let s = scaled(all_ones(), 0.0001);
+        assert_eq!(numbers(&s), [0.0, 0.0, 0.0, 0.001]);
     }
 
     #[test]

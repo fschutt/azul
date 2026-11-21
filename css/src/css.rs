@@ -192,7 +192,21 @@ impl Css {
     #[allow(clippy::needless_pass_by_value)]
     #[must_use]
     pub fn from_string(s: AzString) -> Self {
-        crate::parser2::new_from_str(s.as_str()).0
+        let text = s.as_str();
+        // A view rendered again (a pan that leaves its margin, a tile that
+        // arrives) hands in the sheet it handed in the last time: a text
+        // parsed before is answered from this thread's memory of parsed
+        // sheets, as a copy. A very long text is not kept.
+        if text.len() > ParsedStyles::MAX_SHEET_TEXT {
+            return crate::parser2::new_from_str(text).0;
+        }
+        if let Some(css) = PARSED_SHEETS.with(|kept| kept.borrow().get(text)) {
+            return css;
+        }
+        SHEET_PARSES.with(|n| n.set(n.get() + 1));
+        let css = crate::parser2::new_from_str(text).0;
+        PARSED_SHEETS.with(|kept| kept.borrow_mut().keep(text, &css));
+        css
     }
 
     /// Parse inline-style CSS (bare properties, pseudo blocks, @-rule blocks)
@@ -2807,10 +2821,11 @@ std::thread_local! {
     static SCOPED_PARSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
-/// The inline styles a thread parsed, by their text. Bounded: past
+/// The styles a thread parsed, by their text. Bounded: past
 /// [`ParsedStyles::MAX_TEXTS`] texts or [`ParsedStyles::MAX_BYTES`] of text
-/// it forgets them all and starts over, so an app that makes ever new style
-/// texts (an animated `width: {x}px`) does not grow it without end.
+/// and parsed rules it forgets them all and starts over, so an app that
+/// makes ever new style texts (an animated `width: {x}px`) does not grow it
+/// without end.
 #[cfg(feature = "parser")]
 #[derive(Default)]
 struct ParsedStyles {
@@ -2822,17 +2837,37 @@ struct ParsedStyles {
 impl ParsedStyles {
     const MAX_TEXTS: usize = 4096;
     const MAX_BYTES: usize = 4 << 20;
+    /// A sheet ([`Css::from_string`]) longer than this is parsed each time.
+    const MAX_SHEET_TEXT: usize = 256 << 10;
 
     fn get(&self, text: &str) -> Option<Css> {
         self.by_text.get(text).cloned()
     }
 
+    /// What keeping `css` under `text` holds: the text and the rules,
+    /// selectors and declarations parsed from it (their own size; what a
+    /// declaration owns beyond it - a font family's names - is not followed).
+    fn kept_bytes(text: &str, css: &Css) -> usize {
+        let rules: usize = css
+            .rules
+            .as_ref()
+            .iter()
+            .map(|rule| {
+                core::mem::size_of::<CssRuleBlock>()
+                    + rule.path.selectors.as_ref().len() * core::mem::size_of::<CssPathSelector>()
+                    + rule.declarations.as_ref().len() * core::mem::size_of::<CssDeclaration>()
+            })
+            .sum();
+        text.len() + rules + css.keyframes.as_ref().len() * core::mem::size_of::<Keyframes>()
+    }
+
     fn keep(&mut self, text: &str, css: &Css) {
-        if self.by_text.len() >= Self::MAX_TEXTS || self.bytes + text.len() > Self::MAX_BYTES {
+        let bytes = Self::kept_bytes(text, css);
+        if self.by_text.len() >= Self::MAX_TEXTS || self.bytes + bytes > Self::MAX_BYTES {
             self.by_text.clear();
             self.bytes = 0;
         }
-        self.bytes += text.len();
+        self.bytes += bytes;
         self.by_text.insert(String::from(text), css.clone());
     }
 }
@@ -2841,6 +2876,21 @@ impl ParsedStyles {
 std::thread_local! {
     static SCOPED_STYLES: core::cell::RefCell<ParsedStyles> =
         core::cell::RefCell::new(ParsedStyles::default());
+    /// The sheets [`Css::from_string`] parsed, apart from the inline styles:
+    /// a page of ever new inline styles does not push a sheet out.
+    static PARSED_SHEETS: core::cell::RefCell<ParsedStyles> =
+        core::cell::RefCell::new(ParsedStyles::default());
+    /// How many sheets this thread parsed from their text.
+    static SHEET_PARSES: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
+/// How many sheets ([`Css::from_string`]) this thread parsed from their
+/// text: what a test of the cost of rendering a view again counts.
+#[cfg(feature = "parser")]
+#[doc(hidden)]
+#[must_use]
+pub fn sheet_parses_on_this_thread() -> u64 {
+    SHEET_PARSES.with(core::cell::Cell::get)
 }
 
 /// How many inline styles ([`Css::parse_scoped`]) this thread parsed from
@@ -2873,6 +2923,44 @@ mod scoped_parse_tests {
         );
         let other = Css::parse_scoped("width: 14px;");
         assert_ne!(first, other, "another text, its own stylesheet");
+    }
+
+    /// A3-core-09: a view rendered again hands in the sheet it handed in
+    /// before; its text is parsed once.
+    #[test]
+    fn a_sheet_is_parsed_once_per_text() {
+        use super::sheet_parses_on_this_thread;
+        let text = ".t0 { color: #123456; font-size: 13px; } .t0:hover { color: red; }";
+        let before = sheet_parses_on_this_thread();
+        let first = Css::from_string(text.into());
+        let again = Css::from_string(text.into());
+        assert_eq!(first, again, "the same text, the same stylesheet");
+        assert_eq!(first, crate::parser2::new_from_str(text).0, "and the one the parser gives");
+        assert_eq!(first.rules.as_ref().len(), 2, "harness: both rules parsed");
+        assert_eq!(
+            sheet_parses_on_this_thread() - before,
+            1,
+            "the second use of the text parsed it again"
+        );
+        let other = Css::from_string(".t0 { color: #123457; }".into());
+        assert_ne!(first, other, "another text, its own stylesheet");
+        assert_eq!(sheet_parses_on_this_thread() - before, 2);
+    }
+
+    /// A3-core-09: what a kept style costs counts its parsed rules, not
+    /// only its text.
+    #[test]
+    fn the_bound_of_the_parsed_styles_counts_the_parsed_rules() {
+        use super::ParsedStyles;
+        let text = "width: 13px; height: 4px; color: #123456;";
+        let css = Css::parse_scoped(text);
+        let rules = css.rules.as_ref().len();
+        assert!(rules >= 1, "harness: a rule");
+        assert!(
+            ParsedStyles::kept_bytes(text, &css)
+                >= text.len() + rules * core::mem::size_of::<super::CssRuleBlock>(),
+            "the rules are counted"
+        );
     }
 
     /// The memory of parsed styles forgets everything once it is full, and

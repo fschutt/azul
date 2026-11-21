@@ -170,10 +170,21 @@ pub fn pos_get(positions: &PositionVec, idx: usize) -> Option<LogicalPosition> {
     positions.get(idx).copied().filter(|p| p.x != f32::MIN)
 }
 
+/// How many entries [`pos_set`] filled with "unset" on this thread to make a
+/// vector long enough for the index it wrote (`audit_tests::a3_solver`: a
+/// position vector made for one box and written at that box's index in the
+/// tree is filled up to it, per box).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static POSITION_FILLS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Set position for node index. Grows the vec if needed.
 #[inline]
 pub fn pos_set(positions: &mut PositionVec, idx: usize, pos: LogicalPosition) {
     if idx >= positions.len() {
+        #[cfg(test)]
+        POSITION_FILLS.with(|n| n.set(n.get() + idx + 1 - positions.len()));
         positions.resize(idx + 1, POSITION_UNSET);
     }
     positions[idx] = pos;
@@ -206,6 +217,62 @@ use crate::{
         layout_tree::DirtyFlag,
     },
 };
+
+/// What one layout pass keeps for itself: memos and scratch buffers that are
+/// valid for exactly one [`LayoutContext`] - one styled DOM, one layout tree,
+/// one viewport - and are dropped with it.
+///
+/// THE place for per-pass state. A new slot is a field here (a struct with
+/// `Default`, defined next to the code that uses it); the context's struct
+/// literals (twelve, in six files) write `pass_memo: Default::default()` and
+/// never change again. Not for anything that must outlive the pass (that is
+/// `cache::LayoutCache`) or that another pass could read by mistake: a slot is
+/// empty at the start of every pass by construction.
+pub struct PassMemo<T> {
+    /// `fc::layout_bfc`'s slot.
+    pub bfc: fc::BfcPassMemo,
+    /// The taffy bridge's slot.
+    pub taffy: taffy_bridge::TaffyPassMemo,
+    /// The intrinsic pass's slot: the paragraphs it shaped, for their
+    /// layout.
+    pub measured: sizing::MeasuredParagraphs,
+    /// The fonts the font manager holds, as the first ask of the pass found
+    /// them ([`LayoutContext::loaded_fonts`]). `T` is the context's font
+    /// type, which is why this struct has it.
+    #[cfg(feature = "text_layout")]
+    loaded_fonts: core::cell::OnceCell<Arc<crate::text3::cache::LoadedFonts<T>>>,
+    #[cfg(not(feature = "text_layout"))]
+    loaded_fonts: core::marker::PhantomData<T>,
+}
+
+// By hand: a derive would ask `T: Default` / `T: Debug`, which no slot needs.
+impl<T> Default for PassMemo<T> {
+    fn default() -> Self {
+        Self {
+            bfc: fc::BfcPassMemo::default(),
+            taffy: taffy_bridge::TaffyPassMemo::default(),
+            measured: sizing::MeasuredParagraphs::default(),
+            loaded_fonts: Default::default(),
+        }
+    }
+}
+
+impl<T> core::fmt::Debug for PassMemo<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PassMemo")
+            .field("bfc", &self.bfc)
+            .field("taffy", &self.taffy)
+            .finish_non_exhaustive()
+    }
+}
+
+/// How often a pass asked the font manager for the fonts it holds
+/// ([`LayoutContext::loaded_fonts`]) on this thread (`audit_tests::a3_solver`:
+/// once per context, not once per inline formatting context).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static LOADED_FONTS_ASKS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
 
 /// Central context for a single layout pass.
 #[derive(Debug)]
@@ -324,9 +391,32 @@ pub struct LayoutContext<'a, T: ParsedFontTrait> {
     pub virtual_view_sizes: Option<&'a BTreeMap<(DomId, NodeId), LogicalSize>>,
     pub scrollbar_style_cache:
         core::cell::RefCell<HashMap<NodeId, getters::ComputedScrollbarStyle>>,
+    /// What this pass keeps for itself ([`PassMemo`]).
+    pub pass_memo: PassMemo<T>,
 }
 
 impl<T: ParsedFontTrait> LayoutContext<'_, T> {
+    /// The fonts the font manager holds (`FontManager::get_loaded_fonts`),
+    /// asked for ONCE per pass and kept.
+    ///
+    /// The fonts a text needs are loaded before its layout pass starts, so
+    /// the pool does not change under one. Asking the manager is two mutex
+    /// locks and a fold over every loaded face (its memo's check): every
+    /// inline formatting context asked twice per pass, 12,000 labels 24,000
+    /// times. A face registered while a pass runs (another thread) is seen by
+    /// the pass that follows - `text3::fontreg::generation` lays that one out
+    /// cold - instead of by the boxes of this pass that happened to come
+    /// after it.
+    #[cfg(feature = "text_layout")]
+    #[must_use]
+    pub fn loaded_fonts(&self) -> Arc<crate::text3::cache::LoadedFonts<T>> {
+        Arc::clone(self.pass_memo.loaded_fonts.get_or_init(|| {
+            #[cfg(test)]
+            LOADED_FONTS_ASKS.with(|n| n.set(n.get() + 1));
+            self.font_manager.get_loaded_fonts()
+        }))
+    }
+
     /// The one overlay→DOM content read order for this context's DOM.
     /// Layout (intrinsic sizing) and display-list build resolve node content
     /// exclusively through this — never via `NodeType::Image` directly.
@@ -702,6 +792,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         style_cache: Default::default(),
         virtual_view_sizes: Some(virtual_view_sizes),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        pass_memo: Default::default(),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -874,6 +965,12 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             css_dirty,
         )?
     };
+    // The styles the reconcile resolved (every text node's under a restyled
+    // box, to compare it with the one it was laid out with) go on to the
+    // layout's context below: same DOM, same viewport, same cascade epoch -
+    // the memo's key. They were dropped with `ctx_temp`, and the layout
+    // resolved each of them a second time.
+    let reconcile_styles = core::mem::take(&mut ctx_temp.style_cache);
     // The pairing is spent with the pass, like the diff.
     cache.dom_pairing = None;
     // The reuse census, persisted where a test can read it — see the field
@@ -1080,6 +1177,24 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     )
                 })
             };
+            // An out-of-flow box whose restyle changed its size or its text
+            // alone is its own root: no sibling moves with it and its parent
+            // holds nothing of it (`cache::restyled_out_of_flow_box_stands_alone`).
+            let size_only = cache::restyled_in_size_only(css_dirty);
+            let stands_alone = |idx: usize| {
+                new_tree.nodes.get(idx).is_some_and(|n| {
+                    n.dom_node_id.is_some_and(|dom| size_only.contains(&dom))
+                        && new_tree.warm(LayoutNodeId::new(idx)).is_some_and(|w| {
+                            cache::restyled_out_of_flow_box_stands_alone(
+                                w.computed_style.position,
+                                n.parent
+                                    .and_then(|p| new_tree.nodes.get(p))
+                                    .map(|p| p.formatting_context),
+                                any_columns,
+                            )
+                        })
+                })
+            };
             let mut dirty_roots = std::collections::BTreeSet::new();
             for (dom_id_dirty, scope) in css_dirty {
                 if *scope == azul_css::props::property::RelayoutScope::None {
@@ -1111,7 +1226,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 // thumb of 400 (a_grown_scroll_box_paints_its_thumb_from_
                 // the_layout_that_grew_it). A flex / grid item or an
                 // inline-level box is lifted to its container below anyway.
-                let root = if cache::lift_to_slot_container(idx, &node_of) == idx {
+                let root = if stands_alone(idx) {
+                    idx
+                } else if cache::lift_to_slot_container(idx, &node_of) == idx {
                     new_tree
                         .nodes
                         .get(idx)
@@ -1126,7 +1243,11 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // inline-level box is re-solved by its container, or its
             // siblings keep the slots they had; a box in a multi-column
             // flow by the multi-column container.
-            let promoted = cache::promote_layout_roots_to_containers(&dirty_roots, node_of);
+            let promoted = cache::promote_layout_roots_to_containers_but(
+                &dirty_roots,
+                node_of,
+                stands_alone,
+            );
             recon_result.layout_roots.extend(promoted);
             // A root below another one is laid out by that one's pass (the
             // reconcile's own roots were cleaned the same way).
@@ -1230,6 +1351,20 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             .copied(),
         &new_tree.nodes,
     );
+    // A box the reconcile kept although its inline style changed - its
+    // insets alone moved, or what it paints (`cache::reconcile_node`, the
+    // paint flag) - keeps its cache entry, and with it the place the
+    // positioning pass solved for it (`cache::AbsPlacement`), which its
+    // insets are an input of: that place is solved again.
+    for &moved in &recon_result.paint_dirty {
+        if let Some(run) = cache_map
+            .entries
+            .get_mut(moved)
+            .and_then(|entry| entry.abs_interior.as_deref_mut())
+        {
+            run.placement = None;
+        }
+    }
     // ...and EVERY node's size / layout slots when the viewport moved under a
     // document that uses viewport units (the Step 1.2 gate): a slot is keyed
     // by the box's available size, which a `vh` length does not move - a
@@ -1252,12 +1387,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         owner_colors,
         seat_focus_rings,
         paint_selection_handles,
-        style_cache: Default::default(),
+        style_cache: reconcile_styles,
         // The report a `VirtualView` is sized by (sizing.rs). The commit that
         // threaded this parameter through left the context at `None`, so no
         // view was ever sized by what it returned - it stayed 300x150.
         virtual_view_sizes: Some(virtual_view_sizes),
         scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+        pass_memo: Default::default(),
         styled_dom: new_dom,
         font_manager,
         text_selections,
@@ -1379,6 +1515,8 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // --- Step 2: Incremental Layout Loop (handles scrollbar-induced reflows) ---
     let mut calculated_positions = cache.calculated_positions.clone();
     let mut loop_count = 0;
+    // The layout roots of the last turn of the loop that laid its roots out.
+    let mut laid_out_roots: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     loop {
         loop_count += 1;
         if loop_count > MAX_SCROLLBAR_REFLOW_ITERATIONS {
@@ -1426,11 +1564,30 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             // calculate_intrinsic_sizes` anywhere. (The prior "string absent ⇒ web_lift off" check
             // was wrong — panic_immediate_abort strips the message string.)
             cache.last_intrinsic_dirty = recon_result.intrinsic_dirty.len();
+            // The first turn measures what the reconcile found dirty. A later
+            // turn measures again only the nodes of that set (and their
+            // ancestors) with a box below them whose margins, borders or
+            // paddings the layout of the turn before resolved anew - the one
+            // input of the intrinsic sizes a turn changes
+            // (`sizing::dirty_nodes_to_measure_again`). It measured the whole
+            // set again: every dirty label once more per turn.
+            let box_props_changed = ctx.pass_memo.bfc.take_changed_box_props();
+            let measured_again;
+            let intrinsic_dirty = if loop_count == 1 {
+                &recon_result.intrinsic_dirty
+            } else {
+                measured_again = sizing::dirty_nodes_to_measure_again(
+                    &new_tree,
+                    &recon_result.intrinsic_dirty,
+                    &box_props_changed,
+                );
+                &measured_again
+            };
             if let Err(e) = calculate_intrinsic_sizes(
                 &mut ctx,
                 &mut new_tree,
                 text_cache,
-                &recon_result.intrinsic_dirty,
+                intrinsic_dirty,
             ) {
                 // The pass never stored its tree: the cached one is stale.
                 cache.tree = None;
@@ -1447,6 +1604,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // The layout roots below the tree root whose box came out another
         // size: the boxes sized by their content around them follow.
         let mut resized: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+        // The size each of those roots had before this pass: what follows a
+        // root in its parent's flow moves by what it grew
+        // (`cache::reposition_block_flow_siblings`).
+        let mut sizes_before: BTreeMap<usize, LogicalSize> = BTreeMap::new();
         for &root_idx in &recon_result.layout_roots {
             let (cb_pos, cb_size) = get_containing_block_for_node(
                 &new_tree,
@@ -1557,6 +1718,45 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let size_before = new_tree
                 .get(LayoutNodeId::new(root_idx))
                 .and_then(|n| n.used_size);
+            if let Some(was) = size_before {
+                sizes_before.insert(root_idx, was);
+            }
+            // An out-of-flow child takes its static position from its
+            // parent's layout, which passes over a child that has a position
+            // (`cache::process_out_of_flow_children`: how it tells the
+            // children it has just placed). This pass's vector began as the
+            // last pass's, so the root's absolutely positioned children all
+            // have one: they kept the place the positioning pass SOLVED last
+            // time as their static position, whatever the root's layout says
+            // now. Their slots are emptied for the root's layout - only when
+            // the root is certain to be laid out (it holds no layout to be
+            // served from), and a slot the layout leaves empty gets its
+            // position back below.
+            let mut emptied: Vec<(usize, LogicalPosition)> = Vec::new();
+            if ctx
+                .cache_map
+                .entries
+                .get(root_idx)
+                .is_some_and(|entry| entry.layout_entry.is_none())
+            {
+                for &child in new_tree.children(root_idx) {
+                    let out_of_flow = matches!(
+                        positioning::get_position_type(
+                            new_dom,
+                            new_tree.nodes.get(child).and_then(|n| n.dom_node_id),
+                        ),
+                        azul_css::props::layout::LayoutPosition::Absolute
+                            | azul_css::props::layout::LayoutPosition::Fixed
+                    );
+                    if !out_of_flow || fc::is_marker_box(&new_tree, child) {
+                        continue;
+                    }
+                    if let Some(kept) = pos_get(&calculated_positions, child) {
+                        emptied.push((child, kept));
+                        pos_set(&mut calculated_positions, child, POSITION_UNSET);
+                    }
+                }
+            }
             let clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
@@ -1581,6 +1781,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
+            // A child whose slot was emptied and that the layout did not
+            // place (it failed on the way) stands where it stood.
+            for (child, kept) in emptied {
+                if !pos_contains(&calculated_positions, child) {
+                    pos_set(&mut calculated_positions, child, kept);
+                }
+            }
             if !is_tree_root {
                 let size_after = new_tree
                     .get(LayoutNodeId::new(root_idx))
@@ -1595,7 +1802,17 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     (None, Some(_)) => true,
                     _ => false,
                 };
-                if changed {
+                // A box out of the flow that came out another size grows no
+                // box around it and moves none beside it: nothing follows.
+                let out_of_flow = matches!(
+                    positioning::get_position_type(
+                        new_dom,
+                        new_tree.nodes.get(root_idx).and_then(|n| n.dom_node_id),
+                    ),
+                    azul_css::props::layout::LayoutPosition::Absolute
+                        | azul_css::props::layout::LayoutPosition::Fixed
+                ) && !fc::is_marker_box(&new_tree, root_idx);
+                if changed && !out_of_flow {
                     resized.insert(root_idx);
                 }
             }
@@ -1657,9 +1874,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 new_dom,
                 &new_tree,
                 &recon_result.layout_roots,
+                &sizes_before,
                 &mut calculated_positions,
             );
         }
+        // The roots whose subtrees `calculated_positions` now holds as this
+        // pass placed them (the set below may be replaced for another turn
+        // of the loop that never lays it out: the iteration limit).
+        laid_out_roots.clone_from(&recon_result.layout_roots);
 
         if reflow_needed_for_scrollbars {
             debug_log!(
@@ -1719,13 +1941,47 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // positioning absolute elements, the absolute elements will be positioned
     // relative to the wrong (pre-adjustment) position of their containing block.
     // Pass the viewport to correctly resolve percentage offsets for the root element.
+    // The boxes whose position this pass computed from the flow: every
+    // box BELOW a layout root that was laid out. A root's own position
+    // is the one it had (it is laid out where it stood) - the tree
+    // root's too, unless no pass had placed it yet - and so is every
+    // position outside the roots' subtrees: the relative shift (and the
+    // sticky one, Step 3.25) is in those already and must not be added
+    // again.
+    let placed_now: Vec<bool> = {
+        {
+            let mut placed = vec![false; new_tree.nodes.len()];
+            let mut stack: Vec<usize> = Vec::new();
+            for &root in &laid_out_roots {
+                stack.extend_from_slice(new_tree.children(root));
+            }
+            while let Some(index) = stack.pop() {
+                if let Some(seen) = placed.get_mut(index) {
+                    if *seen {
+                        continue;
+                    }
+                    *seen = true;
+                }
+                stack.extend_from_slice(new_tree.children(index));
+            }
+            if laid_out_roots.contains(&new_tree.root)
+                && !pos_contains(&cache.calculated_positions, new_tree.root)
+            {
+                if let Some(root) = placed.get_mut(new_tree.root) {
+                    *root = true;
+                }
+            }
+            placed
+        }
+    };
     {
         let _p = crate::probe::Probe::span("adjust_relative_positions");
-        positioning::adjust_relative_positions(
+        positioning::adjust_relative_positions_of(
             &mut ctx,
             &new_tree,
             &mut calculated_positions,
             viewport,
+            Some(&placed_now),
         );
     }
 
@@ -1734,14 +1990,49 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // is clamped based on scroll offset and inset properties relative to the
     // nearest scrollport. Must happen after relative positioning but before
     // absolute positioning (sticky elements establish containing blocks).
-    {
+    let document_has_sticky_boxes = {
         let _p = crate::probe::Probe::span("adjust_sticky_positions");
-        let constraints = positioning::adjust_sticky_positions(
+        // A box this pass does not place is shifted from the static place
+        // its constraint of the pass before holds
+        // (`adjust_sticky_positions_of`). A tree the reconcile built holds
+        // none (`LayoutNode::split` makes every node without one), so
+        // the old tree's are handed over first - a sticky box's by its DOM
+        // node, as the per-node caches are (`LayoutCacheMap::remapped`).
+        // Only in a pass that leaves boxes where they were: one that lays
+        // the tree root out places every box.
+        if !laid_out_roots.contains(&new_tree.root) {
+            if let Some(old_tree) = cache.tree.as_deref() {
+                for (old_index, old_warm) in old_tree.warm.iter().enumerate() {
+                    let Some(kept) = old_warm.sticky.as_ref() else {
+                        continue;
+                    };
+                    let new_index = old_tree
+                        .nodes
+                        .get(old_index)
+                        .and_then(|n| n.dom_node_id)
+                        .and_then(|dom_id| {
+                            let ordinal = old_tree
+                                .dom_to_layout
+                                .get(&dom_id)?
+                                .iter()
+                                .position(|i| i.index() == old_index)?;
+                            new_tree.dom_to_layout.get(&dom_id)?.get(ordinal).copied()
+                        });
+                    if let Some(warm) = new_index.and_then(|i| new_tree.warm_mut(i)) {
+                        if warm.sticky.is_none() {
+                            warm.sticky = Some(kept.clone());
+                        }
+                    }
+                }
+            }
+        }
+        let constraints = positioning::adjust_sticky_positions_of(
             &mut ctx,
             &new_tree,
             &mut calculated_positions,
             scroll_offsets,
             viewport,
+            Some(&placed_now),
         );
         // Each sticky box keeps what a scroll after this pass needs to move
         // it (`StickyConstraint`); a box that stopped being sticky drops it.
@@ -1750,12 +2041,14 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 warm.sticky = None;
             }
         }
+        let any = !constraints.is_empty();
         for (index, constraint) in constraints {
             if let Some(warm) = new_tree.warm.get_mut(index) {
                 warm.sticky = Some(Box::new(constraint));
             }
         }
-    }
+        any
+    };
 
     // --- Step 3.5: Position Out-of-Flow Elements ---
     // This must be done AFTER adjusting relative positions, so that absolutely
@@ -1763,13 +2056,25 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
     // position of their relatively positioned containing blocks.
     {
         let _p = crate::probe::Probe::span("position_out_of_flow");
-        positioning::position_out_of_flow_elements(
+        // The sticky boxes BELOW an absolutely positioned box are shifted
+        // again once that box is placed (the step above saw them where the
+        // flow had their box before its insets were solved), and the
+        // constraints of those shifts are the ones later scrolls move them
+        // by. Only asked for in a document that has a sticky box at all.
+        let mut below_placed_boxes: Vec<(usize, positioning::StickyConstraint)> = Vec::new();
+        positioning::position_out_of_flow_elements_with_sticky(
             &mut ctx,
             &mut new_tree,
             text_cache,
             &mut calculated_positions,
             viewport,
+            document_has_sticky_boxes.then_some((scroll_offsets, &mut below_placed_boxes)),
         );
+        for (index, constraint) in below_placed_boxes {
+            if let Some(warm) = new_tree.warm.get_mut(index) {
+                warm.sticky = Some(Box::new(constraint));
+            }
+        }
     }
 
     // --- Step 3.6: Lay the Named Flows Out Through Their Regions ---
@@ -1946,6 +2251,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                     reemit.extend(recon_result.fresh_indices.iter().copied());
                     reemit.extend(recon_result.retargeted.iter().copied());
                     reemit.extend(css_dirty_reemit.iter().copied());
+                    // ...and a box the reconcile kept although its own data
+                    // moved what it paints with (an inline colour, a
+                    // transform value) or where it stands (its insets): its
+                    // old items are not what it paints now. A css diff names
+                    // such a box and turns the patch off altogether; a pass
+                    // without one spliced its old items.
+                    reemit.extend(recon_result.paint_dirty.iter().copied());
                     display_list::PatchState::build(
                         prev_dl,
                         &cache.calculated_positions, // last pass's positions (replaced later)
@@ -1985,6 +2297,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let mut changed: std::collections::BTreeSet<usize> = ctx.reflowed_ifcs.clone();
             changed.extend(recon_result.fresh_indices.iter().copied());
             changed.extend(css_dirty_reemit.iter().copied());
+            changed.extend(recon_result.paint_dirty.iter().copied());
             for (idx, node) in new_tree.nodes.iter().enumerate() {
                 let old_pos = pos_get(&cache.calculated_positions, idx);
                 let new_pos = pos_get(&calculated_positions, idx);
@@ -2033,6 +2346,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             let mut reemit_full = ctx.reflowed_ifcs.clone();
             reemit_full.extend(recon_result.fresh_indices.iter().copied());
             reemit_full.extend(css_dirty_reemit.iter().copied());
+            reemit_full.extend(recon_result.paint_dirty.iter().copied());
             // A view's document rides its box: a view whose own items are not
             // re-emitted moves its content with its box (a new size alone).
             let node_data = ctx.styled_dom.node_data.as_container();
@@ -3330,6 +3644,7 @@ mod autotest_generated {
                     style_cache: Default::default(),
                     virtual_view_sizes: None,
                     scrollbar_style_cache: core::cell::RefCell::new(HashMap::new()),
+                    pass_memo: Default::default(),
                     styled_dom: &self.styled_dom,
                     font_manager: &self.font_manager,
                     text_selections: &self.text_selections,

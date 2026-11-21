@@ -1040,17 +1040,18 @@ mod autotest_generated {
     }
 
     #[test]
-    fn border_spacing_truncates_below_milli_precision() {
-        // FloatValue is fixed-point with 3 decimals and truncates (does not round)
-        // toward zero, so sub-millipixel input silently becomes 0.
-        assert_eq!(raw(parse_border_spacing("0.0005px").unwrap().horizontal), 0);
+    fn border_spacing_rounds_to_milli_precision() {
+        // FloatValue is fixed-point with 3 decimals, rounded to the nearest
+        // (A2-cpu-24; this test pinned the cut-off values 0, 999 and 1999).
+        assert_eq!(raw(parse_border_spacing("0.0004px").unwrap().horizontal), 0);
+        assert_eq!(raw(parse_border_spacing("0.0005px").unwrap().horizontal), 1);
         assert_eq!(
             raw(parse_border_spacing("0.9999px").unwrap().horizontal),
-            999
+            1000
         );
         assert_eq!(
             raw(parse_border_spacing("1.9999px").unwrap().horizontal),
-            1999
+            2000
         );
         // Denormal input must not panic or produce a non-finite stored value.
         let denormal = parse_border_spacing("1.17549435e-38px").unwrap();

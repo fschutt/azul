@@ -23,6 +23,10 @@ const EDGE_THRESHOLD: f32 = 200.0;
 /// the list's node mapping names the node that drew it. Reading order across
 /// doms is computed from it ([`reading_order_key`]) by everything that walks
 /// a window in that order: the Tab order, the accessibility tree.
+///
+/// This walks every item of every list. A caller that holds the window's
+/// [`VirtualViewManager`] has the map without a walk:
+/// [`VirtualViewManager::nested_dom_host_map`].
 #[must_use]
 pub fn nested_dom_hosts(
     layout_results: &BTreeMap<DomId, crate::window::DomLayoutResult>,
@@ -76,6 +80,21 @@ pub fn reading_order_key(
 pub struct VirtualViewManager {
     /// Per-`VirtualView` state keyed by (parent `DomId`, `NodeId` of virtualized view element)
     states: BTreeMap<(DomId, NodeId), VirtualViewState>,
+    /// The inverse of `states`: nested dom -> the view hosting it, what
+    /// [`Self::host_of_nested_dom`] answers. An ancestor walk asks once per
+    /// dom it crosses (hit paths, scroll chains, the context menu), and the
+    /// answer used to be a scan of every state.
+    ///
+    /// Exact by construction: `states` is private to this module and has
+    /// two writers of its keys, each of which writes this map in the same
+    /// step - [`Self::get_or_create_nested_dom_id`] (the one place a state
+    /// is inserted; `check_reinvoke` creates through it) enters the new
+    /// view, and `remap_node_ids` (the one place keys move and states are
+    /// dropped) rebuilds the map from `states`
+    /// ([`Self::rebuild_host_index`]). A state's `nested_dom_id` is set by
+    /// `VirtualViewState::new` and never written again. A new writer of
+    /// `states` has to do the same.
+    host_by_nested: BTreeMap<DomId, (DomId, NodeId)>,
     /// Counter for generating unique nested DOM IDs
     next_dom_id: usize,
     /// MWA-C-virtual_view: queue-time callback reasons, consumed by the very
@@ -174,7 +193,21 @@ struct VirtualViewState {
     /// once the user has scrolled away from this resting position — being at an
     /// edge from the very start (e.g. the top/left edge at offset 0) is the
     /// initial position, not a scroll-to-edge event.
+    ///
+    /// Also captured when a render delivered through a staged reason (a
+    /// queued re-render, at a later offset) materialized ANOTHER window: the
+    /// content is then rendered for that offset, and the offset of the first
+    /// render no longer says anything about the window that is materialized.
+    /// Left at the first offset, a jump back to exactly it demanded nothing,
+    /// whatever was materialized by then. A delivered render that answers
+    /// with the SAME window leaves it: an edge that had nothing more to show
+    /// is asked again when the scroll comes back to exactly that offset (a
+    /// clamped end of the document comes back to the very float it was).
     initial_scroll_offset: LogicalPosition,
+    /// The scroll offset a staged reason was handed out at
+    /// ([`VirtualViewManager::check_reinvoke`]), until the render it started
+    /// reports its window ([`VirtualViewManager::update_virtual_view_info`]).
+    delivered_at: Option<LogicalPosition>,
 }
 
 /// Which edges of the materialized window the visible window is near
@@ -192,6 +225,25 @@ struct EdgeFlags {
     /// Near right edge
     right: bool,
 }
+
+#[cfg(test)]
+std::thread_local! {
+    /// How many states [`VirtualViewManager::nested_doms_dropped_by`] looked
+    /// at on this thread: what a test reads to say the work follows the
+    /// number of views, not its square.
+    static DROPPED_BY_VISITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// One more state looked at by [`VirtualViewManager::nested_doms_dropped_by`].
+#[cfg(test)]
+fn count_dropped_by_visit() {
+    DROPPED_BY_VISITS.with(|visits| visits.set(visits.get() + 1));
+}
+
+/// Counted in tests only.
+#[cfg(not(test))]
+#[inline]
+const fn count_dropped_by_visit() {}
 
 /// A view remembers the host node it was last invoked for, its data
 /// included, to tell whether the host still carries exactly that node.
@@ -260,7 +312,33 @@ impl VirtualViewManager {
 
         self.states
             .insert(key, VirtualViewState::new(nested_dom_id));
+        // In step with `states` (see `host_by_nested`): the id is fresh, so
+        // this never replaces the host of another view.
+        self.host_by_nested.insert(nested_dom_id, key);
         nested_dom_id
+    }
+
+    /// `host_by_nested` again from `states`, after their keys were rewritten
+    /// or states were dropped. Should two states ever name one nested dom,
+    /// the first in key order hosts it: what the scan this map replaced
+    /// answered.
+    fn rebuild_host_index(&mut self) {
+        self.host_by_nested.clear();
+        for (key, state) in &self.states {
+            self.host_by_nested
+                .entry(state.nested_dom_id)
+                .or_insert(*key);
+        }
+    }
+
+    /// Every nested dom this manager handed out and the view hosting it,
+    /// `(host dom, host node)`: the map [`reading_order_key`] reads, kept in
+    /// step with the views instead of being collected from the display lists
+    /// ([`nested_dom_hosts`]). It also names the views that are registered
+    /// but not drawn in their host's current list.
+    #[must_use]
+    pub const fn nested_dom_host_map(&self) -> &BTreeMap<DomId, (DomId, NodeId)> {
+        &self.host_by_nested
     }
 
     /// Gets the nested DOM ID for a `VirtualView` if it exists
@@ -274,23 +352,46 @@ impl VirtualViewManager {
     /// transitively, those of the `VirtualView`s inside them. Ask BEFORE
     /// [`NodeIdRemap::remap_node_ids`](crate::managers::NodeIdRemap), which
     /// drops the unmounted hosts' state.
+    ///
+    /// Breadth first, each dom once: the views of `dom` in node order, then
+    /// the views inside each dropped dom in the order the doms were found.
+    ///
+    /// `states` is keyed by (host dom, node), so the views hosted in one dom
+    /// are one contiguous range of it: each dropped dom costs a seek and its
+    /// own views. Every dropped dom used to walk every state, and test each
+    /// one against the list found so far: for V views in a chain, V * V
+    /// states and V * V list entries, on every rebuild that unmounts a host.
     #[must_use]
     pub fn nested_doms_dropped_by(
         &self,
         dom: DomId,
         map: &crate::managers::NodeIdMap,
     ) -> Vec<DomId> {
-        let mut dropped: Vec<DomId> = self
-            .states
-            .iter()
-            .filter(|((d, n), _)| *d == dom && map.is_unmounted(*n))
-            .map(|(_, s)| s.nested_dom_id)
-            .collect();
+        let mut dropped: Vec<DomId> = Vec::new();
+        for ((d, n), s) in self.states.range((dom, NodeId::ZERO)..) {
+            if *d != dom {
+                break;
+            }
+            count_dropped_by_visit();
+            if map.is_unmounted(*n) {
+                dropped.push(s.nested_dom_id);
+            }
+        }
+        if dropped.is_empty() {
+            return dropped;
+        }
+        // The doms found so far, for the membership test (a nested dom is
+        // listed once, also when the host map loops).
+        let mut found: alloc::collections::BTreeSet<DomId> = dropped.iter().copied().collect();
         let mut i = 0;
         while i < dropped.len() {
             let parent = dropped[i];
-            for ((d, _), s) in &self.states {
-                if *d == parent && !dropped.contains(&s.nested_dom_id) {
+            for ((d, _), s) in self.states.range((parent, NodeId::ZERO)..) {
+                if *d != parent {
+                    break;
+                }
+                count_dropped_by_visit();
+                if found.insert(s.nested_dom_id) {
                     dropped.push(s.nested_dom_id);
                 }
             }
@@ -397,8 +498,14 @@ impl VirtualViewManager {
         // A different window is a different question: whatever scroll demand
         // the previous window had been asked about is void, and the next
         // check re-evaluates the geometry against this one.
+        let delivered_at = state.delivered_at.take();
         if state.materialized != Some(materialized) {
             state.served_scroll_demand = None;
+            // Rendered for the offset its reason was delivered at: the view
+            // rests there now (see `initial_scroll_offset`).
+            if let Some(offset) = delivered_at {
+                state.initial_scroll_offset = offset;
+            }
         }
         state.materialized = Some(materialized);
         // The document estimate lives at the virtual origin; only its SIZE is
@@ -569,12 +676,12 @@ impl VirtualViewManager {
     /// its hosts. Without this there was no way to ask "where does this dom
     /// actually sit", and a caret rect inside a `VirtualView` was handed to the
     /// platform IME as if the host were at the window origin.
+    ///
+    /// One lookup in `host_by_nested`: a walk up through the hosts asks once
+    /// per dom it crosses, and each ask used to scan every view.
     #[must_use]
     pub fn host_of_nested_dom(&self, nested: DomId) -> Option<(DomId, NodeId)> {
-        self.states
-            .iter()
-            .find(|(_, state)| state.nested_dom_id == nested)
-            .map(|((dom_id, node_id), _)| (*dom_id, *node_id))
+        self.host_by_nested.get(&nested).copied()
     }
 
     #[must_use]
@@ -644,16 +751,42 @@ impl VirtualViewManager {
             .position(|((d, n), _)| *d == dom_id && *n == node_id)
         {
             let (_, reason) = self.reason_overrides.remove(pos);
+            // The caller invokes the callback with this reason at once
+            // (`process_virtual_view_updates`), for the box and the scroll
+            // offset of now. This return used to record neither. The box: the
+            // next check then compared its box against the one of the last
+            // check that was NOT delivered through a staged reason - a growth
+            // the callback had already been shown fired `BoundsExpanded`
+            // again, a growth after a smaller box in between was missed. The
+            // offset: it is kept aside (`delivered_at`) and becomes the
+            // resting offset once the callback has answered with ANOTHER
+            // window (`update_virtual_view_info`); the resting offset stayed
+            // the one of the first render, and scrolled back to exactly it
+            // (the clamped 0,0) a view whose window had moved on demanded
+            // nothing and showed bare background.
+            //
+            // The expansion flag is left alone: `mark_invoked`, after the
+            // callback, says this box is served. A view without a state is
+            // not given one here (the invoke creates it).
+            if let Some(state) = self.states.get_mut(&(dom_id, node_id)) {
+                state.container = layout_bounds;
+                state.delivered_at = Some(
+                    scroll_manager
+                        .get_current_offset(dom_id, node_id)
+                        .unwrap_or_default(),
+                );
+            }
             return Some(reason);
         }
 
-        let state = self.states.entry((dom_id, node_id)).or_insert_with(|| {
-            let nested_dom_id = DomId {
-                inner: self.next_dom_id,
-            };
-            self.next_dom_id += 1;
-            VirtualViewState::new(nested_dom_id)
-        });
+        // Created through the one place a state is inserted, which also
+        // enters the view in `host_by_nested`.
+        let _ = self.get_or_create_nested_dom_id(dom_id, node_id);
+        // Always there: created by the line above when it was not.
+        let state = self.states.get_mut(&(dom_id, node_id))?;
+        // An offset kept aside for a delivered render that never reported its
+        // window (the invoke bailed) is not the offset of a later one.
+        state.delivered_at = None;
 
         if !state.virtual_view_was_invoked {
             // Remember where we started, so edge callbacks fire on scroll-to-edge,
@@ -741,6 +874,7 @@ impl VirtualViewState {
             invoked_for: None,
             container: LogicalRect::zero(),
             initial_scroll_offset: LogicalPosition::zero(),
+            delivered_at: None,
         }
     }
 
@@ -810,9 +944,10 @@ impl VirtualViewState {
     ///   reported edge is asked about the next one on the next check.
     ///
     /// Both require the user to have actually moved from the resting position
-    /// captured at `InitialRender`: the callback was just invoked for THAT
-    /// offset and materialized what it wanted for it, so sitting there is not
-    /// a scroll event.
+    /// (`initial_scroll_offset`: captured at `InitialRender`, and again when a
+    /// delivered render materialized another window): the callback was just
+    /// invoked for THAT offset and materialized what it wanted for it, so
+    /// sitting there is not a scroll event.
     ///
     /// The old rule compared a VIRTUAL-space offset against the MATERIALIZED
     /// window's size — two different spaces — so it only ever fired at the
@@ -902,6 +1037,9 @@ impl crate::managers::NodeIdRemap for VirtualViewManager {
     /// into it) and leak forever.
     fn remap_node_ids(&mut self, dom: DomId, map: &crate::managers::NodeIdMap) {
         crate::managers::remap_dom_keys(&mut self.states, dom, map);
+        // The hosts moved with their nodes and the unmounted ones are gone:
+        // the inverse map follows in the same step (see `host_by_nested`).
+        self.rebuild_host_index();
         // Carried views are a within-one-pass fact about the old ids.
         self.carried.retain(|(d, _)| *d != dom);
 
@@ -2664,5 +2802,475 @@ mod autotest_generated {
         let sizes = m.materialized_sizes();
         assert_eq!(sizes.len(), 1, "only the one that rendered: {sizes:?}");
         assert!(sizes.contains_key(&(DomId::ROOT_ID, NodeId::new(2))));
+    }
+}
+
+// ============================================================================
+// Audit A3-window.
+//
+// A1: a render delivered through a staged reason records the box and the
+//     scroll offset it was rendered for, as the first render does.
+// A2: the doms a rebuild drops are found by one seek per dropped dom, not by
+//     a walk of every view per dropped dom (a behaviour test against the walk
+//     it replaced, and a count of the states looked at).
+// A3: the nested-dom -> host index answers what the scan answered, after
+//     every writer of the states.
+// ============================================================================
+#[cfg(test)]
+mod audit_a3_window_tests {
+    use azul_core::task::{Instant, SystemTick};
+
+    use super::*;
+    use crate::managers::{NodeIdMap, NodeIdRemap};
+
+    const ROOT: DomId = DomId::ROOT_ID;
+
+    fn n(i: usize) -> NodeId {
+        NodeId::new(i)
+    }
+
+    fn rect(width: f32, height: f32) -> LogicalRect {
+        LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(width, height))
+    }
+
+    /// A `ScrollManager` that reports the offset `(0, y)` for the view
+    /// `(ROOT, n(1))`, the one the A1 tests drive.
+    fn scrolled_to(y: f32) -> ScrollManager {
+        let mut sm = ScrollManager::new();
+        sm.set_scroll_position_unclamped(
+            ROOT,
+            n(1),
+            LogicalPosition::new(0.0, y),
+            Instant::Tick(SystemTick::new(0)),
+        );
+        sm
+    }
+
+    /// The view `(ROOT, n(1))` after its first render, at offset 0 in
+    /// `bounds`: `window` materialized at the document's origin, of a
+    /// document of the size `document`.
+    fn rendered_view(
+        bounds: LogicalRect,
+        window: LogicalSize,
+        document: LogicalSize,
+    ) -> VirtualViewManager {
+        let mut m = VirtualViewManager::new();
+        assert_eq!(
+            m.check_reinvoke(ROOT, n(1), &scrolled_to(0.0), bounds),
+            Some(VirtualViewCallbackReason::InitialRender)
+        );
+        m.mark_invoked(ROOT, n(1), VirtualViewCallbackReason::InitialRender)
+            .expect("the view exists");
+        m.update_virtual_view_info(ROOT, n(1), LogicalPosition::zero(), window, document)
+            .expect("the view exists");
+        m
+    }
+
+    /// What `LayoutWindow::process_virtual_view_updates` and the invoke under
+    /// it do with a queued `reason`: stage it, get it back from
+    /// `check_reinvoke`, run the callback (which materializes `window` at
+    /// `origin`), record the invoke and then what it materialized.
+    fn deliver(
+        m: &mut VirtualViewManager,
+        reason: VirtualViewCallbackReason,
+        scroll: &ScrollManager,
+        bounds: LogicalRect,
+        origin: LogicalPosition,
+        window: LogicalSize,
+        document: LogicalSize,
+    ) {
+        m.set_reason_override(ROOT, n(1), reason);
+        assert_eq!(m.check_reinvoke(ROOT, n(1), scroll, bounds), Some(reason));
+        m.mark_invoked(ROOT, n(1), reason).expect("the view exists");
+        m.update_virtual_view_info(ROOT, n(1), origin, window, document)
+            .expect("the view exists");
+    }
+
+    fn view_state(m: &VirtualViewManager) -> &VirtualViewState {
+        m.states.get(&(ROOT, n(1))).expect("the view exists")
+    }
+
+    // ------------------------------------------------------------------ A1
+
+    /// The scenario of the finding: rendered at the top, scrolled far away
+    /// (the re-render is queued and delivered through a staged reason, which
+    /// materializes the rows there), then back to exactly the first offset.
+    /// The resting offset used to stay the one of the first render, so the
+    /// jump back demanded nothing while the materialized rows were 4800 px
+    /// away: a bare view.
+    #[test]
+    fn a_jump_back_to_the_first_offset_after_a_delivered_render_asks_for_its_rows() {
+        let bounds = rect(800.0, 600.0);
+        let window = LogicalSize::new(800.0, 1200.0);
+        let document = LogicalSize::new(800.0, 100_000.0);
+        let mut m = rendered_view(bounds, window, document);
+
+        // The jump: nothing of rows 0..1200 is on screen at 5000.
+        let far = scrolled_to(5000.0);
+        assert_eq!(
+            m.check_reinvoke(ROOT, n(1), &far, bounds),
+            Some(VirtualViewCallbackReason::ScrollBeyondContent)
+        );
+        // Queued, then delivered: the callback materializes 4800..6000.
+        deliver(
+            &mut m,
+            VirtualViewCallbackReason::ScrollBeyondContent,
+            &far,
+            bounds,
+            LogicalPosition::new(0.0, 4800.0),
+            window,
+            document,
+        );
+        assert_eq!(
+            view_state(&m).initial_scroll_offset,
+            LogicalPosition::new(0.0, 5000.0),
+            "the content was rendered for this offset"
+        );
+
+        // Sitting where the rows were rendered for asks nothing: a relayout
+        // at 5000 is not a scroll to the top edge of the new window, which
+        // is exactly 200 px above.
+        assert_eq!(m.check_reinvoke(ROOT, n(1), &far, bounds), None);
+
+        // Back to exactly the first offset: rows 4800..6000 show nothing of
+        // 0..600.
+        assert_eq!(
+            m.check_reinvoke(ROOT, n(1), &scrolled_to(0.0), bounds),
+            Some(VirtualViewCallbackReason::ScrollBeyondContent)
+        );
+    }
+
+    /// The box of a delivered render is the box the next check compares
+    /// against, in both directions.
+    #[test]
+    fn a_delivered_render_records_the_box_it_was_shown() {
+        let small = rect(800.0, 600.0);
+        let tall = rect(800.0, 900.0);
+        // 400 px of rows and no more: the window is the document, shorter
+        // than either box, so only a GROWN box asks for anything.
+        let rows = LogicalSize::new(800.0, 400.0);
+        let at_top = scrolled_to(0.0);
+
+        // The box grew before the delivered render. The callback was shown
+        // the tall box, so the check after it has nothing to ask. (It
+        // compared against the small box of the first render and fired
+        // `BoundsExpanded` for a growth already answered.)
+        let mut m = rendered_view(small, rows, rows);
+        deliver(
+            &mut m,
+            VirtualViewCallbackReason::DomRecreated,
+            &at_top,
+            tall,
+            LogicalPosition::zero(),
+            rows,
+            rows,
+        );
+        assert_eq!(view_state(&m).container, tall);
+        assert_eq!(m.check_reinvoke(ROOT, n(1), &at_top, tall), None);
+
+        // The box shrank before the delivered render and grew after it,
+        // to less than it was at first. That is a growth since the callback
+        // last saw the box. (Compared against the tall box of the first
+        // render it was none, and the rows stayed rendered for 600 px.)
+        let mut m = rendered_view(tall, rows, rows);
+        deliver(
+            &mut m,
+            VirtualViewCallbackReason::DomRecreated,
+            &at_top,
+            small,
+            LogicalPosition::zero(),
+            rows,
+            rows,
+        );
+        assert_eq!(view_state(&m).container, small);
+        assert_eq!(
+            m.check_reinvoke(ROOT, n(1), &at_top, rect(800.0, 800.0)),
+            Some(VirtualViewCallbackReason::BoundsExpanded)
+        );
+    }
+
+    /// A delivered render that answers with the SAME window leaves the
+    /// resting offset where it was: an edge that had nothing more to show
+    /// (rows still loading) is asked again when the scroll comes back to
+    /// EXACTLY the offset it was answered at - a clamped end of the document
+    /// comes back to the very float it was.
+    #[test]
+    fn an_edge_answered_with_the_same_window_is_asked_again_at_the_same_offset() {
+        let bounds = rect(100.0, 100.0);
+        let window = LogicalSize::new(100.0, 1000.0);
+        let document = LogicalSize::new(100.0, 2000.0);
+        let bottom = VirtualViewCallbackReason::EdgeScrolled(EdgeType::Bottom);
+        let mut m = rendered_view(bounds, window, document);
+
+        // The viewport's bottom reaches the window's, 1000 px short of the
+        // document's end.
+        let at_edge = scrolled_to(900.0);
+        assert_eq!(m.check_reinvoke(ROOT, n(1), &at_edge, bounds), Some(bottom));
+        // Delivered, and answered with the SAME window (nothing more to show).
+        deliver(
+            &mut m,
+            bottom,
+            &at_edge,
+            bounds,
+            LogicalPosition::zero(),
+            window,
+            document,
+        );
+        assert_eq!(
+            view_state(&m).initial_scroll_offset,
+            LogicalPosition::zero(),
+            "the same window: the view rests where it did"
+        );
+
+        // The same approach is not asked twice ...
+        assert_eq!(m.check_reinvoke(ROOT, n(1), &at_edge, bounds), None);
+        // ... moving away releases the latch ...
+        let middle = scrolled_to(400.0);
+        assert_eq!(m.check_reinvoke(ROOT, n(1), &middle, bounds), None);
+        // ... and back at exactly the edge's offset the edge is asked again.
+        assert_eq!(m.check_reinvoke(ROOT, n(1), &at_edge, bounds), Some(bottom));
+    }
+
+    // ------------------------------------------------------------------ A2
+
+    /// The walk `nested_doms_dropped_by` replaced: every state per dropped
+    /// dom, each tested against the list found so far.
+    fn dropped_by_reference(m: &VirtualViewManager, dom: DomId, map: &NodeIdMap) -> Vec<DomId> {
+        let mut dropped: Vec<DomId> = m
+            .states
+            .iter()
+            .filter(|((d, n), _)| *d == dom && map.is_unmounted(*n))
+            .map(|(_, s)| s.nested_dom_id)
+            .collect();
+        let mut i = 0;
+        while i < dropped.len() {
+            let parent = dropped[i];
+            for ((d, _), s) in &m.states {
+                if *d == parent && !dropped.contains(&s.nested_dom_id) {
+                    dropped.push(s.nested_dom_id);
+                }
+            }
+            i += 1;
+        }
+        dropped
+    }
+
+    #[test]
+    fn a_dropped_host_takes_the_chain_of_views_inside_it() {
+        let mut m = VirtualViewManager::new();
+        let a = m.get_or_create_nested_dom_id(ROOT, n(3));
+        let b = m.get_or_create_nested_dom_id(a, n(0));
+        let c = m.get_or_create_nested_dom_id(b, n(5));
+        // Another view of the window with a view inside it: its host stays.
+        let kept = m.get_or_create_nested_dom_id(ROOT, n(7));
+        let kept_inner = m.get_or_create_nested_dom_id(kept, n(1));
+
+        // The window's dom is rebuilt: node 3 unmounts, node 7 becomes 6.
+        let map = NodeIdMap::from_pairs([(n(7), n(6))]);
+        let dropped = m.nested_doms_dropped_by(ROOT, &map);
+        assert_eq!(dropped, vec![a, b, c]);
+        assert!(!dropped.contains(&kept) && !dropped.contains(&kept_inner));
+        assert_eq!(dropped, dropped_by_reference(&m, ROOT, &map));
+
+        // A rebuild that unmounts no host drops nothing ...
+        let all_stay = NodeIdMap::from_pairs([(n(3), n(3)), (n(7), n(7))]);
+        assert!(m.nested_doms_dropped_by(ROOT, &all_stay).is_empty());
+        // ... and so does a rebuild of a dom that hosts no view.
+        assert!(m.nested_doms_dropped_by(c, &NodeIdMap::default()).is_empty());
+    }
+
+    #[test]
+    fn a_dropped_host_takes_the_tree_of_views_inside_it_breadth_first() {
+        let mut m = VirtualViewManager::new();
+        let t = m.get_or_create_nested_dom_id(ROOT, n(1));
+        // Registered out of node order: the views of one dom are found in
+        // node order, whatever order they were registered in.
+        let t1 = m.get_or_create_nested_dom_id(t, n(4));
+        let t0 = m.get_or_create_nested_dom_id(t, n(0));
+        let t00 = m.get_or_create_nested_dom_id(t0, n(2));
+        let t11 = m.get_or_create_nested_dom_id(t1, n(9));
+        let t10 = m.get_or_create_nested_dom_id(t1, n(0));
+        let other = m.get_or_create_nested_dom_id(ROOT, n(2));
+
+        // The window's dom is rebuilt: node 1 unmounts, node 2 becomes 1.
+        let map = NodeIdMap::from_pairs([(n(2), n(1))]);
+        let dropped = m.nested_doms_dropped_by(ROOT, &map);
+        assert_eq!(dropped, vec![t, t0, t1, t00, t10, t11]);
+        assert!(!dropped.contains(&other));
+        assert_eq!(dropped, dropped_by_reference(&m, ROOT, &map));
+
+        // The dom of `t` is rebuilt instead: its node 4 unmounts, 0 stays.
+        let inner = NodeIdMap::from_pairs([(n(0), n(0))]);
+        let dropped = m.nested_doms_dropped_by(t, &inner);
+        assert_eq!(dropped, vec![t1, t10, t11]);
+        assert_eq!(dropped, dropped_by_reference(&m, t, &inner));
+    }
+
+    #[test]
+    fn the_dropped_doms_are_the_ones_the_walk_per_dropped_dom_found() {
+        // 60 views, each hosted in the window's dom or in the dom of an
+        // earlier view, picked by a fixed sequence: chains, fans and both.
+        let mut m = VirtualViewManager::new();
+        let mut doms = vec![ROOT];
+        let mut seed: usize = 7;
+        for i in 0..60_usize {
+            seed = seed.wrapping_mul(1_103_515_245).wrapping_add(12_345) % 2_147_483_648;
+            let host = doms[seed % doms.len()];
+            doms.push(m.get_or_create_nested_dom_id(host, n(i)));
+        }
+        assert_eq!(m.debug_counts(), 60);
+
+        // Every third node of the rebuilt dom unmounts, whichever dom it is.
+        let stays = |i: &usize| *i % 3 != 0;
+        let map = NodeIdMap::from_pairs((0..60_usize).filter(stays).map(|i| (n(i), n(i))));
+        assert!(
+            !m.nested_doms_dropped_by(ROOT, &map).is_empty(),
+            "the first view is hosted at node 0 of the window's dom, which unmounts"
+        );
+        for &dom in &doms {
+            assert_eq!(
+                m.nested_doms_dropped_by(dom, &map),
+                dropped_by_reference(&m, dom, &map),
+                "the doms dropped by a rebuild of {dom:?}"
+            );
+        }
+    }
+
+    /// How many states `nested_doms_dropped_by` looks at when the host of a
+    /// chain of `views` views, each inside the one before, unmounts.
+    fn states_looked_at_for_a_chain_of(views: usize) -> usize {
+        let mut m = VirtualViewManager::new();
+        let mut host = ROOT;
+        for _ in 0..views {
+            host = m.get_or_create_nested_dom_id(host, n(0));
+        }
+        DROPPED_BY_VISITS.with(|visits| visits.set(0));
+        // An empty map: every node of the window's dom unmounted.
+        let dropped = m.nested_doms_dropped_by(ROOT, &NodeIdMap::default());
+        assert_eq!(dropped.len(), views, "the chain goes with its first host");
+        DROPPED_BY_VISITS.with(|visits| visits.get())
+    }
+
+    #[test]
+    fn dropping_a_chain_of_views_looks_at_each_view_once() {
+        let small = states_looked_at_for_a_chain_of(50);
+        let large = states_looked_at_for_a_chain_of(200);
+        assert!(small > 0, "the counter counts nothing");
+        assert!(
+            large < 6 * small,
+            "four times the views must cost about four times the states looked at, not sixteen \
+             times: {small} for 50 views, {large} for 200"
+        );
+    }
+
+    // ------------------------------------------------------------------ A3
+
+    /// The scan `host_of_nested_dom` replaced.
+    fn host_by_scan(m: &VirtualViewManager, nested: DomId) -> Option<(DomId, NodeId)> {
+        m.states
+            .iter()
+            .find(|(_, state)| state.nested_dom_id == nested)
+            .map(|((dom_id, node_id), _)| (*dom_id, *node_id))
+    }
+
+    /// The index answers what the scan answers for every dom id that was
+    /// ever handed out (and for the window's dom and one id past the last),
+    /// and holds one entry per view.
+    fn assert_index_agrees_with_scan(m: &VirtualViewManager, when: &str) {
+        for inner in 0..=m.next_dom_id {
+            let nested = DomId { inner };
+            assert_eq!(
+                m.host_of_nested_dom(nested),
+                host_by_scan(m, nested),
+                "{when}: the host of {nested:?}"
+            );
+        }
+        assert_eq!(
+            m.nested_dom_host_map().len(),
+            m.states.len(),
+            "{when}: one entry per view"
+        );
+    }
+
+    #[test]
+    fn the_host_index_agrees_with_the_scan_after_every_writer_of_the_states() {
+        let mut m = VirtualViewManager::new();
+        assert_index_agrees_with_scan(&m, "empty");
+
+        // Registered through the getter.
+        let a = m.get_or_create_nested_dom_id(ROOT, n(3));
+        let b = m.get_or_create_nested_dom_id(ROOT, n(8));
+        let inner = m.get_or_create_nested_dom_id(a, n(2));
+        // Asked for again: the same dom, no second entry.
+        assert_eq!(m.get_or_create_nested_dom_id(ROOT, n(3)), a);
+        assert_eq!(m.host_of_nested_dom(a), Some((ROOT, n(3))));
+        assert_eq!(m.host_of_nested_dom(b), Some((ROOT, n(8))));
+        assert_eq!(m.host_of_nested_dom(inner), Some((a, n(2))));
+        assert_eq!(m.host_of_nested_dom(ROOT), None);
+        assert_index_agrees_with_scan(&m, "after get_or_create_nested_dom_id");
+        // The map is the one reading order is computed from: node 4 of the
+        // inner dom reads at node 2 of `a`, which reads at node 3 of the
+        // window's dom.
+        assert_eq!(
+            reading_order_key(inner, 4, m.nested_dom_host_map()),
+            vec![3, 2, 4]
+        );
+
+        // Registered by a check.
+        let scroll = ScrollManager::new();
+        assert_eq!(
+            m.check_reinvoke(b, n(4), &scroll, rect(10.0, 10.0)),
+            Some(VirtualViewCallbackReason::InitialRender)
+        );
+        let by_check = m
+            .get_nested_dom_id(b, n(4))
+            .expect("the check registered the view");
+        assert_eq!(m.host_of_nested_dom(by_check), Some((b, n(4))));
+        assert_index_agrees_with_scan(&m, "after check_reinvoke");
+
+        // A staged reason for a view that has no state gives it none, and
+        // the index none either.
+        m.set_reason_override(ROOT, n(50), VirtualViewCallbackReason::DomRecreated);
+        assert_eq!(
+            m.check_reinvoke(ROOT, n(50), &scroll, rect(10.0, 10.0)),
+            Some(VirtualViewCallbackReason::DomRecreated)
+        );
+        assert_eq!(m.get_nested_dom_id(ROOT, n(50)), None);
+        assert_index_agrees_with_scan(&m, "after a staged reason for an unknown view");
+
+        // The window's dom is rebuilt: node 3 (the host of `a`) unmounts,
+        // node 8 (the host of `b`) becomes node 5.
+        m.remap_node_ids(ROOT, &NodeIdMap::from_pairs([(n(8), n(5))]));
+        assert_eq!(
+            m.host_of_nested_dom(a),
+            None,
+            "the entry of an unmounted host goes with its state"
+        );
+        assert_eq!(
+            m.host_of_nested_dom(b),
+            Some((ROOT, n(5))),
+            "the entry follows its host to the node's new id"
+        );
+        // A rebuild of one dom leaves the views hosted in other doms alone.
+        assert_eq!(m.host_of_nested_dom(inner), Some((a, n(2))));
+        assert_eq!(m.host_of_nested_dom(by_check), Some((b, n(4))));
+        assert_index_agrees_with_scan(&m, "after remap_node_ids");
+
+        // A view registered after the rebuild, on the node id the dropped
+        // one had.
+        let late = m.get_or_create_nested_dom_id(ROOT, n(3));
+        assert_ne!(late, a, "a dropped view's dom id is not handed out again");
+        assert_eq!(m.host_of_nested_dom(late), Some((ROOT, n(3))));
+        assert_index_agrees_with_scan(&m, "after a registration that follows a rebuild");
+
+        // Two hosts swap their node ids.
+        m.remap_node_ids(ROOT, &NodeIdMap::from_pairs([(n(3), n(5)), (n(5), n(3))]));
+        assert_eq!(m.host_of_nested_dom(late), Some((ROOT, n(5))));
+        assert_eq!(m.host_of_nested_dom(b), Some((ROOT, n(3))));
+        assert_index_agrees_with_scan(&m, "after two hosts swapped node ids");
+
+        // A copy of the manager carries the index with the states.
+        let copy = m.clone();
+        assert_index_agrees_with_scan(&copy, "a clone");
     }
 }

@@ -420,7 +420,7 @@ mod autotest_generated {
         ParseFloatError as FfiParseFloatError, ParseFloatErrorWithInput,
     };
 
-    /// `FloatValue` stores `f32 * 1000` truncated into an `isize`.
+    /// `FloatValue` stores `f32 * 1000` rounded into an `isize`.
     const MULT: isize = 1000;
 
     /// Every `AngleMetric` variant, for exhaustive sweeps.
@@ -694,11 +694,12 @@ mod autotest_generated {
     }
 
     #[test]
-    fn autotest_f32_ctor_truncates_toward_zero_below_precision() {
-        // 3 decimal digits of precision; the 4th digit is truncated, not rounded,
-        // and truncation is toward zero on both sides of 0.
-        assert_eq!(AngleValue::deg(1.9999).number.number(), 1_999);
-        assert_eq!(AngleValue::deg(-1.9999).number.number(), -1_999);
+    fn autotest_f32_ctor_rounds_to_the_nearest_thousandth() {
+        // 3 decimal digits of precision; the 4th digit rounds to the nearest
+        // thousandth on both sides of 0 (A2-cpu-24: it used to be cut off,
+        // and this test pinned 1_999 and -1_999).
+        assert_eq!(AngleValue::deg(1.9999).number.number(), 2_000);
+        assert_eq!(AngleValue::deg(-1.9999).number.number(), -2_000);
         assert_eq!(AngleValue::deg(0.0004).number.number(), 0);
         assert_eq!(AngleValue::deg(-0.0004).number.number(), 0);
         assert_eq!(AngleValue::deg(f32::EPSILON).number.number(), 0);

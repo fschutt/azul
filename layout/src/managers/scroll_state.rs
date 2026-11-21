@@ -1524,10 +1524,42 @@ impl ScrollManager {
             // the window's get_system_time_fn callback through for hookability.)
             AnimatedScrollState::new(Instant::now())
         });
+        // How far the view's window moved in its virtual space, when it was
+        // somewhere before (`virtual_scroll_offset` is the origin of what is
+        // materialized: the callers hand it over together with the virtual
+        // view manager's).
+        let moved = match (state.virtual_scroll_offset, virtual_scroll_offset) {
+            (Some(was), Some(now)) => LogicalPosition::new(now.x - was.x, now.y - was.y),
+            _ => LogicalPosition::zero(),
+        };
         state.virtual_scroll_size = Some(virtual_scroll_size);
         state.virtual_scroll_offset = virtual_scroll_offset;
         // Re-clamp with new virtual bounds
         state.current_offset = state.clamp(state.current_offset);
+
+        // THE CONTENT MOVED WITH IT. A nested dom is placed at `view box +
+        // origin of what is materialized` (`NestedDomPlacement::origin`), and
+        // the placements are published after a layout only. A view that
+        // re-materializes in place (a pan inside its overscan, a scroll of a
+        // virtualized list: no layout) moved its child dom's pixels, and
+        // every dom nested deeper, by `moved` - and the bars of the scroll
+        // boxes in them were still pressed where they had been. The
+        // placements, and the viewports that lie inside this view, follow
+        // here: at the next publication they are replaced by the same values.
+        if moved.x != 0.0 || moved.y != 0.0 {
+            for placement in self.nested_doms.values_mut() {
+                if placement.host_frames.contains(&key) {
+                    placement.origin.x += moved.x;
+                    placement.origin.y += moved.y;
+                }
+                for (viewport, frames, _) in &mut placement.viewports {
+                    if frames.contains(&key) {
+                        viewport.origin.x += moved.x;
+                        viewport.origin.y += moved.y;
+                    }
+                }
+            }
+        }
     }
 
     /// Returns the current scroll offset for a node
@@ -1638,6 +1670,23 @@ impl ScrollManager {
         self.states
             .values()
             .any(|s| s.current_offset.x != 0.0 || s.current_offset.y != 0.0)
+    }
+
+    /// The nodes of `dom_id` that registration gave a scrollbar on either
+    /// axis ([`AnimatedScrollState::bar`]), in node order, without a copy of
+    /// the states. `GpuStateManager::refresh_scroll_driven_transforms` holds
+    /// its list of scroll-driven boxes against it once per frame: a bar
+    /// raised after the layout pass (a text edit, a `VirtualView`'s extent)
+    /// is registered here, so a node named here and not there says the list
+    /// is out of date.
+    pub fn nodes_with_a_bar(&self, dom_id: DomId) -> impl Iterator<Item = NodeId> + '_ {
+        self.states
+            .range((dom_id, NodeId::ZERO)..)
+            .take_while(move |((dom, _), _)| *dom == dom_id)
+            .filter(|(_, state)| {
+                state.horizontal_bar.is_present() || state.vertical_bar.is_present()
+            })
+            .map(|((_, node), _)| *node)
     }
 
     /// Returns all scroll positions for nodes in a specific DOM
@@ -5621,5 +5670,79 @@ impl azul_core::events::EventProvider for ScrollManager {
                 )
             })
             .collect()
+    }
+}
+
+/// Audit A6-03 (rest): a nested dom's placement follows its view's window.
+#[cfg(test)]
+mod audit_a6_tests {
+    use super::*;
+
+    const HOST: DomId = DomId { inner: 0 };
+    const CHILD: DomId = DomId { inner: 1 };
+    const GRANDCHILD: DomId = DomId { inner: 2 };
+
+    fn at(x: f32, y: f32) -> LogicalPosition {
+        LogicalPosition::new(x, y)
+    }
+
+    /// A view box at (40, 30) whose materialized window is at (-256, -156): its child dom's
+    /// origin is at (40 - 256, 30 - 156) = (-216, -126). The view pans in place and
+    /// materializes at (-200, -100): the child's origin is (40 - 200, 30 - 100) =
+    /// (-160, -70). Before, it stayed at (-216, -126) until the next layout. A dom nested in
+    /// the child (its view box at child (300, 200), nothing of its own moved) follows by the
+    /// same (56, 56), and so does the viewport it shows through.
+    /// Mutation: the shift taken out of `update_virtual_scroll_bounds` leaves all three
+    /// where they were; shifting a dom's own viewport (its view's box, which did not move)
+    /// fails the last comparison.
+    #[test]
+    fn a_nested_doms_placement_follows_the_window_its_view_materializes() {
+        let view = NodeId::new(3);
+        let inner_view = NodeId::new(7);
+        let extent = LogicalSize::new(4000.0, 3000.0);
+        let mut m = ScrollManager::new();
+        m.update_virtual_scroll_bounds(HOST, view, extent, Some(at(-256.0, -156.0)));
+
+        let view_box = LogicalRect::new(at(40.0, 30.0), LogicalSize::new(900.0, 600.0));
+        // The inner view's box, in the window with every frame at rest:
+        // child origin (-216, -126) + (300, 200).
+        let inner_box = LogicalRect::new(at(84.0, 74.0), LogicalSize::new(200.0, 100.0));
+        let mut placements = BTreeMap::new();
+        placements.insert(
+            CHILD,
+            NestedDomPlacement {
+                origin: at(-216.0, -126.0),
+                host_frames: vec![(HOST, view)],
+                viewports: vec![(view_box, Vec::new(), None)],
+                host_transform: None,
+            },
+        );
+        placements.insert(
+            GRANDCHILD,
+            NestedDomPlacement {
+                origin: at(84.0, 74.0),
+                host_frames: vec![(HOST, view), (CHILD, inner_view)],
+                viewports: vec![
+                    (view_box, Vec::new(), None),
+                    (inner_box, vec![(HOST, view)], None),
+                ],
+                host_transform: None,
+            },
+        );
+        m.set_nested_dom_placements(placements);
+        assert_eq!(m.dom_window_origin(CHILD), at(-216.0, -126.0), "harness");
+        assert_eq!(m.dom_window_origin(GRANDCHILD), at(84.0, 74.0), "harness");
+
+        // The same window again: nothing moves.
+        m.update_virtual_scroll_bounds(HOST, view, extent, Some(at(-256.0, -156.0)));
+        assert_eq!(m.dom_window_origin(CHILD), at(-216.0, -126.0));
+
+        m.update_virtual_scroll_bounds(HOST, view, extent, Some(at(-200.0, -100.0)));
+        assert_eq!(m.dom_window_origin(CHILD), at(-160.0, -70.0));
+        assert_eq!(m.dom_window_origin(GRANDCHILD), at(140.0, 130.0));
+        let grandchild = &m.nested_doms[&GRANDCHILD];
+        assert_eq!(grandchild.viewports[0].0, view_box, "the view's own box did not move");
+        assert_eq!(grandchild.viewports[1].0.origin, at(140.0, 130.0));
+        assert_eq!(m.nested_doms[&CHILD].viewports[0].0, view_box);
     }
 }
