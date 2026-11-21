@@ -6675,6 +6675,29 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
     platform: &azul_css::system::Platform,
     viewport: PhysicalSize,
 ) -> ResolvedFontChains {
+    collect_and_resolve_font_chains_covering(
+        styled_dom,
+        fc_cache,
+        font_manager,
+        platform,
+        viewport,
+        &std::collections::BTreeSet::new(),
+    )
+}
+
+/// [`collect_and_resolve_font_chains_with_registration_in_viewport`] whose chains cover the
+/// characters `also` beside those of the DOM's text: what a window passes that keeps the
+/// chains while the text changes (the characters its chains covered so far), so a character
+/// that was on screen before is still covered when it comes back.
+#[must_use]
+pub fn collect_and_resolve_font_chains_covering<T: ParsedFontTrait>(
+    styled_dom: &StyledDom,
+    fc_cache: &FcFontCache,
+    font_manager: &crate::text3::cache::FontManager<T>,
+    platform: &azul_css::system::Platform,
+    viewport: PhysicalSize,
+    also: &std::collections::BTreeSet<char>,
+) -> ResolvedFontChains {
     let collected = collect_font_stacks_from_styled_dom_in_viewport(styled_dom, platform, viewport);
 
     // Register embedded FontRefs (from the same scan, no second pass)
@@ -6698,7 +6721,8 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
     //   - the DOM has no text codepoints (no shaping to be done, so cmap-probing has nothing to
     //     check and partial-cover entries would be surprising)
     if let Some(registry) = font_manager.registry.as_deref() {
-        let used_chars = collect_used_codepoints_all(styled_dom);
+        let mut used_chars = collect_used_codepoints_all(styled_dom);
+        used_chars.extend(also.iter().copied());
         if !used_chars.is_empty() {
             // The registry's cache loads what the probe resolves.
             drop(crate::text3::fontreg::ensure_in(&registry.shared_cache()));
@@ -6721,7 +6745,8 @@ pub fn collect_and_resolve_font_chains_with_registration_in_viewport<T: ParsedFo
         &memory_families,
     );
 
-    let used_chars = collect_used_codepoints(styled_dom);
+    let mut used_chars = collect_used_codepoints(styled_dom);
+    used_chars.extend(also.iter().map(|c| u32::from(*c)));
     for chain in resolved.chains.values_mut() {
         prune_chain_to_used_chars(chain, &used_chars);
     }

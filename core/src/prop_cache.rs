@@ -954,6 +954,18 @@ impl InheritedValues {
         self.buckets.len()
     }
 
+    /// Every distinct `(type, value)` of the store with the nodes that resolve to it
+    /// (ascending): the store as it lies. For a reader that compares the values of many
+    /// nodes of two stores: [`Self::values_for`] reads every bucket for ONE node, so asking
+    /// it per node is nodes times distinct values.
+    pub fn buckets(
+        &self,
+    ) -> impl Iterator<Item = (CssPropertyType, &CssPropertyWithOrigin, &[u32])> + '_ {
+        self.buckets
+            .iter()
+            .map(|b| (b.prop_type, &b.value, b.nodes.as_slice()))
+    }
+
     /// Total (node, property) pairs — what the old per-node vecs would have
     /// stored one entry each for.
     #[must_use]

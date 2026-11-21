@@ -29304,6 +29304,43 @@
                                 },
                                 "fn_body": "object.with_part_of_parent(part)"
                             },
+                            "with_virtual_view_version": {
+                                "doc": [
+                                    "States the version of what the root node's `VirtualView` shows: a number",
+                                    "the app changes whenever the view's callback would build another DOM.",
+                                    "A rebuild of the DOM around the view (`Update::RefreshDom`) that hands in",
+                                    "the same callback and the same version keeps the view as it is: its",
+                                    "callback is not invoked and its document is not laid out again. Without a",
+                                    "version every rebuild renders the view again. An explicit re-render",
+                                    "(`update_virtual_view`, `trigger_virtual_view_rerender`) always renders."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "value"
+                                    },
+                                    {
+                                        "version": "u64"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "Dom"
+                                },
+                                "fn_body": "object.with_virtual_view_version(version)"
+                            },
+                            "set_virtual_view_version": {
+                                "doc": [
+                                    "Setter form of `with_virtual_view_version`."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "refmut"
+                                    },
+                                    {
+                                        "version": "u64"
+                                    }
+                                ],
+                                "fn_body": "object.set_virtual_view_version(version)"
+                            },
                             "with_key": {
                                 "doc": [
                                     "Gives the root node a stable key: across rebuilds it is the node with the",
