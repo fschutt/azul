@@ -1957,6 +1957,15 @@ fn outside_active_clip(
     let Some(clip) = clip else {
         return false;
     };
+    // Nothing is painted under a clip of no area. A clip pushed outside the clip around it
+    // leaves such a rect at the far corner of the two (`intersect_clips`: the larger near
+    // edges, a width and height of 0), and the test below - closed, so that what touches the
+    // clip is painted - took an item that happened to hold that corner for one that paints: it
+    // was handed to the painter, which drew nothing of it (A1-65: found by the grids' test,
+    // which steps over such an item).
+    if !(clip.width > 0.0 && clip.height > 0.0) {
+        return true;
+    }
     // (A mask that reaches no pixel of the pixmap leaves an empty entry: it holds nothing back.)
     if mask_stack.iter().any(|e| match e {
         MaskEntry::Filter(_) => true,
@@ -21642,5 +21651,31 @@ mod audit_a1_tests {
             }
             assert_eq!(differing, 0, "under the clip ({x}, {y}) {w} x {h}");
         }
+    }
+
+    /// A1-65: nothing is handed to the painter under a clip of no area. The case the grids'
+    /// test found (seed 11, as a view, damage 44.5 x 106.5 @ (495.5, 254.5), item 754): a
+    /// fill at (1153.75, 930.25) 59.75 x 18.5 of the view's list is painted at (1324.25,
+    /// 1050.5) (the view's origin and offset add (170.5, 120.25)); it lies in a clip that is
+    /// on screen at (1330, 1054.5) 200 x 150, far outside the damage's clip (495, 254)
+    /// 45 x 107. What `intersect_clips` leaves of the two is a rect of no area at (1330,
+    /// 1054.5) - and the fill holds that point, so the closed test against the clip let it
+    /// through: an item painted by the walk that tests every item (nothing of it drawn), and
+    /// rightly stepped over by the walk that asks the grid.
+    /// Mutation: without the test for an empty clip the first assertion fails.
+    #[test]
+    fn an_item_under_a_clip_of_no_area_is_culled() {
+        let item = fill(1153.75, 930.25, 59.75, 18.5, [1, 2, 3]);
+        let offset = (-170.5, -120.25);
+        let merged = intersect_clips(
+            AzRect::from_xywh(495.0, 254.0, 45.0, 107.0),
+            AzRect::from_xywh(1330.0, 1054.5, 200.0, 150.0),
+        );
+        assert!(merged.is_some_and(|c| c.width == 0.0 && c.height == 0.0), "premise: {merged:?}");
+        assert!(outside_active_clip(&item, &[], offset, merged, &[], 1.0), "no area: nothing is painted");
+        // A clip with an area culls by the bounds, as before.
+        assert!(!outside_active_clip(&item, &[], offset, AzRect::from_xywh(1300.0, 1040.0, 100.0, 100.0), &[], 1.0));
+        assert!(outside_active_clip(&item, &[], offset, AzRect::from_xywh(0.0, 0.0, 100.0, 100.0), &[], 1.0));
+        assert!(!outside_active_clip(&item, &[], offset, None, &[], 1.0), "no clip: nothing is culled");
     }
 }
