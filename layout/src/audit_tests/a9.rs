@@ -174,3 +174,32 @@ fn a9_03_of_doms_equals_the_per_dom_extraction() {
     assert_eq!(fresh.opacities.len(), 1 + 303);
     assert_eq!(fresh.colors.len(), 1 + 193);
 }
+
+/// Table 1 #7, #10, #29: the halo and mask memos (`ImageMemo`) hold at most their entry and
+/// byte bounds however much is put in (10 x the bound here), and what they still hold is the
+/// most recently used. A guard for the eviction A5 rewrites (batch eviction must keep it).
+#[cfg(feature = "cpurender")]
+#[test]
+fn a9_image_memo_holds_its_bounds_under_ten_times_the_load() {
+    use crate::image_memo::ImageMemo;
+
+    // By entries: 1,024 entries of 1 KB (the GPU halos' bound), 10,240 inserted.
+    let mut memo = ImageMemo::<u64, u64>::new(1_024, 1 << 30);
+    for key in 0..10_240u64 {
+        memo.insert(key, key, 1_024);
+    }
+    let held = (0..10_240u64).filter(|k| memo.get(k).is_some()).count();
+    assert!(held <= 1_024, "{held} entries held, the bound is 1,024");
+    assert!(memo.get(&10_239).is_some(), "the newest is kept");
+
+    // By bytes: 32 MB of 64 KB pictures (the bound of the CPU halos), 10 x that inserted.
+    let mut memo = ImageMemo::<u64, u64>::new(1 << 20, 32 << 20);
+    let picture = 64 << 10;
+    for key in 0..5_120u64 {
+        memo.insert(key, key, picture);
+    }
+    let held = (0..5_120u64).filter(|k| memo.get(k).is_some()).count();
+    assert!(held * picture <= 32 << 20, "{} bytes held, the bound is 32 MB", held * picture);
+    assert!(held >= 1, "it keeps what fits");
+    assert!(memo.get(&5_119).is_some(), "the newest is kept");
+}
