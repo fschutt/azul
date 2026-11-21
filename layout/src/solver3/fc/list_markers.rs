@@ -208,7 +208,7 @@ pub(crate) fn is_marker_on_a_line(tree: &LayoutTree, styled_dom: &StyledDom, ind
 /// for each list item (the root itself, or an ancestor it starts) whose
 /// [`marker_line_host`] it is. A marker box laid out as an IFC of its own
 /// holds just itself.
-pub(super) fn markers_on_first_line(tree: &LayoutTree, styled_dom: &StyledDom, ifc_root: usize) -> Vec<usize> {
+pub(crate) fn markers_on_first_line(tree: &LayoutTree, styled_dom: &StyledDom, ifc_root: usize) -> Vec<usize> {
     if is_marker_box(tree, ifc_root) {
         return vec![ifc_root];
     }
@@ -241,7 +241,7 @@ pub(super) fn markers_on_first_line(tree: &LayoutTree, styled_dom: &StyledDom, i
 /// The content of the `::marker` box `marker_index` (its list item's
 /// counter in its `list-style-type`, styled as the item) appended to an
 /// IFC's `content`, inside or outside by the item's `list-style-position`.
-pub(super) fn push_marker_content<T: ParsedFontTrait>(
+pub(crate) fn push_marker_content<T: ParsedFontTrait>(
     ctx: &mut LayoutContext<'_, T>,
     tree: &LayoutTree,
     marker_index: usize,

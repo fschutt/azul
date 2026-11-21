@@ -255,6 +255,167 @@ pub struct NodeCache {
     /// from the question of such a node. Forgotten by [`Self::clear`], like
     /// `free_of_given_height`.
     pub width_free_of_given_height: Option<bool>,
+
+    /// For an absolutely positioned box: what the positioning pass
+    /// (`positioning::position_out_of_flow_elements`) last laid its interior
+    /// out for - see [`AbsInterior`]. Forgotten by [`Self::clear`] (the box
+    /// or something below it is dirty) and by every visit of the box by
+    /// [`calculate_layout_for_subtree_fragment`] that wrote into the tree.
+    pub abs_interior: Option<Box<AbsInterior>>,
+}
+
+/// What the positioning pass laid the interior of an absolutely positioned
+/// box out for, and what it took from that run.
+///
+/// The pass solves the box of every absolutely positioned node in every
+/// layout pass that is not the clean early exit, and used to lay the box's
+/// interior out again each time - for a box whose subtree nothing had touched
+/// and whose size had not moved, a run that leaves the tree as it found it.
+/// While this entry stands, the box's subtree holds what that run left:
+///
+/// - a dirty node below the box clears the box's [`NodeCache`]
+///   (`LayoutCacheMap::mark_dirty_all` clears every ancestor), and
+/// - a visit of the box from its parent's flow drops the entry unless it
+///   changed nothing in the tree ([`calculate_layout_for_subtree_fragment`],
+///   `LayoutCacheMap::tree_writes`).
+///
+/// So a pass that solves the box to the same size reads the content height
+/// off this entry instead of running the formatting context again.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AbsInterior {
+    /// The bits of the border-box width and height the interior was laid out
+    /// in (compared exactly: `LogicalSize`'s own equality is quantized).
+    pub size_bits: (u32, u32),
+    /// The box's packed margin, padding and border at that run.
+    pub margin: [i16; 4],
+    /// See `margin`.
+    pub padding: [i16; 4],
+    /// See `margin`.
+    pub border: [i16; 4],
+    /// `LayoutOutput::overflow_size.height` of that run: the content height
+    /// an auto-height box takes its used height from (CSS 2.2 10.6.4).
+    pub overflow_height: f32,
+    /// Where the positioning pass put the box with that run, and from what
+    /// ([`AbsPlacement`]); none where it may not be read again.
+    pub placement: Option<AbsPlacement>,
+}
+
+/// What the positioning pass solved an absolutely positioned box from and
+/// to: the inputs of its solve that can move while the box's [`NodeCache`]
+/// stands, and the results.
+///
+/// The pass solves every absolutely positioned box in every pass: its used
+/// size, its insets and the six rules of CSS 2.2 10.3.7 / 10.6.4, some forty
+/// style reads for a label. With this entry standing and its inputs as they
+/// were, the solve comes out as it did, and the box is placed from the entry.
+///
+/// The inputs kept here: the containing block's rectangle, the viewport, the
+/// containing block's direction, the box's margins / borders / paddings (in
+/// its [`AbsInterior`]) and which margins are `auto`, and its static
+/// position. The box's own style is not kept: a change of it that lays out
+/// clears the box's `NodeCache` (the reconcile builds the box fresh, the css
+/// diff names it), and a change of its insets alone, which does not
+/// (`cache::reconcile_node`, the paint flag), drops this entry
+/// (`layout_document`, after the dirty marks).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AbsPlacement {
+    /// The containing block's origin and size, as bits.
+    pub containing_block: [u32; 4],
+    /// The pass's viewport (origin, size) and the context's viewport size.
+    pub viewport: [u32; 6],
+    /// Whether the containing block's direction is `rtl`.
+    pub rtl: bool,
+    /// Which of the box's margins are `auto` (top, right, bottom, left).
+    pub margin_auto: [bool; 4],
+    /// The box's slot of the position vector when the solve read it: its
+    /// static position.
+    pub static_bits: (u32, u32),
+    /// The position the pass gave the box.
+    pub final_bits: (u32, u32),
+    /// The used size the pass gave the box.
+    pub solved_bits: (u32, u32),
+}
+
+impl AbsPlacement {
+    /// The bits of a rectangle's origin and size.
+    #[must_use]
+    pub fn rect_bits(rect: LogicalRect) -> [u32; 4] {
+        [
+            rect.origin.x.to_bits(),
+            rect.origin.y.to_bits(),
+            rect.size.width.to_bits(),
+            rect.size.height.to_bits(),
+        ]
+    }
+
+    /// The bits of the pass's viewport and the context's viewport size.
+    #[must_use]
+    pub fn viewport_bits(viewport: LogicalRect, viewport_size: LogicalSize) -> [u32; 6] {
+        let [x, y, w, h] = Self::rect_bits(viewport);
+        [x, y, w, h, viewport_size.width.to_bits(), viewport_size.height.to_bits()]
+    }
+
+    /// Whether a box whose slot holds `slot` is solved from the same inputs:
+    /// the slot is the static position the solve read, or still the position
+    /// it wrote (no pass derived the slot from the flow since).
+    #[must_use]
+    pub fn is_for(
+        &self,
+        containing_block: [u32; 4],
+        viewport: [u32; 6],
+        rtl: bool,
+        margin_auto: [bool; 4],
+        slot: LogicalPosition,
+    ) -> bool {
+        let slot = (slot.x.to_bits(), slot.y.to_bits());
+        self.containing_block == containing_block
+            && self.viewport == viewport
+            && self.rtl == rtl
+            && self.margin_auto == margin_auto
+            && (slot == self.static_bits || slot == self.final_bits)
+    }
+
+    /// The position the pass gave the box.
+    #[must_use]
+    pub fn final_position(&self) -> LogicalPosition {
+        LogicalPosition::new(f32::from_bits(self.final_bits.0), f32::from_bits(self.final_bits.1))
+    }
+
+    /// The used size the pass gave the box.
+    #[must_use]
+    pub fn solved_size(&self) -> LogicalSize {
+        LogicalSize::new(f32::from_bits(self.solved_bits.0), f32::from_bits(self.solved_bits.1))
+    }
+}
+
+impl AbsInterior {
+    /// The entry of a run in a box of `size` and `box_props` that reported
+    /// `overflow_height`.
+    #[must_use]
+    pub fn new(
+        size: LogicalSize,
+        box_props: &super::geometry::PackedBoxProps,
+        overflow_height: f32,
+    ) -> Self {
+        Self {
+            size_bits: (size.width.to_bits(), size.height.to_bits()),
+            margin: box_props.margin,
+            padding: box_props.padding,
+            border: box_props.border,
+            overflow_height,
+            placement: None,
+        }
+    }
+
+    /// Whether this entry's run was in a box of exactly `size` and
+    /// `box_props`.
+    #[must_use]
+    pub fn is_for(&self, size: LogicalSize, box_props: &super::geometry::PackedBoxProps) -> bool {
+        self.size_bits == (size.width.to_bits(), size.height.to_bits())
+            && self.margin == box_props.margin
+            && self.padding == box_props.padding
+            && self.border == box_props.border
+    }
 }
 
 impl Default for NodeCache {
@@ -270,6 +431,7 @@ impl Default for NodeCache {
             taffy_width_only: None,
             free_of_given_height: None,
             width_free_of_given_height: None,
+            abs_interior: None,
         }
     }
 }
@@ -289,6 +451,7 @@ impl NodeCache {
         self.taffy_width_only = None;
         self.free_of_given_height = None;
         self.width_free_of_given_height = None;
+        self.abs_interior = None;
     }
 
     /// Compute the deterministic slot index from constraint dimensions.
@@ -497,6 +660,20 @@ impl NodeCache {
 #[derive(Debug, Clone, Default)]
 pub struct LayoutCacheMap {
     pub entries: Vec<NodeCache>,
+    /// Counts what [`calculate_layout_for_subtree_fragment`] wrote into the
+    /// layout tree: one per layout it computed and one per cache hit that
+    /// left a node's size, scroll geometry, escaped margins, baseline or a
+    /// child's offset other than it found it. A visit that returns with the
+    /// count where it was changed nothing below its node - what keeps
+    /// [`NodeCache::abs_interior`]. Only ever compared within one visit.
+    pub tree_writes: u64,
+    /// The node whose own used size - and nothing else - a `PerformLayout`
+    /// cache hit changed, with the value `tree_writes` had after it. A visit
+    /// of an absolutely positioned box that wrote this alone keeps the box's
+    /// [`NodeCache::abs_interior`]: the positioning pass sets that size anew
+    /// before it reads it (the flow's size of such a box and the solved one
+    /// are the same content height added up in another order).
+    pub own_size_write: Option<(usize, u64)>,
     /// What the multi-column containers of one layout pass leave for the
     /// next on paged media (`multicol::ColumnPages`).
     pub column_pages: super::multicol::ColumnPages,
@@ -1222,6 +1399,78 @@ pub(crate) fn promote_layout_roots_to_containers(
         .collect()
 }
 
+/// [`promote_layout_roots_to_containers`] for all roots but the ones `alone`
+/// names, which stay their own roots ([`restyled_out_of_flow_box_stands_alone`]).
+pub(crate) fn promote_layout_roots_to_containers_but(
+    roots: &BTreeSet<usize>,
+    node: impl Fn(usize) -> Option<(Option<usize>, FormattingContext, bool)>,
+    alone: impl Fn(usize) -> bool,
+) -> BTreeSet<usize> {
+    let (kept, lifted): (BTreeSet<usize>, BTreeSet<usize>) =
+        roots.iter().copied().partition(|&idx| alone(idx));
+    let mut promoted = promote_layout_roots_to_containers(&lifted, node);
+    promoted.extend(kept);
+    promoted
+}
+
+/// The DOM nodes of `css_dirty` whose restyle changed what lays out without
+/// reaching the scope `Full`: their size or their text moved (`SizingOnly`,
+/// `IfcOnly`), not their `position`, `display`, `float`, margins or insets.
+#[must_use]
+pub(crate) fn restyled_in_size_only(
+    css_dirty: &[(NodeId, azul_css::props::property::RelayoutScope)],
+) -> BTreeSet<NodeId> {
+    use azul_css::props::property::RelayoutScope;
+    let mut nodes: BTreeSet<NodeId> = css_dirty
+        .iter()
+        .filter(|(_, scope)| matches!(scope, RelayoutScope::IfcOnly | RelayoutScope::SizingOnly))
+        .map(|(node, _)| *node)
+        .collect();
+    for (node, scope) in css_dirty {
+        if *scope == RelayoutScope::Full {
+            nodes.remove(node);
+        }
+    }
+    nodes
+}
+
+/// Whether a box whose restyle changed its size or its text
+/// ([`restyled_in_size_only`]) is laid out as its own layout root: an
+/// absolutely or fixed positioned box under a block container, in a document
+/// without multi-column flow.
+///
+/// A restyled box of block flow is laid out by its PARENT (the css-dirty
+/// channel of `layout_document`), and an inline-level one or a block that
+/// holds only inline content is lifted to it ([`lift_to_slot_container`]):
+/// its new size moves its siblings and changes what the parent holds. None of
+/// that holds for a box that is out of the flow and stays out of it: no
+/// sibling moves, the parent's size, intrinsic sizes and scroll extent do not
+/// take it in (`fc::layout_bfc` skips it, `sizing::adds_nothing_to_its_parent`),
+/// and the positioning pass places it from its containing block and its own
+/// size. Laid out by its parent, one restyled label of a map's layer laid the
+/// whole layer out again: its 12,000 static positions and a visit of every
+/// label.
+///
+/// Not under a flex or grid container (taffy places its absolutely
+/// positioned children with the container) or a part of a table.
+#[must_use]
+pub(crate) fn restyled_out_of_flow_box_stands_alone(
+    position: LayoutPosition,
+    parent_fc: Option<FormattingContext>,
+    any_columns: bool,
+) -> bool {
+    !any_columns
+        && matches!(position, LayoutPosition::Absolute | LayoutPosition::Fixed)
+        && matches!(
+            parent_fc,
+            Some(
+                FormattingContext::Block { .. }
+                    | FormattingContext::Inline
+                    | FormattingContext::InlineBlock
+            )
+        )
+}
+
 /// The layout roots with no ancestor among them: a root's pass lays out its
 /// whole subtree, so a root below another one needs no pass of its own.
 /// `parent_of` yields a node's parent. The one cleanup for both producers of
@@ -1343,6 +1592,9 @@ pub fn reposition_clean_subtrees(
     styled_dom: &StyledDom,
     tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
+    // The used size each layout root had BEFORE this pass laid it out again
+    // (none for a root built fresh): how far what follows it has to move.
+    sizes_before: &BTreeMap<usize, LogicalSize>,
     calculated_positions: &mut super::PositionVec,
 ) {
     // Find the unique parents of all dirty layout roots. These are the containers
@@ -1368,6 +1620,7 @@ pub fn reposition_clean_subtrees(
                     parent_idx,
                     tree,
                     layout_roots,
+                    sizes_before,
                     calculated_positions,
                 );
             }
@@ -1451,14 +1704,37 @@ pub fn collect_children_dom_ids(styled_dom: &StyledDom, parent_dom_id: NodeId) -
     children
 }
 
-/// Repositions clean children within a simple block-flow layout (like a BFC or a
-/// table-row-group). It stacks children along the main axis, preserving their
-/// previously calculated cross-axis alignment.
+/// Moves the children of the block-flow parent `parent_idx` (a block container or a
+/// table-row-group) that come AFTER a child this pass laid out again as a
+/// layout root, without laying anything out.
+///
+/// A layout root is laid out where it stood, in the slot its parent's last
+/// pass gave it. What changes for its siblings is its SIZE: every child after
+/// it moves along the main axis by what the root grew (its used size now
+/// minus `sizes_before`), with its whole subtree - the gaps between the
+/// children, collapsed margins included, stay what the parent's last layout
+/// made them. A root that kept its size moves nothing, and children before a
+/// root never move. A later root moves by the growth of the roots before it
+/// like any other child (it was laid out at its old place).
+///
+/// A root whose size before the pass is not known (one built fresh) cannot
+/// say how much it grew: the children after it are stacked from its end
+/// along the main axis, each at its own margins, as this function did for
+/// every child - right for plain blocks without collapsing margins only.
+///
+/// What this replaced: all children - before and after the root, in flow or
+/// not - were stacked again from the parent's content-box origin with their
+/// full margins. That origin left the parent's BORDER out, sibling margins
+/// were summed where the layout had collapsed them, and an absolutely
+/// positioned child was given room like a block, so a pass that changed
+/// nothing but one box's width moved its clean siblings: left and up by the
+/// parent's border, down by every collapsed margin.
 pub fn reposition_block_flow_siblings(
     styled_dom: &StyledDom,
     parent_idx: usize,
     tree: &LayoutTree,
     layout_roots: &BTreeSet<usize>,
+    sizes_before: &BTreeMap<usize, LogicalSize>,
     calculated_positions: &mut super::PositionVec,
 ) {
     let Some(parent_node) = tree.get(LayoutNodeId::new(parent_idx)) else {
@@ -1479,13 +1755,16 @@ pub fn reposition_block_flow_siblings(
         .copied()
         .unwrap_or_default();
 
+    // The parent's content box: inside its border and its padding
+    // (`calculate_content_box_pos`).
     let parent_bp = parent_node.box_props.unpack();
-    let content_box_origin = LogicalPosition::new(
-        parent_pos.x + parent_bp.padding.left,
-        parent_pos.y + parent_bp.padding.top,
-    );
+    let content_box_origin = calculate_content_box_pos(parent_pos, &parent_bp);
 
-    let mut main_pen = 0.0;
+    // How far the children after the roots met so far move along the main axis.
+    let mut shift = 0.0f32;
+    // `Some` from the first root of unknown former size on: where the next
+    // child's margin box starts, from the content-box origin.
+    let mut main_pen: Option<f32> = None;
 
     for &child_idx in tree.children(parent_idx) {
         let Some(child_node) = tree.get(LayoutNodeId::new(child_idx)) else {
@@ -1497,9 +1776,60 @@ pub fn reposition_block_flow_siblings(
         let child_main_sum = child_bp.margin.main_sum(writing_mode);
         let margin_box_main_size = child_size.main(writing_mode) + child_main_sum;
 
+        // A box out of the flow takes no room in it: one laid out again as a
+        // root moves nothing however it grew, and a clean one behind a root
+        // follows the flow (its static position) without being stacked into
+        // it.
+        let out_of_flow = matches!(
+            get_position_type(
+                styled_dom,
+                // (A box of a node the DOM does not hold is taken for in flow.)
+                child_node
+                    .dom_node_id
+                    .filter(|id| id.index() < styled_dom.node_data.len()),
+            ),
+            LayoutPosition::Absolute | LayoutPosition::Fixed
+        ) && !fc::is_marker_box(tree, child_idx);
         if layout_roots.contains(&child_idx) {
-            // This child was DIRTY and has been correctly repositioned.
-            // Update the pen to the position immediately after this child.
+            if out_of_flow {
+                continue;
+            }
+            // Laid out again by this pass, at the place it had.
+            if calculated_positions.get(child_idx).is_none() {
+                continue;
+            }
+            let grown = match (sizes_before.get(&child_idx), child_node.used_size) {
+                (Some(before), Some(after)) if main_pen.is_none() => {
+                    Some(after.main(writing_mode) - before.main(writing_mode))
+                }
+                _ => None,
+            };
+            if let Some(grown) = grown {
+                // It follows the roots before it, then pushes what follows.
+                if shift != 0.0 {
+                    shift_subtree_position(
+                        child_idx,
+                        LogicalPosition::from_main_cross(shift, 0.0, writing_mode),
+                        tree,
+                        calculated_positions,
+                    );
+                }
+                if grown.is_finite() {
+                    shift += grown;
+                }
+                continue;
+            }
+            // Its former size is unknown: what follows is stacked from its
+            // end. The root itself stays where it was laid out (moved only
+            // with the roots that grew before it).
+            if main_pen.is_none() && shift != 0.0 {
+                shift_subtree_position(
+                    child_idx,
+                    LogicalPosition::from_main_cross(shift, 0.0, writing_mode),
+                    tree,
+                    calculated_positions,
+                );
+            }
             let new_pos = match calculated_positions.get(child_idx) {
                 Some(p) => *p,
                 None => continue,
@@ -1511,19 +1841,21 @@ pub fn reposition_block_flow_siblings(
                 new_pos.y - content_box_origin.y
             };
 
-            main_pen = main_axis_offset
-                + child_size.main(writing_mode)
-                + child_bp.margin.main_end(writing_mode);
-        } else {
-            // This child is *clean*. Calculate its new position and shift its
-            // entire subtree.
+            main_pen = Some(
+                main_axis_offset
+                    + child_size.main(writing_mode)
+                    + child_bp.margin.main_end(writing_mode),
+            );
+        } else if let Some(pen) = main_pen {
+            // This child is *clean*, behind a root of unknown former size:
+            // its place in the stack, its cross position as it was.
             let old_pos = match calculated_positions.get(child_idx) {
                 Some(p) => *p,
                 None => continue,
             };
 
             let child_main_start = child_bp.margin.main_start(writing_mode);
-            let new_main_pos = main_pen + child_main_start;
+            let new_main_pos = pen + child_main_start;
             let old_relative_pos = tree
                 .warm(LayoutNodeId::new(child_idx))
                 .and_then(|w| w.relative_position)
@@ -1549,7 +1881,17 @@ pub fn reposition_block_flow_siblings(
                 shift_subtree_position(child_idx, delta, tree, calculated_positions);
             }
 
-            main_pen += margin_box_main_size;
+            if !out_of_flow {
+                main_pen = Some(pen + margin_box_main_size);
+            }
+        } else if shift != 0.0 {
+            // This child is *clean*, behind roots that grew by `shift`.
+            shift_subtree_position(
+                child_idx,
+                LogicalPosition::from_main_cross(shift, 0.0, writing_mode),
+                tree,
+                calculated_positions,
+            );
         }
     }
 }
@@ -1725,6 +2067,13 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
     let _probe_outer = crate::probe::Probe::span("reconcile_and_invalidate");
     let _flows = crate::solver3::regions::NamedFlowScope::enter(ctx.styled_dom);
     let mut new_tree_builder = LayoutTreeBuilder::new(ctx.viewport_size);
+    // Room for a box per DOM node and some anonymous ones: grown by doubling,
+    // the builder's nodes (about a kilobyte each) were copied to a larger
+    // buffer a dozen times while a 12,000-node tree was built.
+    new_tree_builder.reserve_nodes({
+        let dom_nodes = ctx.styled_dom.node_data.len();
+        dom_nodes + dom_nodes / 8 + 16
+    });
     let mut recon_result = ReconciliationResult {
         css_relayout: css_dirty
             .iter()
@@ -1812,8 +2161,12 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
     // `reposition_clean_subtrees` comment always claimed the parent would
     // "already be a layout root"; now it is.)
     let any_columns = crate::solver3::multicol::dom_declares_columns(ctx.styled_dom);
-    let promoted_layout_roots =
-        promote_layout_roots_to_containers(&recon_result.layout_roots, |idx| {
+    // ...but for an out-of-flow box whose restyle changed its size or text
+    // alone: it is its own root (`restyled_out_of_flow_box_stands_alone`).
+    let size_only = restyled_in_size_only(css_dirty);
+    let promoted_layout_roots = promote_layout_roots_to_containers_but(
+        &recon_result.layout_roots,
+        |idx| {
             new_tree_builder.get(idx).map(|n| {
                 (
                     n.parent,
@@ -1822,7 +2175,20 @@ pub fn reconcile_and_invalidate_restyled<T: ParsedFontTrait>(
                         && crate::solver3::multicol::is_multicol_box(ctx.styled_dom, n.dom_node_id),
                 )
             })
-        });
+        },
+        |idx| {
+            new_tree_builder.get(idx).is_some_and(|n| {
+                n.dom_node_id.is_some_and(|dom| size_only.contains(&dom))
+                    && restyled_out_of_flow_box_stands_alone(
+                        n.computed_style.position,
+                        n.parent
+                            .and_then(|p| new_tree_builder.get(p))
+                            .map(|p| p.formatting_context),
+                        any_columns,
+                    )
+            })
+        },
+    );
     recon_result.layout_roots = promoted_layout_roots;
 
     // Clean up layout roots: if a parent is a layout root, its children don't need to be.
@@ -2289,6 +2655,14 @@ fn reconcile_table_children(
     Ok(())
 }
 
+/// How many children of old parents [`try_reuse_anon_wrapper`] looked at on this
+/// thread to list their anonymous inline wrappers: each parent's children once,
+/// not once per inline run (the size sweep of `audit_tests::a3_solver` reads it).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static OLD_WRAPPER_CANDIDATES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// Ordinal-match a freshly created anonymous inline wrapper to the old
 /// parent's Nth anon wrapper and, when the run's children are IDENTICAL
 /// (same dom ids, same order), carry the warm caches forward.
@@ -2362,6 +2736,9 @@ fn try_reuse_anon_wrapper(
     style_dom_id: NodeId,
     subtree: InheritedChange,
     text_styles: &mut TextStyleReader<'_>,
+    // The old parent's anonymous inline wrappers in child order, listed by
+    // the first run that asks and kept for the parent's later runs.
+    old_wrappers: &mut Option<Vec<usize>>,
 ) -> bool {
     let (Some(t), Some(op)) = (old_tree, old_parent_idx) else {
         return false;
@@ -2371,16 +2748,24 @@ fn try_reuse_anon_wrapper(
         return false;
     }
     // Children live on the TREE (hot/warm/cold split), not the node struct.
-    let Some(old_anon) = t
-        .children(op)
-        .iter()
-        .copied()
-        .filter(|&c| {
-            t.cold(LayoutNodeId::new(c))
-                .is_some_and(|cold| cold.anonymous_type == Some(AnonymousBoxType::InlineWrapper))
-        })
-        .nth(anon_ordinal)
-    else {
+    // The wrappers are listed once per parent: counted off again from the
+    // parent's first child for every run (`.filter(..).nth(anon_ordinal)`), a
+    // block of r inline runs between its blocks looked at r * children / 2
+    // children.
+    let wrappers = old_wrappers.get_or_insert_with(|| {
+        t.children(op)
+            .iter()
+            .copied()
+            .filter(|&c| {
+                #[cfg(test)]
+                OLD_WRAPPER_CANDIDATES.with(|n| n.set(n.get() + 1));
+                t.cold(LayoutNodeId::new(c)).is_some_and(|cold| {
+                    cold.anonymous_type == Some(AnonymousBoxType::InlineWrapper)
+                })
+            })
+            .collect()
+    });
+    let Some(old_anon) = wrappers.get(anon_ordinal).copied() else {
         return false;
     };
     let old_anon_children = t.children(old_anon);
@@ -2616,6 +3001,9 @@ pub fn reconcile_recursive(
                                                                // identity try_reuse_anon_wrapper
                                                                // matches against the old tree.
         let mut anon_ordinal: usize = 0;
+        // The old parent's anonymous inline wrappers, listed by the first
+        // run that asks for one (`try_reuse_anon_wrapper`).
+        let mut old_wrappers: Option<Vec<usize>> = None;
 
         for (i, &new_child_dom_id) in new_children_dom_ids.iter().enumerate() {
             if block_level[i] {
@@ -2658,6 +3046,7 @@ pub fn reconcile_recursive(
                             new_dom_id,
                             subtree,
                             text_styles,
+                            &mut old_wrappers,
                         );
                         anon_ordinal += 1;
 
@@ -2826,6 +3215,7 @@ pub fn reconcile_recursive(
                     new_dom_id,
                     subtree,
                     text_styles,
+                    &mut old_wrappers,
                 );
                 anon_ordinal += 1;
 
@@ -2927,6 +3317,13 @@ struct ReconciledNode {
     new_child_hashes: Vec<u64>,
 }
 
+/// How many boxes [`reconcile_node`] kept on this thread because the values of
+/// their insets were all that moved (`audit_tests::a3_solver`).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static INSET_MOVES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
 /// [`reconcile_recursive`] for the node itself, before its children: its
 /// fingerprint against the old tree's and what is dirty, the node built fresh or
 /// cloned from the old tree (and its `::marker`), and the children the layout
@@ -2980,7 +3377,9 @@ fn reconcile_node(
         .and_then(|c| c.get(new_dom_id.index()))
         .copied()
         .unwrap_or(false);
-    let new_fingerprint = {
+    // `fingerprint_computed`: computed here, from this DOM node and its state -
+    // what `create_node_from_dom` would compute again for a fresh node.
+    let (new_fingerprint, fingerprint_computed) = {
         let mut reused: Option<NodeDataFingerprint> = None;
         if diff_clean_here {
             if let Some(old_c) = old_cold {
@@ -3005,16 +3404,19 @@ fn reconcile_node(
             }
         }
         if let Some(fp) = reused {
-            fp
+            (fp, false)
         } else {
             let _p = crate::probe::Probe::span("fingerprint_compute");
-            NodeDataFingerprint::compute(
-                node_data,
-                styled_dom
-                    .styled_nodes
-                    .as_container()
-                    .get(new_dom_id)
-                    .map(|n| &n.styled_node_state),
+            (
+                NodeDataFingerprint::compute(
+                    node_data,
+                    styled_dom
+                        .styled_nodes
+                        .as_container()
+                        .get(new_dom_id)
+                        .map(|n| &n.styled_node_state),
+                ),
+                true,
             )
         }
     };
@@ -3026,7 +3428,39 @@ fn reconcile_node(
         },
         |old_c| {
             let change_set = old_c.node_data_fingerprint.diff(&new_fingerprint);
-            if change_set.needs_layout() {
+            // The VALUES of the node's insets are all that moved (`left` /
+            // `top` / `right` / `bottom`; which of them it declares did not
+            // change), and the box is absolutely positioned or fixed, as it
+            // was: its insets say where it stands in its containing block and
+            // nothing about what is in it. It keeps its box - intrinsic sizes,
+            // inline layout, measurements - and is PLACED again:
+            // `positioning::position_out_of_flow_elements` solves every such
+            // box from the insets the cascade holds now, on every pass that is
+            // not clean (its size too, where `left` and `right` or `top` and
+            // `bottom` stretch it, and then its interior at that size), and a
+            // child of a positioned flex or grid container is placed by its
+            // container, which is laid out again because this child's subtree
+            // hash moved. A box in flow whose insets moved (`relative`,
+            // `sticky`) is built fresh as before.
+            let insets_alone = (change_set.bits & azul_core::diff::NodeChangeSet::AFFECTS_LAYOUT)
+                == azul_core::diff::NodeChangeSet::INLINE_STYLE_INSETS;
+            if insets_alone
+                && super::layout_tree::is_out_of_flow_positioned(styled_dom, new_dom_id)
+                && old_tree
+                    .zip(old_tree_idx)
+                    .and_then(|(t, i)| t.warm(LayoutNodeId::new(i)))
+                    .is_some_and(|w| {
+                        matches!(
+                            w.computed_style.position,
+                            LayoutPosition::Absolute | LayoutPosition::Fixed
+                        )
+                    })
+            {
+                drop(crate::probe::Probe::span("fp_insets_moved"));
+                #[cfg(test)]
+                INSET_MOVES.with(|n| n.set(n.get() + 1));
+                DirtyFlag::Paint
+            } else if change_set.needs_layout() {
                 drop(crate::probe::Probe::span("fp_needs_layout"));
                 let enabled =
                     *FP_DUMP_ENABLED.get_or_init(|| std::env::var_os("AZ_FP_DUMP").is_some());
@@ -3188,11 +3622,18 @@ fn reconcile_node(
             let _ = (0xBB00_0001u32);
         }
         recon.fresh_nodes += 1;
-        let idx = new_tree_builder.create_node_from_dom(
+        // The fingerprint computed above goes with the node: the builder
+        // computed it a second time for every fresh node (seven hashes over
+        // the node's text, inline CSS, classes, callbacks and attributes) -
+        // every node of a view rendered again with new label positions. One
+        // taken over from the old tree (the diff's skip) is not handed on:
+        // the builder computes the node's own, as it always did.
+        let idx = new_tree_builder.create_node_from_dom_fingerprinted(
             styled_dom,
             new_dom_id,
             new_parent_idx,
             debug_messages,
+            fingerprint_computed.then_some(new_fingerprint),
         );
         recon.fresh_indices.insert(idx);
         if let Some(node) = new_tree_builder.get_mut(idx) {
@@ -3209,16 +3650,23 @@ fn reconcile_node(
             let _ = (0xBB00_0002u32);
         }
         recon.reused_nodes += 1;
-        // Paint-only or clean: clone the old node (preserving layout cache)
+        // Paint-only or clean: the old node goes on into the new tree
+        // (preserving layout cache). It is read out of the old tree once -
+        // a copy of its hot, warm and cold parts, without its child list,
+        // which the new tree fills again - and that copy is MOVED into the
+        // builder. It was read with its children and then cloned a second
+        // time (`clone_node_from_old(&old_full_node, ..)`): every box, map
+        // and list of every clean node copied twice per reconcile.
         let old_full_node = old_tree
-            .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node(idx)))
+            .and_then(|t| old_tree_idx.and_then(|idx| t.get_full_node_without_children(idx)))
             .ok_or(LayoutError::InvalidTree)?;
-        // The clone reuses the OLD node's measurements under the NEW node's
+        // The node reuses the OLD node's measurements under the NEW node's
         // identity: `old_tree_idx` may have come from the positional
-        // fallback below, in which case `old_full_node.dom_node_id` names a
+        // fallback below, in which case `old_dom_node_id` names a
         // different (or, after the DOM shrank, a nonexistent) node.
+        let old_dom_node_id = old_full_node.dom_node_id;
         let mut idx =
-            new_tree_builder.clone_node_from_old(&old_full_node, new_parent_idx, Some(new_dom_id));
+            new_tree_builder.adopt_node_from_old(old_full_node, new_parent_idx, Some(new_dom_id));
         // A node that became a hit-test target, or stopped being one (a
         // handler, a tab stop, a context menu came or went), is laid out as
         // it was, but the items it keeps hold the hit-test area of what it
@@ -3247,7 +3695,7 @@ fn reconcile_node(
         // `layout_document`'s `cache_map` remap hands it the per-node cache -
         // and `final_layout_current` - of its own id. The two must describe
         // the same node for a memoised final layout to be served.
-        let paired_by_position = diff.now(old_full_node.dom_node_id) != Some(new_dom_id);
+        let paired_by_position = diff.now(old_dom_node_id) != Some(new_dom_id);
         if let Some(cloned) = new_tree_builder.get_mut(idx) {
             // The clone keeps its flex measurements (`clone_node_from_old`) -
             // unless a restyle on it or above it may have moved what it
@@ -4582,6 +5030,25 @@ pub(super) fn position_bfc_child_descendants(
     }
 }
 
+/// How many indices [`is_one_of_sorted`] compared on this thread: what the size
+/// sweep of the tests reads (`audit_tests::a3_solver`) to say that a block of
+/// many absolutely positioned children is not scanned once per child.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CHILD_LOOKUP_STEPS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Whether `index` is one of `sorted`, layout indices in ascending order.
+fn is_one_of_sorted(sorted: &[usize], index: usize) -> bool {
+    sorted
+        .binary_search_by(|probe| {
+            #[cfg(test)]
+            CHILD_LOOKUP_STEPS.with(|n| n.set(n.get() + 1));
+            probe.cmp(&index)
+        })
+        .is_ok()
+}
+
 /// Processes out-of-flow children (absolute/fixed positioned elements).
 ///
 /// Out-of-flow elements don't appear in `layout_output.positions` but still need
@@ -4601,6 +5068,18 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
     reflow_needed_for_scrollbars: &mut bool,
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
 ) -> Result<()> {
+    // "Is this box one of the children" is asked by binary search in a sorted
+    // copy of the children, made once. Asked with `children.contains(index)`
+    // for every recorded static position, a block of k absolutely positioned
+    // children - `fc::layout_bfc` records a static position for each - compared
+    // k * k / 2 indices: 72 million at the map editor's 12,000 labels.
+    let sorted_children: Vec<usize> = if static_positions.is_empty() {
+        Vec::new()
+    } else {
+        let mut sorted = tree.children(node_index).to_vec();
+        sorted.sort_unstable();
+        sorted
+    };
     // Collect out-of-flow children (those not already positioned)
     let out_of_flow_children: Vec<(usize, Option<NodeId>)> = {
         let current_node = tree
@@ -4613,7 +5092,7 @@ fn process_out_of_flow_children<T: ParsedFontTrait>(
         let nested = static_positions
             .keys()
             .copied()
-            .filter(|index| !tree.children(node_index).contains(index));
+            .filter(|index| !is_one_of_sorted(&sorted_children, *index));
         tree.children(node_index)
             .iter()
             .copied()
@@ -4770,6 +5249,90 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     float_cache: &mut HashMap<usize, fc::FloatingContext>,
     compute_mode: ComputeMode,
     fragment: Option<fc::FragmentainerSpace<'_>>,
+    fragment_out: Option<&mut Option<crate::solver3::break_token::BreakToken>>,
+) -> Result<()> {
+    // A visit that wrote into the tree - below this node or into the node -
+    // left its subtree other than the positioning pass's last interior run
+    // left it: that run's entry no longer describes it ([`AbsInterior`]).
+    // Every visit of a node comes through here, the recursion's included.
+    let writes_before = ctx.cache_map.tree_writes;
+    let result = calculate_layout_for_subtree_visit_counted(
+        ctx,
+        tree,
+        text_cache,
+        node_index,
+        containing_block_pos,
+        cb,
+        calculated_positions,
+        reflow_needed_for_scrollbars,
+        float_cache,
+        compute_mode,
+        fragment,
+        fragment_out,
+    );
+    let writes = ctx.cache_map.tree_writes;
+    if writes != writes_before {
+        // ...but for a hit that changed this node's own size alone
+        // (`LayoutCacheMap::own_size_write`).
+        let own_size_alone = writes == writes_before.wrapping_add(1)
+            && ctx.cache_map.own_size_write == Some((node_index, writes));
+        if !own_size_alone {
+            if let Some(entry) = ctx.cache_map.entries.get_mut(node_index) {
+                entry.abs_interior = None;
+            }
+        }
+    }
+    result
+}
+
+/// Whether `held` is exactly `size`, bit for bit (`LogicalSize`'s own
+/// equality is quantized).
+fn holds_size(held: Option<LogicalSize>, size: LogicalSize) -> bool {
+    held.is_some_and(|h| {
+        h.width.to_bits() == size.width.to_bits() && h.height.to_bits() == size.height.to_bits()
+    })
+}
+
+/// Whether `held` is exactly `value`, bit for bit, or both are none.
+fn holds_f32(held: Option<f32>, value: Option<f32>) -> bool {
+    held.map(f32::to_bits) == value.map(f32::to_bits)
+}
+
+/// Whether `held` is exactly `position`, bit for bit.
+fn holds_position(held: Option<LogicalPosition>, position: LogicalPosition) -> bool {
+    held.is_some_and(|h| {
+        h.x.to_bits() == position.x.to_bits() && h.y.to_bits() == position.y.to_bits()
+    })
+}
+
+/// Whether `held` is exactly `scrollbars`, field for field.
+fn holds_scrollbars(held: Option<&ScrollbarRequirements>, scrollbars: &ScrollbarRequirements) -> bool {
+    held.is_some_and(|h| {
+        h.needs_horizontal == scrollbars.needs_horizontal
+            && h.needs_vertical == scrollbars.needs_vertical
+            && h.bar_kind == scrollbars.bar_kind
+            && h.scrollbar_width.to_bits() == scrollbars.scrollbar_width.to_bits()
+            && h.scrollbar_height.to_bits() == scrollbars.scrollbar_height.to_bits()
+            && h.visual_width_px.to_bits() == scrollbars.visual_width_px.to_bits()
+    })
+}
+
+/// [`calculate_layout_for_subtree_fragment`] proper: one visit of a node.
+/// Called by nothing else, so that every visit is counted there.
+#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine (one branch per case)
+fn calculate_layout_for_subtree_visit_counted<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &mut LayoutTree,
+    text_cache: &mut TextLayoutCache,
+    node_index: usize,
+    containing_block_pos: LogicalPosition,
+    cb: &super::geometry::ContainingBlock,
+    calculated_positions: &mut super::PositionVec,
+    reflow_needed_for_scrollbars: &mut bool,
+    float_cache: &mut HashMap<usize, fc::FloatingContext>,
+    compute_mode: ComputeMode,
+    fragment: Option<fc::FragmentainerSpace<'_>>,
     mut fragment_out: Option<&mut Option<crate::solver3::break_token::BreakToken>>,
 ) -> Result<()> {
     // Legacy flattened view for the cache keys and the not-yet-migrated
@@ -4858,13 +5421,27 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                     // SIZING CACHE HIT — set used_size and return immediately.
                     // No child positioning needed in ComputeSize mode.
                     drop(crate::probe::Probe::span("size_cache_hit_sizing"));
+                    // Whether the hit finds the node as it leaves it
+                    // (`LayoutCacheMap::tree_writes`).
+                    let mut as_found = true;
                     if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_size(node.used_size, cached_sizing.result_size);
                         node.used_size = Some(cached_sizing.result_size);
                     }
                     if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_f32(
+                            warm.escaped_top_margin,
+                            cached_sizing.escaped_top_margin,
+                        ) && holds_f32(
+                            warm.escaped_bottom_margin,
+                            cached_sizing.escaped_bottom_margin,
+                        ) && holds_f32(warm.baseline, cached_sizing.baseline);
                         warm.escaped_top_margin = cached_sizing.escaped_top_margin;
                         warm.escaped_bottom_margin = cached_sizing.escaped_bottom_margin;
                         warm.baseline = cached_sizing.baseline;
+                    }
+                    if !as_found {
+                        ctx.cache_map.tree_writes = ctx.cache_map.tree_writes.wrapping_add(1);
                     }
                     return Ok(());
                 }
@@ -4875,12 +5452,24 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 if let Some(cached_layout) = layout_hit {
                     // Layout slot hit in ComputeSize mode — extract size only
                     drop(crate::probe::Probe::span("size_cache_hit_layout"));
+                    let mut as_found = true;
                     if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_size(node.used_size, cached_layout.result_size);
                         node.used_size = Some(cached_layout.result_size);
                     }
                     if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_size(
+                            warm.overflow_content_size,
+                            cached_layout.content_size,
+                        ) && holds_scrollbars(
+                            warm.scrollbar_info.as_ref(),
+                            &cached_layout.scrollbar_info,
+                        );
                         warm.overflow_content_size = Some(cached_layout.content_size);
                         warm.scrollbar_info = Some(cached_layout.scrollbar_info);
+                    }
+                    if !as_found {
+                        ctx.cache_map.tree_writes = ctx.cache_map.tree_writes.wrapping_add(1);
                     }
                     return Ok(());
                 }
@@ -4945,12 +5534,31 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                 if let Some(cached_layout) = layout_hit {
                     drop(crate::probe::Probe::span("pos_cache_hit"));
                     // LAYOUT CACHE HIT — apply cached results with child positions
+                    // Whether the hit finds the node and its children's
+                    // offsets as it leaves them (`LayoutCacheMap::tree_writes`).
+                    let mut as_found = true;
+                    let mut size_as_found = true;
                     if let Some(node) = tree.get_mut(LayoutNodeId::new(node_index)) {
+                        size_as_found = holds_size(node.used_size, cached_layout.result_size);
                         node.used_size = Some(cached_layout.result_size);
                     }
                     if let Some(warm) = tree.warm_mut(LayoutNodeId::new(node_index)) {
+                        as_found &= holds_size(
+                            warm.overflow_content_size,
+                            cached_layout.content_size,
+                        ) && holds_scrollbars(
+                            warm.scrollbar_info.as_ref(),
+                            &cached_layout.scrollbar_info,
+                        );
                         warm.overflow_content_size = Some(cached_layout.content_size);
                         warm.scrollbar_info = Some(cached_layout.scrollbar_info);
+                    }
+                    if !as_found || !size_as_found {
+                        ctx.cache_map.tree_writes = ctx.cache_map.tree_writes.wrapping_add(1);
+                        if as_found {
+                            ctx.cache_map.own_size_write =
+                                Some((node_index, ctx.cache_map.tree_writes));
+                        }
                     }
 
                     let box_props = tree
@@ -5003,6 +5611,11 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                         if laid_out_by_table {
                             if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))
                             {
+                                if !holds_position(child_warm.relative_position, *child_relative_pos)
+                                {
+                                    ctx.cache_map.tree_writes =
+                                        ctx.cache_map.tree_writes.wrapping_add(1);
+                                }
                                 child_warm.relative_position = Some(*child_relative_pos);
                             }
                             let child_bp = tree
@@ -5021,6 +5634,11 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
                         if items_laid_out_by_taffy {
                             if let Some(child_warm) = tree.warm_mut(LayoutNodeId::new(*child_index))
                             {
+                                if !holds_position(child_warm.relative_position, *child_relative_pos)
+                                {
+                                    ctx.cache_map.tree_writes =
+                                        ctx.cache_map.tree_writes.wrapping_add(1);
+                                }
                                 child_warm.relative_position = Some(*child_relative_pos);
                             }
                             let (child_bp, child_used_size) = tree
@@ -5072,6 +5690,8 @@ pub fn calculate_layout_for_subtree_fragment<T: ParsedFontTrait>(
     if compute_mode == ComputeMode::PerformLayout {
         drop(crate::probe::Probe::span("pos_cache_miss"));
     }
+    // The node is laid out: its subtree is written (`LayoutCacheMap::tree_writes`).
+    ctx.cache_map.tree_writes = ctx.cache_map.tree_writes.wrapping_add(1);
 
     // returned Ok; 0x64 = layout_formatting_context returned Ok. Last value before the
     // Err pins the failing phase (fires per recursive node; bare body is shallow).
@@ -7648,14 +8268,14 @@ mod autotest_generated {
         let before = positions.clone();
 
         // No dirty roots → nothing to reposition.
-        reposition_clean_subtrees(&sd, &tree, &BTreeSet::new(), &mut positions);
+        reposition_clean_subtrees(&sd, &tree, &BTreeSet::new(), &BTreeMap::new(), &mut positions);
         assert_eq!(positions, before);
 
         // A layout root that isn't in the tree must not panic.
         let mut roots = BTreeSet::new();
         roots.insert(99);
         roots.insert(usize::MAX);
-        reposition_clean_subtrees(&sd, &tree, &roots, &mut positions);
+        reposition_clean_subtrees(&sd, &tree, &roots, &BTreeMap::new(), &mut positions);
         assert_eq!(positions, before);
     }
 
@@ -7680,17 +8300,19 @@ mod autotest_generated {
         roots.insert(1);
 
         // Taffy owns flex layout; the sibling-repositioning shortcut is skipped.
-        reposition_clean_subtrees(&sd, &tree, &roots, &mut positions);
+        reposition_clean_subtrees(&sd, &tree, &roots, &BTreeMap::new(), &mut positions);
         assert_eq!(positions, before);
     }
 
-    #[test]
-    fn reposition_block_flow_siblings_stacks_clean_children_from_the_content_origin() {
-        // body(0) is the parent; children 1 and 2 are clean, 3 is a grandchild.
+    /// body(0), bordered 5 and padded 3, at (10, 20): its content box starts
+    /// at (18, 28). Children 1 (50 high), 2 (30 high) and 3 (10 high) stand
+    /// below each other with a gap of 4 between 1 and 2 (a collapsed margin
+    /// the box props do not show); 4 is a grandchild inside 2.
+    fn three_stacked_children() -> (StyledDom, LayoutTree, Vec<LogicalPosition>) {
         let sd = styled(Dom::create_body().with_child(Dom::create_div()), "");
         let parent_bp = box_props(
             edges(0.0, 0.0, 0.0, 0.0),
-            edges(5.0, 5.0, 5.0, 5.0), // border — see the note below
+            edges(5.0, 5.0, 5.0, 5.0), // border
             edges(3.0, 3.0, 3.0, 3.0), // padding
         );
         let tree = build_tree(
@@ -7703,33 +8325,83 @@ mod autotest_generated {
                 ),
                 hot(Some(0), None, Some(size(200.0, 50.0)), &zero_box_props()),
                 hot(Some(0), None, Some(size(200.0, 30.0)), &zero_box_props()),
-                plain(Some(1)),
+                hot(Some(0), None, Some(size(200.0, 10.0)), &zero_box_props()),
+                plain(Some(2)),
             ],
-            warm_default(4),
-            &[vec![1, 2], vec![3], vec![], vec![]],
+            warm_default(5),
+            &[vec![1, 2, 3], vec![], vec![4], vec![], vec![]],
         );
-        let mut positions = vec![
-            pos(10.0, 20.0), // parent (border-box origin)
-            pos(0.0, 0.0),
-            pos(0.0, 0.0),
-            pos(0.0, 0.0),
+        let positions = vec![
+            pos(10.0, 20.0),  // parent (border-box origin)
+            pos(18.0, 28.0),  // child 1
+            pos(18.0, 82.0),  // child 2: 28 + 50 + the gap of 4
+            pos(18.0, 112.0), // child 3: 82 + 30
+            pos(20.0, 85.0),  // the grandchild in 2
         ];
+        (sd, tree, positions)
+    }
 
-        reposition_block_flow_siblings(&sd, 0, &tree, &BTreeSet::new(), &mut positions);
+    /// A3-solver-29. A root that kept its size moves none of its siblings:
+    /// not the one before it, not the ones after it. (They were all stacked
+    /// again from `parent position + padding`, without the border and without
+    /// the gap: child 1 went to (13, 23), child 3 to (13, 103).)
+    #[test]
+    fn reposition_block_flow_siblings_keeps_the_siblings_of_a_root_that_kept_its_size() {
+        let (sd, tree, mut positions) = three_stacked_children();
+        let before = positions.clone();
+        let mut roots = BTreeSet::new();
+        roots.insert(2);
+        let mut sizes_before = BTreeMap::new();
+        sizes_before.insert(2, size(200.0, 30.0));
 
-        // BEHAVIOUR PIN: the content origin is computed as parent_pos + PADDING
-        // only — the parent's border is NOT added, unlike calculate_content_box_pos
-        // (which adds border + padding to the same border-box origin). With a
-        // bordered parent the clean siblings therefore land 5px up/left of where
-        // the full layout pass would put them.
-        assert_eq!(positions[1], pos(13.0, 23.0));
+        reposition_block_flow_siblings(&sd, 0, &tree, &roots, &sizes_before, &mut positions);
+
+        assert_eq!(positions, before);
+    }
+
+    /// A3-solver-29. A root that grew pushes what follows it by its growth,
+    /// subtree and all, and leaves what stands before it and every x alone.
+    /// Child 1 grew from 20 to 50: child 2 from 82 to 112, its grandchild
+    /// from 85 to 115, child 3 from 112 to 142.
+    #[test]
+    fn reposition_block_flow_siblings_moves_what_follows_a_root_by_what_it_grew() {
+        let (sd, tree, mut positions) = three_stacked_children();
+        let mut roots = BTreeSet::new();
+        roots.insert(1);
+        let mut sizes_before = BTreeMap::new();
+        sizes_before.insert(1, size(200.0, 20.0));
+
+        reposition_block_flow_siblings(&sd, 0, &tree, &roots, &sizes_before, &mut positions);
+
+        assert_eq!(positions[0], pos(10.0, 20.0));
+        assert_eq!(positions[1], pos(18.0, 28.0), "the root stays where it was laid out");
+        assert_eq!(positions[2], pos(18.0, 112.0));
+        assert_eq!(positions[3], pos(18.0, 142.0));
+        assert_eq!(positions[4], pos(20.0, 115.0), "the grandchild moves with its parent");
+    }
+
+    /// A3-solver-29. A root whose former size is unknown (built fresh): what
+    /// follows is stacked from its end, from the parent's CONTENT box - inside
+    /// the border AND the padding - at the cross position each child had. The
+    /// child before the root stays. Root 2 ends at 82 + 30 = 112: child 3
+    /// stands at (18 + 0, 28 + (112 - 28)) = (18, 112).
+    #[test]
+    fn reposition_block_flow_siblings_stacks_what_follows_a_root_of_unknown_former_size() {
+        let (sd, tree, mut positions) = three_stacked_children();
+        // Child 3 stood somewhere else before (the root's old extent).
+        positions[3] = pos(18.0, 300.0);
+        let mut roots = BTreeSet::new();
+        roots.insert(2);
+
+        reposition_block_flow_siblings(&sd, 0, &tree, &roots, &BTreeMap::new(), &mut positions);
+
+        assert_eq!(positions[1], pos(18.0, 28.0), "before the root: untouched");
+        assert_eq!(positions[2], pos(18.0, 82.0), "the root stays where it was laid out");
         assert_eq!(
-            positions[2],
-            pos(13.0, 73.0),
-            "second child stacked below the first"
+            positions[3],
+            pos(18.0, 112.0),
+            "stacked at the root's end, inside the parent's border and padding"
         );
-        // The grandchild moved with its parent's subtree.
-        assert_eq!(positions[3], pos(13.0, 23.0));
     }
 
     // ==================================================================

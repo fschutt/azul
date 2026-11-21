@@ -906,8 +906,10 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
         // context alone, as this was, it kept no size and had no box.
         let mut caption_scrollbar_reflow = false;
         let mut caption_float_cache = HashMap::new();
-        let mut caption_positions: super::super::PositionVec = Vec::new();
-        crate::solver3::cache::calculate_layout_for_subtree(
+        // (lent and given back: `BfcPassMemo`)
+        let mut caption_positions: super::super::PositionVec =
+            ctx.pass_memo.bfc.lend(tree.nodes.len());
+        let sized = crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
             tree,
             text_cache,
@@ -921,7 +923,9 @@ pub fn layout_table_fc<T: ParsedFontTrait>(
             &mut caption_scrollbar_reflow,
             &mut caption_float_cache,
             crate::solver3::cache::ComputeMode::ComputeSize,
-        )?;
+        );
+        ctx.pass_memo.bfc.take_back(caption_positions, tree, &[caption_idx]);
+        sized?;
         let caption_margin = tree
             .get(LayoutNodeId::new(caption_idx))
             .map(|n| n.box_props.unpack().margin)
