@@ -3311,7 +3311,7 @@ pub(crate) fn build_full_transaction(
         } = *layout_window;
 
         for (dom_id, layout_result) in layout_results {
-            gpu_state_manager.update_scrollbar_transforms(
+            gpu_state_manager.refresh_scroll_driven_transforms(
                 *dom_id,
                 scroll_manager,
                 &layout_result.layout_tree,
@@ -3705,7 +3705,7 @@ pub(crate) fn build_lightweight_transaction(
         } = *layout_window;
 
         for (dom_id, layout_result) in layout_results {
-            gpu_state_manager.update_scrollbar_transforms(
+            gpu_state_manager.refresh_scroll_driven_transforms(
                 *dom_id,
                 scroll_manager,
                 &layout_result.layout_tree,
