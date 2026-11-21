@@ -1453,8 +1453,9 @@ impl ReferenceFrameGroup {
         below: (u32, u32),
         // (A10-06) The frame the shell shows as a layer (`CpuRenderState::promote`): an
         // isolated group whatever its matrix is, so that its picture is a surface.
-        isolate: bool,
+        promoted: Option<PromoteFrame>,
     ) -> Self {
+        let isolate = promoted.is_some();
         // As the layer builder places the frame: the identity paints where it
         // is laid out, a translation paints moved into the pixels below (the
         // compositor paints it in its parent layer, too), and any other
@@ -1485,7 +1486,13 @@ impl ReferenceFrameGroup {
         // Of the group's box, only the part that can land in the pixels below is painted: the
         // clip around the push, mapped back through the matrix (and the walk culls the items
         // outside it). Where the matrix cannot be inverted, or has a perspective part, all of it.
-        let part = group_visible_part(&matrix, outer_clip, below, (width, height));
+        // (A10-06) For the frame shown as a layer, as far around that part as the frame's
+        // render state says (`PromoteFrame::paint_margin`; `retained_candidate` offers the
+        // same box).
+        let part = match promoted.and_then(|p| p.paint_margin) {
+            Some(margin) => group_part_within(&matrix, outer_clip, below, (width, height), margin),
+            None => group_visible_part(&matrix, outer_clip, below, (width, height)),
+        };
         let lands = width > 0
             && height > 0
             && part.is_none_or(|(x0, y0, x1, y1)| x1 > x0 && y1 > y0);
@@ -1957,6 +1964,15 @@ fn outside_active_clip(
     let Some(clip) = clip else {
         return false;
     };
+    // Nothing is painted under a clip of no area. A clip pushed outside the clip around it
+    // leaves such a rect at the far corner of the two (`intersect_clips`: the larger near
+    // edges, a width and height of 0), and the test below - closed, so that what touches the
+    // clip is painted - took an item that happened to hold that corner for one that paints: it
+    // was handed to the painter, which drew nothing of it (A1-65: found by the grids' test,
+    // which steps over such an item).
+    if !(clip.width > 0.0 && clip.height > 0.0) {
+        return true;
+    }
     // (A mask that reaches no pixel of the pixmap leaves an empty entry: it holds nothing back.)
     if mask_stack.iter().any(|e| match e {
         MaskEntry::Filter(_) => true,
@@ -2607,6 +2623,11 @@ pub struct PromoteFrame {
     pub transform_key: usize,
     /// Whether the walk composites the frame's surface into the pixels below.
     pub composite: bool,
+    /// How far around the part of the surface that lands a pass paints, surface px; `None`:
+    /// as for every group (64 px). A frame that completes a surface strip by strip (a pan
+    /// of a layer) paints further ahead: every strip is one more copy of the surface handed
+    /// to the window system.
+    pub paint_margin: Option<i32>,
 }
 
 impl CpuRenderState {
@@ -3600,7 +3621,11 @@ fn retained_candidate(
         return None;
     }
     let size = (g.width, g.height);
-    let (x0, y0, x1, y1) = group_visible_part(&g.matrix, g.outer_clip, below, size)?;
+    // (A10-06) What `ReferenceFrameGroup::begin` paints of this frame: the same box.
+    let (x0, y0, x1, y1) = match promoted.and_then(|p| p.paint_margin) {
+        Some(margin) => group_part_within(&g.matrix, g.outer_clip, below, size, margin)?,
+        None => group_visible_part(&g.matrix, g.outer_clip, below, size)?,
+    };
     let (nx0, ny0, nx1, ny1) = group_part_within(&g.matrix, g.outer_clip, below, size, 2)?;
     let (shared, slot) = shared_list(list, render_state)?;
     let list_at = std::sync::Arc::as_ptr(&shared) as usize;
@@ -5441,7 +5466,7 @@ pub fn render_single_item(
                 real_clip_stack,
                 scroll_offset_stack,
                 below,
-                render_state.promote.is_some_and(|p| p.transform_key == transform_key.id),
+                render_state.promote.filter(|p| p.transform_key == transform_key.id),
             );
             mask_stack.push(MaskEntry::Transform(group));
             return Ok(());
@@ -21600,5 +21625,73 @@ mod audit_a1_tests {
         assert!(counted.items_walked < counted_banded_scan.items_walked, "a band visits what its rows can show: {counted:?}");
         let coloured = single.data().chunks_exact(4).filter(|p| p[..3] != [236, 233, 225]).count();
         assert!(coloured > 100_000, "the frame shows the list ({coloured} px)");
+    }
+
+    /// A1-63: a shape filled under a clip is, inside the clip, the shape filled without one,
+    /// pixel for pixel, also when its edges are long and slanted. A quad like a turned
+    /// label's fill (its corners at (60.3, 60.1), (201.2, 111.4), (190.9, 139.6) and
+    /// (49.7, 88.2)) under six clips - a strip across it, a column at its left end, three
+    /// pixels on an edge, each half of the frame, a thin band: inside the clip the pixels of
+    /// the fill without a clip, outside it nothing.
+    /// Mutation: the geometry cut 32 px outside the pass's clip (as it was) cuts the quad's
+    /// long edges at x = 68 for the strip from x = 100, and what is left of each edge runs
+    /// a hair off the true one: a level off in a few pixels along it
+    /// (`a_turned_label_of_a_view_is_drawn_without_a_surface`, damaged != full, 5 px).
+    #[test]
+    fn a_long_slanted_edge_under_a_clip_is_the_edge_of_the_full_paint() {
+        let fill_colour = Rgba8::new(20, 60, 200, 255);
+        let paint = |clip: Option<AzRect>| {
+            let mut pm = AzulPixmap::new(400, 300).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut path = PathStorage::new();
+            path.move_to(60.3, 60.1);
+            path.line_to(201.2, 111.4);
+            path.line_to(190.9, 139.6);
+            path.line_to(49.7, 88.2);
+            path.close_polygon(PATH_FLAGS_NONE);
+            agg_fill_path_clipped(&mut pm, &mut path, &fill_colour, FillingRule::NonZero, clip);
+            pm
+        };
+        let whole = paint(None);
+        let filled = whole.data().chunks_exact(4).filter(|p| p[..3] != [255, 255, 255]).count();
+        assert!(filled > 3500, "the quad of about 150 x 30 px is there ({filled} px)");
+        for (x, y, w, h) in [(100u32, 60u32, 130u32, 90u32), (70, 50, 20, 100), (150, 100, 3, 3), (0, 0, 120, 100), (130, 0, 270, 300), (95, 75, 40, 12)] {
+            let clipped = paint(AzRect::from_xywh(x as f32, y as f32, w as f32, h as f32));
+            let mut differing = 0usize;
+            for cy in 0..300u32 {
+                for cx in 0..400u32 {
+                    let inside = cx >= x && cx < x + w && cy >= y && cy < y + h;
+                    let want = if inside { px(&whole, cx, cy) } else { [255, 255, 255, 255] };
+                    differing += usize::from(px(&clipped, cx, cy) != want);
+                }
+            }
+            assert_eq!(differing, 0, "under the clip ({x}, {y}) {w} x {h}");
+        }
+    }
+
+    /// A1-65: nothing is handed to the painter under a clip of no area. The case the grids'
+    /// test found (seed 11, as a view, damage 44.5 x 106.5 @ (495.5, 254.5), item 754): a
+    /// fill at (1153.75, 930.25) 59.75 x 18.5 of the view's list is painted at (1324.25,
+    /// 1050.5) (the view's origin and offset add (170.5, 120.25)); it lies in a clip that is
+    /// on screen at (1330, 1054.5) 200 x 150, far outside the damage's clip (495, 254)
+    /// 45 x 107. What `intersect_clips` leaves of the two is a rect of no area at (1330,
+    /// 1054.5) - and the fill holds that point, so the closed test against the clip let it
+    /// through: an item painted by the walk that tests every item (nothing of it drawn), and
+    /// rightly stepped over by the walk that asks the grid.
+    /// Mutation: without the test for an empty clip the first assertion fails.
+    #[test]
+    fn an_item_under_a_clip_of_no_area_is_culled() {
+        let item = fill(1153.75, 930.25, 59.75, 18.5, [1, 2, 3]);
+        let offset = (-170.5, -120.25);
+        let merged = intersect_clips(
+            AzRect::from_xywh(495.0, 254.0, 45.0, 107.0),
+            AzRect::from_xywh(1330.0, 1054.5, 200.0, 150.0),
+        );
+        assert!(merged.is_some_and(|c| c.width == 0.0 && c.height == 0.0), "premise: {merged:?}");
+        assert!(outside_active_clip(&item, &[], offset, merged, &[], 1.0), "no area: nothing is painted");
+        // A clip with an area culls by the bounds, as before.
+        assert!(!outside_active_clip(&item, &[], offset, AzRect::from_xywh(1300.0, 1040.0, 100.0, 100.0), &[], 1.0));
+        assert!(outside_active_clip(&item, &[], offset, AzRect::from_xywh(0.0, 0.0, 100.0, 100.0), &[], 1.0));
+        assert!(!outside_active_clip(&item, &[], offset, None, &[], 1.0), "no clip: nothing is culled");
     }
 }
