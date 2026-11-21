@@ -21,7 +21,7 @@
 #[cfg(not(feature = "std"))]
 use alloc::collections::BTreeMap as HashMap;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
 #[cfg(feature = "std")]
 use std::collections::HashMap;
 
@@ -88,6 +88,113 @@ std::thread_local! {
     static CSS_MATRICES_BUILT: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
 }
 
+/// One of the twelve transform maps of a [`GpuValueCache`]: the keys or the
+/// values of one [`TransformChannel`], by node. A `HashMap` that carries a
+/// STAMP of its content - its own write generation. Two readers use the
+/// stamps: [`GpuValueCache::value_generation`] is the newest of them (a
+/// frame that finds it unchanged reads no value again), and
+/// [`GpuValueCache::transform_stamps`] are those of the six maps a node's
+/// reference frame is read from (the hit tester keeps where every frame's
+/// boxes are painted while they are what they were, instead of reading
+/// every frame's matrix again).
+///
+/// The rule the stamp keeps: two maps with the same stamp have the same
+/// content. 0 is the empty map nobody wrote; every change takes a number
+/// never handed out before (one counter for the process), and a clone keeps
+/// the stamp of what it copies. The stamp cannot be forgotten by a writer:
+/// reading goes through `Deref`, and every way to change the map goes
+/// through [`Self::insert`], [`Self::remove`], [`Self::retain`] (which
+/// restamp only when the content did change) or through `DerefMut` (which
+/// restamps always: `entry`, `clear`, a `&mut HashMap` handed to a function).
+#[derive(Clone)]
+pub struct StampedMap<V> {
+    map: HashMap<NodeId, V>,
+    stamp: u64,
+}
+
+/// A stamp no [`StampedMap`] has had before.
+fn next_map_stamp() -> u64 {
+    static NEXT: AtomicUsize = AtomicUsize::new(1);
+    NEXT.fetch_add(1, AtomicOrdering::Relaxed) as u64
+}
+
+impl<V> Default for StampedMap<V> {
+    fn default() -> Self {
+        Self {
+            map: HashMap::new(),
+            stamp: 0,
+        }
+    }
+}
+
+impl<V: core::fmt::Debug> core::fmt::Debug for StampedMap<V> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(&self.map, f)
+    }
+}
+
+impl<V> core::ops::Deref for StampedMap<V> {
+    type Target = HashMap<NodeId, V>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.map
+    }
+}
+
+impl<V> core::ops::DerefMut for StampedMap<V> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.stamp = next_map_stamp();
+        &mut self.map
+    }
+}
+
+impl<'a, V> IntoIterator for &'a StampedMap<V> {
+    type Item = (&'a NodeId, &'a V);
+    type IntoIter = <&'a HashMap<NodeId, V> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.map).into_iter()
+    }
+}
+
+impl<V> StampedMap<V> {
+    /// The stamp of the content: equal stamps, equal content.
+    #[must_use]
+    pub const fn stamp(&self) -> u64 {
+        self.stamp
+    }
+
+    /// `HashMap::remove`; a new stamp when the node had an entry.
+    pub fn remove(&mut self, node: &NodeId) -> Option<V> {
+        let removed = self.map.remove(node);
+        if removed.is_some() {
+            self.stamp = next_map_stamp();
+        }
+        removed
+    }
+
+    /// `HashMap::retain` for a test that only reads the value; a new stamp
+    /// when an entry was dropped.
+    pub fn retain<F: FnMut(&NodeId, &V) -> bool>(&mut self, mut keep: F) {
+        let before = self.map.len();
+        self.map.retain(|node, value| keep(node, value));
+        if self.map.len() != before {
+            self.stamp = next_map_stamp();
+        }
+    }
+}
+
+impl<V: PartialEq> StampedMap<V> {
+    /// `HashMap::insert`; a new stamp unless the node already had this
+    /// value.
+    pub fn insert(&mut self, node: NodeId, value: V) -> Option<V> {
+        if self.map.get(&node) != Some(&value) {
+            self.stamp = next_map_stamp();
+        }
+        self.map.insert(node, value)
+    }
+}
+
 /// Caches GPU transform and opacity keys and their current values for all nodes.
 ///
 /// This cache stores the `WebRender` keys and computed values for nodes with
@@ -96,18 +203,18 @@ std::thread_local! {
 #[derive(Default, Debug, Clone)]
 pub struct GpuValueCache {
     /// Vertical scrollbar thumb transform keys (keyed by scrollable node ID)
-    pub transform_keys: HashMap<NodeId, TransformKey>,
+    pub transform_keys: StampedMap<TransformKey>,
     /// Current vertical scrollbar thumb transform values
-    pub current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub current_transform_values: StampedMap<ComputedTransform3D>,
     /// Horizontal scrollbar thumb transform keys (keyed by scrollable node ID)
-    pub h_transform_keys: HashMap<NodeId, TransformKey>,
+    pub h_transform_keys: StampedMap<TransformKey>,
     /// Current horizontal scrollbar thumb transform values
-    pub h_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub h_current_transform_values: StampedMap<ComputedTransform3D>,
     /// CSS transform keys (keyed by node ID) — for CSS `transform` property animation.
     /// Separate from scrollbar transform keys to avoid `SpatialTreeItemKey` collisions.
-    pub css_transform_keys: HashMap<NodeId, TransformKey>,
+    pub css_transform_keys: StampedMap<TransformKey>,
     /// Current CSS transform values (keyed by node ID)
-    pub css_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub css_current_transform_values: StampedMap<ComputedTransform3D>,
     /// The border-box size (logical px) each value of
     /// [`Self::css_current_transform_values`] was resolved against: what its
     /// `transform-origin` and `translate()` percentages were taken of.
@@ -130,28 +237,28 @@ pub struct GpuValueCache {
     /// moving. Scrollbar thumbs already have their own channel for the same
     /// reason; this follows that precedent rather than fighting the cascade for
     /// one map.
-    pub anim_transform_keys: HashMap<NodeId, TransformKey>,
+    pub anim_transform_keys: StampedMap<TransformKey>,
     /// Current animation transform values (keyed by node ID).
-    pub anim_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub anim_current_transform_values: StampedMap<ComputedTransform3D>,
     /// STICKY transform keys (keyed by node ID): one per `position: sticky`
     /// box, minted by `synchronize`, so its display list wraps the box in a
     /// reference frame. A channel of its own for the reason the animation
     /// channel has one: `synchronize` owns the CSS map.
-    pub sticky_transform_keys: HashMap<NodeId, TransformKey>,
+    pub sticky_transform_keys: StampedMap<TransformKey>,
     /// Current sticky translations (keyed by node ID): how far a scroll
     /// since the layout pass moved the box from where that pass placed it.
     /// The identity right after layout; written per frame by the layout
     /// crate's `GpuStateManager::update_scrollbar_transforms`.
-    pub sticky_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub sticky_current_transform_values: StampedMap<ComputedTransform3D>,
     /// The cursor's SHEEN over a material (keyed by the material's node): the
     /// transform that moves the sheen's highlight to the cursor. A channel of
     /// its own, minted by the layout window for a window `WebRender` draws; the
     /// display list opens a sheen layer over a material exactly where its node
     /// has both sheen keys.
-    pub sheen_transform_keys: HashMap<NodeId, TransformKey>,
+    pub sheen_transform_keys: StampedMap<TransformKey>,
     /// Where each sheen's highlight sits now: a translation to the cursor,
     /// logical px from the material's top-left.
-    pub sheen_current_transform_values: HashMap<NodeId, ComputedTransform3D>,
+    pub sheen_current_transform_values: StampedMap<ComputedTransform3D>,
     /// The sheen's eased strength, bound as the opacity of its layer.
     pub sheen_opacity_keys: HashMap<NodeId, OpacityKey>,
     /// Each sheen's eased strength now, 0 (none) to 1.
@@ -187,19 +294,21 @@ pub struct GpuValueCache {
     pub scrollbar_v_opacity_values: HashMap<(DomId, NodeId), f32>,
     /// Current horizontal scrollbar opacity values
     pub scrollbar_h_opacity_values: HashMap<(DomId, NodeId), f32>,
-    /// WRITE GENERATION of the bound values: a counter that moves whenever
-    /// a value a renderer reads from this cache, or the set of keys that
-    /// bind one, changes ([`Self::note_value_write`]). A frame that finds
-    /// the generation it last read has nothing to read again - no copy of
-    /// the values, no comparison with the previous ones, no synchronization
-    /// with the compositor.
+    /// The stamp of the last NOTED write ([`Self::note_value_write`]): one
+    /// part of the WRITE GENERATION of the bound values, which is read with
+    /// [`Self::value_generation`] and is the newest of this and of the
+    /// transform maps' own stamps. A frame that finds the generation it last
+    /// read has nothing to read again - no copy of the values, no comparison
+    /// with the previous ones, no synchronization with the compositor.
     ///
-    /// The methods of this type that write values move it, and only when a
-    /// value or a key really changed (a `synchronize` that finds every value
-    /// as it was leaves it alone, however many events it reports). CODE THAT
-    /// WRITES ONE OF THE MAPS ABOVE DIRECTLY MUST CALL
+    /// The methods of this type that write values move the generation, and
+    /// only when a value or a key really changed (a `synchronize` that finds
+    /// every value as it was leaves it alone, however many events it
+    /// reports). The twelve TRANSFORM maps move it by themselves, whoever
+    /// writes them ([`StampedMap`]). CODE THAT WRITES ONE OF THE OTHER MAPS
+    /// (opacities, colours, scrollbar opacities) DIRECTLY MUST CALL
     /// [`Self::note_value_write`]: until every such writer does, a reader
-    /// must not skip work by it. Only equality is compared; it wraps.
+    /// must not skip work by it. Only equality is compared.
     pub value_generation: u64,
 }
 
@@ -229,17 +338,54 @@ impl GpuValueCache {
         Self::default()
     }
 
-    /// The write generation of the bound values ([`Self::value_generation`]).
+    /// The write generation of the bound values: the NEWEST stamp of this
+    /// cache - of its twelve transform maps, which stamp themselves
+    /// ([`StampedMap`]), and of the last write that was noted
+    /// ([`Self::note_value_write`]: the opacities, the colours, the sheen
+    /// light, a rekeying). One clock for both ([`next_map_stamp`]), so the
+    /// newest stamp is another number after any of them changed. Only
+    /// equality is meaningful.
     #[must_use]
     pub const fn value_generation(&self) -> u64 {
-        self.value_generation
+        let stamps = self.transform_map_stamps();
+        let mut newest = self.value_generation;
+        let mut i = 0;
+        while i < stamps.len() {
+            if stamps[i] > newest {
+                newest = stamps[i];
+            }
+            i += 1;
+        }
+        newest
     }
 
-    /// Notes that a bound value or the set of bound keys changed: moves
-    /// [`Self::value_generation`]. For every writer of this cache's maps
-    /// that is not one of its own methods.
-    pub const fn note_value_write(&mut self) {
-        self.value_generation = self.value_generation.wrapping_add(1);
+    /// The stamps of the twelve transform maps (keys and values of the six
+    /// channels).
+    const fn transform_map_stamps(&self) -> [u64; 12] {
+        [
+            self.transform_keys.stamp(),
+            self.current_transform_values.stamp(),
+            self.h_transform_keys.stamp(),
+            self.h_current_transform_values.stamp(),
+            self.css_transform_keys.stamp(),
+            self.css_current_transform_values.stamp(),
+            self.anim_transform_keys.stamp(),
+            self.anim_current_transform_values.stamp(),
+            self.sticky_transform_keys.stamp(),
+            self.sticky_current_transform_values.stamp(),
+            self.sheen_transform_keys.stamp(),
+            self.sheen_current_transform_values.stamp(),
+        ]
+    }
+
+    /// Notes that a bound value or the set of bound keys changed, for what
+    /// does not stamp itself: takes a stamp from the maps' clock, so
+    /// [`Self::value_generation`] is another number. For the write methods of
+    /// the opacity, colour and scrollbar maps, and for every writer of THOSE
+    /// maps that is not one of this type's methods. A transform map needs no
+    /// note: it cannot be written without restamping.
+    pub fn note_value_write(&mut self) {
+        self.value_generation = next_map_stamp();
     }
 
     // ------------------------------------------------------------------
@@ -253,7 +399,7 @@ impl GpuValueCache {
     fn transform_maps(
         &self,
         channel: TransformChannel,
-    ) -> (&NodeMap<TransformKey>, &NodeMap<ComputedTransform3D>) {
+    ) -> (&StampedMap<TransformKey>, &StampedMap<ComputedTransform3D>) {
         match channel {
             TransformChannel::ScrollbarVertical => {
                 (&self.transform_keys, &self.current_transform_values)
@@ -277,7 +423,7 @@ impl GpuValueCache {
     fn transform_maps_mut(
         &mut self,
         channel: TransformChannel,
-    ) -> (&mut NodeMap<TransformKey>, &mut NodeMap<ComputedTransform3D>) {
+    ) -> (&mut StampedMap<TransformKey>, &mut StampedMap<ComputedTransform3D>) {
         match channel {
             TransformChannel::ScrollbarVertical => {
                 (&mut self.transform_keys, &mut self.current_transform_values)
@@ -385,11 +531,16 @@ impl GpuValueCache {
         value: ComputedTransform3D,
     ) -> TransformKey {
         let (keys, values) = self.transform_maps_mut(channel);
-        let mut minted = false;
-        let key = *keys.entry(node).or_insert_with(|| {
-            minted = true;
-            TransformKey::unique()
-        });
+        // Not `entry()`: that is a `&mut` to the map inside, which restamps
+        // the keys whether or not one is minted (`StampedMap`).
+        let (key, minted) = match keys.get(&node).copied() {
+            Some(key) => (key, false),
+            None => {
+                let key = TransformKey::unique();
+                keys.insert(node, key);
+                (key, true)
+            }
+        };
         let value_changed = values.insert(node, value) != Some(value);
         self.wrote_transform(channel, node, minted || value_changed);
         key
@@ -747,9 +898,10 @@ impl GpuValueCache {
 
     /// Drops every key and every value.
     pub fn clear(&mut self) {
-        let generation = self.value_generation.wrapping_add(1);
         *self = Self::default();
-        self.value_generation = generation;
+        // Empty maps carry stamp 0: the note makes the emptied cache another
+        // generation than the one it had (and than any it had before).
+        self.note_value_write();
     }
 
     /// Hands every map of this cache that is keyed by a node to `rekey`, to
@@ -757,19 +909,21 @@ impl GpuValueCache {
     /// what belongs to them: a map left out keeps a stranger's value under a
     /// reused id). The one place that lists the maps for that.
     pub fn rekey_nodes(&mut self, rekey: &mut impl RekeyNodes) {
-        rekey.node_map(&mut self.transform_keys);
-        rekey.node_map(&mut self.current_transform_values);
-        rekey.node_map(&mut self.h_transform_keys);
-        rekey.node_map(&mut self.h_current_transform_values);
-        rekey.node_map(&mut self.css_transform_keys);
-        rekey.node_map(&mut self.css_current_transform_values);
+        // `&mut *map` of a transform map: the map inside a `StampedMap`,
+        // which is restamped by handing it out.
+        rekey.node_map(&mut *self.transform_keys);
+        rekey.node_map(&mut *self.current_transform_values);
+        rekey.node_map(&mut *self.h_transform_keys);
+        rekey.node_map(&mut *self.h_current_transform_values);
+        rekey.node_map(&mut *self.css_transform_keys);
+        rekey.node_map(&mut *self.css_current_transform_values);
         rekey.node_map(&mut self.css_transform_sizes);
-        rekey.node_map(&mut self.anim_transform_keys);
-        rekey.node_map(&mut self.anim_current_transform_values);
-        rekey.node_map(&mut self.sticky_transform_keys);
-        rekey.node_map(&mut self.sticky_current_transform_values);
-        rekey.node_map(&mut self.sheen_transform_keys);
-        rekey.node_map(&mut self.sheen_current_transform_values);
+        rekey.node_map(&mut *self.anim_transform_keys);
+        rekey.node_map(&mut *self.anim_current_transform_values);
+        rekey.node_map(&mut *self.sticky_transform_keys);
+        rekey.node_map(&mut *self.sticky_current_transform_values);
+        rekey.node_map(&mut *self.sheen_transform_keys);
+        rekey.node_map(&mut *self.sheen_current_transform_values);
         rekey.node_map(&mut self.sheen_opacity_keys);
         rekey.node_map(&mut self.sheen_current_opacity_values);
         rekey.node_map(&mut self.color_keys);
@@ -853,6 +1007,22 @@ impl GpuValueCache {
             });
         }
         frame
+    }
+
+    /// The stamps of the six maps [`Self::reference_frame_of`] reads (keys and
+    /// values of the CSS, animation and sticky channel). While they are what
+    /// they were, every node of this cache has the reference frame and the
+    /// matrix it had ([`StampedMap`]).
+    #[must_use]
+    pub const fn transform_stamps(&self) -> [u64; 6] {
+        [
+            self.css_transform_keys.stamp(),
+            self.css_current_transform_values.stamp(),
+            self.anim_transform_keys.stamp(),
+            self.anim_current_transform_values.stamp(),
+            self.sticky_transform_keys.stamp(),
+            self.sticky_current_transform_values.stamp(),
+        ]
     }
 
     /// [`Self::reference_frame_of`] for a node laid out at `size` (its border
@@ -2381,5 +2551,144 @@ mod audit_a2_gpu_tests {
             assert_eq!(cache.scrollbar_opacity(orientation, dom, new), Some(0.5));
             assert_eq!(cache.scrollbar_opacity_key(orientation, dom, old), None);
         }
+    }
+}
+
+/// Audit A6-05: the stamps of the transform maps.
+#[cfg(test)]
+mod audit_a6_tests {
+    use super::*;
+
+    fn tx(x: f32) -> ComputedTransform3D {
+        let mut t = ComputedTransform3D::IDENTITY;
+        t.m[3][0] = x;
+        t
+    }
+
+    /// Equal stamps, equal content: a write that changes nothing keeps the stamp, every write
+    /// that changes the map takes a new one, and so does every `&mut` to the map inside.
+    /// Mutation: `insert` never restamping fails the second comparison; `deref_mut` not
+    /// restamping fails the `entry` step (a frame's matrix would change under the hit
+    /// tester's kept bounds).
+    #[test]
+    fn a_transform_map_is_restamped_when_its_content_changes() {
+        let (a, b) = (NodeId::new(1), NodeId::new(2));
+        let mut map: StampedMap<ComputedTransform3D> = StampedMap::default();
+        assert_eq!(map.stamp(), 0, "the empty map nobody wrote");
+
+        assert_eq!(map.insert(a, tx(1.0)), None);
+        let first = map.stamp();
+        assert_ne!(first, 0);
+        assert_eq!(map.insert(a, tx(1.0)), Some(tx(1.0)));
+        assert_eq!(map.stamp(), first, "the same value again: the same content");
+        assert_eq!(map.insert(a, tx(2.0)), Some(tx(1.0)));
+        let second = map.stamp();
+        assert_ne!(second, first, "another value");
+
+        assert_eq!(map.remove(&b), None);
+        assert_eq!(map.stamp(), second, "nothing was removed");
+        map.retain(|node, _| *node == a);
+        assert_eq!(map.stamp(), second, "nothing was dropped");
+
+        // Reading does not restamp.
+        assert_eq!(map.get(&a), Some(&tx(2.0)));
+        assert_eq!(map.len(), 1);
+        assert_eq!((&map).into_iter().count(), 1);
+        assert_eq!(map.stamp(), second);
+
+        // A clone has the content, and the stamp; they part at the first change.
+        let mut copy = map.clone();
+        assert_eq!(copy.stamp(), second);
+        copy.entry(b).or_insert(tx(3.0));
+        assert_ne!(copy.stamp(), second, "a `&mut` to the map inside: restamped");
+        assert_eq!(map.stamp(), second, "the original was not written");
+
+        assert_eq!(map.remove(&a), Some(tx(2.0)));
+        let third = map.stamp();
+        assert!(third != second && third != first && third != 0);
+        assert!(map.is_empty());
+    }
+
+    /// The cache's six stamps change with the frame of a node, and with nothing else: an
+    /// opacity or a colour written leaves them alone.
+    /// Mutation: a map left out of `transform_stamps` (the animation keys, say) fails the
+    /// step that removes only that map's entry.
+    #[test]
+    fn the_caches_stamps_follow_the_reference_frames() {
+        let node = NodeId::new(4);
+        let mut cache = GpuValueCache::default();
+        assert_eq!(cache.transform_stamps(), [0; 6]);
+
+        cache.opacity_keys.insert(node, OpacityKey::unique());
+        cache.current_opacity_values.insert(node, 0.5);
+        assert_eq!(cache.transform_stamps(), [0; 6], "an opacity is no frame");
+
+        cache.anim_transform_keys.insert(node, TransformKey::unique());
+        cache.anim_current_transform_values.insert(node, tx(5.0));
+        let keyed = cache.transform_stamps();
+        assert_eq!(cache.painted_transform_of(node), Some(tx(5.0)));
+        assert_ne!(keyed, [0; 6]);
+
+        cache.anim_current_transform_values.insert(node, tx(5.0));
+        assert_eq!(cache.transform_stamps(), keyed, "the same matrix: the same frame");
+        cache.anim_current_transform_values.insert(node, tx(6.0));
+        let moved = cache.transform_stamps();
+        assert_ne!(moved, keyed);
+
+        // The key alone goes: the node has no frame any more, with its value still there.
+        cache.anim_transform_keys.remove(&node);
+        assert_eq!(cache.painted_transform_of(node), None);
+        assert_ne!(cache.transform_stamps(), moved);
+    }
+
+    /// ONE clock (the merge of A3-core's write generation, A2-gpu's write methods and the
+    /// stamps): the write generation is the newest stamp of the cache. A transform map
+    /// written directly - no write method, no `note_value_write` - moves it; a write that
+    /// changes nothing moves neither it nor the stamps; a noted write (an opacity) moves the
+    /// generation and leaves the frames' stamps alone; a scrollbar thumb moves the generation
+    /// and not the frames' stamps either (its maps are stamped, and are no frame's).
+    /// Mutations: `value_generation()` answering the noted stamp only (the field) fails the
+    /// direct write; `key_transform` through `entry()` again fails "the same value" (the key
+    /// map restamps); a thumb map among `transform_stamps` fails the last step.
+    #[test]
+    fn the_write_generation_is_the_newest_stamp_of_the_cache() {
+        let node = NodeId::new(9);
+        let mut cache = GpuValueCache::default();
+        assert_eq!(cache.value_generation(), 0);
+
+        // A direct write, as the animation code of the layout crate does.
+        cache.anim_transform_keys.insert(node, TransformKey::unique());
+        cache.anim_current_transform_values.insert(node, tx(1.0));
+        let direct = cache.value_generation();
+        assert_ne!(direct, 0, "a transform map cannot be written without the generation moving");
+
+        // The write methods, with what is there already: nothing moves.
+        let frames = cache.transform_stamps();
+        let key = cache.key_transform(TransformChannel::Animation, node, tx(1.0));
+        assert_eq!(cache.transform_key(TransformChannel::Animation, node), Some(key));
+        assert_eq!(cache.set_transform_value(TransformChannel::Animation, node, tx(1.0)), Some(tx(1.0)));
+        cache.retain_transforms(TransformChannel::Animation, |_| true);
+        assert_eq!(cache.value_generation(), direct, "the same key, the same value");
+        assert_eq!(cache.transform_stamps(), frames);
+
+        // Another value through a write method: both move.
+        let _ = cache.set_transform_value(TransformChannel::Animation, node, tx(2.0));
+        let written = cache.value_generation();
+        assert_ne!(written, direct);
+        assert_ne!(cache.transform_stamps(), frames);
+
+        // A noted write and a scrollbar thumb: the generation, not the frames.
+        let frames = cache.transform_stamps();
+        cache.note_value_write();
+        let noted = cache.value_generation();
+        assert_ne!(noted, written);
+        let _ = cache.key_transform(TransformChannel::ScrollbarVertical, node, tx(3.0));
+        assert_ne!(cache.value_generation(), noted);
+        assert_eq!(cache.transform_stamps(), frames, "a thumb is no reference frame of the node");
+
+        // Emptied: another generation than any it had.
+        let before = cache.value_generation();
+        cache.clear();
+        assert!(cache.value_generation() != before && cache.value_generation() != 0);
     }
 }

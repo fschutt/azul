@@ -893,7 +893,13 @@ pub fn determine_all_events(
     // ========================================================================
     // Compare FULL hover chains between current and previous frames.
     // Nodes that gained hover get MouseEnter, nodes that lost hover get MouseLeave.
-    {
+    //
+    // ONCE per hit test: the two frames are a delta, and they stay the two
+    // newest frames until the pointer's next hit test. A pass that runs
+    // without one (a key, a window event, the re-run after a callback
+    // rebuilt the DOM) found the same two frames and sent the same enter /
+    // leave / over / out again (`HoverManager::hover_change_pending`).
+    if hover_manager.hover_change_pending(&crate::managers::hover::InputPointId::Mouse) {
         let current_hovered = get_all_hovered_nodes(hover_manager, 0);
         let previous_hovered = get_all_hovered_nodes(hover_manager, 1);
 
@@ -4447,5 +4453,115 @@ mod autotest_generated {
             ts(0),
         );
         assert!(events.is_empty(), "got {events:?}");
+    }
+}
+
+/// Guards of audit area A6 (`audit/A6.md`).
+#[cfg(test)]
+mod audit_a6_tests {
+    use azul_core::hit_test::{FullHitTest, HitTest, HitTestItem};
+
+    use super::*;
+    use crate::managers::{
+        file_drop::FileDropManager,
+        focus_cursor::FocusManager,
+        hover::{HoverManager, InputPointId},
+    };
+
+    /// A hit test over `node` of the root dom.
+    fn over(node: usize) -> FullHitTest {
+        let mut ht = FullHitTest::empty(None);
+        ht.hovered_nodes
+            .entry(DomId { inner: 0 })
+            .or_insert_with(HitTest::empty)
+            .regular_hit_test_nodes
+            .insert(
+                NodeId::new(node),
+                HitTestItem {
+                    point_in_viewport: LogicalPosition::new(0.0, 0.0),
+                    point_relative_to_item: Default::default(),
+                    is_focusable: false,
+                    is_virtual_view_hit: None,
+                    hit_depth: 0,
+                },
+            );
+        ht
+    }
+
+    /// One event pass over a window whose state did not change (a key pass
+    /// would add its key events; the hover part is the same).
+    fn pass(hover: &HoverManager) -> Vec<SyntheticEvent> {
+        let state = FullWindowState::default();
+        let focus = FocusManager::new();
+        let file_drop = FileDropManager::new();
+        let providers: Vec<&dyn EventProvider> = Vec::new();
+        determine_all_events(
+            &state,
+            &state,
+            hover,
+            &focus,
+            &file_drop,
+            None,
+            &providers,
+            None,
+            azul_core::window::PRIMARY_POINTER_SEAT,
+            Instant::Tick(SystemTick::new(0)),
+        )
+    }
+
+    /// The four events of a hover change: enter, leave, over, out.
+    fn hover_events(events: &[SyntheticEvent]) -> usize {
+        events
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.event_type,
+                    EventType::MouseEnter
+                        | EventType::MouseLeave
+                        | EventType::MouseOver
+                        | EventType::MouseOut
+                )
+            })
+            .count()
+    }
+
+    /// A6-09: the pointer moved from node 3 to node 7 (two hit tests). The
+    /// pass of that move is told (enter 7, leave 3, over 7, out 3) and takes
+    /// it; a pass that follows without a new hit test - a key, a window
+    /// event, the re-run after a callback rebuilt the DOM - is told nothing,
+    /// where it used to get the same four events again, every time. The next
+    /// hit test is news again.
+    /// Mutation: the `hover_change_pending` gate removed from
+    /// `determine_all_events` (or `push_hit_test` not marking the point)
+    /// fails the second (the third) assertion.
+    #[test]
+    fn a_hover_change_is_told_once_per_hit_test() {
+        let mut hover = HoverManager::new();
+        hover.push_hit_test(InputPointId::Mouse, over(3));
+        hover.push_hit_test(InputPointId::Mouse, over(7));
+        assert_eq!(hover_events(&pass(&hover)), 4, "the move's own pass");
+
+        hover.mark_hover_changes_delivered();
+        assert_eq!(hover_events(&pass(&hover)), 0, "a pass without a new hit test");
+        assert_eq!(hover_events(&pass(&hover)), 0, "and the one after it");
+
+        hover.push_hit_test(InputPointId::Mouse, over(3));
+        assert_eq!(hover_events(&pass(&hover)), 4, "back over node 3: news again");
+        hover.mark_hover_changes_delivered();
+        // A hit test that finds the same node is a new frame and no change.
+        hover.push_hit_test(InputPointId::Mouse, over(3));
+        assert_eq!(hover_events(&pass(&hover)), 0);
+    }
+
+    /// A manager whose host never marks a delivery (one fed by hand, the
+    /// e2e runner) is told about its two newest frames on every ask, as it
+    /// was.
+    #[test]
+    fn a_manager_nobody_marks_answers_as_before() {
+        let mut hover = HoverManager::new();
+        hover.push_hit_test(InputPointId::Mouse, over(3));
+        hover.push_hit_test(InputPointId::Mouse, over(7));
+        assert_eq!(hover_events(&pass(&hover)), 4);
+        assert_eq!(hover_events(&pass(&hover)), 4);
     }
 }

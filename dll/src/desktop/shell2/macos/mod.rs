@@ -356,7 +356,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseDown] LEFT at ({:.1}, {:.1})",
+            "[mouseDown] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -422,7 +422,7 @@ mod view_handlers {
         let loc = unsafe { event.locationInWindow() };
         crate::log_debug!(
             LogCategory::Input,
-            "[mouseUp] LEFT at ({:.1}, {:.1})",
+            "[mouseUp] LEFT at AppKit ({:.1}, {:.1}) (y from the window's bottom edge)",
             loc.x,
             loc.y
         );
@@ -7588,9 +7588,19 @@ impl MacOSWindow {
 
             let document_id = translate_document_id_wr(render_api.add_document(framebuffer_size));
             let id_namespace = translate_id_namespace_wr(render_api.get_namespace_id());
-            let hit_tester = render_api
-                .request_hit_tester(wr_translate_document_id(document_id))
-                .resolve();
+            // WebRender's hit tester is asked by nobody: every hit test is
+            // answered by the layout-based tester
+            // (`CommonWindowState::perform_hit_test`). It is not requested
+            // any more - `resolve()` was a blocking round trip to the render
+            // backend at every window creation. `AZ_WR_HIT_TESTER=1` requests
+            // it as before (audit A6-17).
+            let hit_tester = std::env::var_os("AZ_WR_HIT_TESTER").is_some().then(|| {
+                AsyncHitTester::Resolved(
+                    render_api
+                        .request_hit_tester(wr_translate_document_id(document_id))
+                        .resolve(),
+                )
+            });
             let gl_ctx_inner = gl_context
                 .as_ref()
                 .map(|_| GlContextPtr::new(RendererType::Hardware, gl_funcs.clone()));
@@ -7608,7 +7618,7 @@ impl MacOSWindow {
                     Some(render_api),
                     Some(document_id),
                     Some(id_namespace),
-                    Some(AsyncHitTester::Resolved(hit_tester)),
+                    hit_tester,
                     gl_ctx_inner.into(),
                     RendererType::Hardware,
                 )
@@ -10133,6 +10143,19 @@ impl MacOSWindow {
                 "operation_not_allowed" | "not-allowed" => NSCursor::operationNotAllowedCursor(),
                 _ => NSCursor::arrowCursor(), // Default fallback
             };
+            // A pointer move asks for the cursor of the node under it, which
+            // is nearly always the one that is set: AppKit is asked what its
+            // current cursor is, and `set` (a message to the window server)
+            // is sent only for another one. `currentCursor` is what the
+            // application last set, by this call or by AppKit itself (a
+            // resize cursor at the window's edge), so nothing is remembered
+            // here that could go stale. `AZ_CURSOR_SET_ALWAYS=1`: `set` on
+            // every call, as before.
+            if !cursor_is_set_on_every_call()
+                && core::ptr::eq::<NSCursor>(&*NSCursor::currentCursor(), &*cursor)
+            {
+                return;
+            }
             cursor.set();
         }
     }
@@ -12482,6 +12505,15 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             performanceTime: PERFORM_NOW
         ];
     }
+}
+
+/// `AZ_CURSOR_SET_ALWAYS=1`: `MacOSWindow::set_cursor` sends `-[NSCursor set]`
+/// on every call (every pointer move), as it did before audit A6-12, instead
+/// of only when AppKit's current cursor is another one. For a machine where
+/// the cursor is found stale after it left and re-entered the content.
+fn cursor_is_set_on_every_call() -> bool {
+    static ALWAYS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALWAYS.get_or_init(|| std::env::var_os("AZ_CURSOR_SET_ALWAYS").is_some_and(|v| v != "0"))
 }
 
 #[cfg(test)]

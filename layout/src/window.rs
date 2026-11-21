@@ -14838,6 +14838,16 @@ impl LayoutWindow {
     ///   should stop `TOOLTIP_DELAY_TIMER_ID` and hide any currently-visible tooltip.
     /// - `NoChange` if the hovered node hasn't changed between frames.
     pub fn handle_hover_change_for_tooltip(&self, hover_time_ms: u32) -> TooltipTimerAction {
+        // The two newest hit tests are a change once: a pass that runs
+        // without a new one (a key, a timer's state change) must not start
+        // the delay again or hide a tooltip that is showing
+        // (`HoverManager::hover_change_pending`).
+        if !self
+            .hover_manager
+            .hover_change_pending(&crate::managers::hover::InputPointId::Mouse)
+        {
+            return TooltipTimerAction::NoChange;
+        }
         let current_hover = self.hover_manager.current_hover_node();
         let previous_hover = self.hover_manager.previous_hover_node();
 
@@ -21226,6 +21236,22 @@ impl LayoutWindow {
         // this rect straight to the platform IME, which places the candidate
         // window in screen coordinates — without this the popup appears at the
         // top-left of the window instead of under the caret.
+        //
+        // Through the frames the dom's view is painted in, not by adding the
+        // dom's origin: a host that scales or turns the view (a view in a
+        // zoomed panel) scales and turns the rect about the view's place too
+        // (`headless::nested_dom_rect_to_window`, audit A6-07).
+        let in_window = crate::headless::nested_dom_rect_to_window(
+            &self.layout_results,
+            block.dom(),
+            on_screen,
+            &|d, n| self.scroll_manager.get_current_offset(d, n),
+            &|d, n| self.painted_transform_of(d, n),
+        );
+        if in_window.is_some() {
+            return in_window;
+        }
+        // The window's own dom, or a corner that is not drawn: the offset.
         let host_offset = self.window_space_offset_of_dom(block.dom());
         Some(LogicalRect::new(
             LogicalPosition::new(
@@ -28928,12 +28954,13 @@ impl LayoutWindow {
         let moved = !self.same_caret_position(block, anchor, focus);
 
         // Back inside the anchor block: a single-node range again.
+        let mut changed = self.text_edit_manager.get_cross_block_selection().is_some();
         self.text_edit_manager.clear_cross_block_selection();
 
         // Update primary selection: Cursor → Range(anchor, focus)
         let mc = self.text_edit_manager.multi_cursor.as_mut()?;
         if let Some(primary) = mc.get_primary_mut() {
-            primary.selection = if moved {
+            let selection = if moved {
                 Selection::Range(SelectionRange {
                     start: anchor,
                     end: focus,
@@ -28941,6 +28968,15 @@ impl LayoutWindow {
             } else {
                 Selection::Cursor(anchor)
             };
+            changed |= primary.selection != selection;
+            primary.selection = selection;
+        }
+        // A pointer move that ends on the caret position the drag already
+        // ended on changes no highlight: no list is owed, and no frame. (A
+        // drag over text crosses a letter a few times a second and moves 60
+        // to 120 times: every one of those moves rebuilt the DOM's list.)
+        if !changed {
+            return None;
         }
 
         self.text_edit_manager.mark_dirty();
