@@ -254,6 +254,20 @@ build. Second-round rows found by the verifier: "an absolutely placed span with 
 boxes of one DOM node, the second ranking at its parent)"; "a drag's first move builds two lists (the node's
 first transform, and the `is_being_dragged` reorder at the drag's start)".
 Build notes as below (`env.sh`, `run`, `summ`); the layout lib's test binary is rebuilt in about 1 min 15 s.
+
+EDITOR, FINAL STATE OF THE FIRST ROUND (details: m4p `audit/integration`, `audit/PIN_PASS.md` section 9):
+the pin is at azul `19e207928bbe017f14405f1c41fea088ff2622d5` (pushed, `origin/fix/input-bugs-2026-09-19`);
+`scripts/e2e.sh` whole: 12 scenarios ok; editor unit tests 236 / 0 / 12 ignored; the plain release binary
+for the user is `~/Development/m4p-bin/mapedit3-8306661` (sha256
+`641514542dcdac53aacd75979f65e1b8a751b62c5bd7cca825ae5ab506c80c86`), the shared
+`~/Development/m4p/mapedit3/target/release/mapedit3` is the same file; the performance matrix three ways and
+on the pre-audit binary is in m4p `mapedit3/perf/audit-2026-11-21/`. For a second-round merge into azul:
+merge, build and run the suites the merge touches (`run`, `summ`; delete the test binaries before every
+build), give the coordinator the tip, and after its push move the editor's pin (four `rev` lines and three
+comment lines of `mapedit3/Cargo.toml`, `cargo update -p azul-dll` through `prun`, `.rev` of the bindings;
+`api.json` must be unchanged or the bindings are generated again), `prun <log> build --release -j 2`,
+`scripts/e2e.sh`, `prun <log> test --release --bin mapedit3 -j 2`, and at the end a plain release build again
+(e2e.sh leaves the e2e-feature build in `target/release/mapedit3`).
 <!-- STATE3-END -->
 
 <!-- STATE-BEGIN -->
