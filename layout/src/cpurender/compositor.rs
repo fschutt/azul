@@ -5221,6 +5221,14 @@ fn compute_display_list_damage_impl(
             ) {
                 continue;
             }
+            // A text shadow that changed (its colour, its width) repaints every run
+            // down to its pop, the push itself has no bounds, and the runs under it
+            // are equal: nothing below would damage them. Its extent is not
+            // representable per item (the windowed path gives up on a shadow in its
+            // window for the same reason): the caller repaints whole.
+            if matches!(new_item, DisplayListItem::PushTextShadow { .. }) {
+                return None;
+            }
             let refine = dl_diff_refinements_enabled();
             // Items that never RASTERIZE must never produce PAINT damage.
             // The root's HitTestArea resizes with the window (640→680 =

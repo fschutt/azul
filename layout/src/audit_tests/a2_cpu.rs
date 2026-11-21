@@ -939,3 +939,54 @@ fn a2_cpu_01_a_changed_frame_without_a_live_value_is_damaged_where_its_initial_t
         damage.rects
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// Hand-built lists: the item diff (A2-cpu-05)
+// ---------------------------------------------------------------------------------------------
+
+/// A2-cpu-05. Two lists that differ only in a text shadow (the halo's colour) are not "nothing
+/// to repaint": the push has no bounds and the runs under it are equal, so the paired diff
+/// answered `Some(vec![])` - an idle frame for the window's list, and no damage for the halo in a
+/// view whose diff found anything else. Now the diff gives up (`None`: the caller repaints the
+/// window, or the view's box).
+///
+/// mutation: removing the `PushTextShadow` arm of `compute_display_list_damage_impl` fails here
+/// (the answer is `Some([])` again).
+#[test]
+fn a2_cpu_05_a_changed_text_shadow_is_not_an_idle_frame() {
+    use azul_css::props::style::box_shadow::StyleBoxShadow;
+
+    use crate::cpurender::compute_display_list_damage;
+
+    let halo = |colour: [u8; 3]| {
+        list(vec![
+            rect(0.0, 0.0, 200.0, 100.0, [255, 255, 255]),
+            DisplayListItem::PushTextShadow {
+                shadow: StyleBoxShadow {
+                    color: ColorU {
+                        r: colour[0],
+                        g: colour[1],
+                        b: colour[2],
+                        a: 255,
+                    },
+                    ..StyleBoxShadow::default()
+                },
+            },
+            rect(20.0, 20.0, 60.0, 14.0, [0, 0, 0]),
+            DisplayListItem::PopTextShadow,
+        ])
+    };
+    let none = ScrollOffsetMap::new();
+    let white = halo([255, 255, 255]);
+    assert_eq!(
+        compute_display_list_damage(&white, &halo([255, 255, 255]), &none, &none),
+        Some(Vec::new()),
+        "harness: the same halo is no damage"
+    );
+    let changed = compute_display_list_damage(&white, &halo([255, 230, 0]), &none, &none);
+    assert!(
+        changed.is_none(),
+        "a halo that changed colour repaints its runs: the diff cannot say where and gives up, \
+         it does not answer 'nothing': {changed:?}"
+    );
+}
