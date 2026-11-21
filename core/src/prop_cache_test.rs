@@ -2521,6 +2521,48 @@ mod audit_a3_core_tests {
         );
     }
 
+    /// A3-core-07b: when the rule sets ALTERNATE from node to node (the cells
+    /// of a table with a class per column, rows cycling through styles) the
+    /// run the node before had is never the node's own, and every node read
+    /// the table of recorded runs: nodes x distinct runs. A run is found by
+    /// a key of its length and its first and last entry; the result is the
+    /// table it always was.
+    #[test]
+    fn nodes_whose_rule_sets_alternate_do_not_each_read_the_table_of_runs() {
+        // `nodes` nodes cycling through `sets` rule sets of three entries.
+        let cycled = |nodes: usize, sets: usize| {
+            let mut f = crate::prop_cache::FlatVecVec::<(i32, i32)>::new(nodes);
+            for node in 0..nodes {
+                let set = (node % sets) as i32;
+                for key in [2, 0, 1] {
+                    f.push_to(node, (key, set * 10 + key));
+                }
+            }
+            crate::prop_cache::RUN_COMPARES.with(|c| c.set(0));
+            f.sort_each_and_flatten(|entry| entry.0);
+            (f, crate::prop_cache::RUN_COMPARES.with(core::cell::Cell::get))
+        };
+        let nodes = 8_000;
+        let (_, few) = cycled(nodes, 16);
+        let (f, many) = cycled(nodes, 256);
+        assert!(few >= nodes as u64 - 16, "harness: the runs were compared ({few})");
+        assert!(
+            many <= few * 2,
+            "sixteen times the rule sets took {many} run compares for {few}: every node read \
+             the table"
+        );
+        assert!(many <= 3 * nodes as u64, "{many} compares for {nodes} nodes");
+        // Every node reads its own set, and equal runs are stored once.
+        for node in 0..nodes {
+            let set = (node % 256) as i32;
+            let expected = [(0, set * 10), (1, set * 10 + 1), (2, set * 10 + 2)];
+            assert_eq!(f.get_slice(node), &expected[..], "node {node}");
+        }
+        let first = f.get_slice(0).as_ptr();
+        assert_eq!(f.get_slice(256).as_ptr(), first, "node 256 shares the run of node 0");
+        assert_ne!(f.get_slice(1).as_ptr(), first);
+    }
+
     /// A3-core-06b: reading ONE inherited value passed over every bucket of
     /// the store to find those of its type. It searches the buckets of the
     /// type alone: a property all nodes share costs the same in a DOM of 10

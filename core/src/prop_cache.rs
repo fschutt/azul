@@ -356,7 +356,7 @@ macro_rules! match_property_value {
 /// Replaces the per-pseudo-state `BTreeMap` approach: instead of 6 `BTreeMaps`
 /// per node (Normal/Hover/Active/Focus/Dragging/DragOver), we store one Vec
 /// per node and tag each property with its state. Lookups use `.iter().find()`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StatefulCssProperty {
     pub state: azul_css::dynamic_selector::PseudoStateType,
     pub prop_type: CssPropertyType,
@@ -634,23 +634,54 @@ impl<T> FlatVecVec<T> {
     /// is rebuilt wholesale by `sort_each_and_flatten` / `retain`, never patched
     /// in place.
     ///
-    /// The run table is scanned linearly and CAPPED: distinct runs are few in
-    /// practice (a stylesheet has far fewer rule combinations than nodes), and
-    /// the cap turns the pathological case into "stops deduplicating" rather
-    /// than into quadratic time.
+    /// The run table is CAPPED: distinct runs are few in practice (a
+    /// stylesheet has far fewer rule combinations than nodes), and beyond the
+    /// cap new runs are stored without being recorded.
+    ///
+    /// A node's run is looked for in two steps, neither of which reads the
+    /// table: the run the node before it had (nodes of one rule set come one
+    /// after the other: the labels of a text style), then the recorded runs
+    /// filed under a key of the run's length and its first and last entry.
+    /// The table used to be read from its start for every node: nodes x
+    /// distinct runs when the rule sets alternate (the cells of a table with
+    /// a class per column, a list whose rows cycle through styles). Which run
+    /// is found does not depend on the order they are tried in: a run is
+    /// recorded once, so the one that equals is the same.
     fn dedup_runs(&mut self)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         /// Beyond this many distinct runs, stop recording new ones. Existing
         /// runs are still reused, so the result is partial sharing, never wrong.
         const MAX_RUNS: usize = 1024;
+
+        /// Is the recorded run `(start, len)` of `data` the run `run`?
+        fn same<T: PartialEq>(data: &[T], (rs, rl): (u32, u32), run: &[T]) -> bool {
+            #[cfg(all(test, feature = "std"))]
+            RUN_COMPARES.with(|c| c.set(c.get() + 1));
+            rl as usize == run.len() && data[rs as usize..(rs + rl) as usize] == *run
+        }
+
+        /// What a run is filed under: its length, its first and its last entry.
+        fn key_of<T: core::hash::Hash>(run: &[T]) -> u64 {
+            use core::hash::{Hash, Hasher};
+            let mut h = crate::hash::FastHasher::new();
+            run.len().hash(&mut h);
+            run.first().hash(&mut h);
+            run.last().hash(&mut h);
+            h.finish()
+        }
 
         if self.offsets.is_empty() {
             return;
         }
         let mut new_data: Vec<T> = Vec::new();
         let mut runs: Vec<(u32, u32)> = Vec::new();
+        // The recorded runs (their indices in `runs`) by `key_of`.
+        let mut by_key: alloc::collections::BTreeMap<u64, Vec<u32>> =
+            alloc::collections::BTreeMap::new();
+        // The recorded run the node before this one had.
+        let mut last: Option<usize> = None;
         let mut new_offsets = Vec::with_capacity(self.offsets.len());
 
         for &(start, len) in &self.offsets {
@@ -660,26 +691,34 @@ impl<T> FlatVecVec<T> {
             }
             let s = start as usize;
             let run = &self.data[s..s + len as usize];
-            let existing = runs.iter().position(|&(rs, rl)| {
-                #[cfg(all(test, feature = "std"))]
-                RUN_COMPARES.with(|c| c.set(c.get() + 1));
-                rl == len && new_data[rs as usize..(rs + rl) as usize] == *run
-            });
+            let mut existing = last.filter(|at| same(&new_data, runs[*at], run));
+            let mut key = None;
+            if existing.is_none() {
+                let k = key_of(run);
+                existing = by_key.get(&k).and_then(|filed| {
+                    filed
+                        .iter()
+                        .map(|at| *at as usize)
+                        .find(|at| Some(*at) != last && same(&new_data, runs[*at], run))
+                });
+                key = Some(k);
+            }
             if let Some(at) = existing {
-                let (rs, rl) = runs[at];
-                new_offsets.push((rs, rl));
-                // The run found is tried first for the next node: nodes of
-                // one rule set come one after the other (the labels of a
-                // text style), and each used to read the table up to its
-                // run. The order of the table is not part of the result - a
-                // run is recorded once, so the one that equals is the same
-                // whichever is tried first.
-                runs.swap(0, at);
+                new_offsets.push(runs[at]);
+                last = Some(at);
                 continue;
             }
             let ns = u32::try_from(new_data.len()).unwrap_or(u32::MAX);
             new_data.extend_from_slice(run);
+            last = None;
             if runs.len() < MAX_RUNS {
+                if let Some(k) = key {
+                    by_key
+                        .entry(k)
+                        .or_default()
+                        .push(u32::try_from(runs.len()).unwrap_or(u32::MAX));
+                }
+                last = Some(runs.len());
                 runs.push((ns, len));
             }
             new_offsets.push((ns, len));
@@ -696,7 +735,7 @@ impl<T> FlatVecVec<T> {
     /// Drains all build-phase Vecs. After this call, only `get_slice()` works.
     pub fn sort_each_and_flatten<K: Ord + Eq>(&mut self, key_fn: impl Fn(&T) -> K)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         let node_count = self.build.len();
         let total: usize = self.build.iter().map(alloc::vec::Vec::len).sum();
@@ -759,7 +798,7 @@ impl<T> FlatVecVec<T> {
     /// Must be called after flatten. Preserves per-node ordering.
     pub fn retain(&mut self, predicate: impl Fn(&T) -> bool)
     where
-        T: Clone + PartialEq,
+        T: Clone + PartialEq + core::hash::Hash,
     {
         if self.offsets.is_empty() {
             return;
