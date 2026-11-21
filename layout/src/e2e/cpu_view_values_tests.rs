@@ -527,3 +527,20 @@ fn a1_16_the_values_a_frame_painted_with_are_the_next_frames_previous_values() {
     let _ = z.frame(&mut backend);
     assert!(matches!(backend.last_frame_damage, crate::window::FrameDamage::None), "nothing written: an idle frame");
 }
+
+/// A1 (merge follow-up 3): the frame `render_frame` paints is as large as
+/// `present_geometry::frame_size_px` says, the function every shell sizes its buffer with
+/// (A10): 400.2 x 300 logical px at a factor of 2 are 801 x 600 px (800.4 rounds up), not the
+/// 800 a truncation gives.
+/// Mutation: a size of its own in `render_frame` that truncates is 800 px wide.
+#[test]
+fn the_frame_is_as_large_as_the_shells_buffer_formula_says() {
+    let z = zoomable(None);
+    let mut backend = CpuBackend::new();
+    backend.render_frame(&z.lw, &z.resources, 400.2, 300.0, 2.0);
+    let expected = crate::window::present_geometry::frame_size_px(400.2, 300.0, 2.0);
+    assert_eq!(expected, (801, 600), "premise: ceil(800.4) x 600");
+    let frame = backend.last_frame.as_ref().expect("the backend painted a frame");
+    assert_eq!((frame.width(), frame.height()), expected);
+    assert_eq!(backend.last_frame_px, Some(expected));
+}
