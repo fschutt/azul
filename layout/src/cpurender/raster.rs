@@ -4718,6 +4718,32 @@ pub fn render_single_item(
                 ),
             };
 
+            // The vertical radius of each corner: a percentage of the box's HEIGHT (the
+            // horizontal one above is of its width), so `border-radius: 50%` on a box that is
+            // not square is an ellipse, as WebRender draws it. A length is the same on both.
+            let radius_y = BorderRadius {
+                top_left: border_radius.top_left.to_pixels_internal(
+                    bounds.0.size.height,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ),
+                top_right: border_radius.top_right.to_pixels_internal(
+                    bounds.0.size.height,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ),
+                bottom_left: border_radius.bottom_left.to_pixels_internal(
+                    bounds.0.size.height,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ),
+                bottom_right: border_radius.bottom_right.to_pixels_internal(
+                    bounds.0.size.height,
+                    DEFAULT_FONT_SIZE,
+                    DEFAULT_FONT_SIZE,
+                ),
+            };
+
             let clip = *clip_stack.last().unwrap();
             let b = scroll_rect(bounds.inner());
 
@@ -4733,13 +4759,14 @@ pub fn render_single_item(
                 && s_top == s_left;
 
             if all_same {
-                render_border(
+                render_border_xy(
                     pixmap,
                     &b,
                     c_top,
                     w_top,
                     s_top,
                     &simple_radius,
+                    &radius_y,
                     clip,
                     dpi_factor,
                 );
@@ -7592,6 +7619,35 @@ fn render_border(
     clip: Option<AzRect>,
     dpi_factor: f32,
 ) {
+    render_border_xy(
+        pixmap,
+        bounds,
+        color,
+        width,
+        border_style,
+        border_radius,
+        border_radius,
+        clip,
+        dpi_factor,
+    );
+}
+
+/// [`render_border`] with a horizontal (`border_radius`) and a vertical (`radius_y`) radius
+/// for each corner: an elliptical corner, which a percentage radius of a box that is not
+/// square is (CSS resolves the horizontal radius against the box's width and the vertical one
+/// against its height).
+#[allow(clippy::too_many_arguments)]
+fn render_border_xy(
+    pixmap: &mut AzulPixmap,
+    bounds: &LogicalRect,
+    color: ColorU,
+    width: f32,
+    border_style: azul_css::props::style::border::BorderStyle,
+    border_radius: &BorderRadius,
+    radius_y: &BorderRadius,
+    clip: Option<AzRect>,
+    dpi_factor: f32,
+) {
     use azul_css::props::style::border::BorderStyle;
 
     if color.a == 0 || width <= 0.0 {
@@ -7623,7 +7679,7 @@ fn render_border(
     );
 
     // 1. Build outer path (rounded rect at the nominal border radii)
-    let mut path = build_rounded_rect_path(&rect, border_radius, dpi_factor);
+    let mut path = build_rounded_rect_path_xy(&rect, border_radius, radius_y, dpi_factor);
 
     let x = f64::from(rect.x);
     let y = f64::from(rect.y);
@@ -7646,7 +7702,14 @@ fn render_border(
             bottom_right: (border_radius.bottom_right - width).max(0.0),
             bottom_left: (border_radius.bottom_left - width).max(0.0),
         };
-        let mut inner = build_rounded_rect_path(&ir, &inner_radius, dpi_factor);
+        let inner_radius_y = BorderRadius {
+            top_left: (radius_y.top_left - width).max(0.0),
+            top_right: (radius_y.top_right - width).max(0.0),
+            bottom_right: (radius_y.bottom_right - width).max(0.0),
+            bottom_left: (radius_y.bottom_left - width).max(0.0),
+        };
+        let mut inner =
+            build_rounded_rect_path_xy(&ir, &inner_radius, &inner_radius_y, dpi_factor);
         path.concat_path(&mut inner, 0);
     }
 
@@ -8687,6 +8750,27 @@ fn build_rounded_rect_path(
     border_radius: &BorderRadius,
     dpi_factor: f32,
 ) -> PathStorage {
+    build_rounded_rect_path_xy(rect, border_radius, border_radius, dpi_factor)
+}
+
+/// [`build_rounded_rect_path`] with a horizontal (`border_radius`) and a vertical (`radius_y`)
+/// radius per corner: quarter ellipses. A corner with either radius at zero is square.
+///
+/// Radii that do not fit are scaled down together by the rule of CSS Backgrounds 3 section
+/// 5.5: the horizontal radii of the two corners on the top (and on the bottom) edge may sum
+/// to the box's width, the vertical radii of the two on the left (and on the right) edge to
+/// its height. AGG's own `RoundedRect::normalize_radius` is NOT used: it holds the horizontal
+/// radii of an edge against the HEIGHT and the vertical ones against the WIDTH, which is the
+/// same thing only for four equal circular corners - it shrank the quarter ellipses of a
+/// 100x40 box with `border-radius: 50%` (50 by 20) to 20 by 8, shrank two 30 px corners on
+/// the top edge of a 100x40 box to 20 px, and left two 30 px corners on its left edge
+/// (60 px on a 40 px edge) crossing each other.
+fn build_rounded_rect_path_xy(
+    rect: &AzRect,
+    border_radius: &BorderRadius,
+    radius_y: &BorderRadius,
+    dpi_factor: f32,
+) -> PathStorage {
     let mut path = PathStorage::new();
 
     let x = f64::from(rect.x);
@@ -8707,10 +8791,19 @@ fn build_rounded_rect_path(
         }
     };
 
-    let tl = radius(border_radius.top_left);
-    let tr = radius(border_radius.top_right);
-    let br = radius(border_radius.bottom_right);
-    let bl = radius(border_radius.bottom_left);
+    // (horizontal, vertical) per corner; a corner that has no radius on one axis has none.
+    let corner = |x: f32, y: f32| {
+        let (x, y) = (radius(x), radius(y));
+        if x <= 0.0 || y <= 0.0 {
+            (0.0, 0.0)
+        } else {
+            (x, y)
+        }
+    };
+    let (mut tl, mut tl_y) = corner(border_radius.top_left, radius_y.top_left);
+    let (mut tr, mut tr_y) = corner(border_radius.top_right, radius_y.top_right);
+    let (mut br, mut br_y) = corner(border_radius.bottom_right, radius_y.bottom_right);
+    let (mut bl, mut bl_y) = corner(border_radius.bottom_left, radius_y.bottom_left);
 
     if tl <= 0.0 && tr <= 0.0 && br <= 0.0 && bl <= 0.0 {
         path.move_to(x, y);
@@ -8734,9 +8827,42 @@ fn build_rounded_rect_path(
     //   slot 4 → bottom-left (center at x1+rx4, y2-ry4)
     let mut rr = RoundedRect::default_new();
     rr.rect(x, y, x + w, y + h);
-    rr.radius_all(tl, tl, tr, tr, br, br, bl, bl);
-    rr.normalize_radius();
-    let largest = tl.max(tr).max(br).max(bl);
+    // The radii that fit (see the doc comment): one factor for all eight.
+    let mut fit = 1.0_f64;
+    for (sum, edge) in [
+        (tl + tr, w),     // top
+        (bl + br, w),     // bottom
+        (tl_y + bl_y, h), // left
+        (tr_y + br_y, h), // right
+    ] {
+        if sum > edge.max(0.0) {
+            fit = fit.min(edge.max(0.0) / sum);
+        }
+    }
+    if fit < 1.0 {
+        for r in [
+            &mut tl, &mut tl_y, &mut tr, &mut tr_y, &mut br, &mut br_y, &mut bl, &mut bl_y,
+        ] {
+            *r *= fit;
+        }
+    }
+    rr.radius_all(tl, tl_y, tr, tr_y, br, br_y, bl, bl_y);
+    // The radius the arcs are stepped for, of the radii that are DRAWN (a pill's
+    // `border-radius: 9999px` on a 40 px box is a 20 px arc and is stepped as one). AGG steps
+    // a quarter ellipse by the mean of its two radii, so its longest segment is that of a
+    // circle of `longer^2 / mean`; a circle's is its radius.
+    let stepped_as = |x: f64, y: f64| {
+        if x == y {
+            x
+        } else {
+            let longer = x.max(y);
+            longer * longer / ((x + y) * 0.5)
+        }
+    };
+    let largest = stepped_as(tl, tl_y)
+        .max(stepped_as(tr, tr_y))
+        .max(stepped_as(br, br_y))
+        .max(stepped_as(bl, bl_y));
     rr.set_approximation_scale(arc_approximation_scale(dpi_factor, largest));
 
     path.concat_path(&mut rr, 0);
@@ -17838,5 +17964,101 @@ mod audit_a1_tests {
             DisplayListItem::PopOpacity,
         ]);
         assert_eq!(inside.frame_index().opacity_extent(0), None);
+    }
+
+    /// A solid border of `width` px in black around the box `(0, 0) w x h`, `radius` at every
+    /// corner, as the display list carries it.
+    fn ring(w: f32, h: f32, width: f32, radius: azul_css::props::basic::pixel::PixelValue) -> DisplayListItem {
+        use azul_css::{css::CssPropertyValue, props::{basic::pixel::PixelValue, style as s}};
+        use crate::solver3::display_list::{StyleBorderColors, StyleBorderStyles, StyleBorderWidths};
+        let (inner, black, solid) = (PixelValue::px(width), ColorU { r: 0, g: 0, b: 0, a: 255 }, s::BorderStyle::Solid);
+        DisplayListItem::Border {
+            bounds: wrect(0.0, 0.0, w, h),
+            widths: StyleBorderWidths {
+                top: Some(CssPropertyValue::Exact(s::LayoutBorderTopWidth { inner })),
+                right: Some(CssPropertyValue::Exact(s::LayoutBorderRightWidth { inner })),
+                bottom: Some(CssPropertyValue::Exact(s::LayoutBorderBottomWidth { inner })),
+                left: Some(CssPropertyValue::Exact(s::LayoutBorderLeftWidth { inner })),
+            },
+            colors: StyleBorderColors {
+                top: Some(CssPropertyValue::Exact(s::StyleBorderTopColor { inner: black })),
+                right: Some(CssPropertyValue::Exact(s::StyleBorderRightColor { inner: black })),
+                bottom: Some(CssPropertyValue::Exact(s::StyleBorderBottomColor { inner: black })),
+                left: Some(CssPropertyValue::Exact(s::StyleBorderLeftColor { inner: black })),
+            },
+            styles: StyleBorderStyles {
+                top: Some(CssPropertyValue::Exact(s::StyleBorderTopStyle { inner: solid })),
+                right: Some(CssPropertyValue::Exact(s::StyleBorderRightStyle { inner: solid })),
+                bottom: Some(CssPropertyValue::Exact(s::StyleBorderBottomStyle { inner: solid })),
+                left: Some(CssPropertyValue::Exact(s::StyleBorderLeftStyle { inner: solid })),
+            },
+            border_radius: s::StyleBorderRadius { top_left: radius, top_right: radius, bottom_left: radius, bottom_right: radius },
+        }
+    }
+
+    /// A1-30: `border-radius: 50%` on a box that is not square is an ellipse. A 100 x 40 box
+    /// with a 2 px border: the horizontal radius is 50 (half the width), the vertical one 20
+    /// (half the height), so the outer edge is the ellipse `((x-50)/50)^2 + ((y-20)/20)^2 = 1`
+    /// and the inner one the ellipse of 48 by 18 about the same centre. At x = 75..76 the outer
+    /// edge is at y = 20 - 20 * sqrt(1 - 0.25) = 2.68 (2.92 at x = 76) and the inner one at
+    /// y = 20 - 18 * sqrt(1 - (25/48)^2) = 4.63: the pixel (75, 3), y in 3..4, lies wholly in
+    /// the ring and is black; the pixel (75, 1), y in 1..2, wholly above it and is the page.
+    /// Mutation: the vertical radii resolved against the WIDTH again (`radius_y` from
+    /// `bounds.0.size.width` in the `Border` arm) gives 50 by 50, which fits as 20 by 20: a
+    /// stadium whose top edge is straight from x = 20 to 80, (75, 1) black and (75, 3) white.
+    /// So does `rr.normalize_radius()` put back (50 by 20 becomes 20 by 8).
+    #[test]
+    fn a_percentage_border_radius_is_an_ellipse_on_a_box_that_is_not_square() {
+        let dl = list(vec![ring(100.0, 40.0, 2.0, azul_css::props::basic::pixel::PixelValue::percent(50.0))]);
+        let (p, _) = full(&dl, &CpuRenderState::new(ScrollOffsetMap::new()), (100, 40));
+        assert_eq!(px(&p, 75, 3), [0, 0, 0, 255], "in the ring of the ellipse");
+        assert_eq!(px(&p, 75, 1), [255, 255, 255, 255], "above the ellipse, under a stadium's edge");
+        // The same by symmetry at the three other quadrants.
+        for (x, y) in [(24, 3), (75, 36), (24, 36)] {
+            assert_eq!(px(&p, x, y), [0, 0, 0, 255], "in the ring at ({x}, {y})");
+        }
+        for (x, y) in [(24, 1), (75, 38), (24, 38)] {
+            assert_eq!(px(&p, x, y), [255, 255, 255, 255], "outside the ellipse at ({x}, {y})");
+        }
+        // A length is the same on both axes: 10 px corners are circles. The pixel (1, 1) is
+        // outside the circle about (10, 10) (its nearest corner (2, 2) is 11.3 px away) and
+        // (2, 5), x in 2..3, is past the inner circle of 8 px (its nearest point to (10, 10),
+        // (3, 6), is 8.06 px away) and inside the outer one (its farthest, (2, 5), 9.43 px).
+        let dl = list(vec![ring(100.0, 40.0, 2.0, azul_css::props::basic::pixel::PixelValue::px(10.0))]);
+        let (p, _) = full(&dl, &CpuRenderState::new(ScrollOffsetMap::new()), (100, 40));
+        assert_eq!(px(&p, 1, 1), [255, 255, 255, 255]);
+        assert_eq!(px(&p, 2, 5), [0, 0, 0, 255]);
+    }
+
+    /// A1-30: corner radii that do not fit are scaled by the CSS rule (horizontal radii of an
+    /// edge's two corners against the WIDTH, vertical ones against the HEIGHT), not by AGG's.
+    /// A red 100 x 40 box.
+    /// - 30 px at the two TOP corners: 60 <= 100 along the top edge and 30 <= 40 down each
+    ///   side, so they stay 30 px. The pixel (7, 7) is outside the circle about (30, 30): its
+    ///   nearest corner (8, 8) is 22 * 1.414 = 31.1 px from the centre. AGG's rule held the
+    ///   60 against the height and drew 20 px corners, with (7, 7) inside (its farthest corner
+    ///   is 13 * 1.414 = 18.4 px from (20, 20)).
+    /// - 30 px at the two LEFT corners: 60 > 40 down the left edge, so both become 20 px and
+    ///   meet at (0, 20). The pixel (10, 4) is inside the circle about (20, 20): its farthest
+    ///   corner (10, 4) is sqrt(100 + 256) = 18.9 px away. AGG's rule never looked at that
+    ///   edge and left two 30 px arcs crossing, with (10, 4) outside the one about (30, 30)
+    ///   (its nearest corner (11, 5) is 31.4 px away).
+    /// Mutation: `rr.normalize_radius()` in place of the `fit` loop fails both.
+    #[test]
+    fn corner_radii_that_do_not_fit_are_scaled_by_the_css_rule() {
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let red = ColorU { r: 255, g: 0, b: 0, a: 255 };
+        let boxed = |border_radius: BorderRadius| {
+            let dl = list(vec![DisplayListItem::Rect { bounds: wrect(0.0, 0.0, 100.0, 40.0), color: red, border_radius }]);
+            full(&dl, &state, (100, 40)).0
+        };
+        let top = boxed(BorderRadius { top_left: 30.0, top_right: 30.0, bottom_left: 0.0, bottom_right: 0.0 });
+        assert_eq!(px(&top, 7, 7), [255, 255, 255, 255], "30 px corners on the top edge stay 30 px");
+        assert_eq!(px(&top, 92, 7), [255, 255, 255, 255]);
+        assert_eq!(px(&top, 50, 1), [255, 0, 0, 255]);
+        let left = boxed(BorderRadius { top_left: 30.0, top_right: 0.0, bottom_left: 30.0, bottom_right: 0.0 });
+        assert_eq!(px(&left, 10, 4), [255, 0, 0, 255], "two 30 px corners on a 40 px edge are 20 px each");
+        assert_eq!(px(&left, 10, 35), [255, 0, 0, 255]);
+        assert_eq!(px(&left, 1, 1), [255, 255, 255, 255]);
     }
 }
