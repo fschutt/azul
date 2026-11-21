@@ -11187,6 +11187,19 @@ const UNOBSERVABLE_MANAGERS: &[(&str, &str)] = &[
          `a11y_manager`, which is checked",
     ),
     (
+        "app_services",
+        "owns no window state: `AppServices` is the set of queues and slots of the APP (the \
+         platform's answers, the hotkey manager, the activation clock, the worker ledger) that \
+         every window of the app holds a handle on. Each queue is covered by its own module's \
+         entry here (`media_keys`, `notification`, `tray_event`, ...); the hub adds no field of \
+         its own to a window",
+    ),
+    (
+        "shared_queue",
+        "not a manager — the cheap-clone queue type the app's mailboxes are built from. It has \
+         no state beyond the items in flight, which belong to the module that owns the mailbox",
+    ),
+    (
         "scroll_into_view",
         "stateless — free functions that take options and return ScrollAdjustments, retaining \
          nothing between calls",
@@ -12378,6 +12391,17 @@ fn not_fingerprintable() -> Vec<(&'static str, &'static str)> {
              matching entry in UNOBSERVABLE_MANAGERS. Fingerprinting it would hash a value that \
              is recomputed rather than remembered, so it would report a change on every frame and \
              mean nothing",
+        ),
+        (
+            "app_services",
+            "a bundle of handles on the app's queues, no state of its own: see the matching \
+             entry in UNOBSERVABLE_MANAGERS. What a queue holds is the mailbox's owner's, and a \
+             window's pass drains it, so a fingerprint of it would change with every platform \
+             answer rather than with a leak",
+        ),
+        (
+            "shared_queue",
+            "not a manager — a queue type; see the matching entry in UNOBSERVABLE_MANAGERS",
         ),
         (
             "scroll_into_view",
@@ -24800,8 +24824,9 @@ mod e2e_manager_accounting {
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().into_owned();
                 let stem = name.strip_suffix(".rs")?.to_string();
-                // `mod.rs` is the module root, not a manager.
-                (stem != "mod").then_some(stem)
+                // `mod.rs` is the module root, not a manager; `x_test.rs` is the tests of
+                // module `x`, declared from it (`#[path]`).
+                (stem != "mod" && !stem.ends_with("_test")).then_some(stem)
             })
             .collect();
         modules.sort();
@@ -24861,7 +24886,7 @@ mod e2e_manager_accounting {
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().into_owned();
                 let stem = name.strip_suffix(".rs")?.to_string();
-                (stem != "mod").then_some(stem)
+                (stem != "mod" && !stem.ends_with("_test")).then_some(stem)
             })
             .collect();
         modules.sort();
