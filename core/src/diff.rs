@@ -73,6 +73,13 @@ impl NodeChangeSet {
 
     /// Inline CSS properties changed that affect paint only.
     pub const INLINE_STYLE_PAINT: u32 = 0b0000_0001_0000_0000;
+    /// The only inline CSS that changed are the values of the node's insets (`top`, `right`,
+    /// `bottom`, `left`: [`NodeDataFingerprint::inline_inset_hash`]); which insets it declares
+    /// did not change. The box may have to be placed again, and - where its size comes from
+    /// its insets (`left` and `right` with an `auto` width) - laid out again: a layout change
+    /// ([`Self::AFFECTS_LAYOUT`]), told apart from [`Self::INLINE_STYLE_LAYOUT`] so a layout
+    /// that can place a box again without laying out its interior may do so.
+    pub const INLINE_STYLE_INSETS: u32 = 0b0100_0000_0000_0000_0000;
     /// Styled node state changed (hover, active, focus, etc.).
     pub const STYLED_STATE: u32 = 0b0000_0010_0000_0000;
 
@@ -126,6 +133,7 @@ impl NodeChangeSet {
         | Self::TEXT_CONTENT
         | Self::IDS_AND_CLASSES
         | Self::INLINE_STYLE_LAYOUT
+        | Self::INLINE_STYLE_INSETS
         | Self::CHILDREN_CHANGED
         | Self::IMAGE_CHANGED
         | Self::CONTENTEDITABLE
@@ -257,6 +265,84 @@ fn hash_inline_style<H: core::hash::Hasher>(style: &azul_css::css::Css, h: &mut 
             }
         }
     }
+}
+
+/// How far a change of ONE static declaration of a node's own style reaches, for the node's
+/// change fingerprint ([`NodeDataFingerprint`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InlineReach {
+    /// The node's layout may depend on it: everything that is neither of the two below.
+    Layout,
+    /// An inset (`top`, `right`, `bottom`, `left`): where a positioned box is placed.
+    Inset,
+    /// A `transform` of at least one function, or an `opacity`, as an exact value: what the
+    /// display list binds by key and both renderers read live. No box depends on the VALUE;
+    /// that the node HAS a transform does (a transformed box is the containing block of its
+    /// positioned descendants), and that stays with [`InlineReach::Layout`].
+    GpuValue,
+}
+
+fn inline_reach(property: &azul_css::props::property::CssProperty) -> InlineReach {
+    use azul_css::props::property::{CssProperty, CssPropertyType};
+    match property {
+        CssProperty::Transform(value)
+            if value
+                .get_property()
+                .is_some_and(|functions| !functions.is_empty()) =>
+        {
+            InlineReach::GpuValue
+        }
+        CssProperty::Opacity(value) if value.get_property().is_some() => InlineReach::GpuValue,
+        other => match other.get_type() {
+            CssPropertyType::Top
+            | CssPropertyType::Right
+            | CssPropertyType::Bottom
+            | CssPropertyType::Left => InlineReach::Inset,
+            _ => InlineReach::Layout,
+        },
+    }
+}
+
+/// A node's own style as three hashes, by how far a change reaches ([`InlineReach`]):
+/// `(everything else, the values of its insets, the values of its transform and opacity)`.
+///
+/// A declaration of the second or third kind still counts in the FIRST hash with its
+/// property type and its rule's conditions (in declaration order): that the node declares
+/// it, and where among its declarations, is part of the style a layout was made with. Only
+/// its value is kept out. So two styles that differ in the first hash differ as before
+/// (a layout change), and two that agree in it declare the same insets and the same
+/// transform / opacity, with other values at most.
+fn hash_inline_style_by_reach(style: &azul_css::css::Css) -> (u64, u64, u64) {
+    use azul_css::css::CssDeclaration;
+    use core::hash::Hasher;
+
+    let mut rest = crate::hash::DefaultHasher::new();
+    let mut insets = crate::hash::DefaultHasher::new();
+    let mut gpu_values = crate::hash::DefaultHasher::new();
+    for rule in style.rules.as_ref() {
+        // The conditions are part of the style: the same declaration for
+        // `:hover` and for `:focus` is another style.
+        rule.conditions.as_slice().hash(&mut rest);
+        for d in rule.declarations.as_ref() {
+            match d {
+                CssDeclaration::Static(p) => match inline_reach(p) {
+                    InlineReach::Layout => p.hash(&mut rest),
+                    InlineReach::Inset => {
+                        p.get_type().hash(&mut rest);
+                        rule.conditions.as_slice().hash(&mut insets);
+                        p.hash(&mut insets);
+                    }
+                    InlineReach::GpuValue => {
+                        p.get_type().hash(&mut rest);
+                        rule.conditions.as_slice().hash(&mut gpu_values);
+                        p.hash(&mut gpu_values);
+                    }
+                },
+                other => other.hash(&mut rest),
+            }
+        }
+    }
+    (rest.finish(), insets.finish(), gpu_values.finish())
 }
 
 /// Compare two matched `NodeData` instances field-by-field and return
@@ -2641,8 +2727,15 @@ pub struct NodeDataFingerprint {
     pub content_hash: u64,
     /// Hash of `styled_node_state` (hover, focus, active bits)
     pub state_hash: u64,
-    /// Hash of inline CSS properties
+    /// Hash of inline CSS properties: every declaration, except that an inset and an exact
+    /// `transform` / `opacity` count with their property type only (their values are the
+    /// two hashes below; `hash_inline_style_by_reach`)
     pub inline_css_hash: u64,
+    /// Hash of the values of the inline insets (`top`, `right`, `bottom`, `left`)
+    pub inline_inset_hash: u64,
+    /// Hash of the values of an inline `transform` (of at least one function) and `opacity`:
+    /// what the display list binds by key
+    pub inline_gpu_hash: u64,
     /// Hash of `ids_and_classes`, the attributes that select style rules
     /// ([`crate::layout_inputs::LayoutReach::Selectors`])
     pub ids_classes_hash: u64,
@@ -2713,11 +2806,8 @@ impl NodeDataFingerprint {
         // Inline CSS hash — full CssProperty value (matches the legacy
         // CssPropertyWithConditions::hash that hashed both property and the
         // condition vec length).
-        let inline_css_hash = {
-            let mut h = crate::hash::DefaultHasher::new();
-            hash_inline_style(&node.style, &mut h);
-            h.finish()
-        };
+        let (inline_css_hash, inline_inset_hash, inline_gpu_hash) =
+            hash_inline_style_by_reach(&node.style);
 
         // What the layout reads of the attributes and the SVG data, one hash
         // per reach, from one walk over them (the layout's attribute table).
@@ -2766,6 +2856,8 @@ impl NodeDataFingerprint {
             content_hash,
             state_hash,
             inline_css_hash,
+            inline_inset_hash,
+            inline_gpu_hash,
             ids_classes_hash: inputs.selectors,
             callbacks_hash,
             attrs_hash,
@@ -2804,6 +2896,14 @@ impl NodeDataFingerprint {
             // Conservative: inline CSS could affect layout or paint.
             // compute_node_changes() checks relayout_scope() per property.
             changes.insert(NodeChangeSet::INLINE_STYLE_LAYOUT);
+        } else if self.inline_inset_hash != other.inline_inset_hash {
+            // The same declarations, other inset values: the box is placed again (still a
+            // layout change, see the flag).
+            changes.insert(NodeChangeSet::INLINE_STYLE_INSETS);
+        } else if self.inline_gpu_hash != other.inline_gpu_hash {
+            // The same declarations and insets, another transform matrix or opacity: no
+            // box moves, the display list takes the value.
+            changes.insert(NodeChangeSet::INLINE_STYLE_PAINT);
         }
 
         if self.ids_classes_hash != other.ids_classes_hash {
@@ -2853,6 +2953,7 @@ impl NodeDataFingerprint {
     pub const fn might_affect_layout(&self, other: &Self) -> bool {
         self.content_hash != other.content_hash
             || self.inline_css_hash != other.inline_css_hash
+            || self.inline_inset_hash != other.inline_inset_hash
             || self.ids_classes_hash != other.ids_classes_hash
             || self.attrs_hash != other.attrs_hash
             || self.lang_hash != other.lang_hash
@@ -2866,6 +2967,8 @@ impl NodeDataFingerprint {
         self.content_hash != other.content_hash
             || self.state_hash != other.state_hash
             || self.inline_css_hash != other.inline_css_hash
+            || self.inline_inset_hash != other.inline_inset_hash
+            || self.inline_gpu_hash != other.inline_gpu_hash
             || self.ids_classes_hash != other.ids_classes_hash
             || self.lang_hash != other.lang_hash
             || self.own_box_hash != other.own_box_hash
@@ -2884,6 +2987,8 @@ impl NodeDataFingerprint {
     #[must_use]
     pub const fn may_restyle_descendants(&self, other: &Self) -> bool {
         self.inline_css_hash != other.inline_css_hash
+            || self.inline_inset_hash != other.inline_inset_hash
+            || self.inline_gpu_hash != other.inline_gpu_hash
             || self.ids_classes_hash != other.ids_classes_hash
             || self.state_hash != other.state_hash
             || self.lang_hash != other.lang_hash
