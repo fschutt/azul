@@ -1271,7 +1271,23 @@ impl StyledDom {
             merged
         };
 
-        let compact_dom: CompactDom = swap_dom.into();
+        Self::create_from_prepared_dom(swap_dom, css, context, inherited_from_host)
+    }
+
+    /// The flatten and the cascade of a DOM that is PREPARED: its node
+    /// counts are exact (`fixup_children_estimated`), its nodes' sheets are
+    /// scoped and taken out of it (`scope_inline_css`, `take_css_from_dom`)
+    /// and merged into `css`. Both constructors prepare the DOM themselves
+    /// and end here; `create_from_dom_inheriting` used to hand its prepared
+    /// DOM to `create_with_context_inheriting`, which walked it three more
+    /// times to prepare it again and found nothing to do.
+    fn create_from_prepared_dom(
+        dom: Dom,
+        css: Css,
+        context: Option<azul_css::dynamic_selector::DynamicSelectorContext>,
+        inherited_from_host: Vec<(CssPropertyType, crate::prop_cache::CssPropertyWithOrigin)>,
+    ) -> Self {
+        let compact_dom: CompactDom = dom.into();
         let node_hierarchy: NodeHierarchyItemVec = compact_dom
             .node_hierarchy
             .as_ref()
@@ -1706,8 +1722,9 @@ impl StyledDom {
             css
         };
 
-        // 3. Use existing StyledDom::create to flatten + cascade
-        Self::create_with_context_inheriting(&mut dom, combined_css, context, inherited_from_host)
+        // 3. Flatten + cascade. The DOM is prepared: its counts are exact
+        //    and its sheets are scoped, taken and merged above.
+        Self::create_from_prepared_dom(dom, combined_css, context, inherited_from_host)
     }
 
     /// Appends another `StyledDom` as a child to the `self.root`
@@ -3952,6 +3969,13 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
     }
 }
 
+#[cfg(all(test, feature = "std"))]
+std::thread_local! {
+    /// How many nodes the walks that prepare a `Dom` for styling visited on
+    /// this thread (`scope_inline_css`, `take_css_from_dom`).
+    pub(crate) static DOM_PREPARE_STEPS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+}
+
 /// #47: scope every node's inline css to its own subtree. Walks the tree in the
 /// SAME pre-order `convert_dom_into_compact_dom` uses to assign flat `NodeIds`, so the
 /// `[flat_id, flat_id + estimated_total_children]` range pushed onto each rule (via
@@ -3960,6 +3984,8 @@ pub fn convert_dom_into_compact_dom(mut dom: Dom) -> CompactDom {
 /// they can no longer leak to the whole tree. `fixup_children_estimated()` must
 /// have run first so `estimated_total_children` is populated/exact.
 fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
+    #[cfg(all(test, feature = "std"))]
+    DOM_PREPARE_STEPS.with(|c| c.set(c.get() + 1));
     let start = *next_id;
     let end = start + dom.estimated_total_children;
     for css in dom.css.as_mut().iter_mut() {
@@ -3986,6 +4012,8 @@ fn scope_inline_css(dom: &mut Dom, next_id: &mut usize) {
 /// CSS as [`strip_css_from_dom`] does: the two in one walk, without a copy
 /// of every sheet.
 fn take_css_from_dom(dom: &mut Dom, out: &mut Vec<Css>) {
+    #[cfg(all(test, feature = "std"))]
+    DOM_PREPARE_STEPS.with(|c| c.set(c.get() + 1));
     for child in dom.children.as_mut().iter_mut() {
         take_css_from_dom(child, out);
     }

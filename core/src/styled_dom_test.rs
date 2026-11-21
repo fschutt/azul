@@ -2989,6 +2989,46 @@ mod audit_a3_core_tests {
         assert_eq!(more.len(), 6);
     }
 
+    /// A3-core-11b: `create_from_dom` prepared its `Dom` (exact node counts,
+    /// each node's sheet scoped to its subtree, the sheets taken out), then
+    /// handed it to the constructor that takes a `Dom` with a sheet, which
+    /// prepared it again: every walk of the tree twice. Each node is visited
+    /// once per walk now, and the DOM is styled as before.
+    #[test]
+    fn a_dom_is_prepared_for_styling_once() {
+        let steps_for = |labels: usize| {
+            let mut root = Dom::create_body().with_css("color: red;");
+            for i in 0..labels {
+                root = root.with_child(
+                    Dom::create_span_with_text("label").with_css(&format!("width: {}px;", 10 + i % 7)),
+                );
+            }
+            DOM_PREPARE_STEPS.with(|c| c.set(0));
+            let styled = StyledDom::create_from_dom(root);
+            (styled, DOM_PREPARE_STEPS.with(core::cell::Cell::get))
+        };
+        let (styled, few) = steps_for(100);
+        let (_, many) = steps_for(400);
+        // body + 100 x (span + text) = 201 nodes, two walks (scope, take).
+        assert_eq!(few, 2 * 201, "each node once per walk");
+        assert_eq!(many, 2 * 801);
+        // A label's own sheet still reaches its node and no other.
+        let width = |node: usize| {
+            let node_id = NodeId::new(node);
+            styled
+                .get_css_property_cache()
+                .get_width(
+                    &styled.node_data.as_container()[node_id],
+                    &node_id,
+                    &StyledNodeState::new(),
+                )
+                .cloned()
+        };
+        assert!(width(1).is_some(), "the first label has its width");
+        assert_ne!(width(1), width(3), "10px and 11px");
+        assert!(width(0).is_none(), "the body has none");
+    }
+
     /// A3-core-11a: styling a DOM generated the hit-test tag ids at the end
     /// of the cascade, dropped them, and generated them again once the
     /// compact cache existed: two walks of every node. Once now, and the ids
