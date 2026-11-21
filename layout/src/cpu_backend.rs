@@ -1256,8 +1256,11 @@ impl CpuBackend {
         };
         // The values of every DOM paint, a view's child's included: the values this frame's
         // damage was diffed from, which `previous_gpu_values` holds now.
+        // The values are MOVED into the render state and back when the frame is painted (the
+        // frame's own copy of three maps was 299 KB per frame for a map view: A9 H5). Nothing
+        // between here and there reads `previous_gpu_values`.
         let render_state = cpurender::CpuRenderState::new(render_offsets.clone())
-            .with_gpu_values(self.previous_gpu_values.clone())
+            .with_gpu_values(core::mem::take(&mut self.previous_gpu_values))
             .with_system_style(layout_window.system_style.clone())
             .with_clear_color(clear_color)
             .with_virtual_view_display_lists(vview_dls)
@@ -1398,6 +1401,19 @@ impl CpuBackend {
             }
         }
 
+        // Back from the render state: the values this frame painted with, for the next
+        // frame's diff.
+        let cpurender::CpuRenderState {
+            transforms,
+            opacities,
+            colors,
+            ..
+        } = render_state;
+        self.previous_gpu_values = cpurender::WindowGpuValues {
+            transforms,
+            opacities,
+            colors,
+        };
         self.previous_zombie_rects = zombie_rects;
         self.previous_display_list = Some(display_list.clone());
         self.last_consumed_build_seq = layout_window.layout_cache.build_seq;
