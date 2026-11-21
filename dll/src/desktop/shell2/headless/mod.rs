@@ -14795,11 +14795,39 @@ mod tests {
         )
     }
 
+    /// The lines of a dump with the number of every `Key { id: N }` masked, and nothing else
+    /// of the item (an item with a key that is missing or one too many still differs).
+    /// A scrollbar's `opacity_key` and `thumb_transform_key` are ids of the process-wide
+    /// `PROPERTY_KEY_COUNTER` (core `resources.rs`): stable for a window, different between
+    /// two windows by construction. Measured (the verifier's run, 2026-11-21): the window
+    /// rebuilt in full holds the same key before and after its rebuild (`OpacityKey { id:
+    /// 184 }` twice) where the patched window holds 122; with the ids masked the two dumps
+    /// have 0 differing lines of 852, 3,428, 972, 4,772 and 17,372.
+    fn df_mask_key_ids(lines: Vec<String>) -> Vec<String> {
+        const KEY: &str = "Key { id: ";
+        lines
+            .into_iter()
+            .map(|line| {
+                let mut masked = String::with_capacity(line.len());
+                let mut rest = line.as_str();
+                while let Some(at) = rest.find(KEY) {
+                    let end = at + KEY.len();
+                    masked.push_str(&rest[..end]);
+                    masked.push('_');
+                    rest = rest[end..].trim_start_matches(|c: char| c.is_ascii_digit());
+                }
+                masked.push_str(rest);
+                masked
+            })
+            .collect()
+    }
+
     /// Two windows of the page `page` makes, rebuilt after the same `change`: one with every
     /// step, one with the steps `reference` (every step but the one under test: the state
     /// before it, the list emitted in full). Answers the costs of the first
     /// ([`df_list_cost`]) after asserting that both windows hold the same nodes, styles,
-    /// boxes and display list, line for line ([`df_dump`]).
+    /// boxes and display list, line for line ([`df_dump`], the ids of the windows' own keys
+    /// masked: [`df_mask_key_ids`]).
     fn df_list_against_full(
         page: impl Fn() -> Arc<RefCell<RefAny>>,
         change: impl Fn(&mut DfPage),
@@ -14821,7 +14849,10 @@ mod tests {
             (0, 0),
             "{what}: premise: without the step no list is patched for the cascade's names"
         );
-        let (left, right) = (df_dump(&with_list), df_dump(&in_full));
+        let (left, right) = (
+            df_mask_key_ids(df_dump(&with_list)),
+            df_mask_key_ids(df_dump(&in_full)),
+        );
         let differs = left
             .iter()
             .zip(right.iter())
