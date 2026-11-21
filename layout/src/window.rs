@@ -818,6 +818,21 @@ pub mod present_geometry {
         len
     }
 
+    /// The length in device pixels of a toplevel surface `logical` surface
+    /// units long at the fractional scale `scale`, as a Wayland compositor
+    /// computes it: "rounded halfway away from zero" (wp-fractional-scale-v1).
+    ///
+    /// A buffer of exactly this size is shown 1:1; any other size is
+    /// resampled over the whole surface. `ceil` (the CPU frame's own rounding,
+    /// [`frame_size_px`]) is one pixel more wherever the product's fraction is
+    /// below one half: 1001 units at 125 % are 1251.25, a 1251 px surface and
+    /// a 1252 px frame.
+    #[must_use]
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    pub fn surface_len_px(logical: f32, scale: f32) -> u32 {
+        (logical * scale).round() as u32
+    }
+
     /// `rect` (buffer px, y down) in bottom-left px (y up) of a buffer
     /// `buf_h` pixels high, and back: the flip is its own inverse.
     ///

@@ -296,3 +296,35 @@ fn x11_and_win32_render_a_frame_of_the_windows_pixel_size() {
         );
     }
 }
+
+/// A10-09. At a fractional scale a Wayland toplevel is `round(logical *
+/// scale)` device pixels (wp-fractional-scale-v1), and both the shm buffers
+/// and the CPU frame are that size: the buffers through `cpu_buffer_spec`,
+/// the frame because the CPU arm hands `render_frame` the logical size that
+/// renders to it. `ceil` on either side is one pixel more for one size in
+/// four at 125 % and 175 %, and the compositor resamples the whole window.
+///
+/// Mutation: `.ceil()` in `cpu_buffer_spec`, or the stored logical size
+/// handed to `render_frame` at a fractional scale, fails here.
+#[test]
+fn wayland_buffers_and_frame_are_the_surfaces_size_at_a_fractional_scale() {
+    let spec = body(WAYLAND_RS, "fn cpu_buffer_spec(&self, logical_w: i32, logical_h: i32)");
+    assert!(
+        spec.matches("present_geometry::surface_len_px(").count() == 2 && !spec.contains(".ceil()"),
+        "cpu_buffer_spec must size fractional buffers by round-half-away, not ceil"
+    );
+    let arm_start = WAYLAND_RS
+        .find("RenderMode::Cpu(Some(cpu_state)) => {")
+        .expect("the CPU arm of the Wayland present");
+    let arm = &WAYLAND_RS[arm_start..];
+    let render = arm
+        .find("self.cpu_backend.render_frame(")
+        .expect("the CPU arm calls render_frame");
+    let before = &arm[..render];
+    assert!(
+        before.contains("let (width, height) = if fractional")
+            && before.contains("logical_len_for_px(surface_len_px(logical_w, d), d)")
+            && before.contains("logical_len_for_px(surface_len_px(logical_h, d), d)"),
+        "at a fractional scale the frame must be sized from the surface's device pixels"
+    );
+}

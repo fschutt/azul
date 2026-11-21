@@ -5995,17 +5995,21 @@ impl WaylandWindow {
     /// (physical_width, physical_height, buffer_scale) for the CPU shm
     /// buffers at the given LOGICAL size.
     ///
-    /// - Fractional path: physical = ceil(logical × dpi/96) — the exact size
-    ///   `CpuBackend::render_frame` produces — with buffer scale 1 (the viewport maps it back to
-    ///   logical).
+    /// - Fractional path: physical = round(logical × dpi/96), half away from zero - the size
+    ///   wp-fractional-scale-v1 gives a toplevel in device pixels, the only buffer size the
+    ///   compositor shows 1:1 (`present_geometry::surface_len_px`; A10-09) - with buffer scale 1
+    ///   (the viewport maps it back to logical). The CPU arm hands `render_frame` the logical
+    ///   size that renders to exactly this.
     /// - Integer path: physical = logical × round(dpi/96), buffer scale = round(dpi/96) (announced
     ///   via set_buffer_scale at attach).
     fn cpu_buffer_spec(&self, logical_w: i32, logical_h: i32) -> (i32, i32, i32) {
         if self.fractional_scale_active() {
             let d = (self.common.current_window_state().size.dpi as f32 / 96.0).max(0.01);
             (
-                ((logical_w.max(1) as f32) * d).ceil() as i32,
-                ((logical_h.max(1) as f32) * d).ceil() as i32,
+                azul_layout::window::present_geometry::surface_len_px(logical_w.max(1) as f32, d)
+                    as i32,
+                azul_layout::window::present_geometry::surface_len_px(logical_h.max(1) as f32, d)
+                    as i32,
                 1,
             )
         } else {
@@ -7927,9 +7931,35 @@ impl WaylandWindow {
                         // need to know one exists before computing window dims.
                         if layout_window.layout_results.contains_key(&dom_id) {
                             let ws = &layout_window.current_window_state;
-                            let width = ws.size.dimensions.width;
-                            let height = ws.size.dimensions.height;
                             let dpi = ws.size.dpi as f32 / 96.0;
+                            // A10-09: at a fractional scale the surface is
+                            // round(logical * scale) device pixels, and the
+                            // shm buffers are that size (`cpu_buffer_spec`).
+                            // The renderer's own ceil(logical * scale) is one
+                            // pixel more for one size in four at 125 % / 175 %
+                            // (1001 units at 125 %: 1252 for 1251), which the
+                            // compositor would resample over the whole window.
+                            // Hand it the logical size that renders to exactly
+                            // the buffer; whole scales keep their sizes.
+                            let logical = ws.size.dimensions;
+                            let (width, height) = if fractional
+                                && logical.width > 0.0
+                                && logical.height > 0.0
+                            {
+                                use azul_layout::window::present_geometry::{
+                                    logical_len_for_px, surface_len_px,
+                                };
+                                // The same numbers as `cpu_buffer_spec`.
+                                let d = dpi.max(0.01);
+                                let logical_w = (logical.width as i32).max(1) as f32;
+                                let logical_h = (logical.height as i32).max(1) as f32;
+                                (
+                                    logical_len_for_px(surface_len_px(logical_w, d), d),
+                                    logical_len_for_px(surface_len_px(logical_h, d), d),
+                                )
+                            } else {
+                                (logical.width, logical.height)
+                            };
 
                             if width > 0.0 && height > 0.0 {
                                 // #27 native backbuffer: with an ABGR8888 pool

@@ -13,7 +13,7 @@ use azul_core::geom::{LogicalPosition, LogicalRect, LogicalSize};
 use crate::window::{
     present_geometry::{
         area_px, bounding_rect, flip_rect_y, frame_size_px, logical_len_for_px,
-        rows_of_bottom_left_rect, PxRect,
+        rows_of_bottom_left_rect, surface_len_px, PxRect,
     },
     FrameDamage,
 };
@@ -294,4 +294,37 @@ fn a_pan_step_presents_the_views_clip_not_the_strip() {
     // A full view at 2560 x 1440 is 14.7 MB of RGBA, a Retina one 59 MB.
     assert_eq!(area_px(&[(0, 0, 2560, 1440)]) * 4, 14_745_600);
     assert_eq!(area_px(&[(0, 0, 5120, 2880)]) * 4, 58_982_400);
+}
+
+/// A10-09. A Wayland toplevel at a fractional scale is `round(logical *
+/// scale)` device pixels (half away from zero), and the CPU frame has to be
+/// exactly that: a buffer of another size is resampled over the whole surface.
+///
+/// 125 %: 1000 -> 1250, 1001 -> 1251.25 -> 1251 (the frame's own `ceil`
+/// gives 1252: one in four widths), 1002 -> 1252.5 -> 1253, 1003 -> 1253.75
+/// -> 1254. Handing the renderer `logical_len_for_px` of the surface's size
+/// makes the frame that size.
+///
+/// Mutation: `ceil` in `surface_len_px` fails at 1001 (1252 for 1251).
+#[test]
+fn a_wayland_frame_at_a_fractional_scale_is_the_surfaces_size() {
+    assert_eq!(surface_len_px(1000.0, 1.25), 1250);
+    assert_eq!(surface_len_px(1001.0, 1.25), 1251);
+    assert_eq!(surface_len_px(1002.0, 1.25), 1253);
+    assert_eq!(surface_len_px(1003.0, 1.25), 1254);
+    assert_eq!(surface_len_px(3.0, 1.5), 5);
+    assert_eq!(surface_len_px(1001.0, 1.75), 1752);
+    assert_eq!(surface_len_px(1280.0, 2.0), 2560);
+    // The frame the renderer would make from the logical size itself.
+    assert_eq!(frame_size_px(1001.0, 1001.0, 1.25).0, 1252);
+    // And the frame it makes from the length the shell hands it instead.
+    for scale_120 in [150_u32, 180, 210, 240, 270] {
+        let scale = scale_120 as f32 / 120.0;
+        for logical in 1_u32..=4096 {
+            let px = surface_len_px(logical as f32, scale);
+            let len = logical_len_for_px(px, scale);
+            assert_eq!(frame_size_px(len, len, scale).0, px, "{logical} units at {scale}");
+            assert!(px.abs_diff(frame_size_px(logical as f32, 1.0, scale).0) <= 1);
+        }
+    }
 }
