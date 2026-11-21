@@ -116,126 +116,163 @@ impl ComputedTransform3D {
         )
     }
 
-    /// Computes the inverse of this transformation matrix.
+    /// The inverse of this matrix, or `None` when it has none.
     ///
-    /// This function uses a standard matrix inversion algorithm. Returns the
-    /// identity matrix if the determinant is zero (singular matrix).
+    /// A matrix has no inverse when its determinant is zero (a `scale(0)`,
+    /// a projection onto a line) or is not a number, or when the inverse
+    /// does not fit an `f32`. That is the rule `WebRender` marks a spatial
+    /// node "not invertible" by (`determinant != 0.0 && !determinant.is_nan()`),
+    /// and what follows from it is the same everywhere: **a frame whose
+    /// matrix has no inverse paints nothing and is hit by nothing** - there
+    /// is no point of its content a pixel or a pointer could be mapped back
+    /// to. A caller that maps a point or a rect BACK through a matrix asks
+    /// this and treats `None` so; it must not go on with a stand-in matrix.
     ///
-    /// NOTE: This is a relatively expensive operation.
+    /// The determinant and the adjugate are accumulated in `f64`: in `f32`
+    /// the products of a `scale(1e20)` overflow before they cancel, and the
+    /// determinant of a `scale(0.001)` (1e-9) is far below `f32::EPSILON`
+    /// although the matrix inverts exactly (a zoomed-out view).
     #[must_use]
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target
                                        // +fma; keep explicit a*b+c
-    pub fn inverse(&self) -> Self {
-        let det = self.determinant();
-
-        if det.abs() < f32::EPSILON {
-            return Self::IDENTITY;
+    #[allow(clippy::cast_possible_truncation)] // the inverse computed in f64, narrowed to the f32
+                                               // public type and checked to be finite
+    pub fn try_inverse(&self) -> Option<Self> {
+        let det = self.determinant_f64();
+        if det == 0.0 || !det.is_finite() {
+            return None;
         }
 
-        let m = Self::new(
-            self.m[1][2] * self.m[2][3] * self.m[3][1] - self.m[1][3] * self.m[2][2] * self.m[3][1]
-                + self.m[1][3] * self.m[2][1] * self.m[3][2]
-                - self.m[1][1] * self.m[2][3] * self.m[3][2]
-                - self.m[1][2] * self.m[2][1] * self.m[3][3]
-                + self.m[1][1] * self.m[2][2] * self.m[3][3],
-            self.m[0][3] * self.m[2][2] * self.m[3][1]
-                - self.m[0][2] * self.m[2][3] * self.m[3][1]
-                - self.m[0][3] * self.m[2][1] * self.m[3][2]
-                + self.m[0][1] * self.m[2][3] * self.m[3][2]
-                + self.m[0][2] * self.m[2][1] * self.m[3][3]
-                - self.m[0][1] * self.m[2][2] * self.m[3][3],
-            self.m[0][2] * self.m[1][3] * self.m[3][1] - self.m[0][3] * self.m[1][2] * self.m[3][1]
-                + self.m[0][3] * self.m[1][1] * self.m[3][2]
-                - self.m[0][1] * self.m[1][3] * self.m[3][2]
-                - self.m[0][2] * self.m[1][1] * self.m[3][3]
-                + self.m[0][1] * self.m[1][2] * self.m[3][3],
-            self.m[0][3] * self.m[1][2] * self.m[2][1]
-                - self.m[0][2] * self.m[1][3] * self.m[2][1]
-                - self.m[0][3] * self.m[1][1] * self.m[2][2]
-                + self.m[0][1] * self.m[1][3] * self.m[2][2]
-                + self.m[0][2] * self.m[1][1] * self.m[2][3]
-                - self.m[0][1] * self.m[1][2] * self.m[2][3],
-            self.m[1][3] * self.m[2][2] * self.m[3][0]
-                - self.m[1][2] * self.m[2][3] * self.m[3][0]
-                - self.m[1][3] * self.m[2][0] * self.m[3][2]
-                + self.m[1][0] * self.m[2][3] * self.m[3][2]
-                + self.m[1][2] * self.m[2][0] * self.m[3][3]
-                - self.m[1][0] * self.m[2][2] * self.m[3][3],
-            self.m[0][2] * self.m[2][3] * self.m[3][0] - self.m[0][3] * self.m[2][2] * self.m[3][0]
-                + self.m[0][3] * self.m[2][0] * self.m[3][2]
-                - self.m[0][0] * self.m[2][3] * self.m[3][2]
-                - self.m[0][2] * self.m[2][0] * self.m[3][3]
-                + self.m[0][0] * self.m[2][2] * self.m[3][3],
-            self.m[0][3] * self.m[1][2] * self.m[3][0]
-                - self.m[0][2] * self.m[1][3] * self.m[3][0]
-                - self.m[0][3] * self.m[1][0] * self.m[3][2]
-                + self.m[0][0] * self.m[1][3] * self.m[3][2]
-                + self.m[0][2] * self.m[1][0] * self.m[3][3]
-                - self.m[0][0] * self.m[1][2] * self.m[3][3],
-            self.m[0][2] * self.m[1][3] * self.m[2][0] - self.m[0][3] * self.m[1][2] * self.m[2][0]
-                + self.m[0][3] * self.m[1][0] * self.m[2][2]
-                - self.m[0][0] * self.m[1][3] * self.m[2][2]
-                - self.m[0][2] * self.m[1][0] * self.m[2][3]
-                + self.m[0][0] * self.m[1][2] * self.m[2][3],
-            self.m[1][1] * self.m[2][3] * self.m[3][0] - self.m[1][3] * self.m[2][1] * self.m[3][0]
-                + self.m[1][3] * self.m[2][0] * self.m[3][1]
-                - self.m[1][0] * self.m[2][3] * self.m[3][1]
-                - self.m[1][1] * self.m[2][0] * self.m[3][3]
-                + self.m[1][0] * self.m[2][1] * self.m[3][3],
-            self.m[0][3] * self.m[2][1] * self.m[3][0]
-                - self.m[0][1] * self.m[2][3] * self.m[3][0]
-                - self.m[0][3] * self.m[2][0] * self.m[3][1]
-                + self.m[0][0] * self.m[2][3] * self.m[3][1]
-                + self.m[0][1] * self.m[2][0] * self.m[3][3]
-                - self.m[0][0] * self.m[2][1] * self.m[3][3],
-            self.m[0][1] * self.m[1][3] * self.m[3][0] - self.m[0][3] * self.m[1][1] * self.m[3][0]
-                + self.m[0][3] * self.m[1][0] * self.m[3][1]
-                - self.m[0][0] * self.m[1][3] * self.m[3][1]
-                - self.m[0][1] * self.m[1][0] * self.m[3][3]
-                + self.m[0][0] * self.m[1][1] * self.m[3][3],
-            self.m[0][3] * self.m[1][1] * self.m[2][0]
-                - self.m[0][1] * self.m[1][3] * self.m[2][0]
-                - self.m[0][3] * self.m[1][0] * self.m[2][1]
-                + self.m[0][0] * self.m[1][3] * self.m[2][1]
-                + self.m[0][1] * self.m[1][0] * self.m[2][3]
-                - self.m[0][0] * self.m[1][1] * self.m[2][3],
-            self.m[1][2] * self.m[2][1] * self.m[3][0]
-                - self.m[1][1] * self.m[2][2] * self.m[3][0]
-                - self.m[1][2] * self.m[2][0] * self.m[3][1]
-                + self.m[1][0] * self.m[2][2] * self.m[3][1]
-                + self.m[1][1] * self.m[2][0] * self.m[3][2]
-                - self.m[1][0] * self.m[2][1] * self.m[3][2],
-            self.m[0][1] * self.m[2][2] * self.m[3][0] - self.m[0][2] * self.m[2][1] * self.m[3][0]
-                + self.m[0][2] * self.m[2][0] * self.m[3][1]
-                - self.m[0][0] * self.m[2][2] * self.m[3][1]
-                - self.m[0][1] * self.m[2][0] * self.m[3][2]
-                + self.m[0][0] * self.m[2][1] * self.m[3][2],
-            self.m[0][2] * self.m[1][1] * self.m[3][0]
-                - self.m[0][1] * self.m[1][2] * self.m[3][0]
-                - self.m[0][2] * self.m[1][0] * self.m[3][1]
-                + self.m[0][0] * self.m[1][2] * self.m[3][1]
-                + self.m[0][1] * self.m[1][0] * self.m[3][2]
-                - self.m[0][0] * self.m[1][1] * self.m[3][2],
-            self.m[0][1] * self.m[1][2] * self.m[2][0] - self.m[0][2] * self.m[1][1] * self.m[2][0]
-                + self.m[0][2] * self.m[1][0] * self.m[2][1]
-                - self.m[0][0] * self.m[1][2] * self.m[2][1]
-                - self.m[0][1] * self.m[1][0] * self.m[2][2]
-                + self.m[0][0] * self.m[1][1] * self.m[2][2],
-        );
+        let m = |i: usize, j: usize| f64::from(self.m[i][j]);
+        let adjugate: [f64; 16] = [
+            m(1, 2) * m(2, 3) * m(3, 1) - m(1, 3) * m(2, 2) * m(3, 1)
+                + m(1, 3) * m(2, 1) * m(3, 2)
+                - m(1, 1) * m(2, 3) * m(3, 2)
+                - m(1, 2) * m(2, 1) * m(3, 3)
+                + m(1, 1) * m(2, 2) * m(3, 3),
+            m(0, 3) * m(2, 2) * m(3, 1)
+                - m(0, 2) * m(2, 3) * m(3, 1)
+                - m(0, 3) * m(2, 1) * m(3, 2)
+                + m(0, 1) * m(2, 3) * m(3, 2)
+                + m(0, 2) * m(2, 1) * m(3, 3)
+                - m(0, 1) * m(2, 2) * m(3, 3),
+            m(0, 2) * m(1, 3) * m(3, 1) - m(0, 3) * m(1, 2) * m(3, 1)
+                + m(0, 3) * m(1, 1) * m(3, 2)
+                - m(0, 1) * m(1, 3) * m(3, 2)
+                - m(0, 2) * m(1, 1) * m(3, 3)
+                + m(0, 1) * m(1, 2) * m(3, 3),
+            m(0, 3) * m(1, 2) * m(2, 1)
+                - m(0, 2) * m(1, 3) * m(2, 1)
+                - m(0, 3) * m(1, 1) * m(2, 2)
+                + m(0, 1) * m(1, 3) * m(2, 2)
+                + m(0, 2) * m(1, 1) * m(2, 3)
+                - m(0, 1) * m(1, 2) * m(2, 3),
+            m(1, 3) * m(2, 2) * m(3, 0)
+                - m(1, 2) * m(2, 3) * m(3, 0)
+                - m(1, 3) * m(2, 0) * m(3, 2)
+                + m(1, 0) * m(2, 3) * m(3, 2)
+                + m(1, 2) * m(2, 0) * m(3, 3)
+                - m(1, 0) * m(2, 2) * m(3, 3),
+            m(0, 2) * m(2, 3) * m(3, 0) - m(0, 3) * m(2, 2) * m(3, 0)
+                + m(0, 3) * m(2, 0) * m(3, 2)
+                - m(0, 0) * m(2, 3) * m(3, 2)
+                - m(0, 2) * m(2, 0) * m(3, 3)
+                + m(0, 0) * m(2, 2) * m(3, 3),
+            m(0, 3) * m(1, 2) * m(3, 0)
+                - m(0, 2) * m(1, 3) * m(3, 0)
+                - m(0, 3) * m(1, 0) * m(3, 2)
+                + m(0, 0) * m(1, 3) * m(3, 2)
+                + m(0, 2) * m(1, 0) * m(3, 3)
+                - m(0, 0) * m(1, 2) * m(3, 3),
+            m(0, 2) * m(1, 3) * m(2, 0) - m(0, 3) * m(1, 2) * m(2, 0)
+                + m(0, 3) * m(1, 0) * m(2, 2)
+                - m(0, 0) * m(1, 3) * m(2, 2)
+                - m(0, 2) * m(1, 0) * m(2, 3)
+                + m(0, 0) * m(1, 2) * m(2, 3),
+            m(1, 1) * m(2, 3) * m(3, 0) - m(1, 3) * m(2, 1) * m(3, 0)
+                + m(1, 3) * m(2, 0) * m(3, 1)
+                - m(1, 0) * m(2, 3) * m(3, 1)
+                - m(1, 1) * m(2, 0) * m(3, 3)
+                + m(1, 0) * m(2, 1) * m(3, 3),
+            m(0, 3) * m(2, 1) * m(3, 0)
+                - m(0, 1) * m(2, 3) * m(3, 0)
+                - m(0, 3) * m(2, 0) * m(3, 1)
+                + m(0, 0) * m(2, 3) * m(3, 1)
+                + m(0, 1) * m(2, 0) * m(3, 3)
+                - m(0, 0) * m(2, 1) * m(3, 3),
+            m(0, 1) * m(1, 3) * m(3, 0) - m(0, 3) * m(1, 1) * m(3, 0)
+                + m(0, 3) * m(1, 0) * m(3, 1)
+                - m(0, 0) * m(1, 3) * m(3, 1)
+                - m(0, 1) * m(1, 0) * m(3, 3)
+                + m(0, 0) * m(1, 1) * m(3, 3),
+            m(0, 3) * m(1, 1) * m(2, 0)
+                - m(0, 1) * m(1, 3) * m(2, 0)
+                - m(0, 3) * m(1, 0) * m(2, 1)
+                + m(0, 0) * m(1, 3) * m(2, 1)
+                + m(0, 1) * m(1, 0) * m(2, 3)
+                - m(0, 0) * m(1, 1) * m(2, 3),
+            m(1, 2) * m(2, 1) * m(3, 0)
+                - m(1, 1) * m(2, 2) * m(3, 0)
+                - m(1, 2) * m(2, 0) * m(3, 1)
+                + m(1, 0) * m(2, 2) * m(3, 1)
+                + m(1, 1) * m(2, 0) * m(3, 2)
+                - m(1, 0) * m(2, 1) * m(3, 2),
+            m(0, 1) * m(2, 2) * m(3, 0) - m(0, 2) * m(2, 1) * m(3, 0)
+                + m(0, 2) * m(2, 0) * m(3, 1)
+                - m(0, 0) * m(2, 2) * m(3, 1)
+                - m(0, 1) * m(2, 0) * m(3, 2)
+                + m(0, 0) * m(2, 1) * m(3, 2),
+            m(0, 2) * m(1, 1) * m(3, 0)
+                - m(0, 1) * m(1, 2) * m(3, 0)
+                - m(0, 2) * m(1, 0) * m(3, 1)
+                + m(0, 0) * m(1, 2) * m(3, 1)
+                + m(0, 1) * m(1, 0) * m(3, 2)
+                - m(0, 0) * m(1, 1) * m(3, 2),
+            m(0, 1) * m(1, 2) * m(2, 0) - m(0, 2) * m(1, 1) * m(2, 0)
+                + m(0, 2) * m(1, 0) * m(2, 1)
+                - m(0, 0) * m(1, 2) * m(2, 1)
+                - m(0, 1) * m(1, 0) * m(2, 2)
+                + m(0, 0) * m(1, 1) * m(2, 2),
+        ];
 
-        m.multiply_scalar(1.0 / det)
+        let mut inverse = Self::IDENTITY;
+        for (index, cofactor) in adjugate.iter().enumerate() {
+            let value = (cofactor / det) as f32;
+            if !value.is_finite() {
+                return None;
+            }
+            inverse.m[index / 4][index % 4] = value;
+        }
+        Some(inverse)
     }
 
+    /// [`Self::try_inverse`], with the IDENTITY for a matrix that has no
+    /// inverse. Only for a caller for which "leave it where it is" is a
+    /// right answer; a renderer or a hit tester asks [`Self::try_inverse`]
+    /// (a frame that cannot be inverted paints nothing and hits nothing).
+    #[must_use]
+    pub fn inverse(&self) -> Self {
+        self.try_inverse().unwrap_or(Self::IDENTITY)
+    }
+
+    fn determinant(&self) -> f32 {
+        #[allow(clippy::cast_possible_truncation)]
+        // determinant computed in f64, narrowed to the f32 public type
+        let det = self.determinant_f64() as f32;
+        det
+    }
+
+    /// The determinant, accumulated in `f64`.
     #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target
                                        // +fma; keep explicit a*b+c
-    fn determinant(&self) -> f32 {
+    fn determinant_f64(&self) -> f64 {
         // Accumulate in f64. Individual f32 products (e.g. m[0][0]*m[1][1] on a
         // diag(1e20) matrix = 1e40) overflow to ±inf BEFORE the legitimately-zero
         // off-diagonal factors multiply in, and inf * 0 = NaN, poisoning the whole sum.
-        // f64 has the range to hold the products; the final cast saturates a real
-        // overflow to ±inf and propagates a NaN input as NaN.
+        // f64 has the range to hold the products; the cast to f32 in `determinant`
+        // saturates a real overflow to ±inf and propagates a NaN input as NaN.
         let m = |i: usize, j: usize| f64::from(self.m[i][j]);
-        let det = m(0, 3) * m(1, 2) * m(2, 1) * m(3, 0)
+        m(0, 3) * m(1, 2) * m(2, 1) * m(3, 0)
             - m(0, 2) * m(1, 3) * m(2, 1) * m(3, 0)
             - m(0, 3) * m(1, 1) * m(2, 2) * m(3, 0)
             + m(0, 1) * m(1, 3) * m(2, 2) * m(3, 0)
@@ -258,13 +295,12 @@ impl ComputedTransform3D {
             + m(0, 2) * m(1, 0) * m(2, 1) * m(3, 3)
             - m(0, 0) * m(1, 2) * m(2, 1) * m(3, 3)
             - m(0, 1) * m(1, 0) * m(2, 2) * m(3, 3)
-            + m(0, 0) * m(1, 1) * m(2, 2) * m(3, 3);
-        #[allow(clippy::cast_possible_truncation)]
-        // determinant computed in f64, narrowed to the f32 public type
-        let det = det as f32;
-        det
+            + m(0, 0) * m(1, 1) * m(2, 2) * m(3, 3)
     }
 
+    /// Every entry times `x`. (The inverse used it; it divides in `f64` now,
+    /// and the tests of this arithmetic keep it.)
+    #[cfg(test)]
     fn multiply_scalar(&self, x: f32) -> Self {
         Self::new(
             self.m[0][0] * x,
@@ -666,9 +702,16 @@ impl ComputedTransform3D {
     }
 
     /// Creates a perspective projection matrix with distance `d`.
+    ///
+    /// A depth below 1px is treated as 1px (CSS Transforms 2, `perspective()`:
+    /// "if the depth value is less than 1px, it must be treated as 1px for
+    /// the purpose of rendering"): `perspective(0)` is the strongest
+    /// perspective there is, not a division by zero. A depth that is not a
+    /// number is treated the same way.
     #[must_use]
     #[inline]
     fn new_perspective(d: f32) -> Self {
+        let d = if d >= 1.0 { d } else { 1.0 };
         Self::new(
             1.0,
             0.0,
@@ -763,7 +806,10 @@ impl ComputedTransform3D {
         let w =
             p.x.mul_add(self.m[0][3], p.y.mul_add(self.m[1][3], self.m[3][3]));
 
-        if !w.is_sign_positive() {
+        // A point at or behind the eye (`w <= 0`) has no image, and neither
+        // has one whose `w` is not a number: `w == +0.0` used to pass (it is
+        // "sign positive") and the division gave an infinite point.
+        if w.is_nan() || w <= 0.0 {
             return None;
         }
 
@@ -1402,5 +1448,104 @@ mod audit_a2_gpu_tests {
             assert_eq!(m.to_device_px(f), m, "scale {f}");
         }
         assert_eq!(m.to_device_px(1.0), m);
+    }
+
+    /// A2-gpu-11. `inverse()` answered the IDENTITY for every matrix whose
+    /// determinant was below `f32::EPSILON` in size - a matrix that has no
+    /// inverse and a zoomed-out view alike - and a caller could not tell.
+    ///
+    /// By hand: `M: p -> (2 x + 10, 4 y + 20)` (scale(2, 4), then a move by
+    /// (10, 20)). Its inverse is `p -> ((x - 10) / 2, (y - 20) / 4)`: the
+    /// matrix diag(0.5, 0.25) with the translation (-5, -5); the point
+    /// (14, 28) goes back to (2, 2). `scale(0.001)`, determinant 1e-9: its
+    /// inverse is `scale(1000)` (old: the identity, so (3, 3) went "back" to
+    /// (3, 3) instead of (3000, 3000)). `scale(0, 1)`: no inverse (old: the
+    /// identity, as if the collapsed box were where it was laid out).
+    ///
+    /// Mutations: `inverse.m[index / 4][index % 4]` -> `[index % 4][index / 4]`
+    /// in `try_inverse` fails "(14, 28) goes back to (2, 2)"; `det == 0.0 ||
+    /// !det.is_finite()` -> `det.abs() < f64::from(f32::EPSILON)` fails "a
+    /// zoomed-out view has an inverse".
+    #[test]
+    fn a_matrix_says_when_it_has_no_inverse() {
+        let m = ComputedTransform3D::new_scale(2.0, 4.0, 1.0)
+            .then(&ComputedTransform3D::new_translation(10.0, 20.0, 0.0));
+        let forward = at(&m, 2.0, 2.0);
+        assert_eq!((forward.x, forward.y), (14.0, 28.0));
+        let back = m.try_inverse().expect("a scale by 2 and 4 has an inverse");
+        assert_eq!(back.m[0][0], 0.5);
+        assert_eq!(back.m[1][1], 0.25);
+        assert_eq!((back.m[3][0], back.m[3][1]), (-5.0, -5.0));
+        let p = at(&back, 14.0, 28.0);
+        assert_eq!((p.x, p.y), (2.0, 2.0), "(14, 28) goes back to (2, 2)");
+        assert_eq!(m.inverse(), back);
+
+        let zoomed_out = ComputedTransform3D::new_scale(0.001, 0.001, 1.0);
+        let zoomed_in = zoomed_out
+            .try_inverse()
+            .expect("a zoomed-out view has an inverse");
+        let p = at(&zoomed_in, 3.0, 3.0);
+        assert!(
+            close(p.x, 3000.0, 0.01) && close(p.y, 3000.0, 0.01),
+            "scale(0.001) inverts to scale(1000): {p:?}"
+        );
+
+        let collapsed = ComputedTransform3D::new_scale(0.0, 1.0, 1.0);
+        assert_eq!(collapsed.try_inverse(), None, "a box collapsed to a line has no inverse");
+        assert_eq!(collapsed.inverse(), ComputedTransform3D::IDENTITY);
+
+        // A perspective tilt is inverted too: there and back is where it was.
+        let there_and_back = tilt().then(&tilt().try_inverse().expect("a tilt of 60 degrees"));
+        for row in 0..4 {
+            for column in 0..4 {
+                let want = if row == column { 1.0 } else { 0.0 };
+                assert!(
+                    close(there_and_back.m[row][column], want, 1e-4),
+                    "m[{row}][{column}] = {}",
+                    there_and_back.m[row][column]
+                );
+            }
+        }
+    }
+
+    /// A2-gpu-11. `perspective(0)` made `m[2][3] = -1 / 0 = -inf`: under
+    /// `perspective(0) rotateY(60deg)` every point's `w` was infinite and the
+    /// whole box was drawn in one point (or nowhere). CSS Transforms 2: a
+    /// depth below 1px is treated as 1px.
+    ///
+    /// By hand, about the origin (0, 0): the point (10, 0) turns to
+    /// x = 10 cos 60 = 5, z = -10 sin 60 = -8.660; w = 1 - z / 1px = 9.660;
+    /// it is drawn at x = 5 / 9.660 = 0.5176. Old: x = 5 / inf = 0.
+    ///
+    /// Mutation: `let d = if d >= 1.0 { d } else { 1.0 };` removed from
+    /// `new_perspective` fails "a depth of 0 is a depth of 1px".
+    #[test]
+    fn a_perspective_of_less_than_a_pixel_is_one_pixel() {
+        let corner = StyleTransformOrigin {
+            x: PixelValue::px(0.0),
+            y: PixelValue::px(0.0),
+        };
+        let tilt_at = |depth: f32| {
+            ComputedTransform3D::from_style_transform_vec(
+                &[
+                    StyleTransform::Perspective(PixelValue::px(depth)),
+                    StyleTransform::RotateY(AngleValue::deg(60.0)),
+                ],
+                &corner,
+                100.0,
+                40.0,
+                RotationMode::ForWebRender,
+            )
+        };
+        let zero = tilt_at(0.0);
+        assert!(
+            zero.m.iter().flatten().all(|v| v.is_finite()),
+            "perspective(0) is a finite matrix: {zero:?}"
+        );
+        assert_eq!(zero, tilt_at(1.0), "a depth of 0 is a depth of 1px");
+        assert_eq!(tilt_at(0.5), tilt_at(1.0));
+        let p = at(&zero, 10.0, 0.0);
+        assert!(close(p.x, 0.5176, 1e-3) && close(p.y, 0.0, 1e-6), "{p:?}");
+        assert_ne!(tilt_at(2.0), tilt_at(1.0), "two pixels are two pixels");
     }
 }
