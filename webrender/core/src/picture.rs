@@ -1776,10 +1776,6 @@ pub struct TileCacheInstance {
     raster_to_device: ScaleOffset,
     /// If true, we need to invalidate all tiles during `post_update`
     invalidate_all_tiles: bool,
-    /// Invalidate all tiles in the next frame, once: something a tile's
-    /// descriptor does not record has changed (the raster space of the text
-    /// under a transform the host stopped or started zooming).
-    invalidate_all_tiles_once: bool,
     /// The current raster scale for tiles in this cache
     current_raster_scale: f32,
     /// Depth of off-screen surfaces that are currently pushed during dependency updates
@@ -1900,7 +1896,6 @@ impl TileCacheInstance {
             raster_to_device: ScaleOffset::identity(),
             local_to_raster: ScaleOffset::identity(),
             invalidate_all_tiles: true,
-            invalidate_all_tiles_once: false,
             current_raster_scale: 1.0,
             current_surface_traversal_depth: 0,
             deferred_dirty_tests: Vec::new(),
@@ -1919,11 +1914,6 @@ impl TileCacheInstance {
     }
 
     /// Trims memory held by the tile cache, such as native surfaces.
-    /// Draw every tile again in the next frame (see `invalidate_all_tiles_once`).
-    pub fn invalidate_all_tiles_once(&mut self) {
-        self.invalidate_all_tiles_once = true;
-    }
-
     pub fn memory_pressure(&mut self, resource_cache: &mut ResourceCache) {
         for sub_slice in &mut self.sub_slices {
             for tile in sub_slice.tiles.values_mut() {
@@ -2253,9 +2243,8 @@ impl TileCacheInstance {
 
         self.raster_to_device = raster_to_device;
         self.local_to_raster = local_to_raster;
-        self.invalidate_all_tiles = surface_scale_changed
-            || frame_context.config.force_invalidation
-            || mem::replace(&mut self.invalidate_all_tiles_once, false);
+        self.invalidate_all_tiles =
+            surface_scale_changed || frame_context.config.force_invalidation;
 
         // Do a hacky diff of opacity binding values from the last frame. This is
         // used later on during tile invalidation tests.

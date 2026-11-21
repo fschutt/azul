@@ -483,17 +483,15 @@ impl Document {
                 self.dynamic_properties.add_transforms(property_bindings);
             }
             FrameMsg::SetIsTransformAsyncZooming(is_zooming, animation_id) => {
-                if self
-                    .spatial_tree
-                    .set_async_zooming(animation_id, is_zooming)
+                if let Some(node_index) =
+                    self.spatial_tree.find_spatial_node_by_anim_id(animation_id)
                 {
-                    self.frame_is_valid = false;
-                    // The text under the node changes its raster space, which
-                    // no tile's descriptor records: the tiles are drawn again.
-                    return DocumentOps {
-                        raster_space_changed: true,
-                        ..DocumentOps::nop()
-                    };
+                    let node = self.spatial_tree.get_spatial_node_mut(node_index);
+
+                    if node.is_async_zooming != is_zooming {
+                        node.is_async_zooming = is_zooming;
+                        self.frame_is_valid = false;
+                    }
                 }
             }
             FrameMsg::SetMinimapData(id, minimap_data) => {
@@ -684,17 +682,11 @@ impl Document {
 
 struct DocumentOps {
     scroll: bool,
-    /// The raster space of some text changed (a transform is zoomed, or not
-    /// any more): the picture cache tiles hold the old rasterisation.
-    raster_space_changed: bool,
 }
 
 impl DocumentOps {
     fn nop() -> Self {
-        DocumentOps {
-            scroll: false,
-            raster_space_changed: false,
-        }
+        DocumentOps { scroll: false }
     }
 }
 
@@ -1376,16 +1368,9 @@ impl RenderBackend {
         // TODO: this scroll variable doesn't necessarily mean we scrolled. It is only used
         // for something wrench specific and we should remove it.
         let mut scroll = false;
-        let mut raster_space_changed = false;
         for frame_msg in frame_ops {
             let op = doc.process_frame_msg(frame_msg);
             scroll |= op.scroll;
-            raster_space_changed |= op.raster_space_changed;
-        }
-        if raster_space_changed {
-            for tile_cache in self.tile_caches.values_mut() {
-                tile_cache.invalidate_all_tiles_once();
-            }
         }
 
         for update in &resource_updates {

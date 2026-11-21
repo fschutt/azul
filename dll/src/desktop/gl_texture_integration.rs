@@ -34,6 +34,4 @@ pub fn remove_old_gl_textures(document_id: &DocumentId, current_epoch: Epoch) {
 /// window-close path so closing a window evicts its GL textures from the cache.
 pub fn remove_document_textures(document_id: &DocumentId) {
     crate::desktop::gl_texture_cache::remove_document(document_id);
-    // The other per-window state the renderer's host keeps on this thread.
-    crate::desktop::wr_translate2::forget_live_transforms(document_id);
 }

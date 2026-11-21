@@ -114,14 +114,6 @@ pub struct GpuStateManager {
     /// undrawn ([`Self::halos_owed`]); the chain ends at a limit the host sets, for
     /// the lists that name more halos than can be kept.
     pub halo_follow_ups: u32,
-    /// Whether a transform whose scale or rotation was moving is still drawn
-    /// with its text rasterised in local space (soft, no subpixel
-    /// antialiasing: `wr_translate2::synchronize_gpu_values`, audit A4-02) and
-    /// waits to be drawn sharp again once it has stood still for a moment.
-    /// The platform loop keeps generating frames until then
-    /// ([`Self::frames_owed`]). Set and cleared by the renderer's host; never
-    /// set on a CPU backend.
-    pub transforms_settling: bool,
     /// How much longer each DOM's overlay scrollbars are still on screen, in
     /// whole milliseconds rounded up: the longest of its painted, unheld bars
     /// has `hold + fade - time since its box last scrolled` left. A DOM with no
@@ -326,7 +318,7 @@ impl GpuStateManager {
     /// true.
     #[must_use]
     pub const fn frames_owed(&self) -> bool {
-        self.scrollbar_fade_active || self.halos_owed || self.transforms_settling
+        self.scrollbar_fade_active || self.halos_owed
     }
 
     /// Creates a new GPU state manager with specified fade timing.
@@ -339,7 +331,6 @@ impl GpuStateManager {
             scrollbar_fade_active: false,
             halos_owed: false,
             halo_follow_ups: 0,
-            transforms_settling: false,
             scrollbar_fade_left_ms: BTreeMap::new(),
             scrollbar_fade_ends: BTreeMap::new(),
             last_gpu_value_digest: None,

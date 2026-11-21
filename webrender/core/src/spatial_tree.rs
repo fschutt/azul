@@ -1008,25 +1008,6 @@ impl SpatialTree {
         self.spatial_nodes.len()
     }
 
-    /// Mark every reference frame whose transform is bound to `id` as being
-    /// zoomed by the host (or not any more): text under such a frame is
-    /// rasterised in local space at a power of two and scaled by the GPU
-    /// (`TextRunPrimitive::get_raster_space_for_prim`), not rasterised again
-    /// for every value of the transform. Returns whether a node changed.
-    ///
-    /// Unlike [`Self::find_spatial_node_by_anim_id`] this takes every node
-    /// bound to the id: a host may open the frame of one key more than once.
-    pub fn set_async_zooming(&mut self, id: PropertyBindingId, is_zooming: bool) -> bool {
-        let mut changed = false;
-        self.visit_nodes_mut(|_, node| {
-            if node.is_async_zooming != is_zooming && node.is_transform_bound_to_property(id) {
-                node.is_async_zooming = is_zooming;
-                changed = true;
-            }
-        });
-        changed
-    }
-
     pub fn find_spatial_node_by_anim_id(&self, id: PropertyBindingId) -> Option<SpatialNodeIndex> {
         let mut node_index = None;
 
@@ -2205,59 +2186,4 @@ fn test_is_ancestor_or_self_zooming() {
     assert!(st.get_spatial_node(root).is_ancestor_or_self_zooming);
     assert!(st.get_spatial_node(child1).is_ancestor_or_self_zooming);
     assert!(st.get_spatial_node(child2).is_ancestor_or_self_zooming);
-}
-
-/// Audit A4-02: a host marks the frames of a bound transform as being zoomed
-/// by the binding's id - every frame bound to it, and their descendants after
-/// the next update of the tree.
-#[test]
-fn test_set_async_zooming_marks_every_frame_bound_to_the_id() {
-    use api::PropertyBindingKey;
-
-    let pid = PipelineInstanceId::new(0);
-    let mut cst = SceneSpatialTree::new();
-    let root = cst.root_reference_frame_index();
-    let bound = |cst: &mut SceneSpatialTree, parent: SpatialNodeIndex, id: u64, n: u64| {
-        cst.add_reference_frame(
-            parent,
-            TransformStyle::Flat,
-            PropertyBinding::Binding(PropertyBindingKey::new(id), LayoutTransform::identity()),
-            ReferenceFrameKind::Transform {
-                is_2d_scale_translation: false,
-                should_snap: false,
-                paired_with_perspective: false,
-            },
-            LayoutVector2D::zero(),
-            PipelineId::dummy(),
-            SpatialNodeUid::external(SpatialTreeItemKey::new(id, n), PipelineId::dummy(), pid),
-        )
-    };
-    // The key 7 opens two frames (a node painted twice), the key 8 one.
-    let first = bound(&mut cst, root, 7, 0);
-    let second = bound(&mut cst, root, 7, 1);
-    let other = bound(&mut cst, root, 8, 0);
-    let child = add_reference_frame(
-        &mut cst,
-        first,
-        LayoutTransform::identity(),
-        LayoutVector2D::zero(),
-        SpatialTreeItemKey::new(9, 0),
-    );
-
-    let mut st = SpatialTree::new();
-    st.apply_updates(cst.end_frame_and_get_pending_updates());
-
-    assert!(st.set_async_zooming(PropertyBindingId::new(7), true), "two nodes changed");
-    assert!(!st.set_async_zooming(PropertyBindingId::new(7), true), "nothing left to change");
-    assert!(!st.set_async_zooming(PropertyBindingId::new(99), true), "no frame of that key");
-    st.update_tree(&SceneProperties::new());
-    assert!(st.get_spatial_node(first).is_ancestor_or_self_zooming);
-    assert!(st.get_spatial_node(second).is_ancestor_or_self_zooming);
-    assert!(st.get_spatial_node(child).is_ancestor_or_self_zooming, "what is under it too");
-    assert!(!st.get_spatial_node(other).is_ancestor_or_self_zooming);
-
-    assert!(st.set_async_zooming(PropertyBindingId::new(7), false));
-    st.update_tree(&SceneProperties::new());
-    assert!(!st.get_spatial_node(first).is_ancestor_or_self_zooming);
-    assert!(!st.get_spatial_node(child).is_ancestor_or_self_zooming);
 }
