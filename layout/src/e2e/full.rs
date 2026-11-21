@@ -733,11 +733,55 @@ pub struct FrameReportResponse {
     pub terminal_result: u8,
     /// Injectable test-clock offset in ms (advanced by `tick_ms`).
     pub test_clock_offset_ms: u64,
+    /// What the GPU backend's scans did with the text halos it keeps as pictures: the last
+    /// scan's numbers (drawn, dropped, left for a later frame, painted with a stand-in), the
+    /// thread's sums and what is kept (`azul_layout::cpurender::TextHaloStats`; audit A5).
+    pub text_halos: TextHalosJson,
     /// What the last CPU frame did (pixels cleared / blitted, items walked / painted, text runs,
     /// glyphs, halos drawn, isolated groups and their pixels, retained surfaces used, items of
     /// the whole-list scans), and the sum since `reset_frame_counters`.
     pub cpu_last: CpuCountersJson,
     pub cpu_since_reset: CpuCountersJson,
+}
+
+/// [`azul_layout::cpurender::TextHaloStats`] for the E2E API.
+#[cfg(feature = "std")]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct TextHalosJson {
+    pub scans: u64,
+    pub created_total: u64,
+    pub evicted_total: u64,
+    pub created: u64,
+    pub evicted: u64,
+    pub pending: u64,
+    pub unkept: u64,
+    pub stand_ins: u64,
+    pub previews: u64,
+    pub frame_halos: u64,
+    pub frame_box_bytes: u64,
+    pub kept: u64,
+    pub kept_bytes: u64,
+}
+
+#[cfg(feature = "std")]
+impl From<&azul_layout::cpurender::TextHaloStats> for TextHalosJson {
+    fn from(h: &azul_layout::cpurender::TextHaloStats) -> Self {
+        Self {
+            scans: h.scans,
+            created_total: h.created_total,
+            evicted_total: h.evicted_total,
+            created: h.created,
+            evicted: h.evicted,
+            pending: h.pending,
+            unkept: h.unkept,
+            stand_ins: h.stand_ins,
+            previews: h.previews,
+            frame_halos: h.frame_halos,
+            frame_box_bytes: h.frame_box_bytes,
+            kept: h.kept,
+            kept_bytes: h.kept_bytes,
+        }
+    }
 }
 
 /// [`azul_layout::cpu_counters::CpuFrameCounters`] for the E2E API.
@@ -8744,6 +8788,7 @@ fn build_frame_report_response(
         hit_depth_cap: report.hit_depth_cap,
         terminal_result: report.terminal_result,
         test_clock_offset_ms: azul_core::task::test_clock_offset_ms(),
+        text_halos: (&report.text_halos).into(),
         cpu_last: (&report.cpu_last).into(),
         cpu_since_reset: (&report.cpu_since_reset).into(),
     }

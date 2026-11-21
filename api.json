@@ -10426,6 +10426,66 @@
                             }
                         ],
                         "repr": "C"
+                    },
+                    "TextHaloStats": {
+                        "doc": [
+                            "What the frames of this thread did with the text halos kept as",
+                            "pictures on the GPU backend: the numbers of the last scan of the",
+                            "display lists, the sums so far and what is kept now."
+                        ],
+                        "external": "azul_layout::window::TextHaloStats",
+                        "derive": [
+                            "Debug",
+                            "Clone",
+                            "Copy",
+                            "PartialEq",
+                            "Eq",
+                            "Default"
+                        ],
+                        "struct_fields": [
+                            {
+                                "scans": {
+                                    "type": "u64"
+                                },
+                                "created_total": {
+                                    "type": "u64"
+                                },
+                                "evicted_total": {
+                                    "type": "u64"
+                                },
+                                "created": {
+                                    "type": "u64"
+                                },
+                                "evicted": {
+                                    "type": "u64"
+                                },
+                                "pending": {
+                                    "type": "u64"
+                                },
+                                "unkept": {
+                                    "type": "u64"
+                                },
+                                "stand_ins": {
+                                    "type": "u64"
+                                },
+                                "previews": {
+                                    "type": "u64"
+                                },
+                                "frame_halos": {
+                                    "type": "u64"
+                                },
+                                "frame_box_bytes": {
+                                    "type": "u64"
+                                },
+                                "kept": {
+                                    "type": "u64"
+                                },
+                                "kept_bytes": {
+                                    "type": "u64"
+                                }
+                            }
+                        ],
+                        "repr": "C"
                     }
                 }
             },
@@ -20955,6 +21015,23 @@
                                     "type": "FrameTimings"
                                 },
                                 "fn_body": "object.get_frame_timings()"
+                            },
+                            "get_text_halo_stats": {
+                                "doc": [
+                                    "What the frames of this thread did with the text halos the GPU",
+                                    "backend keeps as pictures: drawn, dropped, left for a later frame,",
+                                    "painted with a stand-in, and what one frame uses. All zero on the",
+                                    "CPU backend."
+                                ],
+                                "fn_args": [
+                                    {
+                                        "self": "ref"
+                                    }
+                                ],
+                                "returns": {
+                                    "type": "TextHaloStats"
+                                },
+                                "fn_body": "object.get_text_halo_stats()"
                             },
                             "get_scroll_momentum_phase": {
                                 "doc": [
