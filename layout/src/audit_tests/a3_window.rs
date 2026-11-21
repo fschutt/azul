@@ -2383,6 +2383,173 @@ fn a_label_moved_where_it_lies_stands_as_a_fresh_layout_puts_it() {
     );
 }
 
+/// The data of the view of [`float_box_page`]: where the dragged box stands, and how wide the
+/// box beside it is.
+struct FloatBoxPage {
+    left: f32,
+    top: f32,
+    beside: f32,
+}
+
+/// The style of the dragged box of [`float_box_page`]: placed by `left` / `top`, with a frame
+/// of its own (a transform).
+fn dragged_box_css(left: f32, top: f32) -> String {
+    format!(
+        "position: absolute; left: {left}px; top: {top}px; width: 120px; height: 60px; \
+         transform-origin: 0px 0px; transform: rotate(5deg);"
+    )
+}
+
+/// A box that is dragged and holds a FLOAT with a block of inline content beside it. Child
+/// DOM: div 0; 1 an absolutely placed box beside; 2 the dragged box; 3 its float; 4 a block;
+/// 5 the inline box in that block.
+extern "C" fn float_box_page(mut data: RefAny, _info: VirtualViewCallbackInfo) -> VirtualViewReturn {
+    let (left, top, beside) = data
+        .downcast_ref::<FloatBoxPage>()
+        .map(|page| (page.left, page.top, page.beside))
+        .expect("the view's data");
+    let dragged = Dom::create_div()
+        .with_css(&dragged_box_css(left, top))
+        .with_child(
+            Dom::create_div()
+                .with_css("float: left; width: 40px; height: 30px; background: #ff0000;"),
+        )
+        .with_child(Dom::create_div().with_child(Dom::create_div().with_css(
+            "display: inline-block; width: 30px; height: 10px; background: #0000ff;",
+        )));
+    let layer = Dom::create_div()
+        .with_child(Dom::create_div().with_css(&format!(
+            "position: absolute; left: 10px; top: 10px; width: {beside}px; height: 12px;"
+        )))
+        .with_child(dragged);
+    let window = LogicalRect::new(LogicalPosition::zero(), LogicalSize::new(600.0, 400.0));
+    VirtualViewReturn::with_dom(layer, window, window)
+}
+
+/// A window whose view holds [`float_box_page`], laid out; the view's document.
+fn float_box_window(left: f32, top: f32, beside: f32) -> (LayoutWindow, DomId) {
+    let data = FloatBoxPage { left, top, beside };
+    let mut dom = Dom::create_body().with_css("margin: 0px;").with_child(
+        Dom::create_virtual_view(RefAny::new(data), VirtualViewCallback::create(float_box_page))
+            .with_css("position: absolute; left: 0px; top: 0px; width: 600px; height: 400px;"),
+    );
+    let styled = StyledDom::create(&mut dom, azul_css::css::Css::empty());
+    let mut lw = LayoutWindow::new(FcFontCache::default()).expect("a layout window");
+    let mut ws = FullWindowState::default();
+    ws.size.dimensions = LogicalSize::new(600.0, 400.0);
+    lw.current_window_state = ws.clone();
+    lw.layout_and_generate_display_list(
+        styled,
+        &ws,
+        &RendererResources::default(),
+        &ExternalSystemCallbacks::rust_internal(),
+        &mut None,
+    )
+    .expect("the page lays out");
+    let child = *lw
+        .layout_results
+        .keys()
+        .find(|dom| **dom != DomId::ROOT_ID)
+        .expect("the view's document");
+    (lw, child)
+}
+
+/// The float contexts the solver keeps for `dom` (`LayoutCache::float_cache`), as text, by
+/// the layout box of their block formatting context.
+fn kept_floats(lw: &LayoutWindow, dom: DomId) -> BTreeMap<usize, String> {
+    lw.child_layout_caches[&dom]
+        .float_cache
+        .iter()
+        .map(|(bfc, floats)| (*bfc, format!("{floats:?}")))
+        .collect()
+}
+
+/// A move in place and the solver's kept FLOATS (`LayoutCache::float_cache`). A float
+/// context is kept per block formatting context, its floats in that context's own space
+/// (`layout_bfc`: the rects it writes into the flow's relative positions). The box a move
+/// in place moves is absolutely positioned or fixed: it is no float of any context (CSS 2.2
+/// 9.7; `layout_bfc` places it before it asks for `float`) and nothing flows around it; the
+/// floats INSIDE it stand relative to their context, which moved with them. So a move leaves
+/// every kept context what a fresh layout of the moved DOM keeps, and nothing is dropped for
+/// it. Here: a dragged box that holds a float is moved where it lies; its boxes, its list
+/// and the kept float contexts are those of a fresh layout, also after a later pass.
+/// Mutations: the boxes below the moved one not shifted in `move_node_in_place` (the float
+/// stays behind); a float context kept in the window's space (it would differ from the fresh
+/// one by the drag's (31.5, 26.25)).
+#[test]
+fn a_dragged_box_that_holds_a_float_stands_as_a_fresh_layout_puts_it() {
+    use crate::overlay::{ContentChange, ContentDirtyTier};
+
+    let near = |a: f32, b: f32| (a - b).abs() <= 0.01;
+    let same_boxes = |got: &LayoutWindow, dom: DomId, want: &LayoutWindow, want_dom: DomId, when: &str| {
+        let got = &got.layout_results[&dom].calculated_positions;
+        let want = &want.layout_results[&want_dom].calculated_positions;
+        assert_eq!(got.len(), want.len(), "{when}: the boxes of the document");
+        for (i, (a, b)) in got.iter().zip(want).enumerate() {
+            assert!(
+                near(a.x, b.x) && near(a.y, b.y),
+                "{when}: box {i} stands at {a:?}, a fresh layout puts it at {b:?}"
+            );
+        }
+    };
+    let write = |lw: &mut LayoutWindow, dom: DomId, left: f32, top: f32| {
+        lw.apply_content_change(ContentChange::NodeStyle {
+            dom_id: dom,
+            node_id: NodeId::new(2),
+            style: azul_css::css::Css::parse_inline(&dragged_box_css(left, top)),
+        })
+        .tier
+    };
+
+    let (mut lw, child) = float_box_window(150.0, 40.0, 60.0);
+    drop(write(&mut lw, child, 175.0, 61.0));
+    drop(write(&mut lw, child, 178.0, 63.0));
+    assert_eq!(
+        write(&mut lw, child, 181.5, 66.25),
+        ContentDirtyTier::Paint,
+        "premise: the third move is made where the box lies"
+    );
+
+    let (fresh, fresh_child) = float_box_window(181.5, 66.25, 60.0);
+    let floats = kept_floats(&fresh, fresh_child);
+    assert!(
+        floats.values().any(|context| context.contains("Left")),
+        "harness: the solver keeps the context of the left float: {floats:?}"
+    );
+    same_boxes(&lw, child, &fresh, fresh_child, "after the moves");
+    assert_eq!(
+        kept_floats(&lw, child),
+        floats,
+        "the kept float contexts are those of a fresh layout of the moved box"
+    );
+    if let Err(difference) = same_lists(
+        &lw.layout_results[&child].display_list,
+        &fresh.layout_results[&fresh_child].display_list,
+    ) {
+        panic!("the moved list against the list of a fresh layout: {difference}");
+    }
+
+    // A pass over the document afterwards (the box beside gets another width) starts from
+    // the moved boxes and from the kept float contexts.
+    let tier = lw
+        .apply_content_change(ContentChange::NodeStyle {
+            dom_id: child,
+            node_id: NodeId::new(1),
+            style: azul_css::css::Css::parse_inline(
+                "position: absolute; left: 10px; top: 10px; width: 64px; height: 12px;",
+            ),
+        })
+        .tier;
+    assert_eq!(tier, ContentDirtyTier::Relayout, "premise: a width is a pass");
+    let (fresh, fresh_child) = float_box_window(181.5, 66.25, 64.0);
+    same_boxes(&lw, child, &fresh, fresh_child, "after a pass");
+    assert_eq!(
+        kept_floats(&lw, child),
+        kept_floats(&fresh, fresh_child),
+        "after a pass the kept float contexts are those of a fresh layout"
+    );
+}
+
 /// A turn alone (the rotate tool: `transform` is all that differs) is a value under the key
 /// the list binds: no pass, no list build, the list the allocation it was, the matrix the one
 /// a fresh layout of the turned DOM publishes.
