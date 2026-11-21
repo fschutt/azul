@@ -745,6 +745,9 @@ impl GpuValueCache {
                         TransformKey::unique(),
                         new,
                     )),
+                    // A value that is what it was is no event: a map's 2 000
+                    // labels each reported `Changed(old, old)` on every sync.
+                    (Some(old), Some(new)) if *old == new => None,
                     (Some(old), Some(new)) => Some(GpuTransformKeyEvent::Changed(
                         node_id,
                         self.css_transform_keys.get(&node_id).copied()?,
@@ -858,6 +861,8 @@ impl GpuValueCache {
                         OpacityKey::unique(),
                         new,
                     )),
+                    // As for a transform: the same opacity is no event.
+                    (Some(old), Some(new)) if *old == new => None,
                     (Some(old), Some(new)) => Some(GpuOpacityKeyEvent::Changed(
                         node_id,
                         self.opacity_keys.get(&node_id).copied()?,
@@ -990,3 +995,81 @@ pub enum GpuOpacityKeyEvent {
 #[cfg(test)]
 #[path = "gpu_test.rs"]
 mod gpu_test;
+
+/// A2-gpu (audit 2026-11-21): what a synchronization reports and builds, how the
+/// channels of one node compose, the write methods and the write generation
+/// (`audit/A2-gpu.md`, findings A2-gpu-08, -10, -13).
+#[cfg(test)]
+mod audit_a2_gpu_tests {
+    use super::*;
+    use crate::dom::Dom;
+
+    /// `body` with `n` children: the even ones `.t` (`rotate(45deg)` about the
+    /// default origin, 50% 50%), the odd ones `.o` (`opacity: 0.25`).
+    fn labels(n: usize) -> StyledDom {
+        let css = azul_css::parser2::new_from_str(
+            ".t { transform: rotate(45deg); } .o { opacity: 0.25; }",
+        )
+        .0;
+        let children = (0..n)
+            .map(|i| {
+                let class = if i % 2 == 0 { "t" } else { "o" };
+                Dom::create_div().with_class(class.to_string().into())
+            })
+            .collect::<Vec<Dom>>();
+        let mut dom = Dom::create_body().with_children(children.into());
+        StyledDom::create(&mut dom, css)
+    }
+
+    /// A2-gpu-08. A map view's labels each carry a CSS transform; a pass that
+    /// changed none of them reported `Changed(old, old)` for every one (2 118
+    /// events, about 300 KB, per layout pass of the Tuebingen view).
+    ///
+    /// 40 children: 20 transforms and 20 opacities. First sync: 20 + 20
+    /// `Added`. Second sync of the same DOM at the same sizes: 0 + 0 events
+    /// (was 20 + 20 `Changed`) and the write generation where it was. A sync at
+    /// another box size (the origin is 50% 50%: (100, 20) instead of
+    /// (50, 20)) moves every transform: 20 `Changed`, 0 opacity events.
+    ///
+    /// Mutation: the arm `(Some(old), Some(new)) if *old == new => None`
+    /// removed from `compute_transform_events` fails "no event for a value
+    /// that did not change".
+    #[test]
+    fn a_sync_of_unchanged_values_reports_no_event() {
+        let styled = labels(40);
+        let small = |_: NodeId| Some((100.0_f32, 40.0_f32));
+        let wide = |_: NodeId| Some((200.0_f32, 40.0_f32));
+        let mut cache = GpuValueCache::empty();
+
+        let first = cache.synchronize_with_sizes(&styled, &small);
+        assert_eq!(first.transform_key_changes.len(), 20);
+        assert_eq!(first.opacity_key_changes.len(), 20);
+        assert!(first
+            .transform_key_changes
+            .iter()
+            .all(|e| matches!(e, GpuTransformKeyEvent::Added(..))));
+        let generation = cache.value_generation();
+
+        let second = cache.synchronize_with_sizes(&styled, &small);
+        assert!(
+            second.transform_key_changes.is_empty(),
+            "no event for a value that did not change: {:?}",
+            second.transform_key_changes
+        );
+        assert!(
+            second.opacity_key_changes.is_empty(),
+            "no event for an opacity that did not change: {:?}",
+            second.opacity_key_changes
+        );
+        assert_eq!(cache.value_generation(), generation, "nothing was written");
+
+        let third = cache.synchronize_with_sizes(&styled, &wide);
+        assert_eq!(third.transform_key_changes.len(), 20, "another origin, another matrix");
+        assert!(third
+            .transform_key_changes
+            .iter()
+            .all(|e| matches!(e, GpuTransformKeyEvent::Changed(..))));
+        assert!(third.opacity_key_changes.is_empty());
+        assert_ne!(cache.value_generation(), generation);
+    }
+}
