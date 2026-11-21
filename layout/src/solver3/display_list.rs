@@ -1637,6 +1637,12 @@ thread_local! {
         const { core::cell::Cell::new(0) };
     /// See [`cached_runs_copied_on_this_thread`].
     static CACHED_RUNS_COPIED: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+    /// See [`runs_painted_by_patched_builds_on_this_thread`].
+    static RUNS_PAINTED_BY_PATCHED_BUILDS: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
+    /// See [`lists_patched_after_a_named_cascade_on_this_thread`].
+    static LISTS_PATCHED_AFTER_A_NAMED_CASCADE: core::cell::Cell<usize> =
+        const { core::cell::Cell::new(0) };
 }
 
 /// What the patched builds of the calling thread do with the run of a box
@@ -1703,6 +1709,33 @@ pub fn translated_runs_painted_anew_on_this_thread() -> usize {
 #[must_use]
 pub fn cached_runs_copied_on_this_thread() -> usize {
     CACHED_RUNS_COPIED.with(core::cell::Cell::get)
+}
+
+/// How many paint calls the patched builds of the calling thread made
+/// themselves, for a box they could not copy the run of: one in the re-emit
+/// set (styled again, fresh, reflowed, resized, paint-dirty), one that moved,
+/// one a tween frame had translated. With
+/// [`cached_runs_copied_on_this_thread`]: what a patched build painted and
+/// what it copied (a call for a box that painted nothing before and paints
+/// nothing now counts as neither).
+#[must_use]
+pub fn runs_painted_by_patched_builds_on_this_thread() -> usize {
+    RUNS_PAINTED_BY_PATCHED_BUILDS.with(core::cell::Cell::get)
+}
+
+/// How many display lists the calling thread patched although the cascade
+/// epoch had moved since the list before was built, because the producer of
+/// the pass named the nodes it had cascaded (`cache::CascadedSince`, the step
+/// `list` of the diff-first pipeline): what a test reads to say a view's
+/// re-render took that path.
+#[must_use]
+pub fn lists_patched_after_a_named_cascade_on_this_thread() -> usize {
+    LISTS_PATCHED_AFTER_A_NAMED_CASCADE.with(core::cell::Cell::get)
+}
+
+/// Counts one list for [`lists_patched_after_a_named_cascade_on_this_thread`].
+pub(crate) fn count_list_patched_after_a_named_cascade() {
+    LISTS_PATCHED_AFTER_A_NAMED_CASCADE.with(|n| n.set(n.get() + 1));
 }
 
 /// Which emission site produced a display-list item. See
@@ -7203,6 +7236,7 @@ where
             return false;
         };
         if patch.reemit.contains(&node_index) {
+            RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
             return false;
         }
         let Some(run) = patch
@@ -7265,11 +7299,13 @@ where
             MovedRunPolicy::TweenFramesTranslate | MovedRunPolicy::NeverTranslate => {
                 if moved {
                     MOVED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
+                    RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
                     drop(crate::probe::Probe::span("dl_patch_moved"));
                     return false;
                 }
                 if recorded {
                     TRANSLATED_RUNS_PAINTED_ANEW.with(|n| n.set(n.get() + 1));
+                    RUNS_PAINTED_BY_PATCHED_BUILDS.with(|n| n.set(n.get() + 1));
                     drop(crate::probe::Probe::span("dl_patch_settled"));
                     return false;
                 }

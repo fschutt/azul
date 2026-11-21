@@ -873,6 +873,37 @@ thread_local! {
         const { core::cell::Cell::new(0) };
 }
 
+/// What a producer that styled NAMED nodes of a DOM tells the pass that lays
+/// the DOM out next (`LayoutCache::cascaded_since_list`).
+///
+/// The cached display list may be patched only where no node's paint values
+/// moved since it was built. The cascade epoch is the proof the pass has that
+/// NO cascade ran (`LayoutCache::last_cascade_epoch`): when it moved, the pass
+/// does not know which nodes were styled again, and paints the whole list. A
+/// producer that ran the cascade for named nodes alone - a view rendered again
+/// under the diff-first steps (`StyledDom::cascade_reusing`,
+/// `StyledDom::restyle_changed_nodes_moving`), a rebuild that kept its DOM -
+/// does know: every other node kept its rows and resolves every property as
+/// it did. It says so here, with the two epochs that make the statement
+/// checkable: the pass takes it only when its cached list was built at
+/// `from_epoch` (nothing else styled the DOM between the list and the
+/// producer) and the DOM it is handed stands at `to_epoch` (nothing styled it
+/// after the producer). Then the runs of the boxes of every node that is NOT
+/// named are what a paint would make, unless the pass itself says otherwise
+/// (a box built fresh, moved, resized, reflowed, paint-dirty), and are copied;
+/// the named nodes' boxes are painted. Anything else: the whole list, as before.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CascadedSince {
+    /// `CssPropertyCache::cascade_epoch` of the DOM before the producer styled
+    /// anything: the state the cached display list has to be built from.
+    pub from_epoch: u64,
+    /// The DOM's `cascade_epoch` when the producer was done.
+    pub to_epoch: u64,
+    /// Every node (of the DOM as it is now) whose cascade may answer anything
+    /// else at `to_epoch` than its node answered at `from_epoch`: a superset.
+    pub nodes: Vec<NodeId>,
+}
+
 /// The persistent cache that holds the layout state between frames.
 // Independent per-pass state FLAGS, not a state machine to enum-ify: each
 // bool is set by a different stage and read by a different consumer.
@@ -1000,6 +1031,10 @@ pub struct LayoutCache {
     /// stages instead of being thrown away. Set by the dll's full-produce
     /// arm; consumed (taken) by `reconcile_and_invalidate`.
     pub dom_diff_clean: Option<Vec<bool>>,
+    /// One-shot, for the display-list patch of the next pass: the nodes a
+    /// producer cascaded since the cached list was built, when it cascaded
+    /// NAMED nodes only and knows them all. See [`CascadedSince`].
+    pub cascaded_since_list: Option<CascadedSince>,
     /// How the DOM the next pass lays out pairs its nodes with the DOM the
     /// cached tree was laid out from, when it is a rebuilt one: the DOM
     /// diff's pairing, set where the rebuild is folded into the window

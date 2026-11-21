@@ -14882,8 +14882,14 @@ mod tests {
                 .collect()
         };
         assert_eq!(on("0"), Vec::<&str>::new());
-        assert_eq!(on("1"), vec!["text", "nodes", "style", "tree", "view"]);
-        assert_eq!(on(""), vec!["text", "nodes", "style", "tree", "view"]);
+        assert_eq!(on("1"), vec!["text", "nodes", "style", "tree", "view", "list"]);
+        assert_eq!(on(""), vec!["text", "nodes", "style", "tree", "view", "list"]);
+        assert_eq!(
+            on("text,nodes,style,tree,view"),
+            vec!["text", "nodes", "style", "tree", "view"],
+            "the state before `list`"
+        );
+        assert_eq!(on("list"), vec!["list"]);
         assert_eq!(on("tree"), vec!["tree"]);
         assert_eq!(on("text,nodes,style"), vec!["text", "nodes", "style"], "the state before `tree`");
         assert_eq!(on("text"), vec!["text"]);
@@ -15193,7 +15199,9 @@ mod tests {
     struct DfvLabels(Vec<DfvLabel>);
 
     /// `div.dfv-picture > (div.dfv-label.dfv-k<n>[key][left, top] > text)*` under a sheet
-    /// with a rule per class (one of them inherited by the text).
+    /// with a rule per class (one of them inherited by the text). A label of kind 4 or 5
+    /// (no walk makes one) also holds a `div.dfv-badge`, which the label's class colours
+    /// through a descendant rule: the label's own style is the same under both.
     extern "C" fn dfv_render(
         data: RefAny,
         info: azul_core::callbacks::VirtualViewCallbackInfo,
@@ -15210,7 +15218,10 @@ mod tests {
                 ".dfv-picture { position: relative; width: 100%; height: 100%; font-size: 10px; } \
                  .dfv-label { position: absolute; padding: 1px; background: #eeeeee; } \
                  .dfv-k1 { color: #aa0000; } .dfv-k2 { font-size: 12px; background: #ddddff; } \
-                 .dfv-k3 { padding: 3px; }"
+                 .dfv-k3 { padding: 3px; } \
+                 .dfv-badge { position: absolute; left: 0px; top: 0px; width: 4px; height: 4px; } \
+                 .dfv-k4 .dfv-badge { background: #00aa00; } \
+                 .dfv-k5 .dfv-badge { background: #aa00aa; }"
                     .into(),
             ));
         for label in &labels {
@@ -15222,6 +15233,9 @@ mod tests {
                     "L{}",
                     label.key
                 )));
+            if label.kind >= 4 {
+                node = node.with_child(Dom::create_div().with_class("dfv-badge".into()));
+            }
             // The label's OWN style (not a sheet hung on it), as the map view sets it.
             node.root
                 .set_css(&format!("left: {}px; top: {}px;", label.left, label.top));
@@ -15567,6 +15581,207 @@ mod tests {
                 "{count} labels: the boxes of one label are built, {fresh} were"
             );
         }
+    }
+
+    // --- diff first, step `list`: the display list of a view that renders again ---------------
+    //
+    // The step `view` keeps the rows of the nodes that are what they were and moves the
+    // cascade epoch, which is the solver's only proof that no cascade ran: the view's whole
+    // list was emitted. Under `list` the view hands the pass the nodes it cascaded
+    // (`solver3::cache::CascadedSince`), and the pass copies the runs of every box that is
+    // what it was, where it was.
+
+    /// `(lists patched after a named cascade, runs copied, paint calls of patched builds)`
+    /// on this thread for one re-render of `window` after `change`, with `steps` on.
+    fn dfv_list_cost(
+        window: &mut HeadlessWindow,
+        state: &Arc<RefCell<RefAny>>,
+        steps: &[azul_layout::window::DiffFirstStep],
+        change: impl FnOnce(&mut Vec<DfvLabel>),
+    ) -> (usize, usize, usize) {
+        use azul_layout::solver3::display_list as list;
+        dfv_change(state, change);
+        let before = (
+            list::lists_patched_after_a_named_cascade_on_this_thread(),
+            list::cached_runs_copied_on_this_thread(),
+            list::runs_painted_by_patched_builds_on_this_thread(),
+        );
+        dfv_rerender(window, steps);
+        (
+            list::lists_patched_after_a_named_cascade_on_this_thread() - before.0,
+            list::cached_runs_copied_on_this_thread() - before.1,
+            list::runs_painted_by_patched_builds_on_this_thread() - before.2,
+        )
+    }
+
+    /// Two windows of `count` labels (made by `labels`), re-rendered after the same
+    /// `change`: one with every step, one with every step but `list` (the state before
+    /// it: the view's list emitted in full). Answers the costs of the first
+    /// ([`dfv_list_cost`]) after asserting that both views hold the same document and the
+    /// same list, line for line ([`dfv_dump`]: every item of the list with every field).
+    fn dfv_list_against_full(
+        labels: Vec<DfvLabel>,
+        change: impl Fn(&mut Vec<DfvLabel>),
+        what: &str,
+    ) -> (usize, usize, usize) {
+        use azul_layout::window::DiffFirstStep::{Nodes, Style, Text, Tree, View};
+        let state_list = Arc::new(RefCell::new(RefAny::new(DfvLabels(labels.clone()))));
+        let state_full = Arc::new(RefCell::new(RefAny::new(DfvLabels(labels))));
+        let mut with_list = dfv_window(&state_list);
+        let mut in_full = dfv_window(&state_full);
+        let cost = dfv_list_cost(
+            &mut with_list,
+            &state_list,
+            &azul_layout::window::DiffFirstStep::ALL,
+            &change,
+        );
+        let before = dfv_list_cost(
+            &mut in_full,
+            &state_full,
+            &[Text, Nodes, Style, Tree, View],
+            &change,
+        );
+        assert_eq!(
+            before.0, 0,
+            "{what}: premise: without `list` no list is patched after a named cascade"
+        );
+        let (left, right) = (dfv_dump(&with_list), dfv_dump(&in_full));
+        let differs = left
+            .iter()
+            .zip(right.iter())
+            .position(|(a, b)| a != b)
+            .or((left.len() != right.len()).then_some(left.len().min(right.len())));
+        assert!(
+            differs.is_none(),
+            "{what}: line {differs:?} of the view differs
+ patched: {:?}
+ in full: {:?}",
+            differs.and_then(|line| left.get(line)),
+            differs.and_then(|line| right.get(line)),
+        );
+        cost
+    }
+
+    /// One label of a view changes its class and the others stay: the view's list is
+    /// PATCHED - the runs of that label are painted, every other label's are copied - in a
+    /// view of 100 labels and in one of 400, and the list is the one a full emission makes.
+    /// (A view that renders the DOM it rendered before builds no list at all: its document
+    /// is taken back as it lies, `reclaim_unchanged_child`.)
+    ///
+    /// Mutation: the hand-over dropped (`cascaded_since_list` never set, or the epochs it
+    /// carries not the list's and the DOM's): no list is patched, 0 runs are copied.
+    #[test]
+    fn one_changed_label_of_a_view_paints_that_label_and_copies_the_rest() {
+        // The same label at both sizes (kind 1 to 2: a colour for a font size and a
+        // background), so that the two views paint the same.
+        let restyle_one = |labels: &mut Vec<DfvLabel>| {
+            labels[41].kind = (labels[41].kind + 1) % 4;
+        };
+        let mut painted_at = Vec::new();
+        for count in [100_usize, 400] {
+            let (patched, copied, painted) = dfv_list_against_full(
+                dfv_labels(1, count),
+                restyle_one,
+                "one label restyled",
+            );
+            assert_eq!(patched, 1, "{count} labels: the view's list is patched");
+            // A label paints a background and a line of text: two runs each.
+            assert!(
+                copied >= count - 1,
+                "{count} labels: the runs of the labels that stayed are copied ({copied})"
+            );
+            assert!(
+                (1..=12).contains(&painted),
+                "{count} labels: the runs of one label are painted, {painted} were"
+            );
+            painted_at.push(painted);
+        }
+        assert_eq!(
+            painted_at[0], painted_at[1],
+            "what is painted does not grow with the view"
+        );
+    }
+
+    /// 5 % of the labels of a view are restyled where they stand: 5 % are painted and the
+    /// rest copied, at 100 labels and at 400, and the list is a full emission's.
+    #[test]
+    fn a_view_that_restyled_5_percent_of_its_labels_paints_5_percent() {
+        let restyle_some = |labels: &mut Vec<DfvLabel>| {
+            for label in labels.iter_mut().step_by(20) {
+                label.kind = (label.kind + 1) % 4;
+            }
+        };
+        for count in [100_usize, 400] {
+            let restyled = count / 20;
+            let (patched, copied, painted) = dfv_list_against_full(
+                dfv_labels(1, count),
+                restyle_some,
+                "5 % restyled",
+            );
+            assert_eq!(patched, 1, "{count} labels: the view's list is patched");
+            assert!(
+                copied >= count - restyled,
+                "{count} labels: the labels that stayed are copied ({copied} runs)"
+            );
+            assert!(
+                painted >= restyled && painted <= 6 * restyled + 8,
+                "{count} labels: the runs of {restyled} labels are painted, {painted} were"
+            );
+        }
+    }
+
+    /// Every label of a view moves (a pan that gives each new insets): every label is
+    /// painted - a moved box is painted anew by any pass that is no tween frame - and the
+    /// list is a full emission's. The patch gains nothing here, and must cost nothing
+    /// wrong: what it copies is the few runs that did not move (the picture's own).
+    #[test]
+    fn a_view_whose_labels_all_moved_paints_every_label() {
+        let pan = |labels: &mut Vec<DfvLabel>| {
+            for label in labels.iter_mut() {
+                label.left += 7.0;
+                label.top += 3.0;
+            }
+        };
+        for count in [100_usize, 400] {
+            let (patched, copied, painted) =
+                dfv_list_against_full(dfv_labels(1, count), pan, "every label moved");
+            assert_eq!(patched, 1, "{count} labels: the list is patched all the same");
+            assert!(
+                painted >= count,
+                "{count} labels: every label is painted ({painted} paint calls)"
+            );
+            assert!(
+                copied <= 8,
+                "{count} labels: no label's run is copied ({copied} runs were)"
+            );
+        }
+    }
+
+    /// The mutant of the step: a node the cascade ran for whose run is copied anyway. Every
+    /// label holds a badge that its label's class colours through a descendant rule; one
+    /// label changes its class. The label's own style does not move and its box stands
+    /// where it stood; the badge's node data is what it was, so the reconcile keeps its box
+    /// clean, and nothing but the cascade - the CSS diff of the re-render and the nodes it
+    /// names - says the badge paints another colour. The list is a full emission's: the
+    /// badge has the new colour.
+    ///
+    /// Mutation: the boxes the cascade reached left out of the re-emit set (in
+    /// `layout_document`, `css_dirty_reemit` empty in the arm of the named cascade): the
+    /// badge's run is copied with the old colour and the two views differ at its item.
+    /// (Either half alone - the css dirt, or the named nodes' boxes - re-emits the badge;
+    /// the named nodes are the superset that holds where no css diff was made.)
+    #[test]
+    fn a_node_the_cascade_reached_is_painted_though_its_box_is_clean() {
+        let mut labels = dfv_labels(1, 40);
+        for label in &mut labels {
+            label.kind = 4;
+        }
+        let recolour_one = |labels: &mut Vec<DfvLabel>| labels[20].kind = 5;
+        let (patched, copied, painted) =
+            dfv_list_against_full(labels, recolour_one, "a badge recoloured by its label's class");
+        assert_eq!(patched, 1, "premise: the view's list is patched");
+        assert!(copied >= 39, "premise: the other labels are copied ({copied} runs)");
+        assert!(painted >= 1, "the badge is painted ({painted} paint calls)");
     }
 
     /// A settle: every label moves and 5 % of them are exchanged for new ones. The cascade

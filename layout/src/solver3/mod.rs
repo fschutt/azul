@@ -202,7 +202,6 @@ use azul_css::{
 };
 
 use self::{
-    display_list::generate_display_list,
     geometry::IntrinsicSizes,
     getters::get_writing_mode,
     layout_tree::{generate_layout_tree, LayoutTree},
@@ -701,6 +700,41 @@ fn css_dirty_reemit_set(
     out
 }
 
+/// The layout indices whose display-list runs hold what is painted for the
+/// DOM nodes `nodes`: every box of each node, and for a box that is a member
+/// of an inline formatting context (a text, an inline box) the root of that
+/// context, whose content run paints its members' glyphs and decorations.
+/// What a pass re-emits for the nodes a producer cascaded
+/// (`cache::CascadedSince`); a node without a box adds nothing.
+fn boxes_painted_for(tree: &LayoutTree, nodes: &[NodeId]) -> std::collections::BTreeSet<usize> {
+    let mut out = std::collections::BTreeSet::new();
+    for node in nodes {
+        let Some(boxes) = tree.dom_to_layout.get(node) else {
+            continue;
+        };
+        for id in boxes {
+            out.insert(id.index());
+            if let Some(member) = tree.warm(*id).and_then(|warm| warm.ifc_membership) {
+                out.insert(member.ifc_root_layout_index);
+            }
+        }
+    }
+    out
+}
+
+/// Whether the dynamic selector context `dom` is cascaded under is the one the
+/// cached display list of `cache` was built under (both without one counts).
+fn built_under_the_context_of(cache: &LayoutCache, dom: &StyledDom) -> bool {
+    match (
+        dom.get_css_property_cache().dynamic_context.as_deref(),
+        cache.last_dynamic_context.as_ref(),
+    ) {
+        (Some(now), Some(then)) => now == then,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 // M12.7: keep this out-of-line so the web lift sees it as its own wasm fn
 // (not inlined into layout_dom_recursive). An opt-folded infinite loop in the
 // solver (a mis-lifted loop exit) is otherwise hidden inside the giant inlined
@@ -866,6 +900,19 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         cache.overrides_only_hint = None;
     }
     let resize_only = core::mem::take(&mut cache.resize_only_hint);
+    // The nodes a producer cascaded since the cached display list was built,
+    // when it styled named nodes only (`cache::CascadedSince`, the step `list`
+    // of the diff-first pipeline). Spent by this pass whatever becomes of it,
+    // and good only for a list built at the epoch it starts from and a DOM
+    // that stands at the epoch it ends at.
+    let cascaded_named: Option<Vec<NodeId>> = cache
+        .cascaded_since_list
+        .take()
+        .filter(|since| {
+            since.from_epoch == cache.last_cascade_epoch
+                && since.to_epoch == new_dom.get_css_property_cache().cascade_epoch
+        })
+        .map(|since| since.nodes);
     // OVERRIDES-ONLY SKIP: the frame of a layout-property tween changed no
     // node - only the user override the tween walks (`tick_animations` arms
     // the latch, stamped with the DOM it describes). The reconcile reads node
@@ -1456,7 +1503,39 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             cache.record_full_emission();
             return Ok(std::sync::Arc::new(DisplayList::default()));
         }
-        let dl = generate_display_list(
+        // The tree, its boxes and their places are the ones the cached list
+        // was built from (nothing is dirty). Where a producer named the nodes
+        // it cascaded since (`cascaded_named`), the list is patched: the
+        // boxes of those nodes and of what the css dirt reaches are painted,
+        // every other run is copied where it lies. Recorded below as a full
+        // emission all the same: the renderers diff the list against the one
+        // they presented.
+        let early_patch = match (cascaded_named.as_deref(), cache.cached_display_list.as_ref()) {
+            (Some(named), Some((_, _, _, _, _, prev_dl)))
+                if display_list::dl_patching_enabled()
+                    && !regions::document_has_named_flows(new_dom)
+                    && built_under_the_context_of(cache, new_dom) =>
+            {
+                let sizes: Vec<Option<LogicalSize>> =
+                    tree.nodes.iter().map(|n| n.used_size).collect();
+                let mut reemit = css_dirty_reemit_set(tree, css_dirty, false);
+                reemit.extend(boxes_painted_for(tree, named));
+                display_list::PatchState::build(
+                    prev_dl,
+                    &cache.calculated_positions,
+                    &cache.calculated_positions,
+                    &sizes,
+                    &sizes,
+                    &reemit,
+                    false,
+                )
+            }
+            _ => None,
+        };
+        if early_patch.is_some() {
+            display_list::count_list_patched_after_a_named_cascade();
+        }
+        let dl = display_list::generate_display_list_impl(
             &mut ctx,
             tree,
             &cache.calculated_positions,
@@ -1466,6 +1545,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             renderer_resources,
             id_namespace,
             dom_id,
+            early_patch,
         )
         .map(std::sync::Arc::new)?;
         // Refresh the structural-identity cache with what was JUST emitted.
@@ -2137,7 +2217,7 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // prove the context the cached DL was built under is unchanged.
         // The resize-skip arm keeps its own contract (the harvested
         // breakpoints guarantee no answer flips between crossings).
-        let cascade_ctx_unchanged = {
+        let (context_unchanged, cascade_ctx_unchanged) = {
             let cur = ctx
                 .styled_dom
                 .get_css_property_cache()
@@ -2192,14 +2272,30 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
                 (None, None) => true,
                 _ => false,
             };
-            context_unchanged
-                && cache.last_cascade_epoch
-                    == ctx.styled_dom.get_css_property_cache().cascade_epoch
+            (
+                context_unchanged,
+                context_unchanged
+                    && cache.last_cascade_epoch
+                        == ctx.styled_dom.get_css_property_cache().cascade_epoch,
+            )
         };
+        // The third way in (the step `list`): the cascade epoch moved, and a
+        // producer named every node it cascaded since the cached list was
+        // built (`cascaded_named`, checked against both epochs where it was
+        // taken). The epoch stands for "no node's paint values moved"; here
+        // the nodes whose values may have moved are known, so the reconciled
+        // tree of the same shape is patched like the retained one: their
+        // boxes re-emit (below), with what the css dirt reaches, and what
+        // the reconcile itself found (fresh, retargeted, paint-dirty boxes),
+        // and every other run is copied where it lies.
+        let named_cascade: Option<&[NodeId]> = cascaded_named
+            .as_deref()
+            .filter(|_| cache.last_reconcile_structure_preserved && context_unchanged);
         let structure_ok = cache.last_reconcile_was_skipped
             || (cache.last_reconcile_structure_preserved
                 && css_dirty.is_empty()
-                && cascade_ctx_unchanged);
+                && cascade_ctx_unchanged)
+            || named_cascade.is_some();
         // On the retained tree a pass may carry css dirt: its restyled boxes
         // re-emit, and what they contain unless the dirt is box geometry
         // only. An override-only frame is that: its latch is armed only when
@@ -2209,6 +2305,10 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // Everything else splices. Empty for a resize.
         let css_dirty_reemit = if cache.last_reconcile_was_skipped {
             css_dirty_reemit_set(&new_tree, css_dirty, overrides_only)
+        } else if let Some(named) = named_cascade {
+            let mut restyled = css_dirty_reemit_set(&new_tree, css_dirty, false);
+            restyled.extend(boxes_painted_for(&new_tree, named));
+            restyled
         } else {
             std::collections::BTreeSet::new()
         };
@@ -2291,6 +2391,9 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
         // `cache.cached_display_list` for the rest of this build, and a
         // `&mut self` method call would conflict with it where disjoint
         // field writes do not. Same bookkeeping as `record_full_emission`.
+        if patch.is_some() && named_cascade.is_some() {
+            display_list::count_list_patched_after_a_named_cascade();
+        }
         if patch.is_some() {
             // The damage is recorded below, once the final list exists.
             cache.last_build_was_patched = true;
