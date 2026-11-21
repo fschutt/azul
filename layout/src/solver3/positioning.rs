@@ -232,6 +232,8 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
     // The margin notes placed so far (`margin_note_place`), for the ones
     // after them on the same side of the same container.
     let mut margin_notes: Vec<PlacedMarginNote> = Vec::new();
+    // Scratch of `shift_relative_descendants`.
+    let mut boxes_below: Vec<usize> = Vec::new();
     // Whether this pass may read a box's interior off its last run
     // (`cache::AbsInterior`). Not where something lays boxes out that the
     // entry's bookkeeping does not see: a paged pass (fragments, footnote
@@ -1066,6 +1068,16 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                     content_pos,
                     calculated_positions,
                 );
+                // ...which are the flow's positions: the relatively
+                // positioned boxes below the box are shifted from them.
+                shift_relative_descendants(
+                    ctx,
+                    tree,
+                    calculated_positions,
+                    viewport,
+                    node_index,
+                    &mut boxes_below,
+                );
             }
 
             // Two margin notes on one side of a container do not overlap:
@@ -1106,6 +1118,14 @@ pub fn position_out_of_flow_elements<T: ParsedFontTrait>(
                             final_pos.y + bp.border.top + bp.padding.top,
                         ),
                         calculated_positions,
+                    );
+                    shift_relative_descendants(
+                        ctx,
+                        tree,
+                        calculated_positions,
+                        viewport,
+                        node_index,
+                        &mut boxes_below,
                     );
                 }
             }
@@ -1530,7 +1550,6 @@ pub fn adjust_relative_positions_of<T: ParsedFontTrait>(
     viewport: LogicalRect, // The viewport is needed if the root element is relative.
     placed_now: Option<&[bool]>,
 ) {
-    use azul_css::props::style::StyleDirection;
     // NOTE: returns `()` (not `Result<()>`). This fn is Ok-always — its only `?` are on `Option`
     // inside `.and_then` closures, never propagating to the fn body. The previous `Result<(),
     // LayoutError>` return forced the `?` at the call site to read an Ok-niche discriminant, which
@@ -1542,140 +1561,185 @@ pub fn adjust_relative_positions_of<T: ParsedFontTrait>(
         if placed_now.is_some_and(|placed| !placed.get(node_index).copied().unwrap_or(false)) {
             continue;
         }
-        let node = &tree.nodes[node_index];
-        let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
+        shift_if_relatively_positioned(ctx, tree, calculated_positions, viewport, node_index);
+    }
+}
 
-        // +spec:block-formatting-context:faa1cf - static boxes: top/right/bottom/left do not apply
-        // Early continue for non-relative positioning
-        // +spec:overflow:cfb09a - a sticky box's insets are no offset: they are the edges it
-        // keeps from its scrollport (`adjust_sticky_positions`), so where normal flow already
-        // put it inside them it stays. Shifted here too, a folder head with `top: 20px` under
-        // a 20px column header sat 20px low in an unscrolled list.
-        if position_type != LayoutPosition::Relative {
-            continue;
-        }
+/// One step of [`adjust_relative_positions_of`]: if the box at `node_index`
+/// is relatively positioned, its position and that of everything below it
+/// move by its offset.
+#[allow(clippy::too_many_lines)] // large but cohesive: single-purpose layout/render/parse routine
+                                 // (one branch per case)
+fn shift_if_relatively_positioned<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &mut super::PositionVec,
+    viewport: LogicalRect,
+    node_index: usize,
+) {
+    use azul_css::props::style::StyleDirection;
+    let node = &tree.nodes[node_index];
+    let position_type = get_position_type(ctx.styled_dom, node.dom_node_id);
 
-        // +spec:table-layout:6cb73b - position:relative effect on table elements is undefined; skip
-        // them +spec:table-layout:718f91 - relative positioning on table-row/row-group
-        // shifts all contents
-        {
-            use azul_css::props::layout::LayoutDisplay;
-            let display = get_display_property(ctx.styled_dom, node.dom_node_id);
-            if let MultiValue::Exact(d) = display {
-                // +spec:positioning:4614dd - position does not apply to table-column-group or
-                // table-column boxes Table-row and row-group elements DO support
-                // relative positioning: the shift affects all contents including
-                // cells originating in the row. Table-column, table-column-group,
-                // table-cell, and table-caption do not.
-                if matches!(
-                    d,
-                    LayoutDisplay::TableColumnGroup
-                        | LayoutDisplay::TableColumn
-                        | LayoutDisplay::TableCell
-                        | LayoutDisplay::TableCaption
-                ) {
-                    continue;
-                }
+    // +spec:block-formatting-context:faa1cf - static boxes: top/right/bottom/left do not apply
+    // Early continue for non-relative positioning
+    // +spec:overflow:cfb09a - a sticky box's insets are no offset: they are the edges it
+    // keeps from its scrollport (`adjust_sticky_positions`), so where normal flow already
+    // put it inside them it stays. Shifted here too, a folder head with `top: 20px` under
+    // a 20px column header sat 20px low in an unscrolled list.
+    if position_type != LayoutPosition::Relative {
+        return;
+    }
+
+    // +spec:table-layout:6cb73b - position:relative effect on table elements is undefined; skip
+    // them +spec:table-layout:718f91 - relative positioning on table-row/row-group
+    // shifts all contents
+    {
+        use azul_css::props::layout::LayoutDisplay;
+        let display = get_display_property(ctx.styled_dom, node.dom_node_id);
+        if let MultiValue::Exact(d) = display {
+            // +spec:positioning:4614dd - position does not apply to table-column-group or
+            // table-column boxes Table-row and row-group elements DO support
+            // relative positioning: the shift affects all contents including
+            // cells originating in the row. Table-column, table-column-group,
+            // table-cell, and table-caption do not.
+            if matches!(
+                d,
+                LayoutDisplay::TableColumnGroup
+                    | LayoutDisplay::TableColumn
+                    | LayoutDisplay::TableCell
+                    | LayoutDisplay::TableCaption
+            ) {
+                return;
             }
         }
+    }
 
-        // Determine the containing block size for resolving percentages.
-        // For `position: relative`, this is the parent's content box size.
-        let containing_block_size = node
-            .parent
-            .and_then(|parent_idx| tree.get(LayoutNodeId::new(parent_idx)))
-            .map_or(viewport.size, |parent_node| {
-                // Get parent's writing mode to correctly calculate its inner (content) size.
-                let parent_wm = parent_node
-                    .dom_node_id
-                    .map(|pid| {
-                        let ps = &ctx.styled_dom.styled_nodes.as_container()[pid].styled_node_state;
-                        get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
-                    })
-                    .unwrap_or_default();
-                let parent_used_size = parent_node.used_size.unwrap_or_default();
-                parent_node
-                    .box_props
-                    .inner_size(parent_used_size, parent_wm)
-            });
+    // Determine the containing block size for resolving percentages.
+    // For `position: relative`, this is the parent's content box size.
+    let containing_block_size = node
+        .parent
+        .and_then(|parent_idx| tree.get(LayoutNodeId::new(parent_idx)))
+        .map_or(viewport.size, |parent_node| {
+            // Get parent's writing mode to correctly calculate its inner (content) size.
+            let parent_wm = parent_node
+                .dom_node_id
+                .map(|pid| {
+                    let ps = &ctx.styled_dom.styled_nodes.as_container()[pid].styled_node_state;
+                    get_writing_mode(ctx.styled_dom, pid, ps).unwrap_or_default()
+                })
+                .unwrap_or_default();
+            let parent_used_size = parent_node.used_size.unwrap_or_default();
+            parent_node
+                .box_props
+                .inner_size(parent_used_size, parent_wm)
+        });
 
-        // +spec:positioning:418c74 - inset percentages resolve against containing block size per
-        // axis; auto is unconstrained
-        let offsets = resolve_position_offsets(
-            ctx.styled_dom,
-            node.dom_node_id,
-            containing_block_size,
-            viewport.size,
+    // +spec:positioning:418c74 - inset percentages resolve against containing block size per
+    // axis; auto is unconstrained
+    let offsets = resolve_position_offsets(
+        ctx.styled_dom,
+        node.dom_node_id,
+        containing_block_size,
+        viewport.size,
+    );
+
+    // Get a mutable reference to the position and apply the offsets.
+    let Some(current_pos) = calculated_positions.get_mut(node_index) else {
+        return;
+    };
+
+    let initial_pos = *current_pos;
+
+    // +spec:positioning:1732e8 - left/right for relatively positioned elements determined by
+    // 9.4.3 rules Spec: "If the 'direction' property of the containing block is 'ltr',
+    // the value of 'left' wins" Get the direction of the containing block (parent), not
+    // the element itself
+    let cb_direction = node
+        .parent
+        .and_then(|parent_idx| tree.get(LayoutNodeId::new(parent_idx)))
+        .and_then(|parent_node| {
+            let parent_dom_id = parent_node.dom_node_id?;
+            let parent_state =
+                &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
+            match get_direction_property(ctx.styled_dom, parent_dom_id, parent_state) {
+                MultiValue::Exact(v) => Some(v),
+                _ => None,
+            }
+        })
+        .unwrap_or(StyleDirection::Ltr);
+    // The one rule for the shift, shared with the text of relatively
+    // positioned INLINE boxes, which this pass does not reach
+    // (`inline_relative_offset`).
+    let LogicalPosition {
+        x: delta_x,
+        y: delta_y,
+    } = relative_shift(&offsets, cb_direction);
+
+    // +spec:overflow:f1e1ce - relative positioning may cause overflow:auto/scroll boxes to need
+    // scrollbars Only apply the shift if there is a non-zero delta.
+    if delta_x != 0.0 || delta_y != 0.0 {
+        current_pos.x += delta_x;
+        current_pos.y += delta_y;
+
+        debug_log!(
+            ctx,
+            "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
+            node_index,
+            initial_pos,
+            *current_pos,
+            delta_x,
+            delta_y
         );
 
-        // Get a mutable reference to the position and apply the offsets.
-        let Some(current_pos) = calculated_positions.get_mut(node_index) else {
-            continue;
-        };
-
-        let initial_pos = *current_pos;
-
-        // +spec:positioning:1732e8 - left/right for relatively positioned elements determined by
-        // 9.4.3 rules Spec: "If the 'direction' property of the containing block is 'ltr',
-        // the value of 'left' wins" Get the direction of the containing block (parent), not
-        // the element itself
-        let cb_direction = node
-            .parent
-            .and_then(|parent_idx| tree.get(LayoutNodeId::new(parent_idx)))
-            .and_then(|parent_node| {
-                let parent_dom_id = parent_node.dom_node_id?;
-                let parent_state =
-                    &ctx.styled_dom.styled_nodes.as_container()[parent_dom_id].styled_node_state;
-                match get_direction_property(ctx.styled_dom, parent_dom_id, parent_state) {
-                    MultiValue::Exact(v) => Some(v),
-                    _ => None,
+        // The box is shifted AS A UNIT (CSS 2.2 9.4.3): its contents go with it.
+        // Positions are absolute, so every descendant takes the same delta (a
+        // nested relative box adds its own shift when the walk reaches it).
+        // +spec:table-layout:ec2600 - for table-row-group, table-header-group,
+        // table-footer-group, or table-row, the relative shift affects all contents
+        // of the box including table cells.
+        // Only table rows used to drag their subtree: a relatively positioned block
+        // moved and left its content behind (E2E-C, AzReader's page 2 repeated the
+        // chapter's start: the column under `position: relative; top: -502px` stayed).
+        {
+            let mut stack = tree.children(node_index).to_vec();
+            while let Some(child_idx) = stack.pop() {
+                if let Some(child_pos) = calculated_positions.get_mut(child_idx) {
+                    child_pos.x += delta_x;
+                    child_pos.y += delta_y;
                 }
-            })
-            .unwrap_or(StyleDirection::Ltr);
-        // The one rule for the shift, shared with the text of relatively
-        // positioned INLINE boxes, which this pass does not reach
-        // (`inline_relative_offset`).
-        let LogicalPosition {
-            x: delta_x,
-            y: delta_y,
-        } = relative_shift(&offsets, cb_direction);
-
-        // +spec:overflow:f1e1ce - relative positioning may cause overflow:auto/scroll boxes to need
-        // scrollbars Only apply the shift if there is a non-zero delta.
-        if delta_x != 0.0 || delta_y != 0.0 {
-            current_pos.x += delta_x;
-            current_pos.y += delta_y;
-
-            debug_log!(
-                ctx,
-                "Adjusted relative element #{} from {:?} to {:?} (delta: {}, {})",
-                node_index,
-                initial_pos,
-                *current_pos,
-                delta_x,
-                delta_y
-            );
-
-            // The box is shifted AS A UNIT (CSS 2.2 9.4.3): its contents go with it.
-            // Positions are absolute, so every descendant takes the same delta (a
-            // nested relative box adds its own shift when the walk reaches it).
-            // +spec:table-layout:ec2600 - for table-row-group, table-header-group,
-            // table-footer-group, or table-row, the relative shift affects all contents
-            // of the box including table cells.
-            // Only table rows used to drag their subtree: a relatively positioned block
-            // moved and left its content behind (E2E-C, AzReader's page 2 repeated the
-            // chapter's start: the column under `position: relative; top: -502px` stayed).
-            {
-                let mut stack = tree.children(node_index).to_vec();
-                while let Some(child_idx) = stack.pop() {
-                    if let Some(child_pos) = calculated_positions.get_mut(child_idx) {
-                        child_pos.x += delta_x;
-                        child_pos.y += delta_y;
-                    }
-                    stack.extend_from_slice(tree.children(child_idx));
-                }
+                stack.extend_from_slice(tree.children(child_idx));
             }
         }
+    }
+}
+
+/// The relative shifts of the boxes below the absolutely positioned box
+/// `abs_index`, after the positioning pass placed that box: it derives every
+/// position below the box from the flow again
+/// (`cache::position_bfc_child_descendants`), and the shifts
+/// [`adjust_relative_positions_of`] had added went with what it overwrote - a
+/// relatively positioned box inside an absolutely positioned one stood
+/// unshifted. In ascending layout index, the order of that pass (an outer
+/// box's shift before an inner one's). `boxes` is scratch.
+fn shift_relative_descendants<T: ParsedFontTrait>(
+    ctx: &mut LayoutContext<'_, T>,
+    tree: &LayoutTree,
+    calculated_positions: &mut super::PositionVec,
+    viewport: LogicalRect,
+    abs_index: usize,
+    boxes: &mut Vec<usize>,
+) {
+    boxes.clear();
+    boxes.extend_from_slice(tree.children(abs_index));
+    let mut next = 0;
+    while let Some(&index) = boxes.get(next) {
+        next += 1;
+        boxes.extend_from_slice(tree.children(index));
+    }
+    boxes.sort_unstable();
+    for &index in boxes.iter() {
+        shift_if_relatively_positioned(ctx, tree, calculated_positions, viewport, index);
     }
 }
 
