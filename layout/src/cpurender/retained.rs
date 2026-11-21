@@ -267,6 +267,7 @@ impl RetainedFrames {
             return 0;
         };
         inner.outbox.clear();
+        inner.clock += 1;
         let before = inner.entries.len();
         inner.entries.retain(|entry| current.contains(&entry.key.list));
         let dropped = before - inner.entries.len();
@@ -281,7 +282,12 @@ impl RetainedFrames {
     /// reads) was painted: the composite may read it. `None` is a miss: the frame is painted.
     pub(crate) fn lookup(&self, key: &SurfaceKey, needed: [i32; 4]) -> Option<Arc<AzulPixmap>> {
         let mut inner = self.inner.lock().ok()?;
-        inner.clock += 1;
+        // The FRAME's stamp ([`Self::begin_frame`] advances the clock), not one per lookup:
+        // band threads look up in no fixed order, and a stamp per lookup made "used longest
+        // ago" - which surface makes room at the next commit - depend on which band came
+        // last (A2-cpu-R07: no pixel, but the hit and miss counters of later frames). Two
+        // surfaces used by one frame tie, and the tie falls to the first entry, whose order
+        // `commit` fixes.
         let clock = inner.clock;
         let entry = inner.entries.iter_mut().find(|entry| entry.key == *key)?;
         if !covers(&entry.valid, needed) {
@@ -546,6 +552,8 @@ mod tests {
         }
         cache.commit();
         assert_eq!(cache.len(), 2);
+        // The next frame (a use is stamped with its frame, A2-cpu-R07).
+        assert_eq!(cache.begin_frame(&[Arc::as_ptr(&list) as usize]), 0);
         assert!(cache.lookup(&keys[0], whole).is_some(), "used now: the other one is the oldest");
         cache.offer(keys[2], Arc::clone(&list), surface(whole, 9), whole, PLACED);
         cache.commit();
@@ -601,5 +609,35 @@ mod tests {
         // 4K at a scale factor of 2: one fits; a surface over the bound for one does not.
         assert!(cache.can_keep((7680 + 1024) * (4320 + 1024) * 4));
         assert!(!cache.can_keep(DEFAULT_MAX_BYTES + 1));
+    }
+
+    /// A2-cpu-R07: which surface makes room does not depend on the order in which the bands
+    /// of a frame looked up. Two surfaces are kept (frame 1); frame 2 uses both - once in the
+    /// order A, B and once in the order B, A - and paints a third: in both orders the same one
+    /// makes room, the first entry (A), because a use is stamped with its FRAME.
+    /// Mutation: the clock advanced per lookup makes room with B when A was looked up last.
+    #[test]
+    fn which_surface_makes_room_does_not_depend_on_the_order_of_a_frames_lookups() {
+        let whole = [0, 0, 40, 30];
+        let list = Arc::new(DisplayList::default());
+        let current = [Arc::as_ptr(&list) as usize];
+        let keys: Vec<SurfaceKey> = (0..3).map(|push| key(&list, push, 1)).collect();
+        let kept_after = |order: [usize; 2]| {
+            let cache = RetainedFrames::with_max_bytes(1 << 20);
+            cache.begin_frame(&current);
+            for k in &keys[..2] {
+                cache.offer(*k, Arc::clone(&list), surface(whole, 9), whole, PLACED);
+            }
+            cache.commit();
+            cache.begin_frame(&current);
+            for at in order {
+                assert!(cache.lookup(&keys[at], whole).is_some());
+            }
+            cache.offer(keys[2], Arc::clone(&list), surface(whole, 9), whole, PLACED);
+            cache.commit();
+            [0, 1, 2].map(|at| cache.lookup(&keys[at], whole).is_some())
+        };
+        assert_eq!(kept_after([0, 1]), kept_after([1, 0]));
+        assert_eq!(kept_after([1, 0]), [false, true, true], "the first entry makes room");
     }
 }
