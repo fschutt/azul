@@ -253,7 +253,10 @@ pub(super) fn layout_cell_for_height<T: ParsedFontTrait>(
             column_flow: None,
         };
 
-        let mut temp_positions: super::super::PositionVec = Vec::new();
+        // Lent by the pass and given back below (`BfcPassMemo`): a vector
+        // of its own was filled up to the cell's index in the tree, per cell.
+        let mut temp_positions: super::super::PositionVec =
+            ctx.pass_memo.bfc.lend(tree.nodes.len());
         let mut temp_scrollbar_reflow = false;
         let mut temp_float_cache = HashMap::new();
 
@@ -272,7 +275,7 @@ pub(super) fn layout_cell_for_height<T: ParsedFontTrait>(
             }
         }
 
-        crate::solver3::cache::calculate_layout_for_subtree(
+        let laid_out = crate::solver3::cache::calculate_layout_for_subtree(
             ctx,
             tree,
             text_cache,
@@ -287,7 +290,9 @@ pub(super) fn layout_cell_for_height<T: ParsedFontTrait>(
             &mut temp_float_cache,
             // PerformLayout: final table cell layout with definite width
             crate::solver3::cache::ComputeMode::PerformLayout,
-        )?;
+        );
+        ctx.pass_memo.bfc.take_back(temp_positions, tree, &[cell_index]);
+        laid_out?;
 
         // The CONTENT box's height, like the text branch's: the sum below
         // adds the padding and border. It is the extent of the layout just
@@ -1065,9 +1070,15 @@ pub(super) fn position_table_cells<T: ParsedFontTrait>(
                         })
                         .collect();
 
+                    // The overflow info of the lines as they were laid out
+                    // (`CachedInlineLayout::overflow`, captured when the
+                    // layout was stored), not `layout.overflow`: a retired
+                    // layout's `layout` is the empty sentinel, whose overflow
+                    // info is the default - the moved cell lost the bounds of
+                    // its lines and its `line-clamp` mark.
                     let adjusted_layout = UnifiedLayout {
                         items: adjusted_items,
-                        overflow: cached_layout.layout.overflow.clone(),
+                        overflow: cached_layout.overflow.clone(),
                     };
 
                     // Keep the same constraint type from the cached layout

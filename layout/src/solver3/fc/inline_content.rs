@@ -89,7 +89,9 @@ pub(super) fn collect_and_measure_inline_content<T: ParsedFontTrait>(
 
     let mut content = Vec::new();
     let mut child_map = HashMap::new();
-    collect_and_measure_inline_content_impl(
+    #[cfg(test)]
+    let probes_before = IFC_CHILD_PROBES.with(core::cell::Cell::get);
+    let collected = collect_and_measure_inline_content_impl(
         ctx,
         text_cache,
         tree,
@@ -97,7 +99,15 @@ pub(super) fn collect_and_measure_inline_content<T: ParsedFontTrait>(
         constraints,
         &mut content,
         &mut child_map,
-    )?;
+    );
+    #[cfg(test)]
+    IFC_CHILD_PROBES_MOST.with(|most| {
+        let probes = IFC_CHILD_PROBES
+            .with(core::cell::Cell::get)
+            .saturating_sub(probes_before);
+        most.set(most.get().max(probes));
+    });
+    collected?;
 
     // CSS Text Decoration 3 §2.1: the decorations of the boxes around this
     // context reach all of its text. A run is styled by its own node, and
@@ -173,6 +183,66 @@ pub(super) fn slice_inline_content_by_bytes(
         }
     }
     out
+}
+
+/// How many layout children [`collect_and_measure_inline_content_impl`] looked
+/// at on this thread to find the boxes of an inline formatting context's DOM
+/// children (`audit_tests::a3_solver`: n log n for a root of n elements, not
+/// n * n).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_CHILD_PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The most [`IFC_CHILD_PROBES`] one collection of an inline formatting
+/// context took on this thread, the collections nested in it included
+/// (`audit_tests::a3_solver`: a sweep compares one collection of a paragraph
+/// with one, however often the page was laid out).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static IFC_CHILD_PROBES_MOST: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The layout children of one box that are the box of a DOM node, listed by
+/// that node: where the collection of an inline box
+/// ([`collect_inline_span_recursive`]) and of an anonymous wrapper find the
+/// box of a DOM node without a scan of the layout children per node - the
+/// list the root's own loop keeps inline (`children_by_dom`).
+struct BoxesByDom(Vec<(NodeId, usize)>);
+
+impl BoxesByDom {
+    /// Lists `children`, the layout children of a box in child order.
+    fn of(tree: &LayoutTree, children: &[usize]) -> Self {
+        let mut by_dom: Vec<(NodeId, usize)> = children
+            .iter()
+            .filter_map(|&idx| {
+                #[cfg(test)]
+                IFC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+                tree.get(LayoutNodeId::new(idx))
+                    .and_then(|n| n.dom_node_id)
+                    .map(|id| (id, idx))
+            })
+            .collect();
+        // A stable sort: of two boxes of one DOM node the first in child
+        // order stays first, the one a scan finds.
+        by_dom.sort_by_key(|&(id, _)| id);
+        Self(by_dom)
+    }
+
+    /// The first of the listed children, in child order, that is a box of
+    /// `dom_id`: what a scan of them from the first one finds
+    /// (`children.iter().find(..)`).
+    fn first_box_of(&self, dom_id: NodeId) -> Option<usize> {
+        let at = self.0.partition_point(|&(id, _)| {
+            #[cfg(test)]
+            IFC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+            id < dom_id
+        });
+        self.0
+            .get(at)
+            .filter(|&&(id, _)| id == dom_id)
+            .map(|&(_, idx)| idx)
+    }
 }
 
 #[allow(clippy::cast_possible_truncation)] // bounded graphics/coord/font/fixed-point/debug-marker cast
@@ -313,6 +383,9 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     // For anonymous IFC wrappers, we collect content from layout tree children
     // For regular IFC roots, we also check DOM children for text nodes
     if is_anonymous {
+        // The wrapper's layout children by DOM node, listed by the first
+        // inline box that asks for its own box.
+        let mut boxes_by_dom: Option<BoxesByDom> = None;
         // Anonymous IFC wrapper - iterate over layout tree children and collect their content
         for (item_idx, &child_index) in children.iter().enumerate() {
             let content_index = ContentIndex {
@@ -426,6 +499,12 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 if let Some(chain) = split_chain.clone() {
                     span_style.inline_boxes = chain;
                 }
+                // The span's own box: the first of the wrapper's children
+                // that is a box of its DOM node (this child, or an earlier
+                // box of the same node).
+                let span_index = boxes_by_dom
+                    .get_or_insert_with(|| BoxesByDom::of(tree, &children))
+                    .first_box_of(dom_id);
                 collect_inline_span_recursive(
                     ctx,
                     text_cache,
@@ -435,6 +514,7 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                     content,
                     child_map,
                     &children,
+                    span_index,
                     constraints,
                 )?;
             } else {
@@ -542,6 +622,9 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
     #[cfg(not(feature = "web_lift"))]
     let dom_children_len = dom_children.len();
 
+    // The root's layout children that are a box of a DOM node, sorted by that
+    // node (see the lookup in the loop).
+    let mut children_by_dom: Option<Vec<(NodeId, usize)>> = None;
     for item_idx in 0..dom_children_len {
         let dom_child_id = unsafe { *dom_children.get_unchecked(item_idx) };
         let content_index = ContentIndex {
@@ -632,15 +715,43 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
             continue;
         }
 
-        // For non-text nodes, find their corresponding layout tree node
-        let child_index = children
-            .iter()
-            .find(|&&idx| {
-                tree.get(LayoutNodeId::new(idx))
-                    .and_then(|n| n.dom_node_id)
-                    .is_some_and(|id| id == dom_child_id)
-            })
-            .copied();
+        // For non-text nodes, find their corresponding layout tree node: the
+        // first layout child of the root that is a box of this DOM node.
+        //
+        // Looked up in a list of the root's layout children sorted by DOM
+        // node, made by the first DOM child that asks. It was a scan of the
+        // layout children from the first one for every DOM child
+        // (`children.iter().find(..)`): the i-th element was found after i
+        // steps, so a root of n elements - a map's layer of n absolutely
+        // positioned spans, which are skipped just below - took n * n / 2
+        // steps to collect (72 million at 12,000).
+        let child_index = {
+            let by_dom = children_by_dom.get_or_insert_with(|| {
+                let mut by_dom: Vec<(NodeId, usize)> = children
+                    .iter()
+                    .filter_map(|&idx| {
+                        #[cfg(test)]
+                        IFC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+                        tree.get(LayoutNodeId::new(idx))
+                            .and_then(|n| n.dom_node_id)
+                            .map(|id| (id, idx))
+                    })
+                    .collect();
+                // A stable sort: of two boxes of one DOM node the first in
+                // child order stays first, the one a scan finds.
+                by_dom.sort_by_key(|&(id, _)| id);
+                by_dom
+            });
+            let at = by_dom.partition_point(|&(id, _)| {
+                #[cfg(test)]
+                IFC_CHILD_PROBES.with(|n| n.set(n.get() + 1));
+                id < dom_child_id
+            });
+            by_dom
+                .get(at)
+                .filter(|&&(id, _)| id == dom_child_id)
+                .map(|&(_, idx)| idx)
+        };
 
         let Some(child_index) = child_index else {
             debug_info!(
@@ -720,6 +831,8 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 ctx.system_style.as_ref(),
                 PhysicalSize::new(ctx.viewport_size.width, ctx.viewport_size.height),
             );
+            // `child_index` is the span's own box: the first of the root's
+            // layout children that is a box of its DOM node (found above).
             collect_inline_span_recursive(
                 ctx,
                 text_cache,
@@ -729,6 +842,7 @@ pub(super) fn collect_and_measure_inline_content_impl<T: ParsedFontTrait>(
                 content,
                 child_map,
                 &children,
+                Some(child_index),
                 constraints,
             )?;
         }
@@ -938,6 +1052,12 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
     // The layout children of the box this span sits in (the IFC root's, or
     // the enclosing span's); the span's own box is one of them.
     parent_children: &[usize],
+    // The span's own box: the FIRST of `parent_children`, in child order,
+    // that is a box of `span_dom_id`; `None` when none of them is. Every
+    // caller has looked it up already (it was looked up again here, with a
+    // scan of `parent_children` from the first one: the i-th inline box of a
+    // paragraph after i steps, s * s / 2 for a paragraph of s).
+    span_index: Option<usize>,
     constraints: &LayoutConstraints<'_>,
 ) -> Result<()> {
     debug_info!(
@@ -1126,17 +1246,13 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
     // looking it up among the root's children (`parent_children`) never found
     // it, and an inline-block in a span was dropped from the line. A span the
     // tree has no node for keeps looking where its parent looked.
-    let span_layout_children: Vec<usize> = parent_children
-        .iter()
-        .find(|&&idx| {
-            tree.get(LayoutNodeId::new(idx))
-                .and_then(|n| n.dom_node_id)
-                .is_some_and(|id| id == span_dom_id)
-        })
-        .map_or_else(
-            || parent_children.to_vec(),
-            |&span_index| tree.children(span_index).to_vec(),
-        );
+    let span_layout_children: Vec<usize> = span_index.map_or_else(
+        || parent_children.to_vec(),
+        |span_index| tree.children(span_index).to_vec(),
+    );
+    // Those children by DOM node, listed by the first element child that
+    // asks for its box (a span of text alone never does).
+    let mut span_boxes_by_dom: Option<BoxesByDom> = None;
 
     // What a box nested in this span aligns by (`nested_vertical_align`):
     // the span's alignment folded with its own. The font size this span's
@@ -1213,15 +1329,12 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
             continue;
         }
 
-        // Find the corresponding layout tree node: a layout child of the span.
-        let child_index = span_layout_children
-            .iter()
-            .find(|&&idx| {
-                tree.get(LayoutNodeId::new(idx))
-                    .and_then(|n| n.dom_node_id)
-                    .is_some_and(|id| id == child_dom_id)
-            })
-            .copied();
+        // Find the corresponding layout tree node: a layout child of the
+        // span, the first that is a box of this DOM node. (It was a scan of
+        // the span's layout children per element child.)
+        let child_index = span_boxes_by_dom
+            .get_or_insert_with(|| BoxesByDom::of(tree, &span_layout_children))
+            .first_box_of(child_dom_id);
 
         match child_display {
             // An `<img>` is a replaced box, not an inline span: the IFC
@@ -1275,6 +1388,7 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     content,
                     child_map,
                     &span_layout_children,
+                    child_index,
                     constraints,
                 )?;
             }
@@ -1351,6 +1465,7 @@ pub(super) fn collect_inline_span_recursive<T: ParsedFontTrait>(
                     content,
                     child_map,
                     &span_layout_children,
+                    child_index,
                     constraints,
                 )?;
             }
