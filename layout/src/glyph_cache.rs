@@ -362,6 +362,47 @@ impl GlyphCache {
         })
     }
 
+    /// [`Self::get_or_build`] for a glyph its caller has not decoded: `decode`
+    /// runs only when neither generation holds the path, so a run drawn
+    /// before decodes nothing. `None` when `decode` gives no glyph (nothing
+    /// is cached then, as when the caller skipped such a glyph before calling
+    /// `get_or_build`) or the glyph has no outline.
+    ///
+    /// The renderers called `ParsedFont::get_or_decode_glyph` for every glyph
+    /// of every run on every repaint only to pass it here, where a hit never
+    /// reads it: a clock read, an atomic store, a read lock, a map lookup and
+    /// an `Arc` clone and drop per glyph, on cache lines every thread drawing
+    /// text shares.
+    pub fn get_or_build_decoding(
+        &mut self,
+        font_hash: u64,
+        glyph_id: u16,
+        parsed_font: &ParsedFont,
+        ppem: u16,
+        decode: impl FnOnce() -> Option<std::sync::Arc<OwnedGlyph>>,
+    ) -> Option<CachedGlyph<'_>> {
+        let key = GlyphPathKey {
+            font_hash,
+            glyph_id,
+            ppem,
+        };
+        if !self.paths.contains_key(&key) {
+            if let Some(v) = self.paths_prev.remove(&key) {
+                self.paths.insert(key, v);
+            } else {
+                let glyph = decode()?;
+                return self.get_or_build(font_hash, glyph_id, &glyph, parsed_font, ppem);
+            }
+        }
+        self.paths
+            .get(&key)?
+            .as_ref()
+            .map(|(path, is_hinted)| CachedGlyph {
+                path,
+                is_hinted: *is_hinted,
+            })
+    }
+
     /// For a `key` the young cell map does NOT hold: promote it from the
     /// previous generation if it is there (`true`: nothing to build), and
     /// otherwise rotate when the young map is full (`false`: the caller builds
@@ -2110,5 +2151,65 @@ mod audit_a8_tests {
         cache.gc();
         let _ = cache.get_or_build_cells(100, 0, 16, 0.0, 0.0, 1.0, false, 1.0);
         assert_eq!(cache.cells_built(), built + 1, "gone from both generations: built again");
+    }
+
+    /// `get_or_build_decoding` for `gid` of `font`, counting the decodes in `decodes`;
+    /// `(is_hinted, vertex count)` of the path it hands back.
+    fn path_decoding(
+        cache: &mut GlyphCache,
+        font: &ParsedFont,
+        gid: u16,
+        decodes: &core::cell::Cell<u32>,
+    ) -> Option<(bool, usize)> {
+        cache
+            .get_or_build_decoding(7, gid, font, 0, || {
+                decodes.set(decodes.get() + 1);
+                font.get_or_decode_glyph(gid)
+            })
+            .map(|c| (c.is_hinted, c.path.vertices().len()))
+    }
+
+    /// A8-03: a path the cache holds is handed back without decoding the
+    /// glyph, and it is the path `get_or_build` builds from the decoded glyph.
+    /// Mutant: call `decode()` before the `contains_key` check and the second
+    /// lookup decodes again.
+    #[test]
+    fn a_cached_path_is_found_without_decoding_its_glyph() {
+        let font = ParsedFont::from_bytes(crate::text3::mock_fonts::MOCK_MONO_TTF, 0, &mut Vec::new())
+            .expect("the mock font parses");
+        let gid = font.lookup_glyph_index('A' as u32).expect("the mock font maps 'A'");
+        let glyph = font.get_or_decode_glyph(gid).expect("'A' decodes");
+        let want = GlyphCache::new()
+            .get_or_build(7, gid, &glyph, &font, 0)
+            .map(|c| (c.is_hinted, c.path.vertices().len()));
+
+        let mut cache = GlyphCache::new();
+        let decodes = core::cell::Cell::new(0);
+        assert_eq!(path_decoding(&mut cache, &font, gid, &decodes), want);
+        assert_eq!(decodes.get(), 1, "the first lookup decodes");
+        for _ in 0..3 {
+            assert_eq!(path_decoding(&mut cache, &font, gid, &decodes), want);
+        }
+        assert_eq!(decodes.get(), 1, "a kept path decodes nothing");
+        assert_eq!(cache.paths_len(), 1);
+    }
+
+    /// A8-03: a glyph that does not decode caches nothing, as when the
+    /// renderers skipped it before asking for its path.
+    #[test]
+    fn a_glyph_that_does_not_decode_caches_no_path() {
+        let font = ParsedFont::from_bytes(crate::text3::mock_fonts::MOCK_MONO_TTF, 0, &mut Vec::new())
+            .expect("the mock font parses");
+        let mut cache = GlyphCache::new();
+        let decodes = core::cell::Cell::new(0);
+        for _ in 0..2 {
+            let got = cache.get_or_build_decoding(7, 3, &font, 0, || {
+                decodes.set(decodes.get() + 1);
+                None
+            });
+            assert!(got.is_none());
+        }
+        assert_eq!(decodes.get(), 2, "nothing was kept, so each lookup asks again");
+        assert_eq!(cache.paths_len(), 0);
     }
 }

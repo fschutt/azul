@@ -1959,6 +1959,14 @@ pub mod parsed {
             self.last_used.load(std::sync::atomic::Ordering::Relaxed)
         }
 
+        /// Stamps this face as used now, as [`Self::get_or_decode_glyph`]
+        /// does: for a renderer that draws a run from cached glyph paths
+        /// without decoding any of its glyphs, once per run.
+        pub fn touch(&self) {
+            self.last_used
+                .store(monotonic_now_nanos(), std::sync::atomic::Ordering::Relaxed);
+        }
+
         /// Drop the cached `LocaGlyf` for this face if it's
         /// `Deferred`-with-bytes-retained — so the next
         /// [`get_or_decode_glyph`] re-parses from `bytes`. No-op for
