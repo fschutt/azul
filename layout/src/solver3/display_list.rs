@@ -3780,6 +3780,10 @@ pub(crate) struct FrameIndex {
     /// By the index of a frame's push, for the frames that hold frames: what the frame paints
     /// itself and the frames directly inside it ([`FrameIndex::extent_with`]).
     nesting: std::collections::HashMap<usize, FrameNest>,
+    /// By the index of a `PushOpacity`, for the groups whose content paints past the group's
+    /// own box: the box united with what the items down to the pop paint
+    /// ([`FrameIndex::opacity_extent`]).
+    opacity_extents: std::collections::HashMap<usize, LogicalRect>,
 }
 
 /// A frame that holds frames: `own` is its box and what its own items paint (not what is
@@ -3822,6 +3826,10 @@ impl FrameIndex {
         let mut frames: Vec<FrameEntry> = Vec::new();
         let mut inner: std::collections::HashMap<usize, FrameInner> = std::collections::HashMap::new();
         let mut nesting: std::collections::HashMap<usize, FrameNest> = std::collections::HashMap::new();
+        // The opacity groups open at the item: (push, the group's box, what its items paint).
+        let mut fading: Vec<(usize, LogicalRect, GroupBounds)> = Vec::new();
+        let mut opacity_extents: std::collections::HashMap<usize, LogicalRect> =
+            std::collections::HashMap::new();
         // The scopes open at the item, outermost first: a frame is self-contained when the
         // scopes opened inside it are closed inside it, innermost first.
         let mut scopes: Vec<ScopeKind> = Vec::new();
@@ -3884,6 +3892,27 @@ impl FrameIndex {
                 for frame in &mut open {
                     frame.has_text = true;
                 }
+            }
+            // What each open opacity group paints (A2-gpu-06: a group fades all of it, not only
+            // what lies in its node's box).
+            if let DisplayListItem::PopOpacity = item {
+                if let Some((push, group_box, bounds)) = fading.pop() {
+                    if let Some(content) = bounds.finish() {
+                        let extent = rect_union(group_box, content);
+                        if extent != group_box {
+                            opacity_extents.insert(push, extent);
+                        }
+                    }
+                }
+            }
+            if !fading.is_empty() {
+                let visual = GroupBounds::visual_of(item);
+                for (_, _, bounds) in &mut fading {
+                    bounds.step(item, visual);
+                }
+            }
+            if let DisplayListItem::PushOpacity { bounds, .. } = item {
+                fading.push((i, *bounds.inner(), GroupBounds::default()));
             }
             // What the open frames' pictures depend on besides their items.
             if !open.is_empty() {
@@ -4044,6 +4073,7 @@ impl FrameIndex {
             opaque_fill_frames,
             inner,
             nesting,
+            opacity_extents,
         }
     }
 
@@ -4164,6 +4194,14 @@ impl FrameIndex {
             );
         }
         Some(extent)
+    }
+
+    /// What the opacity group pushed at `push` paints when that is more than the group's own
+    /// box: the box united with the visual bounds of its items (shadows and overflowing
+    /// children included), in list space. `None`: the box is all of it. Content inside a
+    /// reference frame of the group is counted where it is laid out.
+    pub(crate) fn opacity_extent(&self, push: usize) -> Option<LogicalRect> {
+        self.opacity_extents.get(&push).copied()
     }
 
     /// What the picture of the frame pushed at `push` depends on besides its items; `None`

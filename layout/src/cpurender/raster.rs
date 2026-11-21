@@ -2875,10 +2875,17 @@ pub(crate) fn walk_range(
             alloc::borrow::Cow::Borrowed(item)
         };
         let item = &*bound_item;
+        // What the item's scope paints: a frame's extent, or an opacity group's when its
+        // content paints past its box.
+        let scope_extent = frame.map(|f| f.extent).or_else(|| {
+            matches!(item, DisplayListItem::PushOpacity { .. })
+                .then(|| frames.get_or_insert_with(|| list.frame_index()).opacity_extent(item_idx))
+                .flatten()
+        });
         render_single_item(
             item,
             list.uniform_text_bgs.get(item_idx).copied().flatten(),
-            frame.map(|f| f.extent),
+            scope_extent,
             pixmap,
             dpi_factor,
             renderer_resources,
@@ -5310,8 +5317,11 @@ pub fn render_single_item(
             // pushed nothing before, and its pop then took the entry of the
             // frame around it (a translated box: every later item painted
             // moved by it).
+            // All of what the group paints, not only its node's box (`frame_extent` carries
+            // the group's extent when its content paints past the box: A2-gpu-06, a child
+            // that overflows a fading box, or its shadow, was painted at full strength).
             let rect = opacity_group_region(
-                &scroll_rect(bounds.inner()),
+                &scroll_rect(&frame_extent.unwrap_or_else(|| *bounds.inner())),
                 clip_stack.last().copied().flatten(),
                 dpi_factor,
             );
@@ -17789,5 +17799,44 @@ mod audit_a1_tests {
         restore_shadow_cache(shared);
         assert_eq!((kept(71), kept(72)), (Some(3), Some(5)), "back, with what the band kept");
         assert_eq!(with_shadow_cache(|c| c.2), 32, "and the bytes of both");
+    }
+
+    /// A2-gpu-06: an opacity group fades everything it paints, not only what lies in its
+    /// node's box. A half-opaque group with the box (10, 10) 40 x 40 and a green fill
+    /// (10, 10) 100 x 40 that overflows it to x = 110: inside the box and past it the fill is
+    /// half green over white, (128, 255, 128); past the box it used to be painted in full.
+    /// Mutation: the group's region taken from its box paints (0, 255, 0) at x = 80.
+    #[test]
+    fn an_opacity_group_fades_what_overflows_its_box() {
+        let dl = list(vec![
+            DisplayListItem::PushOpacity {
+                bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                opacity: 0.5,
+                opacity_key: None,
+                mix_blend_mode: Default::default(),
+            },
+            fill(10.0, 10.0, 100.0, 40.0, [0, 255, 0]),
+            DisplayListItem::PopOpacity,
+        ]);
+        assert_eq!(dl.frame_index().opacity_extent(0), Some(rect(10.0, 10.0, 100.0, 40.0)));
+        let state = CpuRenderState::new(ScrollOffsetMap::new());
+        let (painted, _) = full(&dl, &state, (150, 80));
+        for x in [20, 80, 105] {
+            let [r, g, b, a] = px(&painted, x, 30);
+            assert!((120..=136).contains(&r) && g == 255 && (120..=136).contains(&b) && a == 255, "x = {x}: half green over white, got {:?}", [r, g, b, a]);
+        }
+        assert_eq!(px(&painted, 115, 30), [255, 255, 255, 255], "past the fill");
+        // A group whose content stays in its box keeps no extent of its own.
+        let inside = list(vec![
+            DisplayListItem::PushOpacity {
+                bounds: wrect(10.0, 10.0, 40.0, 40.0),
+                opacity: 0.5,
+                opacity_key: None,
+                mix_blend_mode: Default::default(),
+            },
+            fill(15.0, 15.0, 20.0, 20.0, [0, 255, 0]),
+            DisplayListItem::PopOpacity,
+        ]);
+        assert_eq!(inside.frame_index().opacity_extent(0), None);
     }
 }

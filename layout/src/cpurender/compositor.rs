@@ -2990,7 +2990,9 @@ pub fn gpu_value_damage(
                 // unlike a moved reference frame whose content extent is
                 // unknowable from the item.
                 if changed_o.contains(&k.id) {
-                    both(&mut out, moved_by(*bounds.inner(), scrolled), &frames_old, &frames_new);
+                    // All of what the group paints fades (A2-gpu-06), not only its box.
+                    let faded = index.opacity_extent(idx).unwrap_or_else(|| *bounds.inner());
+                    both(&mut out, moved_by(faded, scrolled), &frames_old, &frames_new);
                 }
             }
             _ => {}
