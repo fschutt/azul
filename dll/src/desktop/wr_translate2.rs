@@ -2120,7 +2120,7 @@ pub fn generate_frame(
             LogCategory::Rendering,
             "[generate_frame] Display list unchanged - skipping scene builder"
         );
-        txn.skip_scene_builder();
+        let _ = skip_scene_builder_unless_it_carries_resources(txn);
     }
 
     // CRITICAL: Set root pipeline AFTER display list (matching upstream WebRender order)
@@ -3291,10 +3291,15 @@ pub fn build_image_only_transaction(
     // loop asking for them): this one scans again and draws the next ones, and the
     // lists that name them are translated again below (the halos drawn so far are
     // part of what a translation is made against, `translation_env`).
+    let resources_before_the_scan = txn.resource_updates.len();
     if layout_window.gpu_state_manager.halos_owed {
         let _timed = gpu_time(GpuTime::Resources);
         register_image_resources(layout_window, txn);
     }
+    // What that scan put into the transaction is already recorded as
+    // registered (`currently_registered_images`): the transaction has to
+    // reach the renderer, whatever else it carries.
+    let scan_registered_images = txn.resource_updates.len() != resources_before_the_scan;
 
     // Step 2: Skip scene builder (display lists haven't changed) - unless a
     // slot got its key in this transaction (the display list WebRender holds
@@ -3322,7 +3327,7 @@ pub fn build_image_only_transaction(
         set_display_lists(txn, layout_window, overlay.new_slot || textures.new_slot)?;
         layout_window.epoch.increment();
     } else {
-        txn.skip_scene_builder();
+        let _ = skip_scene_builder_unless_it_carries_resources(txn);
     }
 
     // Step 3: Add scroll offsets (scroll position may have changed)
@@ -3388,7 +3393,11 @@ pub fn build_image_only_transaction(
     // (the caret's blink, a halo that was drawn) alters no property value, scroll
     // offset or image, and sent without a frame it was dropped with the rest of the
     // idle pass - the renderer never drew it, while the lists were recorded as sent.
-    let changed = images_changed || scroll_changed || gpu_values_changed || lists_sent;
+    let changed = images_changed
+        || scroll_changed
+        || gpu_values_changed
+        || lists_sent
+        || scan_registered_images;
     if changed {
         txn.generate_frame(0, webrender::api::RenderReasons::empty());
         gpu_frame_requested();
@@ -3409,6 +3418,30 @@ pub fn build_image_only_transaction(
     );
 
     Ok(LightweightFrame { changed })
+}
+
+/// A transaction without a display list may skip the scene builder thread
+/// and go straight to the render backend - unless it carries resource
+/// updates. Returns whether it skips.
+///
+/// A transaction that skips "can race ahead of transactions that don't"
+/// (`Transaction::skip_scene_builder`): an `update_image` sent directly could
+/// reach the render backend before the `add_image` of the same key that is
+/// still on its way through the scene builder, and the backend panics on an
+/// update of an image it does not hold (`ResourceCache::update_image_template`).
+/// Today every shell waits for both threads after every send
+/// (`flush_scene_builder`), which hides the race; with this rule every
+/// transaction that adds, updates or deletes a resource takes the same queue,
+/// so add-before-update holds by construction, flush or no flush (audit
+/// A4-24, A5's H8). A transaction with resources and no list costs the scene
+/// builder nothing but the hop: it builds a scene only for a display list.
+fn skip_scene_builder_unless_it_carries_resources(txn: &mut WrTransaction) -> bool {
+    if txn.resource_updates.is_empty() {
+        txn.skip_scene_builder();
+        true
+    } else {
+        false
+    }
 }
 
 /// Every GL texture a display list of the window draws is stamped with the
@@ -4350,6 +4383,24 @@ mod audit_a4_tests {
         )
         .expect("the window lays out");
         lw
+    }
+
+    /// A4-24. Only a transaction without resource updates goes straight to the
+    /// render backend: one that deletes (adds, updates) an image takes the scene
+    /// builder's queue like the transaction that added it.
+    /// Mutation: skipping unconditionally returns `true` for the second.
+    #[test]
+    fn a_transaction_with_resource_updates_does_not_skip_the_scene_builder() {
+        let mut plain = WrTransaction::new();
+        assert!(super::skip_scene_builder_unless_it_carries_resources(&mut plain));
+
+        let mut with_resources = WrTransaction::new();
+        with_resources.update_resources(vec![webrender::ResourceUpdate::DeleteImage(
+            webrender::api::ImageKey(webrender::api::IdNamespace(1), 7),
+        )]);
+        assert!(!super::skip_scene_builder_unless_it_carries_resources(
+            &mut with_resources
+        ));
     }
 
     #[test]
