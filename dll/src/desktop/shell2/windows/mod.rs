@@ -4907,7 +4907,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5147,7 +5148,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5239,7 +5241,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5296,7 +5299,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5346,7 +5350,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
 
             // Update hit test (GPU mode only — CPU mode handled above)
@@ -5661,7 +5666,8 @@ unsafe extern "system" fn window_proc(
             // CPU fallback, with a parallel WebRender path below for GPU mode;
             // the two disagreed on coordinate space, so which node a click
             // resolved to depended on the renderer.
-            PlatformWindow::update_hit_test_at(&mut *window, logical_pos);
+            // ONE hit test, pushed once below (A6-10: `update_hit_test_at` as
+            // well pushed a second, identical frame: no hover change to see).
             let hit_test = window.common.perform_hit_test(logical_pos);
             if let Some(ref mut layout_window) = window.common.layout_window {
                 {
