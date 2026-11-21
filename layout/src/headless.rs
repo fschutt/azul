@@ -3703,16 +3703,28 @@ pub fn convert_cpu_hit_test_to_full(
             cursor_hit_test_nodes: BTreeMap::new(),
         });
 
-        hit_test.regular_hit_test_nodes.insert(
-            *node_id,
-            HitTestItem {
+        // THE FRONT-MOST ENTRY OF A NODE IS THE NODE'S HIT. `hits` runs front to
+        // back, and a node can be in it more than once (two boxes of one DOM
+        // node: an absolutely placed span with text has two; an inline
+        // element's fragments). `insert` let the LAST entry - the deepest -
+        // overwrite the first: a node painted on top of another box and once
+        // more under it got the depth of its lower box, and the box between
+        // the two became the front-most hit. A map label's span over the
+        // editor's hover highlight was `[span, highlight, span, ground]`:
+        // depths span 2, highlight 1, so a press on a hovered label went to
+        // the highlight and selected nothing. The point kept is the front-most
+        // box's too.
+        if let std::collections::btree_map::Entry::Vacant(slot) =
+            hit_test.regular_hit_test_nodes.entry(*node_id)
+        {
+            slot.insert(HitTestItem {
                 point_in_viewport: cursor_position,
                 point_relative_to_item: point_relative,
                 is_focusable: false,
                 is_virtual_view_hit: None,
                 hit_depth: depth as u32,
-            },
-        );
+            });
+        }
     }
 
     // The frames the box under the pointer is painted in (its chain) and the
@@ -4564,6 +4576,49 @@ mod autotest_generated {
         // Outside the page, only the host - and it is then the front-most.
         let outside = tester.hit_test(p(20.0, 20.0));
         assert_eq!(outside, vec![(dom(0), NodeId::new(1))]);
+    }
+
+    /// A node that is hit twice (two boxes of one DOM node) keeps the depth of
+    /// its FRONT-MOST box. The list is the one the map editor's view answered
+    /// at a press on a hovered label, `[(1, 26), (1, 13), (1, 26), (1, 1)]`:
+    /// the label's span (26), the hover highlight under it (13), the span's
+    /// second box, the ground (1). Mutation: `insert` instead of the vacant
+    /// entry gives the span depth 2 and the highlight is the front-most hit.
+    #[test]
+    fn a_node_hit_twice_keeps_the_depth_of_its_front_most_box() {
+        let tester = CpuHitTester::new();
+        let results = BTreeMap::new();
+        let at = p(700.0, 450.0);
+        let (span, highlight, ground) = (NodeId::new(26), NodeId::new(13), NodeId::new(1));
+        let hits = vec![
+            (dom(1), span, p(3.0, 4.0)),
+            (dom(1), highlight, p(0.5, 0.5)),
+            (dom(1), span, p(3.0, 4.0)),
+            (dom(1), ground, p(956.0, 706.0)),
+        ];
+        let full = convert_cpu_hit_test_to_full(
+            &tester,
+            &hits,
+            None,
+            &results,
+            at,
+            &|_, _| None,
+            &|_, _| None,
+        );
+        let nodes = &full.hovered_nodes[&dom(1)].regular_hit_test_nodes;
+        assert_eq!(nodes.len(), 3, "each node once");
+        assert_eq!(nodes[&span].hit_depth, 0, "the span's front-most box");
+        assert_eq!(nodes[&highlight].hit_depth, 1);
+        assert_eq!(nodes[&ground].hit_depth, 3, "depths are places in the list");
+        let front = |node: Option<azul_core::dom::DomNodeId>| {
+            node.map(|n| (n.dom, n.node.into_crate_internal()))
+        };
+        assert_eq!(
+            front(crate::managers::hover::deepest_node_across_doms(&full)),
+            Some((dom(1), Some(span))),
+            "the press goes to the span, not to the box under it"
+        );
+        assert_eq!(front(full.topmost_node()), Some((dom(1), Some(span))));
     }
 
     #[test]
