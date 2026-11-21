@@ -1190,5 +1190,6 @@ fn a_pass_for_a_paragraph_lays_out_no_interior_of_the_flex_boxes_beside_it() {
 // The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
 mod ifc;
 mod sizing;
+mod styles;
 mod taffy;
 mod widgets;
