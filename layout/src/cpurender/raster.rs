@@ -2657,6 +2657,31 @@ pub(crate) fn walk_range(
                 next = frame.end + 1;
                 continue;
             }
+            // A turned label of a view's list is drawn through its matrix: no surface, no
+            // composite (`paint_turned_text_frame`).
+            if frame.text_only
+                && matches!(cull, WalkCull::ActiveClip)
+                && text_shadow_stack.is_empty()
+                && paint_turned_text_frame(
+                    list,
+                    item,
+                    &frame,
+                    match surfaces.last_mut() {
+                        Some(surface) => surface,
+                        None => &mut *pixmap,
+                    },
+                    dpi_factor,
+                    clip_stack.last().copied().flatten(),
+                    *scroll_offset_stack.last().unwrap_or(&(0.0, 0.0)),
+                    font_manager,
+                    glyph_cache,
+                    render_state,
+                )
+            {
+                painted += 1;
+                next = frame.end + 1;
+                continue;
+            }
             // A frame whose picture is kept from an earlier frame is composited, not painted:
             // only its matrix, or the clip around it, changed.
             if let Some(retained) = render_state.retained.as_deref() {
@@ -3022,6 +3047,420 @@ fn retained_candidate(
             slot,
         },
     })
+}
+
+thread_local! {
+    /// Tests: paint turned text frames into a surface, as before they were drawn directly.
+    #[cfg(test)]
+    static TURNED_TEXT_IN_GROUPS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Are turned text frames drawn through their matrix (the default), or into a surface that is
+/// composited (`AZ_CPU_TURNED_TEXT=group`: the path before, for comparing the two)?
+fn turned_text_is_drawn_directly() -> bool {
+    #[cfg(test)]
+    if TURNED_TEXT_IN_GROUPS.with(std::cell::Cell::get) {
+        return false;
+    }
+    static DIRECT: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DIRECT.get_or_init(|| std::env::var("AZ_CPU_TURNED_TEXT").map_or(true, |v| v != "group"))
+}
+
+/// Where a reference frame's matrix puts a point of the surface the frame is painted into:
+/// `q` (device px, the place the point is painted at without the frame) lands at
+/// `o + L (q - o) + t`, with `o` the frame's origin in device px, `L = [a b; c d]` the
+/// matrix's linear part and `t` its translation in device px. The map `GroupGeometry::of`
+/// builds for a group, without the group.
+struct TurnedMap {
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
+    origin: (f64, f64),
+    moved: (f64, f64),
+}
+
+impl TurnedMap {
+    fn at(&self, qx: f64, qy: f64) -> (f64, f64) {
+        let (x, y) = (qx - self.origin.0, qy - self.origin.1);
+        (
+            self.a * x + self.b * y + self.origin.0 + self.moved.0,
+            self.c * x + self.d * y + self.origin.1 + self.moved.1,
+        )
+    }
+}
+
+/// Draws the reference frame `frame`, pushed by `item`, through its matrix, item by item,
+/// without a surface: its fills as turned quads, and each text run as two kept coverage
+/// pictures, the halo and the ink ([`turned_run_picture`]), tinted and composited. `false`,
+/// with nothing drawn, when the frame has to be a group: it is not a self-contained leaf, its
+/// matrix is the identity, a move or has a perspective part, a fill is rounded, a run's own
+/// clip cuts its ink, or a font cannot be resolved.
+///
+/// A turned label used to be a surface of its box, its text and halo painted upright into it,
+/// and a bilinear composite of that surface (a third of an identity repaint of a map with a
+/// thousand turned labels). The pictures are kept by what they show (glyphs, font, size, the
+/// matrix's linear part, the halo) and not by where the label stands: the run's first pen is
+/// rounded to a whole device pixel, so a label that moves keeps its pictures, and a repaint
+/// of a label is two tinted blits.
+///
+/// Against the group path: the same shapes within half a device pixel (the rounding of the
+/// anchor), sharper (outlines turned, not pixels resampled); a halo is no longer cut at the
+/// frame's box.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines, clippy::cast_possible_truncation)]
+fn paint_turned_text_frame(
+    list: &DisplayList,
+    item: &DisplayListItem,
+    frame: &crate::solver3::display_list::FrameEntry,
+    pixmap: &mut AzulPixmap,
+    dpi_factor: f32,
+    clip: Option<AzRect>,
+    scroll_offset: (f32, f32),
+    font_manager: &FontManager<FontRef>,
+    glyph_cache: &mut GlyphCache,
+    render_state: &CpuRenderState,
+) -> bool {
+    let DisplayListItem::PushReferenceFrame {
+        transform_key,
+        initial_transform,
+        bounds,
+    } = item
+    else {
+        return false;
+    };
+    if !turned_text_is_drawn_directly()
+        || !frame.self_contained
+        || !frame.leaf
+        || !(dpi_factor > 0.0)
+        || frame.end > list.items.len()
+    {
+        return false;
+    }
+    let m = render_state
+        .transforms
+        .get(&transform_key.id)
+        .map_or(&initial_transform.m, |t| &t.m);
+    if is_identity_2d(m)
+        || translation_2d(m).is_some()
+        || m[0][3].abs() > 1e-6
+        || m[1][3].abs() > 1e-6
+        || (m[3][3] - 1.0).abs() > 1e-6
+    {
+        return false;
+    }
+    let dpi = f64::from(dpi_factor);
+    let map = TurnedMap {
+        a: f64::from(m[0][0]),
+        b: f64::from(m[1][0]),
+        c: f64::from(m[0][1]),
+        d: f64::from(m[1][1]),
+        origin: (
+            f64::from(bounds.inner().origin.x - scroll_offset.0) * dpi,
+            f64::from(bounds.inner().origin.y - scroll_offset.1) * dpi,
+        ),
+        moved: (f64::from(m[3][0]) * dpi, f64::from(m[3][1]) * dpi),
+    };
+    let det = map.a * map.d - map.b * map.c;
+    if !det.is_finite() || det.abs() < 1e-9 || ![map.moved.0, map.moved.1].iter().all(|v| v.is_finite()) {
+        return false;
+    }
+    let grow = det.abs().sqrt();
+    let items = &list.items[frame.push + 1..frame.end];
+    // Everything in the frame can be drawn this way, or the frame is a group.
+    for it in items {
+        match it {
+            DisplayListItem::Text { font_hash, font_size_px, clip_rect, .. } => {
+                if font_manager.resolve_font_by_hash(font_hash.font_hash).is_none()
+                    || glyph_ink_reach(font_size_px * dpi_factor * grow as f32).is_none()
+                {
+                    return false;
+                }
+                if let Some(ink) = it.visual_bounds() {
+                    let c = clip_rect.inner();
+                    if ink.origin.x < c.origin.x - 0.5
+                        || ink.origin.y < c.origin.y - 0.5
+                        || ink.origin.x + ink.size.width > c.origin.x + c.size.width + 0.5
+                        || ink.origin.y + ink.size.height > c.origin.y + c.size.height + 0.5
+                    {
+                        return false;
+                    }
+                }
+            }
+            DisplayListItem::Rect { border_radius, .. } if !border_radius.is_zero() => return false,
+            _ => {}
+        }
+    }
+    let (pw, ph) = (pixmap.width as i32, pixmap.height as i32);
+    let clip_box = match clip {
+        Some(c) => {
+            let (x0, y0, x1, y1) = c.pixel_box();
+            (x0.max(0), y0.max(0), x1.min(pw), y1.min(ph))
+        }
+        None => (0, 0, pw, ph),
+    };
+    let device = |x: f32, y: f32| {
+        (
+            f64::from((x - scroll_offset.0) * dpi_factor),
+            f64::from((y - scroll_offset.1) * dpi_factor),
+        )
+    };
+    let shadow_px = |v: &azul_css::props::basic::pixel::PixelValue| {
+        v.to_pixels_internal(0.0, DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE)
+    };
+    let mut shadows: Vec<StyleBoxShadow> = Vec::new();
+    for (at, it) in items.iter().enumerate() {
+        match it {
+            DisplayListItem::PushTextShadow { shadow } => shadows.push(*shadow),
+            DisplayListItem::PopTextShadow => {
+                shadows.pop();
+            }
+            DisplayListItem::Rect { bounds, .. } => {
+                let bound = item_with_bound_color(it, list.color_binding(frame.push + 1 + at), render_state);
+                let DisplayListItem::Rect { color, .. } = &*bound else {
+                    continue;
+                };
+                if color.a == 0 {
+                    continue;
+                }
+                let r = bounds.inner();
+                let corner = |x: f32, y: f32| {
+                    let (qx, qy) = device(x, y);
+                    map.at(qx, qy)
+                };
+                let (x1, y1) = (r.origin.x + r.size.width, r.origin.y + r.size.height);
+                let mut path = PathStorage::new();
+                let (x, y) = corner(r.origin.x, r.origin.y);
+                path.move_to(x, y);
+                for (cx, cy) in [(x1, r.origin.y), (x1, y1), (r.origin.x, y1)] {
+                    let (x, y) = corner(cx, cy);
+                    path.line_to(x, y);
+                }
+                path.close_polygon(PATH_FLAGS_NONE);
+                let fill = Rgba8::new(u32::from(color.r), u32::from(color.g), u32::from(color.b), u32::from(color.a));
+                agg_fill_path_clipped(pixmap, &mut path, &fill, FillingRule::NonZero, clip);
+            }
+            DisplayListItem::Text { glyphs, font_hash, font_size_px, color, .. } => {
+                crate::cpu_counters::count(crate::cpu_counters::Counter::TextRuns, 1);
+                crate::cpu_counters::count(crate::cpu_counters::Counter::Glyphs, glyphs.len() as u64);
+                let (Some(ink), Some(first)) = (it.visual_bounds(), glyphs.first()) else {
+                    continue;
+                };
+                let run = TurnedRun { glyphs, font_hash: *font_hash, font_size_px: *font_size_px, ink };
+                // The shadows first, outermost first, then the ink: as the upright path paints.
+                let pictures = shadows
+                    .iter()
+                    .filter(|sh| sh.color.a > 0)
+                    .map(|sh| {
+                        let blur = shadow_px(&sh.blur_radius.inner).max(0.0);
+                        let halo = (
+                            shadow_blur_radius(blur, dpi_factor),
+                            shadow_spread_px(shadow_px(&sh.spread_radius.inner), dpi_factor),
+                        );
+                        ((shadow_px(&sh.offset_x.inner), shadow_px(&sh.offset_y.inner)), Some(halo), sh.color)
+                    })
+                    .chain(core::iter::once(((0.0, 0.0), None, *color)));
+                for (shift, halo, tint) in pictures {
+                    if tint.a == 0 {
+                        continue;
+                    }
+                    // The run's first pen, moved by the shadow's offset, through the matrix,
+                    // rounded to a whole device pixel: the picture's anchor.
+                    let (q0x, q0y) = device(first.point.x + shift.0, first.point.y + shift.1);
+                    let (ax, ay) = map.at(q0x, q0y);
+                    if !(ax.is_finite() && ay.is_finite() && ax.abs() < 1.0e6 && ay.abs() < 1.0e6) {
+                        continue;
+                    }
+                    let anchor = (ax.round() as i32, ay.round() as i32);
+                    let Some(picture) =
+                        turned_run_picture(&run, &map, grow, halo, dpi_factor, font_manager, glyph_cache)
+                    else {
+                        continue;
+                    };
+                    let place = (anchor.0 + picture.offset.0, anchor.1 + picture.offset.1);
+                    let (x0, y0) = (clip_box.0.max(place.0), clip_box.1.max(place.1));
+                    let x1 = clip_box.2.min(place.0 + picture.width as i32);
+                    let y1 = clip_box.3.min(place.1 + picture.height as i32);
+                    if x1 > x0 && y1 > y0 {
+                        blit_tinted_coverage(
+                            pixmap,
+                            &picture.coverage,
+                            picture.width,
+                            (x0 - place.0) as u32,
+                            (y0 - place.1) as u32,
+                            (x1 - x0) as u32,
+                            (y1 - y0) as u32,
+                            x0,
+                            y0,
+                            tint,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
+/// One text run of a turned frame.
+struct TurnedRun<'a> {
+    glyphs: &'a [GlyphInstance],
+    font_hash: FontHash,
+    font_size_px: f32,
+    /// Where its glyphs can paint, list space.
+    ink: LogicalRect,
+}
+
+/// The coverage picture of `run` through the linear part of `map`: its ink (`halo` `None`),
+/// or its halo (the blur's radius and the spread, device px before the matrix's scale `grow`).
+/// One byte a pixel; `offset` is the picture's corner from the run's anchor (its first pen,
+/// through the matrix). Kept in the CPU renderer's halo store under what it depends on (never
+/// the place), so it is drawn once: glyph outlines through `ConvTransform` at the label's
+/// size and turn, and for a halo `dilate_disk` and the stack blur on that coverage (both the
+/// same in every direction, so the halo of the turned ink is the turned halo).
+///
+/// The glyphs' pens are taken relative to the first, in quarter device pixels (the glyph
+/// cache's step) for the key and exactly for the picture.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss, clippy::too_many_lines)]
+fn turned_run_picture(
+    run: &TurnedRun<'_>,
+    map: &TurnedMap,
+    grow: f64,
+    halo: Option<(u32, f32)>,
+    dpi_factor: f32,
+    font_manager: &FontManager<FontRef>,
+    glyph_cache: &mut GlyphCache,
+) -> Option<std::sync::Arc<super::text_halo::CpuHalo>> {
+    use std::hash::{Hash, Hasher};
+
+    use super::text_halo::{cpu_halos_are_kept, keep_cpu_halo, kept_cpu_halo, CpuHalo, MAX_CPU_HALO_PIXELS};
+
+    let first = run.glyphs.first()?;
+    // A pen relative to the first, device px before the matrix.
+    let rel = |x: f32, y: f32| {
+        (
+            f64::from((x - first.point.x) * dpi_factor),
+            f64::from((y - first.point.y) * dpi_factor),
+        )
+    };
+    let (radius, spread) = halo.map_or((0, 0.0), |(r, s)| {
+        (((f64::from(r) * grow).round() as u32).min(254), s * grow as f32)
+    });
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    0xD1_u8.hash(&mut hasher);
+    halo.is_some().hash(&mut hasher);
+    radius.hash(&mut hasher);
+    spread.to_bits().hash(&mut hasher);
+    run.font_hash.font_hash.hash(&mut hasher);
+    run.font_hash.synthetic_bold.hash(&mut hasher);
+    run.font_size_px.to_bits().hash(&mut hasher);
+    dpi_factor.to_bits().hash(&mut hasher);
+    for v in [map.a, map.b, map.c, map.d] {
+        v.to_bits().hash(&mut hasher);
+    }
+    run.glyphs.len().hash(&mut hasher);
+    for g in run.glyphs {
+        let (x, y) = rel(g.point.x, g.point.y);
+        g.index.hash(&mut hasher);
+        ((x * 4.0).floor() as i64).hash(&mut hasher);
+        ((y * 4.0).floor() as i64).hash(&mut hasher);
+    }
+    let key = hasher.finish();
+    if cpu_halos_are_kept() {
+        if let Some(kept) = kept_cpu_halo(key) {
+            return kept;
+        }
+    }
+
+    // The box the turned ink can reach, from the anchor: the ink's corners through the matrix.
+    let through = |x: f64, y: f64| (map.a * x + map.b * y, map.c * x + map.d * y);
+    let (ix1, iy1) = (run.ink.origin.x + run.ink.size.width, run.ink.origin.y + run.ink.size.height);
+    let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
+    let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (cx, cy) in [(run.ink.origin.x, run.ink.origin.y), (ix1, run.ink.origin.y), (ix1, iy1), (run.ink.origin.x, iy1)] {
+        let (rx, ry) = rel(cx, cy);
+        let (x, y) = through(rx, ry);
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x);
+        y1 = y1.max(y);
+    }
+    let reach = f64::from(radius) + f64::from(spread).ceil() + 2.0;
+    if ![x0, y0, x1, y1].iter().all(|v| v.is_finite() && v.abs() < 1.0e6) {
+        return None;
+    }
+    let (bx0, by0) = ((x0 - reach).floor() as i32, (y0 - reach).floor() as i32);
+    let (w, h) = (((x1 + reach).ceil() as i32 - bx0).max(1), ((y1 + reach).ceil() as i32 - by0).max(1));
+    if w > 8192 || h > 8192 {
+        return None;
+    }
+    let mut buffer = AzulPixmap::new_transparent(w as u32, h as u32)?;
+
+    let font_ref = font_manager.resolve_font_by_hash(run.font_hash.font_hash)?;
+    let parsed_font: &ParsedFont = crate::font_ref_to_parsed_font(&font_ref);
+    let units_per_em = f32::from(parsed_font.font_metrics.units_per_em);
+    if units_per_em <= 0.0 {
+        return None;
+    }
+    let effective_px = run.font_size_px * dpi_factor;
+    let scale = f64::from(effective_px / units_per_em);
+    let bold_px = synthetic_bold_px(run.font_hash, effective_px);
+    {
+        let mut pooled = PooledTextRaster::take();
+        let (ras, sl) = pooled.parts();
+        for g in run.glyphs {
+            let glyph_index = g.index as u16;
+            let Some(glyph_data) = parsed_font.get_or_decode_glyph(glyph_index) else {
+                continue;
+            };
+            // The unhinted outline, in font units: hinting is for an upright pixel grid.
+            let Some(cached) =
+                glyph_cache.get_or_build(run.font_hash.font_hash, glyph_index, &glyph_data, parsed_font, 0)
+            else {
+                continue;
+            };
+            let (rx, ry) = rel(g.point.x, g.point.y);
+            // Font units -> device px at the pen -> through the matrix -> into the buffer.
+            let mut t = TransAffine::new_scaling_uniform(scale);
+            t.multiply(&TransAffine::new_translation(rx, ry));
+            t.multiply(&TransAffine::new_custom(map.a, map.c, map.b, map.d, 0.0, 0.0));
+            t.multiply(&TransAffine::new_translation(-f64::from(bx0), -f64::from(by0)));
+            let bold = (bold_px > 0.0 && scale > 0.0).then(|| {
+                let mut verts = cached.path.vertices().to_vec();
+                embolden::embolden_vertices(&mut verts, f64::from(bold_px) / scale);
+                verts
+            });
+            let verts = bold.as_deref().unwrap_or_else(|| cached.path.vertices());
+            let mut outline = agg_rust::conv_curve::ConvCurve::new(agg_rust::conv_transform::ConvTransform::new(
+                crate::glyph_cache::SliceVertexSource::new(verts),
+                t,
+            ));
+            ras.add_path(&mut outline, 0);
+        }
+        let stride = w * 4;
+        let mut ra = unsafe { RowAccessor::new_with_buf(buffer.data.as_mut_ptr(), w as u32, h as u32, stride) };
+        let pf = PixfmtRgba32::new(&mut ra);
+        let mut rb = RendererBase::new(pf);
+        render_scanlines_aa_solid(ras, sl, &mut rb, &Rgba8::new(255, 255, 255, 255));
+    }
+    if halo.is_some() {
+        crate::cpu_counters::count(crate::cpu_counters::Counter::HalosDrawn, 1);
+        dilate_disk(&mut buffer, spread);
+        if radius > 0 {
+            let mut ra = unsafe { RowAccessor::new_with_buf(buffer.data.as_mut_ptr(), w as u32, h as u32, w * 4) };
+            stack_blur_rgba32(&mut ra, radius, radius);
+        }
+    }
+    let picture = std::sync::Arc::new(CpuHalo {
+        width: w as u32,
+        height: h as u32,
+        offset: (bx0, by0),
+        coverage: buffer.data().chunks_exact(4).map(|p| p[3]).collect(),
+    });
+    if cpu_halos_are_kept() && (i64::from(w) * i64::from(h)) as u64 <= MAX_CPU_HALO_PIXELS {
+        keep_cpu_halo(key, Some(std::sync::Arc::clone(&picture)));
+    }
+    Some(picture)
 }
 
 /// The most items of a kept picture's frame that may differ between its list and the list
@@ -16602,6 +17041,7 @@ mod audit_a1_tests {
             self_contained: true,
             leaf: true,
             shadow_reach: 3.0,
+            text_only: false,
         };
         let state = CpuRenderState::new(ScrollOffsetMap::new());
         let nothing = |entry: &FrameEntry, cull: WalkCull, clip: Option<AzRect>| {
@@ -16967,5 +17407,100 @@ mod audit_a1_tests {
         assert_eq!(px(&with(Some(ColorU { r: 0, g: 0, b: 250, a: 255 })), 30, 30), [0, 0, 250, 255]);
         assert_eq!(px(&with(None), 30, 30), [200, 0, 0, 255]);
         assert_eq!(px(&with(None), 5, 5), [255, 255, 255, 255], "outside the view");
+    }
+
+    // ---- turned text without a surface ------------------------------------------------------
+
+    /// A view (400 x 300) of three labels turned by their own matrices (20, -35 and 90
+    /// degrees), each a fill with haloed text, on a ground.
+    fn turned_labels(font: (&ParsedFont, FontHash)) -> (DisplayList, CpuRenderState) {
+        let mut child = vec![fill(0.0, 0.0, 400.0, 300.0, [236, 233, 225])];
+        for (key, degrees, x, y) in [(11usize, 20.0_f32, 60.0_f32, 60.0_f32), (12, -35.0, 200.0, 150.0), (13, 90.0, 330.0, 40.0)] {
+            child.push(DisplayListItem::PushReferenceFrame {
+                transform_key: azul_core::resources::TransformKey { id: key },
+                initial_transform: azul_core::transform::ComputedTransform3D { m: turn_scale_move(degrees, 1.0, 0.0, 0.0) },
+                bounds: wrect(x, y, 150.0, 30.0),
+            });
+            child.push(fill(x, y, 150.0, 30.0, [255, 255, 210]));
+            child.extend(haloed(halo(0.0, 2.0, [255, 255, 255]), label(Some(font), "Ammergasse", 20.0, x + 6.0, y + 22.0)));
+            child.push(DisplayListItem::PopReferenceFrame);
+        }
+        let host = list(vec![DisplayListItem::VirtualView {
+            child_dom_id: azul_core::dom::DomId { inner: 1 },
+            bounds: wrect(0.0, 0.0, 400.0, 300.0),
+            clip_rect: wrect(0.0, 0.0, 400.0, 300.0),
+            content_offset: LogicalPosition { x: 0.0, y: 0.0 },
+        }]);
+        let state = CpuRenderState::new(ScrollOffsetMap::new()).with_virtual_view_display_lists(
+            [(azul_core::dom::DomId { inner: 1 }, Arc::new(list(child)))].into_iter().collect(),
+        );
+        (host, state)
+    }
+
+    /// The box of the pixels of `p` that are not the ground: `(x0, y0, x1, y1)`, inclusive.
+    fn ink_box(p: &AzulPixmap) -> (u32, u32, u32, u32) {
+        let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
+        for y in 0..p.height {
+            for x in 0..p.width {
+                if px(p, x, y)[..3] != [236, 233, 225] {
+                    x0 = x0.min(x);
+                    y0 = y0.min(y);
+                    x1 = x1.max(x);
+                    y1 = y1.max(y);
+                }
+            }
+        }
+        (x0, y0, x1, y1)
+    }
+
+    /// A1-20 (d): the turned labels of a view are drawn through their matrices, without a
+    /// surface: no group is opened where the group path opens one a label, a second paint
+    /// finds every picture kept (no halo drawn), a damage rect across a label repaints the
+    /// pixels a full paint gives (damaged == full), and the labels stand where the group path
+    /// puts them (the box of everything painted agrees within 2 px: the anchor is rounded to a
+    /// whole pixel and the edges are sharper).
+    /// Mutations: the matrix applied about the window's origin instead of the frame's moves
+    /// the labels far out of that box; a blit not cut to the clip paints outside the damage
+    /// rect (damaged != full); `new_custom(a, b, c, d)` (the shears swapped) mirrors the turn.
+    #[test]
+    fn a_turned_label_of_a_view_is_drawn_without_a_surface() {
+        let Some(font) = test_font() else {
+            eprintln!("[skip] no system font available");
+            return;
+        };
+        let (rr, fm, font_hash) = resources(Some(&font));
+        let (host, state) = turned_labels((&font, font_hash.expect("the font's hash")));
+        let paint = || {
+            let mut pm = AzulPixmap::new(400, 300).unwrap();
+            pm.fill(255, 255, 255, 255);
+            let mut gc = GlyphCache::new();
+            crate::cpu_counters::reset();
+            render_display_list_with_state(&host, &mut pm, 1.0, &rr, &fm, &mut gc, &state).unwrap();
+            (pm, crate::cpu_counters::take())
+        };
+        let (direct, counted) = paint();
+        assert_eq!(counted.groups_opened, 0, "no surface for a turned label: {counted:?}");
+        assert_eq!(counted.text_runs, 3, "the three runs are drawn: {counted:?}");
+        let (again, counted_again) = paint();
+        assert_eq!(counted_again.halos_drawn, 0, "the pictures are kept: {counted_again:?}");
+        assert!(direct.data() == again.data(), "and a kept picture is the picture drawn");
+
+        TURNED_TEXT_IN_GROUPS.with(|g| g.set(true));
+        let (grouped, counted_grouped) = paint();
+        TURNED_TEXT_IN_GROUPS.with(|g| g.set(false));
+        assert_eq!(counted_grouped.groups_opened, 3, "the path before: a surface a label");
+        let (a, b) = (ink_box(&direct), ink_box(&grouped));
+        for (name, direct_edge, grouped_edge) in [("left", a.0, b.0), ("top", a.1, b.1), ("right", a.2, b.2), ("bottom", a.3, b.3)] {
+            assert!(direct_edge.abs_diff(grouped_edge) <= 2, "{name}: {direct_edge} drawn directly, {grouped_edge} through a group");
+        }
+        let painted = direct.data().chunks_exact(4).filter(|p| p[..3] != [236, 233, 225]).count();
+        assert!(painted > 9000, "three labels of 150 x 30 px are there ({painted} px)");
+
+        // A damage rect across the first label and a corner of the second, on the full frame.
+        let mut damaged = direct.clone_pixmap();
+        let mut gc = GlyphCache::new();
+        let strip = [rect(100.0, 60.0, 130.0, 90.0)];
+        render_display_list_damaged(&host, &mut damaged, 1.0, &rr, &fm, &mut gc, &state.with_paint_threads(1), &strip).unwrap();
+        assert_eq!(differing_pixels(&damaged, &direct), 0, "damaged == full");
     }
 }

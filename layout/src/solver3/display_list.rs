@@ -3669,6 +3669,10 @@ pub(crate) struct FrameEntry {
     /// How far past the ink of a text run a text shadow pushed inside the frame paints (the
     /// largest offset + blur + spread, logical px): `extent` counts the ink alone.
     pub(crate) shadow_reach: f32,
+    /// Text inside, and nothing but text, text shadows, fills, stacking contexts and hit-test
+    /// areas: no clip, mask, opacity or filter group, image, border or gradient. A renderer
+    /// may draw such a frame through its matrix item by item instead of into a surface.
+    pub(crate) text_only: bool,
 }
 
 /// What the picture of a reference frame depends on besides the items between its push and its
@@ -3791,6 +3795,8 @@ impl FrameIndex {
             well_formed: bool,
             leaf: bool,
             shadow_reach: f32,
+            text_only: bool,
+            has_text: bool,
             inner: FrameInner,
         }
         let mut open: Vec<Open> = Vec::new();
@@ -3833,6 +3839,31 @@ impl FrameIndex {
                     }
                 }
                 _ => {}
+            }
+            if !open.is_empty()
+                && !matches!(
+                    item,
+                    DisplayListItem::Text { .. }
+                        | DisplayListItem::TextLayout { .. }
+                        | DisplayListItem::Rect { .. }
+                        | DisplayListItem::PushTextShadow { .. }
+                        | DisplayListItem::PopTextShadow
+                        | DisplayListItem::PushStackingContext { .. }
+                        | DisplayListItem::PopStackingContext
+                        | DisplayListItem::HitTestArea { .. }
+                        | DisplayListItem::PopReferenceFrame
+                )
+            {
+                // (A frame inside is no text either; the pop is the open frame's own or an
+                // inner one's, whose push already said so.)
+                for frame in &mut open {
+                    frame.text_only = false;
+                }
+            }
+            if matches!(item, DisplayListItem::Text { .. }) {
+                for frame in &mut open {
+                    frame.has_text = true;
+                }
             }
             // What the open frames' pictures depend on besides their items.
             if !open.is_empty() {
@@ -3921,6 +3952,7 @@ impl FrameIndex {
                         self_contained: closed && done.well_formed,
                         leaf: done.leaf,
                         shadow_reach: done.shadow_reach,
+                        text_only: done.text_only && done.has_text,
                     });
                     if !done.inner.is_empty() {
                         inner.insert(done.push, done.inner);
@@ -3942,6 +3974,8 @@ impl FrameIndex {
                     well_formed: true,
                     leaf: true,
                     shadow_reach: 0.0,
+                    text_only: true,
+                    has_text: false,
                     inner: FrameInner::default(),
                 });
                 scopes.push(ScopeKind::Frame);
@@ -3960,6 +3994,7 @@ impl FrameIndex {
                 self_contained: false,
                 leaf: done.leaf,
                 shadow_reach: done.shadow_reach,
+                text_only: done.text_only && done.has_text,
             });
         }
         frames.sort_by_key(|f| f.push);
