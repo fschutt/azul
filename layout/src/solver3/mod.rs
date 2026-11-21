@@ -1672,6 +1672,42 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             if let Some(was) = size_before {
                 sizes_before.insert(root_idx, was);
             }
+            // An out-of-flow child takes its static position from its
+            // parent's layout, which passes over a child that has a position
+            // (`cache::process_out_of_flow_children`: how it tells the
+            // children it has just placed). This pass's vector began as the
+            // last pass's, so the root's absolutely positioned children all
+            // have one: they kept the place the positioning pass SOLVED last
+            // time as their static position, whatever the root's layout says
+            // now. Their slots are emptied for the root's layout - only when
+            // the root is certain to be laid out (it holds no layout to be
+            // served from), and a slot the layout leaves empty gets its
+            // position back below.
+            let mut emptied: Vec<(usize, LogicalPosition)> = Vec::new();
+            if ctx
+                .cache_map
+                .entries
+                .get(root_idx)
+                .is_some_and(|entry| entry.layout_entry.is_none())
+            {
+                for &child in new_tree.children(root_idx) {
+                    let out_of_flow = matches!(
+                        positioning::get_position_type(
+                            new_dom,
+                            new_tree.nodes.get(child).and_then(|n| n.dom_node_id),
+                        ),
+                        azul_css::props::layout::LayoutPosition::Absolute
+                            | azul_css::props::layout::LayoutPosition::Fixed
+                    );
+                    if !out_of_flow || fc::is_marker_box(&new_tree, child) {
+                        continue;
+                    }
+                    if let Some(kept) = pos_get(&calculated_positions, child) {
+                        emptied.push((child, kept));
+                        pos_set(&mut calculated_positions, child, POSITION_UNSET);
+                    }
+                }
+            }
             let clr = {
                 let _p = crate::probe::Probe::span("root_layout_pass");
                 cache::calculate_layout_for_subtree(
@@ -1696,6 +1732,13 @@ pub fn layout_document<T: ParsedFontTrait + Sync + 'static>(
             }
             crate::probe::sample_peak_rss("rss:after_root_layout");
             crate::probe::sample_phase_peak("rss:peak_during_root_layout");
+            // A child whose slot was emptied and that the layout did not
+            // place (it failed on the way) stands where it stood.
+            for (child, kept) in emptied {
+                if !pos_contains(&calculated_positions, child) {
+                    pos_set(&mut calculated_positions, child, kept);
+                }
+            }
             if !is_tree_root {
                 let size_after = new_tree
                     .get(LayoutNodeId::new(root_idx))
