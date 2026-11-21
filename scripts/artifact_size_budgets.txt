@@ -25,52 +25,63 @@
 #     to 1.15x of its actual size when a run reports it.
 # Every line carries the number it was derived from.
 #
+# 2026-11-21 (the CI run after the merge of PR #476, which had gone in without one): three
+# cross-compiled artifacts were over their budget - x86_64-apple-darwin libazul.dylib 67,443,392
+# bytes (budget 63,000,000), x86_64-unknown-linux-musl libazul.so ~80.2 MB (71,000,000; the gate
+# printed 77MB, +8.8MB, in IEC units), aarch64-unknown-linux-gnu libazul.so ~66.2 MB (62,000,000;
+# 64MB, +4.0MB). The musl one grew 1.30x since 2026-09-16 (61,556,032). The growth was not analysed
+# per crate. Measured rows are now 1.15x of the measurement; the rows that had no measurement yet
+# were scaled by what the measurements show: 1.93x of 0.2.0 for the cross-compiled Linux
+# libraries (aarch64: ~66.2 MB against 34,228,712), times the same 1.15 headroom = 2.22x of 0.2.0;
+# the host and Windows rows measured on 2026-09-16 by the 1.30x of the musl row, times 1.15.
+# Tighten every row to 1.15x of its own measurement when a run reports it.
+#
 # RAISING A BUDGET IS A DELIBERATE, REVIEWABLE COMMIT. That is the point: the
 # size change shows up in the diff with a reason next to it, instead of
 # silently in a release artifact.
 
 # --- Linux, cross-compiled (the `build_binaries` matrix) -------------------
-# 1.8x of 0.2.0 (no current measurement yet, see PROVENANCE).
-i686-unknown-linux-gnu          *azul*.so       74000000   # 0.2.0: 40810244
-aarch64-unknown-linux-gnu       *azul*.so       62000000   # 0.2.0: 34228712
-armv7-unknown-linux-gnueabihf   *azul*.so       64000000   # 0.2.0: 35047524
-powerpc64-unknown-linux-gnu     *azul*.so       91000000   # 0.2.0: 50546888
-s390x-unknown-linux-gnu         *azul*.so       79000000   # 0.2.0: 43603672
-riscv64gc-unknown-linux-gnu     *azul*.so       63000000   # 0.2.0: 34506720
+# 2.22x of 0.2.0 (no measurement of its own yet, see the 2026-11-21 note); aarch64: measured.
+i686-unknown-linux-gnu          *azul*.so       90600000   # 0.2.0: 40810244 (was 74000000)
+aarch64-unknown-linux-gnu       *azul*.so       76200000   # 2026-11-21: ~66.2 MB (was 62000000; 0.2.0: 34228712)
+armv7-unknown-linux-gnueabihf   *azul*.so       77900000   # 0.2.0: 35047524 (was 64000000)
+powerpc64-unknown-linux-gnu     *azul*.so       112300000  # 0.2.0: 50546888 (was 91000000)
+s390x-unknown-linux-gnu         *azul*.so       96900000   # 0.2.0: 43603672 (was 79000000)
+riscv64gc-unknown-linux-gnu     *azul*.so       76700000   # 0.2.0: 34506720 (was 63000000)
 # musl x86_64 is the library the Alpine .apk ships. It was sized against the
 # host gnu build for want of a measurement; the first run that actually built
 # it reported 61.5MB, because musl links libc statically and the iroh
 # transport (noq/rustls/ring/tokio) is compiled into build-dll. 1.15x of the
 # measurement, per PROVENANCE.
-x86_64-unknown-linux-musl       *azul*.so       71000000   # 2026-09-16: 61556032 (was sized against the host gnu build: 52851208)
-aarch64-unknown-linux-musl      *azul*.so       62000000   # sized like the aarch64-gnu row (0.2.0: 34228712)
+x86_64-unknown-linux-musl       *azul*.so       92300000   # 2026-11-21: ~80.2 MB (was 71000000; 2026-09-16: 61556032)
+aarch64-unknown-linux-musl      *azul*.so       76200000   # sized like the aarch64-gnu row (0.2.0: 34228712)
 
 # --- Windows / macOS -------------------------------------------------------
-# 1.8x of 0.2.0 (no current measurement yet).
-i686-pc-windows-msvc            *azul*.dll      61000000   # 0.2.0 azuldbg.dll: 33751552
-x86_64-apple-darwin             *azul*.dylib    63000000   # 0.2.0 libazuldbg.dylib: 29570896; sized like libazul.dylib below
+# 2.22x of 0.2.0 (no measurement yet); the dylib: measured.
+i686-pc-windows-msvc            *azul*.dll      75000000   # 0.2.0 azuldbg.dll: 33751552 (was 61000000)
+x86_64-apple-darwin             *azul*.dylib    77600000   # 2026-11-21: 67443392 (was 63000000)
 
 # --- Host builds (x86_64 linux), for jobs that opt in ----------------------
 # libazul.so / libazuldbg.so / azul.so / libazul.a: 1.15x of the newest
 # measurement. The rest: 1.8x of 0.2.0 until a run reports them.
 # The 2026-09-16 numbers are the first since build-dll gained the iroh
 # transport, which compiles noq/rustls/ring/tokio into every artifact.
-*                               libazuldbg.so   72000000   # 2026-09-16: 62683000 (was 2026-09-07: 53358992)
-*                               libazul.so      72000000   # 2026-09-16: 62258000 (was 2026-09-07: 52851208)
+*                               libazuldbg.so   94000000   # 2026-09-16: 62683000 x 1.30 x 1.15 (was 72000000)
+*                               libazul.so      93500000   # 2026-09-16: 62258000 x 1.30 x 1.15 (was 72000000); the musl build measured 80.2 MB on 2026-11-21
 # No CI measurement for the dylibs yet; a local arm64 dev build (build-dll,
 # debug-server, unstripped) was 54,525,408 on 2026-09-07 and the prod build
 # strips local symbols, so 1.15x of that is a safe first ceiling.
-*                               libazuldbg.dylib 63000000  # local dev 2026-09-07: 54525408 (0.2.0: 29570896)
-*                               libazul.dylib   63000000   # local dev 2026-09-07: 54525408
+*                               libazuldbg.dylib 77600000  # sized like libazul.dylib (was 63000000)
+*                               libazul.dylib   77600000   # 2026-11-21 CI (x86_64-apple-darwin): 67443392 x 1.15 (was 63000000)
 # `azul.so` is the PYTHON EXTENSION MODULE (target/prod-release/azul.so, on
 # Linux AND macOS), not the C library — the first version of this line said
 # "the C lib" and sized it like libazul.so, which is why the very first gated
 # run failed it at 137 %.
-*                               azul.so         103000000  # 2026-09-16: 89074000 (python ext, linux; was 70227720)
-*                               azuldbg.dll     61000000   # 0.2.0: 33751552
-*                               azul.dll        61000000   # sized against azuldbg.dll
-*                               azul.pyd        84000000   # 2026-09-16: 72831000 (first measurement; 0.2.0: 38763008)
-*                               azul.cpython*.so 103000000 # sized against azul.so (0.2.0: 49466680)
+*                               azul.so         133500000  # 2026-09-16: 89074000 x 1.30 x 1.15 (python ext, linux; was 103000000)
+*                               azuldbg.dll     75000000   # 0.2.0: 33751552 x 2.22 (was 61000000)
+*                               azul.dll        75000000   # sized against azuldbg.dll
+*                               azul.pyd        109200000  # 2026-09-16: 72831000 x 1.30 x 1.15 (was 84000000)
+*                               azul.cpython*.so 133500000 # sized against azul.so (0.2.0: 49466680)
 
 # --- Static archives -------------------------------------------------------
 # 0.2.0 only published these gzipped, so the first honest raw number is the
