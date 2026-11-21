@@ -25,10 +25,8 @@
 //! parent instead of once per text child.
 
 use std::{
-    collections::BTreeSet,
     hash::{Hash, Hasher},
     mem::discriminant,
-    sync::Mutex,
 };
 
 use azul_core::{
@@ -40,24 +38,6 @@ use azul_core::{
 use azul_css::props::{layout::LayoutDisplay, style::StyleWhiteSpace};
 
 use crate::solver3::getters::{get_display_property, get_white_space_property, MultiValue};
-
-/// Distinct findings kept alive process-wide. A DOM that is wrong in a
-/// hundred places has one bug, not a hundred; past this the developer is
-/// told the tap was closed rather than having the log drowned.
-const MAX_DISTINCT_WARNINGS: usize = 32;
-
-/// Findings already reported, keyed by [`dedup_key`], process-wide. Layouts
-/// re-run constantly (every DOM refresh); a warning that repeats 60 times a
-/// second is a warning nobody reads.
-struct Emitted {
-    keys: BTreeSet<u64>,
-    capped: bool,
-}
-
-static EMITTED: Mutex<Emitted> = Mutex::new(Emitted {
-    keys: BTreeSet::new(),
-    capped: false,
-});
 
 /// The suppression tag for this lint, honored from the `AZ_SUPPRESS`
 /// environment variable (comma-separated list; the common misspelling
@@ -615,8 +595,12 @@ fn hash_identity(data: &azul_core::dom::NodeData, hasher: &mut impl Hasher) {
     }
 }
 
-/// Report every finding from [`collect_text_placement_warnings`] to stderr,
-/// once per unique finding per process. Call after layout.
+/// Report every finding from [`collect_text_placement_warnings`], once per
+/// unique finding, through `azul_core::diagnostics::emit_once` - the dedup (and
+/// the cap on distinct findings, past which the log is told once and drowned
+/// no further) every lint shares. A layout re-runs constantly (every DOM
+/// refresh); a warning that repeats 60 times a second is a warning nobody
+/// reads. Call after layout.
 pub fn warn_text_without_block_container(styled_dom: &StyledDom) {
     if is_suppressed() {
         return;
@@ -625,31 +609,15 @@ pub fn warn_text_without_block_container(styled_dom: &StyledDom) {
     if found.is_empty() {
         return;
     }
-    let Ok(mut emitted) = EMITTED.lock() else {
-        return;
-    };
-    if emitted.capped {
-        return;
-    }
     let node_data = styled_dom.node_data.as_container();
     for (idx, finding) in found {
         let node_id = NodeId::new(idx);
-        if !emitted.keys.insert(dedup_key(styled_dom, node_id, finding)) {
-            continue;
-        }
-        if emitted.keys.len() > MAX_DISTINCT_WARNINGS {
-            emitted.capped = true;
-            eprintln!(
-                "[azul][text-without-block] {MAX_DISTINCT_WARNINGS} distinct findings reported — \
-                 further warnings suppressed (suppress the whole lint with \
-                 AZ_SUPPRESS={SUPPRESS_TAG})"
-            );
-            return;
-        }
-        eprintln!(
-            "[azul][text-without-block] WARNING: {} (suppress with AZ_SUPPRESS={SUPPRESS_TAG})",
-            render(&node_data[node_id], idx, finding),
-        );
+        azul_core::diagnostics::emit_once(dedup_key(styled_dom, node_id, finding), || {
+            format!(
+                "[azul][text-without-block] WARNING: {} (suppress with AZ_SUPPRESS={SUPPRESS_TAG})",
+                render(&node_data[node_id], idx, finding),
+            )
+        });
     }
 }
 

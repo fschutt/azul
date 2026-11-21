@@ -471,7 +471,7 @@ fn converse(
 
 /// Asks the preferred picker for `request`: `None` when the system's dialog
 /// answers it (the decision of the module intro, or a registration that
-/// cannot be used - logged once, with the reason).
+/// cannot be used - logged, with the reason).
 #[must_use]
 pub fn ask_preferred(request: &PickRequest) -> Option<PendingPick> {
     let env = std::env::var(PICKER_VAR).ok();
@@ -487,23 +487,11 @@ pub fn ask_preferred(request: &PickRequest) -> Option<PendingPick> {
     match Registration::load(&file, request.op) {
         Ok(registration) => Some(ask(&registration, request)),
         Err(why) => {
-            log_once(&format!(
-                "[azul][file-picker] the system's dialog answers: {why}"
-            ));
+            // Said on every ask, not once per process: each ask is a dialog the
+            // user opened, and each one falls back to the system's dialog.
+            eprintln!("[azul][file-picker] the system's dialog answers: {why}");
             None
         }
-    }
-}
-
-/// Prints `message` on stderr the first time it is seen.
-fn log_once(message: &str) {
-    static SEEN: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    let mut seen = SEEN
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    if !seen.iter().any(|m| m == message) {
-        eprintln!("{message}");
-        seen.push(message.to_string());
     }
 }
 
