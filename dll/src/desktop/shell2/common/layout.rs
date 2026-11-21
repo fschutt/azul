@@ -1136,6 +1136,9 @@ pub fn regenerate_layout(
         layout_window.repoint_merged_datasets(&repointing);
         let replaced =
             azul_core::diff::adopt_changed_nodes(retained.node_data.as_mut(), &user_dom, &changed);
+        // The carry can give a node a marker, a written node another tab index: the lists the
+        // DOM derives from its node data are made again (A6-18b's rule for a kept DOM).
+        retained.rebuild_derived_node_lists();
 
         // The runtime states, as the pre-cascade skip writes them. The restyle below runs
         // under them; a state that came with this call needs the whole cascade (a rule may
