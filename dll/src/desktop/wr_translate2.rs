@@ -942,6 +942,9 @@ struct HaloScan {
     /// order, exactly as a translation of the lists made now paints it
     /// (`compositor2`, which asks the same question of the same pictures).
     painted: Vec<(DomId, Vec<azul_layout::cpurender::TextHalo>)>,
+    /// Whether a list paints a null image at all (the place of a picture to
+    /// come, [`reserve_image_places`]): no list is walked for places otherwise.
+    null_images: bool,
 }
 
 /// [`collect_image_resource_updates`] and the text halos of the lists. The
@@ -1070,12 +1073,14 @@ fn collect_image_resource_updates_and_halos(
         image_updates.len()
     );
 
+    let null_images = images_in_display_list.iter().any(ImageRef::is_null_image);
     (
         image_updates,
         live_hashes,
         HaloScan {
             left: halos_left,
             painted,
+            null_images,
         },
     )
 }
@@ -1622,7 +1627,7 @@ fn register_image_resources(layout_window: &mut LayoutWindow, txn: &mut WrTransa
     register_text_halos(layout_window, txn, &halos);
 
     // --- The places of pictures to come (nodes that show a null image) ---
-    reserve_image_places(layout_window, txn);
+    reserve_image_places(layout_window, txn, halos.null_images);
 
     // Update currently_registered_images + the reverse image_key_map lookup so
     // the display-list builder can resolve an ImageRefHash to its ImageKey.
@@ -1795,15 +1800,25 @@ fn register_text_halos(layout_window: &mut LayoutWindow, txn: &mut WrTransaction
 /// node's first picture took it, which makes it the node's slot like any
 /// other. A DOM in which a place is new is marked: its list is translated
 /// with the place from now on (`stale_display_lists`).
-fn reserve_image_places(layout_window: &mut LayoutWindow, txn: &mut WrTransaction) {
+fn reserve_image_places(
+    layout_window: &mut LayoutWindow,
+    txn: &mut WrTransaction,
+    null_images: bool,
+) {
     use azul_core::resources::{
         DecodedImage, ImageRefHash, ImageSlot, RawImage, RawImageData, RawImageFormat,
     };
     use azul_layout::solver3::display_list::DisplayListItem;
 
-    // The nodes that show a null image now.
+    // The nodes that show a null image now: looked for only when the scan of
+    // the lists' images met one (it has seen every image item already).
     let mut shown: std::collections::BTreeSet<(DomId, NodeId)> = std::collections::BTreeSet::new();
-    for (dom_id, layout_result) in &layout_window.layout_results {
+    let lists = if null_images {
+        Some(&layout_window.layout_results)
+    } else {
+        None
+    };
+    for (dom_id, layout_result) in lists.into_iter().flatten() {
         let list = &layout_result.display_list;
         for (index, item) in list.items.iter().enumerate() {
             let DisplayListItem::Image { image, .. } = item else {

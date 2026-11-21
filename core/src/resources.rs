@@ -2932,8 +2932,9 @@ impl RendererResources {
     /// that stays the node's own when `with` replaces it in place: the key of
     /// the node's slot ([`Self::image_slots`]) shows it - or `shown` is a null
     /// image and the slot's key is the place kept for the node's first picture
-    /// ([`ImageRefHash::PLACE`]) - and `with` is a picture in memory, which
-    /// goes under that key (a GL texture has a key of its own kind).
+    /// ([`ImageRefHash::PLACE`]) - and `with` is a picture the renderer is
+    /// handed under that key: pixels in memory or a GL texture (not a null
+    /// image, and not a callback, which is drawn first).
     ///
     /// Then a display list that paints the node names the same key before and
     /// after the replacement: the list the renderer holds need not be sent
@@ -2946,7 +2947,7 @@ impl RendererResources {
         shown: &ImageRef,
         with: &ImageRef,
     ) -> bool {
-        if !matches!(with.get_data(), DecodedImage::Raw(_)) {
+        if !matches!(with.get_data(), DecodedImage::Raw(_) | DecodedImage::Gl(_)) {
             return false;
         }
         self.image_slots
