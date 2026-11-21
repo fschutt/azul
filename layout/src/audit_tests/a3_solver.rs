@@ -603,3 +603,9 @@ fn a_flat_layer_of_absolute_labels_takes_position_lookups_in_proportion_to_its_l
         );
     }
 }
+
+// The guards of the second round, one file per part of the solver (`a3_solver/*.rs`).
+mod ifc;
+mod sizing;
+mod taffy;
+mod widgets;
