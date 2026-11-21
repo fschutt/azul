@@ -233,10 +233,6 @@ impl App {
         // What the metals reflect: the platform's wallpaper reader, run the
         // first time a metal is drawn.
         crate::desktop::wallpaper::install();
-        // The font faces the app ships (`AppConfig::add_font`): every font
-        // manager built from now on - each window's, the PDF writer's -
-        // registers them, before the first window exists.
-        azul_layout::text3::cache::set_app_fonts(app_config.bundled_fonts.as_ref());
         // The end user's rice (`~/.azul/css/<theme>/*.css` and the legacy
         // per-app file, `azul_css::rice`), in the `AZ_RICING` mode. Installed
         // HERE, with the real home directory, so a test or a tool that never
@@ -797,6 +793,15 @@ impl AppInternal {
         #[cfg(any(miri, feature = "web"))]
         let (fc_cache, font_registry) = (Arc::new(FcFontCache::default()), None);
 
+        // The fonts of this app: the faces it ships (`AppConfig::add_font`), registered before
+        // the first window exists, and the ones it registers while it runs
+        // (`CallbackInfo::register_font`), in ONE registry that belongs to the app. The app's
+        // font manager is made on it and every window takes its share of that manager
+        // (`FontManager::clone_shared`), so each window draws with the faces and a face
+        // registered through one is seen by all.
+        let registered_fonts = Arc::new(azul_layout::text3::fontreg::RegisteredFonts::default());
+        registered_fonts.set_app_fonts(app_config.bundled_fonts.as_ref());
+
         #[cfg(all(
             feature = "logging",
             feature = "fern_logger",
@@ -834,9 +839,12 @@ impl AppInternal {
             // ONE manager, built here rather than per-window. `FcFontCache` is
             // internally Arc-shared, so the clone tracks whatever the scout
             // threads discover later.
-            font_manager: azul_layout::font_traits::FontManager::new((*fc_cache).clone())
-                .ok()
-                .map(Arc::new),
+            font_manager: azul_layout::font_traits::FontManager::with_registered_fonts(
+                (*fc_cache).clone(),
+                registered_fonts,
+            )
+            .ok()
+            .map(Arc::new),
             fc_cache: Box::new(fc_cache),
             font_registry,
             undo_manager: crate::desktop::shell2::common::event::SharedUndoManager::new(),
