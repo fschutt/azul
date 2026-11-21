@@ -465,6 +465,8 @@ pub(crate) fn inline_static_place(
     let mut before: Option<(usize, usize)> = None; // (node index, item index)
     let mut after: Option<(usize, usize)> = None;
     for (i, item) in items.iter().enumerate() {
+        #[cfg(test)]
+        STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
         let Some(node) = node_of(&item.item) else {
             continue;
         };
@@ -481,6 +483,37 @@ pub(crate) fn inline_static_place(
         (None, Some((_, i))) => (&items[i], false),
         (None, None) => return None,
     };
+    let mut line: Option<(f32, f32)> = None;
+    for item in items.iter().filter(|i| i.line_index == anchor.line_index) {
+        #[cfg(test)]
+        STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
+        line = widen_line_extent(line, item);
+    }
+    Some(static_place_at(anchor, after_content, line))
+}
+
+/// The extent `(top, bottom)` of a line with one more of its items taken
+/// in: the items that have a height span it.
+fn widen_line_extent(
+    extent: Option<(f32, f32)>,
+    item: &text3::cache::PositionedItem,
+) -> Option<(f32, f32)> {
+    let height = item.item.bounds().height;
+    if height.is_nan() || height <= 0.0 {
+        return extent;
+    }
+    let (top, bottom) = (item.position.y, item.position.y + height);
+    Some(extent.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))))
+}
+
+/// The place at `anchor`, the content the box comes after (`after_content`)
+/// or before, on a line of the extent `line` (`None`: no item of the line
+/// has a height).
+fn static_place_at(
+    anchor: &text3::cache::PositionedItem,
+    after_content: bool,
+    line: Option<(f32, f32)>,
+) -> InlineStaticPlace {
     let rtl = matches!(
         &anchor.item,
         ShapedItem::Cluster(c) if c.direction == text3::cache::BidiDirection::Rtl
@@ -493,23 +526,132 @@ pub(crate) fn inline_static_place(
     } else {
         anchor.position.x + width
     };
-    let mut line: Option<(f32, f32)> = None;
-    for item in items.iter().filter(|i| i.line_index == anchor.line_index) {
-        let height = item.item.bounds().height;
-        if height.is_nan() || height <= 0.0 {
-            continue;
-        }
-        let (top, bottom) = (item.position.y, item.position.y + height);
-        line = Some(line.map_or((top, bottom), |(t, b)| (t.min(top), b.max(bottom))));
-    }
     let (line_top, line_bottom) = line.unwrap_or((anchor.position.y, anchor.position.y));
-    Some(InlineStaticPlace {
+    InlineStaticPlace {
         x,
         line_top,
         line_bottom,
         after_content,
         line: anchor.line_index,
-    })
+    }
+}
+
+/// How many laid-out items the search for static places looked at on this
+/// thread (`audit_tests::a3_solver::ifc`: once per item for all the boxes
+/// taken out of a context, not once per box).
+#[cfg(test)]
+thread_local! {
+    pub(crate) static STATIC_PLACE_ITEM_VISITS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// [`inline_static_place`] for MANY boxes taken out of one inline formatting
+/// context: what the search reads of the laid-out `items`, listed once.
+///
+/// `inline_static_place` walks all items for every box (which content comes
+/// before it, which after) and then all items again for the anchor's line:
+/// boxes x items for a paragraph with many absolutely positioned children.
+/// The first walk only asks, of the items of each DOM node, for the LAST one
+/// (the anchor when the node is the nearest before the box) and the FIRST
+/// one (when it is the nearest at or after it); the second folds the items
+/// of one line in their order.
+struct StaticPlaces<'a> {
+    items: &'a [text3::cache::PositionedItem],
+    /// Per DOM node that has items, by node index: its first and its last
+    /// item.
+    by_node: BTreeMap<usize, (usize, usize)>,
+    /// `(line, item)` of every item, sorted: the items of a line together,
+    /// in their order. Made when the first line is asked for.
+    by_line: Option<Vec<(usize, usize)>>,
+    /// The extent of each line asked for so far ([`widen_line_extent`]).
+    line_extents: BTreeMap<usize, Option<(f32, f32)>>,
+}
+
+impl<'a> StaticPlaces<'a> {
+    fn new(
+        items: &'a [text3::cache::PositionedItem],
+        node_of: impl Fn(&ShapedItem) -> Option<NodeId>,
+    ) -> Self {
+        let mut by_node: BTreeMap<usize, (usize, usize)> = BTreeMap::new();
+        for (i, item) in items.iter().enumerate() {
+            #[cfg(test)]
+            STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
+            let Some(node) = node_of(&item.item) else {
+                continue;
+            };
+            // The items come in their order: the first one seen of a node
+            // is its first, every later one its last so far.
+            by_node
+                .entry(node.index())
+                .and_modify(|first_and_last| first_and_last.1 = i)
+                .or_insert((i, i));
+        }
+        Self {
+            items,
+            by_node,
+            by_line: None,
+            line_extents: BTreeMap::new(),
+        }
+    }
+
+    /// [`inline_static_place`] of `child` among the items.
+    fn place(&mut self, child: NodeId) -> Option<InlineStaticPlace> {
+        // The scan keeps, of the nodes below `child`, the greatest and of its
+        // items the last (`>=`); of the nodes at or above it the smallest
+        // and of its items the first (`<`).
+        let before = self
+            .by_node
+            .range(..child.index())
+            .next_back()
+            .map(|(_, &(_, last))| last);
+        let after = self
+            .by_node
+            .range(child.index()..)
+            .next()
+            .map(|(_, &(first, _))| first);
+        let (anchor_index, after_content) = match (before, after) {
+            (Some(i), _) => (i, true),
+            (None, Some(i)) => (i, false),
+            (None, None) => return None,
+        };
+        let items = self.items;
+        let anchor = &items[anchor_index];
+        let line = self.line_extent(anchor.line_index);
+        Some(static_place_at(anchor, after_content, line))
+    }
+
+    /// The extent of line `line_index`: [`widen_line_extent`] over its items
+    /// in their order, as the scan folds them.
+    fn line_extent(&mut self, line_index: usize) -> Option<(f32, f32)> {
+        if let Some(known) = self.line_extents.get(&line_index) {
+            return *known;
+        }
+        let items = self.items;
+        let by_line = self.by_line.get_or_insert_with(|| {
+            let mut by_line: Vec<(usize, usize)> = items
+                .iter()
+                .enumerate()
+                .map(|(i, item)| {
+                    #[cfg(test)]
+                    STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
+                    (item.line_index, i)
+                })
+                .collect();
+            by_line.sort_unstable();
+            by_line
+        });
+        let from = by_line.partition_point(|&(line, _)| line < line_index);
+        let mut extent: Option<(f32, f32)> = None;
+        for &(line, i) in &by_line[from..] {
+            if line != line_index {
+                break;
+            }
+            #[cfg(test)]
+            STATIC_PLACE_ITEM_VISITS.with(|n| n.set(n.get() + 1));
+            extent = widen_line_extent(extent, &items[i]);
+        }
+        self.line_extents.insert(line_index, extent);
+        extent
+    }
 }
 
 /// [`inline_static_place`] for the out-of-flow layout child `child_index`
@@ -599,6 +741,12 @@ fn static_positions_of(
     child_map: &HashMap<ContentIndex, usize>,
 ) -> BTreeMap<usize, LogicalPosition> {
     let mut out = BTreeMap::new();
+    if out_of_flow.is_empty() {
+        return out;
+    }
+    // The items are listed once for all the boxes (`StaticPlaces`), not
+    // walked for each of them.
+    let mut places = StaticPlaces::new(items, |item| item_dom_node(tree, Some(child_map), item));
     for &child_index in out_of_flow {
         let Some(child) = tree
             .get(LayoutNodeId::new(child_index))
@@ -606,11 +754,7 @@ fn static_positions_of(
         else {
             continue;
         };
-        let Some(place) = inline_static_place(
-            items,
-            |item| item_dom_node(tree, Some(child_map), item),
-            child,
-        ) else {
+        let Some(place) = places.place(child) else {
             continue;
         };
         let display = get_display_property(styled_dom, Some(child)).unwrap_or_default();
@@ -1822,4 +1966,176 @@ pub(crate) fn flow_paragraph<T: ParsedFontTrait>(
         child_map,
         style_dom_id,
     })
+}
+
+#[cfg(test)]
+mod audit_a3_solver_tests {
+    use super::*;
+
+    /// A positioned cluster of the text node `node`: one glyph 10px wide, at `(x, y)` on line
+    /// `line`, right-to-left or not.
+    fn cluster(node: usize, line: usize, x: f32, y: f32, rtl: bool) -> text3::cache::PositionedItem {
+        use crate::text3::{
+            cache::{
+                BidiDirection, BidiLevel, ClusterFlags, ContentIndex, GlyphKind,
+                GraphemeClusterId, LayoutFontMetrics, Point, PositionedItem, ShapedCluster,
+                ShapedGlyph, ShapedItem, StyleProperties,
+            },
+            script::Script,
+        };
+        let direction = if rtl {
+            BidiDirection::Rtl
+        } else {
+            BidiDirection::Ltr
+        };
+        let glyph = ShapedGlyph {
+            kind: GlyphKind::Character,
+            glyph_id: 7,
+            cluster_offset: 0,
+            advance: 10.0,
+            kerning: 0.0,
+            offset: Point { x: 0.0, y: 0.0 },
+            vertical_advance: 0.0,
+            vertical_offset: Point { x: 0.0, y: 0.0 },
+            script: Script::Latin,
+            font_hash: 0xF0F0,
+            font_metrics: LayoutFontMetrics {
+                ascent: 800.0,
+                descent: -200.0,
+                line_gap: 0.0,
+                units_per_em: 1000,
+                x_height: None,
+                cap_height: None,
+                browser_ascent_boost: false,
+            },
+        };
+        PositionedItem {
+            item: ShapedItem::Cluster(ShapedCluster {
+                flags: ClusterFlags::classify("a"),
+                source_text: Arc::from("a"),
+                source_byte_len: 1,
+                source_cluster_id: GraphemeClusterId {
+                    source_run: 0,
+                    start_byte_in_run: 0,
+                },
+                source_content_index: ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                source_node_id: Some(NodeId::new(node)),
+                glyphs: core::iter::once(glyph).collect(),
+                advance: 10.0,
+                direction,
+                bidi_level: BidiLevel::paragraph(direction),
+                style: Arc::new(StyleProperties {
+                    font_size_px: 20.0,
+                    ..StyleProperties::default()
+                }),
+                marker_position_outside: None,
+                is_first_fragment: true,
+                is_last_fragment: true,
+            }),
+            position: Point { x, y },
+            line_index: line,
+        }
+    }
+
+    /// A tab `height` tall at the top of line `line`: an item of no DOM node that widens its
+    /// line.
+    fn tab(line: usize, x: f32, height: f32) -> text3::cache::PositionedItem {
+        text3::cache::PositionedItem {
+            item: text3::cache::ShapedItem::Tab {
+                source: text3::cache::ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                bounds: text3::cache::Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    width: 8.0,
+                    height,
+                },
+            },
+            position: text3::cache::Point { x, y: 0.0 },
+            line_index: line,
+        }
+    }
+
+    /// A forced break on line `line`: an item without a height.
+    fn line_break(line: usize) -> text3::cache::PositionedItem {
+        text3::cache::PositionedItem {
+            item: text3::cache::ShapedItem::Break {
+                source: text3::cache::ContentIndex {
+                    run_index: 0,
+                    item_index: 0,
+                },
+                break_info: InlineBreak {
+                    break_type: BreakType::Hard,
+                    clear: ClearType::None,
+                    content_index: 0,
+                },
+            },
+            position: text3::cache::Point { x: 0.0, y: 0.0 },
+            line_index: line,
+        }
+    }
+
+    /// A3-solver-16: the places `StaticPlaces` reads off one listing of the items are, to the
+    /// bit, the places `inline_static_place` finds by walking the items for each box - for
+    /// every box before, between and after the nodes with content, asked in any order, over
+    /// items whose nodes come in no order, with a node on two lines, right-to-left anchors, an
+    /// item of no node and an item of no height.
+    ///
+    /// Mutation: `StaticPlaces::place` taking a node's FIRST item where the box comes after
+    /// the node puts a box after node 3 on line 0 instead of line 2.
+    #[test]
+    fn the_places_listed_once_are_the_places_the_scan_finds() {
+        let items = vec![
+            cluster(3, 0, 0.0, 2.0, false),
+            cluster(3, 0, 10.0, 2.0, false),
+            tab(0, 20.0, 30.0),
+            cluster(7, 0, 40.0, 4.0, true),
+            cluster(7, 1, 0.0, 30.0, true),
+            cluster(5, 1, 10.0, 28.0, false),
+            line_break(1),
+            cluster(9, 2, 0.0, 60.0, false),
+            cluster(3, 2, 10.0, 61.0, false),
+        ];
+        let reversed: Vec<text3::cache::PositionedItem> = items.iter().rev().cloned().collect();
+        let node_of = |item: &ShapedItem| match item {
+            ShapedItem::Cluster(c) => c.source_node_id,
+            _ => None,
+        };
+        let bits = |place: Option<InlineStaticPlace>| {
+            place.map(|p| {
+                (
+                    p.x.to_bits(),
+                    p.line_top.to_bits(),
+                    p.line_bottom.to_bits(),
+                    p.after_content,
+                    p.line,
+                )
+            })
+        };
+        for list in [&items[..], &reversed[..], &items[..0]] {
+            let mut places = StaticPlaces::new(list, node_of);
+            // Asked out of order and twice: the extents of the lines are kept between asks.
+            for child in (0..12).chain((0..12).rev()) {
+                let child = NodeId::new(child);
+                assert_eq!(
+                    bits(places.place(child)),
+                    bits(inline_static_place(list, node_of, child)),
+                    "the box {child:?} among {} items",
+                    list.len()
+                );
+            }
+        }
+        // Node 3 has items on the lines 0 and 2: a box right after it stands after its LAST
+        // item, a box before all content before its FIRST.
+        let mut places = StaticPlaces::new(&items, node_of);
+        let after_node_3 = places.place(NodeId::new(4)).expect("content comes before it");
+        assert!(after_node_3.after_content && after_node_3.line == 2);
+        let before_all = places.place(NodeId::new(0)).expect("content comes after it");
+        assert!(!before_all.after_content && before_all.line == 0);
+    }
 }

@@ -174,3 +174,48 @@ fn a_measure_of_a_table_cell_builds_no_paint_runs() {
          were expected to be their definite ones"
     );
 }
+
+/// A paragraph of `k` words in the built-in mock font with an absolutely positioned span after
+/// each word, left where its line puts it (no insets): one inline formatting context with `k`
+/// boxes taken out of it and five laid-out clusters per word.
+fn paragraph_with_an_absolute_span_after_each_word(k: usize) -> Dom {
+    let mut paragraph = Dom::create_div().with_css("position: relative; width: 600px;");
+    for i in 0..k {
+        paragraph = paragraph
+            .with_child(Dom::create_span_with_text(format!("w{i:03} ")))
+            .with_child(
+                Dom::create_span_with_text(String::from("x")).with_css("position: absolute;"),
+            );
+    }
+    Dom::create_body()
+        .with_css("margin: 0px; font-family: \"Azul Mock Mono\"; font-size: 10px;")
+        .with_child(paragraph)
+}
+
+/// A3-solver-16. The static position of a box taken out of an inline formatting context is
+/// read off the context's laid-out items: the content before the box, and that content's line
+/// (`fc::inline_static_place`). It was searched for every box with a walk over all the items
+/// and a second one for the line: boxes x items for a paragraph with many absolutely
+/// positioned children. The items are listed once for all of them (`fc::StaticPlaces`).
+///
+/// Mutation: `inline_static_place` per box in `fc::static_positions_of` looks at 16x the
+/// items here.
+#[test]
+fn the_static_places_of_many_boxes_in_one_paragraph_are_read_off_one_listing_of_its_items() {
+    use crate::solver3::fc::STATIC_PLACE_ITEM_VISITS;
+    let visits = |k: usize| {
+        let mut lw = window();
+        STATIC_PLACE_ITEM_VISITS.with(|n| n.set(0));
+        lay_out(&mut lw, paragraph_with_an_absolute_span_after_each_word(k));
+        STATIC_PLACE_ITEM_VISITS.with(std::cell::Cell::get)
+    };
+    let (small, large) = (visits(100), visits(400));
+    assert!(
+        small >= 100,
+        "harness: the paragraph's items were looked at for its 100 boxes ({small})"
+    );
+    assert!(
+        large < small * 6,
+        "four times the words and boxes looked at {large} items for {small}: more than linear"
+    );
+}
