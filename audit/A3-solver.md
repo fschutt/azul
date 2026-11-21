@@ -110,9 +110,9 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-14 | waste | `positioning.rs` `position_out_of_flow_elements`, `cache.rs` `calculate_layout_for_subtree_fragment` | high | fixed 93cf4a98a | `a_pass_for_a_paragraph_lays_out_no_interior_of_the_labels_beside_it` and three more |
 | A3-solver-14b | waste | `positioning.rs` the solve of every absolute box in every pass | medium | fixed f8e1e7c73 | `a_pass_for_a_paragraph_solves_none_of_the_labels_beside_it`, `labels_that_moved_are_solved_again` |
 | A3-solver-15 | quadratic | `fc/bfc.rs` Pass 1 position vector | low | fixed 4eabd302a | `the_first_pass_of_a_block_borrows_its_position_vector_from_the_pass` |
-| A3-solver-15b | quadratic | `fc/table_rows.rs`, `fc/table_columns.rs`, `fc/table.rs` temp position vectors | low | open: `fc/table_rows.rs:256`, `fc/table_columns.rs:394`, `fc/table.rs:909` each make a `PositionVec` per call; lend it from `ctx.pass_memo.bfc` (`BfcPassMemo::lend` / `take_back`, as `layout_bfc` Pass 1 does: `fc/bfc.rs`) - `take_back` needs the list of the boxes that were sized with it | - |
+| A3-solver-15b | quadratic | `fc/table_rows.rs`, `fc/table_columns.rs`, `fc/table.rs`, `fc/bfc.rs` (fragmented child) temp position vectors | low | fixed 3f4e06488 | `the_cells_of_a_table_borrow_their_position_vectors_from_the_pass` |
 | A3-solver-16 | quadratic | `fc/ifc.rs` `static_positions_of` | low | fixed 640fefd1b | `the_static_places_of_many_boxes_in_one_paragraph_are_read_off_one_listing_of_its_items` |
-| A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | open: `fc::inline_static_place_in_tree` (callers `footnotes.rs:655`, `columns.rs:431`) expands the layout and scans it once per footnote / column anchor; build `StaticPlaces` (640fefd1b, `fc/ifc.rs`) once per inline formatting context and ask it per anchor; paged media only | - |
+| A3-solver-16b | quadratic | `fc/ifc.rs` `inline_static_place_in_tree` (footnotes, columns) | low | fixed bd29ecca4 | `a3_solver::ifc::the_anchor_lines_of_many_boxes_of_a_paragraph_list_its_items_once` |
 | A3-solver-17 | waste | `taffy_bridge.rs` width-only answers | high | fixed b27f65a88 | `a_nested_flex_row_answers_each_width_question_of_a_first_layout_once` |
 | A3-solver-17b | waste | `taffy_bridge.rs` measure spill | medium | fixed 9d4637c90 | `the_measurement_a_second_store_evicts_is_found_in_the_second_way` |
 | A3-solver-17c | waste | `taffy_bridge.rs` `set_final_layout_current(node, false)` on every measure | medium | blocked (a): a measure in the taffy bridge writes the tree's final state (sizes, offsets, inline layout, per-node caches); keeping the final layout current across a computed measure needs side-effect-free measures; design below | - |
@@ -125,9 +125,10 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-22 | waste | `layout_tree.rs` paint runs of measures | medium | fixed 318d1a97d | `a_measure_of_a_table_cell_builds_no_paint_runs` |
 | A3-solver-23 | waste | `fc/white_space.rs` plain text | low | fixed 16395bc3e | `white_space.rs` tests of the helper (see the commit) |
 | A3-solver-24 | waste | `layout_tree.rs` / `cache.rs` a kept node cloned twice | medium | fixed 7b39826e2 | `ifc.rs` count test (with 1ee264920: revert both) |
-| A3-solver-25 | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>` | low | open: step 1 (in `layout_tree.rs` alone): the builder's map holds `Vec<LayoutNodeId>` from the start, so `build` moves it instead of rebuilding the `BTreeMap` (5 push sites, 3 read sites, 3 test assertions; `LayoutNodeId` is `repr(transparent)` over `usize`). Step 2 (one heap `Vec` per DOM node) changes the public type of `LayoutTree::dom_to_layout`, read at about 150 sites in 40 files of four areas: to do after the merge, as `enum One/Many` with `Deref<Target = [LayoutNodeId]>` and `From<Vec<LayoutNodeId>>` | - |
+| A3-solver-25 | waste | `layout_tree.rs` `build` makes the DOM-to-box map a second time | low | fixed 99d7efff1 | `layout_tree::audit_a3_solver_tests::build_hands_the_dom_map_over_as_it_is` |
+| A3-solver-25b | waste | `layout_tree.rs` `dom_to_layout: BTreeMap<NodeId, Vec<..>>`: one heap list per DOM node | low | blocked (a): the public type of `LayoutTree::dom_to_layout` (215 uses in 74 files of every area) becomes a dense table; design below | - |
 | A3-solver-26 | waste | `sizing.rs` dirty closure as a hash set | low | fixed 4909c9d07 | `sizing.rs` tests of the helper (see the commit) |
-| A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | open: `positioning::shift_if_relatively_positioned` shifts the whole subtree of each shifted box, so a box under k shifted ancestors is moved k times; one walk that carries the sum of the shifts adds them in another order (p + (d1 + d2) instead of (p + d1) + d2), which is not bit-identical: decide the order (sum first is the simpler statement of CSS 2.2 9.4.3) and accept the golden dumps moving in the last digit, or keep it | - |
+| A3-solver-27 | quadratic | `positioning.rs` nested shifted relative boxes | low | fixed 8abfe10f9 | `nested_shifted_boxes_are_moved_by_one_walk`, `nested_shifts_are_added_one_after_the_other_outermost_first` |
 | A3-solver-28 | n x depth | several (list below) | low | checked: fine | - |
 | A3-solver-29 | wrong-output | `cache.rs` `reposition_block_flow_siblings` | medium | fixed b66f75aca | `a_clean_sibling_keeps_its_place_in_a_bordered_box_when_its_neighbour_is_laid_out_again` and two more |
 | A3-solver-30 | waste | `cache.rs` `lift_to_slot_container` | medium | fixed 949321484 | `a_restyled_label_is_laid_out_without_its_layer` |
@@ -158,7 +159,8 @@ frequency for the editor's loads). One row per finding id; the text blocks below
 | A3-solver-50 | waste | `sizing.rs` / `fc/ifc.rs` / `text3/cache/shaping_cache.rs` an IFC shaped twice per pass (A8-06 hand-over) | medium | fixed 011b0043c | `the_layout_of_a_label_takes_what_its_measure_shaped` |
 | A3-solver-51 | wrong-output | `fc/table_rows.rs` overflow of a shifted cell | low | fixed b805defbd | `a3_solver::ifc::a_cell_moved_down_in_its_row_keeps_the_bounds_of_its_lines` |
 | A3-solver-52 | wrong-output | `mod.rs` root loop / `cache.rs` `process_out_of_flow_children` (static position of a layout root's out-of-flow children) | medium | fixed d14e782a9 | `a_box_at_its_static_position_follows_the_flow_of_a_parent_laid_out_again` ([reveals] 5a31c9af8) |
-| A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | open: the positioning pass derives the positions below an absolute box from the flow again and the sticky shift goes with them (as 45 for relative); needs the sticky step for those boxes after the box is placed | - |
+| A3-solver-53 | wrong-output | `positioning.rs` a sticky box inside an absolutely positioned box | low | fixed 9019db74d | `a_sticky_box_inside_an_absolute_one_stands_at_its_shift_and_keeps_its_place` ([reveals] 6f54a959e) |
+| A3-solver-54 | wrong-output | `positioning.rs` the boxes inside a sticky box do not move with its baked shift | medium | fixed 6f402e476 | `the_boxes_inside_a_sticky_box_go_with_it` and two more ([reveals] in the commit before) |
 
 ### Fixed (details in the commit messages)
 
@@ -841,3 +843,65 @@ Blocked (a), designs above: 34 (lazy picker panel), 35b (pan as one transform pe
     items with inside markers (48), positions of relatively positioned boxes inside absolutely positioned ones
     (45).
 
+
+## After the merge (the successor's rounds; merge commit b38dee0e0)
+
+The branch contains `audit/integration` (be978485e) since `b38dee0e0`; what the merge kept from each side and
+what it adjusted is in that commit's message (diff.rs = integration's; `StyleInputs` for `PxSlot`; the second
+`LayoutContext` literal; `DisplayListGenerator::loaded_fonts` reads the pass's memo; the shell-path test is not
+ignored any more).
+
+- **53** `6f54a959e` [reveals] / `9019db74d`: `shift_if_sticky` (the body of `adjust_sticky_positions_of`,
+  moved) runs for the boxes below every absolute box the positioning pass places
+  (`shift_sticky_descendants`, after `shift_relative_descendants`); the constraints come back through
+  `position_out_of_flow_elements_with_sticky` and replace the earlier ones in `warm.sticky`. Asked for only in a
+  document with a sticky box. (The mutation line of that commit says "keeps flow y 0" for `placed_now = false`;
+  by the code it keeps -50: the test fails either way.)
+- **54** (new, found while doing 53) [reveals] + `6f402e476`: the sticky step moved the box alone; the boxes
+  below it take the distance it moved (the whole shift when the pass placed it, the change since the pass before
+  when it did not). Golden values: boxes inside a sticky box with a non-zero baked shift move by it.
+- **27** `8abfe10f9`: one walk per outermost shifted box carries the offsets down and adds them one after the
+  other, outermost first - the same additions in the same order (bit for bit; a test pins `(p + d1) + d2`
+  against `p + (d1 + d2)`). Per box one addition per shifted box around it stays; the visits are linear.
+- **16b** `bd29ecca4`: `fc::TreeStaticPlaces` (expanded layout + `StaticPlaceTables` per context root, made at
+  the first ask) for `footnotes::footnote_boxes` and `fc::columns::anchored_notes`.
+- **15b** `3f4e06488`: the three table sites and the three fragmentainer sites of `fc/bfc.rs` lend from
+  `PassMemo::bfc`; new test counter `solver3::POSITION_FILLS`.
+- **25** `99d7efff1`: step 1. **25b** (step 2), blocked (a), design:
+  1. `pub struct DomBoxes` in `layout_tree.rs`: `slots: Vec<Slot>` indexed by DOM node index, `enum Slot { None,
+     One(LayoutNodeId), Many(u32 /* into `lists` */) }`, `lists: Vec<Vec<LayoutNodeId>>` (a node with several
+     boxes: a `::marker`, a split preview, an inline box broken over lines), `len: usize` (nodes with a box).
+  2. Its API is the one the 215 uses call today on the `BTreeMap`: `get(&NodeId) -> Option<&[LayoutNodeId]>`
+     (covers the 90 `get(..).and_then(|v| v.first())` / `?.iter()` / `?.get(i)` sites unchanged),
+     `contains_key`, `len`, `is_empty`, `keys()`, `values()` (slices), `iter()` and `IntoIterator for &DomBoxes`
+     with `Item = (NodeId, &[LayoutNodeId])` (the six `for (&dom_id, indices) in &tree.dom_to_layout` loops lose
+     the `&` in the pattern), `Index<&NodeId, Output = [LayoutNodeId]>`, `last_key_value`, `insert(NodeId,
+     Vec<LayoutNodeId>)` (tests), `push(NodeId, LayoutNodeId)` for the builder's five `entry(..).or_default()
+     .push(..)`, `PartialEq`, `Debug`, `Default`, `Clone`.
+  3. Mechanical edits outside `layout_tree.rs`: 49 test literals `dom_to_layout: BTreeMap::new()` ->
+     `Default::default()`; the sites that name `Vec` (`.map(Vec::as_slice)` x3, `v.capacity()` in the memory
+     report, `assert_eq!(map[&k], vec![..])` x2 -> slices).
+  4. Gain, by reading: per reconciling pass one allocation and one B-tree insert less per DOM node, and the frees
+     of the tree before: about 5 ms per pass at 25,000 nodes.
+  5. Test: allocation count of `LayoutTreeBuilder::build` for n and 4 n boxes (no allocation per DOM node).
+
+## For area A1
+
+- **wrong-output, medium: a CSS conic gradient is drawn over half a turn and mirrored on the CPU renderer.**
+  `cpurender/raster.rs` `render_conic_gradient` (line 451 at `audit/A1`) fills with agg's `GradientConic`, whose
+  parameter is `|atan2(y, x)| * d / pi` (`agg-rust-azul-1.1.4/src/span_gradient.rs:139`): 0 on the local +x
+  axis, d at 180 degrees on EITHER side. The transform is right (rotation by `angle - 90deg`, then the centre:
+  local +x is 12 o'clock for `from 0deg`, and the angle grows clockwise on screen), so the direction and the
+  start are CSS's; the range is not: CSS runs the stops over the full turn, t = theta / 360.
+  Hand-computed, `conic-gradient(red, blue)` on a 100 x 100 box, centre (50, 50):
+  pixel (90, 50), 3 o'clock, theta = 90: CSS t = 0.25 -> rgb(191, 0, 64); drawn t = 0.5 -> rgb(128, 0, 128).
+  pixel (50, 90), 6 o'clock, theta = 180: CSS t = 0.5 -> rgb(128, 0, 128); drawn t = 1.0 -> rgb(0, 0, 255).
+  pixel (10, 50), 9 o'clock, theta = 270: CSS t = 0.75 -> rgb(64, 0, 191); drawn t = 0.5 -> rgb(128, 0, 128)
+  (the mirror image of 3 o'clock).
+  Proposed change, in `raster.rs` only (agg's trait `span_gradient::GradientFunction` is public and
+  `pixmap::agg_fill_gradient_clipped` is generic over it):
+  `struct ConicTurn; impl GradientFunction for ConicTurn { fn calculate(&self, x: i32, y: i32, d: i32) -> i32 {
+  let mut a = f64::from(y).atan2(f64::from(x)); if a < 0.0 { a += core::f64::consts::TAU; }
+  (a * f64::from(d) / core::f64::consts::TAU + 0.5) as i32 } }` and `ConicTurn` in place of `GradientConic` in
+  the call. Test: the three pixels above (tolerance 2 per channel: the LUT has 256 steps).
+  Replaces the unchecked note under "For area A2-cpu" above.
