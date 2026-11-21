@@ -212,3 +212,26 @@ mod press_edge {
         );
     }
 }
+
+/// A6-12: macOS sends `-[NSCursor set]` only for a cursor that is not AppKit's current one.
+mod macos_cursor {
+    const MACOS_RS: &str = include_str!("../shell2/macos/mod.rs");
+
+    /// A guard on the source (the call needs a window server): in `set_cursor`, AppKit's
+    /// current cursor is compared and the function left before `set`, and the switch that
+    /// brings the old behaviour back is there.
+    /// Mutation: the comparison taken out (a `set` per pointer move again) fails this.
+    #[test]
+    fn the_cursor_is_set_only_when_appkit_has_another_one() {
+        let from = MACOS_RS
+            .find("pub fn set_cursor(&self, cursor_type: &str)")
+            .expect("MacOSWindow::set_cursor");
+        let body = &MACOS_RS[from..];
+        let set = body.find("cursor.set();").expect("the cursor is set");
+        let before_set = &body[..set];
+        assert!(before_set.contains("NSCursor::currentCursor()"));
+        assert!(before_set.contains("!cursor_is_set_on_every_call()"));
+        assert!(before_set.contains("return;"));
+        assert!(MACOS_RS.contains("\"AZ_CURSOR_SET_ALWAYS\""));
+    }
+}

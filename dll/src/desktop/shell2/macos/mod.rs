@@ -9104,6 +9104,19 @@ impl MacOSWindow {
                 "operation_not_allowed" | "not-allowed" => NSCursor::operationNotAllowedCursor(),
                 _ => NSCursor::arrowCursor(), // Default fallback
             };
+            // A pointer move asks for the cursor of the node under it, which
+            // is nearly always the one that is set: AppKit is asked what its
+            // current cursor is, and `set` (a message to the window server)
+            // is sent only for another one. `currentCursor` is what the
+            // application last set, by this call or by AppKit itself (a
+            // resize cursor at the window's edge), so nothing is remembered
+            // here that could go stale. `AZ_CURSOR_SET_ALWAYS=1`: `set` on
+            // every call, as before.
+            if !cursor_is_set_on_every_call()
+                && core::ptr::eq::<NSCursor>(&*NSCursor::currentCursor(), &*cursor)
+            {
+                return;
+            }
             cursor.set();
         }
     }
@@ -11368,4 +11381,13 @@ pub fn play_haptic(request: &azul_core::haptics::HapticRequest) {
             performanceTime: PERFORM_NOW
         ];
     }
+}
+
+/// `AZ_CURSOR_SET_ALWAYS=1`: `MacOSWindow::set_cursor` sends `-[NSCursor set]`
+/// on every call (every pointer move), as it did before audit A6-12, instead
+/// of only when AppKit's current cursor is another one. For a machine where
+/// the cursor is found stale after it left and re-entered the content.
+fn cursor_is_set_on_every_call() -> bool {
+    static ALWAYS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALWAYS.get_or_init(|| std::env::var_os("AZ_CURSOR_SET_ALWAYS").is_some_and(|v| v != "0"))
 }
