@@ -24,8 +24,6 @@ FAIL css/CSS2/tables/border-collapse-empty-row.html E-TABLE-BC # needs :not() - 
 FAIL css/CSS2/tables/border-collapse-offset-002.xht E-TABLE-BC # the caption is laid out INSIDE the table box: a collapsed table's half border (2px) offsets it, Chrome's wrapper box keeps it outside; gate 2026-10-06: maxdiff 255 pixels 1051
 FAIL css/CSS2/tables/separated-border-model-004a.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 27816
 FAIL css/CSS2/tables/separated-border-model-004b.xht E-TABLE # match ref-filled-green-100px-square.xht: maxdiff 255 pixels 28116
-FAIL css/CSS2/tables/separated-border-model-007.xht E-TABLE # match separated-border-model-007-ref.xht: maxdiff 8 pixels 1
-FAIL css/CSS2/tables/separated-border-model-008.xht E-TABLE # match separated-border-model-007-ref.xht: maxdiff 8 pixels 1
 FAIL css/CSS2/visudet/inline-block-baseline-001.xht E-INLINE # match inline-block-baseline-001-ref.xht: maxdiff 233 pixels 3295
 FAIL css/CSS2/visudet/inline-block-baseline-002.xht E-INLINE # match inline-block-baseline-001-ref.xht: maxdiff 233 pixels 2055
 FAIL css/CSS2/visudet/inline-block-baseline-005.xht E-INLINE # match inline-block-baseline-001-ref.xht: maxdiff 233 pixels 2209

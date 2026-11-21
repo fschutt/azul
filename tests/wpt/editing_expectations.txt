@@ -446,6 +446,8 @@ FAIL inserttext-181646e8 E-EDIT-TYPE
 FAIL inserttext-22c18402 E-EDIT-TYPE
 FAIL inserttext-23114017 E-EDIT-TYPE
 FAIL inserttext-24817545 E-EDIT-TYPE
+FAIL inserttext-277e0f71 E-EDIT-TYPE # by design: azul_css::input_chars (0b1f4dcaf) turns a form feed into a space, a browser keeps it: got "http://a ", want "http://a\u{c}"
+FAIL inserttext-2af190c3 E-EDIT-TYPE # by design: azul_css::input_chars (0b1f4dcaf) turns a C0 control character into U+FFFD, a browser keeps it: got "foo\u{fffd}bar", want "foo\u{7}bar"
 FAIL inserttext-2d168572 E-EDIT-TYPE
 FAIL inserttext-32f6f3c2 E-EDIT-TYPE
 FAIL inserttext-33cae471 E-EDIT-TYPE
