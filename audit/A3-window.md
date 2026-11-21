@@ -1210,7 +1210,7 @@ nodes, and the pairing of step 3 takes the handle as "equal subtree" without a w
   and leave, was 1 each) and `a4_23_a_bound_background_colour_changes_as_a_value_and_no_list` (unchanged).
   The guards of the patch (rows 07, 50, 06) run with the switch off on their thread.
 - severity: medium
-- status: fixed (this commit: see the log, `A3-window-55`)
+- status: fixed 621a98aaa
 
 ### Checked: fine
 - `scan_used_fonts`, `scan_used_images`: no caller outside tests.
