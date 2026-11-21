@@ -1128,12 +1128,14 @@ impl NodeGraph {
         let marker_prefix = next_marker_prefix();
         let connections_marker: AzString = format!("{}-connections", marker_prefix.as_str()).into();
 
+        let index = GraphIndex::of(&self);
         let callbacks = self.callbacks.clone();
-        let culled = view.map(|view| CulledDom::of(&self, view));
+        let culled = view.map(|view| CulledDom::of(&self, &index, view));
         // The graph MOVES into the dataset - a render makes no copy of it -
         // and the build reads it back from there (`graph`, below).
         let node_graph_local_dataset = RefAny::new(NodeGraphLocalDataset {
             node_graph: self,
+            index,
             last_input_or_output_clicked: None,
             active_node_being_dragged: None,
             marker_prefix: marker_prefix.clone(),
@@ -1150,6 +1152,7 @@ impl NodeGraph {
             return Dom::create_div();
         };
         let graph = &dataset.node_graph;
+        let index = &dataset.index;
 
         let context_menu = Menu::create(
             vec![MenuItem::String(
@@ -1215,15 +1218,13 @@ impl NodeGraph {
                     .with_children({
                         vec![
                             // connections
-                            render_connections(graph, connections_marker, view.as_ref()),
+                            render_connections(graph, index, connections_marker, view.as_ref()),
                             // nodes
                             graph.nodes
                                 .iter()
                                 .filter_map(|NodeIdNodeMap { node_id, node }| {
-                                    let node_type_info = graph
-                                        .node_types
-                                        .iter()
-                                        .find(|i| i.node_type_id == node.node_type)?;
+                                    let node_type_info =
+                                        index.node_type(graph, node.node_type)?;
                                     // A node nowhere near the box gets no DOM.
                                     if let Some(view) = view.as_ref() {
                                         if !node_in_view(
@@ -1290,6 +1291,10 @@ fn node_marker(prefix: &AzString, node_id: NodeGraphNodeId) -> AzString {
 // containing all the state of the node graph
 struct NodeGraphLocalDataset {
     node_graph: NodeGraph,
+    /// Where the ids of `node_graph` stand in its lists, made once with the
+    /// dataset: the callbacks move nodes and wire ports, they never add,
+    /// remove or reorder a node or a type.
+    index: GraphIndex,
     last_input_or_output_clicked: Option<(NodeGraphNodeId, InputOrOutput)>,
     /// The graph node currently being dragged. Its VISUAL node is resolved
     /// via `node_marker(&marker_prefix, id)` — no dataset handle needed.
@@ -2335,10 +2340,8 @@ fn render_node(
                 .backref
                 .downcast_ref::<NodeGraphLocalDataset>()?;
             let io_info = node_graph_ref
-                .node_graph
-                .input_output_types
-                .iter()
-                .find(|i| i.io_type_id == *io_id)?;
+                .index
+                .io_type(&node_graph_ref.node_graph, *io_id)?;
             Some((io_info.io_info.data_type.clone(), io_info.io_info.color))
         })
         .collect::<Vec<_>>();
@@ -2351,10 +2354,8 @@ fn render_node(
                 .backref
                 .downcast_ref::<NodeGraphLocalDataset>()?;
             let io_info = node_graph_ref
-                .node_graph
-                .input_output_types
-                .iter()
-                .find(|i| i.io_type_id == *io_id)?;
+                .index
+                .io_type(&node_graph_ref.node_graph, *io_id)?;
             Some((io_info.io_info.data_type.clone(), io_info.io_info.color))
         })
         .collect::<Vec<_>>();
@@ -2959,19 +2960,20 @@ fn render_node(
 
 /// Every connection of `node_graph` that is drawn - its output port has a type
 /// with a colour, both its ends are nodes of the graph - with the rect it is
-/// drawn in ([`get_rect`], whose swap flags the dataset carries), in the order
-/// of the nodes and their outputs: the one walk of [`render_connections`] and of
-/// what a culled render records it gave DOM to ([`CulledDom::of`]).
-fn drawn_connections(node_graph: &NodeGraph) -> Vec<(ConnectionLocalDataset, LogicalRect)> {
+/// drawn in ([`connection_rect`], whose swap flags the dataset carries), in the
+/// order of the nodes and their outputs: the one walk of [`render_connections`]
+/// and of what a culled render records it gave DOM to ([`CulledDom::of`]).
+/// `index`: the graph's ([`GraphIndex::of`]); every type and both nodes of a
+/// connection are looked up through it, not by a search of the lists.
+fn drawn_connections(
+    node_graph: &NodeGraph,
+    index: &GraphIndex,
+) -> Vec<(ConnectionLocalDataset, LogicalRect)> {
     let mut drawn = Vec::new();
 
     for NodeIdNodeMap { node_id, node } in node_graph.nodes.as_ref() {
         let out_node_id = node_id;
-        let node_type_info = match node_graph
-            .node_types
-            .iter()
-            .find(|i| i.node_type_id == node.node_type)
-        {
+        let node_type_info = match index.node_type(node_graph, node.node_type) {
             Some(s) => &s.node_type_info,
             None => continue,
         };
@@ -2985,11 +2987,7 @@ fn drawn_connections(node_graph: &NodeGraph) -> Vec<(ConnectionLocalDataset, Log
                 continue;
             };
 
-            let output_color = match node_graph
-                .input_output_types
-                .iter()
-                .find(|o| o.io_type_id == *output_type_id)
-            {
+            let output_color = match index.io_type(node_graph, *output_type_id) {
                 Some(s) => s.io_info.color,
                 None => continue,
             };
@@ -3011,7 +3009,9 @@ fn drawn_connections(node_graph: &NodeGraph) -> Vec<(ConnectionLocalDataset, Log
                     color: output_color,
                 };
 
-                let Some((rect, swap_vert, swap_horz)) = get_rect(node_graph, cld) else {
+                let Some((rect, swap_vert, swap_horz)) =
+                    connection_rect(node_graph, index, cld)
+                else {
                     continue;
                 };
 
@@ -3030,6 +3030,7 @@ fn drawn_connections(node_graph: &NodeGraph) -> Vec<(ConnectionLocalDataset, Log
                                  // (one branch per case)
 fn render_connections(
     node_graph: &NodeGraph,
+    index: &GraphIndex,
     connections_marker: AzString,
     view: Option<&ViewWindow>,
 ) -> Dom {
@@ -3053,9 +3054,9 @@ fn render_connections(
         .with_children({
             let mut children = Vec::new();
 
-            for (cld, rect) in drawn_connections(node_graph) {
+            for (cld, rect) in drawn_connections(node_graph, index) {
                 // A connection nowhere near the box gets no DOM: its rect
-                // is what `get_rect` says, whether its nodes have DOM or not.
+                // is what `connection_rect` says, whether its nodes have DOM or not.
                 if let Some(view) = view {
                     if !connection_in_view(node_graph, &rect, view) {
                         continue;
@@ -3221,7 +3222,7 @@ fn node_in_view(
     )
 }
 
-/// As [`node_in_view`], for a connection drawn in `rect` ([`get_rect`]).
+/// As [`node_in_view`], for a connection drawn in `rect` ([`connection_rect`]).
 fn connection_in_view(graph: &NodeGraph, rect: &LogicalRect, view: &ViewWindow) -> bool {
     view.shows(
         graph.offset.x + rect.origin.x,
@@ -3252,19 +3253,17 @@ impl CulledDom {
     /// the builder makes: [`node_in_view`] for each node of a registered type,
     /// [`connection_in_view`] for each connection that is drawn
     /// ([`drawn_connections`]).
-    fn of(graph: &NodeGraph, view: ViewWindow) -> Self {
+    fn of(graph: &NodeGraph, index: &GraphIndex, view: ViewWindow) -> Self {
         let nodes: Vec<bool> = graph
             .nodes
             .iter()
             .map(|NodeIdNodeMap { node, .. }| {
-                graph
-                    .node_types
-                    .iter()
-                    .find(|i| i.node_type_id == node.node_type)
+                index
+                    .node_type(graph, node.node_type)
                     .is_some_and(|i| node_in_view(graph, &i.node_type_info, node, &view))
             })
             .collect();
-        let mut connections: Vec<ConnectionKey> = drawn_connections(graph)
+        let mut connections: Vec<ConnectionKey> = drawn_connections(graph, index)
             .iter()
             .filter(|c| connection_in_view(graph, &c.1, &view))
             .map(|c| (c.0.out_node_id.inner, c.0.out_idx, c.0.in_node_id.inner, c.0.in_idx))
@@ -3284,8 +3283,8 @@ impl CulledDom {
 /// keeps its DOM until the next rebuild (nothing reads "has DOM" as "is in
 /// the box"), so a pan among the nodes that have their DOM needs none: it
 /// moved them with `transform`.
-fn pan_needs_rebuild(built: &CulledDom, graph: &NodeGraph) -> bool {
-    let now = CulledDom::of(graph, built.view);
+fn pan_needs_rebuild(built: &CulledDom, graph: &NodeGraph, index: &GraphIndex) -> bool {
+    let now = CulledDom::of(graph, index, built.view);
     now.nodes
         .iter()
         .enumerate()
@@ -3296,9 +3295,168 @@ fn pan_needs_rebuild(built: &CulledDom, graph: &NodeGraph) -> bool {
             .any(|c| built.connections.binary_search(c).is_err())
 }
 
-// calculates the rect on which the connection is drawn in the UI
+/// How many entries of a graph's lists the lookups by id compared on this
+/// thread ([`place_of`]): what the size sweeps of the tests read to say that
+/// a render and a pan step find a node by bisection, not by a search of the
+/// node list per connection or per box.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static GRAPH_LOOKUP_STEPS: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// The place of each of `ids` in its list, sorted by id; of equal ids the
+/// first place only - what `iter().find(..)` finds.
+fn first_places(ids: impl Iterator<Item = u64>) -> Vec<(u64, usize)> {
+    let mut places: Vec<(u64, usize)> = ids.enumerate().map(|(place, id)| (id, place)).collect();
+    // by id, then by place: of equal ids the first place leads its run
+    places.sort_unstable();
+    places.dedup_by_key(|entry| entry.0);
+    places
+}
+
+/// The place of `id` in the list `places` was made from ([`first_places`]).
+fn place_of(places: &[(u64, usize)], id: u64) -> Option<usize> {
+    places
+        .binary_search_by(|probe| {
+            #[cfg(test)]
+            GRAPH_LOOKUP_STEPS.with(|n| n.set(n.get() + 1));
+            probe.0.cmp(&id)
+        })
+        .ok()
+        .map(|at| places[at].1)
+}
+
+/// Where the node ids, node type ids and port type ids of a graph stand in
+/// its three lists: made once per render (and kept in the render's dataset
+/// for its callbacks), so that a connection finds its two nodes, a node its
+/// type and a port its colour by bisection. The graph's own lists were
+/// searched from the front for each: a render of n wired nodes compared
+/// n * n ids, and so did every mouse move of a pan.
+///
+/// An index answers for the graph it was made of, and for that graph with
+/// its nodes moved or wired - not after a node or a type was added, removed
+/// or moved in its list (each answer is checked against the id it was asked
+/// for, so a stale index finds nothing instead of another entry).
+#[derive(Debug, Default)]
+struct GraphIndex {
+    nodes: Vec<(u64, usize)>,
+    node_types: Vec<(u64, usize)>,
+    io_types: Vec<(u64, usize)>,
+}
+
+impl GraphIndex {
+    fn of(graph: &NodeGraph) -> Self {
+        Self {
+            nodes: first_places(graph.nodes.iter().map(|n| n.node_id.inner)),
+            node_types: first_places(graph.node_types.iter().map(|t| t.node_type_id.inner)),
+            io_types: first_places(
+                graph
+                    .input_output_types
+                    .iter()
+                    .map(|t| t.io_type_id.inner),
+            ),
+        }
+    }
+
+    /// What `graph.nodes.iter().find(|n| n.node_id == id)` finds.
+    fn node<'a>(&self, graph: &'a NodeGraph, id: NodeGraphNodeId) -> Option<&'a NodeIdNodeMap> {
+        graph
+            .nodes
+            .as_ref()
+            .get(place_of(&self.nodes, id.inner)?)
+            .filter(|n| n.node_id == id)
+    }
+
+    /// What `graph.node_types.iter().find(|t| t.node_type_id == id)` finds.
+    fn node_type<'a>(
+        &self,
+        graph: &'a NodeGraph,
+        id: NodeTypeId,
+    ) -> Option<&'a NodeTypeIdInfoMap> {
+        graph
+            .node_types
+            .as_ref()
+            .get(place_of(&self.node_types, id.inner)?)
+            .filter(|t| t.node_type_id == id)
+    }
+
+    /// What `graph.input_output_types.iter().find(|t| t.io_type_id == id)` finds.
+    fn io_type<'a>(
+        &self,
+        graph: &'a NodeGraph,
+        id: InputOutputTypeId,
+    ) -> Option<&'a InputOutputTypeIdInfoMap> {
+        graph
+            .input_output_types
+            .as_ref()
+            .get(place_of(&self.io_types, id.inner)?)
+            .filter(|t| t.io_type_id == id)
+    }
+}
+
+/// The rect a connection from output `out_idx` of `out_node` to input
+/// `in_idx` of `in_node` is drawn in, and whether it runs upwards / leftwards
+/// in it (the swap flags).
 #[allow(clippy::suboptimal_flops)] // mul_add not guaranteed faster/available without target +fma; keep explicit a*b+c
 #[allow(clippy::cast_precision_loss)] // bounded layout/render numeric cast
+fn rect_between(
+    out_node: &NodeGraphNode,
+    out_idx: usize,
+    in_node: &NodeGraphNode,
+    in_idx: usize,
+) -> (LogicalRect, bool, bool) {
+    let x_out = out_node.position.x + NODE_WIDTH;
+    let y_out = out_node.position.y
+        + V_OFFSET
+        + (out_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
+
+    let x_in = in_node.position.x;
+    let y_in = in_node.position.y
+        + V_OFFSET
+        + (in_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
+
+    let should_swap_vertical = y_in > y_out;
+    let should_swap_horizontal = x_in < x_out;
+
+    let width = (x_in - x_out).abs();
+    let height = (y_in - y_out).abs() + CONNECTION_DOT_HEIGHT;
+
+    let x = x_in.min(x_out);
+    let y = y_in.min(y_out);
+
+    (
+        LogicalRect {
+            size: LogicalSize { width, height },
+            origin: LogicalPosition { x, y },
+        },
+        should_swap_vertical,
+        should_swap_horizontal,
+    )
+}
+
+/// The rect `connection` is drawn in ([`rect_between`] its two nodes, found
+/// through the graph's `index`); `None` when one of them is no node of the
+/// graph.
+fn connection_rect(
+    node_graph: &NodeGraph,
+    index: &GraphIndex,
+    connection: ConnectionLocalDataset,
+) -> Option<(LogicalRect, bool, bool)> {
+    let out_node = index.node(node_graph, connection.out_node_id)?;
+    let in_node = index.node(node_graph, connection.in_node_id)?;
+    Some(rect_between(
+        &out_node.node,
+        connection.out_idx,
+        &in_node.node,
+        connection.in_idx,
+    ))
+}
+
+// calculates the rect on which the connection is drawn in the UI
+/// [`connection_rect`] by a search of the node list for the two nodes: what
+/// the tests of the rect's geometry call, and what the indexed lookup must
+/// agree with.
+#[cfg(test)]
 fn get_rect(
     node_graph: &NodeGraph,
     connection: ConnectionLocalDataset,
@@ -3312,38 +3470,11 @@ fn get_rect(
     } = connection;
     let out_node = node_graph.nodes.iter().find(|i| i.node_id == out_node_id)?;
     let in_node = node_graph.nodes.iter().find(|i| i.node_id == in_node_id)?;
-
-    let x_out = out_node.node.position.x + NODE_WIDTH;
-    let y_out = out_node.node.position.y
-        + V_OFFSET
-        + (out_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
-
-    let x_in = in_node.node.position.x;
-    let y_in = in_node.node.position.y
-        + V_OFFSET
-        + (in_idx as f32 * (DIST_BETWEEN_NODES + CONNECTION_DOT_HEIGHT));
-
-    let should_swap_vertical = y_in > y_out;
-    let should_swap_horizontal = x_in < x_out;
-
-    let width = (x_in - x_out).abs();
-    let height = (y_in - y_out).abs() + CONNECTION_DOT_HEIGHT;
-
-    let x = x_in.min(x_out);
-    let y = y_in.min(y_out);
-
-    Some((
-        LogicalRect {
-            size: LogicalSize { width, height },
-            origin: LogicalPosition { x, y },
-        },
-        should_swap_vertical,
-        should_swap_horizontal,
-    ))
+    Some(rect_between(&out_node.node, out_idx, &in_node.node, in_idx))
 }
 
 /// What a step of a node drag writes on the box of a connection of the
-/// dragged node, `rect` being where [`get_rect`] puts it now: its `transform`
+/// dragged node, `rect` being where [`connection_rect`] puts it now: its `transform`
 /// (the graph's offset and scale included) and nothing else. A write of
 /// nothing but `transform` moves the box by the value its reference frame
 /// binds: no restyle, no layout, no display list.
@@ -3352,7 +3483,7 @@ fn get_rect(
 /// per mouse move, each a relayout of the window. The box keeps the size it
 /// was built with until the graph is built again, and nothing reads that size
 /// as long as [`draw_connection`] draws nothing: a connection's nodes carry
-/// no callback (nothing is hit-tested on them), and [`get_rect`], the cull
+/// no callback (nothing is hit-tested on them), and [`connection_rect`], the cull
 /// test and the builder read the graph, not the DOM. Once connections are
 /// drawn their size has to follow a drag - when the drag ends, not per move.
 #[allow(clippy::float_cmp)] // intentional exact compare: at scale 1 the transform carries no scale
@@ -3384,6 +3515,7 @@ fn connection_drag_writes(graph: &NodeGraph, rect: &LogicalRect) -> Vec<CssPrope
 #[allow(clippy::float_cmp)] // intentional exact compare: at scale 1 the transform carries no scale
 fn pan_node_writes<N>(
     graph: &NodeGraph,
+    index: &GraphIndex,
     boxes: Vec<(N, Option<RefAny>)>,
 ) -> Vec<(N, CssProperty)> {
     let mut writes = Vec::with_capacity(boxes.len());
@@ -3397,12 +3529,7 @@ fn pan_node_writes<N>(
         else {
             continue;
         };
-        let Some(position) = graph
-            .nodes
-            .iter()
-            .find(|i| i.node_id == node_id)
-            .map(|i| i.node.position)
-        else {
+        let Some(position) = index.node(graph, node_id).map(|i| i.node.position) else {
             continue;
         };
         let translate = StyleTransformTranslate2D {
@@ -3450,7 +3577,7 @@ extern "C" fn nodegraph_unset_active_node(mut refany: RefAny, _info: CallbackInf
         // `on_node_graph_dragged`.
         if core::mem::take(&mut refany.graph_dragged) {
             if let Some(built) = refany.culled.as_ref() {
-                if pan_needs_rebuild(built, &refany.node_graph) {
+                if pan_needs_rebuild(built, &refany.node_graph, &refany.index) {
                     return Update::RefreshDom;
                 }
             }
@@ -3494,10 +3621,7 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
         // drag node
         Some(node_graph_node_id) => {
             let dragged_node_marker = node_marker(&refany.marker_prefix, node_graph_node_id);
-            let connections_marker: AzString =
-                format!("{}-connections", refany.marker_prefix.as_str()).into();
 
-            let _nodegraph_node = info.get_hit_node();
             let result = match refany.callbacks.on_node_dragged.as_ref() {
                 Some(OnNodeDragged { callback, refany }) => callback.invoke(
                     refany.clone(),
@@ -3552,9 +3676,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 ),
             );
 
-            // get the NodeId of the node containing all the connection lines
-            let Some(connection_container_nodeid) = info.get_node_id_by_marker(connections_marker)
-            else {
+            // the node containing all the connection lines: the first child
+            // of the graph's box, as `dom_in_view` builds it
+            let Some(connection_container_nodeid) = info.get_first_child(nodegraph_node) else {
                 return result;
             };
 
@@ -3581,7 +3705,8 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     continue; // connection does not need to be modified
                 }
 
-                let Some((new_rect, swap_vert, swap_horz)) = get_rect(&refany.node_graph, *cld)
+                let Some((new_rect, swap_vert, swap_horz)) =
+                    connection_rect(&refany.node_graph, &refany.index, *cld)
                 else {
                     continue;
                 };
@@ -3609,12 +3734,13 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
             refany.node_graph.offset.y += dy;
             refany.graph_dragged = true;
 
-            // Update the visual node positions
-            let Some(node_container) = info.get_first_child(nodegraph_node) else {
+            // Update the visual node positions: the graph's box holds the
+            // connections container, then the nodes container
+            let Some(connection_container_nodeid) = info.get_first_child(nodegraph_node) else {
                 return Update::DoNothing;
             };
 
-            let Some(node_container) = info.get_next_sibling(node_container) else {
+            let Some(node_container) = info.get_next_sibling(connection_container_nodeid) else {
                 return Update::DoNothing;
             };
 
@@ -3631,19 +3757,13 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                 }
             }
 
-            for (node_box, transform) in pan_node_writes(&refany.node_graph, node_boxes) {
+            for (node_box, transform) in
+                pan_node_writes(&refany.node_graph, &refany.index, node_boxes)
+            {
                 info.set_css_property(node_box, transform);
             }
 
-            let connections_marker: AzString =
-                format!("{}-connections", refany.marker_prefix.as_str()).into();
-
             // Update the connection positions
-            let Some(connection_container_nodeid) = info.get_node_id_by_marker(connections_marker)
-            else {
-                return result;
-            };
-
             let mut first_connection_child = info.get_first_child(connection_container_nodeid);
 
             while let Some(connection_nodeid) = first_connection_child {
@@ -3661,7 +3781,9 @@ extern "C" fn nodegraph_drag_graph_or_nodes(mut refany: RefAny, mut info: Callba
                     continue;
                 };
 
-                let Some((new_rect, _, _)) = get_rect(&refany.node_graph, *cld) else {
+                let Some((new_rect, _, _)) =
+                    connection_rect(&refany.node_graph, &refany.index, *cld)
+                else {
                     continue;
                 };
 
@@ -4391,6 +4513,7 @@ mod autotest_generated {
     fn graph_dataset(g: &NodeGraph) -> RefAny {
         RefAny::new(NodeGraphLocalDataset {
             node_graph: g.clone(),
+            index: GraphIndex::of(g),
             last_input_or_output_clicked: None,
             active_node_being_dragged: None,
             marker_prefix: "azul-nodegraph-test".into(),
@@ -5889,7 +6012,8 @@ mod autotest_generated {
 
     #[test]
     fn render_connections_of_an_unwired_graph_has_no_children() {
-        let dom = render_connections(&graph(), marker(), None);
+        let g = graph();
+        let dom = render_connections(&g, &GraphIndex::of(&g), marker(), None);
         assert_eq!(dom.children.len(), 0);
         assert!(
             dom.root.get_marker().is_some(),
@@ -5901,20 +6025,20 @@ mod autotest_generated {
     fn render_connections_emits_exactly_one_child_per_wire() {
         let mut g = graph();
         g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
-        assert_eq!(render_connections(&g, marker(), None).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 1);
 
         g.connect_input_output(N4, 0, N1, 0).expect("N1 -> N4");
-        assert_eq!(render_connections(&g, marker(), None).children.len(), 2);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 2);
 
         g.connect_input_output(N4, 0, N3, 0).expect("N3 -> N4");
-        assert_eq!(render_connections(&g, marker(), None).children.len(), 3);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 3);
     }
 
     #[test]
     fn render_connections_skips_a_wire_to_a_node_that_no_longer_exists() {
         // `get_rect` returns `None`; the renderer must drop the wire, not unwrap it.
         let g = force_out_connection(graph(), N1, 0, MISSING, 0);
-        assert_eq!(render_connections(&g, marker(), None).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 0);
     }
 
     #[test]
@@ -5922,7 +6046,7 @@ mod autotest_generated {
         for out_idx in [1_usize, 99, usize::MAX] {
             let g = force_out_connection(graph(), N1, out_idx, N3, 0);
             assert_eq!(
-                render_connections(&g, marker(), None).children.len(),
+                render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(),
                 0,
                 "output index {out_idx} must be skipped",
             );
@@ -5937,7 +6061,7 @@ mod autotest_generated {
             node: mk_node(TYPE_UNREGISTERED, 0.0, 0.0),
         });
         let g = force_out_connection(g, NodeGraphNodeId { inner: 50 }, 0, N3, 0);
-        assert_eq!(render_connections(&g, marker(), None).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 0);
     }
 
     #[test]
@@ -5945,7 +6069,7 @@ mod autotest_generated {
         let mut g = graph();
         g.node_types.as_mut()[0].node_type_info.outputs = vec![IO_COLORLESS].into();
         let g = force_out_connection(g, N1, 0, N3, 0);
-        assert_eq!(render_connections(&g, marker(), None).children.len(), 0);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 0);
     }
 
     #[test]
@@ -5961,14 +6085,14 @@ mod autotest_generated {
             y: f32::NAN,
         };
         g.connect_input_output(N3, 0, N1, 0).expect("N1 -> N3");
-        assert_eq!(render_connections(&g, marker(), None).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 1);
     }
 
     #[test]
     fn render_connections_renders_a_self_loop() {
         let mut g = graph();
         g.connect_input_output(N1, 0, N1, 0).expect("self loop");
-        assert_eq!(render_connections(&g, marker(), None).children.len(), 1);
+        assert_eq!(render_connections(&g, &GraphIndex::of(&g), marker(), None).children.len(), 1);
     }
 
     // ==================================================================
@@ -6239,11 +6363,12 @@ mod autotest_generated {
         let dataset = |built_at: Option<f32>, now_at: f32, graph_dragged: bool| {
             RefAny::new(NodeGraphLocalDataset {
                 node_graph: at(now_at),
+                index: GraphIndex::of(&g),
                 last_input_or_output_clicked: None,
                 active_node_being_dragged: None,
                 marker_prefix: "azul-nodegraph-test".into(),
                 callbacks: g.callbacks.clone(),
-                culled: built_at.map(|x| CulledDom::of(&at(x), view)),
+                culled: built_at.map(|x| CulledDom::of(&at(x), &GraphIndex::of(&g), view)),
                 graph_dragged,
             })
         };
@@ -7334,7 +7459,7 @@ mod audit_a3_solver_tests {
             .as_ref()
             .expect("a culled render records what it gave DOM to");
         ends.iter()
-            .filter(|end| pan_needs_rebuild(built, &panned(g, end.0, end.1)))
+            .filter(|end| pan_needs_rebuild(built, &panned(g, end.0, end.1), &local.index))
             .count()
     }
 
@@ -7455,7 +7580,7 @@ mod audit_a3_solver_tests {
         g.offset = LogicalPosition { x: 7.0, y: 9.0 };
         for scale in [1.0_f32, 2.0] {
             g.scale_factor = scale;
-            let drawn = drawn_connections(&g);
+            let drawn = drawn_connections(&g, &GraphIndex::of(&g));
             assert_eq!(drawn.len(), 1, "harness: the wire is drawn");
             let writes = connection_drag_writes(&g, &drawn[0].1);
             assert_eq!(writes.len(), 1, "scale {scale}: one write a connection a step");
@@ -7474,7 +7599,7 @@ mod audit_a3_solver_tests {
         // The box goes where the builder would put it: the output port of node 1
         // (250, 71) under the offset (7, 9).
         g.scale_factor = 1.0;
-        let rect = drawn_connections(&g)[0].1;
+        let rect = drawn_connections(&g, &GraphIndex::of(&g))[0].1;
         assert_eq!(
             connection_drag_writes(&g, &rect),
             vec![CssProperty::transform(
@@ -7517,7 +7642,7 @@ mod audit_a3_solver_tests {
             (3, box_of(99)),
             (4, box_of(2)),
         ];
-        let writes = pan_node_writes(&g, boxes);
+        let writes = pan_node_writes(&g, &GraphIndex::of(&g), boxes);
         assert_eq!(
             writes.iter().map(|w| w.0).collect::<Vec<_>>(),
             vec![0, 4],
@@ -7592,5 +7717,109 @@ mod audit_a3_solver_tests {
             (8, 8),
             "the ports a node renders from the dataset's port types"
         );
+    }
+
+    /// The ids `f`'s lookups in a graph's lists compared (`GRAPH_LOOKUP_STEPS`).
+    fn lookup_steps(f: impl FnOnce()) -> usize {
+        GRAPH_LOOKUP_STEPS.with(|n| n.set(0));
+        f();
+        GRAPH_LOOKUP_STEPS.with(core::cell::Cell::get)
+    }
+
+    /// A3-solver-35f. Every wire of a render looked its two nodes up by a
+    /// search of the node list from the front (`get_rect`), every node its
+    /// type, every output its port type: a column of n wired nodes compared
+    /// n * n / 2 ids per render, and again for the record of a culled render
+    /// and at the end of every pan. They are looked up in the graph's index.
+    ///
+    /// Mutation: `GraphIndex::node` as a search of `graph.nodes` from the
+    /// front (counting each id it passes) grows 16x.
+    #[test]
+    fn the_wires_of_a_render_find_their_nodes_by_bisection() {
+        let steps = |nodes: u64, wires: usize| {
+            let g = column(nodes);
+            let index = GraphIndex::of(&g);
+            lookup_steps(|| assert_eq!(drawn_connections(&g, &index).len(), wires))
+        };
+        let (small, large) = (steps(500, 499), steps(2_000, 1_999));
+        assert!(
+            small >= 998,
+            "harness: each of the 499 wires looked its two nodes up ({small})"
+        );
+        assert!(
+            large < small * 6,
+            "four times the wires took {large} comparisons for {small}: more than n log n"
+        );
+    }
+
+    /// A3-solver-35f, the pan: every mouse move of a pan searched the node
+    /// list from the front for the node of each box it moves.
+    ///
+    /// Mutation: as above, 16x.
+    #[test]
+    fn a_step_of_a_pan_finds_the_node_of_each_box_by_bisection() {
+        let steps = |nodes: u64, count: usize| {
+            let g = column(nodes);
+            let index = GraphIndex::of(&g);
+            let boxes: Vec<(u64, Option<RefAny>)> =
+                (1..=nodes).map(|id| (id, box_of(id))).collect();
+            lookup_steps(|| assert_eq!(pan_node_writes(&g, &index, boxes).len(), count))
+        };
+        let (small, large) = (steps(500, 500), steps(2_000, 2_000));
+        assert!(small >= 500, "harness: each of the 500 boxes looked its node up ({small})");
+        assert!(
+            large < small * 6,
+            "four times the boxes took {large} comparisons for {small}: more than n log n"
+        );
+    }
+
+    /// A3-solver-35f, the result: the index finds what a search from the
+    /// front finds - of two nodes with one id the first - and a wire's rect
+    /// is the same by either way, for nodes that exist, for one that is the
+    /// second of its id and for ones that do not exist.
+    #[test]
+    fn the_index_finds_what_a_search_from_the_front_finds() {
+        // The ids 1, 1, 3: the node made as 2 is a second node 1.
+        let mut g = graph_of(&[(0.0, 0.0), (500.0, 500.0), (900.0, 100.0)]);
+        g.nodes.as_mut()[1].node_id = NodeGraphNodeId { inner: 1 };
+        let index = GraphIndex::of(&g);
+        let first = index
+            .node(&g, NodeGraphNodeId { inner: 1 })
+            .expect("a node 1");
+        assert!(
+            first.node.position.x == 0.0 && first.node.position.y == 0.0,
+            "of two nodes with the id 1 the first is found"
+        );
+        assert!(index.node(&g, NodeGraphNodeId { inner: 2 }).is_none());
+        assert!(index.node_type(&g, KIND).is_some());
+        assert!(index.node_type(&g, NodeTypeId { inner: 9 }).is_none());
+        assert!(index.io_type(&g, PORT).is_some());
+        assert!(index.io_type(&g, InputOutputTypeId { inner: 9 }).is_none());
+        let between = |out: u64, inn: u64| ConnectionLocalDataset {
+            out_node_id: NodeGraphNodeId { inner: out },
+            out_idx: 0,
+            in_node_id: NodeGraphNodeId { inner: inn },
+            in_idx: 1,
+            swap_vert: false,
+            swap_horz: false,
+            color: ColorU {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+        };
+        for (out, inn) in [(1, 3), (3, 1), (1, 1), (1, 2), (7, 3)] {
+            assert_eq!(
+                connection_rect(&g, &index, between(out, inn)),
+                get_rect(&g, between(out, inn)),
+                "the wire {out} -> {inn}"
+            );
+        }
+        assert!(connection_rect(&g, &index, between(1, 3)).is_some());
+        // An index asked about another graph finds nothing where a search
+        // would find nothing: the one-node graph has no node 3.
+        let other = graph_of(&[(1.0, 1.0)]);
+        assert!(index.node(&other, NodeGraphNodeId { inner: 3 }).is_none());
     }
 }
